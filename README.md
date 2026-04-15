@@ -29,7 +29,7 @@
 
 ### 요구사항
 
-- Android 6.0 (API 23) 이상
+- Android 7.0 (API 24) 이상
 - [나만의 안전신문고 서버](https://github.com/Fentanest/safetyreport)가 네트워크 내에서 실행 중이어야 합니다
 
 ### 초기 설정

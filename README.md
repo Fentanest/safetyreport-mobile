@@ -5,6 +5,15 @@
 
 ---
 
+## 다운로드
+
+**Google Play 스토어**에서 '나만의 안전신문고'를 검색하거나, 아래 링크에서 직접 APK를 받을 수 있습니다.
+
+- [Google Play 스토어](https://play.google.com/store/search?q=나만의+안전신문고)
+- [GitHub Releases](https://github.com/Fentanest/safetyreport-mobile/releases) — 최신 APK 직접 다운로드
+
+---
+
 ## 주요 기능
 
 - **실시간 크롤링 알림** — 민원 처리 결과가 바뀌면 즉시 Android 알림 수신 (백그라운드 WebSocket 서비스)
@@ -22,11 +31,6 @@
 
 - Android 6.0 (API 23) 이상
 - [나만의 안전신문고 서버](https://github.com/Fentanest/safetyreport)가 네트워크 내에서 실행 중이어야 합니다
-
-### 설치
-
-1. [Releases](https://github.com/Fentanest/safetyreport-mobile/releases) 페이지에서 최신 APK 다운로드
-2. Android 설정 → 알 수 없는 소스 설치 허용 후 APK 설치
 
 ### 초기 설정
 

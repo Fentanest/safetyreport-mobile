@@ -48,22 +48,6 @@
 
 ---
 
-## 빌드
-
-```bash
-flutter build apk --release
-```
-
-또는 GitHub Actions의 `build-apk.yml` 워크플로우를 수동 실행하면 APK가 자동 빌드되어 GitHub Release로 게시됩니다.
-
-### 서명 설정 (필요 시)
-
-러너 서버의 `~/mysafetyreport-android/` 경로에 아래 파일이 있어야 합니다:
-- `key.properties` — 키스토어 경로·비밀번호 설정
-- `upload-keystore.jks` — 서명 키스토어
-
----
-
 ## 연관 프로젝트
 
 - [safetyreport](https://github.com/Fentanest/safetyreport) — 서버 (FastAPI + Selenium)

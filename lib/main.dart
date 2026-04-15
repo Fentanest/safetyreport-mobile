@@ -10,8 +10,10 @@ import 'screens/setup_screen.dart';
 import 'screens/file_browser_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/crawl_screen.dart';
+import 'models/report.dart';
 import 'providers/report_provider.dart';
 import 'providers/notification_history_provider.dart';
+import 'widgets/report_detail_sheet.dart';
 
 void main() {
   runApp(
@@ -312,104 +314,114 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                   else if (status == '처리중') statusColor = Colors.orange;
                   else if (status.contains('완료')) statusColor = Colors.blue;
 
-                  return Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                margin: const EdgeInsets.only(right: 6),
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: isNew
-                                      ? Colors.teal.withOpacity(0.12)
-                                      : Colors.orange.withOpacity(0.12),
-                                  borderRadius: BorderRadius.circular(4),
-                                  border: Border.all(
+                  return InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      showReportDetailSheet(context, Report.fromJson(r));
+                    },
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  margin: const EdgeInsets.only(right: 6),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
                                     color: isNew
-                                        ? Colors.teal.withOpacity(0.5)
-                                        : Colors.orange.withOpacity(0.5),
+                                        ? Colors.teal.withOpacity(0.12)
+                                        : Colors.orange.withOpacity(0.12),
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(
+                                      color: isNew
+                                          ? Colors.teal.withOpacity(0.5)
+                                          : Colors.orange.withOpacity(0.5),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    isNew ? '신규' : '처리변경',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: isNew ? Colors.teal : Colors.orange,
+                                    ),
                                   ),
                                 ),
-                                child: Text(
-                                  isNew ? '신규' : '처리변경',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    color: isNew ? Colors.teal : Colors.orange,
+                                Expanded(
+                                  child: Text(
+                                    name,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold, fontSize: 14,
+                                    ),
                                   ),
                                 ),
-                              ),
-                              Expanded(
-                                child: Text(
-                                  name,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold, fontSize: 14,
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: statusColor.withOpacity(0.12),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                        color: statusColor.withOpacity(0.4)),
+                                  ),
+                                  child: Text(
+                                    status,
+                                    style: TextStyle(
+                                      fontSize: 12, color: statusColor,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
                                 ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: statusColor.withOpacity(0.12),
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(
-                                      color: statusColor.withOpacity(0.4)),
-                                ),
-                                child: Text(
-                                  status,
-                                  style: TextStyle(
-                                    fontSize: 12, color: statusColor,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
+                                const SizedBox(width: 4),
+                                Icon(Icons.chevron_right, size: 16,
+                                    color: Colors.grey.shade400),
+                              ],
+                            ),
+                            if (reportNo.isNotEmpty) ...[
+                              const SizedBox(height: 6),
+                              Row(children: [
+                                Icon(Icons.tag, size: 13,
+                                    color: Colors.grey.shade500),
+                                const SizedBox(width: 4),
+                                Text(reportNo,
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade600)),
+                              ]),
                             ],
-                          ),
-                          if (reportNo.isNotEmpty) ...[
-                            const SizedBox(height: 6),
-                            Row(children: [
-                              Icon(Icons.tag, size: 13,
-                                  color: Colors.grey.shade500),
-                              const SizedBox(width: 4),
-                              Text(reportNo,
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade600)),
-                            ]),
+                            if (agency.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Row(children: [
+                                Icon(Icons.business, size: 13,
+                                    color: Colors.grey.shade500),
+                                const SizedBox(width: 4),
+                                Text(agency,
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade600)),
+                              ]),
+                            ],
+                            if (fine.isNotEmpty &&
+                                fine != '미확인' &&
+                                fine != 'null') ...[
+                              const SizedBox(height: 4),
+                              Row(children: [
+                                Icon(Icons.receipt_long, size: 13,
+                                    color: Colors.grey.shade500),
+                                const SizedBox(width: 4),
+                                Text(fine,
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade600)),
+                              ]),
+                            ],
                           ],
-                          if (agency.isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            Row(children: [
-                              Icon(Icons.business, size: 13,
-                                  color: Colors.grey.shade500),
-                              const SizedBox(width: 4),
-                              Text(agency,
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade600)),
-                            ]),
-                          ],
-                          if (fine.isNotEmpty &&
-                              fine != '미확인' &&
-                              fine != 'null') ...[
-                            const SizedBox(height: 4),
-                            Row(children: [
-                              Icon(Icons.receipt_long, size: 13,
-                                  color: Colors.grey.shade500),
-                              const SizedBox(width: 4),
-                              Text(fine,
-                                  style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey.shade600)),
-                            ]),
-                          ],
-                        ],
+                        ),
                       ),
                     ),
                   );

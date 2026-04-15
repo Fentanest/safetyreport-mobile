@@ -232,3 +232,5 @@ GitHub Actions: `.github/workflows/build-apk.yml`
 | 알림 탭 탭 시 앱만 열림 (네비 없음) | WsService 알림 탭 PendingIntent에 네비 정보 없음 | Intent extras `nav_tab=3` → `onNewIntent` → MethodChannel `navigateToTab` |
 | 이미지 최초 로드 실패 | 첫 로드 실패 시 broken_image 고정 표시 | `_RetryableImage` 위젯: 자동 재시도 |
 | 재설치 후 구 데이터 잔존 | `allowBackup=true` 기본값으로 앱 데이터 백업·복원 | `android:allowBackup="false"` 추가 |
+| 크롤링 완료 시 같은 신고건 알림 2개 수신 | `NotificationService`가 `/crawl/results`를 직접 폴링해 알림 생성 → WsService `crawl_changes` 알림과 중복 | `NotificationService`에서 폴링+알림 생성 로직 제거, enqueue 전송만 담당 |
+| 변경사항 바텀시트 카드 클릭 불가 | `_showChangesBottomSheet` itemBuilder가 `Card`만 반환, onTap 없음 | `InkWell`로 감싸고 `onTap` 추가 → `Navigator.pop` 후 `showReportDetailSheet` 호출 |

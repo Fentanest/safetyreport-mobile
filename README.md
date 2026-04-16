@@ -9,7 +9,7 @@
 
 **Google Play 스토어**에서 '나만의 안전신문고'를 검색하거나, 아래 링크에서 직접 APK를 받을 수 있습니다.
 
-- [Google Play 스토어](https://play.google.com/store/search?q=나만의+안전신문고)
+- [Google Play 스토어](https://play.google.com/store/apps/details?id=com.fentanest.mysafetyreport)
 - [GitHub Releases](https://github.com/Fentanest/safetyreport-mobile/releases) — 최신 APK 직접 다운로드
 
 ---

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
@@ -418,6 +419,139 @@ class ReportDetailSheet extends StatelessWidget {
 }
 
 // ──────────────────────────────────────────────────────────────
+class _FullscreenVideoPage extends StatefulWidget {
+  final VideoPlayerController controller;
+  const _FullscreenVideoPage({required this.controller});
+
+  @override
+  State<_FullscreenVideoPage> createState() => _FullscreenVideoPageState();
+}
+
+class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
+  bool _seeking = false;
+  bool _wasPlaying = false;
+  Duration _seekPosition = Duration.zero;
+
+  @override
+  void initState() {
+    super.initState();
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  }
+
+  @override
+  void dispose() {
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    super.dispose();
+  }
+
+  String _fmt(Duration d) {
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: Stack(
+        alignment: Alignment.bottomCenter,
+        children: [
+          Center(
+            child: GestureDetector(
+              onTap: () => setState(() {
+                widget.controller.value.isPlaying
+                    ? widget.controller.pause()
+                    : widget.controller.play();
+              }),
+              child: AspectRatio(
+                aspectRatio: widget.controller.value.aspectRatio,
+                child: VideoPlayer(widget.controller),
+              ),
+            ),
+          ),
+          ValueListenableBuilder<VideoPlayerValue>(
+            valueListenable: widget.controller,
+            builder: (_, value, __) {
+              final pos = _seeking ? _seekPosition : value.position;
+              final dur = value.duration;
+              final maxMs = dur.inMilliseconds > 0 ? dur.inMilliseconds.toDouble() : 1.0;
+              final posMs = pos.inMilliseconds.toDouble().clamp(0.0, maxMs);
+              return Container(
+                color: Colors.black54,
+                padding: const EdgeInsets.only(left: 4, right: 8, bottom: 2),
+                child: Row(
+                  children: [
+                    IconButton(
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                      icon: const Icon(Icons.fullscreen_exit, color: Colors.white, size: 22),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                    IconButton(
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                      icon: Icon(
+                        value.isPlaying ? Icons.pause : Icons.play_arrow,
+                        color: Colors.white, size: 22,
+                      ),
+                      onPressed: () => setState(() {
+                        value.isPlaying
+                            ? widget.controller.pause()
+                            : widget.controller.play();
+                      }),
+                    ),
+                    Text(_fmt(pos),
+                        style: const TextStyle(color: Colors.white, fontSize: 11)),
+                    Expanded(
+                      child: SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                          trackHeight: 2,
+                          activeTrackColor: Colors.white,
+                          inactiveTrackColor: Colors.white30,
+                          thumbColor: Colors.white,
+                          overlayColor: Colors.white24,
+                        ),
+                        child: Slider(
+                          value: posMs,
+                          min: 0,
+                          max: maxMs,
+                          onChangeStart: (_) {
+                            _wasPlaying = value.isPlaying;
+                            if (_wasPlaying) widget.controller.pause();
+                            setState(() { _seeking = true; _seekPosition = pos; });
+                          },
+                          onChanged: (v) => setState(() =>
+                              _seekPosition = Duration(milliseconds: v.toInt())),
+                          onChangeEnd: (v) {
+                            widget.controller.seekTo(Duration(milliseconds: v.toInt()));
+                            if (_wasPlaying) widget.controller.play();
+                            setState(() => _seeking = false);
+                          },
+                        ),
+                      ),
+                    ),
+                    Text(_fmt(dur),
+                        style: const TextStyle(color: Colors.white70, fontSize: 11)),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
 /// 로드 실패 시 2초 후 자동 1회 재시도하는 이미지 위젯
 class _RetryableImage extends StatefulWidget {
   final String url;
@@ -547,6 +681,8 @@ class _VideoPlayerState extends State<_VideoPlayer> {
   bool _seeking = false;
   bool _wasPlaying = false;
   Duration _seekPosition = Duration.zero;
+  bool _showControls = true;
+  Timer? _hideTimer;
 
   @override
   void initState() {
@@ -563,8 +699,25 @@ class _VideoPlayerState extends State<_VideoPlayer> {
       });
   }
 
+  // 재생 시작 시 3초 후 컨트롤 자동 숨김
+  void _scheduleHide() {
+    _hideTimer?.cancel();
+    _hideTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted && _ctrl.value.isPlaying) {
+        setState(() => _showControls = false);
+      }
+    });
+  }
+
+  // 컨트롤 표시 + 타이머 재시작
+  void _showControlsTemporarily() {
+    setState(() => _showControls = true);
+    if (_ctrl.value.isPlaying) _scheduleHide();
+  }
+
   @override
   void dispose() {
+    _hideTimer?.cancel();
     _ctrl.dispose();
     super.dispose();
   }
@@ -627,9 +780,19 @@ class _VideoPlayerState extends State<_VideoPlayer> {
           AspectRatio(
             aspectRatio: _ctrl.value.aspectRatio,
             child: GestureDetector(
-              onTap: () => setState(() {
-                _ctrl.value.isPlaying ? _ctrl.pause() : _ctrl.play();
-              }),
+              onTap: () {
+                if (!_showControls) {
+                  _showControlsTemporarily();
+                } else if (_ctrl.value.isPlaying) {
+                  _ctrl.pause();
+                  _hideTimer?.cancel();
+                  setState(() => _showControls = true);
+                } else {
+                  _ctrl.play();
+                  _scheduleHide();
+                  setState(() {});
+                }
+              },
               child: VideoPlayer(_ctrl),
             ),
           ),
@@ -641,7 +804,12 @@ class _VideoPlayerState extends State<_VideoPlayer> {
               final dur = value.duration;
               final maxMs = dur.inMilliseconds > 0 ? dur.inMilliseconds.toDouble() : 1.0;
               final posMs = pos.inMilliseconds.toDouble().clamp(0.0, maxMs);
-              return Container(
+              return AnimatedOpacity(
+                opacity: _showControls ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 200),
+                child: IgnorePointer(
+                  ignoring: !_showControls,
+                  child: Container(
                 color: Colors.black54,
                 padding: const EdgeInsets.only(left: 4, right: 8, bottom: 2),
                 child: Row(
@@ -654,9 +822,17 @@ class _VideoPlayerState extends State<_VideoPlayer> {
                         value.isPlaying ? Icons.pause : Icons.play_arrow,
                         color: Colors.white, size: 22,
                       ),
-                      onPressed: () => setState(() {
-                        value.isPlaying ? _ctrl.pause() : _ctrl.play();
-                      }),
+                      onPressed: () {
+                        if (value.isPlaying) {
+                          _ctrl.pause();
+                          _hideTimer?.cancel();
+                          setState(() => _showControls = true);
+                        } else {
+                          _ctrl.play();
+                          _scheduleHide();
+                          setState(() {});
+                        }
+                      },
                     ),
                     // 현재 위치
                     Text(_fmt(pos),
@@ -695,12 +871,31 @@ class _VideoPlayerState extends State<_VideoPlayer> {
                     // 전체 길이
                     Text(_fmt(dur),
                         style: const TextStyle(color: Colors.white70, fontSize: 11)),
+                    // 전체화면
+                    IconButton(
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                      icon: const Icon(Icons.fullscreen, color: Colors.white, size: 22),
+                      onPressed: _openFullscreen,
+                    ),
                   ],
+                ),
+              ),
                 ),
               );
             },
           ),
         ],
+      ),
+    );
+  }
+
+  void _openFullscreen() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => _FullscreenVideoPage(controller: _ctrl),
       ),
     );
   }

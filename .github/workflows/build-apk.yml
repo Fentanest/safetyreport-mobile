@@ -32,6 +32,12 @@ jobs:
         echo "tag=v$BUILD_NAME" >> "$GITHUB_OUTPUT"
         echo "📦 Version: $BUILD_NAME+$BUILD_NUMBER"
 
+    - name: Sync VERSION → pubspec.yaml
+      run: |
+        VERSION=$(cat VERSION | tr -d '[:space:]')
+        sed -i "s/^version:.*/version: $VERSION/" pubspec.yaml
+        echo "✅ pubspec.yaml version: $VERSION"
+
     - name: Check if tag already exists
       id: check_tag
       env:

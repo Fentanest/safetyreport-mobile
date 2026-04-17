@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
+import 'settings_screen.dart';
 
 class CrawlScreen extends StatefulWidget {
   const CrawlScreen({super.key});
@@ -251,6 +252,13 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
     return Scaffold(
       appBar: AppBar(
         title: const Text('크롤링 제어'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const SettingsScreen())),
+          ),
+        ],
       ),
       body: Column(
         children: [

@@ -32,6 +32,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _autoExportSheet = true;
   bool _filterLoading = false;
 
+  // 서버 버전
+  String? _serverVersion;
+  String? _serverVersionStatus; // up_to_date / outdated / unknown
+  String? _serverVersionLatest;
+  bool _serverVersionLoading = false;
+
   @override
   void initState() {
     super.initState();
@@ -40,6 +46,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _apiController.text = provider.apiKey;
     _checkWsStatus();
     _loadFilterSettings();
+    _loadServerVersion();
+  }
+
+  Future<void> _loadServerVersion() async {
+    final api = _buildApi();
+    if (api == null) return;
+    setState(() => _serverVersionLoading = true);
+    try {
+      final p = context.read<ReportProvider>();
+      final baseUrl = p.baseUrl.trimRight().replaceAll(RegExp(r'/$'), '');
+      final headers = {'X-API-Key': p.apiKey};
+      final vRes = await http
+          .get(Uri.parse('$baseUrl/version'), headers: headers)
+          .timeout(const Duration(seconds: 5));
+      final lRes = await http
+          .get(Uri.parse('$baseUrl/version/latest'), headers: headers)
+          .timeout(const Duration(seconds: 5));
+      if (mounted) {
+        String? ver, status, latest;
+        if (vRes.statusCode == 200) {
+          ver = jsonDecode(vRes.body)['version'] as String?;
+        }
+        if (lRes.statusCode == 200) {
+          final j = jsonDecode(lRes.body);
+          status = j['status'] as String?;
+          latest = j['latest'] as String?;
+        }
+        setState(() {
+          _serverVersion = ver;
+          _serverVersionStatus = status;
+          _serverVersionLatest = latest;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _serverVersion = null);
+    } finally {
+      if (mounted) setState(() => _serverVersionLoading = false);
+    }
   }
 
   ApiService? _buildApi() {
@@ -206,6 +250,66 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // ── 서버 버전 카드 ─────────────────────────────
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                child: Row(
+                  children: [
+                    Icon(Icons.cloud_outlined, color: cs.primary),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _serverVersionLoading
+                          ? const Text('서버 버전 확인 중...',
+                              style: TextStyle(fontSize: 13, color: Colors.grey))
+                          : _serverVersion == null
+                              ? const Text('서버 버전 정보 없음',
+                                  style: TextStyle(fontSize: 13, color: Colors.grey))
+                              : Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('서버 v$_serverVersion',
+                                        style: const TextStyle(
+                                            fontSize: 14, fontWeight: FontWeight.bold)),
+                                    if (_serverVersionStatus != null)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 2),
+                                        child: Text(
+                                          _serverVersionStatus == 'up_to_date'
+                                              ? '최신 버전입니다'
+                                              : _serverVersionStatus == 'outdated'
+                                                  ? '업데이트 가능: v$_serverVersionLatest'
+                                                  : '업데이트 확인 불가',
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: _serverVersionStatus == 'up_to_date'
+                                                ? Colors.green
+                                                : _serverVersionStatus == 'outdated'
+                                                    ? Colors.orange
+                                                    : Colors.grey,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                    ),
+                    if (_serverVersionLoading)
+                      const SizedBox(
+                        width: 16, height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    else
+                      IconButton(
+                        icon: const Icon(Icons.refresh, size: 20),
+                        visualDensity: VisualDensity.compact,
+                        onPressed: _loadServerVersion,
+                        tooltip: '새로고침',
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
             // ── 서버 연결 카드 ─────────────────────────────
             Card(
               child: Padding(
@@ -467,7 +571,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    const _InfoRow(label: '앱 버전', value: 'v1.0.0'),
+                    const _InfoRow(label: '앱 버전', value: 'v1.0.4'),
                     const _InfoRow(label: '플랫폼', value: 'Android / iOS'),
                     const SizedBox(height: 8),
                     const Text(

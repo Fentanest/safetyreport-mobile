@@ -212,6 +212,9 @@ class WsService : Service() {
     }
 
     private fun showCrawlStartedNotif(data: JSONObject) {
+        // 외부 앱 알림에서 자동 트리거된 경우 푸시 알림 생략 (히스토리 저장은 handleEvent에서 유지)
+        if (isAutoEnqueueActive()) return
+
         val mode = data.optString("crawl_mode", "full")
         val type = data.optString("crawl_type", "api")
         val source = data.optString("source", "")
@@ -224,6 +227,12 @@ class WsService : Service() {
     }
 
     private fun showCrawlFinishedNotif(data: JSONObject) {
+        // 외부 앱 알림에서 자동 트리거된 경우 카운터 차감 후 푸시 알림 생략
+        if (isAutoEnqueueActive()) {
+            decrementAutoEnqueueCount()
+            return
+        }
+
         val count = data.optInt("changed_count", 0)
         val body = if (count > 0) {
             "크롤링이 완료되었습니다. ${count}건의 변경사항이 있습니다."
@@ -235,6 +244,26 @@ class WsService : Service() {
             body  = body,
             type  = "crawl_finished"
         )
+    }
+
+    // auto_enqueue_count > 0 이고 마지막 enqueue가 10분 이내면 자동 트리거로 간주
+    private fun isAutoEnqueueActive(): Boolean {
+        val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+        val count = prefs.getInt("flutter.auto_enqueue_count", 0)
+        val lastAt = prefs.getLong("flutter.auto_enqueue_last_at", 0L)
+        val withinWindow = System.currentTimeMillis() - lastAt < 10 * 60 * 1000L
+        if (count > 0 && !withinWindow) {
+            // 10분 초과 — 서버 미응답 등으로 카운터가 남은 경우 만료 처리
+            prefs.edit().putInt("flutter.auto_enqueue_count", 0).apply()
+            return false
+        }
+        return count > 0 && withinWindow
+    }
+
+    private fun decrementAutoEnqueueCount() {
+        val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+        val count = prefs.getInt("flutter.auto_enqueue_count", 0)
+        prefs.edit().putInt("flutter.auto_enqueue_count", maxOf(0, count - 1)).apply()
     }
 
     private fun showCrawlChangesNotif(data: JSONObject) {

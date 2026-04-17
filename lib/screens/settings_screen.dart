@@ -57,27 +57,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final p = context.read<ReportProvider>();
       final baseUrl = p.baseUrl.trimRight().replaceAll(RegExp(r'/$'), '');
       final headers = {'X-API-Key': p.apiKey};
-      final vRes = await http
-          .get(Uri.parse('$baseUrl/version'), headers: headers)
-          .timeout(const Duration(seconds: 5));
-      final lRes = await http
-          .get(Uri.parse('$baseUrl/version/latest'), headers: headers)
+      final res = await http
+          .get(Uri.parse('$baseUrl/api/v1/server/version'), headers: headers)
           .timeout(const Duration(seconds: 5));
       if (mounted) {
-        String? ver, status, latest;
-        if (vRes.statusCode == 200) {
-          ver = jsonDecode(vRes.body)['version'] as String?;
+        if (res.statusCode == 200) {
+          final j = jsonDecode(res.body);
+          final ver = j['version'] as String?;
+          final latest = j['latest_version'] as String?;
+          final upToDate = j['up_to_date'] as bool?;
+          final status = upToDate == null
+              ? null
+              : upToDate
+                  ? 'up_to_date'
+                  : 'outdated';
+          setState(() {
+            _serverVersion = ver;
+            _serverVersionStatus = status;
+            _serverVersionLatest = latest;
+          });
+        } else {
+          setState(() => _serverVersion = null);
         }
-        if (lRes.statusCode == 200) {
-          final j = jsonDecode(lRes.body);
-          status = j['status'] as String?;
-          latest = j['latest'] as String?;
-        }
-        setState(() {
-          _serverVersion = ver;
-          _serverVersionStatus = status;
-          _serverVersionLatest = latest;
-        });
       }
     } catch (_) {
       if (mounted) setState(() => _serverVersion = null);

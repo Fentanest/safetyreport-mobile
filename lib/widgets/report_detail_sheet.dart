@@ -431,6 +431,8 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
   bool _seeking = false;
   bool _wasPlaying = false;
   Duration _seekPosition = Duration.zero;
+  bool _showControls = true;
+  Timer? _hideTimer;
 
   @override
   void initState() {
@@ -440,13 +442,41 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
       DeviceOrientation.landscapeRight,
     ]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    _scheduleHide();
   }
 
   @override
   void dispose() {
+    _hideTimer?.cancel();
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
+  }
+
+  void _scheduleHide() {
+    _hideTimer?.cancel();
+    _hideTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted && widget.controller.value.isPlaying) {
+        setState(() => _showControls = false);
+      }
+    });
+  }
+
+  void _onVideoTap() {
+    if (!_showControls) {
+      setState(() => _showControls = true);
+      if (widget.controller.value.isPlaying) _scheduleHide();
+    } else {
+      if (widget.controller.value.isPlaying) {
+        widget.controller.pause();
+        _hideTimer?.cancel();
+        setState(() => _showControls = true);
+      } else {
+        widget.controller.play();
+        _scheduleHide();
+        setState(() {});
+      }
+    }
   }
 
   String _fmt(Duration d) {
@@ -460,90 +490,108 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
-        alignment: Alignment.bottomCenter,
         children: [
-          Center(
+          // 영상 — GestureDetector는 탭으로 컨트롤 토글/재생
+          Positioned.fill(
             child: GestureDetector(
-              onTap: () => setState(() {
-                widget.controller.value.isPlaying
-                    ? widget.controller.pause()
-                    : widget.controller.play();
-              }),
-              child: AspectRatio(
-                aspectRatio: widget.controller.value.aspectRatio,
-                child: VideoPlayer(widget.controller),
+              behavior: HitTestBehavior.opaque,
+              onTap: _onVideoTap,
+              child: Center(
+                child: AspectRatio(
+                  aspectRatio: widget.controller.value.aspectRatio,
+                  child: VideoPlayer(widget.controller),
+                ),
               ),
             ),
           ),
-          ValueListenableBuilder<VideoPlayerValue>(
-            valueListenable: widget.controller,
-            builder: (_, value, __) {
-              final pos = _seeking ? _seekPosition : value.position;
-              final dur = value.duration;
-              final maxMs = dur.inMilliseconds > 0 ? dur.inMilliseconds.toDouble() : 1.0;
-              final posMs = pos.inMilliseconds.toDouble().clamp(0.0, maxMs);
-              return Container(
-                color: Colors.black54,
-                padding: const EdgeInsets.only(left: 4, right: 8, bottom: 2),
-                child: Row(
-                  children: [
-                    IconButton(
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                      icon: const Icon(Icons.fullscreen_exit, color: Colors.white, size: 22),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                    IconButton(
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                      icon: Icon(
-                        value.isPlaying ? Icons.pause : Icons.play_arrow,
-                        color: Colors.white, size: 22,
+          // 하단 컨트롤 바 — 재생 중 자동 숨김
+          Positioned(
+            left: 0, right: 0, bottom: 0,
+            child: AnimatedOpacity(
+              opacity: _showControls ? 1.0 : 0.0,
+              duration: const Duration(milliseconds: 200),
+              child: IgnorePointer(
+                ignoring: !_showControls,
+                child: ValueListenableBuilder<VideoPlayerValue>(
+                  valueListenable: widget.controller,
+                  builder: (_, value, __) {
+                    final pos = _seeking ? _seekPosition : value.position;
+                    final dur = value.duration;
+                    final maxMs = dur.inMilliseconds > 0 ? dur.inMilliseconds.toDouble() : 1.0;
+                    final posMs = pos.inMilliseconds.toDouble().clamp(0.0, maxMs);
+                    return Container(
+                      color: Colors.black54,
+                      padding: const EdgeInsets.only(left: 4, right: 4, bottom: 2),
+                      child: Row(
+                        children: [
+                          // 재생/일시정지
+                          IconButton(
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                            icon: Icon(
+                              value.isPlaying ? Icons.pause : Icons.play_arrow,
+                              color: Colors.white, size: 22,
+                            ),
+                            onPressed: () {
+                              if (value.isPlaying) {
+                                widget.controller.pause();
+                                _hideTimer?.cancel();
+                                setState(() => _showControls = true);
+                              } else {
+                                widget.controller.play();
+                                _scheduleHide();
+                                setState(() {});
+                              }
+                            },
+                          ),
+                          Text(_fmt(pos),
+                              style: const TextStyle(color: Colors.white, fontSize: 11)),
+                          Expanded(
+                            child: SliderTheme(
+                              data: SliderTheme.of(context).copyWith(
+                                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                                overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                                trackHeight: 2,
+                                activeTrackColor: Colors.white,
+                                inactiveTrackColor: Colors.white30,
+                                thumbColor: Colors.white,
+                                overlayColor: Colors.white24,
+                              ),
+                              child: Slider(
+                                value: posMs,
+                                min: 0,
+                                max: maxMs,
+                                onChangeStart: (_) {
+                                  _wasPlaying = value.isPlaying;
+                                  if (_wasPlaying) widget.controller.pause();
+                                  setState(() { _seeking = true; _seekPosition = pos; });
+                                },
+                                onChanged: (v) => setState(() =>
+                                    _seekPosition = Duration(milliseconds: v.toInt())),
+                                onChangeEnd: (v) {
+                                  widget.controller.seekTo(Duration(milliseconds: v.toInt()));
+                                  if (_wasPlaying) widget.controller.play();
+                                  setState(() => _seeking = false);
+                                },
+                              ),
+                            ),
+                          ),
+                          Text(_fmt(dur),
+                              style: const TextStyle(color: Colors.white70, fontSize: 11)),
+                          // 축소 버튼 (우측)
+                          IconButton(
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                            icon: const Icon(Icons.fullscreen_exit, color: Colors.white, size: 22),
+                            onPressed: () => Navigator.pop(context),
+                          ),
+                        ],
                       ),
-                      onPressed: () => setState(() {
-                        value.isPlaying
-                            ? widget.controller.pause()
-                            : widget.controller.play();
-                      }),
-                    ),
-                    Text(_fmt(pos),
-                        style: const TextStyle(color: Colors.white, fontSize: 11)),
-                    Expanded(
-                      child: SliderTheme(
-                        data: SliderTheme.of(context).copyWith(
-                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-                          trackHeight: 2,
-                          activeTrackColor: Colors.white,
-                          inactiveTrackColor: Colors.white30,
-                          thumbColor: Colors.white,
-                          overlayColor: Colors.white24,
-                        ),
-                        child: Slider(
-                          value: posMs,
-                          min: 0,
-                          max: maxMs,
-                          onChangeStart: (_) {
-                            _wasPlaying = value.isPlaying;
-                            if (_wasPlaying) widget.controller.pause();
-                            setState(() { _seeking = true; _seekPosition = pos; });
-                          },
-                          onChanged: (v) => setState(() =>
-                              _seekPosition = Duration(milliseconds: v.toInt())),
-                          onChangeEnd: (v) {
-                            widget.controller.seekTo(Duration(milliseconds: v.toInt()));
-                            if (_wasPlaying) widget.controller.play();
-                            setState(() => _seeking = false);
-                          },
-                        ),
-                      ),
-                    ),
-                    Text(_fmt(dur),
-                        style: const TextStyle(color: Colors.white70, fontSize: 11)),
-                  ],
+                    );
+                  },
                 ),
-              );
-            },
+              ),
+            ),
           ),
         ],
       ),

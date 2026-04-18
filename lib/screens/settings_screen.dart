@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
@@ -32,6 +33,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _autoExportSheet = true;
   bool _filterLoading = false;
 
+  // 앱 버전
+  String _appVersion = '';
+
   // 서버 버전
   String? _serverVersion;
   String? _serverVersionStatus; // up_to_date / outdated / unknown
@@ -47,6 +51,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _checkWsStatus();
     _loadFilterSettings();
     _loadServerVersion();
+    PackageInfo.fromPlatform().then((info) {
+      if (mounted) setState(() => _appVersion = info.version);
+    });
   }
 
   Future<void> _loadServerVersion() async {
@@ -572,7 +579,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    const _InfoRow(label: '앱 버전', value: 'v1.0.4'),
+                    _InfoRow(label: '앱 버전', value: _appVersion.isEmpty ? '...' : 'v$_appVersion'),
                     const _InfoRow(label: '플랫폼', value: 'Android / iOS'),
                     const SizedBox(height: 8),
                     const Text(

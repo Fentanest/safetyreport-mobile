@@ -17,6 +17,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   bool _loading = true;
   String? _error;
 
+  String _year = 'all';  // 'all' | '2026' | '2025' | ...
   String _cat = 'traffic';  // traffic | parking | other
   String _type = 'agency';  // agency | person | police-agency | police-person | other-agency | other-person
 
@@ -31,7 +32,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     try {
       final p = context.read<ReportProvider>();
       final api = ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
-      final stats = await api.getStats();
+      final stats = await api.getStats(year: _year == 'all' ? null : _year);
       if (mounted) setState(() { _stats = stats; _loading = false; });
     } catch (e) {
       if (mounted) setState(() { _error = e.toString(); _loading = false; });
@@ -56,6 +57,11 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
 
   bool get _showPerson => _type.endsWith('person');
 
+  List<String> get _yearOptions {
+    final years = _stats?.availableYears ?? [];
+    return ['all', ...years];
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -65,8 +71,14 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       body: Column(
         children: [
           _NavBar(
+            year: _year,
+            yearOptions: _yearOptions,
             cat: _cat,
             type: _type,
+            onYearChanged: (v) {
+              setState(() => _year = v);
+              _load();
+            },
             onCatChanged: (v) => setState(() => _cat = v),
             onTypeChanged: (v) => setState(() => _type = v),
           ),
@@ -107,16 +119,22 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   }
 }
 
-// ── 2-way 네비게이션 바 ──────────────────────────────────────────
+// ── 3-way 네비게이션 바 ──────────────────────────────────────────
 class _NavBar extends StatelessWidget {
+  final String year;
+  final List<String> yearOptions;
   final String cat;
   final String type;
+  final ValueChanged<String> onYearChanged;
   final ValueChanged<String> onCatChanged;
   final ValueChanged<String> onTypeChanged;
 
   const _NavBar({
+    required this.year,
+    required this.yearOptions,
     required this.cat,
     required this.type,
+    required this.onYearChanged,
     required this.onCatChanged,
     required this.onTypeChanged,
   });
@@ -151,9 +169,48 @@ class _NavBar extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // 0행: 연도별 (가로 스크롤)
+          if (yearOptions.length > 1)
+            SizedBox(
+              height: 36,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                itemCount: yearOptions.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 6),
+                itemBuilder: (_, i) {
+                  final y = yearOptions[i];
+                  final label = y == 'all' ? '전체' : y;
+                  final selected = year == y;
+                  return GestureDetector(
+                    onTap: () => onYearChanged(y),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      decoration: BoxDecoration(
+                        color: selected ? Colors.blueGrey.shade700 : Colors.blueGrey.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: selected ? Colors.blueGrey.shade700 : Colors.blueGrey.withOpacity(0.3),
+                        ),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                          color: selected ? Colors.white : Colors.blueGrey.shade700,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
           // 1행: 카테고리
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
             child: Row(
               children: _cats.map((e) {
                 final selected = cat == e.$1;
@@ -373,6 +430,15 @@ class _RowCard extends StatelessWidget {
                               color: scheme.primary)),
                       const Text('총 처리',
                           style: TextStyle(fontSize: 10, color: Colors.grey)),
+                      if (row.avgResponseDays != null) ...[
+                        Text('${row.avgResponseDays!.toStringAsFixed(1)}일',
+                            style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.teal)),
+                        const Text('평균 소요',
+                            style: TextStyle(fontSize: 10, color: Colors.grey)),
+                      ],
                     ],
                   ),
                 ],

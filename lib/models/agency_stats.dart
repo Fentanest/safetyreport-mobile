@@ -2,6 +2,7 @@ class AgencyStatRow {
   final String agency;
   final String person;
   final int total;
+  final double? avgResponseDays;
   final int fines;
   final double finesPct;
   final int warnings;
@@ -13,6 +14,7 @@ class AgencyStatRow {
     required this.agency,
     required this.person,
     required this.total,
+    this.avgResponseDays,
     required this.fines,
     required this.finesPct,
     required this.warnings,
@@ -26,6 +28,7 @@ class AgencyStatRow {
       agency: json['agency']?.toString() ?? '',
       person: json['person']?.toString() ?? '',
       total: (json['total'] as num?)?.toInt() ?? 0,
+      avgResponseDays: (json['avg_days'] as num?)?.toDouble(),
       fines: (json['fines'] as num?)?.toInt() ?? 0,
       finesPct: (json['fines_pct'] as num?)?.toDouble() ?? 0.0,
       warnings: (json['warnings'] as num?)?.toInt() ?? 0,
@@ -74,8 +77,14 @@ class AgencyStats {
   final CategoryStats traffic;
   final CategoryStats parking;
   final CategoryStats other;
+  final List<String> availableYears;
 
-  const AgencyStats({required this.traffic, required this.parking, required this.other});
+  const AgencyStats({
+    required this.traffic,
+    required this.parking,
+    required this.other,
+    required this.availableYears,
+  });
 
   factory AgencyStats.fromJson(Map<String, dynamic> json) {
     return AgencyStats(
@@ -85,6 +94,9 @@ class AgencyStats {
           (json['parking'] as Map<String, dynamic>?) ?? {}),
       other: CategoryStats.fromJson(
           (json['other'] as Map<String, dynamic>?) ?? {}),
+      availableYears: (json['available_years'] as List? ?? [])
+          .map((y) => y.toString())
+          .toList(),
     );
   }
 }

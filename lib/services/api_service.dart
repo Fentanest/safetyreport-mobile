@@ -50,9 +50,11 @@ class ApiService {
     }
   }
 
-  Future<AgencyStats> getStats() async {
-    final response =
-        await http.get(Uri.parse('$baseUrl/api/v1/stats'), headers: _headers);
+  Future<AgencyStats> getStats({String? year}) async {
+    final uri = Uri.parse('$baseUrl/api/v1/stats').replace(
+      queryParameters: (year != null && year != 'all') ? {'year': year} : null,
+    );
+    final response = await http.get(uri, headers: _headers);
     if (response.statusCode == 200) {
       final json = jsonDecode(response.body);
       return AgencyStats.fromJson(json['data'] as Map<String, dynamic>);

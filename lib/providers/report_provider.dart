@@ -115,6 +115,7 @@ class ReportProvider with ChangeNotifier {
   Set<String> _watchlistNumbers = {};
 
   ReportFilter _filter = const ReportFilter();
+  bool _excludeWithdraw = false;
 
   String get baseUrl => _baseUrl;
   String get apiKey => _apiKey;
@@ -123,6 +124,7 @@ class ReportProvider with ChangeNotifier {
   bool get isConfigured => _baseUrl.isNotEmpty && _apiKey.isNotEmpty;
   String? get errorMessage => _errorMessage;
   DashboardStats? get stats => _stats;
+  bool get excludeWithdraw => _excludeWithdraw;
   List<Report> get trafficReports => _trafficReports;
   List<Report> get parkingReports => _parkingReports;
   List<Report> get otherReports => _otherReports;
@@ -185,13 +187,25 @@ class ReportProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> fetchAppConfig() async {
+    if (!isConfigured) return;
+    try {
+      final cfg = await _api.getAppConfig();
+      _excludeWithdraw = cfg['exclude_withdraw'] as bool? ?? false;
+      notifyListeners();
+    } catch (_) {}
+  }
+
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
     _baseUrl = prefs.getString('baseUrl') ?? '';
     _apiKey = prefs.getString('apiKey') ?? '';
     _isInitialized = true;
     notifyListeners();
-    if (isConfigured) fetchWatchlistNumbers();
+    if (isConfigured) {
+      fetchWatchlistNumbers();
+      fetchAppConfig();
+    }
   }
 
   Future<void> setConfig(String url, String key) async {
@@ -335,6 +349,7 @@ class ReportProvider with ChangeNotifier {
       fetchParkingReports(),
       fetchOtherReports(),
       fetchWatchlistNumbers(),
+      fetchAppConfig(),
     ]);
   }
 }

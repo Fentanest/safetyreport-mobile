@@ -277,7 +277,10 @@ class _ReportListScreenState extends State<ReportListScreen>
   Widget _buildDuplicateCard(Report report) {
     final color = _statusColor(report.status);
     final isSelected = _selected.contains(report.reportNumber);
-    final count = report.totalCount > 0 ? report.totalCount : report.validCount;
+    final provider = context.read<ReportProvider>();
+    final totalCount = report.totalCount > 0 ? report.totalCount : report.validCount;
+    final validCount = report.validCount;
+    final excludeWithdraw = provider.excludeWithdraw;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -331,7 +334,7 @@ class _ReportListScreenState extends State<ReportListScreen>
                         ),
                         const SizedBox(width: 8),
                         _statusChip(report.status, color),
-                        if (count > 0) ...[
+                        if (totalCount > 0) ...[
                           const SizedBox(width: 6),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
@@ -340,11 +343,15 @@ class _ReportListScreenState extends State<ReportListScreen>
                               border: Border.all(color: Colors.deepOrange.shade200),
                               borderRadius: BorderRadius.circular(20),
                             ),
-                            child: Text('$count회',
-                                style: TextStyle(
-                                    color: Colors.deepOrange.shade700,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold)),
+                            child: Text(
+                              excludeWithdraw && validCount != totalCount
+                                  ? '$validCount/$totalCount회'
+                                  : '$totalCount회',
+                              style: TextStyle(
+                                  color: Colors.deepOrange.shade700,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold),
+                            ),
                           ),
                         ],
                       ],

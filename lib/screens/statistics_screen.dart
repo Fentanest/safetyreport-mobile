@@ -20,6 +20,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   String _year = 'all';  // 'all' | '2026' | '2025' | ...
   String _cat = 'traffic';  // traffic | parking | other
   String _type = 'agency';  // agency | person | police-agency | police-person | other-agency | other-person
+  String? _law;  // null = 전체, '__없음__' = 법규 없음, 그 외 = 특정 법규
 
   @override
   void initState() {
@@ -32,7 +33,10 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     try {
       final p = context.read<ReportProvider>();
       final api = ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
-      final stats = await api.getStats(year: _year == 'all' ? null : _year);
+      final stats = await api.getStats(
+        year: _year == 'all' ? null : _year,
+        law: _law,
+      );
       if (mounted) setState(() { _stats = stats; _loading = false; });
     } catch (e) {
       if (mounted) setState(() { _error = e.toString(); _loading = false; });
@@ -55,6 +59,13 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     };
   }
 
+  CategoryStats get _currentCat {
+    if (_stats == null) return const CategoryStats(byAgency: [], byPerson: [], policeByAgency: [], policeByPerson: [], otherByAgency: [], otherByPerson: []);
+    return _cat == 'traffic' ? _stats!.traffic
+         : _cat == 'parking' ? _stats!.parking
+         : _stats!.other;
+  }
+
   bool get _showPerson => _type.endsWith('person');
 
   List<String> get _yearOptions {
@@ -62,8 +73,83 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     return ['all', ...years];
   }
 
+  void _showLawFilter() {
+    final cat = _currentCat;
+    final laws = cat.availableLaws;
+    final hasEmpty = cat.hasEmptyLaw;
+    if (laws.isEmpty && !hasEmpty) return;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.5,
+        minChildSize: 0.3,
+        maxChildSize: 0.85,
+        expand: false,
+        builder: (_, controller) => Column(
+          children: [
+            const SizedBox(height: 12),
+            Container(width: 36, height: 4,
+                decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 12),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text('위반법규 필터', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: ListView(
+                controller: controller,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                children: [
+                  _LawChip(
+                    label: '전체',
+                    selected: _law == null,
+                    onTap: () {
+                      Navigator.pop(context);
+                      if (_law != null) setState(() => _law = null);
+                      _load();
+                    },
+                  ),
+                  if (hasEmpty)
+                    _LawChip(
+                      label: '없음',
+                      selected: _law == '__없음__',
+                      onTap: () {
+                        Navigator.pop(context);
+                        final newLaw = '__없음__';
+                        if (_law != newLaw) setState(() => _law = newLaw);
+                        _load();
+                      },
+                    ),
+                  ...laws.map((l) => _LawChip(
+                    label: l,
+                    selected: _law == l,
+                    onTap: () {
+                      Navigator.pop(context);
+                      if (_law != l) setState(() => _law = l);
+                      _load();
+                    },
+                  )),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final lawActive = _law != null;
     return Scaffold(
       appBar: AppBar(
         title: const Text('통계'),
@@ -96,6 +182,33 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           ),
         ],
       ),
+      floatingActionButton: FloatingActionButton.small(
+        onPressed: _showLawFilter,
+        tooltip: '위반법규 필터',
+        backgroundColor: lawActive
+            ? Theme.of(context).colorScheme.primary
+            : Theme.of(context).colorScheme.surfaceContainerHighest,
+        foregroundColor: lawActive
+            ? Theme.of(context).colorScheme.onPrimary
+            : Theme.of(context).colorScheme.onSurface,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            const Icon(Icons.gavel, size: 20),
+            if (lawActive)
+              Positioned(
+                right: 0, top: 0,
+                child: Container(
+                  width: 8, height: 8,
+                  decoration: const BoxDecoration(
+                    color: Colors.orange,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -114,6 +227,47 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
               label: const Text('다시 시도'),
               onPressed: _load),
         ]),
+      ),
+    );
+  }
+}
+
+class _LawChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _LawChip({required this.label, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.primary;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? color.withOpacity(0.12) : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: selected ? color : Colors.grey.shade300,
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                    color: selected ? color : null,
+                  )),
+            ),
+            if (selected) Icon(Icons.check, size: 16, color: color),
+          ],
+        ),
       ),
     );
   }
@@ -329,7 +483,7 @@ class _StatsTable extends StatelessWidget {
     return RefreshIndicator(
       onRefresh: onRefresh,
       child: ListView.builder(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 80),
         itemCount: rows.length,
         itemBuilder: (context, i) => _RowCard(
             row: rows[i], showPerson: showPerson, rank: i + 1, category: category),
@@ -351,9 +505,26 @@ class _RowCard extends StatelessWidget {
     required this.category,
   });
 
+  String _formatFine(int amount) {
+    if (amount <= 0) return '';
+    if (amount >= 10000) {
+      final man = amount ~/ 10000;
+      final rest = amount % 10000;
+      if (rest == 0) return '${man}만원';
+      return '${man}만 ${_comma(rest)}원';
+    }
+    return '${_comma(amount)}원';
+  }
+
+  String _comma(int v) {
+    return v.toString().replaceAllMapped(
+        RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},');
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final fineStr = _formatFine(row.totalFineAmount);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -437,6 +608,15 @@ class _RowCard extends StatelessWidget {
                                 fontWeight: FontWeight.w600,
                                 color: Colors.teal)),
                         const Text('평균 소요',
+                            style: TextStyle(fontSize: 10, color: Colors.grey)),
+                      ],
+                      if (fineStr.isNotEmpty) ...[
+                        Text(fineStr,
+                            style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.deepOrange)),
+                        const Text('과태료 합계',
                             style: TextStyle(fontSize: 10, color: Colors.grey)),
                       ],
                     ],

@@ -50,9 +50,12 @@ class ApiService {
     }
   }
 
-  Future<AgencyStats> getStats({String? year}) async {
+  Future<AgencyStats> getStats({String? year, String? law}) async {
+    final params = <String, String>{};
+    if (year != null && year != 'all') params['year'] = year;
+    if (law != null) params['law'] = law;
     final uri = Uri.parse('$baseUrl/api/v1/stats').replace(
-      queryParameters: (year != null && year != 'all') ? {'year': year} : null,
+      queryParameters: params.isNotEmpty ? params : null,
     );
     final response = await http.get(uri, headers: _headers);
     if (response.statusCode == 200) {

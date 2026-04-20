@@ -9,6 +9,7 @@ class AgencyStatRow {
   final double warningsPct;
   final int rejects;
   final double rejectsPct;
+  final int totalFineAmount;
 
   const AgencyStatRow({
     required this.agency,
@@ -21,6 +22,7 @@ class AgencyStatRow {
     required this.warningsPct,
     required this.rejects,
     required this.rejectsPct,
+    this.totalFineAmount = 0,
   });
 
   factory AgencyStatRow.fromJson(Map<String, dynamic> json) {
@@ -35,6 +37,7 @@ class AgencyStatRow {
       warningsPct: (json['warnings_pct'] as num?)?.toDouble() ?? 0.0,
       rejects: (json['rejects'] as num?)?.toInt() ?? 0,
       rejectsPct: (json['rejects_pct'] as num?)?.toDouble() ?? 0.0,
+      totalFineAmount: (json['total_fine_amount'] as num?)?.toInt() ?? 0,
     );
   }
 }
@@ -46,6 +49,8 @@ class CategoryStats {
   final List<AgencyStatRow> policeByPerson;
   final List<AgencyStatRow> otherByAgency;
   final List<AgencyStatRow> otherByPerson;
+  final List<String> availableLaws;
+  final bool hasEmptyLaw;
 
   const CategoryStats({
     required this.byAgency,
@@ -54,6 +59,8 @@ class CategoryStats {
     required this.policeByPerson,
     required this.otherByAgency,
     required this.otherByPerson,
+    this.availableLaws = const [],
+    this.hasEmptyLaw = false,
   });
 
   static List<AgencyStatRow> _parse(Map<String, dynamic> json, String key) =>
@@ -69,6 +76,10 @@ class CategoryStats {
       policeByPerson: _parse(json, 'police_by_person'),
       otherByAgency:  _parse(json, 'other_by_agency'),
       otherByPerson:  _parse(json, 'other_by_person'),
+      availableLaws: (json['available_laws'] as List? ?? [])
+          .map((e) => e.toString())
+          .toList(),
+      hasEmptyLaw: json['has_empty_law'] as bool? ?? false,
     );
   }
 }

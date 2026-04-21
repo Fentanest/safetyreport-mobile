@@ -655,7 +655,7 @@ class _RowCard extends StatelessWidget {
                           child: Container(height: 6, color: Colors.grey.shade400),
                         ),
                       Flexible(
-                        flex: row.total - row.fines - row.warnings - row.rejects,
+                        flex: (row.total - row.fines - row.warnings - row.rejects).clamp(0, row.total),
                         child: Container(height: 6, color: Colors.blue.shade100),
                       ),
                     ],

@@ -10,7 +10,7 @@ class StandaloneAuthService {
   static const _base = 'https://www.safetyreport.go.kr';
   static const _tokenKey = 'standaloneToken';
 
-  // 브라우저와 동일한 헤더 세트 (없으면 서버가 연결을 차단함)
+  // 서버가 Referer·X-Requested-With·User-Agent 없으면 연결을 차단함 (errno 104)
   static const _commonHeaders = {
     'User-Agent':
         'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 '
@@ -22,12 +22,22 @@ class StandaloneAuthService {
 
   // 로그인: RSA 공개키 조회 → 비밀번호 암호화(hex) → OAuth2 토큰 발급
   static Future<String> login(String username, String password) async {
-    final keyRes = await http
-        .get(
-          Uri.parse('$_base/api/v1/common/rsa/getPublicKey'),
-          headers: _commonHeaders,
-        )
-        .timeout(const Duration(seconds: 15));
+    // RSA 키 조회 (최대 3회 재시도 - 서버가 간헐적으로 연결을 끊음)
+    late http.Response keyRes;
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      try {
+        keyRes = await http
+            .get(
+              Uri.parse('$_base/api/v1/common/rsa/getPublicKey'),
+              headers: _commonHeaders,
+            )
+            .timeout(const Duration(seconds: 15));
+        break;
+      } catch (e) {
+        if (attempt == 3) rethrow;
+        await Future.delayed(Duration(seconds: attempt));
+      }
+    }
 
     if (keyRes.statusCode != 200) {
       throw Exception('RSA 키 조회 실패 (${keyRes.statusCode})');
@@ -36,18 +46,22 @@ class StandaloneAuthService {
     final keyData = jsonDecode(keyRes.body) as Map<String, dynamic>;
     final modulusHex = keyData['RSAModulus'] as String;
     final exponentHex = keyData['RSAExponent'] as String;
+
+    // 비밀번호 RSA 암호화 (특수문자 포함 모두 utf8→bytes→PKCS1→hex)
     final encryptedPw = _rsaEncryptHex(modulusHex, exponentHex, password);
 
+    // 토큰 발급 - body를 Map으로 전달해 http 패키지가 URL 인코딩을 처리하게 함
     final tokenRes = await http
         .post(
           Uri.parse('$_base/oauth/token'),
-          headers: {
-            ..._commonHeaders,
-            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          headers: _commonHeaders,
+          body: {
+            'client_id': 'web',
+            'grant_type': 'password',
+            'loginType': '1',
+            'username': username,
+            'password': encryptedPw,
           },
-          body: 'client_id=web&grant_type=password&loginType=1'
-              '&username=${Uri.encodeComponent(username)}'
-              '&password=$encryptedPw',
         )
         .timeout(const Duration(seconds: 15));
 
@@ -63,9 +77,7 @@ class StandaloneAuthService {
 
     final tokenData = jsonDecode(tokenRes.body) as Map<String, dynamic>;
     final token = tokenData['access_token'] as String?;
-    if (token == null || token.isEmpty) {
-      throw Exception('토큰 응답 파싱 실패');
-    }
+    if (token == null || token.isEmpty) throw Exception('토큰 응답 파싱 실패');
     return token;
   }
 

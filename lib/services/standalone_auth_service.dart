@@ -7,14 +7,27 @@ import 'package:pointycastle/export.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class StandaloneAuthService {
-  static const _safetyReportBase = 'https://www.safetyreport.go.kr';
+  static const _base = 'https://www.safetyreport.go.kr';
   static const _tokenKey = 'standaloneToken';
 
-  // 로그인: RSA 공개키 조회 → 비밀번호 암호화 → OAuth2 토큰 발급
+  // 브라우저와 동일한 헤더 세트 (없으면 서버가 연결을 차단함)
+  static const _commonHeaders = {
+    'User-Agent':
+        'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 '
+        '(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+    'Referer': 'https://www.safetyreport.go.kr/',
+    'X-Requested-With': 'XMLHttpRequest',
+    'Accept': '*/*',
+  };
+
+  // 로그인: RSA 공개키 조회 → 비밀번호 암호화(hex) → OAuth2 토큰 발급
   static Future<String> login(String username, String password) async {
     final keyRes = await http
-        .get(Uri.parse('$_safetyReportBase/api/v1/common/rsa/getPublicKey'))
-        .timeout(const Duration(seconds: 10));
+        .get(
+          Uri.parse('$_base/api/v1/common/rsa/getPublicKey'),
+          headers: _commonHeaders,
+        )
+        .timeout(const Duration(seconds: 15));
 
     if (keyRes.statusCode != 200) {
       throw Exception('RSA 키 조회 실패 (${keyRes.statusCode})');
@@ -27,14 +40,14 @@ class StandaloneAuthService {
 
     final tokenRes = await http
         .post(
-          Uri.parse('$_safetyReportBase/oauth/token'),
-          body: {
-            'client_id': 'web',
-            'grant_type': 'password',
-            'loginType': '1',
-            'username': username,
-            'password': encryptedPw,
+          Uri.parse('$_base/oauth/token'),
+          headers: {
+            ..._commonHeaders,
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
           },
+          body: 'client_id=web&grant_type=password&loginType=1'
+              '&username=${Uri.encodeComponent(username)}'
+              '&password=$encryptedPw',
         )
         .timeout(const Duration(seconds: 15));
 
@@ -42,7 +55,10 @@ class StandaloneAuthService {
       throw Exception('아이디 또는 비밀번호가 올바르지 않습니다.');
     }
     if (tokenRes.statusCode != 200) {
-      throw Exception('로그인 실패 (HTTP ${tokenRes.statusCode})\n응답: ${tokenRes.body.length > 200 ? tokenRes.body.substring(0, 200) : tokenRes.body}');
+      final snippet = tokenRes.body.length > 200
+          ? tokenRes.body.substring(0, 200)
+          : tokenRes.body;
+      throw Exception('로그인 실패 (HTTP ${tokenRes.statusCode})\n$snippet');
     }
 
     final tokenData = jsonDecode(tokenRes.body) as Map<String, dynamic>;
@@ -68,7 +84,7 @@ class StandaloneAuthService {
     await prefs.remove(_tokenKey);
   }
 
-  // PKCS1 v1.5 RSA 암호화 → hex 문자열 반환 (JSEncrypt와 동일)
+  // PKCS1 v1.5 RSA 암호화 → hex 문자열 (브라우저 JSEncrypt와 동일 포맷)
   static String _rsaEncryptHex(
       String modulusHex, String exponentHex, String plaintext) {
     final modulus = BigInt.parse(modulusHex, radix: 16);
@@ -86,7 +102,7 @@ class StandaloneAuthService {
 
     final input = Uint8List.fromList(utf8.encode(plaintext));
     final encrypted = cipher.process(input);
-    return base64Encode(encrypted);
+    return encrypted.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 
   static SecureRandom _buildSecureRandom() {
@@ -98,28 +114,5 @@ class StandaloneAuthService {
     }
     sr.seed(KeyParameter(seed));
     return sr;
-  }
-
-  // 저장된 토큰으로 신고 목록 API 호출 테스트 (연결 검증용)
-  static Future<int> fetchReportCount(String token) async {
-    final today = DateTime.now();
-    final todayStr =
-        '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
-
-    final res = await http.get(
-      Uri.parse(
-        '$_safetyReportBase/api/v1/portal/mypage/mysafereport'
-        '?startRowNum=1&endRowNum=1'
-        '&C_FRM_DATE=2014-01-01&C_TO_DATE=$todayStr'
-        '&state=&seachType=tit&C_RELATION2=1&searchKeyWord=',
-      ),
-      headers: {'Authorization': 'BEARER $token'},
-    ).timeout(const Duration(seconds: 10));
-
-    if (res.statusCode != 200) {
-      throw Exception('API 접근 실패 (${res.statusCode}) — 토큰이 만료되었을 수 있습니다.');
-    }
-    final data = jsonDecode(res.body) as Map<String, dynamic>;
-    return (data['totalCnt'] as num?)?.toInt() ?? 0;
   }
 }

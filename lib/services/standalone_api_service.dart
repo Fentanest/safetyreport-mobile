@@ -11,6 +11,12 @@ class StandaloneApiService {
     return {
       'Authorization': 'BEARER ${token ?? ''}',
       'Content-Type': 'application/json',
+      'User-Agent':
+          'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 '
+          '(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+      'Referer': 'https://www.safetyreport.go.kr/',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Accept': '*/*',
     };
   }
 

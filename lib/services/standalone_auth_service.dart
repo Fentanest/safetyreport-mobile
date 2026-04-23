@@ -76,6 +76,16 @@ class StandaloneAuthService {
         throw Exception('RSA 키 조회 실패 (${keyRes.statusCode})');
       }
 
+      // JSESSIONID 쿠키 추출 — 서버가 RSA 키를 세션에 바인딩하므로 토큰 요청에 필수
+      // dart:io HttpClient의 자동 쿠키 관리가 Flutter Android에서 불안정하므로 수동 처리
+      String? jsessionId;
+      for (final cookie in keyRes.cookies) {
+        if (cookie.name == 'JSESSIONID') {
+          jsessionId = cookie.value;
+          break;
+        }
+      }
+
       final keyData = jsonDecode(keyBody) as Map<String, dynamic>;
       final modulusHex = keyData['RSAModulus'] as String;
       final exponentHex = keyData['RSAExponent'] as String;
@@ -84,8 +94,6 @@ class StandaloneAuthService {
       final encryptedPw = _rsaEncryptHex(modulusHex, exponentHex, password);
 
       // ── Step 3: OAuth2 토큰 발급 ──
-      // dart:io HttpClient는 자동으로 쿠키를 관리하므로
-      // Step 1에서 받은 JSESSIONID가 자동 전달됨
       final tokenReq = await client.postUrl(
         Uri.parse('$_base/oauth/token'),
       );
@@ -95,6 +103,10 @@ class StandaloneAuthService {
         'x-www-form-urlencoded',
         charset: 'utf-8',
       );
+      // JSESSIONID 수동 전달
+      if (jsessionId != null) {
+        tokenReq.cookies.add(Cookie('JSESSIONID', jsessionId));
+      }
 
       final body = Uri(queryParameters: {
         'client_id': 'web',

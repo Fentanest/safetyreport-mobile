@@ -3,21 +3,52 @@ import 'package:http/http.dart' as http;
 import 'standalone_auth_service.dart';
 
 /// 안전신문고 직접 API 클라이언트 (Authorization: BEARER 토큰 사용)
+/// 토큰 만료 시 자동 재로그인 후 재시도
 class StandaloneApiService {
   static const _base = 'https://www.safetyreport.go.kr';
 
+  static const _commonHeaders = {
+    'User-Agent':
+        'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 '
+        '(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
+    'Referer': 'https://www.safetyreport.go.kr/',
+    'X-Requested-With': 'XMLHttpRequest',
+    'Accept': 'application/json, text/plain, */*',
+  };
+
+  /// 유효한 토큰으로 헤더 구성. 만료 시 자동 재로그인.
   static Future<Map<String, String>> _headers() async {
-    final token = await StandaloneAuthService.getStoredToken();
+    final token = await StandaloneAuthService.ensureValidToken();
     return {
-      'Authorization': 'BEARER ${token ?? ''}',
+      ..._commonHeaders,
+      'Authorization': 'BEARER $token',
       'Content-Type': 'application/json',
-      'User-Agent':
-          'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 '
-          '(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36',
-      'Referer': 'https://www.safetyreport.go.kr/',
-      'X-Requested-With': 'XMLHttpRequest',
-      'Accept': '*/*',
     };
+  }
+
+  /// 토큰 만료 시 자동 재로그인 후 재시도하는 래퍼
+  static Future<http.Response> _getWithRetry(Uri uri) async {
+    var headers = await _headers();
+    var res = await http
+        .get(uri, headers: headers)
+        .timeout(const Duration(seconds: 20));
+
+    // 401이면 토큰 만료 — 자동 재로그인 후 1회 재시도
+    if (res.statusCode == 401) {
+      final newToken = await StandaloneAuthService.tryAutoRelogin();
+      if (newToken != null) {
+        headers = {
+          ..._commonHeaders,
+          'Authorization': 'BEARER $newToken',
+          'Content-Type': 'application/json',
+        };
+        res = await http
+            .get(uri, headers: headers)
+            .timeout(const Duration(seconds: 20));
+      }
+    }
+
+    return res;
   }
 
   /// 신고 목록 조회 (페이지 단위)
@@ -43,12 +74,14 @@ class StandaloneApiService {
       },
     );
 
-    final res = await http
-        .get(uri, headers: await _headers())
-        .timeout(const Duration(seconds: 20));
+    final res = await _getWithRetry(uri);
 
-    if (res.statusCode == 401) throw Exception('토큰 만료. 재로그인이 필요합니다.');
-    if (res.statusCode != 200) throw Exception('목록 조회 실패 (${res.statusCode})');
+    if (res.statusCode == 401) {
+      throw const TokenExpiredException();
+    }
+    if (res.statusCode != 200) {
+      throw Exception('목록 조회 실패 (${res.statusCode})');
+    }
 
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
@@ -56,12 +89,14 @@ class StandaloneApiService {
   /// 신고 상세 조회
   static Future<Map<String, dynamic>> fetchReportDetail(String cNo) async {
     final uri = Uri.parse('$_base/api/v1/portal/mypage/mysafereport/$cNo');
-    final res = await http
-        .get(uri, headers: await _headers())
-        .timeout(const Duration(seconds: 15));
+    final res = await _getWithRetry(uri);
 
-    if (res.statusCode == 401) throw Exception('토큰 만료. 재로그인이 필요합니다.');
-    if (res.statusCode != 200) throw Exception('상세 조회 실패 ($cNo, ${res.statusCode})');
+    if (res.statusCode == 401) {
+      throw const TokenExpiredException();
+    }
+    if (res.statusCode != 200) {
+      throw Exception('상세 조회 실패 ($cNo, ${res.statusCode})');
+    }
 
     return jsonDecode(res.body) as Map<String, dynamic>;
   }

@@ -107,8 +107,7 @@ class _SetupScreenState extends State<SetupScreen> {
       _errorMessage = null;
     });
     try {
-      final token = await StandaloneAuthService.login(username, password);
-      await StandaloneAuthService.saveToken(token);
+      await StandaloneAuthService.login(username, password);
       if (!mounted) return;
       await context.read<ReportProvider>().setStandaloneConfig(username);
       if (!mounted) return;

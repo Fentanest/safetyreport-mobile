@@ -309,11 +309,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         err = null;
                       });
                       try {
-                        final token = await StandaloneAuthService.login(
+                        await StandaloneAuthService.login(
                           usernameCtrl.text.trim(),
                           passwordCtrl.text,
                         );
-                        await StandaloneAuthService.saveToken(token);
                         if (ctx.mounted) {
                           await ctx.read<ReportProvider>().setStandaloneConfig(
                             usernameCtrl.text.trim(),

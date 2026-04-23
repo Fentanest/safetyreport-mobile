@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'local_db_service.dart';
 import 'standalone_api_service.dart';
+import 'standalone_auth_service.dart';
 import 'standalone_parser.dart';
 
 /// 동기화 이벤트 타입
@@ -143,12 +144,33 @@ class SyncEngine {
         if (done % 10 == 0) {
           _log('$done/${toSync.length}건 완료');
         }
+      } on TokenExpiredException {
+        // 토큰 만료 → 자동 재로그인 시도
+        _log('토큰 만료 감지, 자동 재로그인 시도 중...');
+        final newToken = await StandaloneAuthService.tryAutoRelogin();
+        if (newToken == null) {
+          throw Exception('토큰 만료. 설정 > 재로그인 후 다시 시도해주세요.');
+        }
+        _log('자동 재로그인 성공, 상세 조회 재시도 중...');
+        // 재시도 1회
+        try {
+          final detail = await StandaloneApiService.fetchReportDetail(cNo);
+          final report = parseJsonToReport(item, detail);
+          final entryMatch = RegExp(
+            r'본 신고는 안전신문고 (?:앱의|포털의) (.+?) 메뉴로 접수된 신고입니다',
+          ).firstMatch(report.reportContent);
+          final entryValue = entryMatch?.group(1)?.trim() ??
+              detail['C_APP_GUBUN_NM']?.toString() ?? '';
+          final cat = categoryFromEntryValue(entryValue);
+          await LocalDbService.upsertReport(report, cat);
+          done++;
+        } catch (retryErr) {
+          errors++;
+          _log('[오류] $cNo 재시도 실패: $retryErr');
+        }
       } catch (e) {
         errors++;
         _log('[오류] $cNo: $e');
-        if (e.toString().contains('토큰 만료')) {
-          throw Exception('토큰 만료. 설정 > 재로그인 후 다시 시도해주세요.');
-        }
       }
 
       // API 과부하 방지: 100ms 딜레이

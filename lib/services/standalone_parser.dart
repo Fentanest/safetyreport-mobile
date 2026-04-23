@@ -18,8 +18,10 @@ const _trafficEntry = '자동차·교통위반';
 // ── 카테고리 분류 ─────────────────────────────────────────────────────────────
 
 String categoryFromEntryValue(String entryValue) {
-  if (entryValue.contains(_trafficEntry)) return 'traffic';
-  if (entryValue.contains('불법주정차신고')) return 'parking';
+  if (entryValue.contains('교통위반')) return 'traffic';
+  for (final p in _parkingEntries) {
+    if (entryValue.contains(p)) return 'parking';
+  }
   return 'other';
 }
 

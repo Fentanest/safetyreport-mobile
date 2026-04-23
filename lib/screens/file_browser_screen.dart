@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import '../models/app_mode.dart';
 import '../models/file_item.dart';
@@ -56,9 +57,17 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
   // ── 스탠드어론 ─────────────────────────────────────────────────────────────
 
   Future<Directory> _exportsDir() async {
-    final base = await getApplicationDocumentsDirectory();
-    final dir = Directory('${base.path}/exports');
-    if (!dir.existsSync()) dir.createSync(recursive: true);
+    final dir = Directory('/storage/emulated/0/Documents/mysafetyreport');
+    if (!dir.existsSync()) {
+      try {
+        dir.createSync(recursive: true);
+      } catch (_) {
+        // Fallback for some devices that restrict Documents creation
+        final altDir = Directory('/storage/emulated/0/Download/mysafetyreport');
+        if (!altDir.existsSync()) altDir.createSync(recursive: true);
+        return altDir;
+      }
+    }
     return dir;
   }
 
@@ -79,6 +88,15 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
 
   Future<void> _exportExcel() async {
     if (_exporting) return;
+    
+    // 권한 요청 (안드로이드 10 이하용, 11 이상은 Documents 쓰기 기본 허용인 경우 많음)
+    if (Platform.isAndroid) {
+      final status = await Permission.storage.status;
+      if (!status.isGranted) {
+        await Permission.storage.request();
+      }
+    }
+
     setState(() => _exporting = true);
 
     try {

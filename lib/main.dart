@@ -127,7 +127,7 @@ class MainNavigationScreen extends StatefulWidget {
 const _permChannel = MethodChannel('com.fentanest.mysafetyreport/permissions');
 
 class _MainNavigationScreenState extends State<MainNavigationScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, TickerProviderStateMixin {
   int _selectedIndex = 0;
 
   final List<Widget> _screens = [
@@ -139,9 +139,15 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     const CrawlScreen(),
   ];
 
+  late final AnimationController _syncIconController;
+
   @override
   void initState() {
     super.initState();
+    _syncIconController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    );
     WidgetsBinding.instance.addObserver(this);
     // Native에서 navigateToTab 호출 수신
     _permChannel.setMethodCallHandler(_handleNativeCall);
@@ -153,6 +159,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
 
   @override
   void dispose() {
+    _syncIconController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -451,10 +458,24 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     );
   }
 
+  Widget _buildSyncIcon({required bool isSelected}) {
+    final icon = isSelected ? const Icon(Icons.sync) : const Icon(Icons.sync_outlined);
+    return RotationTransition(
+      turns: _syncIconController,
+      child: icon,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final unread =
-        context.watch<NotificationHistoryProvider>().unreadCount;
+    final p = context.watch<ReportProvider>();
+    final unread = context.watch<NotificationHistoryProvider>().unreadCount;
+
+    if (p.isSyncing) {
+      if (!_syncIconController.isAnimating) _syncIconController.repeat();
+    } else {
+      if (_syncIconController.isAnimating) _syncIconController.stop();
+    }
 
     return Scaffold(
       body: IndexedStack(
@@ -504,10 +525,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
             selectedIcon: Icon(Icons.folder),
             label: '파일',
           ),
-          const NavigationDestination(
-            icon: Icon(Icons.sync_outlined),
-            selectedIcon: Icon(Icons.sync),
-            label: '크롤링',
+          NavigationDestination(
+            icon: _buildSyncIcon(isSelected: false),
+            selectedIcon: _buildSyncIcon(isSelected: true),
+            label: p.appMode == AppMode.standalone ? '동기화' : '크롤링',
           ),
         ],
       ),

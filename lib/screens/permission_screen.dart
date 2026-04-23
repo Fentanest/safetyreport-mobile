@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import '../services/permission_service.dart';
+import 'package:provider/provider.dart';
+import '../models/app_mode.dart';
+import '../providers/report_provider.dart';
 import '../main.dart';
 
 class PermissionScreen extends StatefulWidget {
@@ -61,10 +64,13 @@ class _PermissionScreenState extends State<PermissionScreen>
     }
   }
 
-  bool get _allGranted =>
-      _listenerEnabled && _batteryIgnored && _notifGranted && _wsRunning;
+  bool get _allGranted {
+    final isStandalone = context.read<ReportProvider>().appMode == AppMode.standalone;
+    return _listenerEnabled && _batteryIgnored && _notifGranted && (isStandalone || _wsRunning);
+  }
 
   Future<void> _grantAll() async {
+    final isStandalone = context.read<ReportProvider>().appMode == AppMode.standalone;
     if (!_notifGranted) {
       await PermissionService.requestNotificationPermission();
       await _checkAll();
@@ -77,7 +83,7 @@ class _PermissionScreenState extends State<PermissionScreen>
       await PermissionService.openNotificationListenerSettings();
       // 돌아오면 didChangeAppLifecycleState에서 재확인
     }
-    if (!_wsRunning) {
+    if (!isStandalone && !_wsRunning) {
       await PermissionService.startWsService();
       await Future.delayed(const Duration(seconds: 1));
       await _checkAll();
@@ -96,6 +102,8 @@ class _PermissionScreenState extends State<PermissionScreen>
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
+    
+    final isStandalone = context.watch<ReportProvider>().appMode == AppMode.standalone;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
@@ -171,21 +179,25 @@ class _PermissionScreenState extends State<PermissionScreen>
           ),
           const SizedBox(height: 12),
 
-          _PermCard(
-            icon: Icons.wifi_tethering,
-            title: '백그라운드 서버 연결 (WebSocket)',
-            desc: '앱을 종료해도 서버의 크롤링 이벤트를 실시간으로 받으려면\n백그라운드 서비스를 시작해야 합니다.\n상단 상태바에 지속 알림이 표시됩니다.',
-            granted: _wsRunning,
-            grantedLabel: '실행 중',
-            deniedLabel: '중지됨',
-            onGrant: () async {
-              await PermissionService.startWsService();
-              await Future.delayed(const Duration(seconds: 1));
-              await _checkAll();
-            },
-            buttonLabel: '백그라운드 서비스 시작',
-          ),
-          const SizedBox(height: 28),
+          if (!isStandalone) ...[
+            _PermCard(
+              icon: Icons.wifi_tethering,
+              title: '백그라운드 서버 연결 (WebSocket)',
+              desc: '앱을 종료해도 서버의 크롤링 이벤트를 실시간으로 받으려면\n백그라운드 서비스를 시작해야 합니다.\n상단 상태바에 지속 알림이 표시됩니다.',
+              granted: _wsRunning,
+              grantedLabel: '실행 중',
+              deniedLabel: '중지됨',
+              onGrant: () async {
+                await PermissionService.startWsService();
+                await Future.delayed(const Duration(seconds: 1));
+                await _checkAll();
+              },
+              buttonLabel: '백그라운드 서비스 시작',
+            ),
+            const SizedBox(height: 28),
+          ] else ...[
+            const SizedBox(height: 16),
+          ],
 
           // 일괄 허용 버튼
           if (!_allGranted) ...[

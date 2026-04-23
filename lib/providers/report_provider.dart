@@ -142,6 +142,14 @@ class ReportProvider with ChangeNotifier {
   Set<String> get watchlistNumbers => _watchlistNumbers;
   bool isInWatchlist(String reportNumber) => _watchlistNumbers.contains(reportNumber);
   ReportFilter get filter => _filter;
+  bool get isSyncing => _isSyncing;
+  bool _isSyncing = false;
+  void setSyncing(bool val) {
+    if (_isSyncing == val) return;
+    _isSyncing = val;
+    notifyListeners();
+  }
+
   bool get hasFilter => !_filter.isEmpty;
 
   List<Report> get filteredTrafficReports => _applyFilter(_trafficReports);

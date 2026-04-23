@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import '../models/report.dart';
 import '../models/file_item.dart';
@@ -191,6 +192,15 @@ class ApiService {
       return json['data'] as Map<String, dynamic>;
     }
     throw Exception('앱 설정 조회 실패');
+  }
+
+  Future<Uint8List> downloadDb() async {
+    final response = await http.get(
+        Uri.parse('$baseUrl/api/v1/settings/db'), headers: _headers);
+    if (response.statusCode == 200) {
+      return response.bodyBytes;
+    }
+    throw Exception('DB 다운로드 실패: ${response.statusCode}');
   }
 
   Future<void> updateSettings(Map<String, dynamic> settings) async {

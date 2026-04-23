@@ -12,6 +12,19 @@ class LocalDbService {
     return _db!;
   }
 
+  static Future<String> getDbPath() async {
+    final dbPath = await getDatabasesPath();
+    return join(dbPath, 'standalone_reports.db');
+  }
+
+  /// DB 인스턴스를 닫고 리셋합니다. (파일 교체 후 재오픈 용도)
+  static Future<void> closeDb() async {
+    if (_db != null) {
+      await _db!.close();
+      _db = null;
+    }
+  }
+
   static Future<Database> _open() async {
     final dbPath = await getDatabasesPath();
     return openDatabase(
@@ -271,21 +284,44 @@ class LocalDbService {
   }
 
   static Map<String, dynamic> _buildCategory(List<Map<String, dynamic>> rows) {
-    final agg = <String, _AgencyAgg>{};
+    // ── 기관별 집계 ──
+    final agencyAgg = <String, _AgencyAgg>{};
     for (final r in rows) {
       final key = (r['agency'] as String? ?? '').trim();
       if (key.isEmpty) continue;
-      agg.putIfAbsent(key, () => _AgencyAgg(key));
-      agg[key]!.add(r);
+      agencyAgg.putIfAbsent(key, () => _AgencyAgg(key, ''));
+      agencyAgg[key]!.add(r);
     }
 
-    final allRows = agg.values.map((a) => a.toJson()).toList()
+    final allAgency = agencyAgg.values.map((a) => a.toJson()).toList()
       ..sort((a, b) => (b['total'] as int).compareTo(a['total'] as int));
 
-    final policeRows =
-        allRows.where((r) => (r['agency'] as String).contains('경찰')).toList();
-    final nonPoliceRows =
-        allRows.where((r) => !(r['agency'] as String).contains('경찰')).toList();
+    // ── 담당자별 집계 (agency + manager 쌍) ──
+    // Python과 동일: 미배정 담당자 + 처리중/취하 건 제외
+    final personAgg = <String, _AgencyAgg>{};
+    for (final r in rows) {
+      final agency = (r['agency'] as String? ?? '').trim();
+      final manager = (r['manager'] as String? ?? '').trim();
+      final status = (r['status'] as String? ?? '');
+      // 미배정 담당자 + 처리중/취하 건은 제외
+      if ((manager.isEmpty) &&
+          (status == '처리중' || status == '진행' || status == '진행중' || status == '취하')) {
+        continue;
+      }
+      if (agency.isEmpty) continue;
+      final key = '$agency\t$manager';
+      personAgg.putIfAbsent(key, () => _AgencyAgg(agency, manager));
+      personAgg[key]!.add(r);
+    }
+
+    final allPerson = personAgg.values.map((a) => a.toJson()).toList()
+      ..sort((a, b) => (b['total'] as int).compareTo(a['total'] as int));
+
+    // ── 경찰/비경찰 분리 ──
+    final policeAgency = allAgency.where((r) => (r['agency'] as String).contains('경찰')).toList();
+    final nonPoliceAgency = allAgency.where((r) => !(r['agency'] as String).contains('경찰')).toList();
+    final policePerson = allPerson.where((r) => (r['agency'] as String).contains('경찰')).toList();
+    final nonPolicePerson = allPerson.where((r) => !(r['agency'] as String).contains('경찰')).toList();
 
     final allLaws = rows
         .map((r) => r['law'] as String? ?? '')
@@ -296,12 +332,12 @@ class LocalDbService {
     final hasEmptyLaw = rows.any((r) => (r['law'] as String? ?? '').isEmpty);
 
     return {
-      'by_agency': allRows,
-      'by_person': allRows,
-      'police_by_agency': policeRows,
-      'police_by_person': policeRows,
-      'other_by_agency': nonPoliceRows,
-      'other_by_person': nonPoliceRows,
+      'by_agency': allAgency,
+      'by_person': allPerson,
+      'police_by_agency': policeAgency,
+      'police_by_person': policePerson,
+      'other_by_agency': nonPoliceAgency,
+      'other_by_person': nonPolicePerson,
       'available_laws': allLaws,
       'has_empty_law': hasEmptyLaw,
     };
@@ -438,19 +474,20 @@ class LocalDbService {
 
 class _AgencyAgg {
   final String name;
-  int total = 0, accept = 0, warn = 0, reject = 0;
+  final String person;
+  int total = 0, fines = 0, warn = 0, reject = 0;
   int totalFine = 0;
   final List<int> responseDays = [];
 
-  _AgencyAgg(this.name);
+  _AgencyAgg(this.name, this.person);
 
   void add(Map<String, dynamic> r) {
     total++;
     final status = (r['status'] as String? ?? '');
     final fine = (r['fine_info'] as String? ?? '');
-    if (status == '수용' || status == '일부수용') accept++;
+    if (fine.contains('과태료')) fines++;
     if (fine.contains('경고') || fine.contains('범칙금')) warn++;
-    if (status == '불수용') reject++;
+    if (status == '불수용' || status == '기타') reject++;
     totalFine += extractFineAmount(fine);
 
     final date = r['date'] as String? ?? '';
@@ -468,14 +505,14 @@ class _AgencyAgg {
     final t = total > 0 ? total.toDouble() : 1.0;
     return {
       'agency': name,
-      'person': '',
+      'person': person,
       'total': total,
-      'fines': accept,
-      'fines_pct': accept / t * 100,
+      'fines': fines,
+      'fines_pct': double.parse((fines / t * 100).toStringAsFixed(1)),
       'warnings': warn,
-      'warnings_pct': warn / t * 100,
+      'warnings_pct': double.parse((warn / t * 100).toStringAsFixed(1)),
       'rejects': reject,
-      'rejects_pct': reject / t * 100,
+      'rejects_pct': double.parse((reject / t * 100).toStringAsFixed(1)),
       'total_fine_amount': totalFine,
       'avg_days': responseDays.isEmpty
           ? null
@@ -483,3 +520,4 @@ class _AgencyAgg {
     };
   }
 }
+

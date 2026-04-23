@@ -26,6 +26,11 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
   final _maxPagesController = TextEditingController(text: '3');
 
   bool _isRunning = false;
+  void _setRunning(bool val) {
+    if (_isRunning == val) return;
+    setState(() => _isRunning = val);
+    if (mounted) context.read<ReportProvider>().setSyncing(val);
+  }
   bool _loading = true;
 
   WebSocket? _ws;
@@ -108,8 +113,8 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
       _logLines.clear();
       _syncProgress = 0;
       _syncTotal = 0;
-      _isRunning = true;
     });
+    _setRunning(true);
 
     _syncSub?.cancel();
     _syncSub = SyncEngine.events.listen((event) {
@@ -125,12 +130,12 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
             _syncProgress = event.current;
             _syncTotal = event.total;
           case SyncEventType.done:
-            _isRunning = false;
+            _setRunning(false);
             _syncProgress = event.current;
             _syncTotal = event.total;
             _loadStandaloneInfo();
           case SyncEventType.error:
-            _isRunning = false;
+            _setRunning(false);
             _logLines.add('[오류] ${event.message}');
         }
       });
@@ -147,7 +152,7 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
   void _stopSync() {
     SyncEngine.stop();
     _syncSub?.cancel();
-    setState(() => _isRunning = false);
+    _setRunning(false);
   }
 
   // ── 서버 모드 ────────────────────────────────────────────────────────────────
@@ -180,7 +185,7 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
         _ws?.close();
         _ws = null;
       }
-      if (mounted) setState(() => _isRunning = running);
+      if (mounted) _setRunning(running);
     } catch (_) {}
   }
 
@@ -215,7 +220,7 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
         },
         onDone: () {
           _ws = null;
-          if (mounted) setState(() => _isRunning = false);
+          if (mounted) _setRunning(false);
         },
         onError: (_) => _ws = null,
         cancelOnError: true,
@@ -252,10 +257,10 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
     }
 
     setState(() {
-      _isRunning = true;
       _logLines.clear();
       _logLines.add('크롤링 시작 중...');
     });
+    _setRunning(true);
 
     try {
       final pages = int.tryParse(_maxPagesController.text) ?? 3;
@@ -268,8 +273,8 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
       );
       _connectWs(api);
     } catch (e) {
+      _setRunning(false);
       setState(() {
-        _isRunning = false;
         _logLines.add('오류: $e');
       });
       if (mounted) {
@@ -304,7 +309,7 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
     if (api == null) return;
     try {
       await api.killCrawl();
-      setState(() => _isRunning = false);
+      _setRunning(false);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

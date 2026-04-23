@@ -8,9 +8,13 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/app_mode.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
+import '../services/local_db_service.dart';
 import '../services/permission_service.dart';
 import '../services/standalone_auth_service.dart';
 import 'permission_screen.dart';
+import 'dart:io';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:file_picker/file_picker.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -27,6 +31,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   _TestResult? _testResult;
   bool _wsRunning = false;
   bool _wsToggling = false;
+  bool _isBackingUpDb = false;
+  bool _isRestoringDb = false;
 
   // 기타 데이터 필터 세팅
   bool _excludeWithdraw = true;
@@ -344,6 +350,142 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _backupDb() async {
+    if (_isBackingUpDb) return;
+    setState(() => _isBackingUpDb = true);
+
+    try {
+      if (Platform.isAndroid) {
+        final status = await Permission.storage.status;
+        if (!status.isGranted) {
+          await Permission.storage.request();
+        }
+      }
+
+      final dir = Directory('/storage/emulated/0/Documents/mysafetyreport');
+      if (!dir.existsSync()) {
+        try {
+          dir.createSync(recursive: true);
+        } catch (_) {
+          final altDir = Directory('/storage/emulated/0/Download/mysafetyreport');
+          if (!altDir.existsSync()) altDir.createSync(recursive: true);
+        }
+      }
+
+      final p = context.read<ReportProvider>();
+      final isStandalone = p.appMode == AppMode.standalone;
+      
+      final targetDir = dir.existsSync() ? dir : Directory('/storage/emulated/0/Download/mysafetyreport');
+      final fileName = 'backup_data_${DateTime.now().millisecondsSinceEpoch}.db';
+      final targetFile = File('${targetDir.path}/$fileName');
+
+      if (isStandalone) {
+        final sourcePath = await LocalDbService.getDbPath();
+        final sourceFile = File(sourcePath);
+        if (sourceFile.existsSync()) {
+          await sourceFile.copy(targetFile.path);
+        } else {
+          throw Exception('로컬 DB 파일이 존재하지 않습니다.');
+        }
+      } else {
+        final api = ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
+        final bytes = await api.downloadDb();
+        await targetFile.writeAsBytes(bytes);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('DB 백업 완료: ${targetFile.path}'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('DB 백업 실패: $e'), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isBackingUpDb = false);
+    }
+  }
+
+  Future<void> _restoreDb() async {
+    final p = context.read<ReportProvider>();
+    if (p.appMode != AppMode.standalone) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('DB 복원은 Standalone 모드에서만 지원됩니다.')),
+      );
+      return;
+    }
+
+    if (_isRestoringDb) return;
+
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.any,
+    );
+
+    if (result == null || result.files.single.path == null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('DB 복원'),
+        content: const Text(
+          '기존 데이터가 모두 삭제되고 선택한 파일로 대체됩니다.\n계속하시겠습니까?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('복원 시작'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    setState(() => _isRestoringDb = true);
+
+    try {
+      final selectedPath = result.files.single.path!;
+      final dbPath = await LocalDbService.getDbPath();
+
+      // DB 닫기
+      await LocalDbService.closeDb();
+
+      // 파일 덮어쓰기
+      final selectedFile = File(selectedPath);
+      await selectedFile.copy(dbPath);
+
+      // 데이터 새로고침
+      if (mounted) {
+        await context.read<ReportProvider>().refreshAll();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('DB 복원이 완료되었습니다.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('DB 복원 실패: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isRestoringDb = false);
+    }
   }
 
   // ── 모드 변경 확인 다이얼로그 ──────────────────────────────────
@@ -770,6 +912,72 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 16),
 
             ], // if (!isStandalone)
+
+            // ── 데이터베이스 관리 ──────────────────────────────
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.storage, color: cs.secondary),
+                        const SizedBox(width: 8),
+                        Text(
+                          '데이터베이스 관리',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: cs.secondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      '현재 기기(또는 서버)의 데이터를 파일로 백업합니다.\n저장 경로: Documents/mysafetyreport/',
+                      style: TextStyle(fontSize: 12, color: Colors.grey, height: 1.5),
+                    ),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      child: _isBackingUpDb
+                          ? const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(8),
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                            )
+                          : OutlinedButton.icon(
+                              icon: const Icon(Icons.download, size: 18),
+                              label: const Text('DB 백업 (다운로드)'),
+                              onPressed: _backupDb,
+                            ),
+                    ),
+                    if (context.read<ReportProvider>().appMode == AppMode.standalone) ...[
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: _isRestoringDb
+                            ? const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(8),
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                ),
+                              )
+                            : OutlinedButton.icon(
+                                icon: const Icon(Icons.upload, size: 18),
+                                label: const Text('DB 복원 (업로드)'),
+                                onPressed: _restoreDb,
+                              ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
 
             // ── 앱 정보 카드 ──────────────────────────────
             Card(

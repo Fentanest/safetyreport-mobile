@@ -695,7 +695,7 @@ class _RowCard extends StatelessWidget {
                     fontSize: 15,
                     fontWeight: FontWeight.bold,
                     color: color)),
-            Text('$label ($pct%)',
+            Text('$label (${pct.toStringAsFixed(1)}%)',
                 style: TextStyle(fontSize: 10, color: color.withOpacity(0.8)),
                 textAlign: TextAlign.center),
           ],

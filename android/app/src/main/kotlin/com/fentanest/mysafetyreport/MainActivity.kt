@@ -157,6 +157,9 @@ class MainActivity : FlutterActivity() {
 
     private fun autoStartWsServiceIfConfigured() {
         val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+        val appMode = prefs.getString("flutter.appMode", "") ?: ""
+        if (appMode != "server") return
+        
         val baseUrl = prefs.getString("flutter.baseUrl", "") ?: ""
         val apiKey  = prefs.getString("flutter.apiKey",  "") ?: ""
         if (baseUrl.isNotEmpty() && apiKey.isNotEmpty()) {

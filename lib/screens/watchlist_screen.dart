@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/app_mode.dart';
 import '../models/report.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
+import '../services/local_db_service.dart';
 import '../widgets/report_detail_sheet.dart';
 
 class WatchlistScreen extends StatefulWidget {
@@ -16,22 +18,27 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
   List<Report> _items = [];
   bool _loading = true;
   String? _error;
-  late ApiService _api;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final p = context.read<ReportProvider>();
-      _api = ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
-      _load();
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
+
+  bool get _isStandalone =>
+      context.read<ReportProvider>().appMode == AppMode.standalone;
 
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
     try {
-      final items = await _api.getWatchlist();
+      List<Report> items;
+      if (_isStandalone) {
+        items = await LocalDbService.getWatchlistReports();
+      } else {
+        final p = context.read<ReportProvider>();
+        final api = ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
+        items = await api.getWatchlist();
+      }
       if (mounted) setState(() { _items = items; _loading = false; });
     } catch (e) {
       if (mounted) setState(() { _error = e.toString(); _loading = false; });
@@ -56,7 +63,7 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
     );
     if (confirmed != true) return;
     try {
-      await _api.updateWatchlist([r.reportNumber], add: false);
+      await context.read<ReportProvider>().removeFromWatchlist([r.reportNumber]);
       setState(() => _items.removeWhere((i) => i.reportNumber == r.reportNumber));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -90,7 +97,7 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
     if (confirmed != true) return;
     try {
       final rnums = _items.map((r) => r.reportNumber).toList();
-      await _api.updateWatchlist(rnums, add: false);
+      await context.read<ReportProvider>().removeFromWatchlist(rnums);
       setState(() => _items.clear());
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

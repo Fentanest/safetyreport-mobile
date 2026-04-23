@@ -5,9 +5,11 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
+import '../models/app_mode.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
 import '../services/permission_service.dart';
+import '../services/standalone_auth_service.dart';
 import 'permission_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -247,9 +249,137 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  // ── 스탠드어론 재로그인 다이얼로그 ─────────────────────────────
+  Future<void> _showReloginDialog() async {
+    final usernameCtrl = TextEditingController();
+    final passwordCtrl = TextEditingController();
+    bool obscurePw = true;
+    bool loggingIn = false;
+    String? err;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlg) => AlertDialog(
+          title: const Text('안전신문고 재로그인'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: usernameCtrl,
+                decoration: const InputDecoration(
+                  labelText: '아이디',
+                  prefixIcon: Icon(Icons.person_outline),
+                ),
+                autocorrect: false,
+                textInputAction: TextInputAction.next,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: passwordCtrl,
+                decoration: InputDecoration(
+                  labelText: '비밀번호',
+                  prefixIcon: const Icon(Icons.lock_outline),
+                  suffixIcon: IconButton(
+                    icon: Icon(obscurePw ? Icons.visibility_off : Icons.visibility, size: 20),
+                    onPressed: () => setDlg(() => obscurePw = !obscurePw),
+                  ),
+                ),
+                obscureText: obscurePw,
+                autocorrect: false,
+              ),
+              if (err != null) ...[
+                const SizedBox(height: 10),
+                Text(err!, style: const TextStyle(color: Colors.red, fontSize: 13)),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: loggingIn ? null : () => Navigator.pop(ctx),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: loggingIn
+                  ? null
+                  : () async {
+                      setDlg(() {
+                        loggingIn = true;
+                        err = null;
+                      });
+                      try {
+                        final token = await StandaloneAuthService.login(
+                          usernameCtrl.text.trim(),
+                          passwordCtrl.text,
+                        );
+                        await StandaloneAuthService.saveToken(token);
+                        if (ctx.mounted) {
+                          await ctx.read<ReportProvider>().setStandaloneConfig(
+                            usernameCtrl.text.trim(),
+                          );
+                          Navigator.pop(ctx);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('재로그인 완료'),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                        }
+                      } catch (e) {
+                        setDlg(() {
+                          err = e.toString().replaceFirst('Exception: ', '');
+                          loggingIn = false;
+                        });
+                      }
+                    },
+              child: loggingIn
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Text('로그인'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── 모드 변경 확인 다이얼로그 ──────────────────────────────────
+  Future<void> _confirmModeReset() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('연결 방식 변경'),
+        content: const Text(
+          '연결 방식을 변경하면 현재 저장된 연결 정보가 초기화되고\n초기 설정 화면으로 이동합니다.\n\n계속하시겠습니까?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('변경'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      await context.read<ReportProvider>().resetConfig();
+      // isConfigured가 false가 되면 main.dart 라우터가 SetupScreen으로 자동 이동
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final provider = context.watch<ReportProvider>();
+    final isStandalone = provider.appMode == AppMode.standalone;
 
     return Scaffold(
       appBar: AppBar(title: const Text('앱 설정')),
@@ -258,7 +388,90 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // ── 서버 버전 카드 ─────────────────────────────
+            // ── 연결 방식 카드 ─────────────────────────────
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                child: Row(
+                  children: [
+                    Icon(
+                      isStandalone ? Icons.phone_android_rounded : Icons.dns_rounded,
+                      color: isStandalone ? const Color(0xFF0F9D58) : cs.primary,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            isStandalone ? '직접 연결 (스탠드어론)' : '서버 모드',
+                            style: const TextStyle(
+                              fontSize: 14, fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            isStandalone
+                                ? provider.standaloneUsername
+                                : provider.baseUrl.isEmpty ? '미설정' : provider.baseUrl,
+                            style: const TextStyle(fontSize: 12, color: Colors.grey),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: _confirmModeReset,
+                      child: const Text('변경'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            // ── 스탠드어론: 계정 카드 ──────────────────────
+            if (isStandalone) ...[
+              const SizedBox(height: 16),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.account_circle_outlined,
+                              color: Color(0xFF0F9D58)),
+                          const SizedBox(width: 8),
+                          const Text(
+                            '안전신문고 계정',
+                            style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF0F9D58)),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      _InfoRow(label: '아이디', value: provider.standaloneUsername),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.refresh, size: 18),
+                          label: const Text('재로그인 (토큰 갱신)'),
+                          onPressed: _showReloginDialog,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+
+            // ── 서버 모드 전용 섹션 시작 ──────────────────────
+            if (!isStandalone) ...[
+
+            const SizedBox(height: 16),
             Card(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -557,6 +770,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 16),
 
+            ], // if (!isStandalone)
+
             // ── 앱 정보 카드 ──────────────────────────────
             Card(
               child: Padding(
@@ -590,6 +805,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
             ),
+            if (!isStandalone) ...[
             const SizedBox(height: 16),
 
             Card(
@@ -674,6 +890,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
             ),
+            ], // if (!isStandalone) WS service
             const SizedBox(height: 16),
 
             Card(

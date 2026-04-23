@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/agency_stats.dart';
+import '../models/app_mode.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
+import '../services/local_db_service.dart';
 import 'filtered_list_screen.dart';
 
 class StatisticsScreen extends StatefulWidget {
@@ -32,11 +34,20 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     setState(() { _loading = true; _error = null; });
     try {
       final p = context.read<ReportProvider>();
-      final api = ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
-      final stats = await api.getStats(
-        year: _year == 'all' ? null : _year,
-        law: _law,
-      );
+      AgencyStats stats;
+      if (p.appMode == AppMode.standalone) {
+        final raw = await LocalDbService.computeStats(
+          year: _year == 'all' ? null : _year,
+          law: _law,
+        );
+        stats = AgencyStats.fromJson(raw);
+      } else {
+        final api = ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
+        stats = await api.getStats(
+          year: _year == 'all' ? null : _year,
+          law: _law,
+        );
+      }
       if (mounted) setState(() { _stats = stats; _loading = false; });
     } catch (e) {
       if (mounted) setState(() { _error = e.toString(); _loading = false; });

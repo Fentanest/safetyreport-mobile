@@ -20,7 +20,6 @@ class _ReportListScreenState extends State<ReportListScreen>
   final Set<String> _selected = {};
   bool get _selectionMode => _selected.isNotEmpty;
   late TabController _tabController;
-
   @override
   void initState() {
     super.initState();

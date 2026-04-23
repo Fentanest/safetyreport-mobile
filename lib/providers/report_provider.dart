@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/app_mode.dart';
 import '../models/report.dart';
 import '../services/api_service.dart';
+import '../services/local_db_service.dart';
+import '../services/standalone_auth_service.dart';
 
 class ReportFilter {
   final String name;
@@ -102,6 +105,8 @@ class ReportFilter {
 }
 
 class ReportProvider with ChangeNotifier {
+  AppMode _appMode = AppMode.server;
+  String _standaloneUsername = '';
   String _baseUrl = '';
   String _apiKey = '';
   bool _isLoading = false;
@@ -117,11 +122,16 @@ class ReportProvider with ChangeNotifier {
   ReportFilter _filter = const ReportFilter();
   bool _excludeWithdraw = false;
 
+  AppMode get appMode => _appMode;
+  String get standaloneUsername => _standaloneUsername;
   String get baseUrl => _baseUrl;
   String get apiKey => _apiKey;
   bool get isLoading => _isLoading;
   bool get isInitialized => _isInitialized;
-  bool get isConfigured => _baseUrl.isNotEmpty && _apiKey.isNotEmpty;
+  bool get isConfigured {
+    if (_appMode == AppMode.standalone) return _standaloneUsername.isNotEmpty;
+    return _baseUrl.isNotEmpty && _apiKey.isNotEmpty;
+  }
   String? get errorMessage => _errorMessage;
   DashboardStats? get stats => _stats;
   bool get excludeWithdraw => _excludeWithdraw;
@@ -198,26 +208,65 @@ class ReportProvider with ChangeNotifier {
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
+    _appMode = AppModeX.fromString(prefs.getString('appMode'));
+    _standaloneUsername = prefs.getString('standaloneUsername') ?? '';
     _baseUrl = prefs.getString('baseUrl') ?? '';
     _apiKey = prefs.getString('apiKey') ?? '';
     _isInitialized = true;
     notifyListeners();
     if (isConfigured) {
       fetchWatchlistNumbers();
-      fetchAppConfig();
+      if (_appMode == AppMode.server) fetchAppConfig();
     }
   }
 
   Future<void> setConfig(String url, String key) async {
     final cleanUrl =
         url.endsWith('/') ? url.substring(0, url.length - 1) : url;
+    _appMode = AppMode.server;
     _baseUrl = cleanUrl;
     _apiKey = key;
     _errorMessage = null;
 
     final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('appMode', AppMode.server.name);
     await prefs.setString('baseUrl', _baseUrl);
     await prefs.setString('apiKey', _apiKey);
+
+    notifyListeners();
+  }
+
+  Future<void> setStandaloneConfig(String username) async {
+    _appMode = AppMode.standalone;
+    _standaloneUsername = username;
+    _errorMessage = null;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('appMode', AppMode.standalone.name);
+    await prefs.setString('standaloneUsername', username);
+
+    notifyListeners();
+  }
+
+  Future<void> resetConfig() async {
+    _appMode = AppMode.server;
+    _baseUrl = '';
+    _apiKey = '';
+    _standaloneUsername = '';
+    _stats = null;
+    _trafficReports = [];
+    _parkingReports = [];
+    _otherReports = [];
+    _duplicateReports = [];
+    _watchlistNumbers = {};
+    _errorMessage = null;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('appMode');
+    await prefs.remove('baseUrl');
+    await prefs.remove('apiKey');
+    await prefs.remove('standaloneUsername');
+    await StandaloneAuthService.clearToken();
 
     notifyListeners();
   }
@@ -230,9 +279,15 @@ class ReportProvider with ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
     try {
-      _stats = await _api.getSummary();
+      if (_appMode == AppMode.standalone) {
+        _stats = await LocalDbService.computeSummary();
+      } else {
+        _stats = await _api.getSummary();
+      }
     } catch (e) {
-      _errorMessage = '서버 연결 실패: $e';
+      _errorMessage = _appMode == AppMode.standalone
+          ? '로컬 DB 오류: $e'
+          : '서버 연결 실패: $e';
       _stats = null;
     } finally {
       _isLoading = false;
@@ -245,7 +300,11 @@ class ReportProvider with ChangeNotifier {
     _isLoading = true;
     notifyListeners();
     try {
-      _trafficReports = await _api.getReports('traffic');
+      if (_appMode == AppMode.standalone) {
+        _trafficReports = await LocalDbService.getReportsByCategory('traffic');
+      } else {
+        _trafficReports = await _api.getReports('traffic');
+      }
     } catch (e) {
       _errorMessage = '교통위반 내역 로드 실패: $e';
     } finally {
@@ -259,7 +318,11 @@ class ReportProvider with ChangeNotifier {
     _isLoading = true;
     notifyListeners();
     try {
-      _parkingReports = await _api.getReports('parking');
+      if (_appMode == AppMode.standalone) {
+        _parkingReports = await LocalDbService.getReportsByCategory('parking');
+      } else {
+        _parkingReports = await _api.getReports('parking');
+      }
     } catch (e) {
       _errorMessage = '주정차위반 내역 로드 실패: $e';
     } finally {
@@ -273,7 +336,11 @@ class ReportProvider with ChangeNotifier {
     _isLoading = true;
     notifyListeners();
     try {
-      _otherReports = await _api.getReports('other');
+      if (_appMode == AppMode.standalone) {
+        _otherReports = await LocalDbService.getReportsByCategory('other');
+      } else {
+        _otherReports = await _api.getReports('other');
+      }
     } catch (e) {
       _errorMessage = '기타위반 내역 로드 실패: $e';
     } finally {
@@ -287,7 +354,11 @@ class ReportProvider with ChangeNotifier {
     _isLoading = true;
     notifyListeners();
     try {
-      _duplicateReports = await _api.getReports('duplicates');
+      if (_appMode == AppMode.standalone) {
+        _duplicateReports = await LocalDbService.getDuplicateVehicleReports();
+      } else {
+        _duplicateReports = await _api.getReports('duplicates');
+      }
     } catch (e) {
       _errorMessage = '중복차량 내역 로드 실패: $e';
     } finally {
@@ -299,21 +370,35 @@ class ReportProvider with ChangeNotifier {
   Future<void> fetchWatchlistNumbers() async {
     if (!isConfigured) return;
     try {
-      final reports = await _api.getWatchlist();
-      _watchlistNumbers = reports.map((r) => r.reportNumber).toSet();
+      if (_appMode == AppMode.standalone) {
+        _watchlistNumbers = await LocalDbService.getWatchlistNumbers();
+      } else {
+        final reports = await _api.getWatchlist();
+        _watchlistNumbers = reports.map((r) => r.reportNumber).toSet();
+      }
       notifyListeners();
     } catch (_) {}
   }
 
   Future<void> addToWatchlist(List<String> reportNumbers) async {
-    await _api.updateWatchlist(reportNumbers, add: true);
-    _watchlistNumbers.addAll(reportNumbers);
+    if (_appMode == AppMode.standalone) {
+      _watchlistNumbers.addAll(reportNumbers);
+      await LocalDbService.setWatchlistNumbers(_watchlistNumbers);
+    } else {
+      await _api.updateWatchlist(reportNumbers, add: true);
+      _watchlistNumbers.addAll(reportNumbers);
+    }
     notifyListeners();
   }
 
   Future<void> removeFromWatchlist(List<String> reportNumbers) async {
-    await _api.updateWatchlist(reportNumbers, add: false);
-    _watchlistNumbers.removeAll(reportNumbers);
+    if (_appMode == AppMode.standalone) {
+      _watchlistNumbers.removeAll(reportNumbers);
+      await LocalDbService.setWatchlistNumbers(_watchlistNumbers);
+    } else {
+      await _api.updateWatchlist(reportNumbers, add: false);
+      _watchlistNumbers.removeAll(reportNumbers);
+    }
     notifyListeners();
   }
 
@@ -343,13 +428,24 @@ class ReportProvider with ChangeNotifier {
   Future<void> refreshAll() async {
     if (!isConfigured) return;
     _errorMessage = null;
-    await Future.wait([
-      fetchSummary(),
-      fetchTrafficReports(),
-      fetchParkingReports(),
-      fetchOtherReports(),
-      fetchWatchlistNumbers(),
-      fetchAppConfig(),
-    ]);
+    if (_appMode == AppMode.standalone) {
+      await Future.wait([
+        fetchSummary(),
+        fetchTrafficReports(),
+        fetchParkingReports(),
+        fetchOtherReports(),
+        fetchDuplicateReports(),
+        fetchWatchlistNumbers(),
+      ]);
+    } else {
+      await Future.wait([
+        fetchSummary(),
+        fetchTrafficReports(),
+        fetchParkingReports(),
+        fetchOtherReports(),
+        fetchWatchlistNumbers(),
+        fetchAppConfig(),
+      ]);
+    }
   }
 }

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../models/app_mode.dart';
 import '../models/notification_item.dart';
 import '../models/report.dart';
 import '../providers/notification_history_provider.dart';
@@ -51,7 +52,11 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     return ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
   }
 
+  bool get _isStandalone =>
+      context.read<ReportProvider>().appMode == AppMode.standalone;
+
   Future<void> _fetchServerResults() async {
+    if (_isStandalone) return;
     final api = _getApi();
     if (api == null) return;
     try {

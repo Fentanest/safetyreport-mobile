@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../models/app_mode.dart';
 import '../providers/report_provider.dart';
 import '../models/report.dart';
 
@@ -93,7 +94,9 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final watchlistNums = context.watch<ReportProvider>().watchlistNumbers;
+    final provider = context.watch<ReportProvider>();
+    final watchlistNums = provider.watchlistNumbers;
+    final isStandalone = provider.appMode == AppMode.standalone;
     final allInWatchlist = reports.every((r) => watchlistNums.contains(r.reportNumber));
     final noneInWatchlist = reports.every((r) => !watchlistNums.contains(r.reportNumber));
 
@@ -139,13 +142,15 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
                     label: '번호 복사',
                     onTap: _busy ? null : _copyNumbers,
                   ),
-                  const SizedBox(width: 8),
-                  _ActionBtn(
-                    icon: Icons.refresh,
-                    label: '크롤링',
-                    onTap: _busy ? null : _crawl,
-                    color: Colors.blue,
-                  ),
+                  if (!isStandalone) ...[
+                    const SizedBox(width: 8),
+                    _ActionBtn(
+                      icon: Icons.refresh,
+                      label: '크롤링',
+                      onTap: _busy ? null : _crawl,
+                      color: Colors.blue,
+                    ),
+                  ],
                   const SizedBox(width: 8),
                   if (!allInWatchlist)
                     _ActionBtn(

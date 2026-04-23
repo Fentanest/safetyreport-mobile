@@ -1,9 +1,15 @@
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
+
+import '../models/app_mode.dart';
 import '../providers/report_provider.dart';
+import '../services/standalone_auth_service.dart';
 import 'permission_screen.dart';
+
+enum _Step { selectMode, serverConfig, standaloneConfig }
 
 class SetupScreen extends StatefulWidget {
   const SetupScreen({super.key});
@@ -13,39 +19,48 @@ class SetupScreen extends StatefulWidget {
 }
 
 class _SetupScreenState extends State<SetupScreen> {
+  _Step _step = _Step.selectMode;
+
+  // 서버 모드 폼
   final _urlController = TextEditingController();
   final _apiController = TextEditingController();
+
+  // 스탠드어론 모드 폼
+  final _usernameController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _obscurePw = true;
+
   bool _loading = false;
   String? _errorMessage;
-
-  @override
-  void initState() {
-    super.initState();
-    final provider = context.read<ReportProvider>();
-    _urlController.text = provider.baseUrl;
-    _apiController.text = provider.apiKey;
-  }
 
   @override
   void dispose() {
     _urlController.dispose();
     _apiController.dispose();
+    _usernameController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
-  Future<void> _connect() async {
+  void _goToStep(_Step step) {
+    setState(() {
+      _step = step;
+      _errorMessage = null;
+    });
+  }
+
+  // ── 서버 모드 연결 ──────────────────────────────────────────
+  Future<void> _connectServer() async {
     final url = _urlController.text.trim();
     final key = _apiController.text.trim();
     if (url.isEmpty || key.isEmpty) {
       setState(() => _errorMessage = '서버 URL과 API Key를 모두 입력해주세요.');
       return;
     }
-
     setState(() {
       _loading = true;
       _errorMessage = null;
     });
-
     final cleanUrl = url.endsWith('/') ? url.substring(0, url.length - 1) : url;
     try {
       final response = await http.get(
@@ -55,16 +70,13 @@ class _SetupScreenState extends State<SetupScreen> {
 
       if (response.statusCode == 200) {
         try {
-          final json = jsonDecode(response.body);
-          final total = json['data']?['total'] ?? '?';
+          jsonDecode(response.body);
           if (!mounted) return;
           await context.read<ReportProvider>().setConfig(cleanUrl, key);
           if (!mounted) return;
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(
-              builder: (_) => const PermissionScreen(isSetup: true),
-            ),
+            MaterialPageRoute(builder: (_) => const PermissionScreen(isSetup: true)),
           );
           return;
         } catch (_) {
@@ -73,103 +85,419 @@ class _SetupScreenState extends State<SetupScreen> {
       } else if (response.statusCode == 401) {
         setState(() => _errorMessage = 'API Key 인증 실패 (401)\nAPI Key를 다시 확인해주세요.');
       } else {
-        setState(() => _errorMessage = '서버 오류: HTTP ${response.statusCode}\nURL을 다시 확인해주세요.');
+        setState(() => _errorMessage = '서버 오류: HTTP ${response.statusCode}');
       }
     } catch (e) {
-      setState(() => _errorMessage = '서버에 연결할 수 없습니다.\nURL을 확인하고 서버가 실행 중인지 확인해주세요.\n\n$e');
+      setState(() => _errorMessage = '서버에 연결할 수 없습니다.\n$e');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
+  // ── 스탠드어론 모드 로그인 ──────────────────────────────────
+  Future<void> _loginStandalone() async {
+    final username = _usernameController.text.trim();
+    final password = _passwordController.text;
+    if (username.isEmpty || password.isEmpty) {
+      setState(() => _errorMessage = '아이디와 비밀번호를 입력해주세요.');
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _errorMessage = null;
+    });
+    try {
+      final token = await StandaloneAuthService.login(username, password);
+      await StandaloneAuthService.saveToken(token);
+      if (!mounted) return;
+      await context.read<ReportProvider>().setStandaloneConfig(username);
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const PermissionScreen(isSetup: true)),
+      );
+    } catch (e) {
+      setState(() => _errorMessage = e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  // ── 빌드 ────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('초기 설정')),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const SizedBox(height: 32),
-            const Icon(Icons.settings_suggest, size: 64, color: Colors.blue),
-            const SizedBox(height: 24),
-            const Text(
-              '안전신문고 서버 연결',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              '앱을 시작하려면 서버 URL과 API Key가 필요합니다.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey),
-            ),
-            const SizedBox(height: 32),
-            TextField(
-              controller: _urlController,
-              decoration: const InputDecoration(
-                labelText: '서버 URL',
-                hintText: 'https://...',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.link),
+      body: SafeArea(
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          transitionBuilder: (child, anim) =>
+              FadeTransition(opacity: anim, child: child),
+          child: switch (_step) {
+            _Step.selectMode => _buildModeSelect(),
+            _Step.serverConfig => _buildServerConfig(),
+            _Step.standaloneConfig => _buildStandaloneConfig(),
+          },
+        ),
+      ),
+    );
+  }
+
+  // ── 모드 선택 페이지 ─────────────────────────────────────────
+  Widget _buildModeSelect() {
+    return SingleChildScrollView(
+      key: const ValueKey('selectMode'),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SizedBox(height: 24),
+          const Icon(Icons.shield_outlined, size: 60, color: Color(0xFF1A73E8)),
+          const SizedBox(height: 20),
+          const Text(
+            '나만의 안전신문고',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            '연결 방식을 선택해주세요',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 15, color: Colors.grey),
+          ),
+          const SizedBox(height: 40),
+          _ModeCard(
+            icon: Icons.dns_rounded,
+            color: const Color(0xFF1A73E8),
+            title: '서버 모드',
+            description: '직접 구축한 크롤링 서버와 연결합니다.\n자동 크롤링, 통계, 파일 관리 등 모든 기능을 사용할 수 있습니다.',
+            badge: '기존 방식',
+            onTap: () => _goToStep(_Step.serverConfig),
+          ),
+          const SizedBox(height: 16),
+          _ModeCard(
+            icon: Icons.phone_android_rounded,
+            color: const Color(0xFF0F9D58),
+            title: '직접 연결 (스탠드어론)',
+            description: '안전신문고 계정으로 앱에서 직접 접근합니다.\n서버 없이 신고 현황을 조회할 수 있습니다.',
+            badge: 'NEW',
+            badgeColor: Colors.orange,
+            onTap: () => _goToStep(_Step.standaloneConfig),
+          ),
+          const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+
+  // ── 서버 모드 설정 페이지 ────────────────────────────────────
+  Widget _buildServerConfig() {
+    final cs = Theme.of(context).colorScheme;
+    return SingleChildScrollView(
+      key: const ValueKey('serverConfig'),
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => _goToStep(_Step.selectMode),
               ),
-              keyboardType: TextInputType.url,
-              autocorrect: false,
-              enabled: !_loading,
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _apiController,
-              decoration: const InputDecoration(
-                labelText: 'API Key',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.vpn_key),
-              ),
-              obscureText: true,
-              autocorrect: false,
-              enabled: !_loading,
-            ),
-            if (_errorMessage != null) ...[
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.red.shade50,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.red.shade200),
+              const SizedBox(width: 4),
+              Text(
+                '서버 연결 설정',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: cs.primary,
                 ),
-                child: Row(
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          const Icon(Icons.dns_rounded, size: 52, color: Color(0xFF1A73E8)),
+          const SizedBox(height: 16),
+          const Text(
+            '서버 URL과 API Key를 입력해주세요.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.grey),
+          ),
+          const SizedBox(height: 28),
+          TextField(
+            controller: _urlController,
+            decoration: const InputDecoration(
+              labelText: '서버 URL',
+              hintText: 'https://...',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.link),
+            ),
+            keyboardType: TextInputType.url,
+            autocorrect: false,
+            enabled: !_loading,
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _apiController,
+            decoration: const InputDecoration(
+              labelText: 'API Key',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.vpn_key),
+            ),
+            obscureText: true,
+            autocorrect: false,
+            enabled: !_loading,
+          ),
+          _buildError(),
+          const SizedBox(height: 24),
+          FilledButton.icon(
+            icon: _loading
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Icon(Icons.wifi_find, size: 18),
+            label: Text(_loading ? '연결 확인 중...' : '연결 확인 후 시작하기'),
+            style: FilledButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+            ),
+            onPressed: _loading ? null : _connectServer,
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── 스탠드어론 설정 페이지 ───────────────────────────────────
+  Widget _buildStandaloneConfig() {
+    final cs = Theme.of(context).colorScheme;
+    return SingleChildScrollView(
+      key: const ValueKey('standaloneConfig'),
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () => _goToStep(_Step.selectMode),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                '안전신문고 로그인',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: const Color(0xFF0F9D58),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          const Icon(Icons.lock_open_rounded, size: 52, color: Color(0xFF0F9D58)),
+          const SizedBox(height: 16),
+          const Text(
+            '안전신문고 아이디와 비밀번호를 입력하세요.\n서버 없이 앱에서 직접 신고 현황을 조회합니다.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.grey, height: 1.5),
+          ),
+          const SizedBox(height: 28),
+          TextField(
+            controller: _usernameController,
+            decoration: const InputDecoration(
+              labelText: '아이디',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.person_outline),
+            ),
+            autocorrect: false,
+            textInputAction: TextInputAction.next,
+            enabled: !_loading,
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _passwordController,
+            decoration: InputDecoration(
+              labelText: '비밀번호',
+              border: const OutlineInputBorder(),
+              prefixIcon: const Icon(Icons.lock_outline),
+              suffixIcon: IconButton(
+                icon: Icon(_obscurePw ? Icons.visibility_off : Icons.visibility, size: 20),
+                onPressed: () => setState(() => _obscurePw = !_obscurePw),
+              ),
+            ),
+            obscureText: _obscurePw,
+            autocorrect: false,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _loading ? null : _loginStandalone(),
+            enabled: !_loading,
+          ),
+          _buildError(),
+          const SizedBox(height: 24),
+          FilledButton.icon(
+            icon: _loading
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Icon(Icons.login, size: 18),
+            label: Text(_loading ? '로그인 중...' : '로그인'),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF0F9D58),
+              padding: const EdgeInsets.symmetric(vertical: 16),
+            ),
+            onPressed: _loading ? null : _loginStandalone,
+          ),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.grey.shade200),
+            ),
+            child: const Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.info_outline, size: 16, color: Colors.grey),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '비밀번호는 RSA 암호화 후 안전신문고 서버에만 전송되며 기기에 저장되지 않습니다.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey, height: 1.5),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildError() {
+    if (_errorMessage == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.red.shade50,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.red.shade200),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.error_outline, color: Colors.red.shade700, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                _errorMessage!,
+                style: TextStyle(color: Colors.red.shade800, fontSize: 13, height: 1.5),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ModeCard extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String description;
+  final String badge;
+  final Color? badgeColor;
+  final VoidCallback onTap;
+
+  const _ModeCard({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.description,
+    required this.badge,
+    this.badgeColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bc = badgeColor ?? color;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            border: Border.all(color: color.withOpacity(0.3)),
+            borderRadius: BorderRadius.circular(16),
+            color: color.withOpacity(0.04),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(icon, color: color, size: 28),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.error_outline, color: Colors.red.shade700, size: 18),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _errorMessage!,
-                        style: TextStyle(color: Colors.red.shade800, fontSize: 13, height: 1.5),
-                      ),
+                    Row(
+                      children: [
+                        Text(
+                          title,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: color,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: bc.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: bc.withOpacity(0.4)),
+                          ),
+                          child: Text(
+                            badge,
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: bc,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      description,
+                      style: const TextStyle(fontSize: 13, color: Colors.grey, height: 1.4),
                     ),
                   ],
                 ),
               ),
+              Icon(Icons.chevron_right, color: color.withOpacity(0.5)),
             ],
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              icon: _loading
-                  ? const SizedBox(
-                      width: 18, height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Icon(Icons.wifi_find, size: 18),
-              label: Text(_loading ? '연결 확인 중...' : '연결 확인 후 시작하기'),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-              ),
-              onPressed: _loading ? null : _connect,
-            ),
-          ],
+          ),
         ),
       ),
     );

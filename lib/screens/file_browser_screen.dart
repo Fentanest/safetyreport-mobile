@@ -1,12 +1,17 @@
 import 'dart:io';
+import 'package:excel/excel.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
+import '../models/app_mode.dart';
 import '../models/file_item.dart';
+import '../models/report.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
+import '../services/local_db_service.dart';
 
 class FileBrowserScreen extends StatefulWidget {
   const FileBrowserScreen({super.key});
@@ -16,26 +21,235 @@ class FileBrowserScreen extends StatefulWidget {
 }
 
 class _FileBrowserScreenState extends State<FileBrowserScreen> {
+  // server mode state
   List<FileItem>? _rootItems;
-  bool _loading = true;
   String? _error;
   late ApiService _api;
   String _baseUrl = '';
   String _apiKey = '';
 
+  // standalone mode state
+  List<FileSystemEntity> _localFiles = [];
+  bool _exporting = false;
+
+  bool _loading = true;
+  late final bool _isStandalone;
+
   @override
   void initState() {
     super.initState();
+    _isStandalone = Provider.of<ReportProvider>(context, listen: false).appMode ==
+        AppMode.standalone;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final p = context.read<ReportProvider>();
-      _baseUrl = p.baseUrl;
-      _apiKey = p.apiKey;
-      _api = ApiService(baseUrl: _baseUrl, apiKey: _apiKey);
-      _load('');
+      if (_isStandalone) {
+        _loadLocalFiles();
+      } else {
+        final p = context.read<ReportProvider>();
+        _baseUrl = p.baseUrl;
+        _apiKey = p.apiKey;
+        _api = ApiService(baseUrl: _baseUrl, apiKey: _apiKey);
+        _loadServer('');
+      }
     });
   }
 
-  Future<void> _load(String path) async {
+  // ── 스탠드어론 ─────────────────────────────────────────────────────────────
+
+  Future<Directory> _exportsDir() async {
+    final base = await getApplicationDocumentsDirectory();
+    final dir = Directory('${base.path}/exports');
+    if (!dir.existsSync()) dir.createSync(recursive: true);
+    return dir;
+  }
+
+  Future<void> _loadLocalFiles() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      final dir = await _exportsDir();
+      final files = dir
+          .listSync()
+          .whereType<File>()
+          .toList()
+        ..sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+      if (mounted) setState(() { _localFiles = files; _loading = false; });
+    } catch (e) {
+      if (mounted) setState(() { _error = e.toString(); _loading = false; });
+    }
+  }
+
+  Future<void> _exportExcel() async {
+    if (_exporting) return;
+    setState(() => _exporting = true);
+
+    try {
+      final tReports = await LocalDbService.getReportsByCategory('traffic');
+      final pReports = await LocalDbService.getReportsByCategory('parking');
+      final oReports = await LocalDbService.getReportsByCategory('other');
+
+      final excel = Excel.createExcel();
+      _fillSheet(excel, '교통위반', tReports);
+      _fillSheet(excel, '주정차위반', pReports);
+      _fillSheet(excel, '기타위반', oReports);
+      // remove default sheet
+      excel.delete('Sheet1');
+
+      final dir = await _exportsDir();
+      final ts = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+      final path = '${dir.path}/안전신문고_$ts.xlsx';
+      final bytes = excel.encode();
+      if (bytes == null) throw Exception('Excel 인코딩 실패');
+      await File(path).writeAsBytes(bytes);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('저장됨: 안전신문고_$ts.xlsx')),
+        );
+        await _loadLocalFiles();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('내보내기 실패: $e'),
+              backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
+  void _fillSheet(Excel excel, String sheetName, List<Report> reports) {
+    final sheet = excel[sheetName];
+    final headers = [
+      '신고번호', '신고명', '신고일', '답변일', '처리기관', '담당자',
+      '처리상태', '결과', '범칙금/과태료', '벌점', '차량번호', '위반법규',
+      '위반장소', '발생일자', '발생시각',
+    ];
+    for (var col = 0; col < headers.length; col++) {
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: col, rowIndex: 0))
+          .value = TextCellValue(headers[col]);
+    }
+    for (var row = 0; row < reports.length; row++) {
+      final r = reports[row];
+      final values = [
+        r.reportNumber, r.name, r.date, r.responseDate, r.agency, r.manager,
+        r.status, r.result, r.fineInfo, r.penaltyPoints, r.carNumber, r.law,
+        r.location, r.occurrenceDate, r.occurrenceTime,
+      ];
+      for (var col = 0; col < values.length; col++) {
+        sheet.cell(CellIndex.indexByColumnRow(columnIndex: col, rowIndex: row + 1))
+            .value = TextCellValue(values[col]);
+      }
+    }
+  }
+
+  void _openLocalFile(FileSystemEntity f) async {
+    final result = await OpenFilex.open(f.path);
+    if (result.type != ResultType.done && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('열 수 있는 앱이 없습니다: ${f.path.split('/').last}')),
+      );
+    }
+  }
+
+  void _deleteLocalFile(FileSystemEntity f) async {
+    final name = f.path.split('/').last;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('파일 삭제'),
+        content: Text('$name 을(를) 삭제하시겠습니까?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('취소')),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      f.deleteSync();
+      _loadLocalFiles();
+    }
+  }
+
+  Widget _buildStandalone() {
+    return Scaffold(
+      appBar: AppBar(title: const Text('파일 브라우저')),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _exporting ? null : _exportExcel,
+        icon: _exporting
+            ? const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+            : const Icon(Icons.file_download),
+        label: Text(_exporting ? '내보내는 중...' : 'Excel 내보내기'),
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? _errorView(() => _loadLocalFiles())
+              : RefreshIndicator(
+                  onRefresh: _loadLocalFiles,
+                  child: _localFiles.isEmpty
+                      ? LayoutBuilder(
+                          builder: (_, c) => SingleChildScrollView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            child: ConstrainedBox(
+                              constraints:
+                                  BoxConstraints(minHeight: c.maxHeight),
+                              child: const Center(
+                                child: Text('내보낸 파일이 없습니다.\n아래 버튼으로 Excel을 생성하세요.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                        color: Colors.grey, fontSize: 14)),
+                              ),
+                            ),
+                          ),
+                        )
+                      : ListView.builder(
+                          itemCount: _localFiles.length,
+                          itemBuilder: (_, i) {
+                            final f = _localFiles[i];
+                            final name = f.path.split('/').last;
+                            final stat = f.statSync();
+                            final size = stat.size;
+                            final modified = DateFormat('yy/MM/dd HH:mm')
+                                .format(stat.modified.toLocal());
+                            final sizeStr = size < 1024 * 1024
+                                ? '${(size / 1024).toStringAsFixed(1)} KB'
+                                : '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
+                            return ListTile(
+                              leading: const Icon(Icons.table_chart,
+                                  color: Colors.green),
+                              title: Text(name,
+                                  style: const TextStyle(fontSize: 13)),
+                              subtitle: Text('$sizeStr  ·  $modified',
+                                  style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey.shade600)),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.delete_outline,
+                                    color: Colors.red),
+                                onPressed: () => _deleteLocalFile(f),
+                              ),
+                              onTap: () => _openLocalFile(f),
+                            );
+                          },
+                        ),
+                ),
+    );
+  }
+
+  // ── 서버 모드 ────────────────────────────────────────────────────────────────
+
+  Future<void> _loadServer(String path) async {
     setState(() {
       _loading = true;
       _error = null;
@@ -49,37 +263,39 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     }
   }
 
+  Widget _errorView(VoidCallback onRetry) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline, size: 48, color: Colors.red),
+              const SizedBox(height: 12),
+              Text(_error!, textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 13)),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                icon: const Icon(Icons.refresh),
+                label: const Text('다시 시도'),
+                onPressed: onRetry,
+              ),
+            ],
+          ),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
+    if (_isStandalone) return _buildStandalone();
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('파일 브라우저'),
-      ),
+      appBar: AppBar(title: const Text('파일 브라우저')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                        const SizedBox(height: 12),
-                        Text(_error!, textAlign: TextAlign.center,
-                            style: const TextStyle(fontSize: 13)),
-                        const SizedBox(height: 16),
-                        FilledButton.icon(
-                          icon: const Icon(Icons.refresh),
-                          label: const Text('다시 시도'),
-                          onPressed: () => _load(''),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
+              ? _errorView(() => _loadServer(''))
               : RefreshIndicator(
-                  onRefresh: () => _load(''),
+                  onRefresh: () => _loadServer(''),
                   child: ListView.builder(
                     itemCount: _rootItems?.length ?? 0,
                     itemBuilder: (context, i) => _TreeNode(

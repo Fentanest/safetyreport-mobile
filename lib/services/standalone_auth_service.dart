@@ -38,11 +38,11 @@ class StandaloneAuthService {
         )
         .timeout(const Duration(seconds: 15));
 
-    if (tokenRes.statusCode == 401) {
+    if (tokenRes.statusCode == 401 || tokenRes.statusCode == 400) {
       throw Exception('아이디 또는 비밀번호가 올바르지 않습니다.');
     }
     if (tokenRes.statusCode != 200) {
-      throw Exception('로그인 실패 (HTTP ${tokenRes.statusCode})');
+      throw Exception('로그인 실패 (HTTP ${tokenRes.statusCode})\n응답: ${tokenRes.body.length > 200 ? tokenRes.body.substring(0, 200) : tokenRes.body}');
     }
 
     final tokenData = jsonDecode(tokenRes.body) as Map<String, dynamic>;
@@ -86,7 +86,7 @@ class StandaloneAuthService {
 
     final input = Uint8List.fromList(utf8.encode(plaintext));
     final encrypted = cipher.process(input);
-    return encrypted.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    return base64Encode(encrypted);
   }
 
   static SecureRandom _buildSecureRandom() {

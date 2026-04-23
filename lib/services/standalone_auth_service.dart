@@ -43,6 +43,12 @@ class StandaloneAuthService {
       throw Exception('RSA 키 조회 실패 (${keyRes.statusCode})');
     }
 
+    // JSESSIONID 쿠키 추출 — 서버가 RSA 키를 세션에 바인딩하므로 토큰 요청에 함께 전달해야 함
+    final setCookie = keyRes.headers['set-cookie'];
+    final sessionCookie = setCookie != null
+        ? setCookie.split(';').first.trim()
+        : null;
+
     final keyData = jsonDecode(keyRes.body) as Map<String, dynamic>;
     final modulusHex = keyData['RSAModulus'] as String;
     final exponentHex = keyData['RSAExponent'] as String;
@@ -50,11 +56,14 @@ class StandaloneAuthService {
     // 비밀번호 RSA 암호화 (특수문자 포함 모두 utf8→bytes→PKCS1→hex)
     final encryptedPw = _rsaEncryptHex(modulusHex, exponentHex, password);
 
+    final tokenHeaders = Map<String, String>.from(_commonHeaders);
+    if (sessionCookie != null) tokenHeaders['Cookie'] = sessionCookie;
+
     // 토큰 발급 - body를 Map으로 전달해 http 패키지가 URL 인코딩을 처리하게 함
     final tokenRes = await http
         .post(
           Uri.parse('$_base/oauth/token'),
-          headers: _commonHeaders,
+          headers: tokenHeaders,
           body: {
             'client_id': 'web',
             'grant_type': 'password',

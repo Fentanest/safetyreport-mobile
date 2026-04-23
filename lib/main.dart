@@ -10,6 +10,7 @@ import 'screens/setup_screen.dart';
 import 'screens/file_browser_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/crawl_screen.dart';
+import 'models/app_mode.dart';
 import 'models/report.dart';
 import 'providers/report_provider.dart';
 import 'providers/notification_history_provider.dart';

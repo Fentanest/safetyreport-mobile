@@ -422,7 +422,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (_isRestoringDb) return;
 
-    final result = await FilePicker.platform.pickFiles(
+    final result = await FilePicker.pickFiles(
       type: FileType.any,
     );
 

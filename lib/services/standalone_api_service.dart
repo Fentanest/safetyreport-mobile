@@ -98,7 +98,8 @@ class StandaloneApiService {
       throw Exception('상세 조회 실패 ($cNo, ${res.statusCode})');
     }
 
-    return jsonDecode(res.body) as Map<String, dynamic>;
+    final json = jsonDecode(res.body) as Map<String, dynamic>;
+    return (json['result'] as Map<String, dynamic>?) ?? json;
   }
 
   /// 전체 신고 건수 확인 (totalCnt 필드)

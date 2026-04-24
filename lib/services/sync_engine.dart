@@ -131,9 +131,10 @@ class SyncEngine {
       try {
         final detail = await StandaloneApiService.fetchReportDetail(cNo);
         final report = parseJsonToReport(item, detail);
-        final cat = categoryFromEntryValue(entryValueFromDetail(item, detail));
+        final ev = entryValueFromDetail(item, detail);
+        final cat = categoryFromEntryValue(ev);
 
-        await LocalDbService.upsertReport(report, cat);
+        await LocalDbService.upsertReport(report, cat, ev);
         done++;
 
         if (done % 10 == 0) {
@@ -151,8 +152,9 @@ class SyncEngine {
         try {
           final detail = await StandaloneApiService.fetchReportDetail(cNo);
           final report = parseJsonToReport(item, detail);
-          final cat = categoryFromEntryValue(entryValueFromDetail(item, detail));
-          await LocalDbService.upsertReport(report, cat);
+          final ev = entryValueFromDetail(item, detail);
+          final cat = categoryFromEntryValue(ev);
+          await LocalDbService.upsertReport(report, cat, ev);
           done++;
         } catch (retryErr) {
           errors++;

@@ -74,7 +74,8 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
   final entryValue = entryMatch?.group(1)?.trim() ??
       (detailData['C_APP_GUBUN_NM'] as String? ?? '');
 
-  final carMatch = RegExp(r'차량번호\s*:\s*(.*?)(?=\n|\(위)').firstMatch(content);
+  // \n, *(다음 항목), (위, 문자열 끝 모두를 종단점으로 처리
+  final carMatch = RegExp(r'차량번호\s*:\s*(.*?)(?=\n|\*|\(위|$)').firstMatch(content);
   var carNumber = carMatch != null
       ? carMatch.group(1)!.replaceAll(RegExp(r'\s+'), '')
       : '';
@@ -263,8 +264,18 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
   final dateRaw = (detailData['C_DATE'] ?? listData['C_DATE'] ?? '') as String;
   final date = dateRaw.isNotEmpty ? dateRaw.split(' ').first : '';
 
-  // 만족도조사
+  // ── 만족도조사여부 (서버 crawltitle_api.py 동일 로직) ──────────────────────
   final stsfdg = int.tryParse((listData['STSFDG_SCORE'] ?? '0').toString()) ?? 0;
+  final String pollStatus;
+  if (stsfdg > 0) {
+    pollStatus = '참여 완료';
+  } else if ([10, 11, 14, 15].contains(cNow)) {
+    pollStatus = '참여 가능';
+  } else if ([20, 30].contains(cNow)) {
+    pollStatus = '참여 불가';
+  } else {
+    pollStatus = '답변 대기';
+  }
 
   return Report(
     id: cNo,
@@ -288,5 +299,7 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
     attachedPhotos: imgLinks.join('\n'),
     attachedFiles: otherLinks.join('\n'),
     mapImage: mapImage,
+    pollStatus: pollStatus,
+    processingFinish: processingFinish,
   );
 }

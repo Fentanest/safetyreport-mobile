@@ -6,8 +6,8 @@ class Report {
   final String responseDate;
   final String agency;
   final String manager;
-  final String status;
-  final String result;
+  final String status;       // 처리상태
+  final String result;       // 상태 (C_NOW)
   final String fineInfo;
   final String penaltyPoints;
   final String carNumber;
@@ -17,11 +17,13 @@ class Report {
   final String occurrenceTime;
   final String reportContent;
   final String processContent;
-  final String attachedPhotos;  // 첨부사진 (줄바꿈 구분 URL 목록)
-  final String attachedFiles;   // 첨부파일 (줄바꿈 구분 URL 목록)
-  final String mapImage;        // 지도 이미지 URL
-  final int totalCount;         // 중복차량 전체 신고 횟수
-  final int validCount;         // 중복차량 유효 신고 횟수 (취하 제외)
+  final String attachedPhotos;
+  final String attachedFiles;
+  final String mapImage;
+  final String pollStatus;      // 만족도조사여부
+  final String processingFinish; // 종결여부 (Y/N)
+  final int totalCount;
+  final int validCount;
 
   Report({
     required this.id,
@@ -45,6 +47,8 @@ class Report {
     this.attachedPhotos = '',
     this.attachedFiles = '',
     this.mapImage = '',
+    this.pollStatus = '답변 대기',
+    this.processingFinish = 'N',
     this.totalCount = 0,
     this.validCount = 0,
   });
@@ -72,6 +76,8 @@ class Report {
       attachedPhotos: json['첨부사진']?.toString() ?? '',
       attachedFiles: json['첨부파일']?.toString() ?? '',
       mapImage: json['지도']?.toString() ?? '',
+      pollStatus: json['만족도조사여부']?.toString() ?? '답변 대기',
+      processingFinish: json['종결여부']?.toString() ?? 'N',
       totalCount: (json['total_count'] as num?)?.toInt() ?? 0,
       validCount: (json['valid_count'] as num?)?.toInt() ?? 0,
     );

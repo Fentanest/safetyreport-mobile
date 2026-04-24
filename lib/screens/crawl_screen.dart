@@ -471,7 +471,7 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
         Expanded(
           child: FilledButton.icon(
             icon: const Icon(Icons.sync),
-            label: const Text('신규만 동기화'),
+            label: const Text('동기화'),
             onPressed: _isRunning
                 ? null
                 : () => _startSync(fullSync: false),

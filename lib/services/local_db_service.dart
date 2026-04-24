@@ -175,6 +175,13 @@ class LocalDbService {
     return rows.isEmpty ? null : _rowToReport(rows.first);
   }
 
+  /// 신고번호(STTEMNT_NO, SPP-...)로 DB 조회. 단건 자동 sync 용.
+  static Future<Report?> getReportByNumber(String reportNumber) async {
+    final d = await db;
+    final rows = await d.query('reports', where: '신고번호 = ?', whereArgs: [reportNumber], limit: 1);
+    return rows.isEmpty ? null : _rowToReport(rows.first);
+  }
+
   static Future<int> getTotalCount() async {
     final d = await db;
     final r = await d.rawQuery('SELECT COUNT(*) as cnt FROM reports');

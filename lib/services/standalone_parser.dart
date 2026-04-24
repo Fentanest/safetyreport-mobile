@@ -16,6 +16,20 @@ const _trafficEntry = '자동차·교통위반';
 
 // ── 카테고리 분류 (서버 database.py category_from_entry_value 와 동일) ──────────
 
+/// 목록+상세 API 응답에서 entryValue를 추출한다.
+/// sync_engine 에서 카테고리 분류용으로 사용.
+String entryValueFromDetail(
+    Map<String, dynamic> listData, Map<String, dynamic> detailData) {
+  final rawContent =
+      (detailData['C_A_CONTENTS'] ?? detailData['C_A_BODY'] ?? '') as String;
+  final content = _normalizeNumbers(rawContent);
+  final m = RegExp(
+    r'본 신고는 안전신문고 (?:앱의|포털의) (.+?) 메뉴로 접수된 신고입니다',
+  ).firstMatch(content);
+  return m?.group(1)?.trim() ??
+      (detailData['C_APP_GUBUN_NM'] as String? ?? '');
+}
+
 String categoryFromEntryValue(String entryValue) {
   if (entryValue.contains('자동차·교통위반')) return 'traffic';
   if (entryValue.contains('불법주정차신고')) return 'parking';

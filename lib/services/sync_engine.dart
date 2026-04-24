@@ -131,12 +131,7 @@ class SyncEngine {
       try {
         final detail = await StandaloneApiService.fetchReportDetail(cNo);
         final report = parseJsonToReport(item, detail);
-        final entryMatch = RegExp(
-          r'본 신고는 안전신문고 (?:앱의|포털의) (.+?) 메뉴로 접수된 신고입니다',
-        ).firstMatch(report.reportContent);
-        final entryValue = entryMatch?.group(1)?.trim() ??
-            detail['C_APP_GUBUN_NM']?.toString() ?? '';
-        final cat = categoryFromEntryValue(entryValue);
+        final cat = categoryFromEntryValue(entryValueFromDetail(item, detail));
 
         await LocalDbService.upsertReport(report, cat);
         done++;
@@ -156,12 +151,7 @@ class SyncEngine {
         try {
           final detail = await StandaloneApiService.fetchReportDetail(cNo);
           final report = parseJsonToReport(item, detail);
-          final entryMatch = RegExp(
-            r'본 신고는 안전신문고 (?:앱의|포털의) (.+?) 메뉴로 접수된 신고입니다',
-          ).firstMatch(report.reportContent);
-          final entryValue = entryMatch?.group(1)?.trim() ??
-              detail['C_APP_GUBUN_NM']?.toString() ?? '';
-          final cat = categoryFromEntryValue(entryValue);
+          final cat = categoryFromEntryValue(entryValueFromDetail(item, detail));
           await LocalDbService.upsertReport(report, cat);
           done++;
         } catch (retryErr) {

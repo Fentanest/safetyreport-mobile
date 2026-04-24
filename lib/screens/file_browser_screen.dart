@@ -103,11 +103,12 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
       final tReports = await LocalDbService.getReportsByCategory('traffic');
       final pReports = await LocalDbService.getReportsByCategory('parking');
       final oReports = await LocalDbService.getReportsByCategory('other');
+      final watchlist = await LocalDbService.getWatchlistNumbers();
 
       final excel = Excel.createExcel();
-      _fillSheet(excel, '교통위반', tReports);
-      _fillSheet(excel, '주정차위반', pReports);
-      _fillSheet(excel, '기타위반', oReports);
+      _fillSheet(excel, '교통위반', tReports, watchlist);
+      _fillSheet(excel, '주정차위반', pReports, watchlist);
+      _fillSheet(excel, '기타위반', oReports, watchlist);
       // remove default sheet
       excel.delete('Sheet1');
 
@@ -137,12 +138,14 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     }
   }
 
-  void _fillSheet(Excel excel, String sheetName, List<Report> reports) {
+  void _fillSheet(Excel excel, String sheetName, List<Report> reports, Set<String> watchlist) {
     final sheet = excel[sheetName];
+    // 서버 mysafetymerge_* 테이블 컬럼 순서와 동일
     final headers = [
-      '신고번호', '신고명', '신고일', '답변일', '처리기관', '담당자',
-      '처리상태', '결과', '범칙금/과태료', '벌점', '차량번호', '위반법규',
-      '위반장소', '발생일자', '발생시각',
+      '상태', '신고번호', '신고명', '신고일', '만족도조사여부', '감시목록',
+      '처리상태', '차량번호', '위반법규', '범칙금_과태료', '벌점',
+      '처리기관', '담당자', '답변일', '발생일자', '발생시각', '위반장소',
+      '종결여부', '신고내용', '처리내용', '지도', '첨부사진', '첨부파일',
     ];
     for (var col = 0; col < headers.length; col++) {
       sheet.cell(CellIndex.indexByColumnRow(columnIndex: col, rowIndex: 0))
@@ -151,9 +154,11 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     for (var row = 0; row < reports.length; row++) {
       final r = reports[row];
       final values = [
-        r.reportNumber, r.name, r.date, r.responseDate, r.agency, r.manager,
-        r.status, r.result, r.fineInfo, r.penaltyPoints, r.carNumber, r.law,
-        r.location, r.occurrenceDate, r.occurrenceTime,
+        r.result, r.reportNumber, r.name, r.date, r.pollStatus,
+        watchlist.contains(r.reportNumber) ? 'Y' : 'N',
+        r.status, r.carNumber, r.law, r.fineInfo, r.penaltyPoints,
+        r.agency, r.manager, r.responseDate, r.occurrenceDate, r.occurrenceTime, r.location,
+        r.processingFinish, r.reportContent, r.processContent, r.mapImage, r.attachedPhotos, r.attachedFiles,
       ];
       for (var col = 0; col < values.length; col++) {
         sheet.cell(CellIndex.indexByColumnRow(columnIndex: col, rowIndex: row + 1))

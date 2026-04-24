@@ -70,14 +70,17 @@ class SyncEngine {
       return;
     }
 
-    // 기존 DB의 c_no 목록
-    final existing = <String>{};
+    // 기존 DB 상태 스냅샷: ID → {상태, 종결여부}
+    // 서버와 동일한 증분 로직: 신규 OR (종결여부='N' AND 목록상태 ≠ DB상태)
+    final existingStatus = <String, Map<String, String>>{};
     if (!fullSync) {
       final reports = await LocalDbService.getAllReports();
       for (final r in reports) {
-        if (r.id.isNotEmpty) existing.add(r.id);
+        if (r.id.isNotEmpty) {
+          existingStatus[r.id] = {'상태': r.result, '종결여부': r.processingFinish};
+        }
       }
-      _log('기존 저장 ${existing.length}건, 신규 확인 시작');
+      _log('기존 저장 ${existingStatus.length}건, 신규/변경 확인 시작');
     } else {
       _log('전체 재동기화 모드');
       await LocalDbService.clearAll();
@@ -104,12 +107,25 @@ class SyncEngine {
       start += pageSize;
     }
 
-    // 신규/변경 항목 필터
+    // 신규/변경 항목 필터 (서버 _get_new_and_incomplete_ids 동일 로직)
+    // - 신규: DB에 없는 ID
+    // - 변경: 종결여부='N' AND 목록의 C_NOW 상태가 DB 상태와 다름
+    final _cNowStatus = <int, String>{
+      0: '진행', 10: '답변완료', 11: '일부수용', 12: '검토중',
+      14: '불수용', 15: '기타', 20: '취하', 30: '이송',
+    };
     final toSync = fullSync
         ? allItems
         : allItems.where((item) {
             final cNo = item['C_NO']?.toString() ?? '';
-            return !existing.contains(cNo);
+            final snap = existingStatus[cNo];
+            if (snap == null) return true; // 신규
+            if (snap['종결여부'] == 'Y') return false; // 종결 완료 → 스킵
+            // 목록 상태와 DB 상태 비교
+            int cNow = 0;
+            try { cNow = (item['C_NOW'] as num?)?.toInt() ?? 0; } catch (_) {}
+            final listStatus = _cNowStatus[cNow] ?? '진행';
+            return listStatus != snap['상태']; // 상태 변경 시 재조회
           }).toList();
 
     _log('상세 조회 대상: ${toSync.length}건');

@@ -28,6 +28,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
   late ApiService _api;
   String _baseUrl = '';
   String _apiKey = '';
+  String _currentPath = '';
 
   // standalone mode state
   List<FileSystemEntity> _localFiles = [];
@@ -35,6 +36,8 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
 
   bool _loading = true;
   late final bool _isStandalone;
+
+  int _lastRefreshNonce = 0;
 
   @override
   void initState() {
@@ -52,6 +55,26 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
         _loadServer('');
       }
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 탭 전환 시 ReportProvider.bumpFilesRefresh() 로 nonce 변경되면 재로드
+    final nonce = context.watch<ReportProvider>().filesRefreshNonce;
+    if (nonce != _lastRefreshNonce) {
+      _lastRefreshNonce = nonce;
+      if (nonce != 0) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          if (_isStandalone) {
+            _loadLocalFiles();
+          } else {
+            _loadServer(_currentPath);
+          }
+        });
+      }
+    }
   }
 
   // ── 스탠드어론 ─────────────────────────────────────────────────────────────
@@ -305,6 +328,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
   // ── 서버 모드 ────────────────────────────────────────────────────────────────
 
   Future<void> _loadServer(String path) async {
+    _currentPath = path;
     setState(() {
       _loading = true;
       _error = null;

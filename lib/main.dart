@@ -181,7 +181,43 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     if (call.method == 'navigateToTab') {
       final args = call.arguments as Map?;
       final tab = (args?['tab'] as num?)?.toInt() ?? 3;
-      if (mounted) setState(() => _selectedIndex = tab);
+      if (mounted) {
+        setState(() => _selectedIndex = tab);
+        _refreshOnTab(tab);
+      }
+    }
+  }
+
+  /// 탭 변경 시 해당 화면 새로고침.
+  /// 0 대시보드, 1 신고리스트, 2 통계, 3 알림, 4 파일, 5 동기화/크롤링
+  void _refreshOnTab(int index) {
+    if (!mounted) return;
+    final p = context.read<ReportProvider>();
+    switch (index) {
+      case 0:
+        if (p.isConfigured) p.fetchSummary();
+        break;
+      case 1:
+        if (p.isConfigured) {
+          p.fetchTrafficReports();
+          p.fetchParkingReports();
+          p.fetchOtherReports();
+          p.fetchDuplicateReports();
+          p.fetchWatchlistNumbers();
+        }
+        break;
+      case 2:
+        p.bumpStatsRefresh();
+        break;
+      case 3:
+        context.read<NotificationHistoryProvider>().load();
+        break;
+      case 4:
+        p.bumpFilesRefresh();
+        break;
+      case 5:
+        // 동기화/크롤링 탭은 사용자 액션 기반이므로 자동 새로고침 없음
+        break;
     }
   }
 
@@ -491,10 +527,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
         selectedIndex: _selectedIndex,
         onDestinationSelected: (index) {
           setState(() => _selectedIndex = index);
-          // 알림 탭(index 3) 선택 시 새로고침
-          if (index == 3) {
-            context.read<NotificationHistoryProvider>().load();
-          }
+          _refreshOnTab(index);
         },
         destinations: [
           const NavigationDestination(

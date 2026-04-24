@@ -143,7 +143,7 @@ class _SetupScreenState extends State<SetupScreen> {
           _ModeCard(
             icon: Icons.dns_rounded,
             color: const Color(0xFF1A73E8),
-            title: '서버 모드',
+            title: 'Client 모드',
             description: '직접 구축한 크롤링 서버와 연결합니다.\n자동 크롤링, 통계, 파일 관리 등 모든 기능을 사용할 수 있습니다.',
             badge: '기존 방식',
             onTap: () => _goToStep(_Step.serverConfig),

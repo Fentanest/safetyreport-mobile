@@ -574,7 +574,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            isStandalone ? '직접 연결 (스탠드어론)' : '서버 모드',
+                            isStandalone ? '직접 연결 (스탠드어론)' : 'Client 모드',
                             style: const TextStyle(
                               fontSize: 14, fontWeight: FontWeight.bold,
                             ),

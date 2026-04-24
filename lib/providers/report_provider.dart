@@ -124,6 +124,15 @@ class ReportProvider with ChangeNotifier {
   bool _excludeWithdraw = false;
   bool _normalizePolice = false;
 
+  // 탭 전환 시 내부 state 가 있는 화면(통계/파일)이 재로드하도록 바꾸는 nonce.
+  // 화면들은 이 값을 watch 하다가 변경 시 refresh 를 수행.
+  int _statsRefreshNonce = 0;
+  int _filesRefreshNonce = 0;
+  int get statsRefreshNonce => _statsRefreshNonce;
+  int get filesRefreshNonce => _filesRefreshNonce;
+  void bumpStatsRefresh() { _statsRefreshNonce++; notifyListeners(); }
+  void bumpFilesRefresh() { _filesRefreshNonce++; notifyListeners(); }
+
   AppMode get appMode => _appMode;
   String get standaloneUsername => _standaloneUsername;
   String get baseUrl => _baseUrl;

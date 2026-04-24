@@ -24,10 +24,25 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   String _type = 'agency';  // agency | person | police-agency | police-person | other-agency | other-person
   String? _law;  // null = 전체, '__없음__' = 법규 없음, 그 외 = 특정 법규
 
+  int _lastRefreshNonce = 0;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 탭 전환 시 ReportProvider.bumpStatsRefresh() 로 nonce 가 변경되면 재로드
+    final nonce = context.watch<ReportProvider>().statsRefreshNonce;
+    if (nonce != _lastRefreshNonce) {
+      _lastRefreshNonce = nonce;
+      if (nonce != 0) {
+        WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _load(); });
+      }
+    }
   }
 
   Future<void> _load() async {

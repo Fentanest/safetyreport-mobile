@@ -5,6 +5,7 @@ import '../models/report.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
 import '../services/standalone_auth_service.dart';
+import '../services/standalone_auto_sync_service.dart';
 
 class ReportFilter {
   final String name;
@@ -250,7 +251,21 @@ class ReportProvider with ChangeNotifier {
     if (isConfigured) {
       fetchWatchlistNumbers();
       fetchAppConfig();
+      // standalone: Kotlin NotificationService 가 설정한 sync pending 플래그 확인 → 드레인
+      if (_appMode == AppMode.standalone) {
+        // fire-and-forget. sync 완료 후 데이터 재로드 위해 refreshAll() 호출.
+        StandaloneAutoSyncService.drainIfPending().then((_) {
+          if (_appMode == AppMode.standalone) refreshAll();
+        });
+      }
     }
+  }
+
+  /// foreground 복귀 시 호출 (main.dart AppLifecycleState.resumed).
+  Future<void> checkAutoSyncOnResume() async {
+    if (_appMode != AppMode.standalone || !isConfigured) return;
+    await StandaloneAutoSyncService.drainIfPending();
+    await refreshAll();
   }
 
   Future<void> setConfig(String url, String key) async {

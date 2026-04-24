@@ -170,6 +170,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     if (state == AppLifecycleState.resumed) {
       _checkPendingChanges();
       _checkForegroundEvent();
+      // standalone: Kotlin NotificationService 가 설정한 sync pending 플래그 확인
+      if (mounted) {
+        context.read<ReportProvider>().checkAutoSyncOnResume();
+      }
     }
   }
 

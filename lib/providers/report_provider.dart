@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/app_mode.dart';
@@ -6,6 +7,7 @@ import '../services/api_service.dart';
 import '../services/local_db_service.dart';
 import '../services/standalone_auth_service.dart';
 import '../services/standalone_auto_sync_service.dart';
+import '../services/sync_engine.dart';
 
 class ReportFilter {
   final String name;
@@ -133,6 +135,12 @@ class ReportProvider with ChangeNotifier {
   void bumpStatsRefresh() { _statsRefreshNonce++; notifyListeners(); }
   void bumpFilesRefresh() { _filesRefreshNonce++; notifyListeners(); }
 
+  // SyncEngine.emitChanges 호출 시마다 증가. main.dart 가 watch 하다가
+  // _checkPendingChanges() 재실행 → pending_crawl_changes 소비 + 카드 시트 표시.
+  int _pendingChangesNonce = 0;
+  int get pendingChangesNonce => _pendingChangesNonce;
+  StreamSubscription<void>? _changesEmittedSub;
+
   AppMode get appMode => _appMode;
   String get standaloneUsername => _standaloneUsername;
   String get baseUrl => _baseUrl;
@@ -256,6 +264,11 @@ class ReportProvider with ChangeNotifier {
     _baseUrl = prefs.getString('baseUrl') ?? '';
     _apiKey = prefs.getString('apiKey') ?? '';
     _isInitialized = true;
+    // SyncEngine 의 변경 emit 신호 구독 (manual sync 포함, 모든 sync 경로 커버)
+    _changesEmittedSub ??= SyncEngine.changesEmitted.listen((_) {
+      _pendingChangesNonce++;
+      notifyListeners();
+    });
     notifyListeners();
     if (isConfigured) {
       fetchWatchlistNumbers();
@@ -268,10 +281,16 @@ class ReportProvider with ChangeNotifier {
             await prefs.setBool('standalone_sync_pending', true);
           }
           await StandaloneAutoSyncService.drainIfPending();
-          if (_appMode == AppMode.standalone) refreshAll();
+          if (_appMode == AppMode.standalone) await refreshAll();
         }();
       }
     }
+  }
+
+  @override
+  void dispose() {
+    _changesEmittedSub?.cancel();
+    super.dispose();
   }
 
   /// foreground 복귀 시 호출 (main.dart AppLifecycleState.resumed).

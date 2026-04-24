@@ -21,6 +21,11 @@ import 'sync_engine.dart';
 ///   4. drain 도중 Kotlin 이 큐에 더 추가했으면 다음 iteration 에서 "단건 우선" 로직부터 재실행
 ///   5. 여전히 미발견인 항목은 retry 카운트 증가 (standalone_retry_<번호>, 최대 3회)
 ///      — 즉시 무한 재시도 방지, 다음 외부 트리거 대기
+///
+/// drain 종료 후 신규/처리변경된 신고가 있으면:
+///   - flutter.pending_crawl_changes SharedPref 에 저장 → main.dart 가 카드 시트 표시
+///   - flutter.notifications_history 에 추가 → 알림 탭 히스토리 누적
+///   - 각 신고에 대해 개별 heads-up 알림 표시 (MainActivity.showNotification)
 class StandaloneAutoSyncService {
   static const _pendingFlagKey = 'standalone_sync_pending';
   static const _pendingQueueKey = 'standalone_pending_reports';
@@ -30,9 +35,14 @@ class StandaloneAutoSyncService {
   static bool _running = false;
   static bool get isRunning => _running;
 
+  /// 단건 fetch 에서 발견한 처리변경. SyncEngine.emitChanges 로 emit 하기 전 임시 누적.
+  /// (SyncEngine 의 자체 changes 는 SyncEngine.start() 가 종료 시 자동 emit.)
+  static List<Map<String, dynamic>> _singleFetchChanges = [];
+
   static Future<void> drainIfPending() async {
     if (_running) return;
     _running = true;
+    _singleFetchChanges = [];
     try {
       final prefs = await SharedPreferences.getInstance();
       bool didIncremental = false;
@@ -61,6 +71,7 @@ class StandaloneAutoSyncService {
         if (stillMissing.isEmpty) continue; // 모두 단건 성공 → 다음 iteration
 
         // 2. 미발견 번호 존재 → 증분 sync (이번 drain 에서 1회만)
+        // SyncEngine.start() 는 자체 _lastChanges 를 자동 emit 하므로 별도 누적 불필요.
         if (!didIncremental) {
           didIncremental = true;
           try {
@@ -91,15 +102,22 @@ class StandaloneAutoSyncService {
         // 4. loop 재진입 → drain 중 새로 추가된 번호 있으면 다시 단건 우선 처리
       }
       await prefs.setBool(_pendingFlagKey, false);
+
+      // 단건 fetch 에서 모은 처리변경은 별도 emit
+      if (_singleFetchChanges.isNotEmpty) {
+        await SyncEngine.emitChanges(_singleFetchChanges);
+      }
     } finally {
       _running = false;
     }
   }
 
   /// 신고번호로 DB 조회 → C_NO 있으면 상세 API 단건 호출 + upsert. 성공/실패 반환.
+  /// 처리상태가 바뀌었으면 _singleFetchChanges 에 처리변경으로 추가.
   static Future<bool> _tryFetchSingle(String reportNumber) async {
     final existing = await LocalDbService.getReportByNumber(reportNumber);
     if (existing == null || existing.id.isEmpty) return false;
+    final beforeStatus = existing.status;
     try {
       final detail = await StandaloneApiService.fetchReportDetail(existing.id);
       final ev = entryValueFromDetail(<String, dynamic>{}, detail);
@@ -107,6 +125,11 @@ class StandaloneAutoSyncService {
       final report = parseJsonToReport(<String, dynamic>{}, detail);
       final raw = (detail['C_A_CONTENTS'] ?? detail['C_A_BODY'] ?? '').toString();
       await LocalDbService.upsertReport(report, cat, ev, rawContent: raw);
+      // C_NO 이미 있던 항목 — 신규는 아님. 처리상태가 바뀐 경우만 처리변경.
+      if (beforeStatus != report.status) {
+        _singleFetchChanges
+            .add(SyncEngine.reportToChangeMap(report, '처리변경'));
+      }
       return true;
     } catch (_) {
       return false;

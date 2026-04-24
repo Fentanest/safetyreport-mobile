@@ -181,9 +181,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     if (call.method == 'navigateToTab') {
       final args = call.arguments as Map?;
       final tab = (args?['tab'] as num?)?.toInt() ?? 3;
+      final eventType = args?['event_type']?.toString() ?? '';
       if (mounted) {
         setState(() => _selectedIndex = tab);
         _refreshOnTab(tab);
+      }
+      // standalone: 알림 탭으로 진입 → 동기화 즉시 트리거
+      if (eventType == 'standalone_sync' && mounted) {
+        await context.read<ReportProvider>().checkAutoSyncOnResume();
       }
     }
   }
@@ -507,6 +512,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     );
   }
 
+  int _lastPendingChangesNonce = 0;
+
   @override
   Widget build(BuildContext context) {
     final p = context.watch<ReportProvider>();
@@ -516,6 +523,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
       if (!_syncIconController.isAnimating) _syncIconController.repeat();
     } else {
       if (_syncIconController.isAnimating) _syncIconController.stop();
+    }
+
+    // standalone drain 이 변경을 기록하면 카드 시트 표시 (Client 모드 _checkPendingChanges 와 동일 흐름)
+    if (p.pendingChangesNonce != _lastPendingChangesNonce) {
+      _lastPendingChangesNonce = p.pendingChangesNonce;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _checkPendingChanges();
+      });
     }
 
     return Scaffold(

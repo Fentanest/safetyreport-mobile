@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/report.dart';
 import 'local_db_service.dart';
 import 'standalone_api_service.dart';
 import 'standalone_auth_service.dart';
@@ -31,6 +34,20 @@ class SyncEngine {
   static final _controller = StreamController<SyncEvent>.broadcast();
   static Stream<SyncEvent> get events => _controller.stream;
 
+  /// 마지막 sync 에서 발생한 신규/처리변경 신고 목록.
+  /// 형식: {change_type, 신고번호, 신고명, 처리상태, 처리기관, 범칙금_과태료, ID, ...}
+  /// fullSync 시에는 비움 (전체 재동기화는 변경 알림 의미 없음).
+  static List<Map<String, dynamic>> _lastChanges = [];
+  static List<Map<String, dynamic>> get lastChanges =>
+      List.unmodifiable(_lastChanges);
+
+  /// emitChanges 호출 시마다 신호 — ReportProvider 가 구독해서 카드 시트 트리거.
+  static final _changesEmittedController = StreamController<void>.broadcast();
+  static Stream<void> get changesEmitted => _changesEmittedController.stream;
+
+  static const _methodChannel =
+      MethodChannel('com.fentanest.mysafetyreport/permissions');
+
   static void _emit(SyncEvent e) {
     if (!_controller.isClosed) _controller.add(e);
   }
@@ -41,6 +58,7 @@ class SyncEngine {
   static Future<void> start({bool fullSync = false}) async {
     if (_running) return;
     _running = true;
+    _lastChanges = [];
     try {
       await _run(fullSync: fullSync);
     } catch (e) {
@@ -154,6 +172,7 @@ class SyncEngine {
         final raw = (detail['C_A_CONTENTS'] ?? detail['C_A_BODY'] ?? '').toString();
 
         await LocalDbService.upsertReport(report, cat, ev, rawContent: raw);
+        if (!fullSync) _trackChange(existingStatus[cNo], report);
         done++;
 
         if (done % 10 == 0) {
@@ -175,6 +194,7 @@ class SyncEngine {
           final cat = categoryFromEntryValue(ev);
           final raw = (detail['C_A_CONTENTS'] ?? detail['C_A_BODY'] ?? '').toString();
           await LocalDbService.upsertReport(report, cat, ev, rawContent: raw);
+          if (!fullSync) _trackChange(existingStatus[cNo], report);
           done++;
         } catch (retryErr) {
           errors++;
@@ -191,6 +211,10 @@ class SyncEngine {
 
     await _saveSyncTime();
 
+    if (_lastChanges.isNotEmpty) {
+      await emitChanges(_lastChanges);
+    }
+
     final msg = '동기화 완료: ${done}건 저장'
         '${errors > 0 ? ', $errors건 오류' : ''}';
     _log(msg);
@@ -200,6 +224,96 @@ class SyncEngine {
       current: done,
       total: toSync.length,
     ));
+  }
+
+  /// 신규/처리변경 신고 emit:
+  ///   1. flutter.pending_crawl_changes SharedPref 에 누적 (main.dart 카드 시트 트리거)
+  ///   2. 각 신고에 대한 개별 heads-up 알림 (MainActivity.showNotification)
+  ///   3. changesEmitted Stream 신호 → ReportProvider 가 nonce 갱신
+  static Future<void> emitChanges(List<Map<String, dynamic>> changes) async {
+    if (changes.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+
+    // 기존 pending 데이터에 누적 (main.dart 가 처리 전이면 함께 노출)
+    final existingRaw = prefs.getString('pending_crawl_changes');
+    List<dynamic> existing = const [];
+    if (existingRaw != null && existingRaw.isNotEmpty) {
+      try {
+        existing = jsonDecode(existingRaw) as List<dynamic>;
+      } catch (_) {}
+    }
+    await prefs.setString(
+      'pending_crawl_changes',
+      jsonEncode([...existing, ...changes]),
+    );
+
+    for (final r in changes) {
+      final isNew = r['change_type'] == '신규';
+      final name = (r['신고명'] ?? '신고').toString();
+      final reportNo = (r['신고번호'] ?? '').toString();
+      final status = (r['처리상태'] ?? '').toString();
+      final agency = (r['처리기관'] ?? '').toString();
+      final fine = (r['범칙금_과태료'] ?? '').toString();
+
+      final lines = <String>[];
+      if (reportNo.isNotEmpty) lines.add('신고번호: $reportNo');
+      if (status.isNotEmpty) lines.add('처리상태: $status');
+      if (agency.isNotEmpty) lines.add('처리기관: $agency');
+      if (fine.isNotEmpty && fine != 'null' && fine != '미확인') {
+        lines.add('범칙금/과태료: $fine');
+      }
+      try {
+        await _methodChannel.invokeMethod('showNotification', {
+          'title': isNew ? '🆕 신규 신고 — $name' : '🔄 처리 변경 — $name',
+          'body': lines.join('\n'),
+        });
+      } catch (_) {
+        // MainActivity 미준비 등 — 무시
+      }
+    }
+
+    if (!_changesEmittedController.isClosed) {
+      _changesEmittedController.add(null);
+    }
+  }
+
+  /// snapshot 과 비교해 신규/처리변경 판정 후 _lastChanges 에 추가.
+  static void _trackChange(Map<String, String>? snap, Report r) {
+    if (snap == null) {
+      _lastChanges.add(reportToChangeMap(r, '신규'));
+    } else if (snap['처리상태'] != r.status) {
+      _lastChanges.add(reportToChangeMap(r, '처리변경'));
+    }
+  }
+
+  /// Report 객체를 Report.fromJson 키 형식의 Map 으로 변환 + change_type 부여.
+  /// pending_crawl_changes / notification history / bottom sheet 에서 공통 사용.
+  static Map<String, dynamic> reportToChangeMap(Report r, String changeType) {
+    return {
+      'change_type': changeType,
+      'ID': r.id,
+      '신고번호': r.reportNumber,
+      '신고명': r.name,
+      '신고일': r.date,
+      '답변일': r.responseDate,
+      '처리기관': r.agency,
+      '담당자': r.manager,
+      '처리상태': r.status,
+      '범칙금_과태료': r.fineInfo,
+      '벌점': r.penaltyPoints,
+      '차량번호': r.carNumber,
+      '위반법규': r.law,
+      '위반장소': r.location,
+      '발생일자': r.occurrenceDate,
+      '발생시각': r.occurrenceTime,
+      '신고내용': r.reportContent,
+      '처리내용': r.processContent,
+      '첨부사진': r.attachedPhotos,
+      '첨부파일': r.attachedFiles,
+      '지도': r.mapImage,
+      '만족도조사여부': r.pollStatus,
+      '종결여부': r.processingFinish,
+    };
   }
 
   static Future<void> _saveSyncTime() async {

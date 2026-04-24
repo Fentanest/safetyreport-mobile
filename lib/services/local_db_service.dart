@@ -14,9 +14,12 @@ String normalizePoliceAgency(String agency) {
 /// mobile-only 추가 컬럼: category, entry_value, synced_at
 class LocalDbService {
   static Database? _db;
+  static Future<Database>? _initFuture;
 
   static Future<Database> get db async {
-    _db ??= await _open();
+    if (_db != null) return _db!;
+    _initFuture ??= _open();
+    _db = await _initFuture;
     return _db!;
   }
 
@@ -29,6 +32,7 @@ class LocalDbService {
     if (_db != null) {
       await _db!.close();
       _db = null;
+      _initFuture = null;
     }
   }
 

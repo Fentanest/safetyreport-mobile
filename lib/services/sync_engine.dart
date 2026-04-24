@@ -150,8 +150,10 @@ class SyncEngine {
         final report = parseJsonToReport(item, detail);
         final ev = entryValueFromDetail(item, detail);
         final cat = categoryFromEntryValue(ev);
+        // 차량번호 파싱 실패 디버깅용: API 원본 C_A_CONTENTS 저장
+        final raw = (detail['C_A_CONTENTS'] ?? detail['C_A_BODY'] ?? '').toString();
 
-        await LocalDbService.upsertReport(report, cat, ev);
+        await LocalDbService.upsertReport(report, cat, ev, rawContent: raw);
         done++;
 
         if (done % 10 == 0) {
@@ -171,7 +173,8 @@ class SyncEngine {
           final report = parseJsonToReport(item, detail);
           final ev = entryValueFromDetail(item, detail);
           final cat = categoryFromEntryValue(ev);
-          await LocalDbService.upsertReport(report, cat, ev);
+          final raw = (detail['C_A_CONTENTS'] ?? detail['C_A_BODY'] ?? '').toString();
+          await LocalDbService.upsertReport(report, cat, ev, rawContent: raw);
           done++;
         } catch (retryErr) {
           errors++;

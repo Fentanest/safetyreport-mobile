@@ -50,9 +50,10 @@ String _normalizeNumbers(String s) => s
 // ── 과태료/범칙금 → 원 단위 정수 추출 ────────────────────────────────────────
 
 int extractFineAmount(String fineInfo) {
-  final m = RegExp(r'([\d,]+)원').firstMatch(fineInfo);
+  final m = RegExp(r'([\d,.]+)원').firstMatch(fineInfo);
   if (m == null) return 0;
-  return int.tryParse(m.group(1)!.replaceAll(',', '')) ?? 0;
+  // 쉼표/점 모두 천단위 구분자로 처리 (예: '40,000' 또는 '40.000')
+  return int.tryParse(m.group(1)!.replaceAll(RegExp(r'[,.]'), '')) ?? 0;
 }
 
 // ── parse_json_details 이식 ──────────────────────────────────────────────────
@@ -175,9 +176,10 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
 
   var penaltyAmount = '';
   var penaltyPoints = '';
-  final penaltyMatch = RegExp(r'범칙금\s*([\d,]+)\s*원[,\s]*벌점\s*(\d{0,4})\s*점')
+  // 서버 parse_json_details 와 동일. 점(.)도 숫자로 취급 (예: '40.000원')
+  final penaltyMatch = RegExp(r'범칙금\s*([\d,.]+)\s*원[,\s]*벌점\s*(\d{0,4})\s*점')
       .firstMatch(processingContent);
-  final fineMatch = RegExp(r'과태료\s*([\d,]+)\s*원').firstMatch(processingContent);
+  final fineMatch = RegExp(r'과태료\s*([\d,.]+)\s*원').firstMatch(processingContent);
 
   if (penaltyMatch != null) {
     penaltyAmount = '범칙금: ${penaltyMatch.group(1)}원';

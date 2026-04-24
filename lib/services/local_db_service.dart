@@ -30,10 +30,10 @@ class LocalDbService {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       join(dbPath, 'standalone_reports.db'),
-      version: 2,
+      version: 3,
       onCreate: _create,
       onUpgrade: (db, oldV, newV) async {
-        // 구버전(v1 영문 컬럼명) → v2 한국어 컬럼명으로 재생성 (데이터 초기화, 재동기화 필요)
+        // 스키마 변경 시 재생성 (재동기화 필요)
         await db.execute('DROP TABLE IF EXISTS reports');
         await db.execute('DROP TABLE IF EXISTS sync_meta');
         await _create(db, newV);
@@ -70,6 +70,7 @@ class LocalDbService {
         첨부파일          TEXT,
         category        TEXT,
         entry_value     TEXT DEFAULT '',
+        raw_content     TEXT DEFAULT '',
         synced_at       INTEGER
       )
     ''');
@@ -83,7 +84,12 @@ class LocalDbService {
 
   // ── 신고 저장/업데이트 ─────────────────────────────────────────────────────
 
-  static Future<void> upsertReport(Report r, String category, String entryValue) async {
+  static Future<void> upsertReport(
+    Report r,
+    String category,
+    String entryValue, {
+    String rawContent = '',
+  }) async {
     final watchlistNums = await getWatchlistNumbers();
     final d = await db;
     await d.insert(
@@ -115,6 +121,7 @@ class LocalDbService {
         '첨부파일': r.attachedFiles,
         'category': category,
         'entry_value': entryValue,
+        'raw_content': rawContent,
         'synced_at': DateTime.now().millisecondsSinceEpoch,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,

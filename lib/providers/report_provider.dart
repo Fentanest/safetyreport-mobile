@@ -260,12 +260,16 @@ class ReportProvider with ChangeNotifier {
     if (isConfigured) {
       fetchWatchlistNumbers();
       fetchAppConfig();
-      // standalone: Kotlin NotificationService 가 설정한 sync pending 플래그 확인 → 드레인
+      // standalone: 플래그 OR retry 큐 잔존 → 드레인 트리거
       if (_appMode == AppMode.standalone) {
-        // fire-and-forget. sync 완료 후 데이터 재로드 위해 refreshAll() 호출.
-        StandaloneAutoSyncService.drainIfPending().then((_) {
+        () async {
+          final queue = prefs.getStringList('standalone_pending_reports') ?? [];
+          if (queue.isNotEmpty) {
+            await prefs.setBool('standalone_sync_pending', true);
+          }
+          await StandaloneAutoSyncService.drainIfPending();
           if (_appMode == AppMode.standalone) refreshAll();
-        });
+        }();
       }
     }
   }
@@ -273,6 +277,12 @@ class ReportProvider with ChangeNotifier {
   /// foreground 복귀 시 호출 (main.dart AppLifecycleState.resumed).
   Future<void> checkAutoSyncOnResume() async {
     if (_appMode != AppMode.standalone || !isConfigured) return;
+    // 이전 drain 에서 미발견으로 retry 큐에 남은 신고번호가 있으면 플래그 복원 → 재시도 기회 제공
+    final prefs = await SharedPreferences.getInstance();
+    final queue = prefs.getStringList('standalone_pending_reports') ?? [];
+    if (queue.isNotEmpty) {
+      await prefs.setBool('standalone_sync_pending', true);
+    }
     await StandaloneAutoSyncService.drainIfPending();
     await refreshAll();
   }

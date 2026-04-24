@@ -29,7 +29,9 @@ class NotificationService : NotificationListenerService() {
 
     companion object {
         const val NOTIF_CHANNEL_ENQUEUE = "enqueue_progress"
-        const val NOTIF_CHANNEL_DETECTED = "standalone_detected"
+        // v2: 이전 채널(DEFAULT)이 이미 생성된 기기에서 HIGH 로 변경이 안 먹혀 새 ID 사용
+        const val NOTIF_CHANNEL_DETECTED = "standalone_detected_v2"
+        const val PREFS_PENDING_QUEUE = "flutter.standalone_pending_reports"
     }
 
     override fun onCreate() {
@@ -111,18 +113,39 @@ class NotificationService : NotificationListenerService() {
         }.start()
     }
 
-    /** standalone 모드: sync 트리거 플래그 설정 + 감지 알림 표시 */
+    /** standalone 모드: 신고번호 큐에 추가 + sync 트리거 플래그 설정 + 감지 알림 표시 */
     private fun handleStandaloneDetection(prefs: android.content.SharedPreferences, reportNumber: String) {
-        // Flutter 가 감지하는 플래그. 증분 sync 의 트리거 역할.
+        appendPendingReport(prefs, reportNumber)
+        // Flutter 가 감지하는 플래그 (큐 비어있지 않음 신호).
         prefs.edit()
             .putBoolean("flutter.standalone_sync_pending", true)
             .putLong("flutter.standalone_last_detected_at", System.currentTimeMillis())
             .apply()
 
-        Log.i(TAG, "standalone: sync 플래그 설정, 신고번호=$reportNumber")
+        Log.i(TAG, "standalone: 신고번호 큐 추가, 신고번호=$reportNumber")
 
         val notifId = progressNotifId.getAndIncrement()
         showDetectedNotif(notifId, reportNumber)
+    }
+
+    /**
+     * Flutter shared_preferences 와 호환되는 StringList append.
+     * Flutter 는 List<String> 을 `VGhpcyBpcyB0aGUgcHJlZml4IGZvciBhIGxpc3Qu` prefix + JSON 배열로 저장.
+     */
+    private fun appendPendingReport(prefs: android.content.SharedPreferences, reportNumber: String) {
+        val flutterListPrefix = "VGhpcyBpcyB0aGUgcHJlZml4IGZvciBhIGxpc3Qu"
+        val raw = prefs.getString(PREFS_PENDING_QUEUE, null)
+        val current: MutableList<String> = mutableListOf()
+        if (raw != null && raw.startsWith(flutterListPrefix)) {
+            try {
+                val jsonStr = raw.substring(flutterListPrefix.length)
+                val arr = org.json.JSONArray(jsonStr)
+                for (i in 0 until arr.length()) current.add(arr.getString(i))
+            } catch (_: Exception) { /* 파싱 실패 — 초기화 */ }
+        }
+        if (!current.contains(reportNumber)) current.add(reportNumber)
+        val newJson = org.json.JSONArray(current).toString()
+        prefs.edit().putString(PREFS_PENDING_QUEUE, flutterListPrefix + newJson).apply()
     }
 
     private fun showDetectedNotif(id: Int, reportNumber: String) {
@@ -141,6 +164,10 @@ class NotificationService : NotificationListenerService() {
             .setContentText("$reportNumber — 탭하면 동기화됩니다")
             .setSmallIcon(R.drawable.ic_stat_logo)
             .setAutoCancel(true)
+            // heads-up 팝업 유도 — 알림창에 일시적으로 떠오름
+            .setPriority(Notification.PRIORITY_HIGH)
+            .setDefaults(Notification.DEFAULT_SOUND or Notification.DEFAULT_VIBRATE)
+            .setCategory(Notification.CATEGORY_MESSAGE)
         if (pending != null) builder.setContentIntent(pending)
         nm.notify(id, builder.build())
     }
@@ -150,10 +177,13 @@ class NotificationService : NotificationListenerService() {
         val channel = NotificationChannel(
             NOTIF_CHANNEL_DETECTED,
             "신규 신고 감지 (standalone)",
-            NotificationManager.IMPORTANCE_DEFAULT
+            // HIGH: heads-up(팝업) 알림 표시 + 소리 + 진동
+            NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            description = "standalone 모드에서 외부 알림으로부터 신규 신고번호 감지 시 표시"
+            description = "standalone 모드에서 외부 알림으로부터 신규 신고번호 감지 시 팝업 표시"
             setShowBadge(true)
+            enableLights(true)
+            enableVibration(true)
         }
         nm.createNotificationChannel(channel)
     }

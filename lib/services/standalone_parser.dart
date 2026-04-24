@@ -66,8 +66,12 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
   final cNo = detailData['C_NO']?.toString() ?? listData['C_NO']?.toString() ?? '';
 
   // ── 신고 내용 텍스트 파싱 ────────────────────────────────────────────────
+  // Traffic 신고는 CRLF(\r\n)를 사용함. Dart regex의 '.'는 \r을 매치하지 않아
+  // 차량번호 파싱이 실패. \r\n → \n, 단독 \r → \n 으로 정규화.
   final rawContent = (detailData['C_A_CONTENTS'] ?? detailData['C_A_BODY'] ?? '') as String;
-  final content = _normalizeNumbers(rawContent);
+  final content = _normalizeNumbers(rawContent)
+      .replaceAll('\r\n', '\n')
+      .replaceAll('\r', '\n');
 
   final entryMatch = RegExp(
     r'본 신고는 안전신문고 (?:앱의|포털의) (.+?) 메뉴로 접수된 신고입니다',

@@ -258,33 +258,39 @@ class ReportProvider with ChangeNotifier {
   }
 
   Future<void> init() async {
-    final prefs = await SharedPreferences.getInstance();
-    _appMode = AppModeX.fromString(prefs.getString('appMode'));
-    _standaloneUsername = prefs.getString('standaloneUsername') ?? '';
-    _baseUrl = prefs.getString('baseUrl') ?? '';
-    _apiKey = prefs.getString('apiKey') ?? '';
-    _isInitialized = true;
-    // SyncEngine 의 변경 emit 신호 구독 (manual sync 포함, 모든 sync 경로 커버)
-    _changesEmittedSub ??= SyncEngine.changesEmitted.listen((_) {
-      _pendingChangesNonce++;
-      notifyListeners();
-    });
-    notifyListeners();
-    if (isConfigured) {
-      fetchWatchlistNumbers();
-      fetchAppConfig();
-      // standalone: 플래그 OR retry 큐 잔존 → 드레인 트리거
-      if (_appMode == AppMode.standalone) {
-        () async {
-          await prefs.reload();
-          final queue = prefs.getStringList('standalone_pending_reports') ?? [];
-          if (queue.isNotEmpty) {
-            await prefs.setBool('standalone_sync_pending', true);
-          }
-          await StandaloneAutoSyncService.drainIfPending();
-          if (_appMode == AppMode.standalone) await refreshAll();
-        }();
+    try {
+      final prefs = await SharedPreferences.getInstance().timeout(const Duration(seconds: 5));
+      _appMode = AppModeX.fromString(prefs.getString('appMode'));
+      _standaloneUsername = prefs.getString('standaloneUsername') ?? '';
+      _baseUrl = prefs.getString('baseUrl') ?? '';
+      _apiKey = prefs.getString('apiKey') ?? '';
+      
+      _changesEmittedSub ??= SyncEngine.changesEmitted.listen((_) {
+        _pendingChangesNonce++;
+        notifyListeners();
+      });
+
+      if (isConfigured) {
+        fetchWatchlistNumbers();
+        fetchAppConfig();
+        // standalone: 플래그 OR retry 큐 잔존 → 드레인 트리거
+        if (_appMode == AppMode.standalone) {
+          () async {
+            await prefs.reload();
+            final queue = prefs.getStringList('standalone_pending_reports') ?? [];
+            if (queue.isNotEmpty) {
+              await prefs.setBool('standalone_sync_pending', true);
+            }
+            await StandaloneAutoSyncService.drainIfPending();
+            if (_appMode == AppMode.standalone) await refreshAll();
+          }();
+        }
       }
+    } catch (e) {
+      _errorMessage = '초기화 실패: $e';
+    } finally {
+      _isInitialized = true;
+      notifyListeners();
     }
   }
 
@@ -371,9 +377,13 @@ class ReportProvider with ChangeNotifier {
         _stats = await LocalDbService.computeSummary(
           excludeWithdraw: _excludeWithdraw,
           normalizePolice: _normalizePolice,
-        );
+        ).timeout(const Duration(seconds: 5), onTimeout: () {
+          throw Exception('로컬 DB 응답 지연 (데드락 의심)');
+        });
       } else {
-        _stats = await _api.getSummary();
+        _stats = await _api.getSummary().timeout(const Duration(seconds: 5), onTimeout: () {
+          throw Exception('서버 응답 지연');
+        });
       }
     } catch (e) {
       _errorMessage = _appMode == AppMode.standalone

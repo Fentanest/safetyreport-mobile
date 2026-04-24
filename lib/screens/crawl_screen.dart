@@ -103,19 +103,14 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
         _lastSyncTime = syncTime;
         _loading = false;
       });
+      if (SyncEngine.isRunning && _syncSub == null) {
+        _setRunning(true);
+        _subscribeToSyncEvents();
+      }
     }
   }
 
-  Future<void> _startSync({required bool fullSync}) async {
-    if (SyncEngine.isRunning) return;
-
-    setState(() {
-      _logLines.clear();
-      _syncProgress = 0;
-      _syncTotal = 0;
-    });
-    _setRunning(true);
-
+  void _subscribeToSyncEvents() {
     _syncSub?.cancel();
     _syncSub = SyncEngine.events.listen((event) {
       if (!mounted) return;
@@ -145,6 +140,19 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
         }
       });
     });
+  }
+
+  Future<void> _startSync({required bool fullSync}) async {
+    if (SyncEngine.isRunning) return;
+
+    setState(() {
+      _logLines.clear();
+      _syncProgress = 0;
+      _syncTotal = 0;
+    });
+    _setRunning(true);
+
+    _subscribeToSyncEvents();
 
     SyncEngine.start(fullSync: fullSync);
   }

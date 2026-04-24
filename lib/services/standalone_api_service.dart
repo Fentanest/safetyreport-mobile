@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'standalone_auth_service.dart';
 
@@ -26,12 +28,33 @@ class StandaloneApiService {
     };
   }
 
-  /// 토큰 만료 시 자동 재로그인 후 재시도하는 래퍼
+  /// 네트워크 에러(connection reset, timeout 등) 시 1초 sleep 후 최대 3회 재시도.
+  /// 401 시 자동 재로그인 후 1회 재시도.
   static Future<http.Response> _getWithRetry(Uri uri) async {
     var headers = await _headers();
-    var res = await http
-        .get(uri, headers: headers)
-        .timeout(const Duration(seconds: 20));
+    http.Response? res;
+    Object? lastError;
+
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      try {
+        res = await http
+            .get(uri, headers: headers)
+            .timeout(const Duration(seconds: 20));
+        break;
+      } on SocketException catch (e) {
+        // errno 104 (connection reset), 110 (timeout) 등 네트워크 일시 오류
+        lastError = e;
+      } on http.ClientException catch (e) {
+        lastError = e;
+      } on TimeoutException catch (e) {
+        lastError = e;
+      }
+      if (attempt < 3) await Future.delayed(const Duration(seconds: 1));
+    }
+
+    if (res == null) {
+      throw Exception('네트워크 오류 (3회 재시도 실패): $lastError');
+    }
 
     // 401이면 토큰 만료 — 자동 재로그인 후 1회 재시도
     if (res.statusCode == 401) {

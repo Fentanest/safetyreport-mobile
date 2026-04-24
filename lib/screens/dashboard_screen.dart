@@ -173,19 +173,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
             filter: (r) => true),
         _buildStatCard('수용', stats.acceptCount, Colors.green,
             Icons.check_circle_rounded,
-            filter: (r) =>
-                r.status.contains('수용') && !r.status.contains('불')),
+            filter: (r) => r.status == '수용'),
         _buildStatCard('일부수용', stats.partialCount, const Color(0xFF43A047),
             Icons.check_circle_outline_rounded,
             filter: (r) => r.status == '일부수용'),
         _buildStatCard('불수용/기타', stats.rejectCount, Colors.red,
             Icons.cancel_rounded,
-            filter: (r) =>
-                r.status.contains('불수용') || r.status == '기타'),
+            filter: (r) => r.status == '불수용' || r.status == '기타'),
         _buildStatCard('처리 중', stats.processingCount, Colors.orange,
             Icons.pending_rounded,
             filter: (r) =>
-                r.status.contains('처리') || r.status.contains('진행')),
+                r.status == '처리중' || r.status == '진행' || r.status == '진행중'),
         _buildStatCard('취하', stats.withdrawCount, Colors.grey,
             Icons.remove_circle_outline_rounded,
             filter: (r) => r.status == '취하'),

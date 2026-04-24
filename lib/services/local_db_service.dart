@@ -175,42 +175,33 @@ class LocalDbService {
     final d = await db;
     final rows = await d.query('reports');
 
-    int accept = 0, partial = 0, reject = 0, processing = 0, withdraw = 0;
+    int accept = 0, partial = 0, reject = 0, processing = 0, completed = 0, withdraw = 0;
     int tFine = 0, tPenalty = 0, tReject = 0, tUnconfirmed = 0;
 
+    // 서버 get_dashboard_stats 로직과 정확히 동일
     for (final r in rows) {
       final status = r['처리상태'] as String? ?? '';
       final cat = r['category'] as String? ?? '';
       final fine = r['범칙금_과태료'] as String? ?? '';
 
-      switch (status) {
-        case '수용':
-          accept++;
-        case '일부수용':
-          partial++;
-        case '불수용':
-          reject++;
-        case '취하':
-          withdraw++;
-        default:
-          processing++;
-      }
+      if (status == '수용') accept++;
+      if (status == '일부수용') partial++;
+      if (status == '불수용' || status == '기타') reject++;
+      if (status == '처리중' || status == '진행' || status == '진행중') processing++;
+      if (['수용', '불수용', '일부수용', '기타', '답변완료'].contains(status)) completed++;
+      if (status == '취하') withdraw++;
 
       if (cat == 'traffic') {
-        if (fine.contains('과태료') || fine.contains('범칙금'))
-          tFine++;
-        else if (fine == '경고')
-          tPenalty++;
-        else if (status == '불수용')
-          tReject++;
-        else if (fine == '미확인')
-          tUnconfirmed++;
+        if (fine.contains('과태료')) tFine++;
+        if (fine.contains('경고') || fine.contains('범칙금')) tPenalty++;
+        if (status == '불수용' || status == '기타') tReject++;
+        if (fine == '미확인' && status != '불수용' && status != '기타') tUnconfirmed++;
       }
     }
 
     final recentRows = await d.query(
       'reports',
-      where: "처리상태 IN ('수용', '일부수용', '불수용', '취하')",
+      where: "처리상태 IN ('수용', '일부수용', '불수용', '기타', '답변완료')",
       orderBy: '답변일 DESC',
       limit: 10,
     );
@@ -234,7 +225,7 @@ class LocalDbService {
       partialCount: partial,
       rejectCount: reject,
       processingCount: processing,
-      completedCount: accept + partial + reject + withdraw,
+      completedCount: completed,
       withdrawCount: withdraw,
       tFineCount: tFine,
       tPenaltyCount: tPenalty,
@@ -275,15 +266,19 @@ class LocalDbService {
       whereArgs: args.isEmpty ? null : args,
     );
 
-    return _aggregateStats(rows);
+    // 필터와 무관하게 전체에서 available_years/laws 추출
+    final allRows = await d.query('reports', columns: ['신고일', '위반법규', 'category']);
+    return _aggregateStats(rows, allRows);
   }
 
-  static Map<String, dynamic> _aggregateStats(List<Map<String, dynamic>> rows) {
+  static Map<String, dynamic> _aggregateStats(
+      List<Map<String, dynamic>> rows, List<Map<String, dynamic>> allRows) {
     final traffic = rows.where((r) => r['category'] == 'traffic').toList();
     final parking = rows.where((r) => r['category'] == 'parking').toList();
     final other = rows.where((r) => r['category'] == 'other').toList();
 
-    final years = rows
+    // 연도 목록은 항상 전체에서 추출 (필터 변경 시 다른 연도 선택지 유지)
+    final years = allRows
         .map((r) => (r['신고일'] as String? ?? '').length >= 4
             ? (r['신고일'] as String).substring(0, 4)
             : '')
@@ -293,14 +288,15 @@ class LocalDbService {
       ..sort((a, b) => b.compareTo(a));
 
     return {
-      'traffic': _buildCategory(traffic),
-      'parking': _buildCategory(parking),
-      'other': _buildCategory(other),
+      'traffic': _buildCategory(traffic, allRows.where((r) => r['category'] == 'traffic').toList()),
+      'parking': _buildCategory(parking, allRows.where((r) => r['category'] == 'parking').toList()),
+      'other': _buildCategory(other, allRows.where((r) => r['category'] == 'other').toList()),
       'available_years': years,
     };
   }
 
-  static Map<String, dynamic> _buildCategory(List<Map<String, dynamic>> rows) {
+  static Map<String, dynamic> _buildCategory(
+      List<Map<String, dynamic>> rows, List<Map<String, dynamic>> allCatRows) {
     final agencyAgg = <String, _AgencyAgg>{};
     for (final r in rows) {
       final key = (r['처리기관'] as String? ?? '').trim();
@@ -335,13 +331,14 @@ class LocalDbService {
     final policePerson = allPerson.where((r) => (r['agency'] as String).contains('경찰')).toList();
     final nonPolicePerson = allPerson.where((r) => !(r['agency'] as String).contains('경찰')).toList();
 
-    final allLaws = rows
+    // 법규 목록은 카테고리 전체에서 추출 (필터 변경 시 다른 법규 선택지 유지)
+    final allLaws = allCatRows
         .map((r) => r['위반법규'] as String? ?? '')
         .where((l) => l.isNotEmpty)
         .toSet()
         .toList()
       ..sort();
-    final hasEmptyLaw = rows.any((r) => (r['위반법규'] as String? ?? '').isEmpty);
+    final hasEmptyLaw = allCatRows.any((r) => (r['위반법규'] as String? ?? '').isEmpty);
 
     return {
       'by_agency': allAgency,

@@ -48,6 +48,7 @@ class StandaloneAutoSyncService {
       bool didIncremental = false;
 
       while (true) {
+        await prefs.reload();
         final queue = List<String>.from(prefs.getStringList(_pendingQueueKey) ?? []);
         if (queue.isEmpty) {
           await prefs.setBool(_pendingFlagKey, false);

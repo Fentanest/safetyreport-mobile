@@ -276,6 +276,7 @@ class ReportProvider with ChangeNotifier {
       // standalone: 플래그 OR retry 큐 잔존 → 드레인 트리거
       if (_appMode == AppMode.standalone) {
         () async {
+          await prefs.reload();
           final queue = prefs.getStringList('standalone_pending_reports') ?? [];
           if (queue.isNotEmpty) {
             await prefs.setBool('standalone_sync_pending', true);
@@ -298,6 +299,7 @@ class ReportProvider with ChangeNotifier {
     if (_appMode != AppMode.standalone || !isConfigured) return;
     // 이전 drain 에서 미발견으로 retry 큐에 남은 신고번호가 있으면 플래그 복원 → 재시도 기회 제공
     final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
     final queue = prefs.getStringList('standalone_pending_reports') ?? [];
     if (queue.isNotEmpty) {
       await prefs.setBool('standalone_sync_pending', true);

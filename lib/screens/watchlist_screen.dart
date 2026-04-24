@@ -33,7 +33,11 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
     try {
       List<Report> items;
       if (_isStandalone) {
-        items = await LocalDbService.getWatchlistReports();
+        final p = context.read<ReportProvider>();
+        items = await LocalDbService.getWatchlistReports(
+          excludeWithdraw: p.excludeWithdraw,
+          normalizePolice: p.normalizePolice,
+        );
       } else {
         final p = context.read<ReportProvider>();
         final api = ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);

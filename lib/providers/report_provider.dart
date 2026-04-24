@@ -121,6 +121,7 @@ class ReportProvider with ChangeNotifier {
 
   ReportFilter _filter = const ReportFilter();
   bool _excludeWithdraw = false;
+  bool _normalizePolice = false;
 
   AppMode get appMode => _appMode;
   String get standaloneUsername => _standaloneUsername;
@@ -135,6 +136,7 @@ class ReportProvider with ChangeNotifier {
   String? get errorMessage => _errorMessage;
   DashboardStats? get stats => _stats;
   bool get excludeWithdraw => _excludeWithdraw;
+  bool get normalizePolice => _normalizePolice;
   List<Report> get trafficReports => _trafficReports;
   List<Report> get parkingReports => _parkingReports;
   List<Report> get otherReports => _otherReports;
@@ -207,11 +209,34 @@ class ReportProvider with ChangeNotifier {
 
   Future<void> fetchAppConfig() async {
     if (!isConfigured) return;
+    if (_appMode == AppMode.standalone) {
+      final prefs = await SharedPreferences.getInstance();
+      _excludeWithdraw = prefs.getBool('standaloneExcludeWithdraw') ?? true;
+      _normalizePolice = prefs.getBool('standaloneNormalizePolice') ?? true;
+      notifyListeners();
+      return;
+    }
     try {
       final cfg = await _api.getAppConfig();
       _excludeWithdraw = cfg['exclude_withdraw'] as bool? ?? false;
+      _normalizePolice = cfg['normalize_police'] as bool? ?? false;
       notifyListeners();
     } catch (_) {}
+  }
+
+  /// standalone 전용 설정 토글 — SharedPreferences 영속화 + 데이터 재로드
+  Future<void> setStandaloneFilter({bool? excludeWithdraw, bool? normalizePolice}) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (excludeWithdraw != null) {
+      _excludeWithdraw = excludeWithdraw;
+      await prefs.setBool('standaloneExcludeWithdraw', excludeWithdraw);
+    }
+    if (normalizePolice != null) {
+      _normalizePolice = normalizePolice;
+      await prefs.setBool('standaloneNormalizePolice', normalizePolice);
+    }
+    notifyListeners();
+    await refreshAll();
   }
 
   Future<void> init() async {
@@ -224,7 +249,7 @@ class ReportProvider with ChangeNotifier {
     notifyListeners();
     if (isConfigured) {
       fetchWatchlistNumbers();
-      if (_appMode == AppMode.server) fetchAppConfig();
+      fetchAppConfig();
     }
   }
 
@@ -288,7 +313,10 @@ class ReportProvider with ChangeNotifier {
     notifyListeners();
     try {
       if (_appMode == AppMode.standalone) {
-        _stats = await LocalDbService.computeSummary();
+        _stats = await LocalDbService.computeSummary(
+          excludeWithdraw: _excludeWithdraw,
+          normalizePolice: _normalizePolice,
+        );
       } else {
         _stats = await _api.getSummary();
       }
@@ -309,7 +337,11 @@ class ReportProvider with ChangeNotifier {
     notifyListeners();
     try {
       if (_appMode == AppMode.standalone) {
-        _trafficReports = await LocalDbService.getReportsByCategory('traffic');
+        _trafficReports = await LocalDbService.getReportsByCategory(
+          'traffic',
+          excludeWithdraw: _excludeWithdraw,
+          normalizePolice: _normalizePolice,
+        );
       } else {
         _trafficReports = await _api.getReports('traffic');
       }
@@ -327,7 +359,11 @@ class ReportProvider with ChangeNotifier {
     notifyListeners();
     try {
       if (_appMode == AppMode.standalone) {
-        _parkingReports = await LocalDbService.getReportsByCategory('parking');
+        _parkingReports = await LocalDbService.getReportsByCategory(
+          'parking',
+          excludeWithdraw: _excludeWithdraw,
+          normalizePolice: _normalizePolice,
+        );
       } else {
         _parkingReports = await _api.getReports('parking');
       }
@@ -345,7 +381,11 @@ class ReportProvider with ChangeNotifier {
     notifyListeners();
     try {
       if (_appMode == AppMode.standalone) {
-        _otherReports = await LocalDbService.getReportsByCategory('other');
+        _otherReports = await LocalDbService.getReportsByCategory(
+          'other',
+          excludeWithdraw: _excludeWithdraw,
+          normalizePolice: _normalizePolice,
+        );
       } else {
         _otherReports = await _api.getReports('other');
       }
@@ -363,7 +403,10 @@ class ReportProvider with ChangeNotifier {
     notifyListeners();
     try {
       if (_appMode == AppMode.standalone) {
-        _duplicateReports = await LocalDbService.getDuplicateVehicleReports();
+        _duplicateReports = await LocalDbService.getDuplicateVehicleReports(
+          excludeWithdraw: _excludeWithdraw,
+          normalizePolice: _normalizePolice,
+        );
       } else {
         _duplicateReports = await _api.getReports('duplicates');
       }

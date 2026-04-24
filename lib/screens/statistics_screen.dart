@@ -39,6 +39,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         final raw = await LocalDbService.computeStats(
           year: _year == 'all' ? null : _year,
           law: _law,
+          excludeWithdraw: p.excludeWithdraw,
+          normalizePolice: p.normalizePolice,
         );
         stats = AgencyStats.fromJson(raw);
       } else {

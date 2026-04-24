@@ -100,9 +100,15 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     setState(() => _exporting = true);
 
     try {
-      final tReports = await LocalDbService.getReportsByCategory('traffic');
-      final pReports = await LocalDbService.getReportsByCategory('parking');
-      final oReports = await LocalDbService.getReportsByCategory('other');
+      final p = context.read<ReportProvider>();
+      final ew = p.excludeWithdraw;
+      final np = p.normalizePolice;
+      final tReports = await LocalDbService.getReportsByCategory(
+        'traffic', excludeWithdraw: ew, normalizePolice: np);
+      final pReports = await LocalDbService.getReportsByCategory(
+        'parking', excludeWithdraw: ew, normalizePolice: np);
+      final oReports = await LocalDbService.getReportsByCategory(
+        'other', excludeWithdraw: ew, normalizePolice: np);
       final watchlist = await LocalDbService.getWatchlistNumbers();
 
       final excel = Excel.createExcel();

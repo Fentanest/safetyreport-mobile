@@ -110,6 +110,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadFilterSettings() async {
+    final p = context.read<ReportProvider>();
+    // standalone 모드: SharedPreferences 기반 필터값 로드 (provider가 보유)
+    if (p.appMode == AppMode.standalone) {
+      if (mounted) {
+        setState(() {
+          _excludeWithdraw = p.excludeWithdraw;
+          _normalizePolice = p.normalizePolice;
+          // 자동 Excel/Sheet 내보내기는 서버 기능이므로 standalone에서는 비활성
+          _autoExportExcel = false;
+          _autoExportSheet = false;
+        });
+      }
+      return;
+    }
     final api = _buildApi();
     if (api == null) return;
     try {
@@ -127,13 +141,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _toggleFilter(String key, bool value) async {
     setState(() => _filterLoading = true);
-    final api = _buildApi();
-    if (api != null) {
-      try {
-        await api.updateSettings({key: value});
-        // 데이터 새로고침
-        if (mounted) context.read<ReportProvider>().refreshAll();
-      } catch (_) {}
+    final p = context.read<ReportProvider>();
+    if (p.appMode == AppMode.standalone) {
+      if (key == 'exclude_withdraw') {
+        await p.setStandaloneFilter(excludeWithdraw: value);
+      } else if (key == 'normalize_police') {
+        await p.setStandaloneFilter(normalizePolice: value);
+      }
+      // auto_export_excel/auto_export_sheet 은 standalone 무관
+    } else {
+      final api = _buildApi();
+      if (api != null) {
+        try {
+          await api.updateSettings({key: value});
+          if (mounted) context.read<ReportProvider>().refreshAll();
+        } catch (_) {}
+      }
     }
     if (mounted) setState(() => _filterLoading = false);
   }

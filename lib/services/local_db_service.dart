@@ -4,6 +4,12 @@ import 'package:sqflite/sqflite.dart';
 import '../models/report.dart';
 import 'standalone_parser.dart';
 
+/// 서버 _normalize_police_agency 동일: '경찰서' 이후 문자열 제거
+String normalizePoliceAgency(String agency) {
+  final idx = agency.indexOf('경찰서');
+  return idx != -1 ? agency.substring(0, idx + 3) : agency;
+}
+
 /// 서버 DB 컬럼명(한국어)과 동일한 스키마 사용.
 /// mobile-only 추가 컬럼: category, entry_value, synced_at
 class LocalDbService {
@@ -130,21 +136,37 @@ class LocalDbService {
 
   // ── 신고 조회 ─────────────────────────────────────────────────────────────
 
-  static Future<List<Report>> getReportsByCategory(String category) async {
+  static Future<List<Report>> getReportsByCategory(
+    String category, {
+    bool excludeWithdraw = false,
+    bool normalizePolice = false,
+  }) async {
+    final d = await db;
+    var where = 'category = ?';
+    final args = <dynamic>[category];
+    if (excludeWithdraw) {
+      where += " AND 처리상태 != '취하'";
+    }
+    final rows = await d.query(
+      'reports',
+      where: where,
+      whereArgs: args,
+      orderBy: '신고일 DESC',
+    );
+    return rows.map((r) => _rowToReport(r, normalizePolice: normalizePolice)).toList();
+  }
+
+  static Future<List<Report>> getAllReports({
+    bool excludeWithdraw = false,
+    bool normalizePolice = false,
+  }) async {
     final d = await db;
     final rows = await d.query(
       'reports',
-      where: 'category = ?',
-      whereArgs: [category],
+      where: excludeWithdraw ? "처리상태 != '취하'" : null,
       orderBy: '신고일 DESC',
     );
-    return rows.map(_rowToReport).toList();
-  }
-
-  static Future<List<Report>> getAllReports() async {
-    final d = await db;
-    final rows = await d.query('reports', orderBy: '신고일 DESC');
-    return rows.map(_rowToReport).toList();
+    return rows.map((r) => _rowToReport(r, normalizePolice: normalizePolice)).toList();
   }
 
   static Future<Report?> getReport(String cNo) async {
@@ -178,7 +200,10 @@ class LocalDbService {
 
   // ── 대시보드 요약 ─────────────────────────────────────────────────────────
 
-  static Future<DashboardStats> computeSummary() async {
+  static Future<DashboardStats> computeSummary({
+    bool excludeWithdraw = false,
+    bool normalizePolice = false,
+  }) async {
     final d = await db;
     final rows = await d.query('reports');
 
@@ -206,9 +231,13 @@ class LocalDbService {
       }
     }
 
+    // 최근 답변: 취하 제외 옵션 적용 (서버 get_dashboard_stats 와 동일)
+    final recentWhere = excludeWithdraw
+        ? "처리상태 IN ('수용', '일부수용', '불수용', '기타', '답변완료') AND 처리상태 != '취하'"
+        : "처리상태 IN ('수용', '일부수용', '불수용', '기타', '답변완료')";
     final recentRows = await d.query(
       'reports',
-      where: "처리상태 IN ('수용', '일부수용', '불수용', '기타', '답변완료')",
+      where: recentWhere,
       orderBy: '답변일 DESC',
       limit: 10,
     );
@@ -217,8 +246,11 @@ class LocalDbService {
     List<Map<String, dynamic>> watchlistRows = [];
     if (watchlistNums.isNotEmpty) {
       final placeholders = watchlistNums.map((_) => '?').join(',');
+      final wlWhere = excludeWithdraw
+          ? "신고번호 IN ($placeholders) AND 처리상태 != '취하'"
+          : "신고번호 IN ($placeholders)";
       watchlistRows = await d.rawQuery(
-        'SELECT * FROM reports WHERE 신고번호 IN ($placeholders) ORDER BY 신고일 DESC',
+        'SELECT * FROM reports WHERE $wlWhere ORDER BY 신고일 DESC',
         watchlistNums.toList(),
       );
     }
@@ -238,8 +270,8 @@ class LocalDbService {
       tPenaltyCount: tPenalty,
       tRejectCount: tReject,
       tUnconfirmedCount: tUnconfirmed,
-      recentAnswers: recentRows.map(_rowToReport).toList(),
-      watchlist: watchlistRows.map(_rowToReport).toList(),
+      recentAnswers: recentRows.map((r) => _rowToReport(r, normalizePolice: normalizePolice)).toList(),
+      watchlist: watchlistRows.map((r) => _rowToReport(r, normalizePolice: normalizePolice)).toList(),
     );
   }
 
@@ -248,6 +280,8 @@ class LocalDbService {
   static Future<Map<String, dynamic>> computeStats({
     String? year,
     String? law,
+    bool excludeWithdraw = false,
+    bool normalizePolice = false,
   }) async {
     final d = await db;
 
@@ -266,6 +300,9 @@ class LocalDbService {
         args.add(law);
       }
     }
+    if (excludeWithdraw) {
+      where += " AND 처리상태 != '취하'";
+    }
 
     final rows = await d.query(
       'reports',
@@ -274,12 +311,13 @@ class LocalDbService {
     );
 
     // 필터와 무관하게 전체에서 available_years/laws 추출
+    // (취하 제외는 available_years/laws에는 영향 안 줌 — 서버도 동일)
     final allRows = await d.query('reports', columns: ['신고일', '위반법규', 'category']);
-    return _aggregateStats(rows, allRows);
+    return _aggregateStats(rows, allRows, normalizePolice);
   }
 
   static Map<String, dynamic> _aggregateStats(
-      List<Map<String, dynamic>> rows, List<Map<String, dynamic>> allRows) {
+      List<Map<String, dynamic>> rows, List<Map<String, dynamic>> allRows, bool normalizePolice) {
     final traffic = rows.where((r) => r['category'] == 'traffic').toList();
     final parking = rows.where((r) => r['category'] == 'parking').toList();
     final other = rows.where((r) => r['category'] == 'other').toList();
@@ -295,18 +333,25 @@ class LocalDbService {
       ..sort((a, b) => b.compareTo(a));
 
     return {
-      'traffic': _buildCategory(traffic, allRows.where((r) => r['category'] == 'traffic').toList()),
-      'parking': _buildCategory(parking, allRows.where((r) => r['category'] == 'parking').toList()),
-      'other': _buildCategory(other, allRows.where((r) => r['category'] == 'other').toList()),
+      'traffic': _buildCategory(traffic, allRows.where((r) => r['category'] == 'traffic').toList(), normalizePolice),
+      'parking': _buildCategory(parking, allRows.where((r) => r['category'] == 'parking').toList(), normalizePolice),
+      'other': _buildCategory(other, allRows.where((r) => r['category'] == 'other').toList(), normalizePolice),
       'available_years': years,
     };
   }
 
   static Map<String, dynamic> _buildCategory(
-      List<Map<String, dynamic>> rows, List<Map<String, dynamic>> allCatRows) {
+      List<Map<String, dynamic>> rows, List<Map<String, dynamic>> allCatRows, bool normalizePolice) {
+    // 경찰기관 정규화: 집계 키 단계에서 처리해 같은 경찰서로 통합
+    String agencyKey(String raw) {
+      final t = raw.trim();
+      if (!normalizePolice) return t;
+      return normalizePoliceAgency(t);
+    }
+
     final agencyAgg = <String, _AgencyAgg>{};
     for (final r in rows) {
-      final key = (r['처리기관'] as String? ?? '').trim();
+      final key = agencyKey((r['처리기관'] as String? ?? ''));
       if (key.isEmpty) continue;
       agencyAgg.putIfAbsent(key, () => _AgencyAgg(key, ''));
       agencyAgg[key]!.add(r);
@@ -317,7 +362,7 @@ class LocalDbService {
 
     final personAgg = <String, _AgencyAgg>{};
     for (final r in rows) {
-      final agency = (r['처리기관'] as String? ?? '').trim();
+      final agency = agencyKey((r['처리기관'] as String? ?? ''));
       final manager = (r['담당자'] as String? ?? '').trim();
       final status = (r['처리상태'] as String? ?? '');
       if ((manager.isEmpty) &&
@@ -361,8 +406,12 @@ class LocalDbService {
 
   // ── 중복차량 ─────────────────────────────────────────────────────────────
 
-  static Future<List<Report>> getDuplicateVehicleReports() async {
+  static Future<List<Report>> getDuplicateVehicleReports({
+    bool excludeWithdraw = false,
+    bool normalizePolice = false,
+  }) async {
     final d = await db;
+    final withdrawFilter = excludeWithdraw ? "AND 처리상태 != '취하'" : '';
     final rows = await d.rawQuery('''
       SELECT r.*,
              cc.total_count,
@@ -373,46 +422,54 @@ class LocalDbService {
                COUNT(*)  AS total_count,
                SUM(CASE WHEN 상태 != '취하' THEN 1 ELSE 0 END) AS valid_count
         FROM reports
-        WHERE 차량번호 != ''
+        WHERE 차량번호 != '' $withdrawFilter
         GROUP BY 차량번호
         HAVING COUNT(*) >= 2
       ) cc ON r.차량번호 = cc.차량번호
       WHERE r.신고일 = (
         SELECT MAX(신고일) FROM reports r2
-        WHERE r2.차량번호 = r.차량번호
+        WHERE r2.차량번호 = r.차량번호 $withdrawFilter
       )
+      $withdrawFilter
       ORDER BY cc.total_count DESC, r.신고일 DESC
     ''');
-    return rows.map(_rowToReportWithCounts).toList();
+    return rows
+        .map((r) => _rowToReportWithCounts(r, normalizePolice: normalizePolice))
+        .toList();
   }
 
-  static Report _rowToReportWithCounts(Map<String, dynamic> r) => Report(
-        id: r['ID'] as String? ?? '',
-        reportNumber: r['신고번호'] as String? ?? '',
-        name: r['신고명'] as String? ?? '',
-        date: r['신고일'] as String? ?? '',
-        responseDate: r['답변일'] as String? ?? '',
-        agency: r['처리기관'] as String? ?? '',
-        manager: r['담당자'] as String? ?? '',
-        status: r['처리상태'] as String? ?? '',
-        result: r['상태'] as String? ?? '',
-        fineInfo: r['범칙금_과태료'] as String? ?? '',
-        penaltyPoints: r['벌점'] as String? ?? '',
-        carNumber: r['차량번호'] as String? ?? '',
-        law: r['위반법규'] as String? ?? '',
-        location: r['위반장소'] as String? ?? '',
-        occurrenceDate: r['발생일자'] as String? ?? '',
-        occurrenceTime: r['발생시각'] as String? ?? '',
-        reportContent: r['신고내용'] as String? ?? '',
-        processContent: r['처리내용'] as String? ?? '',
-        attachedPhotos: r['첨부사진'] as String? ?? '',
-        attachedFiles: r['첨부파일'] as String? ?? '',
-        mapImage: r['지도'] as String? ?? '',
-        pollStatus: r['만족도조사여부'] as String? ?? '답변 대기',
-        processingFinish: r['종결여부'] as String? ?? 'N',
-        totalCount: (r['total_count'] as num?)?.toInt() ?? 0,
-        validCount: (r['valid_count'] as num?)?.toInt() ?? 0,
-      );
+  static Report _rowToReportWithCounts(Map<String, dynamic> r,
+      {bool normalizePolice = false}) {
+    var agency = r['처리기관'] as String? ?? '';
+    if (normalizePolice) agency = normalizePoliceAgency(agency);
+    return Report(
+      id: r['ID'] as String? ?? '',
+      reportNumber: r['신고번호'] as String? ?? '',
+      name: r['신고명'] as String? ?? '',
+      date: r['신고일'] as String? ?? '',
+      responseDate: r['답변일'] as String? ?? '',
+      agency: agency,
+      manager: r['담당자'] as String? ?? '',
+      status: r['처리상태'] as String? ?? '',
+      result: r['상태'] as String? ?? '',
+      fineInfo: r['범칙금_과태료'] as String? ?? '',
+      penaltyPoints: r['벌점'] as String? ?? '',
+      carNumber: r['차량번호'] as String? ?? '',
+      law: r['위반법규'] as String? ?? '',
+      location: r['위반장소'] as String? ?? '',
+      occurrenceDate: r['발생일자'] as String? ?? '',
+      occurrenceTime: r['발생시각'] as String? ?? '',
+      reportContent: r['신고내용'] as String? ?? '',
+      processContent: r['처리내용'] as String? ?? '',
+      attachedPhotos: r['첨부사진'] as String? ?? '',
+      attachedFiles: r['첨부파일'] as String? ?? '',
+      mapImage: r['지도'] as String? ?? '',
+      pollStatus: r['만족도조사여부'] as String? ?? '답변 대기',
+      processingFinish: r['종결여부'] as String? ?? 'N',
+      totalCount: (r['total_count'] as num?)?.toInt() ?? 0,
+      validCount: (r['valid_count'] as num?)?.toInt() ?? 0,
+    );
+  }
 
   // ── 감시목록 ──────────────────────────────────────────────────────────────
 
@@ -436,30 +493,43 @@ class LocalDbService {
     }
   }
 
-  static Future<List<Report>> getWatchlistReports() async {
+  static Future<List<Report>> getWatchlistReports({
+    bool excludeWithdraw = false,
+    bool normalizePolice = false,
+  }) async {
     final numbers = await getWatchlistNumbers();
     if (numbers.isEmpty) return [];
     final d = await db;
     final placeholders = numbers.map((_) => '?').join(',');
+    final withdrawFilter = excludeWithdraw ? " AND 처리상태 != '취하'" : '';
     final rows = await d.rawQuery(
-      'SELECT * FROM reports WHERE 신고번호 IN ($placeholders) ORDER BY 신고일 DESC',
+      'SELECT * FROM reports WHERE 신고번호 IN ($placeholders)$withdrawFilter ORDER BY 신고일 DESC',
       numbers.toList(),
     );
-    return rows.map(_rowToReport).toList();
+    return rows.map((r) => _rowToReport(r, normalizePolice: normalizePolice)).toList();
   }
 
   // ── 검색 ─────────────────────────────────────────────────────────────────
 
-  static Future<List<Report>> searchReports(String query) async {
+  static Future<List<Report>> searchReports(
+    String query, {
+    bool excludeWithdraw = false,
+    bool normalizePolice = false,
+  }) async {
     final d = await db;
     final q = '%$query%';
+    var where = '(신고명 LIKE ? OR 신고번호 LIKE ? OR 차량번호 LIKE ? OR 처리기관 LIKE ? OR 위반법규 LIKE ?)';
+    final args = <dynamic>[q, q, q, q, q];
+    if (excludeWithdraw) {
+      where += " AND 처리상태 != '취하'";
+    }
     final rows = await d.query(
       'reports',
-      where: '신고명 LIKE ? OR 신고번호 LIKE ? OR 차량번호 LIKE ? OR 처리기관 LIKE ? OR 위반법규 LIKE ?',
-      whereArgs: [q, q, q, q, q],
+      where: where,
+      whereArgs: args,
       orderBy: '신고일 DESC',
     );
-    return rows.map(_rowToReport).toList();
+    return rows.map((r) => _rowToReport(r, normalizePolice: normalizePolice)).toList();
   }
 
   // ── 전체 삭제 ─────────────────────────────────────────────────────────────
@@ -472,31 +542,36 @@ class LocalDbService {
 
   // ── 내부 변환 ─────────────────────────────────────────────────────────────
 
-  static Report _rowToReport(Map<String, dynamic> r) => Report(
-        id: r['ID'] as String? ?? '',
-        reportNumber: r['신고번호'] as String? ?? '',
-        name: r['신고명'] as String? ?? '',
-        date: r['신고일'] as String? ?? '',
-        responseDate: r['답변일'] as String? ?? '',
-        agency: r['처리기관'] as String? ?? '',
-        manager: r['담당자'] as String? ?? '',
-        status: r['처리상태'] as String? ?? '',
-        result: r['상태'] as String? ?? '',
-        fineInfo: r['범칙금_과태료'] as String? ?? '',
-        penaltyPoints: r['벌점'] as String? ?? '',
-        carNumber: r['차량번호'] as String? ?? '',
-        law: r['위반법규'] as String? ?? '',
-        location: r['위반장소'] as String? ?? '',
-        occurrenceDate: r['발생일자'] as String? ?? '',
-        occurrenceTime: r['발생시각'] as String? ?? '',
-        reportContent: r['신고내용'] as String? ?? '',
-        processContent: r['처리내용'] as String? ?? '',
-        attachedPhotos: r['첨부사진'] as String? ?? '',
-        attachedFiles: r['첨부파일'] as String? ?? '',
-        mapImage: r['지도'] as String? ?? '',
-        pollStatus: r['만족도조사여부'] as String? ?? '답변 대기',
-        processingFinish: r['종결여부'] as String? ?? 'N',
-      );
+  static Report _rowToReport(Map<String, dynamic> r,
+      {bool normalizePolice = false}) {
+    var agency = r['처리기관'] as String? ?? '';
+    if (normalizePolice) agency = normalizePoliceAgency(agency);
+    return Report(
+      id: r['ID'] as String? ?? '',
+      reportNumber: r['신고번호'] as String? ?? '',
+      name: r['신고명'] as String? ?? '',
+      date: r['신고일'] as String? ?? '',
+      responseDate: r['답변일'] as String? ?? '',
+      agency: agency,
+      manager: r['담당자'] as String? ?? '',
+      status: r['처리상태'] as String? ?? '',
+      result: r['상태'] as String? ?? '',
+      fineInfo: r['범칙금_과태료'] as String? ?? '',
+      penaltyPoints: r['벌점'] as String? ?? '',
+      carNumber: r['차량번호'] as String? ?? '',
+      law: r['위반법규'] as String? ?? '',
+      location: r['위반장소'] as String? ?? '',
+      occurrenceDate: r['발생일자'] as String? ?? '',
+      occurrenceTime: r['발생시각'] as String? ?? '',
+      reportContent: r['신고내용'] as String? ?? '',
+      processContent: r['처리내용'] as String? ?? '',
+      attachedPhotos: r['첨부사진'] as String? ?? '',
+      attachedFiles: r['첨부파일'] as String? ?? '',
+      mapImage: r['지도'] as String? ?? '',
+      pollStatus: r['만족도조사여부'] as String? ?? '답변 대기',
+      processingFinish: r['종결여부'] as String? ?? 'N',
+    );
+  }
 }
 
 // ── 집계 헬퍼 ────────────────────────────────────────────────────────────────

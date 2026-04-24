@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import '../models/report.dart';
+import '../services/standalone_auth_service.dart';
 
 void showReportDetailSheet(BuildContext context, Report report) {
   showModalBottomSheet(
@@ -617,6 +618,20 @@ class _RetryableImageState extends State<_RetryableImage> {
   bool _failed = false;   // 최종 실패 (수동 버튼 표시)
   bool _retrying = false; // 재시도 대기 중 (스피너 표시)
   Timer? _retryTimer;
+  Map<String, String>? _headers;
+
+  @override
+  void initState() {
+    super.initState();
+    // 안전신문고 직접 URL은 Bearer 토큰이 필요
+    if (widget.url.contains('safetyreport.go.kr')) {
+      StandaloneAuthService.getStoredToken().then((token) {
+        if (token != null && mounted) {
+          setState(() => _headers = {'Authorization': 'BEARER $token'});
+        }
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -674,6 +689,7 @@ class _RetryableImageState extends State<_RetryableImage> {
       child: Image.network(
         widget.url,
         key: ValueKey('${widget.url}_$_attempt'),
+        headers: _headers,
         fit: BoxFit.cover,
         loadingBuilder: (_, child, progress) {
           if (progress == null) return child; // 로드 완료

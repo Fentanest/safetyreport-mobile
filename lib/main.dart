@@ -462,7 +462,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   Widget _buildSyncIcon({required bool isSelected}) {
     final icon = isSelected ? const Icon(Icons.sync) : const Icon(Icons.sync_outlined);
     return RotationTransition(
-      turns: _syncIconController,
+      turns: Tween<double>(begin: 0, end: -1).animate(_syncIconController),
       child: icon,
     );
   }

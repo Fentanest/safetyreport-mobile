@@ -12,6 +12,7 @@ import '../services/local_db_service.dart';
 import '../services/permission_service.dart';
 import '../services/standalone_auth_service.dart';
 import 'permission_screen.dart';
+import 'setup_screen.dart';
 import 'dart:io';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:file_picker/file_picker.dart';
@@ -512,7 +513,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
     if (confirmed == true && mounted) {
       await context.read<ReportProvider>().resetConfig();
-      // isConfigured가 false가 되면 main.dart 라우터가 SetupScreen으로 자동 이동
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const SetupScreen()),
+          (_) => false,
+        );
+      }
     }
   }
 

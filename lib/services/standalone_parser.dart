@@ -12,18 +12,18 @@ const _warningKeywords = [
   '교통질서 안내장', '훈방권', '증거에 의해서만', '12대 중과실',
   '82도117', '관리대상으로', '12개 중과실',
 ];
-const _parkingEntries = ['불법주정차신고', '버스전용차로 위반', '쓰레기, 폐기물'];
 const _trafficEntry = '자동차·교통위반';
 
-// ── 카테고리 분류 ─────────────────────────────────────────────────────────────
+// ── 카테고리 분류 (서버 database.py category_from_entry_value 와 동일) ──────────
 
 String categoryFromEntryValue(String entryValue) {
-  if (entryValue.contains('교통위반')) return 'traffic';
-  for (final p in _parkingEntries) {
-    if (entryValue.contains(p)) return 'parking';
-  }
+  if (entryValue.contains('자동차·교통위반')) return 'traffic';
+  if (entryValue.contains('불법주정차신고')) return 'parking';
   return 'other';
 }
+
+// 과태료 판정용 주정차 진입값 목록 (카테고리와 무관하게 과태료 부여)
+const _parkingFineEntries = ['불법주정차신고', '버스전용차로 위반', '쓰레기, 폐기물'];
 
 // ── 전각 숫자 → 반각 변환 ────────────────────────────────────────────────────
 
@@ -61,7 +61,7 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
       (detailData['C_APP_GUBUN_NM'] as String? ?? '');
 
   final carMatch = RegExp(r'차량번호\s*:\s*(.*?)(?=\n|\(위)').firstMatch(content);
-  final carNumber = carMatch != null
+  var carNumber = carMatch != null
       ? carMatch.group(1)!.replaceAll(RegExp(r'\s+'), '')
       : '';
 
@@ -80,7 +80,7 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
   if ((detailData['SPLMNT_CMPTN_DT'] != null) &&
       (detailData['SPLMNT_CMPTN_YN'] as String?) != 'N') {
     if (detailData['SPLMNT_VHRNO'] != null) {
-      carNumber == (detailData['SPLMNT_VHRNO'] as String).replaceAll(RegExp(r'\s+'), '');
+      carNumber = (detailData['SPLMNT_VHRNO'] as String).replaceAll(RegExp(r'\s+'), '');
     }
     final rawDate = (detailData['SPLMNT_DEVEL_DATE'] ?? '').toString();
     if (rawDate.length == 8) {
@@ -105,8 +105,12 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
   } catch (_) {}
   final processStatus = _cNowStatus[cNow] ?? (cNow > 0 ? cNow.toString() : '진행');
 
-  // ── 신고 내용 (차량번호 이전 텍스트) ────────────────────────────────────
-  final reportContent = content.split(RegExp(r'\*\s*차량번호')).first.trim();
+  // ── 신고 내용 (차량번호 이전 텍스트에서 intro 문장 제거) ─────────────────
+  var reportContent = content.split(RegExp(r'\*\s*차량번호')).first;
+  // "본 신고는 안전신문고 앱의 X 메뉴로 접수된 신고입니다" intro 문장 제거
+  reportContent = reportContent
+      .replaceAll(RegExp(r'본 신고는 안전신문고 (?:앱의|포털의) .+? 메뉴로 접수된 신고입니다\.?\s*'), '')
+      .trim();
 
   // ── 처리 기관 답변 파싱 ──────────────────────────────────────────────────
   var processingStatus = '';
@@ -150,7 +154,7 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
 
   // 과태료/범칙금
   var fineEntry = '';
-  if (_parkingEntries.any((e) => entryValue.contains(e)) && processingStatus == '수용') {
+  if (_parkingFineEntries.any((e) => entryValue.contains(e)) && processingStatus == '수용') {
     fineEntry = '과태료';
   }
 

@@ -21,15 +21,11 @@ class SetupScreen extends StatefulWidget {
 class _SetupScreenState extends State<SetupScreen> {
   _Step _step = _Step.selectMode;
 
-  // 서버 모드 폼
   final _urlController = TextEditingController();
   final _apiController = TextEditingController();
-
-  // 스탠드어론 모드 폼
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _obscurePw = true;
-
   bool _loading = false;
   String? _errorMessage;
 
@@ -49,7 +45,6 @@ class _SetupScreenState extends State<SetupScreen> {
     });
   }
 
-  // ── 서버 모드 연결 ──────────────────────────────────────────
   Future<void> _connectServer() async {
     final url = _urlController.text.trim();
     final key = _apiController.text.trim();
@@ -57,33 +52,27 @@ class _SetupScreenState extends State<SetupScreen> {
       setState(() => _errorMessage = '서버 URL과 API Key를 모두 입력해주세요.');
       return;
     }
-    setState(() {
-      _loading = true;
-      _errorMessage = null;
-    });
+    setState(() { _loading = true; _errorMessage = null; });
     final cleanUrl = url.endsWith('/') ? url.substring(0, url.length - 1) : url;
     try {
       final response = await http.get(
         Uri.parse('$cleanUrl/api/v1/summary'),
         headers: {'X-API-Key': key, 'Content-Type': 'application/json'},
       ).timeout(const Duration(seconds: 10));
-
       if (response.statusCode == 200) {
         try {
           jsonDecode(response.body);
           if (!mounted) return;
           await context.read<ReportProvider>().setConfig(cleanUrl, key);
           if (!mounted) return;
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const PermissionScreen(isSetup: true)),
-          );
+          Navigator.pushReplacement(context,
+              MaterialPageRoute(builder: (_) => const PermissionScreen(isSetup: true)));
           return;
         } catch (_) {
           setState(() => _errorMessage = '서버 응답 파싱 실패. 올바른 서버인지 확인해주세요.');
         }
       } else if (response.statusCode == 401) {
-        setState(() => _errorMessage = 'API Key 인증 실패 (401)\nAPI Key를 다시 확인해주세요.');
+        setState(() => _errorMessage = 'API Key 인증 실패 (401)');
       } else {
         setState(() => _errorMessage = '서버 오류: HTTP ${response.statusCode}');
       }
@@ -94,7 +83,6 @@ class _SetupScreenState extends State<SetupScreen> {
     }
   }
 
-  // ── 스탠드어론 모드 로그인 ──────────────────────────────────
   Future<void> _loginStandalone() async {
     final username = _usernameController.text.trim();
     final password = _passwordController.text;
@@ -102,19 +90,14 @@ class _SetupScreenState extends State<SetupScreen> {
       setState(() => _errorMessage = '아이디와 비밀번호를 입력해주세요.');
       return;
     }
-    setState(() {
-      _loading = true;
-      _errorMessage = null;
-    });
+    setState(() { _loading = true; _errorMessage = null; });
     try {
       await StandaloneAuthService.login(username, password);
       if (!mounted) return;
       await context.read<ReportProvider>().setStandaloneConfig(username);
       if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const PermissionScreen(isSetup: true)),
-      );
+      Navigator.pushReplacement(context,
+          MaterialPageRoute(builder: (_) => const PermissionScreen(isSetup: true)));
     } catch (e) {
       setState(() => _errorMessage = e.toString().replaceFirst('Exception: ', ''));
     } finally {
@@ -122,18 +105,16 @@ class _SetupScreenState extends State<SetupScreen> {
     }
   }
 
-  // ── 빌드 ────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
         child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 220),
-          transitionBuilder: (child, anim) =>
-              FadeTransition(opacity: anim, child: child),
+          transitionBuilder: (child, anim) => FadeTransition(opacity: anim, child: child),
           child: switch (_step) {
-            _Step.selectMode => _buildModeSelect(),
-            _Step.serverConfig => _buildServerConfig(),
+            _Step.selectMode      => _buildModeSelect(),
+            _Step.serverConfig    => _buildServerConfig(),
             _Step.standaloneConfig => _buildStandaloneConfig(),
           },
         ),
@@ -141,7 +122,6 @@ class _SetupScreenState extends State<SetupScreen> {
     );
   }
 
-  // ── 모드 선택 페이지 ─────────────────────────────────────────
   Widget _buildModeSelect() {
     return SingleChildScrollView(
       key: const ValueKey('selectMode'),
@@ -152,17 +132,13 @@ class _SetupScreenState extends State<SetupScreen> {
           const SizedBox(height: 24),
           const Icon(Icons.shield_outlined, size: 60, color: Color(0xFF1A73E8)),
           const SizedBox(height: 20),
-          const Text(
-            '나만의 안전신문고',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-          ),
+          const Text('나만의 안전신문고',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          const Text(
-            '연결 방식을 선택해주세요',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 15, color: Colors.grey),
-          ),
+          const Text('연결 방식을 선택해주세요',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 15, color: Colors.grey)),
           const SizedBox(height: 40),
           _ModeCard(
             icon: Icons.dns_rounded,
@@ -188,7 +164,6 @@ class _SetupScreenState extends State<SetupScreen> {
     );
   }
 
-  // ── 서버 모드 설정 페이지 ────────────────────────────────────
   Widget _buildServerConfig() {
     final cs = Theme.of(context).colorScheme;
     return SingleChildScrollView(
@@ -198,40 +173,24 @@ class _SetupScreenState extends State<SetupScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const SizedBox(height: 8),
-          Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () => _goToStep(_Step.selectMode),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                '서버 연결 설정',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: cs.primary,
-                ),
-              ),
-            ],
-          ),
+          Row(children: [
+            IconButton(icon: const Icon(Icons.arrow_back),
+                onPressed: () => _goToStep(_Step.selectMode)),
+            const SizedBox(width: 4),
+            Text('서버 연결 설정',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: cs.primary)),
+          ]),
           const SizedBox(height: 24),
           const Icon(Icons.dns_rounded, size: 52, color: Color(0xFF1A73E8)),
           const SizedBox(height: 16),
-          const Text(
-            '서버 URL과 API Key를 입력해주세요.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey),
-          ),
+          const Text('서버 URL과 API Key를 입력해주세요.',
+              textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
           const SizedBox(height: 28),
           TextField(
             controller: _urlController,
             decoration: const InputDecoration(
-              labelText: '서버 URL',
-              hintText: 'https://...',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.link),
-            ),
+                labelText: '서버 URL', hintText: 'https://',
+                border: OutlineInputBorder(), prefixIcon: Icon(Icons.link)),
             keyboardType: TextInputType.url,
             autocorrect: false,
             enabled: !_loading,
@@ -240,10 +199,8 @@ class _SetupScreenState extends State<SetupScreen> {
           TextField(
             controller: _apiController,
             decoration: const InputDecoration(
-              labelText: 'API Key',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.vpn_key),
-            ),
+                labelText: 'API Key',
+                border: OutlineInputBorder(), prefixIcon: Icon(Icons.vpn_key)),
             obscureText: true,
             autocorrect: false,
             enabled: !_loading,
@@ -252,16 +209,11 @@ class _SetupScreenState extends State<SetupScreen> {
           const SizedBox(height: 24),
           FilledButton.icon(
             icon: _loading
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                  )
+                ? const SizedBox(width: 18, height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                 : const Icon(Icons.wifi_find, size: 18),
             label: Text(_loading ? '연결 확인 중...' : '연결 확인 후 시작하기'),
-            style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-            ),
+            style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
             onPressed: _loading ? null : _connectServer,
           ),
         ],
@@ -269,9 +221,7 @@ class _SetupScreenState extends State<SetupScreen> {
     );
   }
 
-  // ── 스탠드어론 설정 페이지 ───────────────────────────────────
   Widget _buildStandaloneConfig() {
-    final cs = Theme.of(context).colorScheme;
     return SingleChildScrollView(
       key: const ValueKey('standaloneConfig'),
       padding: const EdgeInsets.all(24),
@@ -279,39 +229,26 @@ class _SetupScreenState extends State<SetupScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const SizedBox(height: 8),
-          Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () => _goToStep(_Step.selectMode),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                '안전신문고 로그인',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: const Color(0xFF0F9D58),
-                ),
-              ),
-            ],
-          ),
+          Row(children: [
+            IconButton(icon: const Icon(Icons.arrow_back),
+                onPressed: () => _goToStep(_Step.selectMode)),
+            const SizedBox(width: 4),
+            const Text('안전신문고 로그인',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold,
+                    color: Color(0xFF0F9D58))),
+          ]),
           const SizedBox(height: 24),
           const Icon(Icons.lock_open_rounded, size: 52, color: Color(0xFF0F9D58)),
           const SizedBox(height: 16),
-          const Text(
-            '안전신문고 아이디와 비밀번호를 입력하세요.\n서버 없이 앱에서 직접 신고 현황을 조회합니다.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey, height: 1.5),
-          ),
+          const Text('안전신문고 아이디와 비밀번호를 입력하세요.\n서버 없이 앱에서 직접 신고 현황을 조회합니다.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey, height: 1.5)),
           const SizedBox(height: 28),
           TextField(
             controller: _usernameController,
             decoration: const InputDecoration(
-              labelText: '아이디',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.person_outline),
-            ),
+                labelText: '아이디', border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.person_outline)),
             autocorrect: false,
             textInputAction: TextInputAction.next,
             enabled: !_loading,
@@ -338,17 +275,13 @@ class _SetupScreenState extends State<SetupScreen> {
           const SizedBox(height: 24),
           FilledButton.icon(
             icon: _loading
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                  )
+                ? const SizedBox(width: 18, height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                 : const Icon(Icons.login, size: 18),
             label: Text(_loading ? '로그인 중...' : '로그인'),
             style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF0F9D58),
-              padding: const EdgeInsets.symmetric(vertical: 16),
-            ),
+                backgroundColor: const Color(0xFF0F9D58),
+                padding: const EdgeInsets.symmetric(vertical: 16)),
             onPressed: _loading ? null : _loginStandalone,
           ),
           const SizedBox(height: 20),
@@ -366,7 +299,7 @@ class _SetupScreenState extends State<SetupScreen> {
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '비밀번호는 RSA 암호화 후 안전신문고 서버에만 전송되며 기기에 저장되지 않습니다.',
+                    '비밀번호는 RSA 암호화 후 안전신문고 서버에 전송됩니다. 자동 재로그인을 위해 기기의 보안 저장소(암호화)에 저장됩니다.',
                     style: TextStyle(fontSize: 12, color: Colors.grey, height: 1.5),
                   ),
                 ),
@@ -395,10 +328,8 @@ class _SetupScreenState extends State<SetupScreen> {
             Icon(Icons.error_outline, color: Colors.red.shade700, size: 18),
             const SizedBox(width: 8),
             Expanded(
-              child: Text(
-                _errorMessage!,
-                style: TextStyle(color: Colors.red.shade800, fontSize: 13, height: 1.5),
-              ),
+              child: Text(_errorMessage!,
+                  style: TextStyle(color: Colors.red.shade800, fontSize: 13, height: 1.5)),
             ),
           ],
         ),
@@ -444,8 +375,7 @@ class _ModeCard extends StatelessWidget {
           child: Row(
             children: [
               Container(
-                width: 52,
-                height: 52,
+                width: 52, height: 52,
                 decoration: BoxDecoration(
                   color: color.withOpacity(0.12),
                   borderRadius: BorderRadius.circular(14),
@@ -457,43 +387,27 @@ class _ModeCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            title,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: color,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                    Row(children: [
+                      Flexible(
+                        child: Text(title,
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color),
+                            overflow: TextOverflow.ellipsis),
+                      ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: bc.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: bc.withOpacity(0.4)),
                         ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: bc.withOpacity(0.12),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: bc.withOpacity(0.4)),
-                          ),
-                          child: Text(
-                            badge,
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              color: bc,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                        child: Text(badge,
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: bc)),
+                      ),
+                    ]),
                     const SizedBox(height: 6),
-                    Text(
-                      description,
-                      style: const TextStyle(fontSize: 13, color: Colors.grey, height: 1.4),
-                    ),
+                    Text(description,
+                        style: const TextStyle(fontSize: 13, color: Colors.grey, height: 1.4)),
                   ],
                 ),
               ),

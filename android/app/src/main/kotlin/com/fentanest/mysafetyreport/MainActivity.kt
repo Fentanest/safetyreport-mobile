@@ -8,7 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
-import androidx.activity.enableEdgeToEdge
+import androidx.core.view.WindowCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -27,9 +27,12 @@ class MainActivity : FlutterActivity() {
         // 으로 모든 prefs 읽기 실패 → 로그인 풀림.)
         cleanupCorruptedPrefs()
         // Android 15 (API 35) 부터 SDK 35 타겟 앱은 자동으로 edge-to-edge.
-        // 하위 버전과의 호환성을 위해 명시적으로 enable (status/nav bar 투명 +
-        // 컨텐츠가 시스템바 뒤로 그려지도록 + Material3 Scaffold 가 inset 처리).
-        enableEdgeToEdge()
+        // 하위 버전과의 호환성을 위해 명시적으로 enable.
+        // (androidx.activity 의 enableEdgeToEdge() 는 ComponentActivity 확장 함수인데
+        // FlutterActivity 의 dependency 체인에서 receiver type mismatch 발생 →
+        // androidx.core 의 WindowCompat 으로 대체. 컨텐츠가 시스템바 뒤로 그려지고
+        // Material3 Scaffold 가 inset 자동 처리.)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         super.onCreate(savedInstanceState)
         createAppNotifChannel()
         // 앱이 종료 상태에서 알림 탭으로 실행된 경우 처리

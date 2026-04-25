@@ -607,15 +607,16 @@ class _RowCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // 줄바꿈을 허용해 긴 기관명도 모두 표시 (ellipsis 안 함)
                         Text(row.agency,
                             style: const TextStyle(
                                 fontWeight: FontWeight.bold, fontSize: 14),
-                            overflow: TextOverflow.ellipsis),
+                            softWrap: true),
                         if (showPerson && row.person.isNotEmpty)
                           Text(row.person,
                               style: TextStyle(
                                   fontSize: 12, color: Colors.grey.shade600),
-                              overflow: TextOverflow.ellipsis),
+                              softWrap: true),
                       ],
                     ),
                   ),

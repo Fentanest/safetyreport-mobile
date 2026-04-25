@@ -820,66 +820,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 16),
 
-            // ── 기타 데이터 필터 세팅 카드 ───────────────────
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.filter_list, color: cs.primary),
-                        const SizedBox(width: 8),
-                        Text(
-                          '기타 데이터 필터 세팅',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: cs.primary,
-                          ),
-                        ),
-                        if (_filterLoading) ...[
-                          const SizedBox(width: 8),
-                          const SizedBox(
-                            width: 14, height: 14,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      '웹앱 설정과 동기화됩니다. 변경 시 데이터가 즉시 갱신됩니다.',
-                      style: TextStyle(color: Colors.grey, fontSize: 12),
-                    ),
-                    const SizedBox(height: 12),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('취하 데이터 숨기기', style: TextStyle(fontSize: 14)),
-                      subtitle: const Text('처리상태가 취하인 신고를 목록에서 제외합니다.', style: TextStyle(fontSize: 12)),
-                      value: _excludeWithdraw,
-                      onChanged: _filterLoading ? null : (v) {
-                        setState(() => _excludeWithdraw = v);
-                        _toggleFilter('exclude_withdraw', v);
-                      },
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('경찰 기관명 정규화', style: TextStyle(fontSize: 14)),
-                      subtitle: const Text('처리기관명을 "XX경찰서" 형태로 통일합니다.', style: TextStyle(fontSize: 12)),
-                      value: _normalizePolice,
-                      onChanged: _filterLoading ? null : (v) {
-                        setState(() => _normalizePolice = v);
-                        _toggleFilter('normalize_police', v);
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-
             // ── 크롤링 자동 저장 카드 ──────────────────────
             Card(
               child: Padding(
@@ -941,6 +881,68 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 16),
 
             ], // if (!isStandalone)
+
+            // ── 기타 데이터 필터 세팅 카드 (양쪽 모드 공통) ──────
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.filter_list, color: cs.primary),
+                        const SizedBox(width: 8),
+                        Text(
+                          '기타 데이터 필터 세팅',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: cs.primary,
+                          ),
+                        ),
+                        if (_filterLoading) ...[
+                          const SizedBox(width: 8),
+                          const SizedBox(
+                            width: 14, height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      isStandalone
+                          ? '변경 시 데이터가 즉시 갱신됩니다.'
+                          : '웹앱 설정과 동기화됩니다. 변경 시 데이터가 즉시 갱신됩니다.',
+                      style: const TextStyle(color: Colors.grey, fontSize: 12),
+                    ),
+                    const SizedBox(height: 12),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('취하 데이터 숨기기', style: TextStyle(fontSize: 14)),
+                      subtitle: const Text('처리상태가 취하인 신고를 목록에서 제외합니다.', style: TextStyle(fontSize: 12)),
+                      value: _excludeWithdraw,
+                      onChanged: _filterLoading ? null : (v) {
+                        setState(() => _excludeWithdraw = v);
+                        _toggleFilter('exclude_withdraw', v);
+                      },
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('경찰 기관명 정규화', style: TextStyle(fontSize: 14)),
+                      subtitle: const Text('처리기관명을 "XX경찰서" 형태로 통일합니다.', style: TextStyle(fontSize: 12)),
+                      value: _normalizePolice,
+                      onChanged: _filterLoading ? null : (v) {
+                        setState(() => _normalizePolice = v);
+                        _toggleFilter('normalize_police', v);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
 
             // ── 데이터베이스 관리 ──────────────────────────────
             Card(

@@ -320,7 +320,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
           final newCount = changes
               .where((r) => (r as Map)['change_type'] == '신규')
               .length;
-          final changedCount = changes.length - newCount;
+          final confirmCount = changes
+              .where((r) => (r as Map)['change_type'] == '단건확인')
+              .length;
+          final changedCount = changes.length - newCount - confirmCount;
           return Column(
           children: [
             Padding(
@@ -349,12 +352,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                     ],
                   ),
                   const SizedBox(height: 6),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 6,
+                    runSpacing: 4,
                     children: [
                       if (newCount > 0) _changeBadge('신규', newCount, Colors.teal),
-                      if (newCount > 0 && changedCount > 0) const SizedBox(width: 6),
                       if (changedCount > 0) _changeBadge('처리변경', changedCount, Colors.orange),
+                      if (confirmCount > 0) _changeBadge('동기화', confirmCount, Colors.blueGrey),
                     ],
                   ),
                 ],
@@ -371,6 +376,17 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                   final r = changes[i] as Map<String, dynamic>;
                   final changeType = r['change_type']?.toString() ?? '변경';
                   final isNew = changeType == '신규';
+                  final isConfirm = changeType == '단건확인';
+                  final badgeColor = isNew
+                      ? Colors.teal
+                      : isConfirm
+                          ? Colors.blueGrey
+                          : Colors.orange;
+                  final badgeLabel = isNew
+                      ? '신규'
+                      : isConfirm
+                          ? '동기화'
+                          : '처리변경';
                   final reportNo = r['신고번호']?.toString() ?? '';
                   final name = r['신고명']?.toString() ?? '신고';
                   final status = r['처리상태']?.toString() ?? '';
@@ -402,22 +418,17 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                                   padding: const EdgeInsets.symmetric(
                                       horizontal: 6, vertical: 2),
                                   decoration: BoxDecoration(
-                                    color: isNew
-                                        ? Colors.teal.withOpacity(0.12)
-                                        : Colors.orange.withOpacity(0.12),
+                                    color: badgeColor.withOpacity(0.12),
                                     borderRadius: BorderRadius.circular(4),
                                     border: Border.all(
-                                      color: isNew
-                                          ? Colors.teal.withOpacity(0.5)
-                                          : Colors.orange.withOpacity(0.5),
-                                    ),
+                                        color: badgeColor.withOpacity(0.5)),
                                   ),
                                   child: Text(
-                                    isNew ? '신규' : '처리변경',
+                                    badgeLabel,
                                     style: TextStyle(
                                       fontSize: 10,
                                       fontWeight: FontWeight.bold,
-                                      color: isNew ? Colors.teal : Colors.orange,
+                                      color: badgeColor,
                                     ),
                                   ),
                                 ),

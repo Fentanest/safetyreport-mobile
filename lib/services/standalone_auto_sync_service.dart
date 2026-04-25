@@ -132,25 +132,34 @@ class StandaloneAutoSyncService {
   }
 
   /// 신고번호로 DB 조회 → C_NO 있으면 상세 API 단건 호출 + upsert. 성공/실패 반환.
-  /// 처리상태가 바뀌었으면 _singleFetchChanges 에 처리변경으로 추가.
+  ///
+  /// 사용자가 알림을 탭한 명시적 요청이므로 종결여부와 무관하게 항상 크롤링.
+  /// 처리상태 변동 여부와 무관하게 변경 카드 표시 (사용자 피드백).
+  /// CrawlScreen 가시성 위해 SyncEngine.emitLog 로 진행상황 출력.
   static Future<bool> _tryFetchSingle(String reportNumber) async {
+    SyncEngine.emitLog('단건 동기화: $reportNumber 조회 중...');
     final existing = await LocalDbService.getReportByNumber(reportNumber);
-    if (existing == null || existing.id.isEmpty) return false;
+    if (existing == null || existing.id.isEmpty) {
+      SyncEngine.emitLog('단건 동기화: $reportNumber 미발견 (DB) → 증분 sync 로 fallback');
+      return false;
+    }
     final beforeStatus = existing.status;
     try {
+      SyncEngine.emitLog('상세 API 호출 (ID=${existing.id})');
       final detail = await StandaloneApiService.fetchReportDetail(existing.id);
       final ev = entryValueFromDetail(<String, dynamic>{}, detail);
       final cat = categoryFromEntryValue(ev);
       final report = parseJsonToReport(<String, dynamic>{}, detail);
       final raw = (detail['C_A_CONTENTS'] ?? detail['C_A_BODY'] ?? '').toString();
       await LocalDbService.upsertReport(report, cat, ev, rawContent: raw);
-      // C_NO 이미 있던 항목 — 신규는 아님. 처리상태가 바뀐 경우만 처리변경.
-      if (beforeStatus != report.status) {
-        _singleFetchChanges
-            .add(SyncEngine.reportToChangeMap(report, '처리변경'));
-      }
+      // 사용자가 명시적으로 알림 탭한 단건 → 처리상태 변동 여부와 무관하게 변경 카드 표시.
+      // (변동 있으면 '처리변경' / 없으면 '단건확인' 으로 구분)
+      final changeType = beforeStatus != report.status ? '처리변경' : '단건확인';
+      _singleFetchChanges.add(SyncEngine.reportToChangeMap(report, changeType));
+      SyncEngine.emitLog('완료: $reportNumber → $changeType (상태=${report.status})');
       return true;
-    } catch (_) {
+    } catch (e) {
+      SyncEngine.emitLog('실패: $reportNumber → $e');
       return false;
     }
   }

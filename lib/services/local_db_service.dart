@@ -417,6 +417,17 @@ class LocalDbService {
 
   // ── 중복차량 ─────────────────────────────────────────────────────────────
 
+  /// 중복차량 — 서버 get_duplicate_records 와 동일 로직.
+  ///
+  /// 차량별 그룹의 모든 신고를 보여주되, 최근 신고가 있는 그룹부터 위로 오도록 정렬.
+  /// 같은 차량끼리 붙어 보이도록 그룹 내에서는 신고번호 역순.
+  ///
+  /// 정렬 키 (서버 동일):
+  ///   1. 그룹의 최근신고번호 DESC  → 최근 신고가 있는 차량 그룹이 위
+  ///   2. 차량번호 ASC              → 같은 차량 행끼리 묶임
+  ///   3. 개별 신고번호 DESC        → 그룹 내에서 최신 신고 우선
+  ///
+  /// excludeWithdraw 적용 후 단 1건만 남는 차량은 '중복' 의미가 없어 제외.
   static Future<List<Report>> getDuplicateVehicleReports({
     bool excludeWithdraw = false,
     bool normalizePolice = false,
@@ -424,25 +435,23 @@ class LocalDbService {
     final d = await db;
     final withdrawFilter = excludeWithdraw ? "AND 처리상태 != '취하'" : '';
     final rows = await d.rawQuery('''
-      SELECT r.*,
-             cc.total_count,
-             cc.valid_count
-      FROM reports r
-      INNER JOIN (
+      WITH dup_vehicles AS (
         SELECT 차량번호,
-               COUNT(*)  AS total_count,
-               SUM(CASE WHEN 상태 != '취하' THEN 1 ELSE 0 END) AS valid_count
+               COUNT(*)                                                 AS total_count,
+               SUM(CASE WHEN 처리상태 != '취하' THEN 1 ELSE 0 END)        AS valid_count,
+               MAX(신고번호)                                              AS max_report_no
         FROM reports
         WHERE 차량번호 != '' $withdrawFilter
         GROUP BY 차량번호
         HAVING COUNT(*) >= 2
-      ) cc ON r.차량번호 = cc.차량번호
-      WHERE r.신고일 = (
-        SELECT MAX(신고일) FROM reports r2
-        WHERE r2.차량번호 = r.차량번호 $withdrawFilter
       )
-      $withdrawFilter
-      ORDER BY cc.total_count DESC, r.신고일 DESC
+      SELECT r.*,
+             dv.total_count,
+             dv.valid_count
+      FROM reports r
+      INNER JOIN dup_vehicles dv ON r.차량번호 = dv.차량번호
+      WHERE r.차량번호 != '' $withdrawFilter
+      ORDER BY dv.max_report_no DESC, r.차량번호 ASC, r.신고번호 DESC
     ''');
     return rows
         .map((r) => _rowToReportWithCounts(r, normalizePolice: normalizePolice))

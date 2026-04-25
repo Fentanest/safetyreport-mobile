@@ -55,6 +55,10 @@ class SyncEngine {
   static void _log(String msg) =>
       _emit(SyncEvent(type: SyncEventType.log, message: msg));
 
+  /// 외부에서 sync 로그 emit (StandaloneAutoSyncService 단건 fetch 등).
+  /// CrawlScreen 이 SyncEngine.events 를 구독하므로 동일 채널로 표시됨.
+  static void emitLog(String msg) => _log(msg);
+
   static Future<void> start({bool fullSync = false}) async {
     if (_running) return;
     _running = true;

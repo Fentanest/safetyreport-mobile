@@ -52,10 +52,21 @@ class SafetyReportApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           theme: ThemeData(
             useMaterial3: true,
+            // 초록 시드는 surface 에 노란기가 도는 톤을 만들어냄 → 흰색으로 강제.
+            // 카드/시트 등 모든 surface 계열을 중립 흰색 으로 통일.
             colorScheme: ColorScheme.fromSeed(
               seedColor: primary,
               brightness: Brightness.light,
+            ).copyWith(
+              surface: Colors.white,
+              surfaceContainerLowest: Colors.white,
+              surfaceContainerLow: const Color(0xFFFAFAFA),
+              surfaceContainer: const Color(0xFFF5F5F5),
+              surfaceContainerHigh: const Color(0xFFEEEEEE),
+              surfaceContainerHighest: const Color(0xFFE0E0E0),
             ),
+            scaffoldBackgroundColor: Colors.white,
+            canvasColor: Colors.white,
             appBarTheme: AppBarTheme(
               centerTitle: false,
               backgroundColor: primary,

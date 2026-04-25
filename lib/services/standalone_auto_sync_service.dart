@@ -7,30 +7,30 @@ import 'sync_engine.dart';
 /// Standalone 모드 자동 동기화 드레인.
 ///
 /// 알림 수신 시 Kotlin NotificationService 가:
-///   - flutter.standalone_pending_reports 큐에 신고번호 append
+///   - flutter.standalone_pending_reports 큐 (CSV) 에 신고번호 append
 ///   - flutter.standalone_sync_pending = true
 ///   - 📬 heads-up 팝업 표시
 ///
-/// [drainIfPending] 호출 시 처리 순서 (한 번의 drain 내):
-///   1. 큐의 각 신고번호를 DB 에서 조회 (getReportByNumber)
-///      - C_NO 이미 있음 → 해당 C_NO 로 상세 API 개별 호출 + upsert (빠름)
-///      - C_NO 없음 → 미처리 리스트에 추가
-///   2. 미처리 리스트 존재 + 이번 drain 에서 증분 아직 안 돌림 → SyncEngine.start() 1회
-///      증분이 목록 API 전체를 순회하므로 미처리 번호가 목록에 있으면 자동으로 잡힘
-///   3. 증분 이후 미처리 항목 다시 개별 시도
-///   4. drain 도중 Kotlin 이 큐에 더 추가했으면 다음 iteration 에서 "개별 우선" 로직부터 재실행
-///   5. 여전히 미발견인 항목은 retry 카운트 증가 (standalone_retry_<번호>, 최대 3회)
-///      — 즉시 무한 재시도 방지, 다음 외부 트리거 대기
+/// [drainIfPending] 처리 정책 (앱 종료에 견고):
+///   - 큐의 항목을 한 건씩 꺼내 처리하고, **성공/포기 결정이 난 후에만** 큐에서 제거
+///     → 앱이 처리 도중 죽어도 미완료 항목은 큐에 남아 다음 launch 의 drain 에서 재처리됨.
+///   - 각 항목 처리:
+///       1. DB 에서 신고번호로 조회 → C_NO 있으면 상세 API 개별 호출 + upsert (개별 fetch)
+///       2. DB 에 없으면 → **이번 drain 에서 1회만** 증분 sync (SyncEngine.start) fallback
+///          증분 후 다시 개별 fetch 시도.
+///       3. 증분 후에도 미발견 → 포기 (3회 retry 같은 무한 루프 안 함)
+///   - 처리 도중 Kotlin 이 큐에 추가하는 신호도 다음 iteration 에서 자연스럽게 잡힘
+///     (큐 read 시 prefs.reload 로 디스크 동기화).
 ///
-/// drain 종료 후 신규/처리변경된 신고가 있으면:
-///   - flutter.pending_crawl_changes SharedPref 에 저장 → main.dart 가 카드 시트 표시
-///   - flutter.notifications_history 에 추가 → 알림 탭 히스토리 누적
-///   - 각 신고에 대해 개별 heads-up 알림 표시 (MainActivity.showNotification)
+/// 프로세스 보호: drain 시작 시 SyncForegroundService 가동 → activity destroy 되어도
+/// 프로세스가 OS kill 후순위로 격상 (옵션 1 - swipe-away 방어).
+///
+/// drain 종료 후 신규/처리변경/개별확인된 신고는 SyncEngine.emitChanges 로:
+///   - flutter.pending_crawl_changes SharedPref 에 누적 → main.dart 카드 시트
+///   - 각 신고에 대해 개별 heads-up 알림 (MainActivity.showNotification)
 class StandaloneAutoSyncService {
   static const _pendingFlagKey = 'standalone_sync_pending';
   static const _pendingQueueKey = 'standalone_pending_reports';
-  static const _retryPrefix = 'standalone_retry_';
-  static const _maxRetry = 3;
 
   static bool _running = false;
   static bool get isRunning => _running;
@@ -53,8 +53,21 @@ class StandaloneAutoSyncService {
     await prefs.setString(_pendingQueueKey, dedup.join(','));
   }
 
-  /// 개별 fetch 에서 발견한 처리변경. SyncEngine.emitChanges 로 emit 하기 전 임시 누적.
-  /// (SyncEngine 의 자체 changes 는 SyncEngine.start() 가 종료 시 자동 emit.)
+  /// 큐에서 한 항목만 안전하게 제거. (Kotlin 이 동시에 추가한 다른 항목은 보존)
+  static Future<void> _removeFromQueue(
+    SharedPreferences prefs,
+    String item,
+  ) async {
+    await prefs.reload();
+    final cur = readPendingQueue(prefs)..remove(item);
+    await _writeQueue(prefs, cur);
+    if (cur.isEmpty) {
+      await prefs.setBool(_pendingFlagKey, false);
+    }
+  }
+
+  /// 개별 fetch 에서 발견한 변경사항. SyncEngine.emitChanges 로 일괄 emit.
+  /// (SyncEngine.start() 의 자체 _lastChanges 는 자동 emit 됨.)
   static List<Map<String, dynamic>> _singleFetchChanges = [];
 
   static Future<void> drainIfPending() async {
@@ -62,9 +75,10 @@ class StandaloneAutoSyncService {
     _running = true;
     _singleFetchChanges = [];
     bool didAnyWork = false;
+    bool didIncremental = false;
+    bool fgsAcquired = false;
     try {
       final prefs = await SharedPreferences.getInstance();
-      bool didIncremental = false;
 
       while (true) {
         await prefs.reload();
@@ -73,66 +87,56 @@ class StandaloneAutoSyncService {
           await prefs.setBool(_pendingFlagKey, false);
           break;
         }
+
+        // 첫 작업 직전에 FGS 가동 (큐가 비어 있으면 굳이 가동 안 함).
+        if (!fgsAcquired) {
+          await SyncEngine.acquireFgs('개별 동기화 진행 중...');
+          fgsAcquired = true;
+        }
         didAnyWork = true;
 
-        // 큐 스냅샷 후 비움 (drain 도중 Kotlin 이 추가하는 건 다음 iteration 에서 잡힘)
-        await _writeQueue(prefs, []);
+        // 큐 맨 앞 항목을 꺼내 처리 — 큐에서 제거는 성공/포기 결정 후에만!
+        // (앱이 처리 도중 죽으면 항목이 큐에 남아 다음 drain 에서 재시도)
+        final spp = queue.first;
 
-        // 1. 개별 우선 처리
-        final stillMissing = <String>[];
-        for (final spp in queue) {
-          final ok = await _tryFetchSingle(spp);
-          if (ok) {
-            await prefs.remove('$_retryPrefix$spp');
-          } else {
-            stillMissing.add(spp);
-          }
-        }
+        var ok = await _tryFetchSingle(spp);
 
-        if (stillMissing.isEmpty) continue; // 모두 개별 성공 → 다음 iteration
-
-        // 2. 미발견 번호 존재 → 증분 sync (이번 drain 에서 1회만)
-        // SyncEngine.start() 는 자체 _lastChanges 를 자동 emit 하므로 별도 누적 불필요.
-        if (!didIncremental) {
+        if (!ok && !didIncremental) {
+          // DB 미발견 + 이번 drain 에서 증분 sync 아직 안 함 → 1회 fallback
           didIncremental = true;
+          SyncEngine.emitLog('증분 sync 1회 fallback 시작');
           try {
             await SyncEngine.start(fullSync: false);
-          } catch (_) {
-            // 증분 실패 — 큐/플래그 복구 후 drain 종료
-            await _requeueForce(prefs, stillMissing);
+            // 증분 후 DB 에 들어왔을 가능성 → 한 번 더 개별 시도
+            ok = await _tryFetchSingle(spp);
+          } catch (e) {
+            SyncEngine.emitLog('증분 sync 실패: $e');
+            // 증분 자체 실패 → 항목 큐에 남기고 drain 종료 (네트워크 복구 후 재시도)
             break;
           }
-          // 3. 증분 후 미발견 번호 다시 개별 시도 (이제 DB 에 있을 것)
-          final afterIncremental = <String>[];
-          for (final spp in stillMissing) {
-            final ok = await _tryFetchSingle(spp);
-            if (ok) {
-              await prefs.remove('$_retryPrefix$spp');
-            } else {
-              afterIncremental.add(spp);
-            }
-          }
-          if (afterIncremental.isNotEmpty) {
-            await _requeueWithRetry(prefs, afterIncremental);
-          }
-        } else {
-          // 이번 drain 에서 이미 증분 1회 돌렸는데도 못 찾음 → retry 큐에 남기고 종료
-          await _requeueWithRetry(prefs, stillMissing);
-          break;
         }
-        // 4. loop 재진입 → drain 중 새로 추가된 번호 있으면 다시 개별 우선 처리
-      }
-      await prefs.setBool(_pendingFlagKey, false);
 
-      // 개별 fetch 에서 모은 처리변경은 별도 emit
+        if (ok) {
+          SyncEngine.emitLog('큐 처리 완료: $spp');
+        } else {
+          // 1회 개별 + 증분 fallback 후에도 미발견 → 포기 (사용자 요청대로 3회 retry 안 함)
+          SyncEngine.emitLog('처리 포기: $spp (개별/증분 모두 미발견)');
+        }
+        // 성공이든 포기든 큐에서 제거.
+        await _removeFromQueue(prefs, spp);
+        // 다음 iteration 으로 → drain 도중 Kotlin 이 추가한 항목까지 처리.
+      }
+
+      // 개별 fetch 변경사항 일괄 emit
       if (_singleFetchChanges.isNotEmpty) {
         await SyncEngine.emitChanges(_singleFetchChanges);
       }
     } finally {
       _running = false;
       // CrawlScreen 의 'sync 진행 중' 인디케이터 해제 신호.
-      // (개별 fetch 는 SyncEngine.start() 를 거치지 않으므로 done 이벤트가 자동 emit 되지 않음.)
+      // (개별 fetch 는 SyncEngine.start() 를 거치지 않으므로 done 이벤트가 자동 emit 안 됨.)
       if (didAnyWork) SyncEngine.emitDone('동기화 완료 (개별 처리)');
+      if (fgsAcquired) await SyncEngine.releaseFgs();
     }
   }
 
@@ -145,7 +149,7 @@ class StandaloneAutoSyncService {
     SyncEngine.emitLog('개별 동기화: $reportNumber 조회 중...');
     final existing = await LocalDbService.getReportByNumber(reportNumber);
     if (existing == null || existing.id.isEmpty) {
-      SyncEngine.emitLog('개별 동기화: $reportNumber 미발견 (DB) → 증분 sync 로 fallback');
+      SyncEngine.emitLog('개별 동기화: $reportNumber 미발견 (DB)');
       return false;
     }
     final beforeStatus = existing.status;
@@ -167,37 +171,6 @@ class StandaloneAutoSyncService {
       SyncEngine.emitLog('실패: $reportNumber → $e');
       return false;
     }
-  }
-
-  /// retry 카운트 증가 후 큐에 다시 넣음. 한도 초과 시 포기.
-  /// 플래그는 ON 하지 않음 → 즉시 무한 재시도 방지, 다음 외부 트리거 대기.
-  static Future<void> _requeueWithRetry(
-    SharedPreferences prefs,
-    List<String> items,
-  ) async {
-    final toRequeue = <String>[];
-    for (final n in items) {
-      final attempts = prefs.getInt('$_retryPrefix$n') ?? 0;
-      if (attempts >= _maxRetry) {
-        await prefs.remove('$_retryPrefix$n');
-        continue;
-      }
-      await prefs.setInt('$_retryPrefix$n', attempts + 1);
-      toRequeue.add(n);
-    }
-    if (toRequeue.isNotEmpty) {
-      await _writeQueue(prefs, [...readPendingQueue(prefs), ...toRequeue]);
-    }
-  }
-
-  /// 증분 sync 자체가 실패한 경우: retry 카운트 건드리지 않고 큐/플래그 그대로 복구.
-  static Future<void> _requeueForce(
-    SharedPreferences prefs,
-    List<String> items,
-  ) async {
-    if (items.isEmpty) return;
-    await _writeQueue(prefs, [...readPendingQueue(prefs), ...items]);
-    await prefs.setBool(_pendingFlagKey, true);
   }
 
   /// 수동 초기화 용도.

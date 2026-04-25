@@ -48,6 +48,32 @@ class SyncEngine {
   static const _methodChannel =
       MethodChannel('com.fentanest.mysafetyreport/permissions');
 
+  /// FGS ref counting — SyncEngine.start 와 drainIfPending 가 중첩 호출될 때
+  /// (drain → SyncEngine.start) 한 번만 startSyncFgs / stopSyncFgs 호출되도록 관리.
+  static int _fgsRefCount = 0;
+
+  /// 동기화 작업 시작 시 호출 — 첫 호출 시 Foreground Service 가동 → 프로세스 보호.
+  static Future<void> acquireFgs(String message) async {
+    _fgsRefCount++;
+    if (_fgsRefCount == 1) {
+      try {
+        await _methodChannel.invokeMethod('startSyncFgs', {'message': message});
+      } catch (_) {
+        // FGS 시작 실패 — 무시 (Android 12+ 백그라운드 제한 등)
+      }
+    }
+  }
+
+  /// 동기화 작업 종료 시 호출 — 마지막 호출 시 FGS 정지.
+  static Future<void> releaseFgs() async {
+    if (_fgsRefCount > 0) _fgsRefCount--;
+    if (_fgsRefCount == 0) {
+      try {
+        await _methodChannel.invokeMethod('stopSyncFgs');
+      } catch (_) {}
+    }
+  }
+
   static void _emit(SyncEvent e) {
     if (!_controller.isClosed) _controller.add(e);
   }
@@ -69,12 +95,14 @@ class SyncEngine {
     if (_running) return;
     _running = true;
     _lastChanges = [];
+    await acquireFgs(fullSync ? '전체 재동기화 진행 중...' : '증분 동기화 진행 중...');
     try {
       await _run(fullSync: fullSync);
     } catch (e) {
       _emit(SyncEvent(type: SyncEventType.error, message: e.toString()));
     } finally {
       _running = false;
+      await releaseFgs();
     }
   }
 

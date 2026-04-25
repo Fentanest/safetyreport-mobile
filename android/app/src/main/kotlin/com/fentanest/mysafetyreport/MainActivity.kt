@@ -185,6 +185,37 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
 
+                    // ── 동기화 Foreground Service 제어 ─────────────────────
+                    // Flutter 가 ref counting 관리. 첫 start / 마지막 stop 만 호출됨.
+                    "startSyncFgs" -> {
+                        try {
+                            val message = call.argument<String>("message") ?: "동기화 진행 중..."
+                            val intent = Intent(this, SyncForegroundService::class.java).apply {
+                                action = SyncForegroundService.ACTION_START
+                                putExtra(SyncForegroundService.EXTRA_MESSAGE, message)
+                            }
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                startForegroundService(intent)
+                            } else {
+                                startService(intent)
+                            }
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("SYNC_FGS_START_FAILED", e.message, null)
+                        }
+                    }
+                    "stopSyncFgs" -> {
+                        try {
+                            val intent = Intent(this, SyncForegroundService::class.java).apply {
+                                action = SyncForegroundService.ACTION_STOP
+                            }
+                            startService(intent)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("SYNC_FGS_STOP_FAILED", e.message, null)
+                        }
+                    }
+
                     else -> result.notImplemented()
                 }
             }

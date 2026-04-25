@@ -13,12 +13,12 @@ import 'sync_engine.dart';
 ///
 /// [drainIfPending] 호출 시 처리 순서 (한 번의 drain 내):
 ///   1. 큐의 각 신고번호를 DB 에서 조회 (getReportByNumber)
-///      - C_NO 이미 있음 → 해당 C_NO 로 상세 API 단건 호출 + upsert (빠름)
+///      - C_NO 이미 있음 → 해당 C_NO 로 상세 API 개별 호출 + upsert (빠름)
 ///      - C_NO 없음 → 미처리 리스트에 추가
 ///   2. 미처리 리스트 존재 + 이번 drain 에서 증분 아직 안 돌림 → SyncEngine.start() 1회
 ///      증분이 목록 API 전체를 순회하므로 미처리 번호가 목록에 있으면 자동으로 잡힘
-///   3. 증분 이후 미처리 항목 다시 단건 시도
-///   4. drain 도중 Kotlin 이 큐에 더 추가했으면 다음 iteration 에서 "단건 우선" 로직부터 재실행
+///   3. 증분 이후 미처리 항목 다시 개별 시도
+///   4. drain 도중 Kotlin 이 큐에 더 추가했으면 다음 iteration 에서 "개별 우선" 로직부터 재실행
 ///   5. 여전히 미발견인 항목은 retry 카운트 증가 (standalone_retry_<번호>, 최대 3회)
 ///      — 즉시 무한 재시도 방지, 다음 외부 트리거 대기
 ///
@@ -53,7 +53,7 @@ class StandaloneAutoSyncService {
     await prefs.setString(_pendingQueueKey, dedup.join(','));
   }
 
-  /// 단건 fetch 에서 발견한 처리변경. SyncEngine.emitChanges 로 emit 하기 전 임시 누적.
+  /// 개별 fetch 에서 발견한 처리변경. SyncEngine.emitChanges 로 emit 하기 전 임시 누적.
   /// (SyncEngine 의 자체 changes 는 SyncEngine.start() 가 종료 시 자동 emit.)
   static List<Map<String, dynamic>> _singleFetchChanges = [];
 
@@ -61,6 +61,7 @@ class StandaloneAutoSyncService {
     if (_running) return;
     _running = true;
     _singleFetchChanges = [];
+    bool didAnyWork = false;
     try {
       final prefs = await SharedPreferences.getInstance();
       bool didIncremental = false;
@@ -72,11 +73,12 @@ class StandaloneAutoSyncService {
           await prefs.setBool(_pendingFlagKey, false);
           break;
         }
+        didAnyWork = true;
 
         // 큐 스냅샷 후 비움 (drain 도중 Kotlin 이 추가하는 건 다음 iteration 에서 잡힘)
         await _writeQueue(prefs, []);
 
-        // 1. 단건 우선 처리
+        // 1. 개별 우선 처리
         final stillMissing = <String>[];
         for (final spp in queue) {
           final ok = await _tryFetchSingle(spp);
@@ -87,7 +89,7 @@ class StandaloneAutoSyncService {
           }
         }
 
-        if (stillMissing.isEmpty) continue; // 모두 단건 성공 → 다음 iteration
+        if (stillMissing.isEmpty) continue; // 모두 개별 성공 → 다음 iteration
 
         // 2. 미발견 번호 존재 → 증분 sync (이번 drain 에서 1회만)
         // SyncEngine.start() 는 자체 _lastChanges 를 자동 emit 하므로 별도 누적 불필요.
@@ -100,7 +102,7 @@ class StandaloneAutoSyncService {
             await _requeueForce(prefs, stillMissing);
             break;
           }
-          // 3. 증분 후 미발견 번호 다시 단건 시도 (이제 DB 에 있을 것)
+          // 3. 증분 후 미발견 번호 다시 개별 시도 (이제 DB 에 있을 것)
           final afterIncremental = <String>[];
           for (final spp in stillMissing) {
             final ok = await _tryFetchSingle(spp);
@@ -118,29 +120,32 @@ class StandaloneAutoSyncService {
           await _requeueWithRetry(prefs, stillMissing);
           break;
         }
-        // 4. loop 재진입 → drain 중 새로 추가된 번호 있으면 다시 단건 우선 처리
+        // 4. loop 재진입 → drain 중 새로 추가된 번호 있으면 다시 개별 우선 처리
       }
       await prefs.setBool(_pendingFlagKey, false);
 
-      // 단건 fetch 에서 모은 처리변경은 별도 emit
+      // 개별 fetch 에서 모은 처리변경은 별도 emit
       if (_singleFetchChanges.isNotEmpty) {
         await SyncEngine.emitChanges(_singleFetchChanges);
       }
     } finally {
       _running = false;
+      // CrawlScreen 의 'sync 진행 중' 인디케이터 해제 신호.
+      // (개별 fetch 는 SyncEngine.start() 를 거치지 않으므로 done 이벤트가 자동 emit 되지 않음.)
+      if (didAnyWork) SyncEngine.emitDone('동기화 완료 (개별 처리)');
     }
   }
 
-  /// 신고번호로 DB 조회 → C_NO 있으면 상세 API 단건 호출 + upsert. 성공/실패 반환.
+  /// 신고번호로 DB 조회 → C_NO 있으면 상세 API 개별 호출 + upsert. 성공/실패 반환.
   ///
   /// 사용자가 알림을 탭한 명시적 요청이므로 종결여부와 무관하게 항상 크롤링.
   /// 처리상태 변동 여부와 무관하게 변경 카드 표시 (사용자 피드백).
   /// CrawlScreen 가시성 위해 SyncEngine.emitLog 로 진행상황 출력.
   static Future<bool> _tryFetchSingle(String reportNumber) async {
-    SyncEngine.emitLog('단건 동기화: $reportNumber 조회 중...');
+    SyncEngine.emitLog('개별 동기화: $reportNumber 조회 중...');
     final existing = await LocalDbService.getReportByNumber(reportNumber);
     if (existing == null || existing.id.isEmpty) {
-      SyncEngine.emitLog('단건 동기화: $reportNumber 미발견 (DB) → 증분 sync 로 fallback');
+      SyncEngine.emitLog('개별 동기화: $reportNumber 미발견 (DB) → 증분 sync 로 fallback');
       return false;
     }
     final beforeStatus = existing.status;
@@ -152,9 +157,9 @@ class StandaloneAutoSyncService {
       final report = parseJsonToReport(<String, dynamic>{}, detail);
       final raw = (detail['C_A_CONTENTS'] ?? detail['C_A_BODY'] ?? '').toString();
       await LocalDbService.upsertReport(report, cat, ev, rawContent: raw);
-      // 사용자가 명시적으로 알림 탭한 단건 → 처리상태 변동 여부와 무관하게 변경 카드 표시.
-      // (변동 있으면 '처리변경' / 없으면 '단건확인' 으로 구분)
-      final changeType = beforeStatus != report.status ? '처리변경' : '단건확인';
+      // 사용자가 명시적으로 알림 탭한 개별 건 → 처리상태 변동 여부와 무관하게 변경 카드 표시.
+      // (변동 있으면 '처리변경' / 없으면 '개별확인' 으로 구분)
+      final changeType = beforeStatus != report.status ? '처리변경' : '개별확인';
       _singleFetchChanges.add(SyncEngine.reportToChangeMap(report, changeType));
       SyncEngine.emitLog('완료: $reportNumber → $changeType (상태=${report.status})');
       return true;

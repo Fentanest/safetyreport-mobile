@@ -276,6 +276,10 @@ class WsService : Service() {
         // 알림 히스토리에도 extraData 포함해서 저장 (신고 결과 탭 표시용)
         saveCrawlChangesToHistory(changes, prefs)
 
+        // 외부 앱 알림에서 자동 enqueue 된 개별 건이 결과로 돌아온 경우 "개별" prefix 부착.
+        // (auto_enqueue_count > 0 은 NotificationService.sendEnqueue 가 발동한 활성 개별 세션)
+        val isIndividual = isAutoEnqueueActive()
+
         for (i in 0 until changes.length()) {
             val record     = changes.getJSONObject(i)
             val changeType = record.optString("change_type", "변경")
@@ -285,7 +289,12 @@ class WsService : Service() {
             val agency     = record.optString("처리기관", "")
             val fine       = record.optString("범칙금_과태료", "")
 
-            val titlePrefix = if (changeType == "신규") "🆕 신규 신고" else "🔄 처리 변경"
+            val titlePrefix = when {
+                isIndividual && changeType == "신규" -> "🆕 개별 신규"
+                isIndividual                         -> "🔄 개별 처리 변경"
+                changeType == "신규"                  -> "🆕 신규 신고"
+                else                                  -> "🔄 처리 변경"
+            }
 
             val bodyLines = mutableListOf<String>()
             if (reportNo.isNotEmpty())                        bodyLines.add("신고번호: $reportNo")

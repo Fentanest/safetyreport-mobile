@@ -332,7 +332,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
               .where((r) => (r as Map)['change_type'] == '신규')
               .length;
           final confirmCount = changes
-              .where((r) => (r as Map)['change_type'] == '단건확인')
+              .where((r) => (r as Map)['change_type'] == '개별확인')
               .length;
           final changedCount = changes.length - newCount - confirmCount;
           return Column(
@@ -370,7 +370,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                     children: [
                       if (newCount > 0) _changeBadge('신규', newCount, Colors.teal),
                       if (changedCount > 0) _changeBadge('처리변경', changedCount, Colors.orange),
-                      if (confirmCount > 0) _changeBadge('동기화', confirmCount, Colors.blueGrey),
+                      if (confirmCount > 0) _changeBadge('개별 확인', confirmCount, Colors.blueGrey),
                     ],
                   ),
                 ],
@@ -387,7 +387,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                   final r = changes[i] as Map<String, dynamic>;
                   final changeType = r['change_type']?.toString() ?? '변경';
                   final isNew = changeType == '신규';
-                  final isConfirm = changeType == '단건확인';
+                  final isConfirm = changeType == '개별확인';
                   final badgeColor = isNew
                       ? Colors.teal
                       : isConfirm
@@ -396,7 +396,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                   final badgeLabel = isNew
                       ? '신규'
                       : isConfirm
-                          ? '동기화'
+                          ? '개별 확인'
                           : '처리변경';
                   final reportNo = r['신고번호']?.toString() ?? '';
                   final name = r['신고명']?.toString() ?? '신고';

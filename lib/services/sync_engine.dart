@@ -55,9 +55,15 @@ class SyncEngine {
   static void _log(String msg) =>
       _emit(SyncEvent(type: SyncEventType.log, message: msg));
 
-  /// 외부에서 sync 로그 emit (StandaloneAutoSyncService 단건 fetch 등).
+  /// 외부에서 sync 로그 emit (StandaloneAutoSyncService 개별 fetch 등).
   /// CrawlScreen 이 SyncEngine.events 를 구독하므로 동일 채널로 표시됨.
   static void emitLog(String msg) => _log(msg);
+
+  /// 외부에서 sync 종료 신호 emit. CrawlScreen 이 받으면 _setRunning(false) 실행.
+  /// drainIfPending 처럼 SyncEngine.start() 를 직접 호출하지 않는 흐름에서 사용.
+  static void emitDone(String msg) {
+    _emit(SyncEvent(type: SyncEventType.done, message: msg));
+  }
 
   static Future<void> start({bool fullSync = false}) async {
     if (_running) return;
@@ -252,7 +258,7 @@ class SyncEngine {
     );
 
     for (final r in changes) {
-      final isNew = r['change_type'] == '신규';
+      final changeType = r['change_type']?.toString() ?? '';
       final name = (r['신고명'] ?? '신고').toString();
       final reportNo = (r['신고번호'] ?? '').toString();
       final status = (r['처리상태'] ?? '').toString();
@@ -266,9 +272,14 @@ class SyncEngine {
       if (fine.isNotEmpty && fine != 'null' && fine != '미확인') {
         lines.add('범칙금/과태료: $fine');
       }
+      final title = switch (changeType) {
+        '신규' => '🆕 신규 신고 — $name',
+        '개별확인' => '✅ 개별 동기화 — $name',
+        _ => '🔄 처리 변경 — $name',
+      };
       try {
         await _methodChannel.invokeMethod('showNotification', {
-          'title': isNew ? '🆕 신규 신고 — $name' : '🔄 처리 변경 — $name',
+          'title': title,
           'body': lines.join('\n'),
         });
       } catch (_) {

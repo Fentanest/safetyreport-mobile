@@ -145,17 +145,14 @@ class _SetupScreenState extends State<SetupScreen> {
             color: const Color(0xFF1A73E8),
             title: 'Client 모드',
             description: '직접 구축한 크롤링 서버와 연결합니다.\n자동 크롤링, 통계, 파일 관리 등 모든 기능을 사용할 수 있습니다.',
-            badge: '기존 방식',
             onTap: () => _goToStep(_Step.serverConfig),
           ),
           const SizedBox(height: 16),
           _ModeCard(
             icon: Icons.phone_android_rounded,
             color: const Color(0xFF0F9D58),
-            title: '직접 연결 (스탠드어론)',
+            title: 'Standalone 모드',
             description: '안전신문고 계정으로 앱에서 직접 접근합니다.\n서버 없이 신고 현황을 조회할 수 있습니다.',
-            badge: 'NEW',
-            badgeColor: Colors.orange,
             onTap: () => _goToStep(_Step.standaloneConfig),
           ),
           const SizedBox(height: 32),
@@ -343,7 +340,7 @@ class _ModeCard extends StatelessWidget {
   final Color color;
   final String title;
   final String description;
-  final String badge;
+  final String? badge;
   final Color? badgeColor;
   final VoidCallback onTap;
 
@@ -352,7 +349,7 @@ class _ModeCard extends StatelessWidget {
     required this.color,
     required this.title,
     required this.description,
-    required this.badge,
+    this.badge,
     this.badgeColor,
     required this.onTap,
   });
@@ -360,6 +357,7 @@ class _ModeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bc = badgeColor ?? color;
+    final hasBadge = badge != null && badge!.isNotEmpty;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -393,17 +391,19 @@ class _ModeCard extends StatelessWidget {
                             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color),
                             overflow: TextOverflow.ellipsis),
                       ),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: bc.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: bc.withOpacity(0.4)),
+                      if (hasBadge) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: bc.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: bc.withOpacity(0.4)),
+                          ),
+                          child: Text(badge!,
+                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: bc)),
                         ),
-                        child: Text(badge,
-                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: bc)),
-                      ),
+                      ],
                     ]),
                     const SizedBox(height: 6),
                     Text(description,

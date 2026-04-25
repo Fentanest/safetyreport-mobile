@@ -195,7 +195,7 @@ class NotificationService : NotificationListenerService() {
     private fun showProgressNotif(id: Int, reportNumber: String) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val notif = Notification.Builder(this, NOTIF_CHANNEL_ENQUEUE)
-            .setContentTitle("📡 크롤링 지시 중...")
+            .setContentTitle("📡 개별 크롤링 지시 중...")
             .setContentText(reportNumber)
             .setSmallIcon(R.drawable.ic_stat_logo)
             .setOngoing(true)
@@ -212,10 +212,10 @@ class NotificationService : NotificationListenerService() {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channel = NotificationChannel(
             NOTIF_CHANNEL_ENQUEUE,
-            "크롤링 지시 진행",
+            "개별 크롤링 지시 진행",
             NotificationManager.IMPORTANCE_LOW
         ).apply {
-            description = "외부 앱 알림에서 크롤링 지시 전송 중 표시"
+            description = "외부 앱 알림에서 감지한 개별 신고 크롤링 지시 전송 중 표시"
             setShowBadge(false)
             enableVibration(false)
         }

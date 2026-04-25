@@ -32,88 +32,104 @@ void main() {
 class SafetyReportApp extends StatelessWidget {
   const SafetyReportApp({super.key});
 
+  // Server (client) 모드 — 구글 블루 / Standalone 모드 — 머티리얼 그린
+  static const _serverPrimary = Color(0xFF1A73E8);
+  static const _serverIndicator = Color(0xFFE3EEFF);
+  static const _standalonePrimary = Color(0xFF1B873B);
+  static const _standaloneIndicator = Color(0xFFDFF1E3);
+
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: '나만의 안전신문고',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1A73E8),
-          brightness: Brightness.light,
-        ),
-        appBarTheme: const AppBarTheme(
-          centerTitle: false,
-          backgroundColor: Color(0xFF1A73E8),
-          foregroundColor: Colors.white,
-          elevation: 0,
-          titleTextStyle: TextStyle(
-            color: Colors.white,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
+    return Consumer<ReportProvider>(
+      builder: (context, provider, _) {
+        final isStandalone = provider.appMode == AppMode.standalone;
+        final primary = isStandalone ? _standalonePrimary : _serverPrimary;
+        final indicator =
+            isStandalone ? _standaloneIndicator : _serverIndicator;
+
+        return MaterialApp(
+          title: '나만의 안전신문고',
+          debugShowCheckedModeBanner: false,
+          theme: ThemeData(
+            useMaterial3: true,
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: primary,
+              brightness: Brightness.light,
+            ),
+            appBarTheme: AppBarTheme(
+              centerTitle: false,
+              backgroundColor: primary,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              titleTextStyle: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            cardTheme: const CardThemeData(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.all(Radius.circular(14)),
+                side: BorderSide(color: Color(0xFFE8EAED)),
+              ),
+            ),
+            inputDecorationTheme: const InputDecorationTheme(
+              contentPadding:
+                  EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.all(Radius.circular(10)),
+              ),
+            ),
+            navigationBarTheme: NavigationBarThemeData(
+              backgroundColor: Colors.white,
+              elevation: 8,
+              shadowColor: Colors.black12,
+              indicatorColor: indicator,
+              labelTextStyle: const WidgetStatePropertyAll(
+                TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+              ),
+            ),
           ),
-        ),
-        cardTheme: CardThemeData(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(14)),
-            side: BorderSide(color: Color(0xFFE8EAED)),
+          darkTheme: ThemeData(
+            useMaterial3: true,
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: primary,
+              brightness: Brightness.dark,
+            ),
+            appBarTheme: const AppBarTheme(
+              centerTitle: false,
+              backgroundColor: Color(0xFF1E1E2E),
+              foregroundColor: Colors.white,
+              elevation: 0,
+              titleTextStyle: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            cardTheme: const CardThemeData(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.all(Radius.circular(14)),
+              ),
+            ),
           ),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.all(Radius.circular(10)),
+          home: Builder(
+            builder: (_) {
+              if (!provider.isInitialized) {
+                return const Scaffold(
+                  body: Center(child: CircularProgressIndicator()),
+                );
+              }
+              if (!provider.isConfigured) {
+                return const SetupScreen();
+              }
+              return const MainNavigationScreen();
+            },
           ),
-        ),
-        navigationBarTheme: NavigationBarThemeData(
-          backgroundColor: Colors.white,
-          elevation: 8,
-          shadowColor: Colors.black12,
-          indicatorColor: Color(0xFFE3EEFF),
-          labelTextStyle: WidgetStatePropertyAll(
-            TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
-          ),
-        ),
-      ),
-      darkTheme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1A73E8),
-          brightness: Brightness.dark,
-        ),
-        appBarTheme: const AppBarTheme(
-          centerTitle: false,
-          backgroundColor: Color(0xFF1E1E2E),
-          foregroundColor: Colors.white,
-          elevation: 0,
-          titleTextStyle: TextStyle(
-            color: Colors.white,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        cardTheme: const CardThemeData(
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(14)),
-          ),
-        ),
-      ),
-      home: Consumer<ReportProvider>(
-        builder: (context, provider, child) {
-          if (!provider.isInitialized) {
-            return const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            );
-          }
-          if (!provider.isConfigured) {
-            return const SetupScreen();
-          }
-          return const MainNavigationScreen();
-        },
-      ),
+        );
+      },
     );
   }
 }

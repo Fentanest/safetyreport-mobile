@@ -95,18 +95,31 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
   // ── 스탠드어론 ───────────────────────────────────────────────────────────────
 
   Future<void> _loadStandaloneInfo() async {
-    final count = await LocalDbService.getTotalCount();
-    final syncTime = await SyncEngine.getLastSyncTime();
-    if (mounted) {
-      setState(() {
-        _localCount = count;
-        _lastSyncTime = syncTime;
-        _loading = false;
-      });
-      // 항상 구독 — drainIfPending 이 뒤늦게 시작하는 sync 이벤트도 수신
-      if (_syncSub == null) _subscribeToSyncEvents();
-      if (SyncEngine.isRunning) _setRunning(true);
+    int count = _localCount;
+    String? syncTime = _lastSyncTime;
+    String? loadError;
+    try {
+      // DB 가 다른 작업 (drainIfPending 의 upsert, refreshAll 의 computeSummary 등)
+      // 으로 바쁘면 직렬 큐에서 대기. 10초 timeout 으로 spinner 영구 잠금 방지.
+      count = await LocalDbService.getTotalCount()
+          .timeout(const Duration(seconds: 10));
+      syncTime = await SyncEngine.getLastSyncTime()
+          .timeout(const Duration(seconds: 10));
+    } catch (e) {
+      loadError = e.toString();
     }
+    if (!mounted) return;
+    setState(() {
+      _localCount = count;
+      _lastSyncTime = syncTime;
+      _loading = false;
+      if (loadError != null) {
+        _logLines.add('[로드 지연/오류] $loadError');
+      }
+    });
+    // 항상 구독 — drainIfPending 이 뒤늦게 시작하는 sync 이벤트도 수신
+    if (_syncSub == null) _subscribeToSyncEvents();
+    if (SyncEngine.isRunning) _setRunning(true);
   }
 
   void _subscribeToSyncEvents() {

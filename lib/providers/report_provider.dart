@@ -548,14 +548,15 @@ class ReportProvider with ChangeNotifier {
     if (!isConfigured) return;
     _errorMessage = null;
     if (_appMode == AppMode.standalone) {
-      await Future.wait([
-        fetchSummary(),
-        fetchTrafficReports(),
-        fetchParkingReports(),
-        fetchOtherReports(),
-        fetchDuplicateReports(),
-        fetchWatchlistNumbers(),
-      ]);
+      // sqflite 는 단일 connection 으로 모든 작업을 직렬화하므로
+      // Future.wait 로 6개를 동시에 던지면 큐만 가득 차서 fetchSummary 의
+      // 5초 timeout 이 발동 (실제 deadlock 아님). 순차 실행으로 변경.
+      await fetchSummary();
+      await fetchTrafficReports();
+      await fetchParkingReports();
+      await fetchOtherReports();
+      await fetchDuplicateReports();
+      await fetchWatchlistNumbers();
     } else {
       await Future.wait([
         fetchSummary(),

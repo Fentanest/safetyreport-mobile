@@ -65,4 +65,6 @@ flutter {
 dependencies {
     // WebSocket 클라이언트 (WsService용)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // Android 15+ edge-to-edge 지원 (enableEdgeToEdge 확장 함수)
+    implementation("androidx.activity:activity-ktx:1.9.3")
 }

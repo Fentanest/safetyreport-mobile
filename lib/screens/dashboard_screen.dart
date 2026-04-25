@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
+import '../models/app_mode.dart';
 import '../providers/report_provider.dart';
 import '../models/report.dart';
 import '../widgets/report_detail_sheet.dart';
@@ -57,6 +58,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // ── 에러 상태 ──────────────────────────────────────
   Widget _buildErrorState(BuildContext context, ReportProvider provider) {
     final error = provider.errorMessage;
+    final isStandalone = provider.appMode == AppMode.standalone;
+    final icon = isStandalone ? Icons.storage_rounded : Icons.cloud_off_rounded;
+    final title =
+        isStandalone ? '데이터를 불러올 수 없습니다' : '서버에 연결할 수 없습니다';
+    final subtitle =
+        isStandalone ? '아래로 당겨 다시 시도하거나 동기화를 실행하세요.' : '아래로 당겨 다시 시도하세요.';
     return LayoutBuilder(
       builder: (context, constraints) => SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -68,15 +75,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.cloud_off_rounded,
-                      size: 72, color: Colors.grey.shade400),
+                  Icon(icon, size: 72, color: Colors.grey.shade400),
                   const SizedBox(height: 20),
-                  const Text('서버에 연결할 수 없습니다',
-                      style: TextStyle(
+                  Text(title,
+                      style: const TextStyle(
                           fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
-                  const Text('아래로 당겨 다시 시도하세요.',
-                      style: TextStyle(color: Colors.grey, fontSize: 13)),
+                  Text(subtitle,
+                      style: const TextStyle(color: Colors.grey, fontSize: 13)),
                   if (error != null) ...[
                     const SizedBox(height: 16),
                     Container(

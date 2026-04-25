@@ -273,9 +273,12 @@ class ReportProvider with ChangeNotifier {
       if (isConfigured) {
         fetchWatchlistNumbers();
         fetchAppConfig();
-        // standalone: 플래그 OR retry 큐 잔존 → 드레인 트리거
+        // standalone: 기존 DB 즉시 표시 후 pending 큐 처리
         if (_appMode == AppMode.standalone) {
           () async {
+            // 먼저 현재 DB 데이터로 대시보드 즉시 구성 (drain 이 오래 걸려도 빈 화면 없음)
+            await refreshAll();
+            // 그 다음 pending 큐 처리 (네트워크 필요, 오래 걸릴 수 있음)
             await prefs.reload();
             final queue = prefs.getStringList('standalone_pending_reports') ?? [];
             if (queue.isNotEmpty) {

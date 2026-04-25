@@ -103,10 +103,9 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
         _lastSyncTime = syncTime;
         _loading = false;
       });
-      if (SyncEngine.isRunning && _syncSub == null) {
-        _setRunning(true);
-        _subscribeToSyncEvents();
-      }
+      // 항상 구독 — drainIfPending 이 뒤늦게 시작하는 sync 이벤트도 수신
+      if (_syncSub == null) _subscribeToSyncEvents();
+      if (SyncEngine.isRunning) _setRunning(true);
     }
   }
 
@@ -117,11 +116,13 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
       setState(() {
         switch (event.type) {
           case SyncEventType.log:
+            if (!_isRunning) _setRunning(true);
             _logLines.add(event.message);
             if (_logLines.length > 300) {
               _logLines.removeRange(0, _logLines.length - 300);
             }
           case SyncEventType.progress:
+            if (!_isRunning) _setRunning(true);
             _syncProgress = event.current;
             _syncTotal = event.total;
           case SyncEventType.done:

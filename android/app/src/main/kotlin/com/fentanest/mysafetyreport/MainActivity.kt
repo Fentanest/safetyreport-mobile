@@ -20,10 +20,43 @@ class MainActivity : FlutterActivity() {
     private var methodChannel: MethodChannel? = null
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        // Flutter 엔진 시작 전에 손상된 SharedPreferences 정리.
+        // (Flutter 가 SharedPreferences.getInstance() 호출 시 getAllPrefs() 가
+        // 내부적으로 실행되는데, 손상된 List 항목이 있으면 StreamCorruptedException
+        // 으로 모든 prefs 읽기 실패 → 로그인 풀림.)
+        cleanupCorruptedPrefs()
         super.onCreate(savedInstanceState)
         createAppNotifChannel()
         // 앱이 종료 상태에서 알림 탭으로 실행된 경우 처리
         intent?.let { handleNavIntent(it) }
+    }
+
+    /**
+     * v1 (LIST_IDENTIFIER prefix + JSON) 형식으로 저장된 standalone_pending_reports 를
+     * CSV String 형식으로 마이그레이션.
+     *
+     * v1 형식은 Flutter 의 LegacyPlugin 이 List 로 인식해 Java deserialize 시도 →
+     * JSON 데이터를 Java stream 으로 못 읽어 StreamCorruptedException 발생 →
+     * getAll() 전체 실패. 우리가 쓴 JSON 은 Kotlin 에서는 파싱 가능하므로
+     * 신고번호를 보존하면서 CSV 로 변환.
+     */
+    private fun cleanupCorruptedPrefs() {
+        val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+        val key = "flutter.standalone_pending_reports"
+        val flutterListPrefix = "VGhpcyBpcyB0aGUgcHJlZml4IGZvciBhIGxpc3Qu"
+        val raw = prefs.getString(key, null) ?: return
+        if (!raw.startsWith(flutterListPrefix)) return  // 이미 CSV 또는 빈 값
+
+        val csv = try {
+            val jsonStr = raw.substring(flutterListPrefix.length)
+            val arr = org.json.JSONArray(jsonStr)
+            val list = mutableListOf<String>()
+            for (i in 0 until arr.length()) list.add(arr.getString(i))
+            list.joinToString(",")
+        } catch (_: Exception) {
+            ""  // 파싱 실패 — 미처리 알림 손실 감수
+        }
+        prefs.edit().putString(key, csv).apply()
     }
 
     override fun onNewIntent(intent: Intent) {

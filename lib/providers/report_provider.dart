@@ -280,7 +280,7 @@ class ReportProvider with ChangeNotifier {
             await refreshAll();
             // 그 다음 pending 큐 처리 (네트워크 필요, 오래 걸릴 수 있음)
             await prefs.reload();
-            final queue = prefs.getStringList('standalone_pending_reports') ?? [];
+            final queue = StandaloneAutoSyncService.readPendingQueue(prefs);
             if (queue.isNotEmpty) {
               await prefs.setBool('standalone_sync_pending', true);
             }
@@ -309,7 +309,7 @@ class ReportProvider with ChangeNotifier {
     // 이전 drain 에서 미발견으로 retry 큐에 남은 신고번호가 있으면 플래그 복원 → 재시도 기회 제공
     final prefs = await SharedPreferences.getInstance();
     await prefs.reload();
-    final queue = prefs.getStringList('standalone_pending_reports') ?? [];
+    final queue = StandaloneAutoSyncService.readPendingQueue(prefs);
     if (queue.isNotEmpty) {
       await prefs.setBool('standalone_sync_pending', true);
     }

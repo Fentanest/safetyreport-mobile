@@ -129,23 +129,22 @@ class NotificationService : NotificationListenerService() {
     }
 
     /**
-     * Flutter shared_preferences 와 호환되는 StringList append.
-     * Flutter 는 List<String> 을 `VGhpcyBpcyB0aGUgcHJlZml4IGZvciBhIGxpc3Qu` prefix + JSON 배열로 저장.
+     * Pending 큐 append — CSV 형식 (LIST_IDENTIFIER prefix 없음).
+     *
+     * 주의: Flutter 의 `LegacySharedPreferencesPlugin` 은 LIST_PREFIX
+     * (`VGhpcyBpcyB0aGUgcHJlZml4IGZvciBhIGxpc3Qu`) 가 붙은 값을 Java
+     * `ObjectInputStream` 으로 디코딩하려 함. 따라서 JSON 배열을 그 prefix 와
+     * 함께 저장하면 `StreamCorruptedException` 이 발생해서 `getAll()` 자체가
+     * 실패 → 모든 SharedPreferences 가 안 읽힘 (로그인 풀림 등).
+     *
+     * 일반 String (콤마 구분 CSV) 으로 저장하면 Flutter 는 이를 단순 String 으로
+     * 인식해 디코딩 시도하지 않음. 신고번호는 SPP-NNNN-NNNNNNN 형식이라 콤마 없음.
      */
     private fun appendPendingReport(prefs: android.content.SharedPreferences, reportNumber: String) {
-        val flutterListPrefix = "VGhpcyBpcyB0aGUgcHJlZml4IGZvciBhIGxpc3Qu"
-        val raw = prefs.getString(PREFS_PENDING_QUEUE, null)
-        val current: MutableList<String> = mutableListOf()
-        if (raw != null && raw.startsWith(flutterListPrefix)) {
-            try {
-                val jsonStr = raw.substring(flutterListPrefix.length)
-                val arr = org.json.JSONArray(jsonStr)
-                for (i in 0 until arr.length()) current.add(arr.getString(i))
-            } catch (_: Exception) { /* 파싱 실패 — 초기화 */ }
-        }
+        val raw = prefs.getString(PREFS_PENDING_QUEUE, "") ?: ""
+        val current = raw.split(",").filter { it.isNotEmpty() }.toMutableList()
         if (!current.contains(reportNumber)) current.add(reportNumber)
-        val newJson = org.json.JSONArray(current).toString()
-        prefs.edit().putString(PREFS_PENDING_QUEUE, flutterListPrefix + newJson).apply()
+        prefs.edit().putString(PREFS_PENDING_QUEUE, current.joinToString(",")).apply()
     }
 
     private fun showDetectedNotif(id: Int, reportNumber: String) {

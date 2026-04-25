@@ -35,6 +35,24 @@ class StandaloneAutoSyncService {
   static bool _running = false;
   static bool get isRunning => _running;
 
+  /// Pending 큐 read — Kotlin NotificationService.appendPendingReport 와 호환되는
+  /// CSV 형식 (LIST_IDENTIFIER prefix 없는 일반 String).
+  ///
+  /// LIST_IDENTIFIER + JSON 형식은 LegacySharedPreferencesPlugin 이 Java
+  /// deserialize 시도하다 StreamCorruptedException 발생 → getAll() 전체 실패.
+  static List<String> readPendingQueue(SharedPreferences prefs) {
+    final raw = prefs.getString(_pendingQueueKey) ?? '';
+    return raw.split(',').where((s) => s.isNotEmpty).toList();
+  }
+
+  static Future<void> _writeQueue(
+    SharedPreferences prefs,
+    Iterable<String> queue,
+  ) async {
+    final dedup = <String>{...queue}.toList();
+    await prefs.setString(_pendingQueueKey, dedup.join(','));
+  }
+
   /// 단건 fetch 에서 발견한 처리변경. SyncEngine.emitChanges 로 emit 하기 전 임시 누적.
   /// (SyncEngine 의 자체 changes 는 SyncEngine.start() 가 종료 시 자동 emit.)
   static List<Map<String, dynamic>> _singleFetchChanges = [];
@@ -49,14 +67,14 @@ class StandaloneAutoSyncService {
 
       while (true) {
         await prefs.reload();
-        final queue = List<String>.from(prefs.getStringList(_pendingQueueKey) ?? []);
+        final queue = readPendingQueue(prefs);
         if (queue.isEmpty) {
           await prefs.setBool(_pendingFlagKey, false);
           break;
         }
 
         // 큐 스냅샷 후 비움 (drain 도중 Kotlin 이 추가하는 건 다음 iteration 에서 잡힘)
-        await prefs.setStringList(_pendingQueueKey, []);
+        await _writeQueue(prefs, []);
 
         // 1. 단건 우선 처리
         final stillMissing = <String>[];
@@ -154,8 +172,7 @@ class StandaloneAutoSyncService {
       toRequeue.add(n);
     }
     if (toRequeue.isNotEmpty) {
-      final cur = prefs.getStringList(_pendingQueueKey) ?? [];
-      await prefs.setStringList(_pendingQueueKey, {...cur, ...toRequeue}.toList());
+      await _writeQueue(prefs, [...readPendingQueue(prefs), ...toRequeue]);
     }
   }
 
@@ -165,8 +182,7 @@ class StandaloneAutoSyncService {
     List<String> items,
   ) async {
     if (items.isEmpty) return;
-    final cur = prefs.getStringList(_pendingQueueKey) ?? [];
-    await prefs.setStringList(_pendingQueueKey, {...cur, ...items}.toList());
+    await _writeQueue(prefs, [...readPendingQueue(prefs), ...items]);
     await prefs.setBool(_pendingFlagKey, true);
   }
 
@@ -174,6 +190,6 @@ class StandaloneAutoSyncService {
   static Future<void> clearPending() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_pendingFlagKey, false);
-    await prefs.setStringList(_pendingQueueKey, []);
+    await _writeQueue(prefs, []);
   }
 }

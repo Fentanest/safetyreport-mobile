@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import '../models/report.dart';
@@ -195,12 +197,27 @@ class ApiService {
   }
 
   Future<Uint8List> downloadDb() async {
-    final response = await http.get(
-        Uri.parse('$baseUrl/api/v1/settings/db'), headers: _headers);
-    if (response.statusCode == 200) {
-      return response.bodyBytes;
+    // 네트워크 일시 오류 (errno 104 connection reset, 110 timeout, ECONNRESET 등) →
+    // 1초 sleep 후 최대 3회 재시도. DB 는 MB 단위라 일시 끊김 가능성 높음.
+    Object? lastError;
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      try {
+        final response = await http
+            .get(Uri.parse('$baseUrl/api/v1/settings/db'), headers: _headers)
+            .timeout(const Duration(minutes: 2));
+        if (response.statusCode == 200) return response.bodyBytes;
+        // 4xx/5xx 는 재시도 의미 없음 → 즉시 throw
+        throw Exception('DB 다운로드 실패: ${response.statusCode}');
+      } on SocketException catch (e) {
+        lastError = e;
+      } on http.ClientException catch (e) {
+        lastError = e;
+      } on TimeoutException catch (e) {
+        lastError = e;
+      }
+      if (attempt < 3) await Future.delayed(const Duration(seconds: 1));
     }
-    throw Exception('DB 다운로드 실패: ${response.statusCode}');
+    throw Exception('DB 다운로드 네트워크 오류 (3회 재시도 실패): $lastError');
   }
 
   Future<void> updateSettings(Map<String, dynamic> settings) async {

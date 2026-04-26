@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/app_mode.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
@@ -13,7 +16,6 @@ import '../services/permission_service.dart';
 import '../services/standalone_auth_service.dart';
 import 'permission_screen.dart';
 import 'setup_screen.dart';
-import 'dart:io';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:file_picker/file_picker.dart';
 
@@ -512,36 +514,242 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  // ── 모드 변경 확인 다이얼로그 ──────────────────────────────────
+  // ── 모드 변경 ─────────────────────────────────────────────────
+  // Standalone → Client: 현재 모바일 DB 자동 백업 후 reset.
+  // Client → Standalone: 3-way 선택 (서버 DB 변환 / 최신 백업 사용 / 처음부터).
+
+  /// Documents/mysafetyreport (없으면 Download/mysafetyreport) 디렉토리 보장.
+  static Directory _backupDir() {
+    final docs = Directory('/storage/emulated/0/Documents/mysafetyreport');
+    if (docs.existsSync()) return docs;
+    try {
+      docs.createSync(recursive: true);
+      return docs;
+    } catch (_) {
+      final dl = Directory('/storage/emulated/0/Download/mysafetyreport');
+      if (!dl.existsSync()) dl.createSync(recursive: true);
+      return dl;
+    }
+  }
+
+  /// 백업 디렉토리에서 가장 최근 수정된 .db 파일 1개 반환. 없으면 null.
+  static File? _findLatestBackup() {
+    for (final dir in [
+      Directory('/storage/emulated/0/Documents/mysafetyreport'),
+      Directory('/storage/emulated/0/Download/mysafetyreport'),
+    ]) {
+      if (!dir.existsSync()) continue;
+      final files = dir
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.toLowerCase().endsWith('.db'))
+          .toList();
+      if (files.isEmpty) continue;
+      files.sort((a, b) =>
+          b.statSync().modified.compareTo(a.statSync().modified));
+      return files.first;
+    }
+    return null;
+  }
+
   Future<void> _confirmModeReset() async {
+    final p = context.read<ReportProvider>();
+    final isStandalone = p.appMode == AppMode.standalone;
+    if (isStandalone) {
+      await _confirmStandaloneToServer();
+    } else {
+      await _confirmServerToStandalone();
+    }
+  }
+
+  /// Standalone → Client: 현재 standalone DB 를 자동 백업 후 reset.
+  Future<void> _confirmStandaloneToServer() async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('연결 방식 변경'),
+        title: const Text('Client 모드로 전환'),
         content: const Text(
-          '연결 방식을 변경하면 현재 저장된 연결 정보가 초기화되고\n초기 설정 화면으로 이동합니다.\n\n계속하시겠습니까?',
+          '현재 Standalone DB 를 자동으로 백업한 후 Client 모드로 전환됩니다.\n'
+          '백업 위치: Documents/mysafetyreport/\n\n'
+          '계속하시겠습니까?',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('취소'),
-          ),
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('취소')),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('변경'),
+            child: const Text('전환'),
           ),
         ],
       ),
     );
-    if (confirmed == true && mounted) {
-      await context.read<ReportProvider>().resetConfig();
+    if (confirmed != true || !mounted) return;
+
+    String? backupPath;
+    try {
+      if (Platform.isAndroid) {
+        final st = await Permission.storage.status;
+        if (!st.isGranted) await Permission.storage.request();
+      }
+      final dir = _backupDir();
+      final fileName =
+          'standalone_backup_${DateTime.now().millisecondsSinceEpoch}.db';
+      final target = File('${dir.path}/$fileName');
+      final src = File(await LocalDbService.getDbPath());
+      if (src.existsSync()) {
+        await src.copy(target.path);
+        backupPath = target.path;
+      }
+    } catch (e) {
+      // 백업 실패해도 모드 전환 자체는 진행 (사용자가 명시 요청)
       if (mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const SetupScreen()),
-          (_) => false,
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('백업 실패 (모드 전환은 진행): $e')),
         );
       }
+    }
+
+    if (!mounted) return;
+    await context.read<ReportProvider>().resetConfig();
+    if (mounted) {
+      if (backupPath != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('백업 완료: $backupPath'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const SetupScreen()),
+        (_) => false,
+      );
+    }
+  }
+
+  /// Client → Standalone: 3-way 선택 (서버 DB 변환 / 최신 백업 사용 / 처음부터).
+  /// 선택 결과는 SharedPreferences 의 'pending_db_import' 에 저장 → setup_screen
+  /// 의 standalone 로그인 직후 LocalDbService 가 적용.
+  Future<void> _confirmServerToStandalone() async {
+    final latest = _findLatestBackup();
+    final p = context.read<ReportProvider>();
+
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Standalone 모드로 전환'),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                '기존 데이터를 어떻게 시작할지 선택해주세요.',
+                style: TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 16),
+              _ChoiceTile(
+                icon: Icons.cloud_download,
+                title: '서버 DB 받아 변환',
+                subtitle: '현재 Client 서버에서 DB 를 받아 모바일 형식으로 변환.\n'
+                    '서버 데이터를 Standalone 에 그대로 가져옴.',
+                onTap: () => Navigator.pop(ctx, 'server'),
+              ),
+              const SizedBox(height: 8),
+              _ChoiceTile(
+                icon: Icons.folder_open,
+                title: '최신 백업 파일 사용',
+                subtitle: latest != null
+                    ? '발견: ${latest.path.split('/').last}\n'
+                        '(${(latest.statSync().size / 1024 / 1024).toStringAsFixed(1)} MB, '
+                        '${latest.statSync().modified.toLocal().toString().substring(0, 16)})'
+                    : 'Documents/mysafetyreport 에 .db 파일 없음 → 사용 불가',
+                disabled: latest == null,
+                onTap: () => Navigator.pop(ctx, 'backup'),
+              ),
+              const SizedBox(height: 8),
+              _ChoiceTile(
+                icon: Icons.add_circle_outline,
+                title: '처음부터 시작',
+                subtitle: '빈 DB 로 시작. 로그인 후 첫 동기화로 안전신문고에서 모두 가져옴.',
+                onTap: () => Navigator.pop(ctx, 'fresh'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('취소')),
+        ],
+      ),
+    );
+
+    if (choice == null || !mounted) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    String? pendingAction;
+
+    if (choice == 'server') {
+      // 서버 DB 다운로드 (지금) → Documents/mysafetyreport 에 저장 → pending action 으로 표기.
+      // 다운로드는 모드 reset 전에 (Client 자격증명 살아있을 때) 해야 함.
+      try {
+        if (Platform.isAndroid) {
+          final st = await Permission.storage.status;
+          if (!st.isGranted) await Permission.storage.request();
+        }
+        // 진행 다이얼로그
+        unawaited(showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => const AlertDialog(
+            content: Row(children: [
+              CircularProgressIndicator(),
+              SizedBox(width: 16),
+              Expanded(child: Text('서버 DB 다운로드 중...')),
+            ]),
+          ),
+        ));
+        final api = ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
+        final bytes = await api.downloadDb();
+        final dir = _backupDir();
+        final fileName =
+            'server_db_${DateTime.now().millisecondsSinceEpoch}.db';
+        final target = File('${dir.path}/$fileName');
+        await target.writeAsBytes(bytes);
+        pendingAction = 'convert:${target.path}';
+        if (mounted) Navigator.of(context).pop(); // 진행 다이얼로그 닫기
+      } catch (e) {
+        if (mounted) {
+          Navigator.of(context).pop(); // 진행 다이얼로그 닫기 (실패 시)
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+                content: Text('서버 DB 다운로드 실패: $e'),
+                backgroundColor: Colors.red),
+          );
+        }
+        return;
+      }
+    } else if (choice == 'backup' && latest != null) {
+      pendingAction = 'copy:${latest.path}';
+    }
+    // 'fresh' 는 pendingAction = null
+
+    if (pendingAction != null) {
+      await prefs.setString('pending_db_import', pendingAction);
+    } else {
+      await prefs.remove('pending_db_import');
+    }
+
+    if (!mounted) return;
+    await context.read<ReportProvider>().resetConfig();
+    if (mounted) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const SetupScreen()),
+        (_) => false,
+      );
     }
   }
 
@@ -1284,6 +1492,67 @@ class _InfoRow extends StatelessWidget {
           Text(value,
               style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
         ],
+      ),
+    );
+  }
+}
+
+/// Server → Standalone 전환 시 3-way 선택 다이얼로그용 타일.
+class _ChoiceTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  final bool disabled;
+  const _ChoiceTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.disabled = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: disabled ? null : onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          border: Border.all(
+              color: disabled
+                  ? Colors.grey.shade300
+                  : cs.primary.withOpacity(0.4)),
+          borderRadius: BorderRadius.circular(10),
+          color: disabled ? Colors.grey.shade50 : cs.primary.withOpacity(0.04),
+        ),
+        child: Row(
+          children: [
+            Icon(icon,
+                color: disabled ? Colors.grey : cs.primary, size: 28),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: disabled ? Colors.grey : null)),
+                  const SizedBox(height: 4),
+                  Text(subtitle,
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade700,
+                          height: 1.3)),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

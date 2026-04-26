@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -558,6 +560,100 @@ class LocalDbService {
     final d = await db;
     await d.delete('reports');
     await d.delete('sync_meta');
+  }
+
+  // ── 서버 DB → 모바일 DB 변환 ────────────────────────────────────────────────
+
+  /// 서버 DB (mysafetymerge_traffic / parking / other 3개 테이블 + mysafety_watchlist)
+  /// 를 읽어 모바일 DB (단일 reports 테이블 + category 컬럼) 로 마이그레이션.
+  ///
+  /// [serverDbPath] 서버에서 받은 .db 파일의 절대 경로.
+  /// 반환: 임포트한 신고 건수.
+  ///
+  /// 기존 reports / sync_meta 데이터는 모두 삭제됨.
+  static Future<int> importFromServerDb(String serverDbPath) async {
+    await clearAll();
+
+    final serverDb = await openDatabase(serverDbPath, readOnly: true);
+    try {
+      final localDb = await db;
+      int imported = 0;
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      // 서버 DB 의 3개 merge 테이블 → mobile reports + category
+      const tableMap = {
+        'mysafetymerge_traffic': 'traffic',
+        'mysafetymerge_parking': 'parking',
+        'mysafetymerge_other': 'other',
+      };
+
+      for (final entry in tableMap.entries) {
+        final tableName = entry.key;
+        final category = entry.value;
+        try {
+          final rows = await serverDb.query(tableName);
+          await localDb.transaction((txn) async {
+            for (final row in rows) {
+              await txn.insert(
+                'reports',
+                {
+                  ...row,
+                  'category': category,
+                  'entry_value': '',
+                  'raw_content': '',
+                  'synced_at': now,
+                },
+                conflictAlgorithm: ConflictAlgorithm.replace,
+              );
+            }
+          });
+          imported += rows.length;
+        } catch (_) {
+          // 테이블 없거나 스키마 다름 — 스킵 (서버 버전 차이 대응)
+        }
+      }
+
+      // 감시목록: server 의 mysafety_watchlist 테이블 → mobile sync_meta('watchlist') CSV
+      try {
+        final watchRows =
+            await serverDb.query('mysafety_watchlist', columns: ['신고번호']);
+        final nums = watchRows
+            .map((r) => r['신고번호']?.toString() ?? '')
+            .where((s) => s.isNotEmpty)
+            .toSet()
+            .toList();
+        if (nums.isNotEmpty) {
+          await setMeta('watchlist', nums.join(','));
+          // reports 테이블의 감시목록 컬럼도 동기화
+          final placeholders = nums.map((_) => '?').join(',');
+          await localDb.rawUpdate(
+            "UPDATE reports SET 감시목록 = 'Y' WHERE 신고번호 IN ($placeholders)",
+            nums,
+          );
+        }
+      } catch (_) {}
+
+      // 마지막 sync 시각 기록 — 다음 증분 동기화의 기준점
+      await setMeta('last_sync', DateTime.now().toIso8601String());
+
+      return imported;
+    } finally {
+      await serverDb.close();
+    }
+  }
+
+  /// 백업 .db 파일을 통째로 현재 DB 자리로 복사 (덮어쓰기).
+  /// Standalone 백업 → 같은 모바일 스키마 DB 를 그대로 사용.
+  /// (서버 DB 는 스키마가 달라서 이 메서드 사용 불가 → importFromServerDb 사용)
+  static Future<void> replaceFromBackup(String backupDbPath) async {
+    await closeDb();
+    final dbPath = await getDbPath();
+    final src = File(backupDbPath);
+    if (!src.existsSync()) {
+      throw Exception('백업 파일이 존재하지 않습니다: $backupDbPath');
+    }
+    await src.copy(dbPath);
+    // 다음 db getter 호출 시 새로 open.
   }
 
   // ── 내부 변환 ─────────────────────────────────────────────────────────────

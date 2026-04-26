@@ -3,9 +3,10 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-import '../models/app_mode.dart';
 import '../providers/report_provider.dart';
+import '../services/local_db_service.dart';
 import '../services/standalone_auth_service.dart';
 import 'permission_screen.dart';
 
@@ -95,6 +96,9 @@ class _SetupScreenState extends State<SetupScreen> {
       await StandaloneAuthService.login(username, password);
       if (!mounted) return;
       await context.read<ReportProvider>().setStandaloneConfig(username);
+      // 모드 전환 시 settings_screen 이 저장한 pending_db_import 적용
+      // (Client → Standalone 의 '서버 DB 변환' 또는 '백업 파일 사용' 선택 결과)
+      await _applyPendingDbImport();
       if (!mounted) return;
       Navigator.pushReplacement(context,
           MaterialPageRoute(builder: (_) => const PermissionScreen(isSetup: true)));
@@ -102,6 +106,56 @@ class _SetupScreenState extends State<SetupScreen> {
       setState(() => _errorMessage = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// SharedPreferences 의 'pending_db_import' 키 처리:
+  ///   - "convert:<path>" → 서버 DB 형식 .db 파일을 모바일 reports 테이블로 마이그레이션
+  ///   - "copy:<path>"    → 모바일 형식 .db 백업 파일을 통째로 덮어쓰기
+  ///   - 없음              → 빈 DB 그대로
+  /// 적용 후 키 제거. 실패해도 로그인 자체는 성공으로 진행 (에러 메시지만 표시).
+  Future<void> _applyPendingDbImport() async {
+    final prefs = await SharedPreferences.getInstance();
+    final action = prefs.getString('pending_db_import');
+    if (action == null || action.isEmpty) return;
+    await prefs.remove('pending_db_import');
+
+    try {
+      if (action.startsWith('convert:')) {
+        final path = action.substring('convert:'.length);
+        final imported = await LocalDbService.importFromServerDb(path);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('서버 DB 변환 완료: $imported건 임포트'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      } else if (action.startsWith('copy:')) {
+        final path = action.substring('copy:'.length);
+        await LocalDbService.replaceFromBackup(path);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('백업 복원 완료: ${path.split('/').last}'),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('DB 가져오기 실패 (빈 DB 로 시작): $e'),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
     }
   }
 

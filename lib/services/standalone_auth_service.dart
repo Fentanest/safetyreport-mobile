@@ -93,21 +93,7 @@ class StandaloneAuthService {
       // ── Step 2: 비밀번호 RSA 암호화 ──
       final encryptedPw = _rsaEncryptHex(modulusHex, exponentHex, password);
 
-      // ── Step 3: OAuth2 토큰 발급 ──
-      final tokenReq = await client.postUrl(
-        Uri.parse('$_base/oauth/token'),
-      );
-      _commonHeaders.forEach((k, v) => tokenReq.headers.set(k, v));
-      tokenReq.headers.contentType = ContentType(
-        'application',
-        'x-www-form-urlencoded',
-        charset: 'utf-8',
-      );
-      // JSESSIONID 수동 전달
-      if (jsessionId != null) {
-        tokenReq.cookies.add(Cookie('JSESSIONID', jsessionId));
-      }
-
+      // ── Step 3: OAuth2 토큰 발급 (네트워크 일시 오류 시 최대 3회 재시도) ──
       final body = Uri(queryParameters: {
         'client_id': 'web',
         'grant_type': 'password',
@@ -115,12 +101,40 @@ class StandaloneAuthService {
         'username': username,
         'password': encryptedPw,
       }).query;
-      tokenReq.headers.contentLength = utf8.encode(body).length;
-      tokenReq.write(body);
+      final bodyBytes = utf8.encode(body);
 
-      final tokenRes =
-          await tokenReq.close().timeout(const Duration(seconds: 15));
-      final tokenBody = await tokenRes.transform(utf8.decoder).join();
+      late HttpClientResponse tokenRes;
+      late String tokenBody;
+      Object? tokenLastError;
+      var tokenSuccess = false;
+      for (var attempt = 1; attempt <= 3; attempt++) {
+        try {
+          final tokenReq = await client.postUrl(Uri.parse('$_base/oauth/token'));
+          _commonHeaders.forEach((k, v) => tokenReq.headers.set(k, v));
+          tokenReq.headers.contentType = ContentType(
+            'application',
+            'x-www-form-urlencoded',
+            charset: 'utf-8',
+          );
+          if (jsessionId != null) {
+            tokenReq.cookies.add(Cookie('JSESSIONID', jsessionId));
+          }
+          tokenReq.headers.contentLength = bodyBytes.length;
+          tokenReq.write(body);
+          tokenRes = await tokenReq.close().timeout(const Duration(seconds: 15));
+          tokenBody = await tokenRes.transform(utf8.decoder).join();
+          tokenSuccess = true;
+          break;
+        } catch (e) {
+          // errno 104 (connection reset), 110 (timeout) 등 일시 오류는 조용히 재시도.
+          // 4xx/5xx 응답은 close() 가 throw 하지 않으므로 위 분기에서 처리됨.
+          tokenLastError = e;
+          if (attempt < 3) await Future.delayed(Duration(seconds: attempt));
+        }
+      }
+      if (!tokenSuccess) {
+        throw Exception('토큰 요청 네트워크 오류 (3회 재시도 실패): $tokenLastError');
+      }
 
       if (tokenRes.statusCode == 401 || tokenRes.statusCode == 400) {
         // 서버가 반환하는 에러 메시지가 있으면 포함

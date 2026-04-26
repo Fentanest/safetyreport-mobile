@@ -186,7 +186,8 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     final maxPhotos = photoLists.fold<int>(0, (m, l) => l.length > m ? l.length : m);
     final maxFiles = fileLists.fold<int>(0, (m, l) => l.length > m ? l.length : m);
 
-    // 서버 export.py 컬럼 순서: original_cols + 지도 + 첨부사진N + 첨부파일N + 만족도조사여부 + 감시목록
+    // 서버 export.py 컬럼 순서: original_cols + 지도 + 첨부사진N + 첨부파일N
+    //                        + 만족도조사여부 + 별점 + 별점사유 + 감시목록
     final headers = <String>[
       'ID', '상태', '신고번호', '신고명', '신고일',
       '처리상태', '차량번호', '위반법규', '범칙금_과태료', '벌점',
@@ -194,7 +195,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
       '종결여부', '신고내용', '처리내용', '지도',
       for (var i = 1; i <= maxPhotos; i++) '첨부사진$i',
       for (var i = 1; i <= maxFiles; i++) '첨부파일$i',
-      '만족도조사여부', '감시목록',
+      '만족도조사여부', '별점', '별점사유', '감시목록',
     ];
 
     for (var col = 0; col < headers.length; col++) {
@@ -214,6 +215,8 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
         for (var i = 0; i < maxPhotos; i++) i < photos.length ? photos[i] : '',
         for (var i = 0; i < maxFiles; i++) i < files.length ? files[i] : '',
         r.pollStatus,
+        r.rating?.toString() ?? '',
+        r.ratingCause,
         watchlist.contains(r.reportNumber) ? 'Y' : 'N',
       ];
       for (var col = 0; col < values.length; col++) {

@@ -439,12 +439,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _restoreDb() async {
     final p = context.read<ReportProvider>();
-    if (p.appMode != AppMode.standalone) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('DB 복원은 Standalone 모드에서만 지원됩니다.')),
-      );
-      return;
-    }
+    final isStandalone = p.appMode == AppMode.standalone;
 
     if (_isRestoringDb) return;
 
@@ -454,13 +449,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (result == null || result.files.single.path == null) return;
 
+    final dialogMsg = isStandalone
+        ? '기존 모바일 DB가 모두 삭제되고 선택한 파일로 대체됩니다.\n계속하시겠습니까?'
+        : '서버의 DB가 선택한 파일로 교체됩니다. (서버 형식·모바일 형식 모두 자동 감지)\n'
+          '서버는 기존 DB를 자동 백업합니다.\n계속하시겠습니까?';
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('DB 복원'),
-        content: const Text(
-          '기존 데이터가 모두 삭제되고 선택한 파일로 대체됩니다.\n계속하시겠습니까?',
-        ),
+        content: Text(dialogMsg),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -481,37 +479,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     try {
       final selectedPath = result.files.single.path!;
-      final dbPath = await LocalDbService.getDbPath();
 
-      // DB 닫기
-      await LocalDbService.closeDb();
+      if (isStandalone) {
+        // Standalone: 로컬 DB 덮어쓰기
+        final dbPath = await LocalDbService.getDbPath();
+        await LocalDbService.closeDb();
+        final selectedFile = File(selectedPath);
+        await selectedFile.copy(dbPath);
 
-      // 파일 덮어쓰기
-      final selectedFile = File(selectedPath);
-      await selectedFile.copy(dbPath);
-
-      // 데이터 새로고침
-      if (mounted) {
-        await context.read<ReportProvider>().refreshAll();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('DB 복원이 완료되었습니다.'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        if (mounted) {
+          await context.read<ReportProvider>().refreshAll();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('DB 복원이 완료되었습니다.'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        // Client: 서버에 업로드 → 서버가 자동 감지/변환
+        final api = ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
+        final res = await api.uploadDb(selectedPath);
+        if (mounted) {
+          final kind = res['kind'] as String? ?? '';
+          final imported = res['imported'];
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('서버 DB 복원 완료 (${kind == 'mobile' ? '모바일→서버 변환' : '서버 형식'}, $imported건)'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
       }
+      return;  // 아래 standalone 전용 블록 스킵
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('DB 복원 실패: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('DB 복원 실패: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {
       if (mounted) setState(() => _isRestoringDb = false);
     }
+
   }
 
   // ── 모드 변경 ─────────────────────────────────────────────────
@@ -1206,24 +1216,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               onPressed: _backupDb,
                             ),
                     ),
-                    if (context.read<ReportProvider>().appMode == AppMode.standalone) ...[
-                      const SizedBox(height: 8),
-                      SizedBox(
-                        width: double.infinity,
-                        child: _isRestoringDb
-                            ? const Center(
-                                child: Padding(
-                                  padding: EdgeInsets.all(8),
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                ),
-                              )
-                            : OutlinedButton.icon(
-                                icon: const Icon(Icons.upload, size: 18),
-                                label: const Text('DB 복원 (업로드)'),
-                                onPressed: _restoreDb,
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: _isRestoringDb
+                          ? const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(8),
+                                child: CircularProgressIndicator(strokeWidth: 2),
                               ),
-                      ),
-                    ],
+                            )
+                          : OutlinedButton.icon(
+                              icon: const Icon(Icons.upload, size: 18),
+                              label: const Text('DB 복원 (업로드)'),
+                              onPressed: _restoreDb,
+                            ),
+                    ),
                   ],
                 ),
               ),

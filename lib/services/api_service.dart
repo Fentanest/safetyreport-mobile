@@ -220,6 +220,26 @@ class ApiService {
     throw Exception('DB 다운로드 네트워크 오류 (3회 재시도 실패): $lastError');
   }
 
+  /// .db 파일을 서버에 업로드해 복원. 서버는 모바일/서버 형식 자동 감지.
+  /// 반환: {status, kind, imported, backup}
+  Future<Map<String, dynamic>> uploadDb(String filePath) async {
+    final uri = Uri.parse('$baseUrl/api/v1/settings/db/upload');
+    final req = http.MultipartRequest('POST', uri);
+    req.headers.addAll({'X-API-Key': apiKey});
+    req.files.add(await http.MultipartFile.fromPath('file', filePath));
+    final streamed = await req.send().timeout(const Duration(minutes: 5));
+    final res = await http.Response.fromStream(streamed);
+    if (res.statusCode != 200) {
+      String detail = res.body;
+      try {
+        final j = jsonDecode(res.body);
+        detail = (j['detail'] ?? j['message'] ?? res.body).toString();
+      } catch (_) {}
+      throw Exception('업로드 실패 (${res.statusCode}): $detail');
+    }
+    return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
   Future<void> updateSettings(Map<String, dynamic> settings) async {
     final response = await http.post(
       Uri.parse('$baseUrl/api/v1/settings'),

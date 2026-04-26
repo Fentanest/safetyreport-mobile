@@ -15,8 +15,8 @@ import java.util.regex.Pattern
  *
  * 안전신문고/카카오톡 알림에서 신고번호를 추출해:
  *   - 서버 모드: /crawl/enqueue 로 POST
- *   - standalone 모드: "standalone_sync_pending" 플래그를 SharedPreferences 에 설정.
- *                     Flutter 가 앱 실행/foreground 복귀 시 이 플래그를 확인해 SyncEngine 트리거.
+ *   - standalone 모드: 큐 (flutter.standalone_pending_reports) 에 신고번호 append.
+ *                     Flutter 가 앱 실행/foreground 복귀 시 큐 비어있지 않으면 drain 트리거.
  *
  * 크롤링 결과 알림은 WsService(WebSocket)가 담당하므로 여기서는 생성하지 않음.
  */
@@ -113,12 +113,11 @@ class NotificationService : NotificationListenerService() {
         }.start()
     }
 
-    /** standalone 모드: 신고번호 큐에 추가 + sync 트리거 플래그 설정 + 감지 알림 표시 */
+    /** standalone 모드: 신고번호 큐에 추가 + 감지 알림 표시 */
     private fun handleStandaloneDetection(prefs: android.content.SharedPreferences, reportNumber: String) {
         appendPendingReport(prefs, reportNumber)
-        // Flutter 가 감지하는 플래그 (큐 비어있지 않음 신호).
+        // 마지막 감지 시각만 기록 (디버그/통계 용). 큐 비어있지 않음 신호는 큐 자체가 진실.
         prefs.edit()
-            .putBoolean("flutter.standalone_sync_pending", true)
             .putLong("flutter.standalone_last_detected_at", System.currentTimeMillis())
             .apply()
 

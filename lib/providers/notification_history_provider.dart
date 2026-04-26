@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/notification_item.dart';
+import '../services/sync_engine.dart' show ChangeType;
 
 class NotificationHistoryProvider with ChangeNotifier {
   static const _key = 'notifications_history';
@@ -85,9 +86,15 @@ class NotificationHistoryProvider with ChangeNotifier {
         if (status.isNotEmpty) lines.add('처리상태: $status');
         if (agency.isNotEmpty) lines.add('처리기관: $agency');
         if (fine.isNotEmpty && fine != 'null') lines.add('범칙금/과태료: $fine');
+        // 카드 시트 (main.dart) 와 동일한 분류 기준 — magic string 대신 ChangeType 참조.
+        final titleIcon = switch (changeType) {
+          ChangeType.newReport => '🆕',
+          ChangeType.individualConfirm => '✅',
+          _ => '🔄',
+        };
         newItems.add(NotificationItem(
           id: '${now.millisecondsSinceEpoch}_$rnum',
-          title: changeType == '신규' ? '🆕 $name' : '🔄 $name',
+          title: '$titleIcon $name',
           body: lines.join('\n'),
           reportNumber: rnum,
           timestamp: ts,

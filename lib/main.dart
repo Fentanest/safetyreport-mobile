@@ -14,6 +14,7 @@ import 'models/app_mode.dart';
 import 'models/report.dart';
 import 'providers/report_provider.dart';
 import 'providers/notification_history_provider.dart';
+import 'services/sync_engine.dart' show ChangeType;
 import 'widgets/report_detail_sheet.dart';
 
 void main() {
@@ -329,10 +330,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
         expand: false,
         builder: (_, controller) {
           final newCount = changes
-              .where((r) => (r as Map)['change_type'] == '신규')
+              .where((r) => (r as Map)['change_type'] == ChangeType.newReport)
               .length;
           final confirmCount = changes
-              .where((r) => (r as Map)['change_type'] == '개별확인')
+              .where((r) =>
+                  (r as Map)['change_type'] == ChangeType.individualConfirm)
               .length;
           final changedCount = changes.length - newCount - confirmCount;
           return Column(
@@ -386,8 +388,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                 itemBuilder: (ctx, i) {
                   final r = changes[i] as Map<String, dynamic>;
                   final changeType = r['change_type']?.toString() ?? '변경';
-                  final isNew = changeType == '신규';
-                  final isConfirm = changeType == '개별확인';
+                  final isNew = changeType == ChangeType.newReport;
+                  final isConfirm = changeType == ChangeType.individualConfirm;
                   final badgeColor = isNew
                       ? Colors.teal
                       : isConfirm

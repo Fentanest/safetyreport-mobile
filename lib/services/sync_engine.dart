@@ -12,6 +12,20 @@ import 'standalone_parser.dart';
 /// 동기화 이벤트 타입
 enum SyncEventType { log, progress, done, error }
 
+/// 신고 변경 종류 — pending_crawl_changes / 알림 / 카드 시트 공통 식별자.
+/// 모든 곳에서 magic string 대신 이 상수 참조 (오타 방지 + 일관성).
+class ChangeType {
+  /// 신규 신고 (DB 에 없던 ID)
+  static const newReport = '신규';
+
+  /// 처리상태 변경 (DB 에 있던 ID + 처리상태가 바뀜)
+  static const statusChanged = '처리변경';
+
+  /// 사용자가 알림 탭으로 명시적 요청한 개별 fetch — 처리상태 변동 없음
+  /// (Standalone 모드 _tryFetchSingle 에서 사용)
+  static const individualConfirm = '개별확인';
+}
+
 class SyncEvent {
   final SyncEventType type;
   final String message;
@@ -301,8 +315,8 @@ class SyncEngine {
         lines.add('범칙금/과태료: $fine');
       }
       final title = switch (changeType) {
-        '신규' => '🆕 신규 신고 — $name',
-        '개별확인' => '✅ 개별 동기화 — $name',
+        ChangeType.newReport => '🆕 신규 신고 — $name',
+        ChangeType.individualConfirm => '✅ 개별 동기화 — $name',
         _ => '🔄 처리 변경 — $name',
       };
       try {
@@ -323,9 +337,9 @@ class SyncEngine {
   /// snapshot 과 비교해 신규/처리변경 판정 후 _lastChanges 에 추가.
   static void _trackChange(Map<String, String>? snap, Report r) {
     if (snap == null) {
-      _lastChanges.add(reportToChangeMap(r, '신규'));
+      _lastChanges.add(reportToChangeMap(r, ChangeType.newReport));
     } else if (snap['처리상태'] != r.status) {
-      _lastChanges.add(reportToChangeMap(r, '처리변경'));
+      _lastChanges.add(reportToChangeMap(r, ChangeType.statusChanged));
     }
   }
 

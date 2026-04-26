@@ -8,7 +8,6 @@ import 'sync_engine.dart';
 ///
 /// 알림 수신 시 Kotlin NotificationService 가:
 ///   - flutter.standalone_pending_reports 큐 (CSV) 에 신고번호 append
-///   - flutter.standalone_sync_pending = true
 ///   - 📬 heads-up 팝업 표시
 ///
 /// [drainIfPending] 처리 정책 (앱 종료에 견고):
@@ -29,7 +28,6 @@ import 'sync_engine.dart';
 ///   - flutter.pending_crawl_changes SharedPref 에 누적 → main.dart 카드 시트
 ///   - 각 신고에 대해 개별 heads-up 알림 (MainActivity.showNotification)
 class StandaloneAutoSyncService {
-  static const _pendingFlagKey = 'standalone_sync_pending';
   static const _pendingQueueKey = 'standalone_pending_reports';
 
   static bool _running = false;
@@ -61,9 +59,6 @@ class StandaloneAutoSyncService {
     await prefs.reload();
     final cur = readPendingQueue(prefs)..remove(item);
     await _writeQueue(prefs, cur);
-    if (cur.isEmpty) {
-      await prefs.setBool(_pendingFlagKey, false);
-    }
   }
 
   /// 개별 fetch 에서 발견한 변경사항. SyncEngine.emitChanges 로 일괄 emit.
@@ -83,10 +78,7 @@ class StandaloneAutoSyncService {
       while (true) {
         await prefs.reload();
         final queue = readPendingQueue(prefs);
-        if (queue.isEmpty) {
-          await prefs.setBool(_pendingFlagKey, false);
-          break;
-        }
+        if (queue.isEmpty) break;
 
         // 첫 작업 직전에 FGS 가동 (큐가 비어 있으면 굳이 가동 안 함).
         if (!fgsAcquired) {
@@ -162,8 +154,9 @@ class StandaloneAutoSyncService {
       final raw = (detail['C_A_CONTENTS'] ?? detail['C_A_BODY'] ?? '').toString();
       await LocalDbService.upsertReport(report, cat, ev, rawContent: raw);
       // 사용자가 명시적으로 알림 탭한 개별 건 → 처리상태 변동 여부와 무관하게 변경 카드 표시.
-      // (변동 있으면 '처리변경' / 없으면 '개별확인' 으로 구분)
-      final changeType = beforeStatus != report.status ? '처리변경' : '개별확인';
+      final changeType = beforeStatus != report.status
+          ? ChangeType.statusChanged
+          : ChangeType.individualConfirm;
       _singleFetchChanges.add(SyncEngine.reportToChangeMap(report, changeType));
       SyncEngine.emitLog('완료: $reportNumber → $changeType (상태=${report.status})');
       return true;
@@ -176,7 +169,6 @@ class StandaloneAutoSyncService {
   /// 수동 초기화 용도.
   static Future<void> clearPending() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_pendingFlagKey, false);
     await _writeQueue(prefs, []);
   }
 }

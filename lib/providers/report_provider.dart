@@ -279,13 +279,7 @@ class ReportProvider with ChangeNotifier {
             // 먼저 현재 DB 데이터로 대시보드 즉시 구성 (drain 이 오래 걸려도 빈 화면 없음)
             await refreshAll();
             // 그 다음 pending 큐 처리 (네트워크 필요, 오래 걸릴 수 있음)
-            await prefs.reload();
-            final queue = StandaloneAutoSyncService.readPendingQueue(prefs);
-            if (queue.isNotEmpty) {
-              await prefs.setBool('standalone_sync_pending', true);
-            }
-            await StandaloneAutoSyncService.drainIfPending();
-            if (_appMode == AppMode.standalone) await refreshAll();
+            await _drainAndRefresh();
           }();
         }
       }
@@ -306,15 +300,14 @@ class ReportProvider with ChangeNotifier {
   /// foreground 복귀 시 호출 (main.dart AppLifecycleState.resumed).
   Future<void> checkAutoSyncOnResume() async {
     if (_appMode != AppMode.standalone || !isConfigured) return;
-    // 이전 drain 에서 미발견으로 retry 큐에 남은 신고번호가 있으면 플래그 복원 → 재시도 기회 제공
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.reload();
-    final queue = StandaloneAutoSyncService.readPendingQueue(prefs);
-    if (queue.isNotEmpty) {
-      await prefs.setBool('standalone_sync_pending', true);
-    }
+    await _drainAndRefresh();
+  }
+
+  /// drain 트리거 + UI 갱신. init() 와 checkAutoSyncOnResume 공통.
+  /// 큐가 비어있으면 drainIfPending 첫 iteration 에서 즉시 break 하므로 비용 거의 없음.
+  Future<void> _drainAndRefresh() async {
     await StandaloneAutoSyncService.drainIfPending();
-    await refreshAll();
+    if (_appMode == AppMode.standalone) await refreshAll();
   }
 
   Future<void> setConfig(String url, String key) async {

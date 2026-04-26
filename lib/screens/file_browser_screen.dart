@@ -7,6 +7,7 @@ import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../models/app_mode.dart';
 import '../models/file_item.dart';
 import '../models/report.dart';
@@ -224,9 +225,23 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
 
   void _openLocalFile(FileSystemEntity f) async {
     final result = await OpenFilex.open(f.path);
+    // OpenFilex 가 적합한 앱 못 찾으면 (예: xlsx 핸들러 없는 기기) 시스템 공유 sheet
+    // 로 fallback → '다른 앱으로 열기' 메뉴 노출 (Drive, OneDrive 등도 후보).
     if (result.type != ResultType.done && mounted) {
+      await _shareLocalFile(f);
+    }
+  }
+
+  /// 사용자가 명시적으로 '다른 앱으로 열기' 원할 때 (long-press) 또는
+  /// OpenFilex 실패 시 fallback 으로 호출. share_plus 가 FileProvider 자동 설정.
+  Future<void> _shareLocalFile(FileSystemEntity f) async {
+    final name = f.path.split('/').last;
+    try {
+      await Share.shareXFiles([XFile(f.path)], subject: name);
+    } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('열 수 있는 앱이 없습니다: ${f.path.split('/').last}')),
+        SnackBar(content: Text('공유 실패: $e')),
       );
     }
   }
@@ -308,16 +323,29 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
                                   color: Colors.green),
                               title: Text(name,
                                   style: const TextStyle(fontSize: 13)),
-                              subtitle: Text('$sizeStr  ·  $modified',
+                              subtitle: Text(
+                                  '$sizeStr  ·  $modified  ·  길게 눌러 공유',
                                   style: TextStyle(
                                       fontSize: 11,
                                       color: Colors.grey.shade600)),
-                              trailing: IconButton(
-                                icon: const Icon(Icons.delete_outline,
-                                    color: Colors.red),
-                                onPressed: () => _deleteLocalFile(f),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.share_outlined,
+                                        size: 22),
+                                    tooltip: '다른 앱으로 열기 / 공유',
+                                    onPressed: () => _shareLocalFile(f),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline,
+                                        color: Colors.red),
+                                    onPressed: () => _deleteLocalFile(f),
+                                  ),
+                                ],
                               ),
                               onTap: () => _openLocalFile(f),
+                              onLongPress: () => _shareLocalFile(f),
                             );
                           },
                         ),
@@ -463,10 +491,9 @@ class _TreeNodeState extends State<_TreeNode> {
       if (ctx.mounted) ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
 
       final result = await OpenFilex.open(file.path);
+      // 핸들러 없으면 (xlsx 등) 시스템 공유 sheet → '다른 앱으로 열기' 메뉴
       if (result.type != ResultType.done && ctx.mounted) {
-        ScaffoldMessenger.of(ctx).showSnackBar(
-          SnackBar(content: Text('열 수 있는 앱이 없습니다: ${item.name}')),
-        );
+        await Share.shareXFiles([XFile(file.path)], subject: item.name);
       }
     } catch (e) {
       if (ctx.mounted) {

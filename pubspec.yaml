@@ -46,6 +46,8 @@ dependencies:
   cached_network_image: ^3.4.1
   path_provider: ^2.1.0
   open_filex: ^4.3.4
+  # 시스템 공유 sheet (xlsx 등 직접 핸들러 없을 때 '다른 앱으로 열기' fallback)
+  share_plus: ^10.1.4
   package_info_plus: ^9.0.1
   pointycastle: ^3.9.1
   flutter_secure_storage: ^9.2.4

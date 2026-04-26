@@ -545,6 +545,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  /// GitHub 이슈 트래커로 이동 (양쪽 모드 공통, 버그/기능요청).
+  Future<void> _openBugReport() async {
+    final url = Uri.parse(
+        'https://github.com/Fentanest/safetyreport-mobile/issues');
+    final ok = await launchUrl(url, mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('브라우저를 열 수 없습니다.')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -1034,6 +1046,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 12),
                     _InfoRow(label: '앱 버전', value: _appVersion.isEmpty ? '...' : 'v$_appVersion'),
                     const _InfoRow(label: '플랫폼', value: 'Android / iOS'),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.bug_report_outlined, size: 18),
+                        label: const Text('버그 제보 / 기능 요청'),
+                        onPressed: _openBugReport,
+                      ),
+                    ),
                     const SizedBox(height: 8),
                     const Text(
                       '※ 인터넷 권한(INTERNET)은 Android 일반 권한으로 설치 시 별도 요청 없이 자동 부여됩니다.',

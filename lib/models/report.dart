@@ -22,6 +22,8 @@ class Report {
   final String mapImage;
   final String pollStatus;      // 만족도조사여부
   final String processingFinish; // 종결여부 (Y/N)
+  final int? rating;             // 별점 (1~5, null=미부여)
+  final String ratingCause;      // 별점사유 (불만족 텍스트, 없으면 '')
   final int totalCount;
   final int validCount;
 
@@ -49,6 +51,8 @@ class Report {
     this.mapImage = '',
     this.pollStatus = '답변 대기',
     this.processingFinish = 'N',
+    this.rating,
+    this.ratingCause = '',
     this.totalCount = 0,
     this.validCount = 0,
   });
@@ -78,6 +82,8 @@ class Report {
       mapImage: json['지도']?.toString() ?? '',
       pollStatus: json['만족도조사여부']?.toString() ?? '답변 대기',
       processingFinish: json['종결여부']?.toString() ?? 'N',
+      rating: (json['별점'] as num?)?.toInt(),
+      ratingCause: json['별점사유']?.toString() ?? '',
       totalCount: (json['total_count'] as num?)?.toInt() ?? 0,
       validCount: (json['valid_count'] as num?)?.toInt() ?? 0,
     );

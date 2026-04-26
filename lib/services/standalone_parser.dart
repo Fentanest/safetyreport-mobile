@@ -270,8 +270,12 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
   final dateRaw = (detailData['C_DATE'] ?? listData['C_DATE'] ?? '') as String;
   final date = dateRaw.isNotEmpty ? dateRaw.split(' ').first : '';
 
-  // ── 만족도조사여부 (서버 crawltitle_api.py 동일 로직) ──────────────────────
-  final stsfdg = int.tryParse((listData['STSFDG_SCORE'] ?? '0').toString()) ?? 0;
+  // ── 만족도조사여부 (서버 crawltitle_api.py 동일 로직) + 별점 점수 ─────────────
+  // 점수는 detailData → listData 순으로 fallback. 응답이 둘 다에 있을 수 있음.
+  final stsfdg = int.tryParse(
+        (detailData['STSFDG_SCORE'] ?? listData['STSFDG_SCORE'] ?? '0').toString(),
+      ) ??
+      0;
   final String pollStatus;
   if (stsfdg > 0) {
     pollStatus = '참여 완료';
@@ -282,6 +286,9 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
   } else {
     pollStatus = '답변 대기';
   }
+  // ratingCause는 별도 API(/api/v1/portal/statistics/satisfactionstatistics/score/{spp}/{phone})
+  // 에서만 얻을 수 있으므로 parser 단계에서는 비움. sync_engine 에서 보강.
+  final ratingValue = stsfdg > 0 ? stsfdg : null;
 
   return Report(
     id: cNo,
@@ -307,5 +314,6 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
     mapImage: mapImage,
     pollStatus: pollStatus,
     processingFinish: processingFinish,
+    rating: ratingValue,
   );
 }

@@ -150,8 +150,9 @@ class StandaloneAutoSyncService {
       final detail = await StandaloneApiService.fetchReportDetail(existing.id);
       final ev = entryValueFromDetail(<String, dynamic>{}, detail);
       final cat = categoryFromEntryValue(ev);
-      final report = parseJsonToReport(<String, dynamic>{}, detail);
+      var report = parseJsonToReport(<String, dynamic>{}, detail);
       final raw = (detail['C_A_CONTENTS'] ?? detail['C_A_BODY'] ?? '').toString();
+      report = await SyncEngine.augmentRatingCause(report);
       await LocalDbService.upsertReport(report, cat, ev, rawContent: raw);
       // 사용자가 명시적으로 알림 탭한 개별 건 → 처리상태 변동 여부와 무관하게 변경 카드 표시.
       final changeType = beforeStatus != report.status

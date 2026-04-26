@@ -130,4 +130,33 @@ class StandaloneApiService {
     final data = await fetchReportList(startRow: 1, endRow: 1);
     return (data['totalCnt'] as num?)?.toInt() ?? 0;
   }
+
+  /// 만족도조사 점수+사유 조회 (인증 불필요 — 신고번호 + 휴대폰번호로 확인).
+  /// 본인 휴대폰번호가 없으면 null. STSFDG_CAUSE는 불만족 사유 텍스트(빈 문자열 가능).
+  /// 반환: (score: 1~5 또는 null, cause: String)
+  static Future<({int? score, String cause})> fetchSatisfaction(
+    String spp,
+    String phone,
+  ) async {
+    if (phone.isEmpty || spp.isEmpty) return (score: null, cause: '');
+    final uri = Uri.parse(
+      '$_base/api/v1/portal/statistics/satisfactionstatistics/score/$spp/$phone',
+    );
+    try {
+      final res = await http.get(uri, headers: _commonHeaders).timeout(
+            const Duration(seconds: 10),
+          );
+      if (res.statusCode != 200) return (score: null, cause: '');
+      final json = jsonDecode(res.body) as Map<String, dynamic>;
+      final result = json['result'];
+      if (result == null) return (score: null, cause: '');
+      final r = result as Map<String, dynamic>;
+      final scoreRaw = r['STSFDG_SCORE'];
+      final score = (scoreRaw is num) ? scoreRaw.toInt() : int.tryParse('$scoreRaw') ?? 0;
+      final cause = (r['STSFDG_CAUSE'] as String?) ?? '';
+      return (score: score > 0 ? score : null, cause: cause.trim());
+    } catch (_) {
+      return (score: null, cause: '');
+    }
+  }
 }

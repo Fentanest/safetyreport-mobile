@@ -42,10 +42,20 @@ class LocalDbService {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       join(dbPath, 'standalone_reports.db'),
-      version: 3,
+      version: 4,
       onCreate: _create,
       onUpgrade: (db, oldV, newV) async {
-        // 스키마 변경 시 재생성 (재동기화 필요)
+        // v4 마이그레이션: 별점/별점사유 컬럼만 ADD (기존 데이터 보존)
+        if (oldV < 4) {
+          try {
+            await db.execute("ALTER TABLE reports ADD COLUMN 별점 INTEGER");
+            await db.execute("ALTER TABLE reports ADD COLUMN 별점사유 TEXT DEFAULT ''");
+          } catch (_) {
+            // 이미 컬럼이 있는 경우 무시
+          }
+          return;
+        }
+        // 그 외 버전 증가는 안전하게 재생성
         await db.execute('DROP TABLE IF EXISTS reports');
         await db.execute('DROP TABLE IF EXISTS sync_meta');
         await _create(db, newV);
@@ -62,6 +72,8 @@ class LocalDbService {
         신고명            TEXT,
         신고일            TEXT,
         만족도조사여부     TEXT,
+        별점             INTEGER,
+        별점사유          TEXT DEFAULT '',
         감시목록          TEXT DEFAULT 'N',
         처리상태          TEXT,
         차량번호          TEXT,
@@ -113,6 +125,8 @@ class LocalDbService {
         '신고명': r.name,
         '신고일': r.date,
         '만족도조사여부': r.pollStatus,
+        '별점': r.rating,
+        '별점사유': r.ratingCause,
         '감시목록': watchlistNums.contains(r.reportNumber) ? 'Y' : 'N',
         '처리상태': r.status,
         '차량번호': r.carNumber,
@@ -488,6 +502,8 @@ class LocalDbService {
       mapImage: r['지도'] as String? ?? '',
       pollStatus: r['만족도조사여부'] as String? ?? '답변 대기',
       processingFinish: r['종결여부'] as String? ?? 'N',
+      rating: (r['별점'] as num?)?.toInt(),
+      ratingCause: r['별점사유'] as String? ?? '',
       totalCount: (r['total_count'] as num?)?.toInt() ?? 0,
       validCount: (r['valid_count'] as num?)?.toInt() ?? 0,
     );
@@ -686,6 +702,8 @@ class LocalDbService {
       mapImage: r['지도'] as String? ?? '',
       pollStatus: r['만족도조사여부'] as String? ?? '답변 대기',
       processingFinish: r['종결여부'] as String? ?? 'N',
+      rating: (r['별점'] as num?)?.toInt(),
+      ratingCause: r['별점사유'] as String? ?? '',
     );
   }
 }

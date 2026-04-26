@@ -217,11 +217,14 @@ class SyncEngine {
 
       try {
         final detail = await StandaloneApiService.fetchReportDetail(cNo);
-        final report = parseJsonToReport(item, detail);
+        var report = parseJsonToReport(item, detail);
         final ev = entryValueFromDetail(item, detail);
         final cat = categoryFromEntryValue(ev);
         // 차량번호 파싱 실패 디버깅용: API 원본 C_A_CONTENTS 저장
         final raw = (detail['C_A_CONTENTS'] ?? detail['C_A_BODY'] ?? '').toString();
+
+        // 별점이 있는 신고 한정으로 사유 추가 fetch (인증 불필요 별도 API)
+        report = await _augmentRatingCause(report);
 
         await LocalDbService.upsertReport(report, cat, ev, rawContent: raw);
         if (!fullSync) _trackChange(existingStatus[cNo], report);
@@ -241,10 +244,11 @@ class SyncEngine {
         // 재시도 1회
         try {
           final detail = await StandaloneApiService.fetchReportDetail(cNo);
-          final report = parseJsonToReport(item, detail);
+          var report = parseJsonToReport(item, detail);
           final ev = entryValueFromDetail(item, detail);
           final cat = categoryFromEntryValue(ev);
           final raw = (detail['C_A_CONTENTS'] ?? detail['C_A_BODY'] ?? '').toString();
+          report = await _augmentRatingCause(report);
           await LocalDbService.upsertReport(report, cat, ev, rawContent: raw);
           if (!fullSync) _trackChange(existingStatus[cNo], report);
           done++;
@@ -371,6 +375,50 @@ class SyncEngine {
       '만족도조사여부': r.pollStatus,
       '종결여부': r.processingFinish,
     };
+  }
+
+  /// 별점이 부여된 신고에 한해 별점사유를 추가 fetch.
+  /// 안전신문고 휴대폰번호 = 일반적으로 username (로그인 ID).
+  /// fetch 실패해도 별점 자체는 보존, ratingCause만 빈 채로 남김.
+  /// (auto_sync_service에서도 호출 → public)
+  static Future<Report> augmentRatingCause(Report report) => _augmentRatingCause(report);
+
+  static Future<Report> _augmentRatingCause(Report report) async {
+    if (report.rating == null || report.rating! <= 0) return report;
+    if (report.ratingCause.isNotEmpty) return report;  // 이미 있으면 스킵
+    final prefs = await SharedPreferences.getInstance();
+    final phone = prefs.getString('standaloneUsername') ?? '';
+    if (phone.isEmpty) return report;
+    final result = await StandaloneApiService.fetchSatisfaction(report.reportNumber, phone);
+    return Report(
+      id: report.id,
+      reportNumber: report.reportNumber,
+      name: report.name,
+      date: report.date,
+      responseDate: report.responseDate,
+      agency: report.agency,
+      manager: report.manager,
+      status: report.status,
+      result: report.result,
+      fineInfo: report.fineInfo,
+      penaltyPoints: report.penaltyPoints,
+      carNumber: report.carNumber,
+      law: report.law,
+      location: report.location,
+      occurrenceDate: report.occurrenceDate,
+      occurrenceTime: report.occurrenceTime,
+      reportContent: report.reportContent,
+      processContent: report.processContent,
+      attachedPhotos: report.attachedPhotos,
+      attachedFiles: report.attachedFiles,
+      mapImage: report.mapImage,
+      pollStatus: report.pollStatus,
+      processingFinish: report.processingFinish,
+      rating: result.score ?? report.rating,
+      ratingCause: result.cause,
+      totalCount: report.totalCount,
+      validCount: report.validCount,
+    );
   }
 
   static Future<void> _saveSyncTime() async {

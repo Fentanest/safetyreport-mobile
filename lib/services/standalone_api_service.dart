@@ -44,6 +44,30 @@ class StandaloneApiService {
     return '';
   }
 
+  static Future<http.Response?> _getPublicWithRetry(Uri uri) async {
+    Object? lastError;
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      try {
+        return await http
+            .get(uri, headers: _commonHeaders)
+            .timeout(const Duration(seconds: 10));
+      } on SocketException catch (e) {
+        lastError = e;
+      } on http.ClientException catch (e) {
+        lastError = e;
+      } on TimeoutException catch (e) {
+        lastError = e;
+      }
+      if (attempt < 3) {
+        await Future.delayed(const Duration(seconds: 1));
+      }
+    }
+    if (lastError != null) {
+      throw Exception('공개 API 조회 실패 (3회 재시도): $lastError');
+    }
+    return null;
+  }
+
   /// 유효한 토큰으로 헤더 구성. 만료 시 자동 재로그인.
   static Future<Map<String, String>> _headers() async {
     final token = await StandaloneAuthService.ensureValidToken();
@@ -170,9 +194,8 @@ class StandaloneApiService {
       '$_base/api/v1/portal/statistics/satisfactionstatistics/score/$spp/$normalizedPhone',
     );
     try {
-      final res = await http.get(uri, headers: _commonHeaders).timeout(
-            const Duration(seconds: 10),
-          );
+      final res = await _getPublicWithRetry(uri);
+      if (res == null) return (score: null, cause: '');
       if (res.statusCode != 200) return (score: null, cause: '');
       final json = jsonDecode(res.body) as Map<String, dynamic>;
       final result = json['result'];
@@ -185,10 +208,8 @@ class StandaloneApiService {
         final popupUri = Uri.parse(
           '$_base/html/common/popup/comptSatisfaction.html?seq=$spp&pn=$normalizedPhone',
         );
-        final popupRes = await http.get(popupUri, headers: _commonHeaders).timeout(
-              const Duration(seconds: 10),
-            );
-        if (popupRes.statusCode == 200) {
+        final popupRes = await _getPublicWithRetry(popupUri);
+        if (popupRes != null && popupRes.statusCode == 200) {
           cause = _extractCauseFromPopupHtml(popupRes.body);
         }
       }

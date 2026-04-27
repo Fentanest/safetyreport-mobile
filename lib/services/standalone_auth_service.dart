@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -27,6 +28,8 @@ class StandaloneAuthService {
   static const _secureStorage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
+  static Timer? _keepAliveTimer;
+  static bool _keepAliveInFlight = false;
 
   // 서버가 Referer·X-Requested-With·User-Agent 없으면 연결을 차단함 (errno 104)
   static const _commonHeaders = {
@@ -218,6 +221,32 @@ class StandaloneAuthService {
     await prefs.remove(_tokenKey);
     await prefs.remove(_expiresAtKey);
     await _secureStorage.delete(key: _securePasswordKey);
+  }
+
+  static void startKeepAlive({Duration interval = const Duration(minutes: 55)}) {
+    if (_keepAliveTimer?.isActive ?? false) return;
+    () async {
+      await refreshSessionIfNeeded();
+    }();
+    _keepAliveTimer = Timer.periodic(interval, (_) async {
+      await refreshSessionIfNeeded(force: true);
+    });
+  }
+
+  static void stopKeepAlive() {
+    _keepAliveTimer?.cancel();
+    _keepAliveTimer = null;
+  }
+
+  static Future<void> refreshSessionIfNeeded({bool force = false}) async {
+    if (_keepAliveInFlight) return;
+    if (!force && await isTokenValid()) return;
+    _keepAliveInFlight = true;
+    try {
+      await tryAutoRelogin();
+    } finally {
+      _keepAliveInFlight = false;
+    }
   }
 
   // ── 자동 재로그인 ──────────────────────────────────────────

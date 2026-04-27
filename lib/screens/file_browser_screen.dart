@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:excel/excel.dart';
 import 'package:flutter/material.dart';
@@ -536,7 +537,28 @@ class _TreeNodeState extends State<_TreeNode> {
     );
 
     try {
-      final response = await http.get(downloadUri, headers: {'X-API-Key': widget.apiKey});
+      Object? lastError;
+      http.Response? response;
+      for (var attempt = 1; attempt <= 3; attempt++) {
+        try {
+          response = await http
+              .get(downloadUri, headers: {'X-API-Key': widget.apiKey})
+              .timeout(const Duration(minutes: 2));
+          break;
+        } on SocketException catch (e) {
+          lastError = e;
+        } on http.ClientException catch (e) {
+          lastError = e;
+        } on TimeoutException catch (e) {
+          lastError = e;
+        }
+        if (attempt < 3) {
+          await Future.delayed(const Duration(seconds: 1));
+        }
+      }
+      if (response == null) {
+        throw Exception('네트워크 오류 (3회 재시도 실패): $lastError');
+      }
       if (response.statusCode != 200) {
         if (ctx.mounted) {
           ScaffoldMessenger.of(ctx).hideCurrentSnackBar();

@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -58,13 +60,33 @@ class _SetupScreenState extends State<SetupScreen> {
     setState(() { _loading = true; _errorMessage = null; });
     final cleanUrl = url.endsWith('/') ? url.substring(0, url.length - 1) : url;
     try {
-      final response = await http.get(
-        Uri.parse('$cleanUrl/api/v1/summary'),
-        headers: {'X-API-Key': key, 'Content-Type': 'application/json'},
-      ).timeout(const Duration(seconds: 10));
-      if (response.statusCode == 200) {
+      Object? lastError;
+      http.Response? response;
+      for (var attempt = 1; attempt <= 3; attempt++) {
         try {
-          jsonDecode(response.body);
+          response = await http.get(
+            Uri.parse('$cleanUrl/api/v1/summary'),
+            headers: {'X-API-Key': key, 'Content-Type': 'application/json'},
+          ).timeout(const Duration(seconds: 10));
+          break;
+        } on SocketException catch (e) {
+          lastError = e;
+        } on http.ClientException catch (e) {
+          lastError = e;
+        } on TimeoutException catch (e) {
+          lastError = e;
+        }
+        if (attempt < 3) {
+          await Future.delayed(const Duration(seconds: 1));
+        }
+      }
+      if (response == null) {
+        throw Exception('네트워크 오류 (3회 재시도 실패): $lastError');
+      }
+      final checkedResponse = response;
+      if (checkedResponse.statusCode == 200) {
+        try {
+          jsonDecode(checkedResponse.body);
           if (!mounted) return;
           await context.read<ReportProvider>().setConfig(cleanUrl, key);
           if (!mounted) return;
@@ -74,10 +96,10 @@ class _SetupScreenState extends State<SetupScreen> {
         } catch (_) {
           setState(() => _errorMessage = '서버 응답 파싱 실패. 올바른 서버인지 확인해주세요.');
         }
-      } else if (response.statusCode == 401) {
+      } else if (checkedResponse.statusCode == 401) {
         setState(() => _errorMessage = 'API Key 인증 실패 (401)');
       } else {
-        setState(() => _errorMessage = '서버 오류: HTTP ${response.statusCode}');
+        setState(() => _errorMessage = '서버 오류: HTTP ${checkedResponse.statusCode}');
       }
     } catch (e) {
       setState(() => _errorMessage = '서버에 연결할 수 없습니다.\n$e');

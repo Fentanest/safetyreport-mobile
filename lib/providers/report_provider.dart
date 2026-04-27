@@ -279,6 +279,7 @@ class ReportProvider with ChangeNotifier {
         fetchAppConfig();
         // standalone: 기존 DB 즉시 표시 후 pending 큐 처리
         if (_appMode == AppMode.standalone) {
+          StandaloneAuthService.startKeepAlive();
           () async {
             // 먼저 현재 DB 데이터로 대시보드 즉시 구성 (drain 이 오래 걸려도 빈 화면 없음)
             await refreshAll();
@@ -298,12 +299,15 @@ class ReportProvider with ChangeNotifier {
   @override
   void dispose() {
     _changesEmittedSub?.cancel();
+    StandaloneAuthService.stopKeepAlive();
     super.dispose();
   }
 
   /// foreground 복귀 시 호출 (main.dart AppLifecycleState.resumed).
   Future<void> checkAutoSyncOnResume() async {
     if (_appMode != AppMode.standalone || !isConfigured) return;
+    StandaloneAuthService.startKeepAlive();
+    await StandaloneAuthService.refreshSessionIfNeeded();
     await _drainAndRefresh();
   }
 
@@ -315,6 +319,7 @@ class ReportProvider with ChangeNotifier {
   }
 
   Future<void> setConfig(String url, String key) async {
+    StandaloneAuthService.stopKeepAlive();
     final cleanUrl =
         url.endsWith('/') ? url.substring(0, url.length - 1) : url;
     _appMode = AppMode.server;
@@ -332,6 +337,7 @@ class ReportProvider with ChangeNotifier {
 
   Future<void> setStandaloneConfig(String username, {required String phoneNumber}) async {
     await PermissionService.stopWsService();
+    StandaloneAuthService.startKeepAlive();
     _appMode = AppMode.standalone;
     _standaloneUsername = username;
     _standalonePhoneNumber = phoneNumber.replaceAll(RegExp(r'[^0-9]'), '');
@@ -347,6 +353,7 @@ class ReportProvider with ChangeNotifier {
 
   Future<void> resetConfig() async {
     await PermissionService.stopWsService();
+    StandaloneAuthService.stopKeepAlive();
     _appMode = AppMode.server;
     _baseUrl = '';
     _apiKey = '';

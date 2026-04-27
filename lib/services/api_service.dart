@@ -18,8 +18,57 @@ class ApiService {
     'X-API-Key': apiKey,
   };
 
+  Future<http.Response> _sendWithRetry(
+    Future<http.Response> Function() request, {
+    Duration timeout = const Duration(seconds: 20),
+  }) async {
+    Object? lastError;
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      try {
+        return await request().timeout(timeout);
+      } on SocketException catch (e) {
+        lastError = e;
+      } on http.ClientException catch (e) {
+        lastError = e;
+      } on TimeoutException catch (e) {
+        lastError = e;
+      }
+      if (attempt < 3) {
+        await Future.delayed(const Duration(seconds: 1));
+      }
+    }
+    throw Exception('네트워크 오류 (3회 재시도 실패): $lastError');
+  }
+
+  Future<http.StreamedResponse> _sendMultipartWithRetry(
+    Uri uri,
+    String filePath,
+  ) async {
+    Object? lastError;
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      try {
+        final req = http.MultipartRequest('POST', uri);
+        req.headers.addAll({'X-API-Key': apiKey});
+        req.files.add(await http.MultipartFile.fromPath('file', filePath));
+        return await req.send().timeout(const Duration(minutes: 5));
+      } on SocketException catch (e) {
+        lastError = e;
+      } on http.ClientException catch (e) {
+        lastError = e;
+      } on TimeoutException catch (e) {
+        lastError = e;
+      }
+      if (attempt < 3) {
+        await Future.delayed(const Duration(seconds: 1));
+      }
+    }
+    throw Exception('업로드 네트워크 오류 (3회 재시도 실패): $lastError');
+  }
+
   Future<DashboardStats> getSummary() async {
-    final response = await http.get(Uri.parse('$baseUrl/api/v1/summary'), headers: _headers);
+    final response = await _sendWithRetry(
+      () => http.get(Uri.parse('$baseUrl/api/v1/summary'), headers: _headers),
+    );
     if (response.statusCode == 200) {
       final json = jsonDecode(response.body);
       return DashboardStats.fromJson(json['data']);
@@ -29,7 +78,9 @@ class ApiService {
   }
 
   Future<List<Report>> getReports(String category) async {
-    final response = await http.get(Uri.parse('$baseUrl/api/v1/reports/$category'), headers: _headers);
+    final response = await _sendWithRetry(
+      () => http.get(Uri.parse('$baseUrl/api/v1/reports/$category'), headers: _headers),
+    );
     if (response.statusCode == 200) {
       final json = jsonDecode(response.body);
       var list = json['data'] as List? ?? [];
@@ -43,7 +94,7 @@ class ApiService {
     final uri = Uri.parse('$baseUrl/api/v1/files').replace(
       queryParameters: path.isNotEmpty ? {'path': path} : null,
     );
-    final response = await http.get(uri, headers: _headers);
+    final response = await _sendWithRetry(() => http.get(uri, headers: _headers));
     if (response.statusCode == 200) {
       final json = jsonDecode(response.body);
       final list = json['data'] as List? ?? [];
@@ -60,7 +111,7 @@ class ApiService {
     final uri = Uri.parse('$baseUrl/api/v1/stats').replace(
       queryParameters: params.isNotEmpty ? params : null,
     );
-    final response = await http.get(uri, headers: _headers);
+    final response = await _sendWithRetry(() => http.get(uri, headers: _headers));
     if (response.statusCode == 200) {
       final json = jsonDecode(response.body);
       return AgencyStats.fromJson(json['data'] as Map<String, dynamic>);
@@ -70,8 +121,9 @@ class ApiService {
   }
 
   Future<List<Report>> getWatchlist() async {
-    final response = await http.get(
-        Uri.parse('$baseUrl/api/v1/watchlist'), headers: _headers);
+    final response = await _sendWithRetry(
+      () => http.get(Uri.parse('$baseUrl/api/v1/watchlist'), headers: _headers),
+    );
     if (response.statusCode == 200) {
       final json = jsonDecode(response.body);
       final list = json['data'] as List? ?? [];
@@ -83,13 +135,15 @@ class ApiService {
 
   Future<void> updateWatchlist(List<String> reportNumbers,
       {bool add = false}) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/api/v1/watchlist'),
-      headers: _headers,
-      body: jsonEncode({
-        'report_numbers': reportNumbers,
-        'action': add ? 'add' : 'remove',
-      }),
+    final response = await _sendWithRetry(
+      () => http.post(
+        Uri.parse('$baseUrl/api/v1/watchlist'),
+        headers: _headers,
+        body: jsonEncode({
+          'report_numbers': reportNumbers,
+          'action': add ? 'add' : 'remove',
+        }),
+      ),
     );
     if (response.statusCode != 200) {
       throw Exception('감시 목록 업데이트 실패: ${response.statusCode}');
@@ -97,10 +151,12 @@ class ApiService {
   }
 
   Future<void> enqueueCrawl(String reportNumber) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/api/v1/crawl/enqueue'),
-      headers: _headers,
-      body: jsonEncode({'report_number': reportNumber}),
+    final response = await _sendWithRetry(
+      () => http.post(
+        Uri.parse('$baseUrl/api/v1/crawl/enqueue'),
+        headers: _headers,
+        body: jsonEncode({'report_number': reportNumber}),
+      ),
     );
     if (response.statusCode != 200) {
       throw Exception('Failed to enqueue crawl');
@@ -108,8 +164,9 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> getCrawlStatus() async {
-    final response = await http.get(
-        Uri.parse('$baseUrl/api/v1/crawl/status'), headers: _headers);
+    final response = await _sendWithRetry(
+      () => http.get(Uri.parse('$baseUrl/api/v1/crawl/status'), headers: _headers),
+    );
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
@@ -117,8 +174,9 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> getCrawlDone() async {
-    final response = await http.get(
-        Uri.parse('$baseUrl/api/v1/crawl/done'), headers: _headers);
+    final response = await _sendWithRetry(
+      () => http.get(Uri.parse('$baseUrl/api/v1/crawl/done'), headers: _headers),
+    );
     if (response.statusCode == 200) {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
@@ -126,8 +184,9 @@ class ApiService {
   }
 
   Future<List<Map<String, dynamic>>> fetchCrawlResults() async {
-    final response = await http.get(
-        Uri.parse('$baseUrl/api/v1/crawl/results'), headers: _headers);
+    final response = await _sendWithRetry(
+      () => http.get(Uri.parse('$baseUrl/api/v1/crawl/results'), headers: _headers),
+    );
     if (response.statusCode == 200) {
       final json = jsonDecode(response.body);
       return (json['data'] as List? ?? []).cast<Map<String, dynamic>>();
@@ -136,8 +195,9 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> getCrawlConfig() async {
-    final response = await http.get(
-        Uri.parse('$baseUrl/api/v1/crawl/config'), headers: _headers);
+    final response = await _sendWithRetry(
+      () => http.get(Uri.parse('$baseUrl/api/v1/crawl/config'), headers: _headers),
+    );
     if (response.statusCode == 200) {
       final json = jsonDecode(response.body);
       return json['data'] as Map<String, dynamic>;
@@ -152,16 +212,18 @@ class ApiService {
     required int maxEmptyPages,
     required String queueList,
   }) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/api/v1/crawl/start'),
-      headers: _headers,
-      body: jsonEncode({
-        'login_mode': loginMode,
-        'crawl_type': crawlType,
-        'crawl_mode': crawlMode,
-        'max_empty_pages': maxEmptyPages,
-        'queue_list': queueList,
-      }),
+    final response = await _sendWithRetry(
+      () => http.post(
+        Uri.parse('$baseUrl/api/v1/crawl/start'),
+        headers: _headers,
+        body: jsonEncode({
+          'login_mode': loginMode,
+          'crawl_type': crawlType,
+          'crawl_mode': crawlMode,
+          'max_empty_pages': maxEmptyPages,
+          'queue_list': queueList,
+        }),
+      ),
     );
     if (response.statusCode != 200) {
       final msg = jsonDecode(response.body)['detail'] ?? '크롤링 시작 실패';
@@ -170,8 +232,9 @@ class ApiService {
   }
 
   Future<void> killCrawl() async {
-    final response = await http.post(
-        Uri.parse('$baseUrl/api/v1/crawl/kill'), headers: _headers);
+    final response = await _sendWithRetry(
+      () => http.post(Uri.parse('$baseUrl/api/v1/crawl/kill'), headers: _headers),
+    );
     if (response.statusCode != 200) {
       final msg = jsonDecode(response.body)['detail'] ?? '중지 실패';
       throw Exception(msg);
@@ -179,16 +242,18 @@ class ApiService {
   }
 
   Future<void> resumeCrawl() async {
-    final response = await http.post(
-        Uri.parse('$baseUrl/api/v1/crawl/resume'), headers: _headers);
+    final response = await _sendWithRetry(
+      () => http.post(Uri.parse('$baseUrl/api/v1/crawl/resume'), headers: _headers),
+    );
     if (response.statusCode != 200) {
       throw Exception('재개 실패');
     }
   }
 
   Future<Map<String, dynamic>> getAppConfig() async {
-    final response = await http.get(
-        Uri.parse('$baseUrl/api/v1/app/config'), headers: _headers);
+    final response = await _sendWithRetry(
+      () => http.get(Uri.parse('$baseUrl/api/v1/app/config'), headers: _headers),
+    );
     if (response.statusCode == 200) {
       final json = jsonDecode(response.body);
       return json['data'] as Map<String, dynamic>;
@@ -199,35 +264,19 @@ class ApiService {
   Future<Uint8List> downloadDb() async {
     // 네트워크 일시 오류 (errno 104 connection reset, 110 timeout, ECONNRESET 등) →
     // 1초 sleep 후 최대 3회 재시도. DB 는 MB 단위라 일시 끊김 가능성 높음.
-    Object? lastError;
-    for (var attempt = 1; attempt <= 3; attempt++) {
-      try {
-        final response = await http
-            .get(Uri.parse('$baseUrl/api/v1/settings/db'), headers: _headers)
-            .timeout(const Duration(minutes: 2));
-        if (response.statusCode == 200) return response.bodyBytes;
-        // 4xx/5xx 는 재시도 의미 없음 → 즉시 throw
-        throw Exception('DB 다운로드 실패: ${response.statusCode}');
-      } on SocketException catch (e) {
-        lastError = e;
-      } on http.ClientException catch (e) {
-        lastError = e;
-      } on TimeoutException catch (e) {
-        lastError = e;
-      }
-      if (attempt < 3) await Future.delayed(const Duration(seconds: 1));
-    }
-    throw Exception('DB 다운로드 네트워크 오류 (3회 재시도 실패): $lastError');
+    final response = await _sendWithRetry(
+      () => http.get(Uri.parse('$baseUrl/api/v1/settings/db'), headers: _headers),
+      timeout: const Duration(minutes: 2),
+    );
+    if (response.statusCode == 200) return response.bodyBytes;
+    throw Exception('DB 다운로드 실패: ${response.statusCode}');
   }
 
   /// .db 파일을 서버에 업로드해 복원. 서버는 모바일/서버 형식 자동 감지.
   /// 반환: {status, kind, imported, backup}
   Future<Map<String, dynamic>> uploadDb(String filePath) async {
     final uri = Uri.parse('$baseUrl/api/v1/settings/db/upload');
-    final req = http.MultipartRequest('POST', uri);
-    req.headers.addAll({'X-API-Key': apiKey});
-    req.files.add(await http.MultipartFile.fromPath('file', filePath));
-    final streamed = await req.send().timeout(const Duration(minutes: 5));
+    final streamed = await _sendMultipartWithRetry(uri, filePath);
     final res = await http.Response.fromStream(streamed);
     if (res.statusCode != 200) {
       String detail = res.body;
@@ -241,10 +290,12 @@ class ApiService {
   }
 
   Future<void> updateSettings(Map<String, dynamic> settings) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/api/v1/settings'),
-      headers: _headers,
-      body: jsonEncode(settings),
+    final response = await _sendWithRetry(
+      () => http.post(
+        Uri.parse('$baseUrl/api/v1/settings'),
+        headers: _headers,
+        body: jsonEncode(settings),
+      ),
     );
     if (response.statusCode != 200) {
       throw Exception('설정 저장 실패');
@@ -253,10 +304,12 @@ class ApiService {
 
   Future<void> saveCrawlType(String crawlType) async {
     try {
-      await http.post(
-        Uri.parse('$baseUrl/api/v1/settings'),
-        headers: _headers,
-        body: jsonEncode({'crawl_type': crawlType}),
+      await _sendWithRetry(
+        () => http.post(
+          Uri.parse('$baseUrl/api/v1/settings'),
+          headers: _headers,
+          body: jsonEncode({'crawl_type': crawlType}),
+        ),
       );
     } catch (_) {}
   }

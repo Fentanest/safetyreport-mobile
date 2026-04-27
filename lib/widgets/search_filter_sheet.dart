@@ -13,6 +13,7 @@ class SearchFilterSheet extends StatefulWidget {
 class _SearchFilterSheetState extends State<SearchFilterSheet> {
   late final TextEditingController _nameCtrl;
   late final TextEditingController _numCtrl;
+  late final TextEditingController _ratingCauseCtrl;
   late final TextEditingController _agencyCtrl;
   late final TextEditingController _managerCtrl;
   late final TextEditingController _carCtrl;
@@ -25,6 +26,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   late final TextEditingController _occurTimeEndCtrl;
 
   late String _status;
+  late String _rating;
   late String _reportDateStart;
   late String _reportDateEnd;
   late String _occurDateStart;
@@ -37,6 +39,15 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   static const _statusOptions = [
     '', '수용', '일부수용', '불수용', '처리중', '취하', '기타',
   ];
+  static const _ratingOptions = <MapEntry<String, String>>[
+    MapEntry('', '전체'),
+    MapEntry('__none__', '없음'),
+    MapEntry('1', '1점'),
+    MapEntry('2', '2점'),
+    MapEntry('3', '3점'),
+    MapEntry('4', '4점'),
+    MapEntry('5', '5점'),
+  ];
 
   @override
   void initState() {
@@ -44,6 +55,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     final f = widget.provider.filter;
     _nameCtrl            = TextEditingController(text: f.name);
     _numCtrl             = TextEditingController(text: f.reportNumber);
+    _ratingCauseCtrl     = TextEditingController(text: f.ratingCause);
     _agencyCtrl          = TextEditingController(text: f.agency);
     _managerCtrl         = TextEditingController(text: f.manager);
     _carCtrl             = TextEditingController(text: f.carNumber);
@@ -55,6 +67,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     _occurTimeStartCtrl  = TextEditingController(text: f.occurTimeStart);
     _occurTimeEndCtrl    = TextEditingController(text: f.occurTimeEnd);
     _status              = f.status;
+    _rating              = f.rating;
     _reportDateStart     = f.reportDateStart;
     _reportDateEnd       = f.reportDateEnd;
     _occurDateStart      = f.occurDateStart;
@@ -69,7 +82,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   void dispose() {
     for (final c in [
       _nameCtrl, _numCtrl, _agencyCtrl, _managerCtrl, _carCtrl,
-      _lawCtrl, _locationCtrl, _fineCtrl, _reportContentCtrl,
+      _lawCtrl, _locationCtrl, _fineCtrl, _reportContentCtrl, _ratingCauseCtrl,
       _processContentCtrl, _occurTimeStartCtrl, _occurTimeEndCtrl,
     ]) {
       c.dispose();
@@ -97,6 +110,8 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     widget.provider.setFilter(ReportFilter(
       name:              _nameCtrl.text.trim(),
       reportNumber:      _numCtrl.text.trim(),
+      rating:            _rating,
+      ratingCause:       _ratingCauseCtrl.text.trim(),
       agency:            _agencyCtrl.text.trim(),
       manager:           _managerCtrl.text.trim(),
       carNumber:         _carCtrl.text.trim(),
@@ -164,6 +179,25 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
             const SizedBox(height: 8),
             _input(_numCtrl, '신고번호', Icons.tag),
             const SizedBox(height: 8),
+            DropdownButtonFormField<String>(
+              initialValue: _rating,
+              decoration: const InputDecoration(
+                labelText: '별점',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.star_outline, size: 18),
+                isDense: true,
+              ),
+              items: _ratingOptions
+                  .map((opt) => DropdownMenuItem(
+                        value: opt.key,
+                        child: Text(opt.value),
+                      ))
+                  .toList(),
+              onChanged: (v) => setState(() => _rating = v ?? ''),
+            ),
+            const SizedBox(height: 8),
+            _input(_ratingCauseCtrl, '별점사유', Icons.comment_outlined),
+            const SizedBox(height: 8),
             _input(_carCtrl, '차량번호', Icons.directions_car_outlined),
             const SizedBox(height: 8),
             _input(_locationCtrl, '위반장소', Icons.location_on_outlined),
@@ -185,7 +219,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
             _input(_processContentCtrl, '처리내용', Icons.task_alt_outlined),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
-              value: _status,
+              initialValue: _status,
               decoration: const InputDecoration(
                 labelText: '처리상태',
                 border: OutlineInputBorder(),

@@ -13,6 +13,8 @@ import '../services/sync_engine.dart';
 class ReportFilter {
   final String name;
   final String reportNumber;
+  final String rating;
+  final String ratingCause;
   final String agency;
   final String manager;
   final String carNumber;
@@ -36,6 +38,8 @@ class ReportFilter {
   const ReportFilter({
     this.name = '',
     this.reportNumber = '',
+    this.rating = '',
+    this.ratingCause = '',
     this.agency = '',
     this.manager = '',
     this.carNumber = '',
@@ -60,6 +64,8 @@ class ReportFilter {
   bool get isEmpty =>
       name.isEmpty &&
       reportNumber.isEmpty &&
+      rating.isEmpty &&
+      ratingCause.isEmpty &&
       agency.isEmpty &&
       manager.isEmpty &&
       carNumber.isEmpty &&
@@ -85,6 +91,14 @@ class ReportFilter {
     final list = <String>[];
     if (name.isNotEmpty) list.add('신고명: $name');
     if (reportNumber.isNotEmpty) list.add('신고번호: $reportNumber');
+    if (rating.isNotEmpty) {
+      if (rating == '__none__') {
+        list.add('별점: 없음');
+      } else {
+        list.add('별점: $rating점');
+      }
+    }
+    if (ratingCause.isNotEmpty) list.add('별점사유: $ratingCause');
     if (agency.isNotEmpty) list.add('기관: $agency');
     if (manager.isNotEmpty) list.add('담당자: $manager');
     if (carNumber.isNotEmpty) list.add('차량: $carNumber');
@@ -195,6 +209,15 @@ class ReportProvider with ChangeNotifier {
     return reports.where((r) {
       if (!_contains(r.name, f.name)) return false;
       if (!_contains(r.reportNumber, f.reportNumber)) return false;
+      if (f.rating.isNotEmpty) {
+        if (f.rating == '__none__') {
+          if (r.rating != null && r.rating! > 0) return false;
+        } else {
+          final wanted = int.tryParse(f.rating);
+          if (wanted == null || r.rating != wanted) return false;
+        }
+      }
+      if (!_contains(r.ratingCause, f.ratingCause)) return false;
       if (!_contains(r.agency, f.agency)) return false;
       if (!_contains(r.manager, f.manager)) return false;
       if (!_contains(r.carNumber, f.carNumber)) return false;

@@ -408,9 +408,18 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
 
                   Color statusColor = Colors.grey;
                   if (status == '수용') statusColor = Colors.green;
-                  else if (status == '불수용') statusColor = Colors.red;
-                  else if (status == '처리중') statusColor = Colors.orange;
+                  else if (status == '일부수용') statusColor = const Color(0xFF43A047);
+                  else if (status.contains('불수용') || status == '기타') statusColor = Colors.red;
+                  else if (status.contains('처리') || status.contains('진행')) statusColor = Colors.orange;
                   else if (status.contains('완료')) statusColor = Colors.blue;
+                  else if (status == '취하') statusColor = Colors.brown;
+
+                  // 과태료/범칙금/경고/미확인 결과 라벨용 색상
+                  Color? fineColor;
+                  if (fine.contains('과태료')) fineColor = Colors.red.shade600;
+                  else if (fine.contains('범칙금')) fineColor = Colors.deepOrange;
+                  else if (fine.contains('경고')) fineColor = Colors.amber.shade800;
+                  else if (fine == '미확인') fineColor = Colors.grey;
 
                   return InkWell(
                     borderRadius: BorderRadius.circular(12),
@@ -463,13 +472,34 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                                         color: statusColor.withOpacity(0.4)),
                                   ),
                                   child: Text(
-                                    status,
+                                    status.isEmpty ? '처리 중' : status,
                                     style: TextStyle(
                                       fontSize: 12, color: statusColor,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
                                 ),
+                                if (fineColor != null) ...[
+                                  const SizedBox(width: 4),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: fineColor.withOpacity(0.12),
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(
+                                          color: fineColor.withOpacity(0.4)),
+                                    ),
+                                    child: Text(
+                                      // 금액 있는 과태료/범칙금은 라벨만 굵게, 외(경고/미확인)는 그대로
+                                      fine.split(':').first.trim(),
+                                      style: TextStyle(
+                                        fontSize: 12, color: fineColor,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                                 const SizedBox(width: 4),
                                 Icon(Icons.chevron_right, size: 16,
                                     color: Colors.grey.shade400),
@@ -499,9 +529,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                                         color: Colors.grey.shade600)),
                               ]),
                             ],
-                            if (fine.isNotEmpty &&
-                                fine != '미확인' &&
-                                fine != 'null') ...[
+                            if (fine.isNotEmpty && fine != 'null') ...[
                               const SizedBox(height: 4),
                               Row(children: [
                                 Icon(Icons.receipt_long, size: 13,

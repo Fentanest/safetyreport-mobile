@@ -383,7 +383,7 @@ class _ReportListScreenState extends State<ReportListScreen>
                                 const SizedBox(height: 3),
                                 _metaRow(Icons.person_outline, report.manager),
                               ],
-                              if (report.fineInfo.isNotEmpty && report.fineInfo != '미확인') ...[
+                              if (report.fineInfo.isNotEmpty) ...[
                                 const SizedBox(height: 3),
                                 _metaRow(Icons.monetization_on_outlined, report.fineInfo),
                               ],
@@ -530,7 +530,7 @@ class _ReportListScreenState extends State<ReportListScreen>
                                 _metaRow(
                                     Icons.person_outline, report.manager),
                               ],
-                              if (report.fineInfo.isNotEmpty && report.fineInfo != '미확인') ...[
+                              if (report.fineInfo.isNotEmpty) ...[
                                 const SizedBox(height: 3),
                                 _metaRow(Icons.monetization_on_outlined, report.fineInfo),
                               ],

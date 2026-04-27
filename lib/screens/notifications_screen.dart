@@ -354,6 +354,8 @@ class _NotifTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final unread = !item.isRead;
     final hasDetail = item.extraData != null && item.extraData!.isNotEmpty;
+    final status = (item.extraData?['처리상태']?.toString() ?? '').trim();
+    final fine = (item.extraData?['범칙금_과태료']?.toString() ?? '').trim();
     return InkWell(
       onTap: onTap,
       child: Padding(
@@ -410,6 +412,18 @@ class _NotifTile extends StatelessWidget {
                           fontSize: 12,
                           color: Colors.grey.shade600,
                           height: 1.4)),
+                  if (hasDetail && (status.isNotEmpty || fine.isNotEmpty)) ...[
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 4,
+                      runSpacing: 4,
+                      children: [
+                        if (status.isNotEmpty) _miniChip(status, _statusColor(status)),
+                        if (fine.isNotEmpty && fine != 'null')
+                          _miniChip(fine.split(':').first.trim(), _fineColor(fine)),
+                      ],
+                    ),
+                  ],
                   const SizedBox(height: 4),
                   Row(children: [
                     if (item.reportNumber.isNotEmpty) ...[
@@ -435,5 +449,36 @@ class _NotifTile extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Widget _miniChip(String label, Color color) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: color.withOpacity(0.4)),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w600),
+        ),
+      );
+
+  Color _statusColor(String s) {
+    if (s == '일부수용') return const Color(0xFF43A047);
+    if (s.contains('수용') && !s.contains('불')) return Colors.green;
+    if (s.contains('불수용') || s == '기타') return Colors.red;
+    if (s.contains('처리') || s.contains('진행')) return Colors.orange;
+    if (s.contains('완료')) return Colors.blue;
+    if (s == '취하') return Colors.brown;
+    return Colors.grey;
+  }
+
+  Color _fineColor(String f) {
+    if (f.contains('과태료')) return Colors.red.shade600;
+    if (f.contains('범칙금')) return Colors.deepOrange;
+    if (f.contains('경고')) return Colors.amber.shade800;
+    if (f == '미확인') return Colors.grey;
+    return Colors.grey;
   }
 }

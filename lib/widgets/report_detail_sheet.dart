@@ -192,7 +192,7 @@ class ReportDetailSheet extends StatelessWidget {
               _field(Icons.business, '처리기관', report.agency),
             if (report.manager.isNotEmpty)
               _field(Icons.person_outline, '담당자', report.manager),
-            if (report.fineInfo.isNotEmpty && report.fineInfo != '미확인')
+            if (report.fineInfo.isNotEmpty)
               _field(Icons.monetization_on_outlined, '과태료/범칙금', report.fineInfo),
             if (report.penaltyPoints.isNotEmpty)
               _field(Icons.warning_amber_outlined, '벌점', report.penaltyPoints),

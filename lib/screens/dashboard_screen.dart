@@ -517,7 +517,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 _metaRow(Icons.business, '처리기관', r.agency),
               if (r.manager.isNotEmpty)
                 _metaRow(Icons.person_outline, '담당자', r.manager),
-              if (r.fineInfo.isNotEmpty && r.fineInfo != '미확인')
+              if (r.fineInfo.isNotEmpty)
                 _metaRow(Icons.monetization_on_outlined, '과태료/범칙금', r.fineInfo),
               if (r.carNumber.isNotEmpty)
                 _metaRow(Icons.directions_car_outlined, '차량번호', r.carNumber),

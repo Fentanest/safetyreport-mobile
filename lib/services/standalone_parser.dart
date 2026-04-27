@@ -47,12 +47,14 @@ String _normalizeNumbers(String s) => s
     .replaceAll('６', '6').replaceAll('７', '7').replaceAll('８', '8')
     .replaceAll('９', '9').replaceAll('，', ',');
 
-// ── 과태료/범칙금 → 원 단위 정수 추출 ────────────────────────────────────────
+// ── 과태료 금액 → 원 단위 정수 추출 (서버 _extract_fine_amount 와 동일) ──────
+// '과태료: 40,000원' 형식만 합산. '범칙금: 40,000원'은 0 반환.
+// 통계의 총 과태료 합계용.
 
 int extractFineAmount(String fineInfo) {
-  final m = RegExp(r'([\d,.]+)원').firstMatch(fineInfo);
+  if (!fineInfo.contains('과태료')) return 0;
+  final m = RegExp(r'([\d,.]+)\s*원').firstMatch(fineInfo);
   if (m == null) return 0;
-  // 쉼표/점 모두 천단위 구분자로 처리 (예: '40,000' 또는 '40.000')
   return int.tryParse(m.group(1)!.replaceAll(RegExp(r'[,.]'), '')) ?? 0;
 }
 

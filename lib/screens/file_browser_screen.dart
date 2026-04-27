@@ -15,6 +15,27 @@ import '../providers/report_provider.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
 
+/// 확장자 → MIME type 매핑 (top-level — 모든 State 에서 공유).
+/// open_filex 가 자동 추론에 실패하는 경우(특히 Android에서 xlsx)가 있어 명시적으로 전달.
+String? mimeForPath(String path) {
+  final ext = path.split('.').last.toLowerCase();
+  const map = {
+    'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'xls':  'application/vnd.ms-excel',
+    'csv':  'text/csv',
+    'pdf':  'application/pdf',
+    'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'doc':  'application/msword',
+    'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'ppt':  'application/vnd.ms-powerpoint',
+    'txt':  'text/plain',
+    'json': 'application/json',
+    'log':  'text/plain',
+    'db':   'application/octet-stream',
+  };
+  return map[ext];
+}
+
 class FileBrowserScreen extends StatefulWidget {
   const FileBrowserScreen({super.key});
 
@@ -227,11 +248,20 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
   }
 
   void _openLocalFile(FileSystemEntity f) async {
-    final result = await OpenFilex.open(f.path);
-    // OpenFilex 가 적합한 앱 못 찾으면 (예: xlsx 핸들러 없는 기기) 시스템 공유 sheet
-    // 로 fallback → '다른 앱으로 열기' 메뉴 노출 (Drive, OneDrive 등도 후보).
-    if (result.type != ResultType.done && mounted) {
+    // MIME 명시 → Android ACTION_VIEW가 처리 가능한 앱 chooser 정상 표시
+    // (Excel, 스프레드시트 등 xlsx 핸들러가 여러 개일 때 사용자 선택 다이얼로그)
+    final mime = mimeForPath(f.path);
+    final result = await OpenFilex.open(f.path, type: mime);
+    // 정말로 처리할 앱이 없을 때만 (noAppToOpen) share sheet fallback
+    if (result.type == ResultType.noAppToOpen && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('파일을 열 앱이 설치되어 있지 않습니다. 공유로 대체합니다.')),
+      );
       await _shareLocalFile(f);
+    } else if (result.type != ResultType.done && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('파일 열기 실패: ${result.message}')),
+      );
     }
   }
 
@@ -493,10 +523,14 @@ class _TreeNodeState extends State<_TreeNode> {
 
       if (ctx.mounted) ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
 
-      final result = await OpenFilex.open(file.path);
-      // 핸들러 없으면 (xlsx 등) 시스템 공유 sheet → '다른 앱으로 열기' 메뉴
-      if (result.type != ResultType.done && ctx.mounted) {
+      final result = await OpenFilex.open(file.path, type: mimeForPath(file.path));
+      // 진짜 핸들러 없을 때만 (noAppToOpen) share sheet fallback
+      if (result.type == ResultType.noAppToOpen && ctx.mounted) {
         await Share.shareXFiles([XFile(file.path)], subject: item.name);
+      } else if (result.type != ResultType.done && ctx.mounted) {
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          SnackBar(content: Text('파일 열기 실패: ${result.message}')),
+        );
       }
     } catch (e) {
       if (ctx.mounted) {

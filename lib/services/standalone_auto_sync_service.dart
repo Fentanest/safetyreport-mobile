@@ -1,8 +1,19 @@
+import 'dart:async';
+import 'dart:io';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'local_db_service.dart';
 import 'standalone_api_service.dart';
 import 'standalone_parser.dart';
 import 'sync_engine.dart';
+
+/// 개별 fetch 결과 — drainIfPending 분기용.
+enum _FetchResult {
+  success,        // 정상 처리 + 큐 제거
+  notInDb,        // DB에 없음 → 증분 fallback 1회
+  networkError,   // errno=104, timeout 등 일시 오류 → 큐 유지하고 drain 종료
+  otherError,     // 4xx/5xx 등 진짜 실패 → 큐 제거 (재시도 무의미)
+}
 
 /// Standalone 모드 자동 동기화 드레인.
 ///
@@ -91,30 +102,40 @@ class StandaloneAutoSyncService {
         // (앱이 처리 도중 죽으면 항목이 큐에 남아 다음 drain 에서 재시도)
         final spp = queue.first;
 
-        var ok = await _tryFetchSingle(spp);
+        var result = await _tryFetchSingle(spp);
 
-        if (!ok && !didIncremental) {
+        // 네트워크 일시 오류 → 큐 유지하고 drain 종료 (네트워크 복구 후 다음 launch 재시도)
+        // C_NO 가 DB 에 있는데도 errno=104 등으로 실패한 경우 증분 fallback 으로 빠지면 안 됨.
+        if (result == _FetchResult.networkError) {
+          SyncEngine.emitLog('네트워크 오류로 drain 중단 (큐 보존): $spp');
+          break;
+        }
+
+        if (result == _FetchResult.notInDb && !didIncremental) {
           // DB 미발견 + 이번 drain 에서 증분 sync 아직 안 함 → 1회 fallback
           didIncremental = true;
           SyncEngine.emitLog('증분 sync 1회 fallback 시작');
           try {
             await SyncEngine.start(fullSync: false);
             // 증분 후 DB 에 들어왔을 가능성 → 한 번 더 개별 시도
-            ok = await _tryFetchSingle(spp);
+            result = await _tryFetchSingle(spp);
+            // 증분 후 재시도에서도 네트워크 오류면 큐 유지하고 종료
+            if (result == _FetchResult.networkError) {
+              SyncEngine.emitLog('증분 후 재시도에서 네트워크 오류 (큐 보존): $spp');
+              break;
+            }
           } catch (e) {
             SyncEngine.emitLog('증분 sync 실패: $e');
-            // 증분 자체 실패 → 항목 큐에 남기고 drain 종료 (네트워크 복구 후 재시도)
             break;
           }
         }
 
-        if (ok) {
+        if (result == _FetchResult.success) {
           SyncEngine.emitLog('큐 처리 완료: $spp');
         } else {
-          // 1회 개별 + 증분 fallback 후에도 미발견 → 포기 (사용자 요청대로 3회 retry 안 함)
-          SyncEngine.emitLog('처리 포기: $spp (개별/증분 모두 미발견)');
+          SyncEngine.emitLog('처리 포기: $spp ($result)');
         }
-        // 성공이든 포기든 큐에서 제거.
+        // 성공/포기(notInDb 끝까지/otherError) 모두 큐에서 제거. networkError 만 위에서 break.
         await _removeFromQueue(prefs, spp);
         // 다음 iteration 으로 → drain 도중 Kotlin 이 추가한 항목까지 처리.
       }
@@ -132,17 +153,22 @@ class StandaloneAutoSyncService {
     }
   }
 
-  /// 신고번호로 DB 조회 → C_NO 있으면 상세 API 개별 호출 + upsert. 성공/실패 반환.
+  /// 신고번호로 DB 조회 → C_NO 있으면 상세 API 개별 호출 + upsert.
+  ///
+  /// 반환:
+  ///   - success      : 정상 처리 (큐 제거)
+  ///   - notInDb      : C_NO 모름 → 증분 fallback 트리거
+  ///   - networkError : errno=104 / timeout 등 일시 오류 (큐 유지, drain 종료)
+  ///   - otherError   : 4xx/5xx 등 진짜 실패 (큐 제거, 재시도 무의미)
   ///
   /// 사용자가 알림을 탭한 명시적 요청이므로 종결여부와 무관하게 항상 크롤링.
   /// 처리상태 변동 여부와 무관하게 변경 카드 표시 (사용자 피드백).
-  /// CrawlScreen 가시성 위해 SyncEngine.emitLog 로 진행상황 출력.
-  static Future<bool> _tryFetchSingle(String reportNumber) async {
+  static Future<_FetchResult> _tryFetchSingle(String reportNumber) async {
     SyncEngine.emitLog('개별 동기화: $reportNumber 조회 중...');
     final existing = await LocalDbService.getReportByNumber(reportNumber);
     if (existing == null || existing.id.isEmpty) {
       SyncEngine.emitLog('개별 동기화: $reportNumber 미발견 (DB)');
-      return false;
+      return _FetchResult.notInDb;
     }
     final beforeStatus = existing.status;
     try {
@@ -154,16 +180,32 @@ class StandaloneAutoSyncService {
       final raw = (detail['C_A_CONTENTS'] ?? detail['C_A_BODY'] ?? '').toString();
       report = await SyncEngine.augmentRatingCause(report);
       await LocalDbService.upsertReport(report, cat, ev, rawContent: raw);
-      // 사용자가 명시적으로 알림 탭한 개별 건 → 처리상태 변동 여부와 무관하게 변경 카드 표시.
       final changeType = beforeStatus != report.status
           ? ChangeType.statusChanged
           : ChangeType.individualConfirm;
       _singleFetchChanges.add(SyncEngine.reportToChangeMap(report, changeType));
       SyncEngine.emitLog('완료: $reportNumber → $changeType (상태=${report.status})');
-      return true;
+      return _FetchResult.success;
+    } on SocketException catch (e) {
+      SyncEngine.emitLog('네트워크 오류 (Socket): $reportNumber → $e');
+      return _FetchResult.networkError;
+    } on TimeoutException catch (e) {
+      SyncEngine.emitLog('네트워크 오류 (Timeout): $reportNumber → $e');
+      return _FetchResult.networkError;
+    } on http.ClientException catch (e) {
+      SyncEngine.emitLog('네트워크 오류 (HTTP Client): $reportNumber → $e');
+      return _FetchResult.networkError;
     } catch (e) {
+      // _getWithRetry가 실패한 경우 throw Exception('네트워크 오류 (3회 재시도 실패): ...')
+      // 으로 일반 Exception을 던지므로 메시지로도 판별
+      final msg = e.toString();
+      if (msg.contains('네트워크') || msg.contains('errno') ||
+          msg.contains('reset') || msg.contains('timed out')) {
+        SyncEngine.emitLog('네트워크 오류 (일반): $reportNumber → $e');
+        return _FetchResult.networkError;
+      }
       SyncEngine.emitLog('실패: $reportNumber → $e');
-      return false;
+      return _FetchResult.otherError;
     }
   }
 

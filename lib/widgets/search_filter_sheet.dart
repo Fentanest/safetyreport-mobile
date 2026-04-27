@@ -259,6 +259,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
               Expanded(
                 child: TextField(
                   controller: _occurTimeStartCtrl,
+                  textInputAction: TextInputAction.next,
                   decoration: const InputDecoration(
                     hintText: '14:30',
                     border: OutlineInputBorder(),
@@ -274,6 +275,8 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
               Expanded(
                 child: TextField(
                   controller: _occurTimeEndCtrl,
+                  textInputAction: TextInputAction.search,
+                  onSubmitted: (_) => _apply(),
                   decoration: const InputDecoration(
                     hintText: '15:00',
                     border: OutlineInputBorder(),
@@ -315,6 +318,8 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   Widget _input(TextEditingController ctrl, String label, IconData icon) {
     return TextField(
       controller: ctrl,
+      textInputAction: TextInputAction.search,
+      onSubmitted: (_) => _apply(),
       decoration: InputDecoration(
         labelText: label,
         border: const OutlineInputBorder(),

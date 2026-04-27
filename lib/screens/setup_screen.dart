@@ -26,6 +26,7 @@ class _SetupScreenState extends State<SetupScreen> {
   final _apiController = TextEditingController();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _phoneController = TextEditingController();
   bool _obscurePw = true;
   bool _loading = false;
   String? _errorMessage;
@@ -36,6 +37,7 @@ class _SetupScreenState extends State<SetupScreen> {
     _apiController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
+    _phoneController.dispose();
     super.dispose();
   }
 
@@ -87,15 +89,20 @@ class _SetupScreenState extends State<SetupScreen> {
   Future<void> _loginStandalone() async {
     final username = _usernameController.text.trim();
     final password = _passwordController.text;
-    if (username.isEmpty || password.isEmpty) {
-      setState(() => _errorMessage = '아이디와 비밀번호를 입력해주세요.');
+    final phoneNumber =
+        _phoneController.text.trim().replaceAll(RegExp(r'[^0-9]'), '');
+    if (username.isEmpty || password.isEmpty || phoneNumber.isEmpty) {
+      setState(() => _errorMessage = '아이디, 비밀번호, 휴대폰번호를 모두 입력해주세요.');
       return;
     }
     setState(() { _loading = true; _errorMessage = null; });
     try {
       await StandaloneAuthService.login(username, password);
       if (!mounted) return;
-      await context.read<ReportProvider>().setStandaloneConfig(username);
+      await context.read<ReportProvider>().setStandaloneConfig(
+        username,
+        phoneNumber: phoneNumber,
+      );
       // 모드 전환 시 settings_screen 이 저장한 pending_db_import 적용
       // (Client → Standalone 의 '서버 DB 변환' 또는 '백업 파일 사용' 선택 결과)
       await _applyPendingDbImport();
@@ -320,6 +327,19 @@ class _SetupScreenState extends State<SetupScreen> {
             autocorrect: false,
             textInputAction: TextInputAction.done,
             onSubmitted: (_) => _loading ? null : _loginStandalone(),
+            enabled: !_loading,
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _phoneController,
+            decoration: const InputDecoration(
+              labelText: '휴대폰번호',
+              helperText: '별점 사유 조회에 사용됩니다. 숫자만 입력해도 됩니다.',
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.phone_outlined),
+            ),
+            keyboardType: TextInputType.phone,
+            autocorrect: false,
             enabled: !_loading,
           ),
           _buildError(),

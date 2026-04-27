@@ -18,6 +18,32 @@ class StandaloneApiService {
     'Accept': 'application/json, text/plain, */*',
   };
 
+  static String _extractCauseFromPopupHtml(String html) {
+    final patterns = <RegExp>[
+      RegExp(r'''id=["']STSFDG_CAUSE["'][^>]*>(.*?)</textarea>''',
+          caseSensitive: false, dotAll: true),
+      RegExp(r'''name=["']STSFDG_CAUSE["'][^>]*>(.*?)</textarea>''',
+          caseSensitive: false, dotAll: true),
+      RegExp(r'''id=["']STSFDG_CAUSE["'][^>]*value=["'](.*?)["']''',
+          caseSensitive: false, dotAll: true),
+    ];
+    for (final pattern in patterns) {
+      final match = pattern.firstMatch(html);
+      if (match == null) continue;
+      final cause = (match.group(1) ?? '')
+          .replaceAll(RegExp(r'<[^>]+>'), '')
+          .replaceAll('&nbsp;', ' ')
+          .replaceAll('&amp;', '&')
+          .replaceAll('&lt;', '<')
+          .replaceAll('&gt;', '>')
+          .replaceAll('&quot;', '"')
+          .replaceAll('&#39;', "'")
+          .trim();
+      if (cause.isNotEmpty) return cause;
+    }
+    return '';
+  }
+
   /// 유효한 토큰으로 헤더 구성. 만료 시 자동 재로그인.
   static Future<Map<String, String>> _headers() async {
     final token = await StandaloneAuthService.ensureValidToken();
@@ -138,9 +164,10 @@ class StandaloneApiService {
     String spp,
     String phone,
   ) async {
-    if (phone.isEmpty || spp.isEmpty) return (score: null, cause: '');
+    final normalizedPhone = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    if (normalizedPhone.isEmpty || spp.isEmpty) return (score: null, cause: '');
     final uri = Uri.parse(
-      '$_base/api/v1/portal/statistics/satisfactionstatistics/score/$spp/$phone',
+      '$_base/api/v1/portal/statistics/satisfactionstatistics/score/$spp/$normalizedPhone',
     );
     try {
       final res = await http.get(uri, headers: _commonHeaders).timeout(
@@ -153,7 +180,18 @@ class StandaloneApiService {
       final r = result as Map<String, dynamic>;
       final scoreRaw = r['STSFDG_SCORE'];
       final score = (scoreRaw is num) ? scoreRaw.toInt() : int.tryParse('$scoreRaw') ?? 0;
-      final cause = (r['STSFDG_CAUSE'] as String?) ?? '';
+      var cause = (r['STSFDG_CAUSE'] as String?) ?? '';
+      if (score > 0 && cause.trim().isEmpty) {
+        final popupUri = Uri.parse(
+          '$_base/html/common/popup/comptSatisfaction.html?seq=$spp&pn=$normalizedPhone',
+        );
+        final popupRes = await http.get(popupUri, headers: _commonHeaders).timeout(
+              const Duration(seconds: 10),
+            );
+        if (popupRes.statusCode == 200) {
+          cause = _extractCauseFromPopupHtml(popupRes.body);
+        }
+      }
       return (score: score > 0 ? score : null, cause: cause.trim());
     } catch (_) {
       return (score: null, cause: '');

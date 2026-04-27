@@ -378,7 +378,7 @@ class SyncEngine {
   }
 
   /// 별점이 부여된 신고에 한해 별점사유를 추가 fetch.
-  /// 안전신문고 휴대폰번호 = 일반적으로 username (로그인 ID).
+  /// 안전신문고 만족도 조회는 로그인 ID가 아니라 휴대폰번호가 필요하다.
   /// fetch 실패해도 별점 자체는 보존, ratingCause만 빈 채로 남김.
   /// (auto_sync_service에서도 호출 → public)
   static Future<Report> augmentRatingCause(Report report) => _augmentRatingCause(report);
@@ -387,7 +387,8 @@ class SyncEngine {
     if (report.rating == null || report.rating! <= 0) return report;
     if (report.ratingCause.isNotEmpty) return report;  // 이미 있으면 스킵
     final prefs = await SharedPreferences.getInstance();
-    final phone = prefs.getString('standaloneUsername') ?? '';
+    final phone = (prefs.getString('standalonePhoneNumber') ?? '')
+        .replaceAll(RegExp(r'[^0-9]'), '');
     if (phone.isEmpty) return report;
     final result = await StandaloneApiService.fetchSatisfaction(report.reportNumber, phone);
     return Report(

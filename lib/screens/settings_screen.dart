@@ -283,8 +283,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // ── 스탠드어론 재로그인 다이얼로그 ─────────────────────────────
   Future<void> _showReloginDialog() async {
-    final usernameCtrl = TextEditingController();
+    final provider = context.read<ReportProvider>();
+    final usernameCtrl = TextEditingController(text: provider.standaloneUsername);
     final passwordCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController(text: provider.standalonePhoneNumber);
     bool obscurePw = true;
     bool loggingIn = false;
     String? err;
@@ -321,6 +323,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 obscureText: obscurePw,
                 autocorrect: false,
               ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: phoneCtrl,
+                decoration: const InputDecoration(
+                  labelText: '휴대폰번호',
+                  helperText: '별점 사유 조회에 사용됩니다.',
+                  prefixIcon: Icon(Icons.phone_outlined),
+                ),
+                keyboardType: TextInputType.phone,
+                autocorrect: false,
+              ),
               if (err != null) ...[
                 const SizedBox(height: 10),
                 Text(err!, style: const TextStyle(color: Colors.red, fontSize: 13)),
@@ -341,6 +354,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         err = null;
                       });
                       try {
+                        final phone = phoneCtrl.text
+                            .trim()
+                            .replaceAll(RegExp(r'[^0-9]'), '');
+                        if (phone.isEmpty) {
+                          throw Exception('휴대폰번호를 입력해주세요.');
+                        }
                         await StandaloneAuthService.login(
                           usernameCtrl.text.trim(),
                           passwordCtrl.text,
@@ -348,6 +367,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         if (ctx.mounted) {
                           await ctx.read<ReportProvider>().setStandaloneConfig(
                             usernameCtrl.text.trim(),
+                            phoneNumber: phone,
                           );
                           Navigator.pop(ctx);
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -840,12 +860,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       const SizedBox(height: 12),
                       _InfoRow(label: '아이디', value: provider.standaloneUsername),
+                      _InfoRow(
+                        label: '휴대폰번호',
+                        value: provider.standalonePhoneNumber.isEmpty
+                            ? '미설정'
+                            : provider.standalonePhoneNumber,
+                      ),
                       const SizedBox(height: 16),
                       SizedBox(
                         width: double.infinity,
                         child: OutlinedButton.icon(
                           icon: const Icon(Icons.refresh, size: 18),
-                          label: const Text('재로그인 (토큰 갱신)'),
+                          label: const Text('재로그인 / 휴대폰번호 갱신'),
                           onPressed: _showReloginDialog,
                         ),
                       ),

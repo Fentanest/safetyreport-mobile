@@ -25,6 +25,12 @@ class ReportDetailSheet extends StatelessWidget {
   final Report report;
   const ReportDetailSheet({super.key, required this.report});
 
+  String _ratingLabel() {
+    final rating = report.rating;
+    if (rating == null || rating <= 0) return '';
+    return '★ $rating점';
+  }
+
   Color _statusColor(String s) {
     if (s == '일부수용') return const Color(0xFF43A047);
     if (s.contains('수용') && !s.contains('불')) return Colors.green;
@@ -205,6 +211,10 @@ class ReportDetailSheet extends StatelessWidget {
             if (report.occurrenceDate.isNotEmpty)
               _field(Icons.event_outlined, '발생일자', report.occurrenceDate +
                   (report.occurrenceTime.isNotEmpty ? '  ${report.occurrenceTime}' : '')),
+            if (_ratingLabel().isNotEmpty)
+              _field(Icons.star_outline, '별점', _ratingLabel()),
+            if (report.ratingCause.isNotEmpty)
+              _field(Icons.comment_outlined, '별점사유', report.ratingCause),
             if (report.reportContent.isNotEmpty) ...[
               const Divider(height: 20),
               _textBlock('신고내용', report.reportContent),

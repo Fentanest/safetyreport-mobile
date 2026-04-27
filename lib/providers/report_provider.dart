@@ -111,6 +111,7 @@ class ReportFilter {
 class ReportProvider with ChangeNotifier {
   AppMode _appMode = AppMode.server;
   String _standaloneUsername = '';
+  String _standalonePhoneNumber = '';
   String _baseUrl = '';
   String _apiKey = '';
   bool _isLoading = false;
@@ -144,6 +145,7 @@ class ReportProvider with ChangeNotifier {
 
   AppMode get appMode => _appMode;
   String get standaloneUsername => _standaloneUsername;
+  String get standalonePhoneNumber => _standalonePhoneNumber;
   String get baseUrl => _baseUrl;
   String get apiKey => _apiKey;
   bool get isLoading => _isLoading;
@@ -263,6 +265,7 @@ class ReportProvider with ChangeNotifier {
       final prefs = await SharedPreferences.getInstance().timeout(const Duration(seconds: 5));
       _appMode = AppModeX.fromString(prefs.getString('appMode'));
       _standaloneUsername = prefs.getString('standaloneUsername') ?? '';
+      _standalonePhoneNumber = prefs.getString('standalonePhoneNumber') ?? '';
       _baseUrl = prefs.getString('baseUrl') ?? '';
       _apiKey = prefs.getString('apiKey') ?? '';
       
@@ -327,15 +330,17 @@ class ReportProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setStandaloneConfig(String username) async {
+  Future<void> setStandaloneConfig(String username, {required String phoneNumber}) async {
     await PermissionService.stopWsService();
     _appMode = AppMode.standalone;
     _standaloneUsername = username;
+    _standalonePhoneNumber = phoneNumber.replaceAll(RegExp(r'[^0-9]'), '');
     _errorMessage = null;
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('appMode', AppMode.standalone.name);
     await prefs.setString('standaloneUsername', username);
+    await prefs.setString('standalonePhoneNumber', _standalonePhoneNumber);
 
     notifyListeners();
   }
@@ -346,6 +351,7 @@ class ReportProvider with ChangeNotifier {
     _baseUrl = '';
     _apiKey = '';
     _standaloneUsername = '';
+    _standalonePhoneNumber = '';
     _stats = null;
     _trafficReports = [];
     _parkingReports = [];
@@ -359,6 +365,7 @@ class ReportProvider with ChangeNotifier {
     await prefs.remove('baseUrl');
     await prefs.remove('apiKey');
     await prefs.remove('standaloneUsername');
+    await prefs.remove('standalonePhoneNumber');
     await StandaloneAuthService.clearToken();
 
     notifyListeners();

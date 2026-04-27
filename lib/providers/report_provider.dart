@@ -5,6 +5,7 @@ import '../models/app_mode.dart';
 import '../models/report.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
+import '../services/permission_service.dart';
 import '../services/standalone_auth_service.dart';
 import '../services/standalone_auto_sync_service.dart';
 import '../services/sync_engine.dart';
@@ -327,6 +328,7 @@ class ReportProvider with ChangeNotifier {
   }
 
   Future<void> setStandaloneConfig(String username) async {
+    await PermissionService.stopWsService();
     _appMode = AppMode.standalone;
     _standaloneUsername = username;
     _errorMessage = null;
@@ -339,6 +341,7 @@ class ReportProvider with ChangeNotifier {
   }
 
   Future<void> resetConfig() async {
+    await PermissionService.stopWsService();
     _appMode = AppMode.server;
     _baseUrl = '';
     _apiKey = '';

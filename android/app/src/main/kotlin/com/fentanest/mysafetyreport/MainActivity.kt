@@ -230,21 +230,37 @@ class MainActivity : FlutterActivity() {
     private fun autoStartWsServiceIfConfigured() {
         val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
         val appMode = prefs.getString("flutter.appMode", "") ?: ""
-        if (appMode != "server") return
+        if (appMode != "server") {
+            try {
+                val intent = Intent(this, WsService::class.java).apply {
+                    action = WsService.ACTION_STOP
+                }
+                startService(intent)
+            } catch (_: Exception) {}
+            return
+        }
         
         val baseUrl = prefs.getString("flutter.baseUrl", "") ?: ""
         val apiKey  = prefs.getString("flutter.apiKey",  "") ?: ""
-        if (baseUrl.isNotEmpty() && apiKey.isNotEmpty()) {
-            val intent = Intent(this, WsService::class.java).apply {
-                action = WsService.ACTION_START
-            }
+        if (baseUrl.isEmpty() || apiKey.isEmpty()) {
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    startForegroundService(intent)
-                } else {
-                    startService(intent)
+                val intent = Intent(this, WsService::class.java).apply {
+                    action = WsService.ACTION_STOP
                 }
+                startService(intent)
             } catch (_: Exception) {}
+            return
         }
+
+        val intent = Intent(this, WsService::class.java).apply {
+            action = WsService.ACTION_START
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        } catch (_: Exception) {}
     }
 }

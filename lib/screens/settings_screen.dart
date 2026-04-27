@@ -329,6 +329,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 decoration: const InputDecoration(
                   labelText: '휴대폰번호',
                   helperText: '별점 사유 조회에 사용됩니다.',
+                  helperMaxLines: 2,
                   prefixIcon: Icon(Icons.phone_outlined),
                 ),
                 keyboardType: TextInputType.phone,

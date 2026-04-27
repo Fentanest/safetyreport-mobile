@@ -357,6 +357,7 @@ class _SetupScreenState extends State<SetupScreen> {
             decoration: const InputDecoration(
               labelText: '휴대폰번호',
               helperText: '별점 사유 조회에 사용됩니다. 숫자만 입력해도 됩니다.',
+              helperMaxLines: 2,
               border: OutlineInputBorder(),
               prefixIcon: Icon(Icons.phone_outlined),
             ),

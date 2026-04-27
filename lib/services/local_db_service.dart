@@ -578,6 +578,50 @@ class LocalDbService {
     await d.delete('sync_meta');
   }
 
+  /// 업로드/선택된 .db 파일의 종류 판별.
+  /// - server: mysafetymerge_* 계열 서버 DB
+  /// - mobile: reports + category 컬럼을 가진 모바일 standalone DB
+  /// - unknown: 알 수 없음
+  static Future<String> detectDbKind(String dbPath) async {
+    final src = File(dbPath);
+    if (!src.existsSync()) return 'unknown';
+
+    final extDb = await openDatabase(dbPath, readOnly: true);
+    try {
+      final tables = await extDb.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table'",
+      );
+      final tableNames = tables
+          .map((r) => r['name']?.toString() ?? '')
+          .where((s) => s.isNotEmpty)
+          .toSet();
+
+      if (tableNames.contains('reports') && !tableNames.contains('mysafety')) {
+        try {
+          final cols = await extDb.rawQuery("PRAGMA table_info(reports)");
+          final colNames = cols
+              .map((r) => r['name']?.toString() ?? '')
+              .where((s) => s.isNotEmpty)
+              .toSet();
+          if (colNames.contains('category')) {
+            return 'mobile';
+          }
+        } catch (_) {}
+      }
+
+      if (tableNames.contains('mysafety') &&
+          (tableNames.contains('mysafetymerge_traffic') ||
+              tableNames.contains('mysafetymerge_parking') ||
+              tableNames.contains('mysafetymerge_other'))) {
+        return 'server';
+      }
+
+      return 'unknown';
+    } finally {
+      await extDb.close();
+    }
+  }
+
   /// 현재 standalone DB를 백업 파일로 내보낸다.
   /// sqflite가 WAL을 사용할 수 있어 main .db만 그대로 복사하면 최신 변경이 누락될 수 있으므로
   /// 먼저 DB를 닫아 체크포인트/flush를 유도한 뒤 복사한다.

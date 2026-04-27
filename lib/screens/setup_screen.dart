@@ -141,6 +141,7 @@ class _SetupScreenState extends State<SetupScreen> {
   /// SharedPreferences 의 'pending_db_import' 키 처리:
   ///   - "convert:<path>" → 서버 DB 형식 .db 파일을 모바일 reports 테이블로 마이그레이션
   ///   - "copy:<path>"    → 모바일 형식 .db 백업 파일을 통째로 덮어쓰기
+  ///   - "file:<path>"    → 선택한 .db 파일을 판별해 server면 변환, mobile이면 복원
   ///   - 없음              → 빈 DB 그대로
   /// 적용 후 키 제거. 실패해도 로그인 자체는 성공으로 진행 (에러 메시지만 표시).
   Future<void> _applyPendingDbImport() async {
@@ -173,6 +174,34 @@ class _SetupScreenState extends State<SetupScreen> {
               duration: const Duration(seconds: 4),
             ),
           );
+        }
+      } else if (action.startsWith('file:')) {
+        final path = action.substring('file:'.length);
+        final kind = await LocalDbService.detectDbKind(path);
+        if (kind == 'server') {
+          final imported = await LocalDbService.importFromServerDb(path);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('서버 DB 변환 완료: $imported건 임포트'),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          }
+        } else if (kind == 'mobile') {
+          await LocalDbService.replaceFromBackup(path);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('모바일 백업 복원 완료: ${path.split('/').last}'),
+                backgroundColor: Colors.green,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          }
+        } else {
+          throw Exception('알 수 없는 DB 형식입니다. 서버 DB 또는 모바일 백업 .db 파일만 사용할 수 있습니다.');
         }
       }
     } catch (e) {

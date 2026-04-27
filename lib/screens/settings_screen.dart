@@ -740,7 +740,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
         final selectedPath = result?.files.single.path;
         if (selectedPath == null || selectedPath.isEmpty) return;
-        pendingAction = 'copy:$selectedPath';
+        pendingAction = 'file:$selectedPath';
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

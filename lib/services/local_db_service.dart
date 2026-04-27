@@ -578,6 +578,19 @@ class LocalDbService {
     await d.delete('sync_meta');
   }
 
+  /// 현재 standalone DB를 백업 파일로 내보낸다.
+  /// sqflite가 WAL을 사용할 수 있어 main .db만 그대로 복사하면 최신 변경이 누락될 수 있으므로
+  /// 먼저 DB를 닫아 체크포인트/flush를 유도한 뒤 복사한다.
+  static Future<void> exportBackup(String targetPath) async {
+    await closeDb();
+    final dbPath = await getDbPath();
+    final src = File(dbPath);
+    if (!src.existsSync()) {
+      throw Exception('로컬 DB 파일이 존재하지 않습니다: $dbPath');
+    }
+    await src.copy(targetPath);
+  }
+
   // ── 서버 DB → 모바일 DB 변환 ────────────────────────────────────────────────
 
   /// 서버 DB (mysafetymerge_traffic / parking / other 3개 테이블 + mysafety_watchlist)

@@ -1,3 +1,15 @@
+/// JSON 값을 int?로 안전하게 변환.
+/// 서버는 NaN을 빈 문자열('')로 직렬화할 수 있어 `as num?` 직접 캐스팅이 실패함.
+int? _toIntOrNull(dynamic v) {
+  if (v == null) return null;
+  if (v is num) return v.toInt();
+  if (v is String) {
+    if (v.trim().isEmpty) return null;
+    return int.tryParse(v) ?? double.tryParse(v)?.toInt();
+  }
+  return null;
+}
+
 class Report {
   final String id;
   final String reportNumber;
@@ -82,10 +94,10 @@ class Report {
       mapImage: json['지도']?.toString() ?? '',
       pollStatus: json['만족도조사여부']?.toString() ?? '답변 대기',
       processingFinish: json['종결여부']?.toString() ?? 'N',
-      rating: (json['별점'] as num?)?.toInt(),
+      rating: _toIntOrNull(json['별점']),
       ratingCause: json['별점사유']?.toString() ?? '',
-      totalCount: (json['total_count'] as num?)?.toInt() ?? 0,
-      validCount: (json['valid_count'] as num?)?.toInt() ?? 0,
+      totalCount: _toIntOrNull(json['total_count']) ?? 0,
+      validCount: _toIntOrNull(json['valid_count']) ?? 0,
     );
   }
 }
@@ -128,17 +140,17 @@ class DashboardStats {
     var watchList = json['watchlist'] as List? ?? [];
     return DashboardStats(
       lastCrawlTime: json['last_crawl_time']?.toString() ?? '',
-      total: (json['total'] as num?)?.toInt() ?? 0,
-      acceptCount: (json['acceptCount'] as num?)?.toInt() ?? 0,
-      partialCount: (json['partialCount'] as num?)?.toInt() ?? 0,
-      rejectCount: (json['rejectCount'] as num?)?.toInt() ?? 0,
-      processingCount: (json['processingCount'] as num?)?.toInt() ?? 0,
-      completedCount: (json['completedCount'] as num?)?.toInt() ?? 0,
-      withdrawCount: (json['withdrawCount'] as num?)?.toInt() ?? 0,
-      tFineCount: (json['tFineCount'] as num?)?.toInt() ?? 0,
-      tPenaltyCount: (json['tPenaltyCount'] as num?)?.toInt() ?? 0,
-      tRejectCount: (json['tRejectCount'] as num?)?.toInt() ?? 0,
-      tUnconfirmedCount: (json['tUnconfirmedCount'] as num?)?.toInt() ?? 0,
+      total: _toIntOrNull(json['total']) ?? 0,
+      acceptCount: _toIntOrNull(json['acceptCount']) ?? 0,
+      partialCount: _toIntOrNull(json['partialCount']) ?? 0,
+      rejectCount: _toIntOrNull(json['rejectCount']) ?? 0,
+      processingCount: _toIntOrNull(json['processingCount']) ?? 0,
+      completedCount: _toIntOrNull(json['completedCount']) ?? 0,
+      withdrawCount: _toIntOrNull(json['withdrawCount']) ?? 0,
+      tFineCount: _toIntOrNull(json['tFineCount']) ?? 0,
+      tPenaltyCount: _toIntOrNull(json['tPenaltyCount']) ?? 0,
+      tRejectCount: _toIntOrNull(json['tRejectCount']) ?? 0,
+      tUnconfirmedCount: _toIntOrNull(json['tUnconfirmedCount']) ?? 0,
       recentAnswers: recentList
           .map((i) => Report.fromJson(i as Map<String, dynamic>))
           .toList(),

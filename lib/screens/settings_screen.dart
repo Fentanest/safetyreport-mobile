@@ -408,13 +408,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final targetFile = File('${targetDir.path}/$fileName');
 
       if (isStandalone) {
-        final sourcePath = await LocalDbService.getDbPath();
-        final sourceFile = File(sourcePath);
-        if (sourceFile.existsSync()) {
-          await sourceFile.copy(targetFile.path);
-        } else {
-          throw Exception('로컬 DB 파일이 존재하지 않습니다.');
-        }
+        await LocalDbService.exportBackup(targetFile.path);
       } else {
         final api = ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
         final bytes = await api.downloadDb();
@@ -526,7 +520,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // ── 모드 변경 ─────────────────────────────────────────────────
   // Standalone → Client: 현재 모바일 DB 자동 백업 후 reset.
-  // Client → Standalone: 3-way 선택 (서버 DB 변환 / 최신 백업 사용 / 처음부터).
+  // Client → Standalone: 3-way 선택 (서버 DB 변환 / 백업 파일 선택 / 처음부터).
 
   /// Documents/mysafetyreport (없으면 Download/mysafetyreport) 디렉토리 보장.
   static Directory _backupDir() {
@@ -540,26 +534,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!dl.existsSync()) dl.createSync(recursive: true);
       return dl;
     }
-  }
-
-  /// 백업 디렉토리에서 가장 최근 수정된 .db 파일 1개 반환. 없으면 null.
-  static File? _findLatestBackup() {
-    for (final dir in [
-      Directory('/storage/emulated/0/Documents/mysafetyreport'),
-      Directory('/storage/emulated/0/Download/mysafetyreport'),
-    ]) {
-      if (!dir.existsSync()) continue;
-      final files = dir
-          .listSync()
-          .whereType<File>()
-          .where((f) => f.path.toLowerCase().endsWith('.db'))
-          .toList();
-      if (files.isEmpty) continue;
-      files.sort((a, b) =>
-          b.statSync().modified.compareTo(a.statSync().modified));
-      return files.first;
-    }
-    return null;
   }
 
   Future<void> _confirmModeReset() async {
@@ -606,9 +580,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final fileName =
           'standalone_backup_${DateTime.now().millisecondsSinceEpoch}.db';
       final target = File('${dir.path}/$fileName');
-      final src = File(await LocalDbService.getDbPath());
-      if (src.existsSync()) {
-        await src.copy(target.path);
+      final srcPath = await LocalDbService.getDbPath();
+      if (File(srcPath).existsSync()) {
+        await LocalDbService.exportBackup(target.path);
         backupPath = target.path;
       }
     } catch (e) {
@@ -639,11 +613,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  /// Client → Standalone: 3-way 선택 (서버 DB 변환 / 최신 백업 사용 / 처음부터).
+  /// Client → Standalone: 3-way 선택 (서버 DB 변환 / 백업 파일 선택 / 처음부터).
   /// 선택 결과는 SharedPreferences 의 'pending_db_import' 에 저장 → setup_screen
   /// 의 standalone 로그인 직후 LocalDbService 가 적용.
   Future<void> _confirmServerToStandalone() async {
-    final latest = _findLatestBackup();
     final p = context.read<ReportProvider>();
 
     final choice = await showDialog<String>(
@@ -670,14 +643,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(height: 8),
               _ChoiceTile(
                 icon: Icons.folder_open,
-                title: '최신 백업 파일 사용',
-                subtitle: latest != null
-                    ? '발견: ${latest.path.split('/').last}\n'
-                        '(${(latest.statSync().size / 1024 / 1024).toStringAsFixed(1)} MB, '
-                        '${latest.statSync().modified.toLocal().toString().substring(0, 16)})'
-                    : 'Documents/mysafetyreport 에 .db 파일 없음 → 사용 불가',
-                disabled: latest == null,
-                onTap: () => Navigator.pop(ctx, 'backup'),
+                title: '백업 파일 선택',
+                subtitle: '.db 파일을 직접 찾아 선택합니다.\n'
+                    'Documents/Download 어디에 있든 가져올 수 있습니다.',
+                onTap: () => Navigator.pop(ctx, 'pick_backup'),
               ),
               const SizedBox(height: 8),
               _ChoiceTile(
@@ -742,8 +711,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
         return;
       }
-    } else if (choice == 'backup' && latest != null) {
-      pendingAction = 'copy:${latest.path}';
+    } else if (choice == 'pick_backup') {
+      try {
+        final result = await FilePicker.pickFiles(
+          type: FileType.custom,
+          allowedExtensions: ['db'],
+        );
+        final selectedPath = result?.files.single.path;
+        if (selectedPath == null || selectedPath.isEmpty) return;
+        pendingAction = 'copy:$selectedPath';
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('백업 파일 선택 실패: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
     }
     // 'fresh' 는 pendingAction = null
 
@@ -1511,35 +1498,29 @@ class _ChoiceTile extends StatelessWidget {
   final String title;
   final String subtitle;
   final VoidCallback onTap;
-  final bool disabled;
   const _ChoiceTile({
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.onTap,
-    this.disabled = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return InkWell(
-      onTap: disabled ? null : onTap,
+      onTap: onTap,
       borderRadius: BorderRadius.circular(10),
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          border: Border.all(
-              color: disabled
-                  ? Colors.grey.shade300
-                  : cs.primary.withOpacity(0.4)),
+          border: Border.all(color: cs.primary.withOpacity(0.4)),
           borderRadius: BorderRadius.circular(10),
-          color: disabled ? Colors.grey.shade50 : cs.primary.withOpacity(0.04),
+          color: cs.primary.withOpacity(0.04),
         ),
         child: Row(
           children: [
-            Icon(icon,
-                color: disabled ? Colors.grey : cs.primary, size: 28),
+            Icon(icon, color: cs.primary, size: 28),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -1548,8 +1529,7 @@ class _ChoiceTile extends StatelessWidget {
                   Text(title,
                       style: TextStyle(
                           fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: disabled ? Colors.grey : null)),
+                          fontWeight: FontWeight.bold)),
                   const SizedBox(height: 4),
                   Text(subtitle,
                       style: TextStyle(

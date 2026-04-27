@@ -61,6 +61,9 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
 
   int _lastRefreshNonce = 0;
 
+  int _compareNamesDesc(String a, String b) =>
+      b.toLowerCase().compareTo(a.toLowerCase());
+
   @override
   void initState() {
     super.initState();
@@ -124,7 +127,10 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
           .listSync()
           .whereType<File>()
           .toList()
-        ..sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+        ..sort((a, b) => _compareNamesDesc(
+              a.path.split('/').last,
+              b.path.split('/').last,
+            ));
       if (mounted) setState(() { _localFiles = files; _loading = false; });
     } catch (e) {
       if (mounted) setState(() { _error = e.toString(); _loading = false; });
@@ -247,20 +253,42 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     }
   }
 
+  Future<File> _stageTempCopy(File source) async {
+    final dir = await getTemporaryDirectory();
+    final stamp = DateTime.now().millisecondsSinceEpoch;
+    final name = source.path.split('/').last;
+    final staged = File('${dir.path}/open_${stamp}_$name');
+    if (staged.existsSync()) {
+      await staged.delete();
+    }
+    return source.copy(staged.path);
+  }
+
   void _openLocalFile(FileSystemEntity f) async {
-    // MIME 명시 → Android ACTION_VIEW가 처리 가능한 앱 chooser 정상 표시
-    // (Excel, 스프레드시트 등 xlsx 핸들러가 여러 개일 때 사용자 선택 다이얼로그)
-    final mime = mimeForPath(f.path);
-    final result = await OpenFilex.open(f.path, type: mime);
-    // 정말로 처리할 앱이 없을 때만 (noAppToOpen) share sheet fallback
-    if (result.type == ResultType.noAppToOpen && mounted) {
+    // 일부 기기에서는 외부 저장소 원본을 바로 열 때 MANAGE_EXTERNAL_STORAGE를 요구하므로
+    // 앱 임시 디렉토리로 복사한 뒤 연다.
+    try {
+      final staged = await _stageTempCopy(File(f.path));
+      final mime = mimeForPath(staged.path);
+      final result = await OpenFilex.open(staged.path, type: mime);
+      // 정말로 처리할 앱이 없을 때만 (noAppToOpen) share sheet fallback
+      if (result.type == ResultType.noAppToOpen && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('파일을 열 앱이 설치되어 있지 않습니다. 공유로 대체합니다.')),
+        );
+        await Share.shareXFiles(
+          [XFile(staged.path)],
+          subject: staged.path.split('/').last,
+        );
+      } else if (result.type != ResultType.done && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('파일 열기 실패: ${result.message}')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('파일을 열 앱이 설치되어 있지 않습니다. 공유로 대체합니다.')),
-      );
-      await _shareLocalFile(f);
-    } else if (result.type != ResultType.done && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('파일 열기 실패: ${result.message}')),
+        SnackBar(content: Text('파일 준비 실패: $e')),
       );
     }
   }
@@ -397,6 +425,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     });
     try {
       final items = await _api.getFiles(path);
+      items.sort((a, b) => _compareNamesDesc(a.name, b.name));
       if (mounted) setState(() { _rootItems = items; _loading = false; });
     } catch (e) {
       if (mounted) setState(() { _error = e.toString(); _loading = false; });
@@ -487,6 +516,7 @@ class _TreeNodeState extends State<_TreeNode> {
     setState(() => _loading = true);
     try {
       final items = await widget.api.getFiles(widget.item.path);
+      items.sort((a, b) => b.name.toLowerCase().compareTo(a.name.toLowerCase()));
       if (mounted) setState(() { _children = items; _expanded = true; _loading = false; });
     } catch (e) {
       if (mounted) {

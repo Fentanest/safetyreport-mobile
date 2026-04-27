@@ -1,3 +1,23 @@
+int? _toIntOrNull(dynamic v) {
+  if (v == null) return null;
+  if (v is num) return v.toInt();
+  if (v is String) {
+    if (v.trim().isEmpty) return null;
+    return int.tryParse(v) ?? double.tryParse(v)?.toInt();
+  }
+  return null;
+}
+
+double? _toDoubleOrNull(dynamic v) {
+  if (v == null) return null;
+  if (v is num) return v.toDouble();
+  if (v is String) {
+    if (v.trim().isEmpty) return null;
+    return double.tryParse(v);
+  }
+  return null;
+}
+
 class AgencyStatRow {
   final String agency;
   final String person;
@@ -33,17 +53,17 @@ class AgencyStatRow {
     return AgencyStatRow(
       agency: json['agency']?.toString() ?? '',
       person: json['person']?.toString() ?? '',
-      total: (json['total'] as num?)?.toInt() ?? 0,
-      avgResponseDays: (json['avg_days'] as num?)?.toDouble(),
-      fines: (json['fines'] as num?)?.toInt() ?? 0,
-      finesPct: (json['fines_pct'] as num?)?.toDouble() ?? 0.0,
-      warnings: (json['warnings'] as num?)?.toInt() ?? 0,
-      warningsPct: (json['warnings_pct'] as num?)?.toDouble() ?? 0.0,
-      rejects: (json['rejects'] as num?)?.toInt() ?? 0,
-      rejectsPct: (json['rejects_pct'] as num?)?.toDouble() ?? 0.0,
-      totalFineAmount: (json['total_fine_amount'] as num?)?.toInt() ?? 0,
-      avgRating: (json['avg_rating'] as num?)?.toDouble(),
-      ratingCount: (json['rating_count'] as num?)?.toInt() ?? 0,
+      total: _toIntOrNull(json['total']) ?? 0,
+      avgResponseDays: _toDoubleOrNull(json['avg_days']),
+      fines: _toIntOrNull(json['fines']) ?? 0,
+      finesPct: _toDoubleOrNull(json['fines_pct']) ?? 0.0,
+      warnings: _toIntOrNull(json['warnings']) ?? 0,
+      warningsPct: _toDoubleOrNull(json['warnings_pct']) ?? 0.0,
+      rejects: _toIntOrNull(json['rejects']) ?? 0,
+      rejectsPct: _toDoubleOrNull(json['rejects_pct']) ?? 0.0,
+      totalFineAmount: _toIntOrNull(json['total_fine_amount']) ?? 0,
+      avgRating: _toDoubleOrNull(json['avg_rating']),
+      ratingCount: _toIntOrNull(json['rating_count']) ?? 0,
     );
   }
 }

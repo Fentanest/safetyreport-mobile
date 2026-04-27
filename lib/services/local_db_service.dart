@@ -716,6 +716,7 @@ class _AgencyAgg {
   int total = 0, fines = 0, warn = 0, reject = 0;
   int totalFine = 0;
   final List<int> responseDays = [];
+  final List<int> ratings = [];  // 1~5 별점 표본
 
   _AgencyAgg(this.name, this.person);
 
@@ -737,10 +738,19 @@ class _AgencyAgg {
         responseDays.add(rd.difference(d).inDays);
       } catch (_) {}
     }
+
+    final rating = (r['별점'] as num?)?.toInt();
+    if (rating != null && rating >= 1 && rating <= 5) {
+      ratings.add(rating);
+    }
   }
 
   Map<String, dynamic> toJson() {
     final t = total > 0 ? total.toDouble() : 1.0;
+    final avgRating = ratings.isEmpty
+        ? null
+        : double.parse(
+            (ratings.reduce((a, b) => a + b) / ratings.length).toStringAsFixed(2));
     return {
       'agency': name,
       'person': person,
@@ -752,6 +762,8 @@ class _AgencyAgg {
       'rejects': reject,
       'rejects_pct': double.parse((reject / t * 100).toStringAsFixed(1)),
       'total_fine_amount': totalFine,
+      'avg_rating': avgRating,
+      'rating_count': ratings.length,
       'avg_days': responseDays.isEmpty
           ? null
           : responseDays.reduce((a, b) => a + b) / responseDays.length,

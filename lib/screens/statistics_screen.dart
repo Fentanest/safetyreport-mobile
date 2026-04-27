@@ -580,14 +580,63 @@ class _RowCard extends StatelessWidget {
           );
         },
         child: Padding(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // ── 좌상단 메트릭 한 줄 (별점 · 평균 소요 · 과태료 합계) ──
+              if (row.avgRating != null ||
+                  row.avgResponseDays != null ||
+                  fineStr.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Row(
+                    children: [
+                      if (row.avgRating != null) ...[
+                        const Icon(Icons.star, size: 12, color: Colors.amber),
+                        const SizedBox(width: 2),
+                        Text(
+                          '${row.avgRating!.toStringAsFixed(2)} (${row.ratingCount})',
+                          style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.amber),
+                        ),
+                        const SizedBox(width: 10),
+                      ],
+                      if (row.avgResponseDays != null) ...[
+                        const Icon(Icons.schedule,
+                            size: 11, color: Colors.teal),
+                        const SizedBox(width: 2),
+                        Text(
+                          '${row.avgResponseDays!.toStringAsFixed(1)}일',
+                          style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.teal),
+                        ),
+                        const SizedBox(width: 10),
+                      ],
+                      if (fineStr.isNotEmpty) ...[
+                        const Icon(Icons.payments_outlined,
+                            size: 11, color: Colors.deepOrange),
+                        const SizedBox(width: 2),
+                        Text(
+                          fineStr,
+                          style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.deepOrange),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              // ── 이름 + 우측 '총 처리 N건' ──
               Row(
                 children: [
                   Container(
-                    width: 24, height: 24,
+                    width: 22, height: 22,
                     decoration: BoxDecoration(
                       color: rank <= 3
                           ? [Colors.amber, Colors.grey.shade400, Colors.brown.shade300][rank - 1]
@@ -597,7 +646,7 @@ class _RowCard extends StatelessWidget {
                     child: Center(
                       child: Text('$rank',
                           style: TextStyle(
-                              fontSize: 11,
+                              fontSize: 10,
                               fontWeight: FontWeight.bold,
                               color: rank <= 3 ? Colors.white : scheme.onSurface)),
                     ),
@@ -607,62 +656,58 @@ class _RowCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // 줄바꿈을 허용해 긴 기관명도 모두 표시 (ellipsis 안 함)
                         Text(row.agency,
                             style: const TextStyle(
-                                fontWeight: FontWeight.bold, fontSize: 14),
+                                fontWeight: FontWeight.bold, fontSize: 13.5),
                             softWrap: true),
                         if (showPerson && row.person.isNotEmpty)
                           Text(row.person,
                               style: TextStyle(
-                                  fontSize: 12, color: Colors.grey.shade600),
+                                  fontSize: 11.5, color: Colors.grey.shade600),
                               softWrap: true),
                       ],
                     ),
                   ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text('${row.total}건',
-                          style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: scheme.primary)),
-                      const Text('총 처리',
-                          style: TextStyle(fontSize: 10, color: Colors.grey)),
-                      if (row.avgResponseDays != null) ...[
-                        Text('${row.avgResponseDays!.toStringAsFixed(1)}일',
-                            style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.teal)),
-                        const Text('평균 소요',
-                            style: TextStyle(fontSize: 10, color: Colors.grey)),
-                      ],
-                      if (fineStr.isNotEmpty) ...[
-                        Text(fineStr,
-                            style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.deepOrange)),
-                        const Text('과태료 합계',
-                            style: TextStyle(fontSize: 10, color: Colors.grey)),
-                      ],
-                    ],
+                  Padding(
+                    padding: const EdgeInsets.only(left: 6),
+                    child: RichText(
+                      text: TextSpan(
+                        style: TextStyle(color: scheme.primary),
+                        children: [
+                          const TextSpan(
+                            text: '총 처리 ',
+                            style: TextStyle(
+                                fontSize: 11, color: Colors.grey),
+                          ),
+                          TextSpan(
+                            text: '${row.total}',
+                            style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: scheme.primary),
+                          ),
+                          const TextSpan(
+                            text: '건',
+                            style: TextStyle(
+                                fontSize: 11, color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
               Row(
                 children: [
                   _statBadge('과태료', row.fines, row.finesPct, Colors.red),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   _statBadge('경고/범칙금', row.warnings, row.warningsPct, Colors.orange),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   _statBadge('불수용', row.rejects, row.rejectsPct, Colors.grey),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               if (row.total > 0)
                 ClipRRect(
                   borderRadius: BorderRadius.circular(4),

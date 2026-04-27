@@ -10,6 +10,8 @@ class AgencyStatRow {
   final int rejects;
   final double rejectsPct;
   final int totalFineAmount;
+  final double? avgRating;     // 별점 평균 (1~5, 표본 없으면 null)
+  final int ratingCount;       // 별점 표본 수
 
   const AgencyStatRow({
     required this.agency,
@@ -23,6 +25,8 @@ class AgencyStatRow {
     required this.rejects,
     required this.rejectsPct,
     this.totalFineAmount = 0,
+    this.avgRating,
+    this.ratingCount = 0,
   });
 
   factory AgencyStatRow.fromJson(Map<String, dynamic> json) {
@@ -38,6 +42,8 @@ class AgencyStatRow {
       rejects: (json['rejects'] as num?)?.toInt() ?? 0,
       rejectsPct: (json['rejects_pct'] as num?)?.toDouble() ?? 0.0,
       totalFineAmount: (json['total_fine_amount'] as num?)?.toInt() ?? 0,
+      avgRating: (json['avg_rating'] as num?)?.toDouble(),
+      ratingCount: (json['rating_count'] as num?)?.toInt() ?? 0,
     );
   }
 }

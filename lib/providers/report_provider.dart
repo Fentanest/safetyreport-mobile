@@ -126,6 +126,7 @@ class ReportProvider with ChangeNotifier {
   AppMode _appMode = AppMode.server;
   String _standaloneUsername = '';
   String _standalonePhoneNumber = '';
+  bool _isStandaloneDemo = false;
   String _baseUrl = '';
   String _apiKey = '';
   bool _isLoading = false;
@@ -160,6 +161,7 @@ class ReportProvider with ChangeNotifier {
   AppMode get appMode => _appMode;
   String get standaloneUsername => _standaloneUsername;
   String get standalonePhoneNumber => _standalonePhoneNumber;
+  bool get isStandaloneDemo => _isStandaloneDemo;
   String get baseUrl => _baseUrl;
   String get apiKey => _apiKey;
   bool get isLoading => _isLoading;
@@ -289,6 +291,7 @@ class ReportProvider with ChangeNotifier {
       _appMode = AppModeX.fromString(prefs.getString('appMode'));
       _standaloneUsername = prefs.getString('standaloneUsername') ?? '';
       _standalonePhoneNumber = prefs.getString('standalonePhoneNumber') ?? '';
+      _isStandaloneDemo = prefs.getBool('standaloneDemoMode') ?? false;
       _baseUrl = prefs.getString('baseUrl') ?? '';
       _apiKey = prefs.getString('apiKey') ?? '';
       
@@ -302,12 +305,16 @@ class ReportProvider with ChangeNotifier {
         fetchAppConfig();
         // standalone: 기존 DB 즉시 표시 후 pending 큐 처리
         if (_appMode == AppMode.standalone) {
-          StandaloneAuthService.startKeepAlive();
           () async {
+            if (!_isStandaloneDemo) {
+              StandaloneAuthService.startKeepAlive();
+            }
             // 먼저 현재 DB 데이터로 대시보드 즉시 구성 (drain 이 오래 걸려도 빈 화면 없음)
             await refreshAll();
             // 그 다음 pending 큐 처리 (네트워크 필요, 오래 걸릴 수 있음)
-            await _drainAndRefresh();
+            if (!_isStandaloneDemo) {
+              await _drainAndRefresh();
+            }
           }();
         }
       }
@@ -329,6 +336,10 @@ class ReportProvider with ChangeNotifier {
   /// foreground 복귀 시 호출 (main.dart AppLifecycleState.resumed).
   Future<void> checkAutoSyncOnResume() async {
     if (_appMode != AppMode.standalone || !isConfigured) return;
+    if (_isStandaloneDemo) {
+      await refreshAll();
+      return;
+    }
     StandaloneAuthService.startKeepAlive();
     await StandaloneAuthService.refreshSessionIfNeeded();
     await _drainAndRefresh();
@@ -346,6 +357,7 @@ class ReportProvider with ChangeNotifier {
     final cleanUrl =
         url.endsWith('/') ? url.substring(0, url.length - 1) : url;
     _appMode = AppMode.server;
+    _isStandaloneDemo = false;
     _baseUrl = cleanUrl;
     _apiKey = key;
     _errorMessage = null;
@@ -354,22 +366,36 @@ class ReportProvider with ChangeNotifier {
     await prefs.setString('appMode', AppMode.server.name);
     await prefs.setString('baseUrl', _baseUrl);
     await prefs.setString('apiKey', _apiKey);
+    await prefs.remove('standaloneDemoMode');
 
     notifyListeners();
   }
 
-  Future<void> setStandaloneConfig(String username, {required String phoneNumber}) async {
+  Future<void> setStandaloneConfig(
+    String username, {
+    required String phoneNumber,
+    bool isDemoMode = false,
+  }) async {
     await PermissionService.stopWsService();
-    StandaloneAuthService.startKeepAlive();
+    if (isDemoMode) {
+      StandaloneAuthService.stopKeepAlive();
+      await StandaloneAuthService.clearToken();
+    } else {
+      StandaloneAuthService.startKeepAlive();
+    }
     _appMode = AppMode.standalone;
     _standaloneUsername = username;
-    _standalonePhoneNumber = phoneNumber.replaceAll(RegExp(r'[^0-9]'), '');
+    _standalonePhoneNumber = isDemoMode
+        ? phoneNumber.trim()
+        : phoneNumber.replaceAll(RegExp(r'[^0-9]'), '');
+    _isStandaloneDemo = isDemoMode;
     _errorMessage = null;
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('appMode', AppMode.standalone.name);
     await prefs.setString('standaloneUsername', username);
     await prefs.setString('standalonePhoneNumber', _standalonePhoneNumber);
+    await prefs.setBool('standaloneDemoMode', isDemoMode);
 
     notifyListeners();
   }
@@ -382,6 +408,7 @@ class ReportProvider with ChangeNotifier {
     _apiKey = '';
     _standaloneUsername = '';
     _standalonePhoneNumber = '';
+    _isStandaloneDemo = false;
     _stats = null;
     _trafficReports = [];
     _parkingReports = [];
@@ -396,6 +423,7 @@ class ReportProvider with ChangeNotifier {
     await prefs.remove('apiKey');
     await prefs.remove('standaloneUsername');
     await prefs.remove('standalonePhoneNumber');
+    await prefs.remove('standaloneDemoMode');
     await StandaloneAuthService.clearToken();
 
     notifyListeners();

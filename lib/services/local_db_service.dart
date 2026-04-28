@@ -17,6 +17,9 @@ String normalizePoliceAgency(String agency) {
 class LocalDbService {
   static Database? _db;
   static Future<Database>? _initFuture;
+  static const playReviewDemoUsername = 'demo';
+  static const playReviewDemoPassword = 'demo';
+  static const playReviewDemoPhone = 'demo';
 
   static Future<Database> get db async {
     if (_db != null) return _db!;
@@ -576,6 +579,135 @@ class LocalDbService {
     final d = await db;
     await d.delete('reports');
     await d.delete('sync_meta');
+  }
+
+  /// Play Console 심사용 데모 데이터 3건을 로컬 DB에 시드한다.
+  /// standalone demo/demo/demo 계정에서 사용.
+  static Future<void> seedPlayReviewDemo() async {
+    await clearAll();
+    final d = await db;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    const watchlistNumber = 'SPP-2604-2344496';
+    final seededAt = DateTime.now().toIso8601String();
+
+    final rows = <Map<String, Object?>>[
+      {
+        'ID': '59578643',
+        '상태': '답변완료',
+        '신고번호': 'SPP-2604-2344496',
+        '신고명': '중앙선 침범',
+        '신고일': '2026-04-23',
+        '만족도조사여부': '참여 완료',
+        '별점': 5,
+        '별점사유': '수고하십니다',
+        '감시목록': 'Y',
+        '처리상태': '수용',
+        '차량번호': '경기부천라6830',
+        '위반법규': '도로교통법 제13조3항',
+        '범칙금_과태료': '과태료: 70,000원',
+        '벌점': '',
+        '처리기관': '경찰청 경기도남부경찰청 부천원미경찰서',
+        '담당자': '장은형',
+        '답변일': '2026-04-24',
+        '발생일자': '2026-04-23',
+        '발생시각': '17:45',
+        '위반장소': '경기도 부천시 원미구 역곡동 257-2',
+        '종결여부': 'Y',
+        '신고내용': '전방 오토바이 한 대가 중앙선 침범유턴하여 신고합니다.',
+        '처리내용': '안녕하십니까?\n교통법규위반 신고를 하여 주셔서 감사드리며\n귀하께서 제보해주신 영상자료를 확인한 결과,\n도로교통법 제13조3항 (통행구분 위반(중앙선 침범에 한함))를 위반한 사실이 확인되어,\n차량 소유주에게 위반행위에 따른 과태료 70,000원을 부과하고자\n‘과태료 부과 사전통지서’를 발송하였음을 알려드립니다.\n\n답변내용 중 궁금한 사항이나 이해가 가지 않는 내용이 있으실 경우\n부천원미경찰서 교통과 (☎ 032-680-7147)로\n문의하시면 자세하게 답변해 드리겠습니다.\n\n귀하의 가정에 건강과 안녕을 기원합니다.\n\n※ 다른 차량의 개인정보 보호를 위해, 신청번호 1건당 차량 1대만 단속 처리 할 수 있\n음을 양지 바랍니다.',
+        '지도': 'https://www.safetyreport.go.kr/fileDown/singo/202604/23/20260423_cb69c49b3fca4cdc9cbd9fecd42ed5d8_MAPIMG.png',
+        '첨부사진': 'https://www.safetyreport.go.kr/fileDown/singo/202604/23/20260423_1_08573e9674f1408f835666d249452340.png',
+        '첨부파일': 'https://www.safetyreport.go.kr/fileDown/singo/202604/23/20260423_2_2056180c13204993a4d0f4338b8c20fc.mp4\nhttps://www.safetyreport.go.kr/fileDown/singo/202604/23/20260423_3_b67c8c3310fa4fdfada7b58950b203a9.mp4\nhttps://www.safetyreport.go.kr/fileDown/singo/202604/23/20260423_4_f4898241e7f546b48fd490b4e032dd6a.mp4',
+        'category': 'traffic',
+        'entry_value': '',
+        'raw_content': '',
+        'synced_at': now,
+      },
+      {
+        'ID': '58700792',
+        '상태': '답변완료',
+        '신고번호': 'SPP-2604-0419411',
+        '신고명': '친환경차 충전구역 불법주차 신고입니다.\n\n* 차량번호',
+        '신고일': '2026-04-04',
+        '만족도조사여부': '참여 완료',
+        '별점': 5,
+        '별점사유': '',
+        '감시목록': 'N',
+        '처리상태': '수용',
+        '차량번호': '341소7346',
+        '위반법규': '',
+        '범칙금_과태료': '과태료',
+        '벌점': '',
+        '처리기관': '경기도 고양시 기후환경국 기후에너지과',
+        '담당자': '장윤석',
+        '답변일': '2026-04-10',
+        '발생일자': '',
+        '발생시각': '',
+        '위반장소': '경기도 고양시 일산동구 호수로 595',
+        '종결여부': 'Y',
+        '신고내용': '친환경차 충전구역 불법주차 신고입니다.',
+        '처리내용': '1. 선생님의 가정에 건강과 행운이 늘 함께 하시기를 기원합니다. \n2. 선생님께서 제기하신 &quot;친환경자동차 충전시설의 충전구역과 전용주차구역의 주차위반 및 충전방해 행위&quot; 민원에 대해 답변드리겠습니다.\n\n가. 선생님께서 신고해주신 자료를 확인한 결과 「환경친화적 자동차의 개발 및 보급 촉진에 관한 법률」 제11조의2 규정을 위반한 행위로 판단됩니다.\n나. 따라서 우리 시에서는 차적조회 후 해당 차량 소유자에게 과태료 처분 사전통지 및 의견청취 절차를 거칠 예정이며, 의견제출 기한 후 위반행위가 명백한 경우에는 과태료 부과를 진행할 예정임을 알려드립니다.\n\n3. 선생님의 질문에 만족스러운 답변이 되었기를 바라며, 국민신문고 민원처리 결과에 대한 만족도 조사를 실시하고 있사오니, 선생님의 소중한 시간을 내어 참여해 주시면 앞으로 시정 발전에 많은 도움이 될 것입니다. 만족도 조사 참여방법은 나의신문고-민원 신청결과 답변내용 아래 「만족도 평가하기」 버튼을 눌러 참여해 주시기 바랍니다.\n4. 기타 궁금하신 사항은 고양시청 기후에너지과 장윤석 주무관(☎031-8075-2813)에게 연락주시면 친절히 답변 드리겠습니다. 감사합니다.',
+        '지도': 'https://www.safetyreport.go.kr/fileDown/singo/202604/04/20260404_d111734d51c849028200dbbc435ef1b2_MAPIMG.png',
+        '첨부사진': 'https://www.safetyreport.go.kr/fileDown/singo/202604/04/20260404_1_026f028208514fe2915d428ee7ca5d9a.jpg\nhttps://www.safetyreport.go.kr/fileDown/singo/202604/04/20260404_2_cff99e2c881e4a1088a236bdfeba6257.jpg',
+        '첨부파일': '',
+        'category': 'parking',
+        'entry_value': '',
+        'raw_content': '',
+        'synced_at': now,
+      },
+      {
+        'ID': '59578555',
+        '상태': '답변완료',
+        '신고번호': 'SPP-2604-2344422',
+        '신고명': '담배꽁초 투기',
+        '신고일': '2026-04-23',
+        '만족도조사여부': '참여 가능',
+        '별점': null,
+        '별점사유': '',
+        '감시목록': 'N',
+        '처리상태': '수용',
+        '차량번호': '86보7665',
+        '위반법규': '',
+        '범칙금_과태료': '과태료',
+        '벌점': '',
+        '처리기관': '경기도 부천시 원미구 도시미관과',
+        '담당자': '한대화',
+        '답변일': '2026-04-24',
+        '발생일자': '2026-04-23',
+        '발생시각': '17:46',
+        '위반장소': '경기도 부천시 원미구 역곡동 257-2',
+        '종결여부': 'Y',
+        '신고내용': '후면 영상 15초, 담배꽁초 버리는 다마스 신고합니다.',
+        '처리내용': '1. 평소 시정에 많은 관심을 가져 주심에 진심으로 감사드립니다.\n2. 귀하께서 신청하신 민원(1AA-2604-1035550) ‘담배꽁초 무단투기 신고’ 영상자료를 검토한 결과, 「폐기물관리법」 제8조(폐기물의 투기 금지 등) 규정 위반행위가 확인됨에 따라 해당 차량 소유주에 과태료 부과 절차를 이행할 예정임을 알려드립니다. \n3. 신고포상금(6,000원)은 「부천시 폐기물 관리에 관한 조례」에 따라 위반행위 적발일로부터 14일 이내 신청할 수 있으며, 무단투기 신고포상금 지급 기준에 따라 예산 범위 내에서 지급됩니다. \n4. 또한, 포상금 신청을 원하실 경우 신청서 및 통장 사본을 이메일(story00323@korea.kr)로 제출하여 주시기 바라며, 포상금은 과태료 부과절차 이후 지급될 예정으로 30일 이상 소요됨을 참고하시기 바랍니다.\n5. 귀하의 질문에 만족스러운 답변이 되었기를 바라며, 답변 내용에 대한 추가 설명이 필요한 경우 원미구 도시미관과 주무관 한대화(☏032-625-5496)에게 연락주시면 친절히 안내해 드리도록 하겠습니다.  끝.',
+        '지도': 'https://www.safetyreport.go.kr/fileDown/singo/202604/23/20260423_13caf3f3c245403c9a55323ef504d4d1_MAPIMG.png',
+        '첨부사진': 'https://www.safetyreport.go.kr/fileDown/singo/202604/23/20260423_2_2daaa28ed220402daf792872c7fd5b54.png',
+        '첨부파일': 'https://www.safetyreport.go.kr/fileDown/singo/202604/23/20260423_1_75bf3964915043988c57318ebf9abd81.mp4\nhttps://www.safetyreport.go.kr/fileDown/singo/202604/23/20260423_3_1d5dcfd61cbd4445ae974a0fed3f5560.mp4',
+        'category': 'other',
+        'entry_value': '',
+        'raw_content': '',
+        'synced_at': now,
+      },
+    ];
+
+    await d.transaction((txn) async {
+      for (final row in rows) {
+        await txn.insert(
+          'reports',
+          row,
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+      await txn.insert(
+        'sync_meta',
+        {'key': 'last_sync', 'value': seededAt},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      await txn.insert(
+        'sync_meta',
+        {'key': 'watchlist', 'value': watchlistNumber},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    });
   }
 
   /// 업로드/선택된 .db 파일의 종류 판별.

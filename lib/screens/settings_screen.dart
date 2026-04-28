@@ -355,25 +355,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         err = null;
                       });
                       try {
-                        final phone = phoneCtrl.text
-                            .trim()
-                            .replaceAll(RegExp(r'[^0-9]'), '');
-                        if (phone.isEmpty) {
+                        final username = usernameCtrl.text.trim();
+                        final rawPhone = phoneCtrl.text.trim();
+                        final phone = rawPhone.replaceAll(RegExp(r'[^0-9]'), '');
+                        final isDemoLogin =
+                            username == LocalDbService.playReviewDemoUsername &&
+                            passwordCtrl.text == LocalDbService.playReviewDemoPassword &&
+                            rawPhone == LocalDbService.playReviewDemoPhone;
+                        if (!isDemoLogin && phone.isEmpty) {
                           throw Exception('휴대폰번호를 입력해주세요.');
                         }
-                        await StandaloneAuthService.login(
-                          usernameCtrl.text.trim(),
-                          passwordCtrl.text,
-                        );
+                        if (isDemoLogin) {
+                          await LocalDbService.seedPlayReviewDemo();
+                        } else {
+                          await StandaloneAuthService.login(
+                            username,
+                            passwordCtrl.text,
+                          );
+                        }
                         if (ctx.mounted) {
                           await ctx.read<ReportProvider>().setStandaloneConfig(
-                            usernameCtrl.text.trim(),
-                            phoneNumber: phone,
+                            username,
+                            phoneNumber: isDemoLogin ? rawPhone : phone,
+                            isDemoMode: isDemoLogin,
                           );
                           Navigator.pop(ctx);
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('재로그인 완료'),
+                            SnackBar(
+                              content: Text(isDemoLogin ? '데모 모드 전환 완료' : '재로그인 완료'),
                               backgroundColor: Colors.green,
                             ),
                           );

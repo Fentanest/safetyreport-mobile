@@ -367,6 +367,7 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
   // ── 스탠드어론 UI ────────────────────────────────────────────────────────────
 
   Widget _buildStandalone() {
+    final isDemo = context.watch<ReportProvider>().isStandaloneDemo;
     return Scaffold(
       appBar: AppBar(
         title: const Text('데이터 동기화'),
@@ -392,6 +393,10 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _infoCard(),
+                    if (isDemo) ...[
+                      const SizedBox(height: 12),
+                      _demoInfoCard(),
+                    ],
                     const SizedBox(height: 16),
                     if (_isRunning && _syncTotal > 0)
                       _progressBar(),
@@ -487,14 +492,37 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
     );
   }
 
+  Widget _demoInfoCard() {
+    return Card(
+      color: Colors.orange.shade50,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.visibility_outlined, color: Colors.orange.shade700),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                '현재는 Play Console 심사용 데모 모드입니다. 동기화 없이 예시 신고 3건만 표시됩니다.',
+                style: TextStyle(height: 1.5),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _syncButtons() {
+    final isDemo = context.watch<ReportProvider>().isStandaloneDemo;
     return Row(
       children: [
         Expanded(
           child: FilledButton.icon(
             icon: const Icon(Icons.sync),
             label: const Text('동기화'),
-            onPressed: _isRunning
+            onPressed: _isRunning || isDemo
                 ? null
                 : () => _startSync(fullSync: false),
           ),
@@ -504,7 +532,7 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
           child: OutlinedButton.icon(
             icon: const Icon(Icons.refresh),
             label: const Text('전체 재동기화'),
-            onPressed: _isRunning
+            onPressed: _isRunning || isDemo
                 ? null
                 : () => _confirmFullSync(),
           ),

@@ -33,6 +33,16 @@ class _SetupScreenState extends State<SetupScreen> {
   bool _loading = false;
   String? _errorMessage;
 
+  bool _isPlayReviewDemoLogin(
+    String username,
+    String password,
+    String rawPhone,
+  ) {
+    return username == LocalDbService.playReviewDemoUsername &&
+        password == LocalDbService.playReviewDemoPassword &&
+        rawPhone == LocalDbService.playReviewDemoPhone;
+  }
+
   @override
   void dispose() {
     _urlController.dispose();
@@ -111,8 +121,31 @@ class _SetupScreenState extends State<SetupScreen> {
   Future<void> _loginStandalone() async {
     final username = _usernameController.text.trim();
     final password = _passwordController.text;
+    final rawPhone = _phoneController.text.trim();
     final phoneNumber =
-        _phoneController.text.trim().replaceAll(RegExp(r'[^0-9]'), '');
+        rawPhone.replaceAll(RegExp(r'[^0-9]'), '');
+    if (_isPlayReviewDemoLogin(username, password, rawPhone)) {
+      setState(() { _loading = true; _errorMessage = null; });
+      try {
+        await LocalDbService.seedPlayReviewDemo();
+        if (!mounted) return;
+        await context.read<ReportProvider>().setStandaloneConfig(
+          username,
+          phoneNumber: rawPhone,
+          isDemoMode: true,
+        );
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('pending_db_import');
+        if (!mounted) return;
+        Navigator.pushReplacement(context,
+            MaterialPageRoute(builder: (_) => const PermissionScreen(isSetup: true)));
+      } catch (e) {
+        setState(() => _errorMessage = '데모 데이터 준비 실패: $e');
+      } finally {
+        if (mounted) setState(() => _loading = false);
+      }
+      return;
+    }
     if (username.isEmpty || password.isEmpty || phoneNumber.isEmpty) {
       setState(() => _errorMessage = '아이디, 비밀번호, 휴대폰번호를 모두 입력해주세요.');
       return;

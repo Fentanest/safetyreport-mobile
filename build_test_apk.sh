@@ -1,13 +1,17 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # 로컬 테스트용 APK 빌드 스크립트
 # 기본: debug APK (서명 불필요)
-# --release 옵션: 릴리즈 APK (~/mysafetyreport-android/ 키스토어 필요)
+# --release 옵션: 릴리즈 APK (외부 key.properties/keystore 필요)
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/build_android_common.sh"
+
 MODE="debug"
-FLUTTER_IMAGE="ghcr.io/cirruslabs/flutter:stable"
+FLUTTER_BIN="${FLUTTER_BIN:-flutter}"
+KEY_PROPERTIES_PATH="${KEY_PROPERTIES_PATH:-$HOME/mysafetyreport-android/key.properties}"
+KEYSTORE_PATH="${KEYSTORE_PATH:-$HOME/mysafetyreport-android/upload-keystore.jks}"
 
 for arg in "$@"; do
     case "$arg" in
@@ -15,57 +19,70 @@ for arg in "$@"; do
         --help|-h)
             echo "Usage: $0 [--release]"
             echo "  (기본) debug APK — 서명 불필요, 빠름"
-            echo "  --release       — 릴리즈 APK (~/mysafetyreport-android/ 키스토어 필요)"
+            echo "  --release       — 릴리즈 APK (key.properties/keystore 필요)"
+            echo ""
+            echo "Optional environment variables:"
+            echo "  FLUTTER_BIN         Flutter executable to use"
+            echo "  KEY_PROPERTIES_PATH Local path to key.properties"
+            echo "  KEYSTORE_PATH       Local path to upload-keystore.jks"
             exit 0
             ;;
     esac
 done
 
+ensure_flutter_available "$FLUTTER_BIN"
+
 # VERSION 읽기
-VERSION=$(cat "$SCRIPT_DIR/VERSION" | tr -d '[:space:]')
-BUILD_NAME=$(echo "$VERSION" | cut -d'+' -f1)
-BUILD_NUMBER=$(echo "$VERSION" | cut -d'+' -f2)
+VERSION="$(tr -d '[:space:]' < "$SCRIPT_DIR/VERSION")"
+BUILD_NAME="${VERSION%%+*}"
+BUILD_NUMBER="${VERSION##*+}"
+
+if [[ -z "$BUILD_NAME" || -z "$BUILD_NUMBER" || "$BUILD_NAME" == "$BUILD_NUMBER" ]]; then
+    echo "❌ VERSION 형식이 올바르지 않습니다. 기대 형식: 1.2.3+45" >&2
+    exit 1
+fi
 
 echo "=========================================="
 echo " 빌드 모드  : $MODE"
 echo " 버전       : $BUILD_NAME+$BUILD_NUMBER"
+echo " Flutter bin: $FLUTTER_BIN"
 echo "=========================================="
 
 # pubspec.yaml 버전 동기화
-sed -i "s/^version:.*/version: $VERSION/" "$SCRIPT_DIR/pubspec.yaml"
+sync_pubspec_version "$SCRIPT_DIR" "$VERSION"
 
-# Docker 마운트 옵션 구성
-DOCKER_OPTS=(
-    --rm
-    -v "$SCRIPT_DIR":/build
-    -v "$HOME/.pub-cache":/root/.pub-cache
-    --workdir /build
-)
+if [[ "$MODE" == "release" ]]; then
+    KEY_PROPERTIES_PATH="$(resolve_abs_path "$KEY_PROPERTIES_PATH")"
+    KEYSTORE_PATH="$(resolve_abs_path "$KEYSTORE_PATH")"
 
-if [ "$MODE" = "release" ]; then
-    KEY_PROPS="$HOME/mysafetyreport-android/key.properties"
-    KEYSTORE="$HOME/mysafetyreport-android/upload-keystore.jks"
-    if [ ! -f "$KEY_PROPS" ] || [ ! -f "$KEYSTORE" ]; then
-        echo "❌ 키스토어 파일 없음: $KEY_PROPS 또는 $KEYSTORE"
+    if [[ ! -f "$KEY_PROPERTIES_PATH" || ! -f "$KEYSTORE_PATH" ]]; then
+        echo "❌ 키스토어 파일 없음: $KEY_PROPERTIES_PATH 또는 $KEYSTORE_PATH" >&2
         exit 1
     fi
-    DOCKER_OPTS+=(
-        -v "$KEY_PROPS":/build/android/key.properties:ro
-        -v "$KEYSTORE":/build/upload-keystore.jks:ro
-    )
-    BUILD_CMD="flutter build apk --release --build-name=$BUILD_NAME --build-number=$BUILD_NUMBER"
+
+    trap cleanup_android_signing_files EXIT
+    stage_android_signing_files "$SCRIPT_DIR" "$KEY_PROPERTIES_PATH" "$KEYSTORE_PATH"
+    echo "✅ android/key.properties staged for local Flutter build"
+
     APK_SRC="build/app/outputs/flutter-apk/app-release.apk"
     APK_DEST="$SCRIPT_DIR/mysafetyreport-release.apk"
 else
-    BUILD_CMD="flutter build apk --debug --build-name=$BUILD_NAME --build-number=$BUILD_NUMBER"
     APK_SRC="build/app/outputs/flutter-apk/app-debug.apk"
     APK_DEST="$SCRIPT_DIR/mysafetyreport-debug.apk"
 fi
 
-docker run "${DOCKER_OPTS[@]}" "$FLUTTER_IMAGE" bash -c "$BUILD_CMD"
+"$FLUTTER_BIN" --version
+"$FLUTTER_BIN" pub get
 
-# Docker가 생성한 파일 소유권 복구
-sudo chown -R "$(id -u):$(id -g)" "$SCRIPT_DIR/build" 2>/dev/null || true
+if [[ "$MODE" == "release" ]]; then
+    "$FLUTTER_BIN" build apk --release \
+        --build-name="$BUILD_NAME" \
+        --build-number="$BUILD_NUMBER"
+else
+    "$FLUTTER_BIN" build apk --debug \
+        --build-name="$BUILD_NAME" \
+        --build-number="$BUILD_NUMBER"
+fi
 
 cp "$SCRIPT_DIR/$APK_SRC" "$APK_DEST"
 

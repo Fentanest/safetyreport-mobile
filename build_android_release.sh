@@ -6,36 +6,34 @@ set -euo pipefail
 # 기본 동작:
 # - VERSION 읽기
 # - pubspec.yaml version 동기화
-# - Flutter Docker 이미지에서 release APK + AAB 빌드
+# - 외부 key.properties 를 android/key.properties 로 임시 배치
+# - key.properties 의 storeFile 을 현재 키스토어 절대경로로 교정
+# - 로컬 Flutter CLI 에서 release APK + AAB 빌드
 # - 산출물을 workflow 와 동일한 이름으로 복사
 #
-# 환경변수로 경로/이미지를 덮어쓸 수 있다.
-#   FLUTTER_IMAGE
+# 환경변수로 명령/경로를 덮어쓸 수 있다.
+#   FLUTTER_BIN
 #   KEY_PROPERTIES_PATH
 #   KEYSTORE_PATH
-#   PUB_CACHE_DIR
-#   ANDROID_NDK_CACHE_DIR
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FLUTTER_IMAGE="${FLUTTER_IMAGE:-ghcr.io/cirruslabs/flutter:stable}"
+source "$SCRIPT_DIR/build_android_common.sh"
+
+FLUTTER_BIN="${FLUTTER_BIN:-flutter}"
 KEY_PROPERTIES_PATH="${KEY_PROPERTIES_PATH:-$HOME/mysafetyreport-android/key.properties}"
 KEYSTORE_PATH="${KEYSTORE_PATH:-$HOME/mysafetyreport-android/upload-keystore.jks}"
-PUB_CACHE_DIR="${PUB_CACHE_DIR:-$HOME/.pub-cache}"
-ANDROID_NDK_CACHE_DIR="${ANDROID_NDK_CACHE_DIR:-$HOME/.android-ndk-cache}"
 
 usage() {
   cat <<'EOF'
 Usage: ./build_android_release.sh
 
-Build release APK and AAB locally using the same Docker-based flow as
+Build release APK and AAB locally using the same Flutter CLI flow as
 .github/workflows/build-apk.yml.
 
 Optional environment variables:
-  FLUTTER_IMAGE         Docker image to use
+  FLUTTER_BIN           Flutter executable to use
   KEY_PROPERTIES_PATH   Local path to key.properties
   KEYSTORE_PATH         Local path to upload-keystore.jks
-  PUB_CACHE_DIR         Local pub cache directory to mount
-  ANDROID_NDK_CACHE_DIR Local Android NDK cache directory to mount
 EOF
 }
 
@@ -53,10 +51,7 @@ for arg in "$@"; do
   esac
 done
 
-if ! command -v docker >/dev/null 2>&1; then
-  echo "❌ docker 명령을 찾을 수 없습니다." >&2
-  exit 1
-fi
+ensure_flutter_available "$FLUTTER_BIN"
 
 if [[ ! -f "$SCRIPT_DIR/VERSION" ]]; then
   echo "❌ VERSION 파일이 없습니다: $SCRIPT_DIR/VERSION" >&2
@@ -76,6 +71,9 @@ if [[ -z "$BUILD_NAME" || -z "$BUILD_NUMBER" || "$BUILD_NAME" == "$BUILD_NUMBER"
   exit 1
 fi
 
+KEY_PROPERTIES_PATH="$(resolve_abs_path "$KEY_PROPERTIES_PATH")"
+KEYSTORE_PATH="$(resolve_abs_path "$KEYSTORE_PATH")"
+
 if [[ ! -f "$KEY_PROPERTIES_PATH" ]]; then
   echo "❌ key.properties 파일이 없습니다: $KEY_PROPERTIES_PATH" >&2
   exit 1
@@ -86,37 +84,32 @@ if [[ ! -f "$KEYSTORE_PATH" ]]; then
   exit 1
 fi
 
-mkdir -p "$PUB_CACHE_DIR" "$ANDROID_NDK_CACHE_DIR"
+trap cleanup_android_signing_files EXIT
 
 echo "=========================================="
 echo " Android release build"
 echo " Version      : $BUILD_NAME+$BUILD_NUMBER"
-echo " Flutter image: $FLUTTER_IMAGE"
+echo " Flutter bin  : $FLUTTER_BIN"
 echo " Repo         : $SCRIPT_DIR"
 echo "=========================================="
 
-sed -i "s/^version:.*/version: $VERSION/" "$SCRIPT_DIR/pubspec.yaml"
-echo "✅ pubspec.yaml version synced to $VERSION"
+sync_pubspec_version "$SCRIPT_DIR" "$VERSION"
+stage_android_signing_files "$SCRIPT_DIR" "$KEY_PROPERTIES_PATH" "$KEYSTORE_PATH"
+echo "✅ android/key.properties staged for local Flutter build"
 
-docker run --rm \
-  -v "$SCRIPT_DIR":/build \
-  -v "$PUB_CACHE_DIR":/root/.pub-cache \
-  -v "$ANDROID_NDK_CACHE_DIR":/root/Android/Sdk/ndk \
-  -v "$KEY_PROPERTIES_PATH":/build/android/key.properties:ro \
-  -v "$KEYSTORE_PATH":/build/upload-keystore.jks:ro \
-  --workdir /build \
-  "$FLUTTER_IMAGE" \
-  bash -lc "\
-    flutter build apk --release \
-      --build-name=$BUILD_NAME \
-      --build-number=$BUILD_NUMBER && \
-    flutter build appbundle --release \
-      --build-name=$BUILD_NAME \
-      --build-number=$BUILD_NUMBER && \
-    cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/mysafetyreport.apk && \
-    cp build/app/outputs/bundle/release/app-release.aab build/app/outputs/bundle/release/mysafetyreport.aab"
+"$FLUTTER_BIN" --version
+"$FLUTTER_BIN" pub get
+"$FLUTTER_BIN" build apk --release \
+  --build-name="$BUILD_NAME" \
+  --build-number="$BUILD_NUMBER"
+"$FLUTTER_BIN" build appbundle --release \
+  --build-name="$BUILD_NAME" \
+  --build-number="$BUILD_NUMBER"
 
-sudo chown -R "$(id -u):$(id -g)" "$SCRIPT_DIR" 2>/dev/null || true
+cp "$SCRIPT_DIR/build/app/outputs/flutter-apk/app-release.apk" \
+  "$SCRIPT_DIR/build/app/outputs/flutter-apk/mysafetyreport.apk"
+cp "$SCRIPT_DIR/build/app/outputs/bundle/release/app-release.aab" \
+  "$SCRIPT_DIR/build/app/outputs/bundle/release/mysafetyreport.aab"
 
 APK_PATH="$SCRIPT_DIR/build/app/outputs/flutter-apk/mysafetyreport.apk"
 AAB_PATH="$SCRIPT_DIR/build/app/outputs/bundle/release/mysafetyreport.aab"

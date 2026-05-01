@@ -561,6 +561,9 @@ CI 와 동일한 Docker 이미지 (`ghcr.io/cirruslabs/flutter:stable`).
     - Client 모드 별점 주기: 서버 로그 파싱 regex가 타임스탬프 브래킷 `[2026-...]`을 신고번호로 오인식하던 버그 수정. `\[(.+?)\]` → `\[(SPP-.+?)\]` 로 변경.
     - 서버 `data_table.html` 상세 검색과 모바일 `SearchFilterSheet`에 `만족도 조사 여부` 단일선택 드롭다운 추가 (참여 완료 / 참여 가능).
     - `ReportFilter`에 `pollStatus` 필드 추가, `_applyFilter()`에 필터 로직 반영.
+26. **Standalone 모드 다중 선택 동기화 버튼 추가**
+    - `SelectionActionBar`에 Standalone 모드일 경우 `동기화` 버튼 노출
+    - 선택된 신고번호들을 `standalone_pending_reports` 큐에 추가 후 `drainIfPending()` 호출로 개별 동기화 처리
 
 1. **Standalone 모드 신규 구현**: 안전신문고 직접 로그인 (RSA + OAuth), 자동 재로그인, sqflite 로컬 DB, 증분 sync, 카드 시트
 2. **알림 큐 인프라**: Kotlin NotificationService 가 SPP 추출 → SharedPreferences 큐 → Flutter drain

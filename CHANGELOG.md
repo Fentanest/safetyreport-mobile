@@ -9,6 +9,16 @@
 
 ## 2026-05-02
 
+### Standalone 모드 다중 선택 동기화 버튼 추가
+
+상태: 완료
+
+변경:
+- `lib/widgets/selection_action_bar.dart`
+  - Standalone 모드에서 여러 신고를 선택했을 때 Client 모드의 '크롤링' 버튼과 동일한 위치에 '동기화' 버튼 추가
+  - 선택된 신고번호들을 `standalone_pending_reports` 큐에 추가하고 `StandaloneAutoSyncService.drainIfPending()`을 호출하여 개별 동기화 처리
+  - `SharedPreferences` 누락된 임포트 추가 및 `withOpacity` deprecation 경고 수정
+
 ### Client 별점 주기 로그 파싱 버그 수정
 
 상태: 완료

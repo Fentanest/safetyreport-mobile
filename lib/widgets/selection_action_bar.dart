@@ -7,6 +7,7 @@ import '../providers/report_provider.dart';
 import '../providers/notification_history_provider.dart';
 import '../models/report.dart';
 import '../services/rating_service.dart';
+import '../services/standalone_auto_sync_service.dart';
 
 const _permChannel = MethodChannel('com.fentanest.mysafetyreport/permissions');
 
@@ -52,6 +53,35 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
     } catch (e) {
       if (!mounted) return;
       _snack('크롤링 요청 실패: $e', icon: Icons.warning_amber, error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    widget.onActionDone?.call();
+  }
+
+  Future<void> _sync() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final provider = context.read<ReportProvider>();
+    try {
+      final reportNumbers = reports.map((r) => r.reportNumber).toList();
+      // 선택된 신고번호를 pending 큐에 추가 후 drain
+      final prefs = await SharedPreferences.getInstance();
+      final existing = StandaloneAutoSyncService.readPendingQueue(prefs);
+      final merged = <String>{...existing, ...reportNumbers}.toList();
+      await prefs.setString(
+        'standalone_pending_reports',
+        merged.join(','),
+      );
+      if (!mounted) return;
+      _snack('동기화 요청: ${reportNumbers.length}건', icon: Icons.sync);
+      // 백그라운드 drain 시작 — 완료되면 refreshAll
+      StandaloneAutoSyncService.drainIfPending().then((_) {
+        provider.refreshAll();
+      });
+    } catch (e) {
+      if (!mounted) return;
+      _snack('동기화 요청 실패: $e', icon: Icons.warning_amber, error: true);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -272,6 +302,15 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
                       icon: Icons.refresh,
                       label: '크롤링',
                       onTap: _busy ? null : _crawl,
+                      color: Colors.blue,
+                    ),
+                  ],
+                  if (isStandalone) ...[
+                    const SizedBox(width: 8),
+                    _ActionBtn(
+                      icon: Icons.sync,
+                      label: '동기화',
+                      onTap: _busy ? null : _sync,
                       color: Colors.blue,
                     ),
                   ],

@@ -2,8 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../models/app_mode.dart';
+import '../models/rating_batch_result.dart';
 import '../providers/report_provider.dart';
+import '../providers/notification_history_provider.dart';
 import '../models/report.dart';
+import '../services/rating_service.dart';
+
+const _permChannel = MethodChannel('com.fentanest.mysafetyreport/permissions');
 
 /// 신고 카드 선택 모드에서 하단에 표시되는 액션 바
 class SelectionActionBar extends StatefulWidget {
@@ -77,18 +82,130 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
     }
   }
 
+  Future<void> _rate() async {
+    if (_busy) return;
+    final reportProvider = context.read<ReportProvider>();
+    final historyProvider = context.read<NotificationHistoryProvider>();
+    final pickedScore = await _showRatingDialog();
+    if (pickedScore == null) return;
+
+    setState(() => _busy = true);
+    try {
+      final result = await reportProvider.submitRatings(
+        reports,
+        score: pickedScore,
+      );
+      historyProvider.setPreferredTabIndex(2, notify: false);
+      await historyProvider.addRatingBatchResult(result);
+      await _pushRatingNotification(result);
+      if (mounted) {
+        _snack(
+          '별점 ${result.score}점 처리 완료: 성공 ${result.successCount}, 스킵 ${result.skipCount}, 실패 ${result.failureCount}',
+          icon: result.failureCount > 0 ? Icons.warning_amber : Icons.star,
+          error: result.failureCount > 0,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        _snack('별점 주기 실패: $e', icon: Icons.warning_amber, error: true);
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    widget.onActionDone?.call();
+  }
+
+  Future<int?> _showRatingDialog() async {
+    var selectedScore = 5;
+    final eligibleCount = reports
+        .where((report) => RatingService.ineligibleReason(report) == null)
+        .length;
+    final skippedCount = count - eligibleCount;
+
+    return showDialog<int>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setStateDialog) => AlertDialog(
+          title: const Text('별점 주기'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('선택한 $count건에 대해 부여할 별점을 선택하세요.'),
+              const SizedBox(height: 8),
+              Text(
+                '진행 가능 $eligibleCount건, 자동 스킵 $skippedCount건',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: List.generate(5, (index) {
+                  final score = index + 1;
+                  final selected = selectedScore == score;
+                  return ChoiceChip(
+                    selected: selected,
+                    label: Text('$score점'),
+                    avatar: Icon(
+                      Icons.star,
+                      size: 18,
+                      color: selected ? Colors.amber.shade700 : Colors.grey,
+                    ),
+                    onSelected: (_) => setStateDialog(() {
+                      selectedScore = score;
+                    }),
+                  );
+                }),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, selectedScore),
+              child: const Text('확인'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pushRatingNotification(RatingBatchResult result) async {
+    try {
+      final title = result.failureCount > 0
+          ? '⚠️ 별점 ${result.score}점 처리 완료'
+          : '⭐ 별점 ${result.score}점 처리 완료';
+      await _permChannel.invokeMethod('showNotification', {
+        'title': title,
+        'body': result.summary,
+        'nav_tab': 3,
+        'nav_subtab': 2,
+        'event_type': 'rating_result',
+      });
+    } catch (_) {}
+  }
+
   void _snack(String msg, {IconData? icon, bool error = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Row(children: [
-        if (icon != null) ...[
-          Icon(icon, size: 16, color: Colors.white),
-          const SizedBox(width: 8),
-        ],
-        Text(msg),
-      ]),
-      backgroundColor: error ? Colors.red.shade700 : null,
-      behavior: SnackBarBehavior.floating,
-    ));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 16, color: Colors.white),
+              const SizedBox(width: 8),
+            ],
+            Text(msg),
+          ],
+        ),
+        backgroundColor: error ? Colors.red.shade700 : null,
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   @override
@@ -97,8 +214,12 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
     final provider = context.watch<ReportProvider>();
     final watchlistNums = provider.watchlistNumbers;
     final isStandalone = provider.appMode == AppMode.standalone;
-    final allInWatchlist = reports.every((r) => watchlistNums.contains(r.reportNumber));
-    final noneInWatchlist = reports.every((r) => !watchlistNums.contains(r.reportNumber));
+    final allInWatchlist = reports.every(
+      (r) => watchlistNums.contains(r.reportNumber),
+    );
+    final noneInWatchlist = reports.every(
+      (r) => !watchlistNums.contains(r.reportNumber),
+    );
 
     return Material(
       elevation: 12,
@@ -123,12 +244,15 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
                   Text(
                     '$count개 선택됨',
                     style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 15),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
                   ),
                   const Spacer(),
                   if (_busy)
                     const SizedBox(
-                      width: 20, height: 20,
+                      width: 20,
+                      height: 20,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     ),
                 ],
@@ -151,6 +275,13 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
                       color: Colors.blue,
                     ),
                   ],
+                  const SizedBox(width: 8),
+                  _ActionBtn(
+                    icon: Icons.star_rate_rounded,
+                    label: '별점 주기',
+                    onTap: _busy ? null : _rate,
+                    color: Colors.amber.shade800,
+                  ),
                   const SizedBox(width: 8),
                   if (!allInWatchlist)
                     _ActionBtn(

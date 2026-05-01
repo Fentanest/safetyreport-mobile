@@ -97,13 +97,15 @@ class StandaloneAuthService {
       final encryptedPw = _rsaEncryptHex(modulusHex, exponentHex, password);
 
       // ── Step 3: OAuth2 토큰 발급 (네트워크 일시 오류 시 최대 3회 재시도) ──
-      final body = Uri(queryParameters: {
-        'client_id': 'web',
-        'grant_type': 'password',
-        'loginType': '1',
-        'username': username,
-        'password': encryptedPw,
-      }).query;
+      final body = Uri(
+        queryParameters: {
+          'client_id': 'web',
+          'grant_type': 'password',
+          'loginType': '1',
+          'username': username,
+          'password': encryptedPw,
+        },
+      ).query;
       final bodyBytes = utf8.encode(body);
 
       late HttpClientResponse tokenRes;
@@ -112,7 +114,9 @@ class StandaloneAuthService {
       var tokenSuccess = false;
       for (var attempt = 1; attempt <= 3; attempt++) {
         try {
-          final tokenReq = await client.postUrl(Uri.parse('$_base/oauth/token'));
+          final tokenReq = await client.postUrl(
+            Uri.parse('$_base/oauth/token'),
+          );
           _commonHeaders.forEach((k, v) => tokenReq.headers.set(k, v));
           tokenReq.headers.contentType = ContentType(
             'application',
@@ -124,7 +128,9 @@ class StandaloneAuthService {
           }
           tokenReq.headers.contentLength = bodyBytes.length;
           tokenReq.write(body);
-          tokenRes = await tokenReq.close().timeout(const Duration(seconds: 15));
+          tokenRes = await tokenReq.close().timeout(
+            const Duration(seconds: 15),
+          );
           tokenBody = await tokenRes.transform(utf8.decoder).join();
           tokenSuccess = true;
           break;
@@ -150,8 +156,9 @@ class StandaloneAuthService {
         throw Exception(detail);
       }
       if (tokenRes.statusCode != 200) {
-        final snippet =
-            tokenBody.length > 200 ? tokenBody.substring(0, 200) : tokenBody;
+        final snippet = tokenBody.length > 200
+            ? tokenBody.substring(0, 200)
+            : tokenBody;
         throw Exception('로그인 실패 (HTTP ${tokenRes.statusCode})\n$snippet');
       }
 
@@ -194,6 +201,11 @@ class StandaloneAuthService {
     return prefs.getString(_tokenKey);
   }
 
+  static Future<String> getPhoneNumber() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('standalonePhoneNumber') ?? '';
+  }
+
   /// 토큰이 유효한지(존재하고, 만료되지 않았는지) 확인
   static Future<bool> isTokenValid() async {
     final prefs = await SharedPreferences.getInstance();
@@ -223,7 +235,9 @@ class StandaloneAuthService {
     await _secureStorage.delete(key: _securePasswordKey);
   }
 
-  static void startKeepAlive({Duration interval = const Duration(minutes: 55)}) {
+  static void startKeepAlive({
+    Duration interval = const Duration(minutes: 55),
+  }) {
     if (_keepAliveTimer?.isActive ?? false) return;
     () async {
       await refreshSessionIfNeeded();
@@ -293,7 +307,10 @@ class StandaloneAuthService {
 
   // PKCS1 v1.5 RSA 암호화 → hex 문자열 (브라우저 JSEncrypt와 동일 포맷)
   static String _rsaEncryptHex(
-      String modulusHex, String exponentHex, String plaintext) {
+    String modulusHex,
+    String exponentHex,
+    String plaintext,
+  ) {
     final modulus = BigInt.parse(modulusHex, radix: 16);
     final exponent = BigInt.parse(exponentHex, radix: 16);
     final publicKey = RSAPublicKey(modulus, exponent);

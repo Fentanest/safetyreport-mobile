@@ -2,15 +2,24 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/notification_item.dart';
+import '../models/rating_batch_result.dart';
 import '../services/sync_engine.dart' show ChangeType;
 
 class NotificationHistoryProvider with ChangeNotifier {
   static const _key = 'notifications_history';
 
   List<NotificationItem> _items = [];
+  int _preferredTabIndex = 0;
 
   List<NotificationItem> get items => List.unmodifiable(_items);
   int get unreadCount => _items.where((i) => !i.isRead).length;
+  int get preferredTabIndex => _preferredTabIndex;
+
+  void setPreferredTabIndex(int index, {bool notify = true}) {
+    if (_preferredTabIndex == index) return;
+    _preferredTabIndex = index;
+    if (notify) notifyListeners();
+  }
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -51,20 +60,27 @@ class NotificationHistoryProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> addFromServerResults(List<Map<String, dynamic>> serverData, {bool isMobileTriggered = false}) async {
+  Future<void> addFromServerResults(
+    List<Map<String, dynamic>> serverData, {
+    bool isMobileTriggered = false,
+  }) async {
     final now = DateTime.now();
-    final ts = '${now.year}-${now.month.toString().padLeft(2,'0')}-${now.day.toString().padLeft(2,'0')} ${now.hour.toString().padLeft(2,'0')}:${now.minute.toString().padLeft(2,'0')}:${now.second.toString().padLeft(2,'0')}';
+    final ts =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
     final List<NotificationItem> newItems = [];
 
     if (serverData.isEmpty) {
-      newItems.add(NotificationItem(
-        id: '${now.millisecondsSinceEpoch}',
-        title: isMobileTriggered ? '📱 크롤링 완료' : '🖥️ 크롤링 완료',
-        body: '변경된 신고건이 없습니다.',
-        reportNumber: '',
-        timestamp: ts,
-        isRead: false,
-      ));
+      newItems.add(
+        NotificationItem(
+          id: '${now.millisecondsSinceEpoch}',
+          kind: NotificationItemKind.crawl,
+          title: isMobileTriggered ? '📱 크롤링 완료' : '🖥️ 크롤링 완료',
+          body: '변경된 신고건이 없습니다.',
+          reportNumber: '',
+          timestamp: ts,
+          isRead: false,
+        ),
+      );
     } else {
       // 이미 history에 있는 신고번호는 중복 추가 방지
       final existingRnums = _items
@@ -92,15 +108,18 @@ class NotificationHistoryProvider with ChangeNotifier {
           ChangeType.individualConfirm => '✅',
           _ => '🔄',
         };
-        newItems.add(NotificationItem(
-          id: '${now.millisecondsSinceEpoch}_$rnum',
-          title: '$titleIcon $name',
-          body: lines.join('\n'),
-          reportNumber: rnum,
-          timestamp: ts,
-          isRead: false,
-          extraData: Map<String, dynamic>.from(r),
-        ));
+        newItems.add(
+          NotificationItem(
+            id: '${now.millisecondsSinceEpoch}_$rnum',
+            kind: NotificationItemKind.report,
+            title: '$titleIcon $name',
+            body: lines.join('\n'),
+            reportNumber: rnum,
+            timestamp: ts,
+            isRead: false,
+            extraData: Map<String, dynamic>.from(r),
+          ),
+        );
       }
     }
 
@@ -110,9 +129,29 @@ class NotificationHistoryProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> addRatingBatchResult(RatingBatchResult result) async {
+    _items.insert(
+      0,
+      NotificationItem(
+        id: result.id,
+        kind: NotificationItemKind.rating,
+        title: result.title,
+        body: result.summary,
+        reportNumber: '',
+        timestamp: result.timestamp,
+        isRead: false,
+        extraData: result.toJson(),
+      ),
+    );
+    await _save();
+    notifyListeners();
+  }
+
   Future<void> _save() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
-        _key, jsonEncode(_items.map((i) => i.toJson()).toList()));
+      _key,
+      jsonEncode(_items.map((i) => i.toJson()).toList()),
+    );
   }
 }

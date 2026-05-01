@@ -1,15 +1,24 @@
+class NotificationItemKind {
+  static const crawl = 'crawl';
+  static const report = 'report';
+  static const rating = 'rating';
+}
+
 class NotificationItem {
   final String id;
+  final String kind;
   final String title;
   final String body;
   final String reportNumber;
   final String timestamp;
   final bool isRead;
+
   /// 크롤링 변경건의 전체 필드 (있을 때만 — 알림 상세에서 ReportDetailSheet 표시용)
   final Map<String, dynamic>? extraData;
 
   const NotificationItem({
     required this.id,
+    required this.kind,
     required this.title,
     required this.body,
     required this.reportNumber,
@@ -19,18 +28,25 @@ class NotificationItem {
   });
 
   NotificationItem copyWith({bool? isRead}) => NotificationItem(
-        id: id,
-        title: title,
-        body: body,
-        reportNumber: reportNumber,
-        timestamp: timestamp,
-        isRead: isRead ?? this.isRead,
-        extraData: extraData,
-      );
+    id: id,
+    kind: kind,
+    title: title,
+    body: body,
+    reportNumber: reportNumber,
+    timestamp: timestamp,
+    isRead: isRead ?? this.isRead,
+    extraData: extraData,
+  );
 
   factory NotificationItem.fromJson(Map<String, dynamic> json) {
+    final inferredKind =
+        json['kind']?.toString() ??
+        ((json['extraData'] is Map)
+            ? NotificationItemKind.report
+            : NotificationItemKind.crawl);
     return NotificationItem(
       id: json['id']?.toString() ?? '',
+      kind: inferredKind,
       title: json['title']?.toString() ?? '',
       body: json['body']?.toString() ?? '',
       reportNumber: json['reportNumber']?.toString() ?? '',
@@ -43,12 +59,13 @@ class NotificationItem {
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'title': title,
-        'body': body,
-        'reportNumber': reportNumber,
-        'timestamp': timestamp,
-        'isRead': isRead,
-        if (extraData != null) 'extraData': extraData,
-      };
+    'id': id,
+    'kind': kind,
+    'title': title,
+    'body': body,
+    'reportNumber': reportNumber,
+    'timestamp': timestamp,
+    'isRead': isRead,
+    if (extraData != null) 'extraData': extraData,
+  };
 }

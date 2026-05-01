@@ -23,7 +23,8 @@ void main() {
       providers: [
         ChangeNotifierProvider(create: (_) => ReportProvider()..init()),
         ChangeNotifierProvider(
-            create: (_) => NotificationHistoryProvider()..load()),
+          create: (_) => NotificationHistoryProvider()..load(),
+        ),
       ],
       child: const SafetyReportApp(),
     ),
@@ -45,8 +46,9 @@ class SafetyReportApp extends StatelessWidget {
       builder: (context, provider, _) {
         final isStandalone = provider.appMode == AppMode.standalone;
         final primary = isStandalone ? _standalonePrimary : _serverPrimary;
-        final indicator =
-            isStandalone ? _standaloneIndicator : _serverIndicator;
+        final indicator = isStandalone
+            ? _standaloneIndicator
+            : _serverIndicator;
 
         return MaterialApp(
           title: '나만의 안전신문고',
@@ -55,17 +57,18 @@ class SafetyReportApp extends StatelessWidget {
             useMaterial3: true,
             // 초록 시드는 surface 에 노란기가 도는 톤을 만들어냄 → 흰색으로 강제.
             // 카드/시트 등 모든 surface 계열을 중립 흰색 으로 통일.
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: primary,
-              brightness: Brightness.light,
-            ).copyWith(
-              surface: Colors.white,
-              surfaceContainerLowest: Colors.white,
-              surfaceContainerLow: const Color(0xFFFAFAFA),
-              surfaceContainer: const Color(0xFFF5F5F5),
-              surfaceContainerHigh: const Color(0xFFEEEEEE),
-              surfaceContainerHighest: const Color(0xFFE0E0E0),
-            ),
+            colorScheme:
+                ColorScheme.fromSeed(
+                  seedColor: primary,
+                  brightness: Brightness.light,
+                ).copyWith(
+                  surface: Colors.white,
+                  surfaceContainerLowest: Colors.white,
+                  surfaceContainerLow: const Color(0xFFFAFAFA),
+                  surfaceContainer: const Color(0xFFF5F5F5),
+                  surfaceContainerHigh: const Color(0xFFEEEEEE),
+                  surfaceContainerHighest: const Color(0xFFE0E0E0),
+                ),
             scaffoldBackgroundColor: Colors.white,
             canvasColor: Colors.white,
             appBarTheme: AppBarTheme(
@@ -87,8 +90,10 @@ class SafetyReportApp extends StatelessWidget {
               ),
             ),
             inputDecorationTheme: const InputDecorationTheme(
-              contentPadding:
-                  EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 12,
+              ),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.all(Radius.circular(10)),
               ),
@@ -209,7 +214,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     if (call.method == 'navigateToTab') {
       final args = call.arguments as Map?;
       final tab = (args?['tab'] as num?)?.toInt() ?? 3;
+      final subTab = (args?['sub_tab'] as num?)?.toInt();
       final eventType = args?['event_type']?.toString() ?? '';
+      if (subTab != null && subTab >= 0) {
+        context.read<NotificationHistoryProvider>().setPreferredTabIndex(
+          subTab,
+          notify: false,
+        );
+      }
       if (mounted) {
         setState(() => _selectedIndex = tab);
         _refreshOnTab(tab);
@@ -304,8 +316,13 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     if (!mounted) return;
 
     // 알림 히스토리에 extraData 포함해서 저장 (신고 결과 탭에서 상세 조회 가능하도록)
-    await context.read<NotificationHistoryProvider>()
-        .addFromServerResults(changes.cast<Map<String, dynamic>>());
+    context.read<NotificationHistoryProvider>().setPreferredTabIndex(
+      1,
+      notify: false,
+    );
+    await context.read<NotificationHistoryProvider>().addFromServerResults(
+      changes.cast<Map<String, dynamic>>(),
+    );
 
     // 알림 탭으로 이동
     setState(() => _selectedIndex = 3);
@@ -333,224 +350,286 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
               .where((r) => (r as Map)['change_type'] == ChangeType.newReport)
               .length;
           final confirmCount = changes
-              .where((r) =>
-                  (r as Map)['change_type'] == ChangeType.individualConfirm)
+              .where(
+                (r) =>
+                    (r as Map)['change_type'] == ChangeType.individualConfirm,
+              )
               .length;
           final changedCount = changes.length - newCount - confirmCount;
           return Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Column(
-                children: [
-                  Container(
-                    width: 36, height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.sync_alt, color: Colors.blue, size: 20),
-                      const SizedBox(width: 8),
-                      Text(
-                        '신고 변경 ${changes.length}건',
-                        style: const TextStyle(
-                          fontSize: 16, fontWeight: FontWeight.bold,
-                        ),
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Column(
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Wrap(
-                    alignment: WrapAlignment.center,
-                    spacing: 6,
-                    runSpacing: 4,
-                    children: [
-                      if (newCount > 0) _changeBadge('신규', newCount, Colors.teal),
-                      if (changedCount > 0) _changeBadge('처리변경', changedCount, Colors.orange),
-                      if (confirmCount > 0) _changeBadge('개별 확인', confirmCount, Colors.blueGrey),
-                    ],
-                  ),
-                ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(
+                          Icons.sync_alt,
+                          color: Colors.blue,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '신고 변경 ${changes.length}건',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        if (newCount > 0)
+                          _changeBadge('신규', newCount, Colors.teal),
+                        if (changedCount > 0)
+                          _changeBadge('처리변경', changedCount, Colors.orange),
+                        if (confirmCount > 0)
+                          _changeBadge('개별 확인', confirmCount, Colors.blueGrey),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const Divider(height: 1),
-            Expanded(
-              child: ListView.separated(
-                controller: controller,
-                padding: const EdgeInsets.all(12),
-                itemCount: changes.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 8),
-                itemBuilder: (ctx, i) {
-                  final r = changes[i] as Map<String, dynamic>;
-                  final changeType = r['change_type']?.toString() ?? '변경';
-                  final isNew = changeType == ChangeType.newReport;
-                  final isConfirm = changeType == ChangeType.individualConfirm;
-                  final badgeColor = isNew
-                      ? Colors.teal
-                      : isConfirm
-                          ? Colors.blueGrey
-                          : Colors.orange;
-                  final badgeLabel = isNew
-                      ? '신규'
-                      : isConfirm
-                          ? '개별 확인'
-                          : '처리변경';
-                  final reportNo = r['신고번호']?.toString() ?? '';
-                  final name = r['신고명']?.toString() ?? '신고';
-                  final status = r['처리상태']?.toString() ?? '';
-                  final agency = r['처리기관']?.toString() ?? '';
-                  final fine = r['범칙금_과태료']?.toString() ?? '';
+              const Divider(height: 1),
+              Expanded(
+                child: ListView.separated(
+                  controller: controller,
+                  padding: const EdgeInsets.all(12),
+                  itemCount: changes.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (ctx, i) {
+                    final r = changes[i] as Map<String, dynamic>;
+                    final changeType = r['change_type']?.toString() ?? '변경';
+                    final isNew = changeType == ChangeType.newReport;
+                    final isConfirm =
+                        changeType == ChangeType.individualConfirm;
+                    final badgeColor = isNew
+                        ? Colors.teal
+                        : isConfirm
+                        ? Colors.blueGrey
+                        : Colors.orange;
+                    final badgeLabel = isNew
+                        ? '신규'
+                        : isConfirm
+                        ? '개별 확인'
+                        : '처리변경';
+                    final reportNo = r['신고번호']?.toString() ?? '';
+                    final name = r['신고명']?.toString() ?? '신고';
+                    final status = r['처리상태']?.toString() ?? '';
+                    final agency = r['처리기관']?.toString() ?? '';
+                    final fine = r['범칙금_과태료']?.toString() ?? '';
 
-                  Color statusColor = Colors.grey;
-                  if (status == '수용') statusColor = Colors.green;
-                  else if (status == '일부수용') statusColor = const Color(0xFF43A047);
-                  else if (status.contains('불수용') || status == '기타') statusColor = Colors.red;
-                  else if (status.contains('처리') || status.contains('진행')) statusColor = Colors.orange;
-                  else if (status.contains('완료')) statusColor = Colors.blue;
-                  else if (status == '취하') statusColor = Colors.brown;
+                    Color statusColor = Colors.grey;
+                    if (status == '수용')
+                      statusColor = Colors.green;
+                    else if (status == '일부수용')
+                      statusColor = const Color(0xFF43A047);
+                    else if (status.contains('불수용') || status == '기타')
+                      statusColor = Colors.red;
+                    else if (status.contains('처리') || status.contains('진행'))
+                      statusColor = Colors.orange;
+                    else if (status.contains('완료'))
+                      statusColor = Colors.blue;
+                    else if (status == '취하')
+                      statusColor = Colors.brown;
 
-                  // 과태료/범칙금/경고/미확인 결과 라벨용 색상
-                  Color? fineColor;
-                  if (fine.contains('과태료')) fineColor = Colors.red.shade600;
-                  else if (fine.contains('범칙금')) fineColor = Colors.deepOrange;
-                  else if (fine.contains('경고')) fineColor = Colors.amber.shade800;
-                  else if (fine == '미확인') fineColor = Colors.grey;
+                    // 과태료/범칙금/경고/미확인 결과 라벨용 색상
+                    Color? fineColor;
+                    if (fine.contains('과태료'))
+                      fineColor = Colors.red.shade600;
+                    else if (fine.contains('범칙금'))
+                      fineColor = Colors.deepOrange;
+                    else if (fine.contains('경고'))
+                      fineColor = Colors.amber.shade800;
+                    else if (fine == '미확인')
+                      fineColor = Colors.grey;
 
-                  return InkWell(
-                    borderRadius: BorderRadius.circular(12),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      showReportDetailSheet(context, Report.fromJson(r));
-                    },
-                    child: Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Container(
-                                  margin: const EdgeInsets.only(right: 6),
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: badgeColor.withOpacity(0.12),
-                                    borderRadius: BorderRadius.circular(4),
-                                    border: Border.all(
-                                        color: badgeColor.withOpacity(0.5)),
-                                  ),
-                                  child: Text(
-                                    badgeLabel,
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                      color: badgeColor,
-                                    ),
-                                  ),
-                                ),
-                                Expanded(
-                                  child: Text(
-                                    name,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold, fontSize: 14,
-                                    ),
-                                  ),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 8, vertical: 3),
-                                  decoration: BoxDecoration(
-                                    color: statusColor.withOpacity(0.12),
-                                    borderRadius: BorderRadius.circular(20),
-                                    border: Border.all(
-                                        color: statusColor.withOpacity(0.4)),
-                                  ),
-                                  child: Text(
-                                    status.isEmpty ? '처리 중' : status,
-                                    style: TextStyle(
-                                      fontSize: 12, color: statusColor,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                                if (fineColor != null) ...[
-                                  const SizedBox(width: 4),
+                    return InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        showReportDetailSheet(context, Report.fromJson(r));
+                      },
+                      child: Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
                                   Container(
+                                    margin: const EdgeInsets.only(right: 6),
                                     padding: const EdgeInsets.symmetric(
-                                        horizontal: 8, vertical: 3),
+                                      horizontal: 6,
+                                      vertical: 2,
+                                    ),
                                     decoration: BoxDecoration(
-                                      color: fineColor.withOpacity(0.12),
-                                      borderRadius: BorderRadius.circular(20),
+                                      color: badgeColor.withOpacity(0.12),
+                                      borderRadius: BorderRadius.circular(4),
                                       border: Border.all(
-                                          color: fineColor.withOpacity(0.4)),
+                                        color: badgeColor.withOpacity(0.5),
+                                      ),
                                     ),
                                     child: Text(
-                                      // 금액 있는 과태료/범칙금은 라벨만 굵게, 외(경고/미확인)는 그대로
-                                      fine.split(':').first.trim(),
+                                      badgeLabel,
                                       style: TextStyle(
-                                        fontSize: 12, color: fineColor,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        color: badgeColor,
+                                      ),
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: Text(
+                                      name,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 3,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: statusColor.withOpacity(0.12),
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(
+                                        color: statusColor.withOpacity(0.4),
+                                      ),
+                                    ),
+                                    child: Text(
+                                      status.isEmpty ? '처리 중' : status,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: statusColor,
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
                                   ),
+                                  if (fineColor != null) ...[
+                                    const SizedBox(width: 4),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 3,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: fineColor.withOpacity(0.12),
+                                        borderRadius: BorderRadius.circular(20),
+                                        border: Border.all(
+                                          color: fineColor.withOpacity(0.4),
+                                        ),
+                                      ),
+                                      child: Text(
+                                        // 금액 있는 과태료/범칙금은 라벨만 굵게, 외(경고/미확인)는 그대로
+                                        fine.split(':').first.trim(),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: fineColor,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                  const SizedBox(width: 4),
+                                  Icon(
+                                    Icons.chevron_right,
+                                    size: 16,
+                                    color: Colors.grey.shade400,
+                                  ),
                                 ],
-                                const SizedBox(width: 4),
-                                Icon(Icons.chevron_right, size: 16,
-                                    color: Colors.grey.shade400),
+                              ),
+                              if (reportNo.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.tag,
+                                      size: 13,
+                                      color: Colors.grey.shade500,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      reportNo,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ],
-                            ),
-                            if (reportNo.isNotEmpty) ...[
-                              const SizedBox(height: 6),
-                              Row(children: [
-                                Icon(Icons.tag, size: 13,
-                                    color: Colors.grey.shade500),
-                                const SizedBox(width: 4),
-                                Text(reportNo,
-                                    style: TextStyle(
+                              if (agency.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.business,
+                                      size: 13,
+                                      color: Colors.grey.shade500,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      agency,
+                                      style: TextStyle(
                                         fontSize: 12,
-                                        color: Colors.grey.shade600)),
-                              ]),
-                            ],
-                            if (agency.isNotEmpty) ...[
-                              const SizedBox(height: 4),
-                              Row(children: [
-                                Icon(Icons.business, size: 13,
-                                    color: Colors.grey.shade500),
-                                const SizedBox(width: 4),
-                                Text(agency,
-                                    style: TextStyle(
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                              if (fine.isNotEmpty && fine != 'null') ...[
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.receipt_long,
+                                      size: 13,
+                                      color: Colors.grey.shade500,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      fine,
+                                      style: TextStyle(
                                         fontSize: 12,
-                                        color: Colors.grey.shade600)),
-                              ]),
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ],
-                            if (fine.isNotEmpty && fine != 'null') ...[
-                              const SizedBox(height: 4),
-                              Row(children: [
-                                Icon(Icons.receipt_long, size: 13,
-                                    color: Colors.grey.shade500),
-                                const SizedBox(width: 4),
-                                Text(fine,
-                                    style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey.shade600)),
-                              ]),
-                            ],
-                          ],
+                          ),
                         ),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
-            ),
-          ],
-        );},
+            ],
+          );
+        },
       ),
     );
   }
@@ -566,14 +645,18 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
       child: Text(
         '$label $count건',
         style: TextStyle(
-          fontSize: 12, color: color, fontWeight: FontWeight.w600,
+          fontSize: 12,
+          color: color,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );
   }
 
   Widget _buildSyncIcon({required bool isSelected}) {
-    final icon = isSelected ? const Icon(Icons.sync) : const Icon(Icons.sync_outlined);
+    final icon = isSelected
+        ? const Icon(Icons.sync)
+        : const Icon(Icons.sync_outlined);
     return RotationTransition(
       turns: Tween<double>(begin: 0, end: -1).animate(_syncIconController),
       child: icon,
@@ -602,10 +685,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     }
 
     return Scaffold(
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: _screens,
-      ),
+      body: IndexedStack(index: _selectedIndex, children: _screens),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: (index) {

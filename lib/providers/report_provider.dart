@@ -2,16 +2,26 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/app_mode.dart';
+import '../models/rating_batch_result.dart';
 import '../models/report.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
 import '../services/permission_service.dart';
+import '../services/rating_service.dart';
 import '../services/standalone_auth_service.dart';
 import '../services/standalone_auto_sync_service.dart';
 import '../services/sync_engine.dart';
 
 const _defaultStatusOrder = <String>[
-  '수용', '일부수용', '불수용', '처리중', '진행', '진행중', '취하', '기타', '답변완료',
+  '수용',
+  '일부수용',
+  '불수용',
+  '처리중',
+  '진행',
+  '진행중',
+  '취하',
+  '기타',
+  '답변완료',
 ];
 
 class ReportFilter {
@@ -96,7 +106,9 @@ class ReportFilter {
     if (name.isNotEmpty) list.add('신고명: $name');
     if (reportNumber.isNotEmpty) list.add('신고번호: $reportNumber');
     if (ratings.isNotEmpty) {
-      list.add('별점: ${ratings.map((rating) => rating == '__none__' ? '없음' : '$rating점').join(', ')}');
+      list.add(
+        '별점: ${ratings.map((rating) => rating == '__none__' ? '없음' : '$rating점').join(', ')}',
+      );
     }
     if (ratingCause.isNotEmpty) list.add('별점사유: $ratingCause');
     if (agency.isNotEmpty) list.add('기관: $agency');
@@ -156,8 +168,15 @@ class ReportProvider with ChangeNotifier {
   int _filesRefreshNonce = 0;
   int get statsRefreshNonce => _statsRefreshNonce;
   int get filesRefreshNonce => _filesRefreshNonce;
-  void bumpStatsRefresh() { _statsRefreshNonce++; notifyListeners(); }
-  void bumpFilesRefresh() { _filesRefreshNonce++; notifyListeners(); }
+  void bumpStatsRefresh() {
+    _statsRefreshNonce++;
+    notifyListeners();
+  }
+
+  void bumpFilesRefresh() {
+    _filesRefreshNonce++;
+    notifyListeners();
+  }
 
   // SyncEngine.emitChanges 호출 시마다 증가. main.dart 가 watch 하다가
   // _checkPendingChanges() 재실행 → pending_crawl_changes 소비 + 카드 시트 표시.
@@ -177,6 +196,7 @@ class ReportProvider with ChangeNotifier {
     if (_appMode == AppMode.standalone) return _standaloneUsername.isNotEmpty;
     return _baseUrl.isNotEmpty && _apiKey.isNotEmpty;
   }
+
   String? get errorMessage => _errorMessage;
   DashboardStats? get stats => _stats;
   bool get excludeWithdraw => _excludeWithdraw;
@@ -186,7 +206,8 @@ class ReportProvider with ChangeNotifier {
   List<Report> get otherReports => _otherReports;
   List<Report> get duplicateReports => _duplicateReports;
   Set<String> get watchlistNumbers => _watchlistNumbers;
-  bool isInWatchlist(String reportNumber) => _watchlistNumbers.contains(reportNumber);
+  bool isInWatchlist(String reportNumber) =>
+      _watchlistNumbers.contains(reportNumber);
   ReportFilter get filter => _filter;
   bool get isSyncing => _isSyncing;
   bool _isSyncing = false;
@@ -226,8 +247,11 @@ class ReportProvider with ChangeNotifier {
     }
 
     final preferred = _defaultStatusOrder.where(seen.contains).toList();
-    final extras = discovered.where((status) => !_defaultStatusOrder.contains(status)).toList()
-      ..sort((a, b) => a.compareTo(b));
+    final extras =
+        discovered
+            .where((status) => !_defaultStatusOrder.contains(status))
+            .toList()
+          ..sort((a, b) => a.compareTo(b));
     return [...preferred, ...extras];
   }
 
@@ -248,8 +272,9 @@ class ReportProvider with ChangeNotifier {
 
   bool _contains(String source, String query) =>
       query.trim().isEmpty ||
-      _parseAndOrGroups(query).any((group) =>
-          group.every((term) => source.toLowerCase().contains(term)));
+      _parseAndOrGroups(query).any(
+        (group) => group.every((term) => source.toLowerCase().contains(term)),
+      );
 
   bool _dateGte(String value, String bound) =>
       bound.isEmpty || value.isEmpty || value.compareTo(bound) >= 0;
@@ -263,8 +288,9 @@ class ReportProvider with ChangeNotifier {
       if (!_contains(r.name, f.name)) return false;
       if (!_contains(r.reportNumber, f.reportNumber)) return false;
       if (f.ratings.isNotEmpty) {
-        final ratingToken =
-            (r.rating == null || r.rating! <= 0) ? '__none__' : r.rating.toString();
+        final ratingToken = (r.rating == null || r.rating! <= 0)
+            ? '__none__'
+            : r.rating.toString();
         if (!f.ratings.contains(ratingToken)) return false;
       }
       if (!_contains(r.ratingCause, f.ratingCause)) return false;
@@ -276,7 +302,8 @@ class ReportProvider with ChangeNotifier {
       if (!_contains(r.fineInfo, f.fine)) return false;
       if (!_contains(r.reportContent, f.reportContent)) return false;
       if (!_contains(r.processContent, f.processContent)) return false;
-      if (f.statuses.isNotEmpty && !f.statuses.contains(r.status.trim())) return false;
+      if (f.statuses.isNotEmpty && !f.statuses.contains(r.status.trim()))
+        return false;
       if (!_dateGte(r.date, f.reportDateStart)) return false;
       if (!_dateLte(r.date, f.reportDateEnd)) return false;
       if (!_dateGte(r.occurrenceDate, f.occurDateStart)) return false;
@@ -319,7 +346,10 @@ class ReportProvider with ChangeNotifier {
   }
 
   /// standalone 전용 설정 토글 — SharedPreferences 영속화 + 데이터 재로드
-  Future<void> setStandaloneFilter({bool? excludeWithdraw, bool? normalizePolice}) async {
+  Future<void> setStandaloneFilter({
+    bool? excludeWithdraw,
+    bool? normalizePolice,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     if (excludeWithdraw != null) {
       _excludeWithdraw = excludeWithdraw;
@@ -335,14 +365,16 @@ class ReportProvider with ChangeNotifier {
 
   Future<void> init() async {
     try {
-      final prefs = await SharedPreferences.getInstance().timeout(const Duration(seconds: 5));
+      final prefs = await SharedPreferences.getInstance().timeout(
+        const Duration(seconds: 5),
+      );
       _appMode = AppModeX.fromString(prefs.getString('appMode'));
       _standaloneUsername = prefs.getString('standaloneUsername') ?? '';
       _standalonePhoneNumber = prefs.getString('standalonePhoneNumber') ?? '';
       _isStandaloneDemo = prefs.getBool('standaloneDemoMode') ?? false;
       _baseUrl = prefs.getString('baseUrl') ?? '';
       _apiKey = prefs.getString('apiKey') ?? '';
-      
+
       _changesEmittedSub ??= SyncEngine.changesEmitted.listen((_) {
         _pendingChangesNonce++;
         notifyListeners();
@@ -402,8 +434,7 @@ class ReportProvider with ChangeNotifier {
 
   Future<void> setConfig(String url, String key) async {
     StandaloneAuthService.stopKeepAlive();
-    final cleanUrl =
-        url.endsWith('/') ? url.substring(0, url.length - 1) : url;
+    final cleanUrl = url.endsWith('/') ? url.substring(0, url.length - 1) : url;
     _appMode = AppMode.server;
     _isStandaloneDemo = false;
     _baseUrl = cleanUrl;
@@ -486,16 +517,23 @@ class ReportProvider with ChangeNotifier {
     notifyListeners();
     try {
       if (_appMode == AppMode.standalone) {
-        _stats = await LocalDbService.computeSummary(
-          excludeWithdraw: _excludeWithdraw,
-          normalizePolice: _normalizePolice,
-        ).timeout(const Duration(seconds: 5), onTimeout: () {
-          throw Exception('로컬 DB 응답 지연 (데드락 의심)');
-        });
+        _stats =
+            await LocalDbService.computeSummary(
+              excludeWithdraw: _excludeWithdraw,
+              normalizePolice: _normalizePolice,
+            ).timeout(
+              const Duration(seconds: 5),
+              onTimeout: () {
+                throw Exception('로컬 DB 응답 지연 (데드락 의심)');
+              },
+            );
       } else {
-        _stats = await _api.getSummary().timeout(const Duration(seconds: 5), onTimeout: () {
-          throw Exception('서버 응답 지연');
-        });
+        _stats = await _api.getSummary().timeout(
+          const Duration(seconds: 5),
+          onTimeout: () {
+            throw Exception('서버 응답 지연');
+          },
+        );
       }
     } catch (e) {
       _errorMessage = _appMode == AppMode.standalone
@@ -651,6 +689,35 @@ class ReportProvider with ChangeNotifier {
       maxEmptyPages: maxEmptyPages,
       queueList: reportNumbers.join('\n'),
     );
+  }
+
+  Future<RatingBatchResult> submitRatings(
+    List<Report> reports, {
+    required int score,
+  }) async {
+    final result = await RatingService.submit(
+      appMode: _appMode,
+      selectedReports: reports,
+      score: score,
+      api: _appMode == AppMode.server ? _api : null,
+      isStandaloneDemo: _isStandaloneDemo,
+    );
+
+    try {
+      await refreshAll();
+      final reportLookup = <String, Report>{};
+      for (final report in [
+        ..._trafficReports,
+        ..._parkingReports,
+        ..._otherReports,
+        ..._duplicateReports,
+      ]) {
+        reportLookup[report.reportNumber] = report;
+      }
+      return result.enrichWithReports(reportLookup);
+    } catch (_) {
+      return result;
+    }
   }
 
   Future<void> refreshAll() async {

@@ -20,12 +20,21 @@ class StandaloneApiService {
 
   static String _extractCauseFromPopupHtml(String html) {
     final patterns = <RegExp>[
-      RegExp(r'''id=["']STSFDG_CAUSE["'][^>]*>(.*?)</textarea>''',
-          caseSensitive: false, dotAll: true),
-      RegExp(r'''name=["']STSFDG_CAUSE["'][^>]*>(.*?)</textarea>''',
-          caseSensitive: false, dotAll: true),
-      RegExp(r'''id=["']STSFDG_CAUSE["'][^>]*value=["'](.*?)["']''',
-          caseSensitive: false, dotAll: true),
+      RegExp(
+        r'''id=["']STSFDG_CAUSE["'][^>]*>(.*?)</textarea>''',
+        caseSensitive: false,
+        dotAll: true,
+      ),
+      RegExp(
+        r'''name=["']STSFDG_CAUSE["'][^>]*>(.*?)</textarea>''',
+        caseSensitive: false,
+        dotAll: true,
+      ),
+      RegExp(
+        r'''id=["']STSFDG_CAUSE["'][^>]*value=["'](.*?)["']''',
+        caseSensitive: false,
+        dotAll: true,
+      ),
     ];
     for (final pattern in patterns) {
       final match = pattern.firstMatch(html);
@@ -66,6 +75,42 @@ class StandaloneApiService {
       throw Exception('공개 API 조회 실패 (3회 재시도): $lastError');
     }
     return null;
+  }
+
+  static Future<http.Response> _postPublicFormWithRetry(
+    Uri uri, {
+    required Map<String, String> body,
+    String? referer,
+  }) async {
+    Object? lastError;
+    for (var attempt = 1; attempt <= 3; attempt++) {
+      try {
+        final response = await http
+            .post(
+              uri,
+              headers: {
+                ..._commonHeaders,
+                'Content-Type':
+                    'application/x-www-form-urlencoded; charset=UTF-8',
+                'Origin': 'https://www.safetyreport.go.kr',
+                if (referer != null) 'Referer': referer,
+              },
+              body: body,
+            )
+            .timeout(const Duration(seconds: 10));
+        return response;
+      } on SocketException catch (e) {
+        lastError = e;
+      } on http.ClientException catch (e) {
+        lastError = e;
+      } on TimeoutException catch (e) {
+        lastError = e;
+      }
+      if (attempt < 3) {
+        await Future.delayed(const Duration(seconds: 1));
+      }
+    }
+    throw Exception('별점 전송 실패 (3회 재시도): $lastError');
   }
 
   /// 유효한 토큰으로 헤더 구성. 만료 시 자동 재로그인.
@@ -202,7 +247,9 @@ class StandaloneApiService {
       if (result == null) return (score: null, cause: '');
       final r = result as Map<String, dynamic>;
       final scoreRaw = r['STSFDG_SCORE'];
-      final score = (scoreRaw is num) ? scoreRaw.toInt() : int.tryParse('$scoreRaw') ?? 0;
+      final score = (scoreRaw is num)
+          ? scoreRaw.toInt()
+          : int.tryParse('$scoreRaw') ?? 0;
       var cause = (r['STSFDG_CAUSE'] as String?) ?? '';
       if (score > 0 && cause.trim().isEmpty) {
         final popupUri = Uri.parse(
@@ -216,6 +263,48 @@ class StandaloneApiService {
       return (score: score > 0 ? score : null, cause: cause.trim());
     } catch (_) {
       return (score: null, cause: '');
+    }
+  }
+
+  static Future<void> warmUpSatisfaction() async {
+    try {
+      await _getPublicWithRetry(Uri.parse(_base));
+    } catch (_) {}
+  }
+
+  static Future<({int? score, String cause})> fetchSatisfactionStatus(
+    String spp,
+  ) async {
+    final phone = await StandaloneAuthService.getPhoneNumber();
+    return fetchSatisfaction(spp, phone);
+  }
+
+  static Future<void> submitSatisfaction(
+    String spp, {
+    required int score,
+  }) async {
+    final phone = await StandaloneAuthService.getPhoneNumber();
+    final normalizedPhone = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    if (normalizedPhone.isEmpty) {
+      throw Exception('휴대폰 번호가 설정되어 있지 않습니다.');
+    }
+    final referer =
+        '$_base/html/common/popup/satisfaction.html?seq=$spp&pn=$normalizedPhone';
+    final uri = Uri.parse(
+      '$_base/api/v1/portal/statistics/satisfactionstatistics',
+    );
+    final response = await _postPublicFormWithRetry(
+      uri,
+      referer: referer,
+      body: {
+        'STTEMNT_NO': spp,
+        'C_PHONE2': normalizedPhone,
+        'STSFDG_SCORE': '$score',
+        'STSFDG_CAUSE': '',
+      },
+    );
+    if (response.statusCode != 200) {
+      throw Exception('별점 제출 실패: HTTP ${response.statusCode}');
     }
   }
 }

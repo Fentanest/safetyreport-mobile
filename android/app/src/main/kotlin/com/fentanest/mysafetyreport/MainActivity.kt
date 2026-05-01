@@ -75,12 +75,14 @@ class MainActivity : FlutterActivity() {
 
     private fun handleNavIntent(intent: Intent) {
         val navTab = intent.getIntExtra("nav_tab", -1)
+        val navSubTab = intent.getIntExtra("nav_subtab", -1)
         val eventType = intent.getStringExtra("nav_event_type") ?: ""
         if (navTab >= 0) {
             // MethodChannel이 준비되기 전(앱 콜드 스타트) 처리를 위해 약간 지연
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                 methodChannel?.invokeMethod("navigateToTab", mapOf(
                     "tab" to navTab,
+                    "sub_tab" to navSubTab,
                     "event_type" to eventType
                 ))
             }, 500)
@@ -100,9 +102,19 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun showLocalNotification(title: String, body: String) {
+    private fun showLocalNotification(
+        title: String,
+        body: String,
+        navTab: Int? = null,
+        navSubTab: Int? = null,
+        eventType: String? = null,
+    ) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val openIntent = packageManager.getLaunchIntentForPackage(packageName)
+        val openIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+            if (navTab != null) putExtra("nav_tab", navTab)
+            if (navSubTab != null) putExtra("nav_subtab", navSubTab)
+            if (!eventType.isNullOrEmpty()) putExtra("nav_event_type", eventType)
+        }
         val pi = PendingIntent.getActivity(
             this, notifIdGen.get(), openIntent ?: Intent(),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
@@ -181,7 +193,10 @@ class MainActivity : FlutterActivity() {
                     "showNotification" -> {
                         val title = call.argument<String>("title") ?: "알림"
                         val body  = call.argument<String>("body")  ?: ""
-                        showLocalNotification(title, body)
+                        val navTab = call.argument<Int>("nav_tab")
+                        val navSubTab = call.argument<Int>("nav_subtab")
+                        val eventType = call.argument<String>("event_type")
+                        showLocalNotification(title, body, navTab, navSubTab, eventType)
                         result.success(null)
                     }
 

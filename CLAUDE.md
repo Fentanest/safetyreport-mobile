@@ -81,16 +81,18 @@ lib/
     report.dart                      ── Report 데이터 모델 (서버 컬럼명 한국어 그대로)
     file_item.dart                   ── 파일 브라우저 항목
     notification_item.dart           ── 알림 히스토리 항목
+    rating_batch_result.dart         ── 별점 배치 결과 / 개별 신고 결과 모델
     agency_stats.dart                ── 통계 데이터 모델
   providers/
     report_provider.dart             ── 신고/요약/필터 (`&`/`,` 검색, 상태/별점 다중선택), 자동 sync 트리거 (init/resume), 데모 모드 상태
-    notification_history_provider.dart ── 알림 히스토리 (최대 200개)
+    notification_history_provider.dart ── 알림 히스토리 + 알림 탭 서브탭 인덱스 상태
   services/
     api_service.dart                 ── Client 모드 HTTP/WS 클라이언트
     local_db_service.dart            ── Standalone SQLite (서버와 동일 한국어 컬럼, Play review demo seed 포함)
+    rating_service.dart              ── Client/Standalone 공통 별점 배치 처리 서비스
     sync_engine.dart                 ── 동기화 엔진 + ChangeType 상수 + FGS ref counting
     standalone_auth_service.dart     ── 안전신문고 로그인 (RSA + OAuth2 + 자동 재로그인)
-    standalone_api_service.dart      ── 안전신문고 직접 API 호출 (재시도/토큰만료 처리)
+    standalone_api_service.dart      ── 안전신문고 직접 API 호출 (재시도/토큰만료 처리, 만족도 POST 포함)
     standalone_parser.dart           ── API JSON → Report 파싱 (CRLF 정규화 포함)
     standalone_auto_sync_service.dart ── 알림 큐 drain (개별 fetch + 1회 증분 fallback)
     permission_service.dart          ── 권한 체크, WsService 토글
@@ -99,7 +101,7 @@ lib/
     dashboard_screen.dart            ── 처리 요약, 모드별 에러 메시지
     report_list_screen.dart          ── 4탭 (교통/주정차/기타/중복차량)
     statistics_screen.dart           ── 연도×카테고리×유형 통계, 위반법규 필터, softWrap
-    notifications_screen.dart        ── 알림 히스토리
+    notifications_screen.dart        ── 알림 히스토리 (크롤링/신고결과/별점 주기 3탭)
     file_browser_screen.dart         ── 로컬/서버 파일 브라우저 + share_plus fallback
     crawl_screen.dart                ── Standalone 동기화 / Client 크롤링 (모드 분기, 데모 모드 동기화 비활성화)
     settings_screen.dart             ── 설정 (모드별 카드 분기 + 버그 제보 버튼)
@@ -110,7 +112,7 @@ lib/
   widgets/
     report_detail_sheet.dart         ── 신고 상세 시트 + 인라인/전체화면 동영상
     report_list_card.dart            ── 신고 카드 공용 UI (`report_list`/`search`/`filtered_list` 공유)
-    selection_action_bar.dart        ── 다중 선택 액션 바
+    selection_action_bar.dart        ── 다중 선택 액션 바 (복사/크롤링/감시/별점 주기)
     search_filter_sheet.dart         ── 검색 필터 시트 (처리상태/별점 다중선택, 초록 `v`, `&`/`,` 안내)
 ```
 
@@ -190,6 +192,36 @@ SyncEngine.emitChanges(List<Map>)
 
 `ChangeType` (sync_engine.dart) 가 모든 식별자의 single source of truth.  
 `reportToChangeMap(report, changeType)` 가 표준 Map 형식 생성.
+
+### 5. 다중 선택 별점 주기
+
+```
+ReportListScreen
+  └─ SelectionActionBar
+       └─ 별점 주기 버튼
+            ├─ 1~5점 다이얼로그
+            ├─ RatingService.ineligibleReason() 기준 선별
+            │    └─ 참여 완료 / 참여 불가 / 답변 대기 / 취하 / 처리중 / 진행 / 진행중 자동 스킵
+            └─ ReportProvider.submitRatings()
+                 ├─ Client(server)
+                 │    ├─ POST /rating/start (서버앱 별점 작업 요청)
+                 │    ├─ /api/v1/files/download?path=logs/current_rating.log 폴링
+                 │    └─ 성공/스킵/실패를 RatingBatchResult 로 정리
+                 └─ Standalone
+                      ├─ public 만족도 score API로 기참여 여부 확인
+                      ├─ POST /api/v1/portal/statistics/satisfactionstatistics 직접 전송
+                      └─ LocalDbService.updateReportRatingByNumber() 로
+                         만족도조사여부/별점/별점사유 즉시 반영
+
+완료 후:
+  ├─ NotificationHistoryProvider.addRatingBatchResult()
+  ├─ MethodChannel showNotification(nav_tab=3, nav_subtab=2)
+  └─ NotificationsScreen 의 "별점 주기" 탭에서 상세 카드 시트 표시
+```
+
+`RatingService` 는 Standalone 뿐 아니라 Client 모드에서도 `SyncForegroundService`
+를 재사용한다. 별점 작업/로그 추적이 끝날 때까지 앱 프로세스가 쉽게 정리되지 않도록
+동기화와 같은 보호 경로를 탄다.
 
 ---
 

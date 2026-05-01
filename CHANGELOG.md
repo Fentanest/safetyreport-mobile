@@ -9,6 +9,48 @@
 
 ## 2026-05-01
 
+### 알림 탭 별점 주기 추가 + 다중 선택 배치 처리
+
+상태: 완료
+
+변경:
+- `lib/widgets/selection_action_bar.dart`
+  - 신고리스트 다중 선택 액션에 `별점 주기` 버튼 추가
+  - 1~5점 선택 다이얼로그 추가
+  - 완료 후 성공/스킵/실패 집계 푸시 알림 전송
+- `lib/services/rating_service.dart`
+  - Client(server) / Standalone 공통 별점 배치 처리 서비스 추가
+  - 서버앱 참조 기준으로 별점 불가 신고(`참여 완료`, `참여 불가`, `답변 대기`, `취하/처리중/진행*`) 자동 스킵
+  - Client는 서버 `/rating/start` 요청 후 `current_rating.log` 폴링으로 완료/실패 추적
+  - Standalone은 안전신문고 만족도 API에 직접 POST 하고 로컬 DB 별점 상태 즉시 반영
+  - 두 모드 모두 작업 중 `SyncForegroundService`를 재사용해 프로세스 보존
+- `lib/models/rating_batch_result.dart`
+  - 별점 배치 결과/개별 신고 결과 모델 추가
+- `lib/models/notification_item.dart`
+  - 알림 kind(`crawl` / `report` / `rating`) 구분 추가
+- `lib/providers/notification_history_provider.dart`
+  - 별점 배치 결과를 알림 히스토리에 저장하는 로직 추가
+  - 알림 탭 내부 서브탭 선호 인덱스 상태 추가
+- `lib/screens/notifications_screen.dart`
+  - 알림 탭을 `크롤링 현황 / 신고 결과 / 별점 주기` 3탭으로 확장
+  - 별점 주기 결과 카드, 성공/스킵/실패 요약, 실패 신고번호 표시 추가
+  - 항목 탭 시 신고 상세로 이동 가능한 report 카드형 상세 시트 추가
+- `lib/services/api_service.dart`
+  - Client 모드용 서버 별점 시작 요청 / 서버 current_rating.log 조회 메서드 추가
+- `lib/services/standalone_api_service.dart`
+  - Standalone 모드용 만족도 POST / 상태 조회 / 워밍업 메서드 추가
+- `lib/services/local_db_service.dart`
+  - 신고번호 기준 만족도조사여부 / 별점 / 별점사유 갱신 메서드 추가
+- `lib/providers/report_provider.dart`
+  - 별점 배치 실행 후 전체 데이터 새로고침 + 최신 report 데이터로 결과 보강하는 메서드 추가
+- `android/app/src/main/kotlin/com/fentanest/mysafetyreport/MainActivity.kt`
+  - 로컬 알림에 `nav_subtab` / `event_type` payload 지원 추가
+  - 푸시 알림 탭 시 `알림 > 별점 주기` 또는 `알림 > 신고 결과`로 직접 진입 가능하게 수정
+- `lib/main.dart`
+  - native intent의 `sub_tab` 수신 및 신고 결과 도착 시 알림 서브탭 자동 이동 추가
+- `test/widget_test.dart`
+  - 기본 샘플 카운터 테스트를 현재 앱 구조와 충돌 없는 placeholder 테스트로 교체
+
 ### 신고 카드 공용화 + 문서 git 반영
 
 상태: 완료

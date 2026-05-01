@@ -312,6 +312,7 @@ CREATE TABLE sync_meta (key TEXT PRIMARY KEY, value TEXT);
 - `처리상태`는 로드된 신고 목록에서 distinct 값을 추출해 다중선택 UI로 노출한다.
 - `별점`은 `없음`, `1~5점` 다중선택 UI로 노출한다.
 - 두 다중선택 UI 모두 선택된 항목 우측에 초록 `v`를 표시한다.
+- `만족도 조사 여부`는 `참여 완료`, `참여 가능`, `참여 불가` 단일선택 드롭다운으로 노출한다. 서버 `data_table.html` 상세 검색에도 동일하게 추가되어 있다.
 
 ---
 
@@ -556,6 +557,10 @@ CI 와 동일한 Docker 이미지 (`ghcr.io/cirruslabs/flutter:stable`).
     - `.gitignore`에서 `CLAUDE.md`를 제거해 문서 자체를 저장소에 반영.
     - `CLAUDE.md` 상단 설명과 루트 구조 표기를 git 추적 문서 기준으로 다시 정리.
     - `search_filter_sheet.dart`의 키보드 Enter 처리에서 선택 토글이 항상 먼저 반영되도록 조정해 다중선택 접근성을 보강.
+25. **별점 로그 파싱 버그 수정 + 만족도 조사 여부 검색 필터 추가**
+    - Client 모드 별점 주기: 서버 로그 파싱 regex가 타임스탬프 브래킷 `[2026-...]`을 신고번호로 오인식하던 버그 수정. `\[(.+?)\]` → `\[(SPP-.+?)\]` 로 변경.
+    - 서버 `data_table.html` 상세 검색과 모바일 `SearchFilterSheet`에 `만족도 조사 여부` 단일선택 드롭다운 추가 (참여 완료 / 참여 가능 / 참여 불가).
+    - `ReportFilter`에 `pollStatus` 필드 추가, `_applyFilter()`에 필터 로직 반영.
 
 1. **Standalone 모드 신규 구현**: 안전신문고 직접 로그인 (RSA + OAuth), 자동 재로그인, sqflite 로컬 DB, 증분 sync, 카드 시트
 2. **알림 큐 인프라**: Kotlin NotificationService 가 SPP 추출 → SharedPreferences 큐 → Flutter drain

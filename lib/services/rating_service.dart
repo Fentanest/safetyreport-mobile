@@ -232,10 +232,10 @@ class RatingService {
     final byReport = <String, (RatingBatchItemStatus, String)>{};
     var isComplete = false;
 
-    final successExp = RegExp(r'\[(.+?)\]\s+\d+점 별점 부여 성공');
-    final skipExp = RegExp(r'스킵:\s+\[(.+?)\]\s+(.+)$');
-    final failExp = RegExp(r'실패:\s+\[(.+?)\]\s+(.+)$');
-    final finalFailExp = RegExp(r'최종 실패:\s+\[(.+?)\]\s+오류 발생:\s*(.+)$');
+    final successExp = RegExp(r'\[(SPP-.+?)\]\s+\d+점 별점 부여 성공');
+    final skipExp = RegExp(r'스킵:\s+\[(SPP-.+?)\]\s+(.+)$');
+    final failExp = RegExp(r'실패:\s+\[(SPP-.+?)\]\s+(.+)$');
+    final finalFailExp = RegExp(r'최종 실패:\s+\[(SPP-.+?)\]\s+오류 발생:\s*(.+)$');
     final finalSummaryExp = RegExp(
       r'성공:\s*(\d+),\s*스킵:\s*(\d+),\s*실패:\s*(\d+)',
     );

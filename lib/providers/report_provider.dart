@@ -48,6 +48,7 @@ class ReportFilter {
   final String occurTimeEnd;
   final bool excludePolice;
   final bool onlyPolice;
+  final String pollStatus;
 
   const ReportFilter({
     this.name = '',
@@ -73,6 +74,7 @@ class ReportFilter {
     this.occurTimeEnd = '',
     this.excludePolice = false,
     this.onlyPolice = false,
+    this.pollStatus = '',
   });
 
   bool get isEmpty =>
@@ -98,7 +100,8 @@ class ReportFilter {
       occurTimeStart.isEmpty &&
       occurTimeEnd.isEmpty &&
       !excludePolice &&
-      !onlyPolice;
+      !onlyPolice &&
+      pollStatus.isEmpty;
 
   /// 활성 필터 항목 요약 (Chip 표시용)
   List<String> get activeLabels {
@@ -134,6 +137,7 @@ class ReportFilter {
     }
     if (excludePolice) list.add('경찰기관 제외');
     if (onlyPolice) list.add('경찰기관만');
+    if (pollStatus.isNotEmpty) list.add('만족도: $pollStatus');
     return list;
   }
 
@@ -314,6 +318,8 @@ class ReportProvider with ChangeNotifier {
       if (!_dateLte(r.occurrenceTime, f.occurTimeEnd)) return false;
       if (f.excludePolice && r.agency.contains('경찰')) return false;
       if (f.onlyPolice && !r.agency.contains('경찰')) return false;
+      if (f.pollStatus.isNotEmpty && r.pollStatus.trim() != f.pollStatus)
+        return false;
       return true;
     }).toList();
   }

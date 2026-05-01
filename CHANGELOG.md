@@ -7,6 +7,39 @@
 
 ---
 
+## 2026-05-02
+
+### Client 별점 주기 로그 파싱 버그 수정
+
+상태: 완료
+
+원인:
+- 서버 로그 포맷이 `[timestamp][level|file] >> - [SPP-...] N점 별점 부여 성공 (API)` 인데,
+  모바일의 regex `\[(.+?)\]`가 첫 번째 브래킷인 타임스탬프를 캡처해 신고번호 매칭 실패
+- 성공 로그가 기록되어도 모바일에서 "서버 로그에서 결과를 확인하지 못했습니다." 표시
+
+수정:
+- `lib/services/rating_service.dart`
+  - 4개 regex의 캡처 그룹을 `(.+?)` → `(SPP-.+?)`로 변경
+  - 타임스탬프 브래킷을 건너뛰고 신고번호만 정확히 캡처
+
+### 만족도 조사 여부 검색 필터 추가
+
+상태: 완료
+
+변경:
+- 서버 `web/templates/data_table.html`
+  - 상세 검색 사이드바의 별점사유 뒤에 `만족도 조사 여부` 드롭다운 추가
+  - 옵션: 전체 / 참여 완료 / 참여 가능 / 참여 불가 (단일 선택)
+  - JS 필터 로직에 `만족도조사여부` 필드 검사 추가
+- 모바일 `lib/providers/report_provider.dart`
+  - `ReportFilter`에 `pollStatus` 필드 추가
+  - `_applyFilter()`에 `pollStatus` 필터 로직 반영
+  - `activeLabels`에 만족도 필터 표시 추가
+- 모바일 `lib/widgets/search_filter_sheet.dart`
+  - 별점사유 아래에 `만족도 조사 여부` 단일선택 드롭다운 UI 추가
+  - `_singleSelectDropdown` 위젯 메서드 추가
+
 ## 2026-05-01
 
 ### Client 별점 요청 302 대응

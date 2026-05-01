@@ -36,6 +36,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   late String _responseDateEnd;
   late bool _excludePolice;
   late bool _onlyPolice;
+  late String _pollStatus;
   bool _statusExpanded = false;
   bool _ratingExpanded = false;
 
@@ -49,6 +50,11 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     MapEntry('3', '3점'),
     MapEntry('4', '4점'),
     MapEntry('5', '5점'),
+  ];
+  static const _pollStatusOptions = <String>[
+    '참여 완료',
+    '참여 가능',
+    '참여 불가',
   ];
 
   @override
@@ -78,6 +84,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     _responseDateEnd     = f.responseDateEnd;
     _excludePolice       = f.excludePolice;
     _onlyPolice          = f.onlyPolice;
+    _pollStatus          = f.pollStatus;
   }
 
   @override
@@ -133,6 +140,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
       occurTimeEnd:      _occurTimeEndCtrl.text.trim(),
       excludePolice:     _excludePolice,
       onlyPolice:        _onlyPolice,
+      pollStatus:        _pollStatus,
     ));
     Navigator.pop(context);
   }
@@ -257,6 +265,14 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
             ),
             const SizedBox(height: 8),
             _input(_ratingCauseCtrl, '별점사유', Icons.comment_outlined),
+            const SizedBox(height: 8),
+            _singleSelectDropdown(
+              label: '만족도 조사 여부',
+              icon: Icons.poll_outlined,
+              options: _pollStatusOptions,
+              currentValue: _pollStatus,
+              onChanged: (v) => setState(() => _pollStatus = v),
+            ),
             const SizedBox(height: 8),
             _input(_carCtrl, '차량번호', Icons.directions_car_outlined),
             const SizedBox(height: 8),
@@ -484,6 +500,40 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
           ),
         ],
       ],
+    );
+  }
+
+  Widget _singleSelectDropdown({
+    required String label,
+    required IconData icon,
+    required List<String> options,
+    required String currentValue,
+    required ValueChanged<String> onChanged,
+  }) {
+    return InputDecorator(
+      decoration: InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(),
+        prefixIcon: Icon(icon, size: 18),
+        isDense: true,
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: currentValue.isEmpty ? null : currentValue,
+          hint: Text('전체',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 14)),
+          isExpanded: true,
+          isDense: true,
+          items: [
+            const DropdownMenuItem(value: '', child: Text('전체')),
+            ...options.map((option) => DropdownMenuItem(
+                  value: option,
+                  child: Text(option),
+                )),
+          ],
+          onChanged: (value) => onChanged(value ?? ''),
+        ),
+      ),
     );
   }
 

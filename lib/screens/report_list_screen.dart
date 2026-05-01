@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../providers/report_provider.dart';
 import '../models/report.dart';
 import '../widgets/report_detail_sheet.dart';
+import '../widgets/report_list_card.dart';
 import '../widgets/search_filter_sheet.dart';
 import '../widgets/selection_action_bar.dart';
 import 'settings_screen.dart';
@@ -54,10 +54,18 @@ class _ReportListScreenState extends State<ReportListScreen>
     final provider = context.read<ReportProvider>();
     final List<Report> currentReports;
     switch (_tabController.index) {
-      case 0: currentReports = provider.filteredTrafficReports; break;
-      case 1: currentReports = provider.filteredParkingReports; break;
-      case 2: currentReports = provider.filteredOtherReports; break;
-      default: currentReports = []; break;
+      case 0:
+        currentReports = provider.filteredTrafficReports;
+        break;
+      case 1:
+        currentReports = provider.filteredParkingReports;
+        break;
+      case 2:
+        currentReports = provider.filteredOtherReports;
+        break;
+      default:
+        currentReports = [];
+        break;
     }
     setState(() {
       for (final r in currentReports) {
@@ -75,8 +83,9 @@ class _ReportListScreenState extends State<ReportListScreen>
       ...provider.filteredParkingReports,
       ...provider.filteredOtherReports,
     ];
-    final selectedReports =
-        allReports.where((r) => _selected.contains(r.reportNumber)).toList();
+    final selectedReports = allReports
+        .where((r) => _selected.contains(r.reportNumber))
+        .toList();
 
     return Scaffold(
       appBar: _selectionMode
@@ -87,17 +96,15 @@ class _ReportListScreenState extends State<ReportListScreen>
               ),
               title: Text('${_selected.length}개 선택됨'),
               backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-              foregroundColor:
-                  Theme.of(context).colorScheme.onPrimaryContainer,
+              foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
               actions: [
                 TextButton(
                   onPressed: _selectAllCurrentTab,
                   child: Text(
                     '전체 선택',
                     style: TextStyle(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .onPrimaryContainer),
+                      color: Theme.of(context).colorScheme.onPrimaryContainer,
+                    ),
                   ),
                 ),
               ],
@@ -118,8 +125,7 @@ class _ReportListScreenState extends State<ReportListScreen>
                   tooltip: '설정',
                   onPressed: () => Navigator.push(
                     context,
-                    MaterialPageRoute(
-                        builder: (_) => const SettingsScreen()),
+                    MaterialPageRoute(builder: (_) => const SettingsScreen()),
                   ),
                 ),
               ],
@@ -142,12 +148,21 @@ class _ReportListScreenState extends State<ReportListScreen>
           TabBarView(
             controller: _tabController,
             children: [
-              _buildTab(provider, provider.filteredTrafficReports,
-                  provider.fetchTrafficReports),
-              _buildTab(provider, provider.filteredParkingReports,
-                  provider.fetchParkingReports),
-              _buildTab(provider, provider.filteredOtherReports,
-                  provider.fetchOtherReports),
+              _buildTab(
+                provider,
+                provider.filteredTrafficReports,
+                provider.fetchTrafficReports,
+              ),
+              _buildTab(
+                provider,
+                provider.filteredParkingReports,
+                provider.fetchParkingReports,
+              ),
+              _buildTab(
+                provider,
+                provider.filteredOtherReports,
+                provider.fetchOtherReports,
+              ),
               _buildDuplicateTab(provider),
             ],
           ),
@@ -167,8 +182,11 @@ class _ReportListScreenState extends State<ReportListScreen>
     );
   }
 
-  Widget _buildTab(ReportProvider provider, List<Report> reports,
-      Future<void> Function() onRefresh) {
+  Widget _buildTab(
+    ReportProvider provider,
+    List<Report> reports,
+    Future<void> Function() onRefresh,
+  ) {
     if (provider.isLoading && reports.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -185,19 +203,26 @@ class _ReportListScreenState extends State<ReportListScreen>
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (provider.errorMessage != null) ...[
-                      Icon(Icons.cloud_off_rounded,
-                          size: 56, color: Colors.grey.shade400),
+                      Icon(
+                        Icons.cloud_off_rounded,
+                        size: 56,
+                        color: Colors.grey.shade400,
+                      ),
                       const SizedBox(height: 12),
-                      const Text('데이터를 불러오지 못했습니다.',
-                          style: TextStyle(
-                              color: Colors.grey,
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600)),
+                      const Text(
+                        '데이터를 불러오지 못했습니다.',
+                        style: TextStyle(
+                          color: Colors.grey,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                       const SizedBox(height: 6),
-                      const Text('아래로 당겨 다시 시도하거나\n설정에서 서버 상태를 확인하세요.',
-                          textAlign: TextAlign.center,
-                          style:
-                              TextStyle(color: Colors.grey, fontSize: 13)),
+                      const Text(
+                        '아래로 당겨 다시 시도하거나\n설정에서 서버 상태를 확인하세요.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.grey, fontSize: 13),
+                      ),
                       const SizedBox(height: 16),
                       FilledButton.icon(
                         icon: const Icon(Icons.refresh, size: 16),
@@ -205,15 +230,18 @@ class _ReportListScreenState extends State<ReportListScreen>
                         onPressed: onRefresh,
                       ),
                     ] else ...[
-                      Icon(Icons.inbox_rounded,
-                          size: 56, color: Colors.grey.shade400),
+                      Icon(
+                        Icons.inbox_rounded,
+                        size: 56,
+                        color: Colors.grey.shade400,
+                      ),
                       const SizedBox(height: 12),
                       Text(
-                        provider.hasFilter
-                            ? '검색 결과가 없습니다.'
-                            : '신고 내역이 없습니다.',
+                        provider.hasFilter ? '검색 결과가 없습니다.' : '신고 내역이 없습니다.',
                         style: const TextStyle(
-                            color: Colors.grey, fontSize: 15),
+                          color: Colors.grey,
+                          fontSize: 15,
+                        ),
                       ),
                     ],
                   ],
@@ -253,8 +281,10 @@ class _ReportListScreenState extends State<ReportListScreen>
                   children: [
                     Icon(Icons.content_copy, size: 56, color: Colors.grey),
                     SizedBox(height: 12),
-                    Text('중복 신고 차량이 없습니다.',
-                        style: TextStyle(color: Colors.grey, fontSize: 15)),
+                    Text(
+                      '중복 신고 차량이 없습니다.',
+                      style: TextStyle(color: Colors.grey, fontSize: 15),
+                    ),
                   ],
                 ),
               ),
@@ -274,149 +304,47 @@ class _ReportListScreenState extends State<ReportListScreen>
   }
 
   Widget _buildDuplicateCard(Report report) {
-    final color = _statusColor(report.status);
     final isSelected = _selected.contains(report.reportNumber);
     final provider = context.read<ReportProvider>();
-    final totalCount = report.totalCount > 0 ? report.totalCount : report.validCount;
+    final totalCount = report.totalCount > 0
+        ? report.totalCount
+        : report.validCount;
     final validCount = report.validCount;
     final excludeWithdraw = provider.excludeWithdraw;
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: isSelected
-              ? Theme.of(context).colorScheme.primary
-              : Colors.grey.shade200,
-          width: isSelected ? 2 : 1,
-        ),
-      ),
-      color: isSelected
-          ? Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3)
-          : null,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: _selectionMode
-            ? () => _toggleSelect(report.reportNumber)
-            : () => showReportDetailSheet(context, report),
-        onLongPress: () {
-          if (!_selectionMode) setState(() => _selected.add(report.reportNumber));
-        },
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (_selectionMode)
-                Padding(
-                  padding: const EdgeInsets.only(right: 10, top: 2),
-                  child: Icon(
-                    isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
-                    size: 20,
-                    color: isSelected
-                        ? Theme.of(context).colorScheme.primary
-                        : Colors.grey.shade400,
-                  ),
-                ),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(report.name,
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                              overflow: TextOverflow.ellipsis),
-                        ),
-                        const SizedBox(width: 8),
-                        _statusChip(report.status, color),
-                        if (totalCount > 0) ...[
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: Colors.deepOrange.shade50,
-                              border: Border.all(color: Colors.deepOrange.shade200),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              excludeWithdraw && validCount != totalCount
-                                  ? '$validCount/$totalCount회'
-                                  : '$totalCount회',
-                              style: TextStyle(
-                                  color: Colors.deepOrange.shade700,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        const Icon(Icons.tag, size: 13, color: Colors.grey),
-                        const SizedBox(width: 3),
-                        Text(report.reportNumber,
-                            style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                      ],
-                    ),
-                    const Divider(height: 14),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _metaRow(Icons.calendar_today,
-                                  report.date.isNotEmpty ? '신고: ${report.date}' : ''),
-                              if (report.responseDate.isNotEmpty) ...[
-                                const SizedBox(height: 3),
-                                _metaRow(Icons.event_available, '답변: ${report.responseDate}'),
-                              ],
-                              const SizedBox(height: 3),
-                              _metaRow(Icons.business, report.agency),
-                              if (report.manager.isNotEmpty) ...[
-                                const SizedBox(height: 3),
-                                _metaRow(Icons.person_outline, report.manager),
-                              ],
-                              if (report.fineInfo.isNotEmpty) ...[
-                                const SizedBox(height: 3),
-                                _metaRow(Icons.monetization_on_outlined, report.fineInfo),
-                              ],
-                              if (report.location.isNotEmpty) ...[
-                                const SizedBox(height: 3),
-                                _metaRow(Icons.location_on_outlined, report.location),
-                              ],
-                            ],
-                          ),
-                        ),
-                        if (report.carNumber.isNotEmpty)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                            decoration: BoxDecoration(
-                              color: Colors.blueGrey.shade50,
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: Colors.blueGrey.shade200),
-                            ),
-                            child: Text(report.carNumber,
-                                style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
-                                    letterSpacing: 0.5)),
-                          ),
-                      ],
-                    ),
-                  ],
+    return ReportListCard(
+      report: report,
+      selectionMode: _selectionMode,
+      isSelected: isSelected,
+      onTap: _selectionMode
+          ? () => _toggleSelect(report.reportNumber)
+          : () => showReportDetailSheet(context, report),
+      onLongPress: () {
+        if (!_selectionMode) {
+          setState(() => _selected.add(report.reportNumber));
+        }
+      },
+      headerSuffix: totalCount > 0
+          ? Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: Colors.deepOrange.shade50,
+                border: Border.all(color: Colors.deepOrange.shade200),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                excludeWithdraw && validCount != totalCount
+                    ? '$validCount/$totalCount회'
+                    : '$totalCount회',
+                style: TextStyle(
+                  color: Colors.deepOrange.shade700,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
-            ],
-          ),
-        ),
-      ),
+            )
+          : null,
+      metaItems: _buildMetaItems(report, includeLocation: true),
     );
   }
 
@@ -433,184 +361,63 @@ class _ReportListScreenState extends State<ReportListScreen>
   }
 
   Widget _buildReportCard(Report report) {
-    final color = _statusColor(report.status);
     final isSelected = _selected.contains(report.reportNumber);
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: isSelected
-              ? Theme.of(context).colorScheme.primary
-              : Colors.grey.shade200,
-          width: isSelected ? 2 : 1,
-        ),
-      ),
-      color: isSelected
-          ? Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3)
-          : null,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: _selectionMode
-            ? () => _toggleSelect(report.reportNumber)
-            : () => showReportDetailSheet(context, report),
-        onLongPress: () {
-          if (!_selectionMode) {
-            setState(() => _selected.add(report.reportNumber));
-          }
-        },
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (_selectionMode)
-                Padding(
-                  padding: const EdgeInsets.only(right: 10, top: 2),
-                  child: Icon(
-                    isSelected
-                        ? Icons.check_circle
-                        : Icons.radio_button_unchecked,
-                    size: 20,
-                    color: isSelected
-                        ? Theme.of(context).colorScheme.primary
-                        : Colors.grey.shade400,
-                  ),
-                ),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            report.name,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.bold, fontSize: 14),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        _statusChip(report.status, color),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        const Icon(Icons.tag, size: 13, color: Colors.grey),
-                        const SizedBox(width: 3),
-                        Text(report.reportNumber,
-                            style: const TextStyle(
-                                color: Colors.grey, fontSize: 12)),
-                      ],
-                    ),
-                    const Divider(height: 14),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _metaRow(Icons.calendar_today,
-                                  report.date.isNotEmpty
-                                      ? '신고: ${report.date}'
-                                      : ''),
-                              if (report.responseDate.isNotEmpty) ...[
-                                const SizedBox(height: 3),
-                                _metaRow(Icons.event_available,
-                                    '답변: ${report.responseDate}'),
-                              ],
-                              const SizedBox(height: 3),
-                              _metaRow(Icons.business, report.agency),
-                              if (report.manager.isNotEmpty) ...[
-                                const SizedBox(height: 3),
-                                _metaRow(
-                                    Icons.person_outline, report.manager),
-                              ],
-                              if (report.fineInfo.isNotEmpty) ...[
-                                const SizedBox(height: 3),
-                                _metaRow(Icons.monetization_on_outlined, report.fineInfo),
-                              ],
-                              if (report.location.isNotEmpty) ...[
-                                const SizedBox(height: 3),
-                                _metaRow(Icons.location_on_outlined, report.location),
-                              ],
-                              if (report.occurrenceDate.isNotEmpty) ...[
-                                const SizedBox(height: 3),
-                                _metaRow(Icons.access_time,
-                                    '발생: ${report.occurrenceDate}'
-                                    '${report.occurrenceTime.isNotEmpty ? ' ${report.occurrenceTime}' : ''}'),
-                              ],
-                            ],
-                          ),
-                        ),
-                        if (report.carNumber.isNotEmpty)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 5),
-                            decoration: BoxDecoration(
-                              color: Colors.blueGrey.shade50,
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(
-                                  color: Colors.blueGrey.shade200),
-                            ),
-                            child: Text(
-                              report.carNumber,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                  letterSpacing: 0.5),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
+    return ReportListCard(
+      report: report,
+      selectionMode: _selectionMode,
+      isSelected: isSelected,
+      onTap: _selectionMode
+          ? () => _toggleSelect(report.reportNumber)
+          : () => showReportDetailSheet(context, report),
+      onLongPress: () {
+        if (!_selectionMode) {
+          setState(() => _selected.add(report.reportNumber));
+        }
+      },
+      metaItems: _buildMetaItems(
+        report,
+        includeLocation: true,
+        includeOccurrence: true,
       ),
     );
   }
 
-  Widget _metaRow(IconData icon, String text) {
-    if (text.isEmpty) return const SizedBox.shrink();
-    return Row(
-      children: [
-        Icon(icon, size: 12, color: Colors.grey),
-        const SizedBox(width: 4),
-        Expanded(
-          child: Text(text,
-              style: const TextStyle(color: Colors.grey, fontSize: 12),
-              overflow: TextOverflow.ellipsis),
-        ),
-      ],
-    );
-  }
-
-  Widget _statusChip(String status, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        border: Border.all(color: color.withOpacity(0.4)),
-        borderRadius: BorderRadius.circular(20),
+  List<ReportCardMetaItem> _buildMetaItems(
+    Report report, {
+    required bool includeLocation,
+    bool includeOccurrence = false,
+  }) {
+    return [
+      ReportCardMetaItem(
+        icon: Icons.calendar_today,
+        text: report.date.isNotEmpty ? '신고: ${report.date}' : '',
       ),
-      child: Text(status,
-          style: TextStyle(
-              color: color, fontSize: 11, fontWeight: FontWeight.bold)),
-    );
-  }
-
-  Color _statusColor(String status) {
-    if (status == '일부수용') return const Color(0xFF43A047);
-    if (status.contains('수용') && !status.contains('불')) return Colors.green;
-    if (status.contains('불수용')) return Colors.red;
-    if (status.contains('처리') || status.contains('진행')) return Colors.orange;
-    return Colors.grey;
+      ReportCardMetaItem(
+        icon: Icons.event_available,
+        text: report.responseDate.isNotEmpty
+            ? '답변: ${report.responseDate}'
+            : '',
+      ),
+      ReportCardMetaItem(icon: Icons.business, text: report.agency),
+      ReportCardMetaItem(icon: Icons.person_outline, text: report.manager),
+      ReportCardMetaItem(
+        icon: Icons.monetization_on_outlined,
+        text: report.fineInfo,
+      ),
+      if (includeLocation)
+        ReportCardMetaItem(
+          icon: Icons.location_on_outlined,
+          text: report.location,
+        ),
+      if (includeOccurrence)
+        ReportCardMetaItem(
+          icon: Icons.access_time,
+          text: report.occurrenceDate.isEmpty
+              ? ''
+              : '발생: ${report.occurrenceDate}'
+                    '${report.occurrenceTime.isNotEmpty ? ' ${report.occurrenceTime}' : ''}',
+        ),
+    ];
   }
 }

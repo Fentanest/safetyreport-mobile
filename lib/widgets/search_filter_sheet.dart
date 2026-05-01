@@ -501,11 +501,11 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
             key != LogicalKeyboardKey.numpadEnter) {
           return KeyEventResult.ignored;
         }
-        if (selected && onSubmit != null) {
+        onTap();
+        if (onSubmit != null) {
           onSubmit();
-          return KeyEventResult.handled;
         }
-        return KeyEventResult.ignored;
+        return KeyEventResult.handled;
       },
       child: InkWell(
         onTap: onTap,

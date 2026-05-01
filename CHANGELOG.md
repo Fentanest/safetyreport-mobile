@@ -9,6 +9,35 @@
 
 ## 2026-05-01
 
+### 신고 카드 공용화 + 문서 git 반영
+
+상태: 완료
+
+변경:
+- `lib/widgets/report_list_card.dart`
+  - 신고 카드 공용 UI 추가: 상태칩, 선택 강조, 차량번호 배지, 메타 행 렌더링 통합
+- `lib/screens/report_list_screen.dart`
+  - 일반 신고 / 중복차량 카드가 공용 카드 위젯을 사용하도록 리팩토링
+  - 중복차량 횟수 배지는 화면 전용 `headerSuffix`로 분리
+- `lib/screens/search_screen.dart`
+  - 검색 결과 카드 중복 UI 제거, 공용 카드 위젯 사용
+- `lib/screens/filtered_list_screen.dart`
+  - 필터 결과 카드 중복 UI 제거, 공용 카드 위젯 사용
+- `CLAUDE.md`
+  - `.gitignore` 해제 전제로 git 추적 문서 기준 설명으로 갱신
+  - 프로젝트 루트 구조를 git 추적 항목 기준으로 정리
+- `.gitignore`
+  - `CLAUDE.md` ignore 규칙 제거
+
+### 상세검색 다중선택 키보드 처리 보정
+
+상태: 완료
+
+변경:
+- `lib/widgets/search_filter_sheet.dart`
+  - Enter/숫자패드 Enter 입력 시 먼저 `onTap()`을 실행하도록 조정
+  - 이미 선택된 항목이 아니어도 키보드로 선택 토글 + 제출이 일관되게 동작하도록 수정
+
 ### 신고리스트 상세검색 AND/OR + 다중선택 공통 적용
 
 상태: 완료

@@ -54,7 +54,6 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   static const _pollStatusOptions = <String>[
     '참여 완료',
     '참여 가능',
-    '참여 불가',
   ];
 
   @override

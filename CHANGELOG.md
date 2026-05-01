@@ -30,7 +30,7 @@
 변경:
 - 서버 `web/templates/data_table.html`
   - 상세 검색 사이드바의 별점사유 뒤에 `만족도 조사 여부` 드롭다운 추가
-  - 옵션: 전체 / 참여 완료 / 참여 가능 / 참여 불가 (단일 선택)
+  - 옵션: 전체 / 참여 완료 / 참여 가능 (단일 선택)
   - JS 필터 로직에 `만족도조사여부` 필드 검사 추가
 - 모바일 `lib/providers/report_provider.dart`
   - `ReportFilter`에 `pollStatus` 필드 추가

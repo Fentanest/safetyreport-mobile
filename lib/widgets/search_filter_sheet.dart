@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../providers/report_provider.dart';
 
 /// 신고 리스트 / 검색탭 공용 상세검색 팝업
@@ -469,12 +470,14 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
                   label: '전체',
                   selected: selectedValues.isEmpty,
                   onTap: onClear,
+                  onSubmit: _apply,
                 ),
                 Divider(height: 1, color: Colors.grey.shade200),
                 ...options.map((option) => _multiSelectOption(
                       label: option.value,
                       selected: selectedValues.contains(option.key),
                       onTap: () => onToggleValue(option.key),
+                      onSubmit: _apply,
                     )),
               ],
             ),
@@ -488,36 +491,53 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     required String label,
     required bool selected,
     required VoidCallback onTap,
+    VoidCallback? onSubmit,
   }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+    return Focus(
+      onKeyEvent: (_, event) {
+        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        final key = event.logicalKey;
+        if (key != LogicalKeyboardKey.enter &&
+            key != LogicalKeyboardKey.numpadEnter) {
+          return KeyEventResult.ignored;
+        }
+        if (selected && onSubmit != null) {
+          onSubmit();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: InkWell(
+        onTap: onTap,
+        canRequestFocus: true,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
                 ),
               ),
-            ),
-            SizedBox(
-              width: 18,
-              child: Text(
-                selected ? 'v' : '',
-                textAlign: TextAlign.right,
-                style: const TextStyle(
-                  color: Colors.green,
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
+              SizedBox(
+                width: 18,
+                child: Text(
+                  selected ? 'v' : '',
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(
+                    color: Colors.green,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

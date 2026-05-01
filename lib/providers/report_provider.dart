@@ -10,10 +10,14 @@ import '../services/standalone_auth_service.dart';
 import '../services/standalone_auto_sync_service.dart';
 import '../services/sync_engine.dart';
 
+const _defaultStatusOrder = <String>[
+  '수용', '일부수용', '불수용', '처리중', '진행', '진행중', '취하', '기타', '답변완료',
+];
+
 class ReportFilter {
   final String name;
   final String reportNumber;
-  final String rating;
+  final List<String> ratings;
   final String ratingCause;
   final String agency;
   final String manager;
@@ -23,7 +27,7 @@ class ReportFilter {
   final String fine;
   final String reportContent;
   final String processContent;
-  final String status;
+  final List<String> statuses;
   final String reportDateStart;
   final String reportDateEnd;
   final String occurDateStart;
@@ -38,7 +42,7 @@ class ReportFilter {
   const ReportFilter({
     this.name = '',
     this.reportNumber = '',
-    this.rating = '',
+    this.ratings = const [],
     this.ratingCause = '',
     this.agency = '',
     this.manager = '',
@@ -48,7 +52,7 @@ class ReportFilter {
     this.fine = '',
     this.reportContent = '',
     this.processContent = '',
-    this.status = '',
+    this.statuses = const [],
     this.reportDateStart = '',
     this.reportDateEnd = '',
     this.occurDateStart = '',
@@ -64,7 +68,7 @@ class ReportFilter {
   bool get isEmpty =>
       name.isEmpty &&
       reportNumber.isEmpty &&
-      rating.isEmpty &&
+      ratings.isEmpty &&
       ratingCause.isEmpty &&
       agency.isEmpty &&
       manager.isEmpty &&
@@ -74,7 +78,7 @@ class ReportFilter {
       fine.isEmpty &&
       reportContent.isEmpty &&
       processContent.isEmpty &&
-      status.isEmpty &&
+      statuses.isEmpty &&
       reportDateStart.isEmpty &&
       reportDateEnd.isEmpty &&
       occurDateStart.isEmpty &&
@@ -91,12 +95,8 @@ class ReportFilter {
     final list = <String>[];
     if (name.isNotEmpty) list.add('신고명: $name');
     if (reportNumber.isNotEmpty) list.add('신고번호: $reportNumber');
-    if (rating.isNotEmpty) {
-      if (rating == '__none__') {
-        list.add('별점: 없음');
-      } else {
-        list.add('별점: $rating점');
-      }
+    if (ratings.isNotEmpty) {
+      list.add('별점: ${ratings.map((rating) => rating == '__none__' ? '없음' : '$rating점').join(', ')}');
     }
     if (ratingCause.isNotEmpty) list.add('별점사유: $ratingCause');
     if (agency.isNotEmpty) list.add('기관: $agency');
@@ -107,19 +107,26 @@ class ReportFilter {
     if (fine.isNotEmpty) list.add('과태료: $fine');
     if (reportContent.isNotEmpty) list.add('신고내용: $reportContent');
     if (processContent.isNotEmpty) list.add('처리내용: $processContent');
-    if (status.isNotEmpty) list.add('상태: $status');
-    if (reportDateStart.isNotEmpty || reportDateEnd.isNotEmpty)
+    if (statuses.isNotEmpty) list.add('상태: ${statuses.join(', ')}');
+    if (reportDateStart.isNotEmpty || reportDateEnd.isNotEmpty) {
       list.add('신고일: $reportDateStart~$reportDateEnd');
-    if (occurDateStart.isNotEmpty || occurDateEnd.isNotEmpty)
+    }
+    if (occurDateStart.isNotEmpty || occurDateEnd.isNotEmpty) {
       list.add('발생일: $occurDateStart~$occurDateEnd');
-    if (responseDateStart.isNotEmpty || responseDateEnd.isNotEmpty)
+    }
+    if (responseDateStart.isNotEmpty || responseDateEnd.isNotEmpty) {
       list.add('답변일: $responseDateStart~$responseDateEnd');
-    if (occurTimeStart.isNotEmpty || occurTimeEnd.isNotEmpty)
+    }
+    if (occurTimeStart.isNotEmpty || occurTimeEnd.isNotEmpty) {
       list.add('발생시각: $occurTimeStart~$occurTimeEnd');
+    }
     if (excludePolice) list.add('경찰기관 제외');
     if (onlyPolice) list.add('경찰기관만');
     return list;
   }
+
+  String get rating => ratings.join(',');
+  String get status => statuses.join(',');
 }
 
 class ReportProvider with ChangeNotifier {
@@ -197,8 +204,52 @@ class ReportProvider with ChangeNotifier {
   // 중복차량은 서버에서 이미 그룹/정렬되므로 필터 미적용
   List<Report> get filteredDuplicateReports => _duplicateReports;
 
+  List<String> get availableStatuses {
+    final seen = <String>{};
+    final discovered = <String>[];
+
+    void collect(Iterable<Report> reports) {
+      for (final report in reports) {
+        final status = report.status.trim();
+        if (status.isEmpty || !seen.add(status)) continue;
+        discovered.add(status);
+      }
+    }
+
+    collect(_trafficReports);
+    collect(_parkingReports);
+    collect(_otherReports);
+    for (final status in _filter.statuses) {
+      final trimmed = status.trim();
+      if (trimmed.isEmpty || !seen.add(trimmed)) continue;
+      discovered.add(trimmed);
+    }
+
+    final preferred = _defaultStatusOrder.where(seen.contains).toList();
+    final extras = discovered.where((status) => !_defaultStatusOrder.contains(status)).toList()
+      ..sort((a, b) => a.compareTo(b));
+    return [...preferred, ...extras];
+  }
+
+  List<List<String>> _parseAndOrGroups(String query) {
+    final text = query.trim();
+    if (text.isEmpty) return const [];
+    final groups = <List<String>>[];
+    for (final rawGroup in text.split(',')) {
+      final terms = rawGroup
+          .split('&')
+          .map((term) => term.trim().toLowerCase())
+          .where((term) => term.isNotEmpty)
+          .toList();
+      if (terms.isNotEmpty) groups.add(terms);
+    }
+    return groups;
+  }
+
   bool _contains(String source, String query) =>
-      query.isEmpty || source.toLowerCase().contains(query.toLowerCase());
+      query.trim().isEmpty ||
+      _parseAndOrGroups(query).any((group) =>
+          group.every((term) => source.toLowerCase().contains(term)));
 
   bool _dateGte(String value, String bound) =>
       bound.isEmpty || value.isEmpty || value.compareTo(bound) >= 0;
@@ -211,13 +262,10 @@ class ReportProvider with ChangeNotifier {
     return reports.where((r) {
       if (!_contains(r.name, f.name)) return false;
       if (!_contains(r.reportNumber, f.reportNumber)) return false;
-      if (f.rating.isNotEmpty) {
-        if (f.rating == '__none__') {
-          if (r.rating != null && r.rating! > 0) return false;
-        } else {
-          final wanted = int.tryParse(f.rating);
-          if (wanted == null || r.rating != wanted) return false;
-        }
+      if (f.ratings.isNotEmpty) {
+        final ratingToken =
+            (r.rating == null || r.rating! <= 0) ? '__none__' : r.rating.toString();
+        if (!f.ratings.contains(ratingToken)) return false;
       }
       if (!_contains(r.ratingCause, f.ratingCause)) return false;
       if (!_contains(r.agency, f.agency)) return false;
@@ -228,7 +276,7 @@ class ReportProvider with ChangeNotifier {
       if (!_contains(r.fineInfo, f.fine)) return false;
       if (!_contains(r.reportContent, f.reportContent)) return false;
       if (!_contains(r.processContent, f.processContent)) return false;
-      if (f.status.isNotEmpty && r.status != f.status) return false;
+      if (f.statuses.isNotEmpty && !f.statuses.contains(r.status.trim())) return false;
       if (!_dateGte(r.date, f.reportDateStart)) return false;
       if (!_dateLte(r.date, f.reportDateEnd)) return false;
       if (!_dateGte(r.occurrenceDate, f.occurDateStart)) return false;

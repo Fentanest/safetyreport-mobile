@@ -25,8 +25,8 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   late final TextEditingController _occurTimeStartCtrl;
   late final TextEditingController _occurTimeEndCtrl;
 
-  late String _status;
-  late String _rating;
+  late List<String> _selectedStatuses;
+  late List<String> _selectedRatings;
   late String _reportDateStart;
   late String _reportDateEnd;
   late String _occurDateStart;
@@ -35,12 +35,13 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   late String _responseDateEnd;
   late bool _excludePolice;
   late bool _onlyPolice;
+  bool _statusExpanded = false;
+  bool _ratingExpanded = false;
 
-  static const _statusOptions = [
-    '', '수용', '일부수용', '불수용', '처리중', '취하', '기타',
+  static const _fallbackStatusOptions = [
+    '수용', '일부수용', '불수용', '처리중', '진행', '진행중', '취하', '기타', '답변완료',
   ];
   static const _ratingOptions = <MapEntry<String, String>>[
-    MapEntry('', '전체'),
     MapEntry('__none__', '없음'),
     MapEntry('1', '1점'),
     MapEntry('2', '2점'),
@@ -66,8 +67,8 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     _processContentCtrl  = TextEditingController(text: f.processContent);
     _occurTimeStartCtrl  = TextEditingController(text: f.occurTimeStart);
     _occurTimeEndCtrl    = TextEditingController(text: f.occurTimeEnd);
-    _status              = f.status;
-    _rating              = f.rating;
+    _selectedStatuses    = List<String>.from(f.statuses);
+    _selectedRatings     = List<String>.from(f.ratings);
     _reportDateStart     = f.reportDateStart;
     _reportDateEnd       = f.reportDateEnd;
     _occurDateStart      = f.occurDateStart;
@@ -110,7 +111,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     widget.provider.setFilter(ReportFilter(
       name:              _nameCtrl.text.trim(),
       reportNumber:      _numCtrl.text.trim(),
-      rating:            _rating,
+      ratings:           List<String>.from(_selectedRatings),
       ratingCause:       _ratingCauseCtrl.text.trim(),
       agency:            _agencyCtrl.text.trim(),
       manager:           _managerCtrl.text.trim(),
@@ -120,7 +121,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
       fine:              _fineCtrl.text.trim(),
       reportContent:     _reportContentCtrl.text.trim(),
       processContent:    _processContentCtrl.text.trim(),
-      status:            _status,
+      statuses:          List<String>.from(_selectedStatuses),
       reportDateStart:   _reportDateStart,
       reportDateEnd:     _reportDateEnd,
       occurDateStart:    _occurDateStart,
@@ -140,8 +141,54 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     Navigator.pop(context);
   }
 
+  List<MapEntry<String, String>> get _statusOptions {
+    final fromProvider = widget.provider.availableStatuses;
+    final source = fromProvider.isNotEmpty ? fromProvider : _fallbackStatusOptions;
+    final seen = <String>{};
+    final values = <String>[
+      ...source,
+      ..._selectedStatuses,
+    ];
+    return values
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty && seen.add(value))
+        .map((value) => MapEntry(value, value))
+        .toList();
+  }
+
+  String _selectionSummary(
+    List<MapEntry<String, String>> options,
+    List<String> selectedValues,
+  ) {
+    final labels = options
+        .where((option) => selectedValues.contains(option.key))
+        .map((option) => option.value)
+        .toList();
+    if (labels.isEmpty) return '전체';
+    if (labels.length <= 2) return labels.join(', ');
+    return '${labels.first} 외 ${labels.length - 1}개';
+  }
+
+  void _toggleSelection(
+    List<String> selectedValues,
+    String value,
+    List<MapEntry<String, String>> options,
+  ) {
+    final idx = selectedValues.indexOf(value);
+    if (idx >= 0) {
+      selectedValues.removeAt(idx);
+    } else {
+      selectedValues.add(value);
+      final order = {
+        for (var i = 0; i < options.length; i++) options[i].key: i,
+      };
+      selectedValues.sort((a, b) => (order[a] ?? 999).compareTo(order[b] ?? 999));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final statusOptions = _statusOptions;
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -172,6 +219,19 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
               ],
             ),
             const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.blueGrey.shade50,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.blueGrey.shade100),
+              ),
+              child: const Text(
+                "안내: '&'는 AND, ','는 OR 조건입니다.",
+                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
+              ),
+            ),
+            const SizedBox(height: 12),
 
             // ── 신고 기본 정보 ──────────────────────────
             _sectionLabel('신고 기본 정보'),
@@ -179,21 +239,20 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
             const SizedBox(height: 8),
             _input(_numCtrl, '신고번호', Icons.tag),
             const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              initialValue: _rating,
-              decoration: const InputDecoration(
-                labelText: '별점',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.star_outline, size: 18),
-                isDense: true,
-              ),
-              items: _ratingOptions
-                  .map((opt) => DropdownMenuItem(
-                        value: opt.key,
-                        child: Text(opt.value),
-                      ))
-                  .toList(),
-              onChanged: (v) => setState(() => _rating = v ?? ''),
+            _multiSelectDropdown(
+              label: '별점',
+              icon: Icons.star_outline,
+              options: _ratingOptions,
+              selectedValues: _selectedRatings,
+              expanded: _ratingExpanded,
+              onToggleExpanded: () => setState(() {
+                _ratingExpanded = !_ratingExpanded;
+                if (_ratingExpanded) _statusExpanded = false;
+              }),
+              onToggleValue: (value) => setState(() {
+                _toggleSelection(_selectedRatings, value, _ratingOptions);
+              }),
+              onClear: () => setState(() => _selectedRatings.clear()),
             ),
             const SizedBox(height: 8),
             _input(_ratingCauseCtrl, '별점사유', Icons.comment_outlined),
@@ -218,21 +277,20 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
             const SizedBox(height: 8),
             _input(_processContentCtrl, '처리내용', Icons.task_alt_outlined),
             const SizedBox(height: 8),
-            DropdownButtonFormField<String>(
-              initialValue: _status,
-              decoration: const InputDecoration(
-                labelText: '처리상태',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.checklist_outlined),
-                isDense: true,
-              ),
-              items: _statusOptions
-                  .map((s) => DropdownMenuItem(
-                        value: s,
-                        child: Text(s.isEmpty ? '전체' : s),
-                      ))
-                  .toList(),
-              onChanged: (v) => setState(() => _status = v ?? ''),
+            _multiSelectDropdown(
+              label: '처리상태',
+              icon: Icons.checklist_outlined,
+              options: statusOptions,
+              selectedValues: _selectedStatuses,
+              expanded: _statusExpanded,
+              onToggleExpanded: () => setState(() {
+                _statusExpanded = !_statusExpanded;
+                if (_statusExpanded) _ratingExpanded = false;
+              }),
+              onToggleValue: (value) => setState(() {
+                _toggleSelection(_selectedStatuses, value, statusOptions);
+              }),
+              onClear: () => setState(() => _selectedStatuses.clear()),
             ),
             const SizedBox(height: 10),
             // 경찰기관 토글
@@ -359,6 +417,108 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
         border: const OutlineInputBorder(),
         prefixIcon: Icon(icon, size: 18),
         isDense: true,
+      ),
+    );
+  }
+
+  Widget _multiSelectDropdown({
+    required String label,
+    required IconData icon,
+    required List<MapEntry<String, String>> options,
+    required List<String> selectedValues,
+    required bool expanded,
+    required VoidCallback onToggleExpanded,
+    required ValueChanged<String> onToggleValue,
+    required VoidCallback onClear,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: onToggleExpanded,
+          child: InputDecorator(
+            decoration: InputDecoration(
+              labelText: label,
+              border: const OutlineInputBorder(),
+              prefixIcon: Icon(icon, size: 18),
+              suffixIcon: Icon(
+                expanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+              ),
+              isDense: true,
+            ),
+            child: Text(
+              _selectionSummary(options, selectedValues),
+              style: TextStyle(
+                color: selectedValues.isEmpty ? Colors.grey.shade600 : null,
+              ),
+            ),
+          ),
+        ),
+        if (expanded) ...[
+          const SizedBox(height: 6),
+          Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade300),
+              color: Colors.white,
+            ),
+            child: Column(
+              children: [
+                _multiSelectOption(
+                  label: '전체',
+                  selected: selectedValues.isEmpty,
+                  onTap: onClear,
+                ),
+                Divider(height: 1, color: Colors.grey.shade200),
+                ...options.map((option) => _multiSelectOption(
+                      label: option.value,
+                      selected: selectedValues.contains(option.key),
+                      onTap: () => onToggleValue(option.key),
+                    )),
+              ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _multiSelectOption({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+            ),
+            SizedBox(
+              width: 18,
+              child: Text(
+                selected ? 'v' : '',
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                  color: Colors.green,
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

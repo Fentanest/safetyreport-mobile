@@ -204,7 +204,7 @@ ReportListScreen
             │    └─ 참여 완료 / 참여 불가 / 답변 대기 / 취하 / 처리중 / 진행 / 진행중 자동 스킵
             └─ ReportProvider.submitRatings()
                  ├─ Client(server)
-                 │    ├─ POST /rating/start (서버앱 별점 작업 요청)
+                 │    ├─ POST /api/v1/rating/start (API 키 인증 별점 작업 요청)
                  │    ├─ /api/v1/files/download?path=logs/current_rating.log 폴링
                  │    └─ 성공/스킵/실패를 RatingBatchResult 로 정리
                  └─ Standalone

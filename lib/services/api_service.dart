@@ -345,25 +345,29 @@ class ApiService {
   }) async {
     final response = await _sendWithRetry(
       () => http.post(
-        Uri.parse('$baseUrl/rating/start'),
-        headers: {
-          'X-API-Key': apiKey,
-          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-        },
-        body: {'ids': reportNumbers.join('\n'), 'score': '$score'},
+        Uri.parse('$baseUrl/api/v1/rating/start'),
+        headers: _headers,
+        body: jsonEncode({'report_numbers': reportNumbers, 'score': score}),
       ),
       timeout: const Duration(seconds: 30),
     );
-    if (response.statusCode != 200) {
-      return (false, '서버 별점 요청 실패: HTTP ${response.statusCode}');
-    }
     try {
       final json = jsonDecode(response.body) as Map<String, dynamic>;
-      final ok = json['status']?.toString() == 'success';
-      final message = json['message']?.toString() ?? '서버 응답이 비어 있습니다.';
+      final ok =
+          response.statusCode == 200 && json['status']?.toString() == 'success';
+      final message =
+          json['message']?.toString() ??
+          json['detail']?.toString() ??
+          '서버 응답이 비어 있습니다.';
       return (ok, message);
     } catch (_) {
-      return (false, '서버 별점 응답을 해석하지 못했습니다.');
+      if (response.statusCode == 302) {
+        return (
+          false,
+          '서버가 로그인 페이지로 리다이렉트했습니다. 서버 별점 API가 아직 적용되지 않았을 수 있습니다.',
+        );
+      }
+      return (false, '서버 별점 응답을 해석하지 못했습니다. (HTTP ${response.statusCode})');
     }
   }
 

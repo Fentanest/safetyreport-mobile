@@ -9,6 +9,17 @@
 
 ## 2026-05-01
 
+### Client 별점 요청 302 대응
+
+상태: 완료
+
+변경:
+- `lib/services/api_service.dart`
+  - Client 모드 별점 시작 요청 경로를 웹 세션 기반 `/rating/start`에서 API 키 기반 `/api/v1/rating/start`로 변경
+  - 서버가 예전 코드라 `302 /login`을 돌려줄 때 원인 파악이 쉬운 안내 메시지를 반환하도록 보강
+- `CLAUDE.md`
+  - Client 별점 흐름 설명을 새 API 경로 기준으로 수정
+
 ### 알림 탭 별점 주기 추가 + 다중 선택 배치 처리
 
 상태: 완료

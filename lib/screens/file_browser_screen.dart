@@ -22,17 +22,19 @@ String? mimeForPath(String path) {
   final ext = path.split('.').last.toLowerCase();
   const map = {
     'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'xls':  'application/vnd.ms-excel',
-    'csv':  'text/csv',
-    'pdf':  'application/pdf',
-    'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'doc':  'application/msword',
-    'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    'ppt':  'application/vnd.ms-powerpoint',
-    'txt':  'text/plain',
+    'xls': 'application/vnd.ms-excel',
+    'csv': 'text/csv',
+    'pdf': 'application/pdf',
+    'docx':
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'doc': 'application/msword',
+    'pptx':
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'ppt': 'application/vnd.ms-powerpoint',
+    'txt': 'text/plain',
     'json': 'application/json',
-    'log':  'text/plain',
-    'db':   'application/octet-stream',
+    'log': 'text/plain',
+    'db': 'application/octet-stream',
   };
   return map[ext];
 }
@@ -55,6 +57,8 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
 
   // standalone mode state
   List<FileSystemEntity> _localFiles = [];
+  String _localRootPath = '';
+  String _currentLocalPath = '';
   bool _exporting = false;
 
   bool _loading = true;
@@ -65,10 +69,45 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
   int _compareNamesDesc(String a, String b) =>
       b.toLowerCase().compareTo(a.toLowerCase());
 
+  String _entityName(FileSystemEntity entity) => entity.path.split('/').last;
+
+  bool _isDirectory(FileSystemEntity entity) =>
+      entity is Directory || FileSystemEntity.isDirectorySync(entity.path);
+
+  int _compareLocalEntities(FileSystemEntity a, FileSystemEntity b) {
+    final aIsDir = _isDirectory(a);
+    final bIsDir = _isDirectory(b);
+    if (aIsDir != bIsDir) {
+      return aIsDir ? -1 : 1;
+    }
+    return _compareNamesDesc(_entityName(a), _entityName(b));
+  }
+
+  bool get _isLocalRoot =>
+      _localRootPath.isEmpty || _currentLocalPath == _localRootPath;
+
+  String _localDisplayPath(String path) {
+    if (_localRootPath.isEmpty || path.isEmpty || path == _localRootPath) {
+      return 'mysafetyreport';
+    }
+    if (path.startsWith('$_localRootPath/')) {
+      return 'mysafetyreport/${path.substring(_localRootPath.length + 1)}';
+    }
+    return path;
+  }
+
+  String? get _parentLocalPath {
+    if (_isLocalRoot || _currentLocalPath.isEmpty) return null;
+    final parent = Directory(_currentLocalPath).parent.path;
+    if (!parent.startsWith(_localRootPath)) return _localRootPath;
+    return parent;
+  }
+
   @override
   void initState() {
     super.initState();
-    _isStandalone = Provider.of<ReportProvider>(context, listen: false).appMode ==
+    _isStandalone =
+        Provider.of<ReportProvider>(context, listen: false).appMode ==
         AppMode.standalone;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_isStandalone) {
@@ -94,7 +133,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
           if (_isStandalone) {
-            _loadLocalFiles();
+            _loadLocalFiles(_currentLocalPath);
           } else {
             _loadServer(_currentPath);
           }
@@ -120,27 +159,46 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     return dir;
   }
 
-  Future<void> _loadLocalFiles() async {
-    setState(() { _loading = true; _error = null; });
+  Future<void> _loadLocalFiles([String? path]) async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
-      final dir = await _exportsDir();
-      final files = dir
-          .listSync()
-          .whereType<File>()
-          .toList()
-        ..sort((a, b) => _compareNamesDesc(
-              a.path.split('/').last,
-              b.path.split('/').last,
-            ));
-      if (mounted) setState(() { _localFiles = files; _loading = false; });
+      final rootDir = await _exportsDir();
+      var targetPath = path;
+      if (targetPath == null || targetPath.isEmpty) {
+        targetPath = _currentLocalPath.isEmpty
+            ? rootDir.path
+            : _currentLocalPath;
+      }
+      var dir = Directory(targetPath);
+      if (!dir.existsSync()) {
+        dir = rootDir;
+      }
+      final entries = dir.listSync().toList()..sort(_compareLocalEntities);
+      if (mounted) {
+        setState(() {
+          _localRootPath = rootDir.path;
+          _currentLocalPath = dir.path;
+          _localFiles = entries;
+          _loading = false;
+        });
+      }
     } catch (e) {
-      if (mounted) setState(() { _error = e.toString(); _loading = false; });
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _loading = false;
+        });
+      }
     }
   }
 
   Future<void> _exportExcel() async {
     if (_exporting) return;
-    
+    final p = context.read<ReportProvider>();
+
     // 권한 요청 (안드로이드 10 이하용, 11 이상은 Documents 쓰기 기본 허용인 경우 많음)
     if (Platform.isAndroid) {
       final status = await Permission.storage.status;
@@ -152,15 +210,23 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     setState(() => _exporting = true);
 
     try {
-      final p = context.read<ReportProvider>();
       final ew = p.excludeWithdraw;
       final np = p.normalizePolice;
       final tReports = await LocalDbService.getReportsByCategory(
-        'traffic', excludeWithdraw: ew, normalizePolice: np);
+        'traffic',
+        excludeWithdraw: ew,
+        normalizePolice: np,
+      );
       final pReports = await LocalDbService.getReportsByCategory(
-        'parking', excludeWithdraw: ew, normalizePolice: np);
+        'parking',
+        excludeWithdraw: ew,
+        normalizePolice: np,
+      );
       final oReports = await LocalDbService.getReportsByCategory(
-        'other', excludeWithdraw: ew, normalizePolice: np);
+        'other',
+        excludeWithdraw: ew,
+        normalizePolice: np,
+      );
       final watchlist = await LocalDbService.getWatchlistNumbers();
 
       final excel = Excel.createExcel();
@@ -178,17 +244,15 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
       await File(path).writeAsBytes(bytes);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('저장됨: 안전신문고_$ts.xlsx')),
-        );
-        await _loadLocalFiles();
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('저장됨: 안전신문고_$ts.xlsx')));
+        await _loadLocalFiles(_currentLocalPath);
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('내보내기 실패: $e'),
-              backgroundColor: Colors.red),
+          SnackBar(content: Text('내보내기 실패: $e'), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -196,39 +260,82 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     }
   }
 
-  void _fillSheet(Excel excel, String sheetName, List<Report> reports, Set<String> watchlist) {
+  void _fillSheet(
+    Excel excel,
+    String sheetName,
+    List<Report> reports,
+    Set<String> watchlist,
+  ) {
     final sheet = excel[sheetName];
 
     // 첨부사진/첨부파일 URL 목록 분리
     final photoLists = reports
-        .map((r) => r.attachedPhotos.isEmpty
-            ? <String>[]
-            : r.attachedPhotos.split('\n').where((s) => s.trim().isNotEmpty).toList())
+        .map(
+          (r) => r.attachedPhotos.isEmpty
+              ? <String>[]
+              : r.attachedPhotos
+                    .split('\n')
+                    .where((s) => s.trim().isNotEmpty)
+                    .toList(),
+        )
         .toList();
     final fileLists = reports
-        .map((r) => r.attachedFiles.isEmpty
-            ? <String>[]
-            : r.attachedFiles.split('\n').where((s) => s.trim().isNotEmpty).toList())
+        .map(
+          (r) => r.attachedFiles.isEmpty
+              ? <String>[]
+              : r.attachedFiles
+                    .split('\n')
+                    .where((s) => s.trim().isNotEmpty)
+                    .toList(),
+        )
         .toList();
 
-    final maxPhotos = photoLists.fold<int>(0, (m, l) => l.length > m ? l.length : m);
-    final maxFiles = fileLists.fold<int>(0, (m, l) => l.length > m ? l.length : m);
+    final maxPhotos = photoLists.fold<int>(
+      0,
+      (m, l) => l.length > m ? l.length : m,
+    );
+    final maxFiles = fileLists.fold<int>(
+      0,
+      (m, l) => l.length > m ? l.length : m,
+    );
 
     // 서버 export.py 컬럼 순서: original_cols + 지도 + 첨부사진N + 첨부파일N
     //                        + 만족도조사여부 + 별점 + 별점사유 + 감시목록
     final headers = <String>[
-      'ID', '상태', '신고번호', '신고명', '신고일',
-      '처리상태', '차량번호', '위반법규', '범칙금_과태료', '벌점',
-      '처리기관', '담당자', '답변일', '발생일자', '발생시각', '위반장소',
-      '종결여부', '신고내용', '처리내용', '지도',
+      'ID',
+      '상태',
+      '신고번호',
+      '신고명',
+      '신고일',
+      '처리상태',
+      '차량번호',
+      '위반법규',
+      '범칙금_과태료',
+      '벌점',
+      '처리기관',
+      '담당자',
+      '답변일',
+      '발생일자',
+      '발생시각',
+      '위반장소',
+      '종결여부',
+      '신고내용',
+      '처리내용',
+      '지도',
       for (var i = 1; i <= maxPhotos; i++) '첨부사진$i',
       for (var i = 1; i <= maxFiles; i++) '첨부파일$i',
-      '만족도조사여부', '별점', '별점사유', '감시목록',
+      '만족도조사여부',
+      '별점',
+      '별점사유',
+      '감시목록',
     ];
 
     for (var col = 0; col < headers.length; col++) {
-      sheet.cell(CellIndex.indexByColumnRow(columnIndex: col, rowIndex: 0))
-          .value = TextCellValue(headers[col]);
+      sheet
+          .cell(CellIndex.indexByColumnRow(columnIndex: col, rowIndex: 0))
+          .value = TextCellValue(
+        headers[col],
+      );
     }
 
     for (var row = 0; row < reports.length; row++) {
@@ -236,10 +343,26 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
       final photos = photoLists[row];
       final files = fileLists[row];
       final values = <String>[
-        r.id, r.result, r.reportNumber, r.name, r.date,
-        r.status, r.carNumber, r.law, r.fineInfo, r.penaltyPoints,
-        r.agency, r.manager, r.responseDate, r.occurrenceDate, r.occurrenceTime, r.location,
-        r.processingFinish, r.reportContent, r.processContent, r.mapImage,
+        r.id,
+        r.result,
+        r.reportNumber,
+        r.name,
+        r.date,
+        r.status,
+        r.carNumber,
+        r.law,
+        r.fineInfo,
+        r.penaltyPoints,
+        r.agency,
+        r.manager,
+        r.responseDate,
+        r.occurrenceDate,
+        r.occurrenceTime,
+        r.location,
+        r.processingFinish,
+        r.reportContent,
+        r.processContent,
+        r.mapImage,
         for (var i = 0; i < maxPhotos; i++) i < photos.length ? photos[i] : '',
         for (var i = 0; i < maxFiles; i++) i < files.length ? files[i] : '',
         r.pollStatus,
@@ -248,8 +371,13 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
         watchlist.contains(r.reportNumber) ? 'Y' : 'N',
       ];
       for (var col = 0; col < values.length; col++) {
-        sheet.cell(CellIndex.indexByColumnRow(columnIndex: col, rowIndex: row + 1))
-            .value = TextCellValue(values[col]);
+        sheet
+            .cell(
+              CellIndex.indexByColumnRow(columnIndex: col, rowIndex: row + 1),
+            )
+            .value = TextCellValue(
+          values[col],
+        );
       }
     }
   }
@@ -277,20 +405,19 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('파일을 열 앱이 설치되어 있지 않습니다. 공유로 대체합니다.')),
         );
-        await Share.shareXFiles(
-          [XFile(staged.path)],
-          subject: staged.path.split('/').last,
-        );
+        await Share.shareXFiles([
+          XFile(staged.path),
+        ], subject: staged.path.split('/').last);
       } else if (result.type != ResultType.done && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('파일 열기 실패: ${result.message}')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('파일 열기 실패: ${result.message}')));
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('파일 준비 실패: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('파일 준비 실패: $e')));
     }
   }
 
@@ -302,9 +429,9 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
       await Share.shareXFiles([XFile(f.path)], subject: name);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('공유 실패: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('공유 실패: $e')));
     }
   }
 
@@ -317,8 +444,9 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
         content: Text('$name 을(를) 삭제하시겠습니까?'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('취소')),
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
@@ -329,8 +457,129 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     );
     if (ok == true) {
       f.deleteSync();
-      _loadLocalFiles();
+      _loadLocalFiles(_currentLocalPath);
     }
+  }
+
+  Widget _buildStandaloneBody() {
+    final hasParent = _parentLocalPath != null;
+    final displayPath = _localDisplayPath(
+      _currentLocalPath.isEmpty ? _localRootPath : _currentLocalPath,
+    );
+
+    if (_localFiles.isEmpty) {
+      final emptyMessage = _isLocalRoot
+          ? '내보낸 파일이 없습니다.\n아래 버튼으로 Excel을 생성하세요.'
+          : '이 폴더에는 파일이나 하위 폴더가 없습니다.';
+      return LayoutBuilder(
+        builder: (_, c) => SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: c.maxHeight),
+            child: Column(
+              children: [
+                _buildLocalPathCard(displayPath, hasParent: hasParent),
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Center(
+                    child: Text(
+                      emptyMessage,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.grey, fontSize: 14),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      children: [
+        _buildLocalPathCard(displayPath, hasParent: hasParent),
+        for (final entity in _localFiles) _buildLocalEntry(entity),
+      ],
+    );
+  }
+
+  Widget _buildLocalPathCard(String displayPath, {required bool hasParent}) {
+    return Card(
+      margin: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+      child: Column(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.folder_open),
+            title: const Text(
+              '현재 위치',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            subtitle: Text(displayPath),
+          ),
+          if (hasParent) const Divider(height: 1),
+          if (hasParent)
+            ListTile(
+              leading: const Icon(Icons.arrow_upward_rounded),
+              title: const Text('상위 폴더로 이동'),
+              subtitle: Text(_localDisplayPath(_parentLocalPath!)),
+              onTap: () => _loadLocalFiles(_parentLocalPath),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLocalEntry(FileSystemEntity entity) {
+    final name = _entityName(entity);
+    final stat = entity.statSync();
+    final modified = DateFormat(
+      'yy/MM/dd HH:mm',
+    ).format(stat.modified.toLocal());
+    final isDirectory = _isDirectory(entity);
+
+    if (isDirectory) {
+      return ListTile(
+        leading: const Icon(Icons.folder_rounded, color: Colors.amber),
+        title: Text(name, style: const TextStyle(fontSize: 13)),
+        subtitle: Text(
+          '폴더  ·  $modified',
+          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+        ),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () => _loadLocalFiles(entity.path),
+      );
+    }
+
+    final size = stat.size;
+    final sizeStr = size < 1024 * 1024
+        ? '${(size / 1024).toStringAsFixed(1)} KB'
+        : '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
+    return ListTile(
+      leading: const Icon(Icons.table_chart, color: Colors.green),
+      title: Text(name, style: const TextStyle(fontSize: 13)),
+      subtitle: Text(
+        '$sizeStr  ·  $modified  ·  길게 눌러 공유',
+        style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.share_outlined, size: 22),
+            tooltip: '다른 앱으로 열기 / 공유',
+            onPressed: () => _shareLocalFile(entity),
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, color: Colors.red),
+            onPressed: () => _deleteLocalFile(entity),
+          ),
+        ],
+      ),
+      onTap: () => _openLocalFile(entity),
+      onLongPress: () => _shareLocalFile(entity),
+    );
   }
 
   Widget _buildStandalone() {
@@ -342,76 +591,22 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
             ? const SizedBox(
                 width: 20,
                 height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
             : const Icon(Icons.file_download),
         label: Text(_exporting ? '내보내는 중...' : 'Excel 내보내기'),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? _errorView(() => _loadLocalFiles())
-              : RefreshIndicator(
-                  onRefresh: _loadLocalFiles,
-                  child: _localFiles.isEmpty
-                      ? LayoutBuilder(
-                          builder: (_, c) => SingleChildScrollView(
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            child: ConstrainedBox(
-                              constraints:
-                                  BoxConstraints(minHeight: c.maxHeight),
-                              child: const Center(
-                                child: Text('내보낸 파일이 없습니다.\n아래 버튼으로 Excel을 생성하세요.',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                        color: Colors.grey, fontSize: 14)),
-                              ),
-                            ),
-                          ),
-                        )
-                      : ListView.builder(
-                          itemCount: _localFiles.length,
-                          itemBuilder: (_, i) {
-                            final f = _localFiles[i];
-                            final name = f.path.split('/').last;
-                            final stat = f.statSync();
-                            final size = stat.size;
-                            final modified = DateFormat('yy/MM/dd HH:mm')
-                                .format(stat.modified.toLocal());
-                            final sizeStr = size < 1024 * 1024
-                                ? '${(size / 1024).toStringAsFixed(1)} KB'
-                                : '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
-                            return ListTile(
-                              leading: const Icon(Icons.table_chart,
-                                  color: Colors.green),
-                              title: Text(name,
-                                  style: const TextStyle(fontSize: 13)),
-                              subtitle: Text(
-                                  '$sizeStr  ·  $modified  ·  길게 눌러 공유',
-                                  style: TextStyle(
-                                      fontSize: 11,
-                                      color: Colors.grey.shade600)),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.share_outlined,
-                                        size: 22),
-                                    tooltip: '다른 앱으로 열기 / 공유',
-                                    onPressed: () => _shareLocalFile(f),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.delete_outline,
-                                        color: Colors.red),
-                                    onPressed: () => _deleteLocalFile(f),
-                                  ),
-                                ],
-                              ),
-                              onTap: () => _openLocalFile(f),
-                              onLongPress: () => _shareLocalFile(f),
-                            );
-                          },
-                        ),
-                ),
+          ? _errorView(() => _loadLocalFiles(_currentLocalPath))
+          : RefreshIndicator(
+              onRefresh: () => _loadLocalFiles(_currentLocalPath),
+              child: _buildStandaloneBody(),
+            ),
     );
   }
 
@@ -427,32 +622,45 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     try {
       final items = await _api.getFiles(path);
       items.sort((a, b) => _compareNamesDesc(a.name, b.name));
-      if (mounted) setState(() { _rootItems = items; _loading = false; });
+      if (mounted) {
+        setState(() {
+          _rootItems = items;
+          _loading = false;
+        });
+      }
     } catch (e) {
-      if (mounted) setState(() { _error = e.toString(); _loading = false; });
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _loading = false;
+        });
+      }
     }
   }
 
   Widget _errorView(VoidCallback onRetry) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.error_outline, size: 48, color: Colors.red),
-              const SizedBox(height: 12),
-              Text(_error!, textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 13)),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                icon: const Icon(Icons.refresh),
-                label: const Text('다시 시도'),
-                onPressed: onRetry,
-              ),
-            ],
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.error_outline, size: 48, color: Colors.red),
+          const SizedBox(height: 12),
+          Text(
+            _error!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 13),
           ),
-        ),
-      );
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            icon: const Icon(Icons.refresh),
+            label: const Text('다시 시도'),
+            onPressed: onRetry,
+          ),
+        ],
+      ),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -463,20 +671,20 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? _errorView(() => _loadServer(''))
-              : RefreshIndicator(
-                  onRefresh: () => _loadServer(''),
-                  child: ListView.builder(
-                    itemCount: _rootItems?.length ?? 0,
-                    itemBuilder: (context, i) => _TreeNode(
-                      item: _rootItems![i],
-                      api: _api,
-                      depth: 0,
-                      baseUrl: _baseUrl,
-                      apiKey: _apiKey,
-                    ),
-                  ),
+          ? _errorView(() => _loadServer(''))
+          : RefreshIndicator(
+              onRefresh: () => _loadServer(''),
+              child: ListView.builder(
+                itemCount: _rootItems?.length ?? 0,
+                itemBuilder: (context, i) => _TreeNode(
+                  item: _rootItems![i],
+                  api: _api,
+                  depth: 0,
+                  baseUrl: _baseUrl,
+                  apiKey: _apiKey,
                 ),
+              ),
+            ),
     );
   }
 }
@@ -511,18 +719,34 @@ class _TreeNodeState extends State<_TreeNode> {
       _showDetails();
       return;
     }
-    if (_expanded) { setState(() => _expanded = false); return; }
-    if (_children != null) { setState(() => _expanded = true); return; }
+    if (_expanded) {
+      setState(() => _expanded = false);
+      return;
+    }
+    if (_children != null) {
+      setState(() => _expanded = true);
+      return;
+    }
 
     setState(() => _loading = true);
     try {
       final items = await widget.api.getFiles(widget.item.path);
-      items.sort((a, b) => b.name.toLowerCase().compareTo(a.name.toLowerCase()));
-      if (mounted) setState(() { _children = items; _expanded = true; _loading = false; });
+      items.sort(
+        (a, b) => b.name.toLowerCase().compareTo(a.name.toLowerCase()),
+      );
+      if (mounted) {
+        setState(() {
+          _children = items;
+          _expanded = true;
+          _loading = false;
+        });
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _loading = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('오류: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('오류: $e')));
       }
     }
   }
@@ -533,7 +757,10 @@ class _TreeNodeState extends State<_TreeNode> {
         .replace(queryParameters: {'path': item.path});
 
     ScaffoldMessenger.of(ctx).showSnackBar(
-      const SnackBar(content: Text('다운로드 중...'), duration: Duration(seconds: 30)),
+      const SnackBar(
+        content: Text('다운로드 중...'),
+        duration: Duration(seconds: 30),
+      ),
     );
 
     try {
@@ -575,21 +802,24 @@ class _TreeNodeState extends State<_TreeNode> {
 
       if (ctx.mounted) ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
 
-      final result = await OpenFilex.open(file.path, type: mimeForPath(file.path));
+      final result = await OpenFilex.open(
+        file.path,
+        type: mimeForPath(file.path),
+      );
       // 진짜 핸들러 없을 때만 (noAppToOpen) share sheet fallback
       if (result.type == ResultType.noAppToOpen && ctx.mounted) {
         await Share.shareXFiles([XFile(file.path)], subject: item.name);
       } else if (result.type != ResultType.done && ctx.mounted) {
-        ScaffoldMessenger.of(ctx).showSnackBar(
-          SnackBar(content: Text('파일 열기 실패: ${result.message}')),
-        );
+        ScaffoldMessenger.of(
+          ctx,
+        ).showSnackBar(SnackBar(content: Text('파일 열기 실패: ${result.message}')));
       }
     } catch (e) {
       if (ctx.mounted) {
         ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
-        ScaffoldMessenger.of(ctx).showSnackBar(
-          SnackBar(content: Text('오류: $e')),
-        );
+        ScaffoldMessenger.of(
+          ctx,
+        ).showSnackBar(SnackBar(content: Text('오류: $e')));
       }
     }
   }
@@ -600,7 +830,8 @@ class _TreeNodeState extends State<_TreeNode> {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
       builder: (ctx) => Padding(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
         child: Column(
@@ -609,18 +840,30 @@ class _TreeNodeState extends State<_TreeNode> {
           children: [
             Center(
               child: Container(
-                  width: 36, height: 4,
-                  decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(2))),
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
             ),
             const SizedBox(height: 16),
-            Row(children: [
-              Icon(_fileIcon(item.name), color: Colors.blueGrey, size: 24),
-              const SizedBox(width: 10),
-              Expanded(child: Text(item.name,
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold))),
-            ]),
+            Row(
+              children: [
+                Icon(_fileIcon(item.name), color: Colors.blueGrey, size: 24),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    item.name,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
             const Divider(height: 24),
             _row('경로', item.path),
             _row('크기', item.size != null ? _fmt(item.size!) : '-'),
@@ -645,8 +888,13 @@ class _TreeNodeState extends State<_TreeNode> {
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(width: 56,
-            child: Text(label, style: const TextStyle(color: Colors.grey, fontSize: 13))),
+        SizedBox(
+          width: 56,
+          child: Text(
+            label,
+            style: const TextStyle(color: Colors.grey, fontSize: 13),
+          ),
+        ),
         Expanded(child: Text(value, style: const TextStyle(fontSize: 13))),
       ],
     ),
@@ -661,15 +909,27 @@ class _TreeNodeState extends State<_TreeNode> {
   IconData _fileIcon(String name) {
     final ext = name.contains('.') ? name.split('.').last.toLowerCase() : '';
     switch (ext) {
-      case 'db': return Icons.storage;
-      case 'log': return Icons.article;
-      case 'csv': return Icons.table_chart;
-      case 'xlsx': case 'xls': return Icons.table_chart;
-      case 'json': return Icons.data_object;
-      case 'txt': return Icons.text_snippet;
-      case 'ini': return Icons.settings;
-      case 'png': case 'jpg': case 'jpeg': return Icons.image;
-      default: return Icons.insert_drive_file;
+      case 'db':
+        return Icons.storage;
+      case 'log':
+        return Icons.article;
+      case 'csv':
+        return Icons.table_chart;
+      case 'xlsx':
+      case 'xls':
+        return Icons.table_chart;
+      case 'json':
+        return Icons.data_object;
+      case 'txt':
+        return Icons.text_snippet;
+      case 'ini':
+        return Icons.settings;
+      case 'png':
+      case 'jpg':
+      case 'jpeg':
+        return Icons.image;
+      default:
+        return Icons.insert_drive_file;
     }
   }
 
@@ -684,53 +944,85 @@ class _TreeNodeState extends State<_TreeNode> {
         InkWell(
           onTap: _toggle,
           child: Padding(
-            padding: EdgeInsets.only(left: 16 + indent, right: 12, top: 10, bottom: 10),
+            padding: EdgeInsets.only(
+              left: 16 + indent,
+              right: 12,
+              top: 10,
+              bottom: 10,
+            ),
             child: Row(
               children: [
                 // 트리 라인 표시
                 if (widget.depth > 0) ...[
                   SizedBox(width: 4),
-                  Icon(Icons.subdirectory_arrow_right, size: 14, color: Colors.grey.shade400),
+                  Icon(
+                    Icons.subdirectory_arrow_right,
+                    size: 14,
+                    color: Colors.grey.shade400,
+                  ),
                   const SizedBox(width: 4),
                 ],
                 // 아이콘
                 _loading
                     ? const SizedBox(
-                        width: 20, height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2))
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
                     : Icon(
                         item.isDir
                             ? (_expanded ? Icons.folder_open : Icons.folder)
                             : _fileIcon(item.name),
-                        color: item.isDir ? Colors.amber.shade700 : Colors.blueGrey,
-                        size: 20),
+                        color: item.isDir
+                            ? Colors.amber.shade700
+                            : Colors.blueGrey,
+                        size: 20,
+                      ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(item.name,
-                      style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: item.isDir ? FontWeight.w600 : FontWeight.normal)),
+                  child: Text(
+                    item.name,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: item.isDir
+                          ? FontWeight.w600
+                          : FontWeight.normal,
+                    ),
+                  ),
                 ),
                 if (!item.isDir && item.size != null)
-                  Text(_fmt(item.size!),
-                      style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                  Text(
+                    _fmt(item.size!),
+                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
                 if (!item.isDir)
                   Padding(
                     padding: const EdgeInsets.only(left: 8),
-                    child: Text(item.modified,
-                        style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                    child: Text(
+                      item.modified,
+                      style: const TextStyle(fontSize: 10, color: Colors.grey),
+                    ),
                   ),
                 if (item.isDir)
-                  Icon(_expanded ? Icons.expand_less : Icons.expand_more,
-                      size: 18, color: Colors.grey),
+                  Icon(
+                    _expanded ? Icons.expand_less : Icons.expand_more,
+                    size: 18,
+                    color: Colors.grey,
+                  ),
               ],
             ),
           ),
         ),
         if (_expanded && _children != null)
-          ..._children!.map((child) => _TreeNode(
-              item: child, api: widget.api, depth: widget.depth + 1,
-              baseUrl: widget.baseUrl, apiKey: widget.apiKey)),
+          ..._children!.map(
+            (child) => _TreeNode(
+              item: child,
+              api: widget.api,
+              depth: widget.depth + 1,
+              baseUrl: widget.baseUrl,
+              apiKey: widget.apiKey,
+            ),
+          ),
         Divider(height: 1, indent: 16 + indent, color: Colors.grey.shade100),
       ],
     );

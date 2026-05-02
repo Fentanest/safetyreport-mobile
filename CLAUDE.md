@@ -84,6 +84,7 @@ lib/
     notification_item.dart           ── 알림 히스토리 항목
     rating_batch_result.dart         ── 별점 배치 결과 / 개별 신고 결과 모델
     agency_stats.dart                ── 통계 데이터 모델
+    sunwi.dart                       ── 신고현황 payload / 대분류 / 소분류 / 순위 항목 모델
   providers/
     report_provider.dart             ── 신고/요약/필터 (`&`/`,` 검색, 상태/별점 다중선택, 위반법규 단일선택 + `없음` sentinel), 자동 sync 트리거 (init/resume), 데모 모드 상태
     notification_history_provider.dart ── 알림 히스토리 + 알림 탭 서브탭 인덱스 상태
@@ -97,19 +98,21 @@ lib/
     standalone_parser.dart           ── API JSON → Report 파싱 (CRLF 정규화 포함)
     standalone_auto_sync_service.dart ── 알림 큐 drain (개별 fetch + 1회 증분 fallback)
     permission_service.dart          ── 권한 체크, WsService 토글
+    sunwi_service.dart               ── Standalone 전국 신고현황 수집 + sunwi CSV 생성
   screens/
     setup_screen.dart                ── 초기 모드 선택 + 로그인/서버 설정 + demo/demo/demo 데모 진입
     dashboard_screen.dart            ── 처리 요약, 모드별 에러 메시지
     report_list_screen.dart          ── 4탭 (교통/주정차/기타/중복차량) + 통계/검색에서 넘어온 활성 필터 Chip 표시
     statistics_screen.dart           ── 연도×카테고리×유형 통계, 위반법규 필터, 행 탭 시 신고리스트 상세검색 기반 drilldown
+    sunwi_screen.dart                ── 신고현황 탭 (Client 서버 payload / Standalone 직접 수집, 3시간 TTL, 5초 자동 페이지 전환)
     notifications_screen.dart        ── 알림 히스토리 (크롤링/신고결과/별점 주기 3탭)
-    file_browser_screen.dart         ── 로컬/서버 파일 브라우저 + share_plus fallback
+    file_browser_screen.dart         ── 로컬/서버 파일 브라우저 + standalone 하위 폴더 탐색 + share_plus fallback
     crawl_screen.dart                ── Standalone 동기화 / Client 크롤링 (모드 분기, 데모 모드 동기화 비활성화)
     settings_screen.dart             ── 설정 (모드별 카드 분기 + 버그 제보 버튼 + 공식 출처/비공식 고지)
     permission_screen.dart           ── 권한 가이드
     search_screen.dart               ── 신고번호/차량번호 검색
     filtered_list_screen.dart        ── 필터 적용된 신고 리스트
-    watchlist_screen.dart            ── 감시목록
+    watchlist_screen.dart            ── 감시목록 + 서버/다중선택 추가 안내
   widgets/
     report_detail_sheet.dart         ── 신고 상세 시트 + 인라인/전체화면 동영상 + 공식 출처 링크/비공식 고지
     report_list_card.dart            ── 신고 카드 공용 UI (`report_list`/`search`/`filtered_list` 공유)
@@ -321,6 +324,14 @@ CREATE TABLE sync_meta (key TEXT PRIMARY KEY, value TEXT);
   - 기관/담당자/연도/위반법규 필터를 함께 넘기며, 통계의 `법규 없음`도 같은 sentinel 으로 전달한다.
 
 ---
+
+## 신고현황 / 파일 브라우저
+
+- `sunwi_screen.dart`는 `ReportProvider.bumpSunwiRefresh()` 신호를 받아도 즉시 재수집하지 않고, 모드별 메모리 캐시 기준 **마지막 수집 후 3시간이 지났을 때만** 재동기화한다.
+- 사용자가 명시적으로 당겨서 새로고침하거나 상단 새로고침 버튼을 누른 경우에는 3시간 TTL을 무시하고 강제 재수집한다.
+- `sunwi_screen.dart`의 대분류/소분류는 서버 대시보드와 동일하게 5초마다 자동 전환된다. 사용자가 좌우 버튼으로 직접 넘기면 타이머를 다시 시작한다.
+- Standalone `sunwi` CSV는 `Documents/mysafetyreport/sunwi/` 또는 기기 제한 시 `Download/mysafetyreport/sunwi/`에 저장된다.
+- `file_browser_screen.dart` standalone 모드는 루트 `mysafetyreport`뿐 아니라 그 하위 폴더도 탐색 가능해야 한다. `sunwi/`처럼 기능별 하위 폴더가 생겨도 파일 탭에서 바로 진입할 수 있어야 한다.
 
 ## 정부 정보 출처 / 비공식 고지
 

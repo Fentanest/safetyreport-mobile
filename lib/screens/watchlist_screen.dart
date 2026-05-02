@@ -29,7 +29,10 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
       context.read<ReportProvider>().appMode == AppMode.standalone;
 
   Future<void> _load() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       List<Report> items;
       if (_isStandalone) {
@@ -43,20 +46,34 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
         final api = ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
         items = await api.getWatchlist();
       }
-      if (mounted) setState(() { _items = items; _loading = false; });
+      if (mounted) {
+        setState(() {
+          _items = items;
+          _loading = false;
+        });
+      }
     } catch (e) {
-      if (mounted) setState(() { _error = e.toString(); _loading = false; });
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _loading = false;
+        });
+      }
     }
   }
 
   Future<void> _remove(Report r) async {
+    final provider = context.read<ReportProvider>();
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('감시 목록에서 제거'),
         content: Text('${r.name}\n\n감시 목록에서 제거하시겠습니까?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
@@ -67,29 +84,37 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
     );
     if (confirmed != true) return;
     try {
-      await context.read<ReportProvider>().removeFromWatchlist([r.reportNumber]);
-      setState(() => _items.removeWhere((i) => i.reportNumber == r.reportNumber));
+      await provider.removeFromWatchlist([r.reportNumber]);
+      setState(
+        () => _items.removeWhere((i) => i.reportNumber == r.reportNumber),
+      );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('감시 목록에서 제거되었습니다.')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('감시 목록에서 제거되었습니다.')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('오류: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('오류: $e')));
       }
     }
   }
 
   Future<void> _removeAll() async {
     if (_items.isEmpty) return;
+    final provider = context.read<ReportProvider>();
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('전체 해제'),
         content: Text('감시 목록 ${_items.length}건을 모두 해제하시겠습니까?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
@@ -101,15 +126,18 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
     if (confirmed != true) return;
     try {
       final rnums = _items.map((r) => r.reportNumber).toList();
-      await context.read<ReportProvider>().removeFromWatchlist(rnums);
+      await provider.removeFromWatchlist(rnums);
       setState(() => _items.clear());
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('감시 목록이 모두 해제되었습니다.')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('감시 목록이 모두 해제되었습니다.')));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('오류: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('오류: $e')));
       }
     }
   }
@@ -132,47 +160,65 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(
-                  child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                    const SizedBox(height: 12),
-                    Text(_error!, textAlign: TextAlign.center),
-                    const SizedBox(height: 16),
-                    FilledButton.icon(
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('다시 시도'),
-                      onPressed: _load,
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                  const SizedBox(height: 12),
+                  Text(_error!, textAlign: TextAlign.center),
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('다시 시도'),
+                    onPressed: _load,
+                  ),
+                ],
+              ),
+            )
+          : _items.isEmpty
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.bookmark_border,
+                    size: 64,
+                    color: Colors.grey.shade300,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    '감시 목록이 비어 있습니다.',
+                    style: TextStyle(color: Colors.grey, fontSize: 15),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    '서버에서 감시 목록에 추가하거나\n신고리스트 다중 선택 모드에서 바로 추가할 수 있습니다.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.grey,
+                      fontSize: 12,
+                      height: 1.5,
                     ),
-                  ]),
-                )
-              : _items.isEmpty
-                  ? Center(
-                      child: Column(mainAxisSize: MainAxisSize.min, children: [
-                        Icon(Icons.bookmark_border,
-                            size: 64, color: Colors.grey.shade300),
-                        const SizedBox(height: 16),
-                        const Text('감시 목록이 비어 있습니다.',
-                            style: TextStyle(color: Colors.grey, fontSize: 15)),
-                        const SizedBox(height: 8),
-                        const Text(
-                          '웹에서 신고를 감시 목록에 추가하면\n여기서 상태를 확인할 수 있습니다.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.grey, fontSize: 12, height: 1.5),
-                        ),
-                      ]),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: _load,
-                      child: ListView.separated(
-                        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                        itemCount: _items.length,
-                        separatorBuilder: (_, __) => const SizedBox(height: 6),
-                        itemBuilder: (context, i) => _WatchCard(
-                          report: _items[i],
-                          onRemove: () => _remove(_items[i]),
-                        ),
-                      ),
-                    ),
+                  ),
+                ],
+              ),
+            )
+          : RefreshIndicator(
+              onRefresh: _load,
+              child: ListView.separated(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 8,
+                  horizontal: 12,
+                ),
+                itemCount: _items.length,
+                separatorBuilder: (_, index) => const SizedBox(height: 6),
+                itemBuilder: (context, i) => _WatchCard(
+                  report: _items[i],
+                  onRemove: () => _remove(_items[i]),
+                ),
+              ),
+            ),
     );
   }
 }
@@ -200,79 +246,104 @@ class _WatchCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         onTap: () => showReportDetailSheet(context, report),
         child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(Icons.bookmark, size: 16, color: Colors.blue),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(report.name,
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.bookmark, size: 16, color: Colors.blue),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      report.name,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                          fontWeight: FontWeight.w600, fontSize: 14)),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: color.withOpacity(0.4)),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
                   ),
-                  child: Text(report.status,
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: color.withValues(alpha: 0.4)),
+                    ),
+                    child: Text(
+                      report.status,
                       style: TextStyle(
-                          color: color, fontSize: 11, fontWeight: FontWeight.bold)),
+                        color: color,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (report.carNumber.isNotEmpty)
+                _row(Icons.directions_car_outlined, '차량번호', report.carNumber),
+              if (report.reportNumber.isNotEmpty)
+                _row(Icons.tag, '신고번호', report.reportNumber),
+              if (report.date.isNotEmpty)
+                _row(Icons.calendar_today, '신고일', report.date),
+              if (report.responseDate.isNotEmpty)
+                _row(Icons.check_circle_outline, '답변일', report.responseDate),
+              if (report.agency.isNotEmpty)
+                _row(Icons.business, '처리기관', report.agency),
+              if (report.fineInfo.isNotEmpty)
+                _row(
+                  Icons.monetization_on_outlined,
+                  '과태료/범칙금',
+                  report.fineInfo,
                 ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            if (report.carNumber.isNotEmpty)
-              _row(Icons.directions_car_outlined, '차량번호', report.carNumber),
-            if (report.reportNumber.isNotEmpty)
-              _row(Icons.tag, '신고번호', report.reportNumber),
-            if (report.date.isNotEmpty)
-              _row(Icons.calendar_today, '신고일', report.date),
-            if (report.responseDate.isNotEmpty)
-              _row(Icons.check_circle_outline, '답변일', report.responseDate),
-            if (report.agency.isNotEmpty)
-              _row(Icons.business, '처리기관', report.agency),
-            if (report.fineInfo.isNotEmpty)
-              _row(Icons.monetization_on_outlined, '과태료/범칙금', report.fineInfo),
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                icon: const Icon(Icons.bookmark_remove, size: 16),
-                label: const Text('감시 해제'),
-                style: TextButton.styleFrom(
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  icon: const Icon(Icons.bookmark_remove, size: 16),
+                  label: const Text('감시 해제'),
+                  style: TextButton.styleFrom(
                     foregroundColor: Colors.red,
                     padding: EdgeInsets.zero,
-                    minimumSize: const Size(0, 32)),
-                onPressed: onRemove,
+                    minimumSize: const Size(0, 32),
+                  ),
+                  onPressed: onRemove,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-    ),
     );
   }
 
   Widget _row(IconData icon, String label, String value) => Padding(
-        padding: const EdgeInsets.only(top: 3),
-        child: Row(children: [
-          Icon(icon, size: 12, color: Colors.grey),
-          const SizedBox(width: 4),
-          Text('$label ', style: const TextStyle(fontSize: 11, color: Colors.grey)),
-          Expanded(
-              child: Text(value,
-                  style: const TextStyle(fontSize: 11),
-                  overflow: TextOverflow.ellipsis)),
-        ]),
-      );
+    padding: const EdgeInsets.only(top: 3),
+    child: Row(
+      children: [
+        Icon(icon, size: 12, color: Colors.grey),
+        const SizedBox(width: 4),
+        Text(
+          '$label ',
+          style: const TextStyle(fontSize: 11, color: Colors.grey),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(fontSize: 11),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    ),
+  );
 }

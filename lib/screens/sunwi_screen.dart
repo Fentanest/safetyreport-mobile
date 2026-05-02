@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -18,6 +19,10 @@ class SunwiScreen extends StatefulWidget {
 }
 
 class _SunwiScreenState extends State<SunwiScreen> {
+  static const _resyncInterval = Duration(hours: 3);
+  static const _autoPageInterval = Duration(seconds: 5);
+  static final Map<AppMode, _SunwiCacheEntry> _cacheByMode = {};
+
   SunwiPayload? _payload;
   SunwiDataset? _dataset;
   bool _loading = true;
@@ -27,11 +32,19 @@ class _SunwiScreenState extends State<SunwiScreen> {
   int _parentIndex = 0;
   int _childIndex = 0;
   int _lastRefreshNonce = 0;
+  bool _requestInFlight = false;
+  Timer? _autoPageTimer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  @override
+  void dispose() {
+    _autoPageTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -48,7 +61,25 @@ class _SunwiScreenState extends State<SunwiScreen> {
     }
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool force = false}) async {
+    if (_requestInFlight) return;
+    final provider = context.read<ReportProvider>();
+    final appMode = provider.appMode;
+    final cached = _freshCacheFor(appMode, force: force);
+    if (cached != null) {
+      if (!mounted) return;
+      setState(() {
+        _dataset = cached.dataset;
+        _payload = cached.payload;
+        _loading = false;
+        _error = null;
+        _statusMessage = '';
+      });
+      _syncSelection();
+      _resetAutoPageTimer();
+      return;
+    }
+
     if (mounted) {
       setState(() {
         _loading = true;
@@ -57,8 +88,8 @@ class _SunwiScreenState extends State<SunwiScreen> {
       });
     }
 
+    _requestInFlight = true;
     try {
-      final provider = context.read<ReportProvider>();
       if (provider.appMode == AppMode.standalone) {
         final dataset = await SunwiService.fetchStandalone(
           onProgress: (completed, total, label) {
@@ -72,7 +103,13 @@ class _SunwiScreenState extends State<SunwiScreen> {
         setState(() {
           _dataset = dataset;
           _payload = dataset.payload;
+          _statusMessage = '';
         });
+        _cacheByMode[appMode] = _SunwiCacheEntry(
+          payload: dataset.payload,
+          dataset: dataset,
+          fetchedAt: DateTime.now(),
+        );
       } else {
         final api = ApiService(
           baseUrl: provider.baseUrl,
@@ -83,15 +120,26 @@ class _SunwiScreenState extends State<SunwiScreen> {
         setState(() {
           _dataset = null;
           _payload = payload;
+          _statusMessage = '';
         });
+        _cacheByMode[appMode] = _SunwiCacheEntry(
+          payload: payload,
+          dataset: null,
+          fetchedAt: DateTime.now(),
+        );
       }
       _syncSelection();
+      _resetAutoPageTimer();
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _error = e.toString().replaceFirst('Exception: ', '');
+        if (_payload != null) {
+          _statusMessage = '새 동기화에 실패해 기존 데이터를 유지합니다.';
+        }
       });
     } finally {
+      _requestInFlight = false;
       if (mounted) {
         setState(() {
           _loading = false;
@@ -100,7 +148,18 @@ class _SunwiScreenState extends State<SunwiScreen> {
           }
         });
       }
+      _resetAutoPageTimer();
     }
+  }
+
+  _SunwiCacheEntry? _freshCacheFor(AppMode mode, {required bool force}) {
+    if (force) return null;
+    final cached = _cacheByMode[mode];
+    if (cached == null) return null;
+    if (DateTime.now().difference(cached.fetchedAt) >= _resyncInterval) {
+      return null;
+    }
+    return cached;
   }
 
   void _syncSelection() {
@@ -138,7 +197,7 @@ class _SunwiScreenState extends State<SunwiScreen> {
       if (provider.appMode == AppMode.standalone) {
         var dataset = _dataset;
         if (dataset == null) {
-          await _load();
+          await _load(force: true);
           dataset = _dataset;
         }
         if (dataset == null) {
@@ -206,6 +265,7 @@ class _SunwiScreenState extends State<SunwiScreen> {
           .toInt();
       _childIndex = 0;
     });
+    _resetAutoPageTimer();
   }
 
   void _moveChild(int delta) {
@@ -216,6 +276,56 @@ class _SunwiScreenState extends State<SunwiScreen> {
           .clamp(0, parent.children.length - 1)
           .toInt();
     });
+    _resetAutoPageTimer();
+  }
+
+  void _resetAutoPageTimer() {
+    _autoPageTimer?.cancel();
+    if (!_shouldAutoPage) return;
+    _autoPageTimer = Timer.periodic(_autoPageInterval, (_) {
+      if (!mounted) return;
+      _advancePage();
+    });
+  }
+
+  bool get _shouldAutoPage {
+    final payload = _payload;
+    if (payload == null || !payload.available || payload.categories.isEmpty) {
+      return false;
+    }
+    if (payload.categories.length > 1) return true;
+    return payload.categories.first.children.length > 1;
+  }
+
+  void _advancePage() {
+    final payload = _payload;
+    if (payload == null || !payload.available || payload.categories.isEmpty) {
+      return;
+    }
+
+    final parentCount = payload.categories.length;
+    final parent = payload.categories[_parentIndex];
+    final childCount = parent.children.length;
+
+    if (childCount > 1) {
+      setState(() {
+        final nextChild = (_childIndex + 1) % childCount;
+        if (nextChild == 0 && parentCount > 1) {
+          _parentIndex = (_parentIndex + 1) % parentCount;
+          _childIndex = 0;
+        } else {
+          _childIndex = nextChild;
+        }
+      });
+      return;
+    }
+
+    if (parentCount > 1) {
+      setState(() {
+        _parentIndex = (_parentIndex + 1) % parentCount;
+        _childIndex = 0;
+      });
+    }
   }
 
   @override
@@ -225,7 +335,7 @@ class _SunwiScreenState extends State<SunwiScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('신고현황')),
       body: RefreshIndicator(
-        onRefresh: _load,
+        onRefresh: () => _load(force: true),
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.all(16),
@@ -289,7 +399,7 @@ class _SunwiScreenState extends State<SunwiScreen> {
                   label: const Text('TOP5 CSV 생성'),
                 ),
                 IconButton(
-                  onPressed: _loading ? null : _load,
+                  onPressed: _loading ? null : () => _load(force: true),
                   tooltip: '새로고침',
                   icon: const Icon(Icons.refresh),
                 ),
@@ -355,7 +465,7 @@ class _SunwiScreenState extends State<SunwiScreen> {
             ),
             const SizedBox(height: 16),
             FilledButton.icon(
-              onPressed: _load,
+              onPressed: () => _load(force: true),
               icon: const Icon(Icons.refresh),
               label: const Text('다시 시도'),
             ),
@@ -468,6 +578,11 @@ class _SunwiScreenState extends State<SunwiScreen> {
                   : null,
             ),
             const SizedBox(height: 14),
+            Text(
+              '대분류와 소분류는 5초마다 자동으로 전환됩니다.',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 10),
             Text(
               child.fullName,
               style: const TextStyle(fontSize: 13, color: Colors.black54),
@@ -643,4 +758,16 @@ class _MetaChip extends StatelessWidget {
       ),
     );
   }
+}
+
+class _SunwiCacheEntry {
+  final SunwiPayload payload;
+  final SunwiDataset? dataset;
+  final DateTime fetchedAt;
+
+  const _SunwiCacheEntry({
+    required this.payload,
+    required this.dataset,
+    required this.fetchedAt,
+  });
 }

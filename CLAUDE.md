@@ -1,8 +1,9 @@
 # safetyreport-mobile — CLAUDE.md
 
-프로젝트 추적 문서. 코드베이스 파악 / 디자인 결정 / 함정 기록.
+프로젝트 추적 문서. 코드베이스 파악 / 디자인 결정 / 작동 방식 / 함정 기록.
 
-- 변경 이력과 세션 로그는 `CHANGELOG.md`에도 병행 기록.
+- 작업/버그/세션 이력은 `CHANGELOG.md`에만 기록한다.
+- `CLAUDE.md`에는 구조 변경, 설계 의도, 운영상 주의점만 남긴다.
 
 ---
 
@@ -547,73 +548,6 @@ CI 와 동일한 Docker 이미지 (`ghcr.io/cirruslabs/flutter:stable`).
 기본 키 경로:
 - `~/mysafetyreport-android/key.properties`
 - `~/mysafetyreport-android/upload-keystore.jks`
-
----
-
-## 주요 작업 이력 (이 세션)
-
-시간순 누적 변경 — 컨텍스트 파악용.
-
-20. **2026-04-27 버그 수정 묶음**
-    - Client 파싱 강건화: `Report.fromJson`, `AgencyStats.fromJson` 에 문자열 숫자/빈 문자열 허용 파서 추가. 서버가 `''`를 보내는 경우 `type 'String' is not a subtype of type 'num?'` 방지.
-    - Standalone DB 백업 일관성: `LocalDbService.exportBackup()` 추가. sqflite WAL 환경에서 main `.db`만 복사하면 최신 별점/사유 등이 누락될 수 있어, 백업/모드 전환 자동백업 시 DB를 닫아 flush 후 복사하도록 변경.
-    - Client → Standalone 전환 2번째 선택지 변경: "최신 백업 파일 사용" 자동 탐색/비활성화를 제거하고, 사용자가 `.db` 파일을 직접 고르는 `FilePicker` 방식으로 교체.
-    - 파일 브라우저 정렬: standalone 로컬 파일 / client 서버 파일 모두 **파일명 내림차순** 정렬.
-    - Standalone 파일 열기 권한 우회: 외부 저장소 원본을 바로 `OpenFilex.open()` 하지 않고 앱 temp 디렉토리로 복사 후 열도록 변경. 일부 기기의 `MANAGE_EXTERNAL_STORAGE` 요구/permission denied 완화 목적.
-    - Client → Standalone 전환 시 `WsService` 정지 보강: `ReportProvider.setStandaloneConfig/resetConfig` 에서 즉시 `stopWsService()` 호출, `MainActivity.autoStartWsServiceIfConfigured()` 도 현재 모드가 `server`가 아니거나 자격증명이 비면 살아 있는 `WsService`를 강제 정지하도록 변경. 전환 후 "서버 연결 대기 중..." 지속 알림 방지.
-21. **Play Console 심사용 데모 모드**
-    - Standalone 로그인에서 `demo / demo / demo` 입력 시 실제 안전신문고 인증 없이 로컬 예시 DB 3건 시드 후 진입.
-    - `ReportProvider.isStandaloneDemo` 상태 추가: keep-alive, pending queue drain, 실제 sync, 자동 재로그인 진입 차단.
-    - `crawl_screen.dart` 에 데모 안내 카드 추가, 동기화/재동기화 버튼 비활성화.
-    - 재로그인 다이얼로그에서도 같은 데모 자격증명으로 재진입 가능.
-22. **Android 빌드/릴리즈 정리**
-    - `.github/workflows/build-apk.yml` 유지: VERSION→pubspec 동기화 후 Docker Flutter 이미지에서 APK/AAB 빌드.
-    - 로컬용 `build_android_release.sh` 추가: CI 와 동일한 경로/키스토어 마운트, release APK/AAB 동시 빌드.
-    - 기존 `build_test_apk.sh` 는 debug/간이 release 용으로 유지.
-23. **신고 카드 중복 UI 공용화 + CLAUDE 구조 정리**
-    - `report_list_screen.dart`, `search_screen.dart`, `filtered_list_screen.dart`에 반복되던 신고 카드 UI를 `widgets/report_list_card.dart`로 통합.
-    - 상태칩/선택 강조/차량번호 배지/메타 행 렌더링을 공용화하고, 각 화면은 필요한 메타 항목만 전달하도록 단순화.
-    - `CLAUDE.md`의 루트 구조는 git 추적 경로 기준으로만 표기하도록 명시하고, `build_android_common.sh`와 신규 공용 위젯을 반영.
-24. **`CLAUDE.md` git 반영 + 상세검색 키보드 선택 처리**
-    - `.gitignore`에서 `CLAUDE.md`를 제거해 문서 자체를 저장소에 반영.
-    - `CLAUDE.md` 상단 설명과 루트 구조 표기를 git 추적 문서 기준으로 다시 정리.
-    - `search_filter_sheet.dart`의 키보드 Enter 처리에서 선택 토글이 항상 먼저 반영되도록 조정해 다중선택 접근성을 보강.
-25. **별점 로그 파싱 버그 수정 + 만족도 조사 여부 검색 필터 추가**
-    - Client 모드 별점 주기: 서버 로그 파싱 regex가 타임스탬프 브래킷 `[2026-...]`을 신고번호로 오인식하던 버그 수정. `\[(.+?)\]` → `\[(SPP-.+?)\]` 로 변경.
-    - 서버 `data_table.html` 상세 검색과 모바일 `SearchFilterSheet`에 `만족도 조사 여부` 단일선택 드롭다운 추가 (참여 완료 / 참여 가능).
-    - `ReportFilter`에 `pollStatus` 필드 추가, `_applyFilter()`에 필터 로직 반영.
-26. **Standalone 모드 다중 선택 동기화 버튼 추가**
-    - `SelectionActionBar`에 Standalone 모드일 경우 `동기화` 버튼 노출
-    - 선택된 신고번호들을 `standalone_pending_reports` 큐에 추가 후 `drainIfPending()` 호출로 개별 동기화 처리
-
-1. **Standalone 모드 신규 구현**: 안전신문고 직접 로그인 (RSA + OAuth), 자동 재로그인, sqflite 로컬 DB, 증분 sync, 카드 시트
-2. **알림 큐 인프라**: Kotlin NotificationService 가 SPP 추출 → SharedPreferences 큐 → Flutter drain
-3. **SharedPreferences 손상 버그 fix**: LIST_PREFIX+JSON 형식이 LegacyPlugin 의 Java deserialize 와 충돌 → CSV 형식으로 변경 + MainActivity 마이그레이션
-4. **DB 큐 폭주 fix**: Standalone refreshAll 의 Future.wait → 순차 await (sqflite 단일 connection)
-5. **CrawlScreen sync 가시성**: SyncEngine.events 항상 구독, log/progress 도착 시 `_isRunning` 자동 true
-6. **단건/개별 용어 통일**: '단건' → '개별' (`ChangeType.individualConfirm` 등)
-7. **중복차량 정렬 서버 동일화**: max(신고번호) DESC → 차량번호 ASC → 신고번호 DESC
-8. **Standalone 그린 테마**: MaterialApp Consumer 로 appMode 별 시드 컬러 동적 전환
-9. **Android 15 edge-to-edge**: WindowCompat.setDecorFitsSystemWindows (enableEdgeToEdge 는 receiver mismatch 로 사용 불가)
-10. **xlsx 파일 fallback**: OpenFilex 실패 → share_plus 의 Share.shareXFiles → 시스템 공유 sheet
-11. **개별 sync done 신호**: SyncEngine.emitDone → CrawlScreen 의 `_isRunning` 영구 true 버그 fix
-12. **Foreground Service**: SyncForegroundService — drainIfPending / SyncEngine.start 동안 프로세스 보호
-13. **큐 영속성**: drainIfPending 의 per-item 제거 (옛 즉시 비움 → 앱 죽으면 항목 영구 손실 fix)
-14. **3회 retry 제거**: 사용자 요청대로 개별+증분 fallback 1회씩으로 단순화
-15. **리팩토링**: dead `standalone_sync_pending` 플래그 제거, ChangeType 상수화, `_drainAndRefresh` 헬퍼 추출
-16. **버그 제보 버튼**: 설정 → 앱 정보 카드에 GitHub issues 링크
-17. **모드 전환 + DB 마이그레이션**: standalone→client 자동 백업, client→standalone 3-way 선택 (서버 DB 변환 / 최신 백업 사용 / 처음부터). `pending_db_import` SharedPref 로 SetupScreen 까지 의도 전달. `LocalDbService.importFromServerDb` (서버 3 merge 테이블 → 모바일 단일 reports + category, watchlist CSV 변환), `replaceFromBackup` 추가
-18. **errno=104 retry 매트릭스 보강**: standalone 로그인 Step 3 (토큰 POST) 에 3회 retry 추가, Client `downloadDb` 에 3회 retry + 2분 timeout. standalone 일반 GET / 로그인 Step 1 은 기존부터 retry 있어 그대로 유지
-19. **main 브랜치 병합**: 1.0.7+11 (main minor bump + alone build 누적), READ_MEDIA_* tools:remove 권한 정리, 개인정보처리방침 통합
-20. **신고현황(sunwi) 탭 추가**:
-    - 하단 탭 순서가 `대시보드 / 신고리스트 / 통계 / 신고현황 / 알림 / 파일 / 동기화(크롤링)`로 변경.
-    - Client 모드: 서버 `/api/v1/sunwi/payload` 데이터를 그대로 표시.
-    - Standalone 모드: `SunwiService.fetchStandalone()` 이 안전신문고 통계 API를 전국 행정구역 기준으로 직접 순회 호출해 Top5 payload를 구성.
-    - 상단 `ALL CSV 생성`, `TOP5 CSV 생성` 버튼 제공. Standalone 저장 경로는 `Documents/mysafetyreport/sunwi/`.
-21. **외부 DB import WAL 병합 보강**:
-    - `LocalDbService.detectDbKind/importFromServerDb/replaceFromBackup`가 import 전에 임시 snapshot을 만들고, 가능하면 `-wal`/`-shm`를 함께 머지한 뒤 처리.
-    - `SettingsScreen`의 DB 선택은 다중 선택을 허용해 `.db` 본파일과 `-wal`/`-shm`를 함께 staging 가능.
-    - Standalone 복원도 형식 자동 감지로 모바일 백업은 그대로 복원, 서버 DB는 변환 import.
 
 ---
 

@@ -5,7 +5,7 @@ import '../models/app_mode.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
-import 'filtered_list_screen.dart';
+import 'report_list_screen.dart';
 
 class StatisticsScreen extends StatefulWidget {
   const StatisticsScreen({super.key});
@@ -19,10 +19,11 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   bool _loading = true;
   String? _error;
 
-  String _year = 'all';  // 'all' | '2026' | '2025' | ...
-  String _cat = 'traffic';  // traffic | parking | other
-  String _type = 'agency';  // agency | person | police-agency | police-person | other-agency | other-person
-  String? _law;  // null = 전체, '__없음__' = 법규 없음, 그 외 = 특정 법규
+  String _year = 'all'; // 'all' | '2026' | '2025' | ...
+  String _cat = 'traffic'; // traffic | parking | other
+  String _type =
+      'agency'; // agency | person | police-agency | police-person | other-agency | other-person
+  String? _law; // null = 전체, '__없음__' = 법규 없음, 그 외 = 특정 법규
 
   int _lastRefreshNonce = 0;
 
@@ -40,13 +41,18 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     if (nonce != _lastRefreshNonce) {
       _lastRefreshNonce = nonce;
       if (nonce != 0) {
-        WidgetsBinding.instance.addPostFrameCallback((_) { if (mounted) _load(); });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _load();
+        });
       }
     }
   }
 
   Future<void> _load() async {
-    setState(() { _loading = true; _error = null; });
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final p = context.read<ReportProvider>();
       AgencyStats stats;
@@ -65,33 +71,53 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           law: _law,
         );
       }
-      if (mounted) setState(() { _stats = stats; _loading = false; });
+      if (mounted)
+        setState(() {
+          _stats = stats;
+          _loading = false;
+        });
     } catch (e) {
-      if (mounted) setState(() { _error = e.toString(); _loading = false; });
+      if (mounted)
+        setState(() {
+          _error = e.toString();
+          _loading = false;
+        });
     }
   }
 
   List<AgencyStatRow> get _currentRows {
     if (_stats == null) return [];
-    final group = _cat == 'traffic' ? _stats!.traffic
-                : _cat == 'parking' ? _stats!.parking
-                : _stats!.other;
+    final group = _cat == 'traffic'
+        ? _stats!.traffic
+        : _cat == 'parking'
+        ? _stats!.parking
+        : _stats!.other;
     return switch (_type) {
-      'agency'        => group.byAgency,
-      'person'        => group.byPerson,
+      'agency' => group.byAgency,
+      'person' => group.byPerson,
       'police-agency' => group.policeByAgency,
       'police-person' => group.policeByPerson,
-      'other-agency'  => group.otherByAgency,
-      'other-person'  => group.otherByPerson,
-      _               => group.byAgency,
+      'other-agency' => group.otherByAgency,
+      'other-person' => group.otherByPerson,
+      _ => group.byAgency,
     };
   }
 
   CategoryStats get _currentCat {
-    if (_stats == null) return const CategoryStats(byAgency: [], byPerson: [], policeByAgency: [], policeByPerson: [], otherByAgency: [], otherByPerson: []);
-    return _cat == 'traffic' ? _stats!.traffic
-         : _cat == 'parking' ? _stats!.parking
-         : _stats!.other;
+    if (_stats == null)
+      return const CategoryStats(
+        byAgency: [],
+        byPerson: [],
+        policeByAgency: [],
+        policeByPerson: [],
+        otherByAgency: [],
+        otherByPerson: [],
+      );
+    return _cat == 'traffic'
+        ? _stats!.traffic
+        : _cat == 'parking'
+        ? _stats!.parking
+        : _stats!.other;
   }
 
   bool get _showPerson => _type.endsWith('person');
@@ -121,21 +147,33 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         builder: (_, controller) => Column(
           children: [
             const SizedBox(height: 12),
-            Container(width: 36, height: 4,
-                decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
             const SizedBox(height: 12),
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 16),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: Text('위반법규 필터', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                child: Text(
+                  '위반법규 필터',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
               ),
             ),
             const SizedBox(height: 8),
             Expanded(
               child: ListView(
                 controller: controller,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
                 children: [
                   _LawChip(
                     label: '전체',
@@ -157,15 +195,17 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                         _load();
                       },
                     ),
-                  ...laws.map((l) => _LawChip(
-                    label: l,
-                    selected: _law == l,
-                    onTap: () {
-                      Navigator.pop(context);
-                      if (_law != l) setState(() => _law = l);
-                      _load();
-                    },
-                  )),
+                  ...laws.map(
+                    (l) => _LawChip(
+                      label: l,
+                      selected: _law == l,
+                      onTap: () {
+                        Navigator.pop(context);
+                        if (_law != l) setState(() => _law = l);
+                        _load();
+                      },
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -179,9 +219,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   Widget build(BuildContext context) {
     final lawActive = _law != null;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('통계'),
-      ),
+      appBar: AppBar(title: const Text('통계')),
       body: Column(
         children: [
           _NavBar(
@@ -200,13 +238,15 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : _error != null
-                    ? _buildError()
-                    : _StatsTable(
-                        rows: _currentRows,
-                        showPerson: _showPerson,
-                        category: _cat,
-                        onRefresh: _load,
-                      ),
+                ? _buildError()
+                : _StatsTable(
+                    rows: _currentRows,
+                    showPerson: _showPerson,
+                    category: _cat,
+                    year: _year,
+                    law: _law,
+                    onRefresh: _load,
+                  ),
           ),
         ],
       ),
@@ -225,9 +265,11 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
             const Icon(Icons.gavel, size: 20),
             if (lawActive)
               Positioned(
-                right: 0, top: 0,
+                right: 0,
+                top: 0,
                 child: Container(
-                  width: 8, height: 8,
+                  width: 8,
+                  height: 8,
                   decoration: const BoxDecoration(
                     color: Colors.orange,
                     shape: BoxShape.circle,
@@ -244,17 +286,24 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Icon(Icons.error_outline, size: 48, color: Colors.red),
-          const SizedBox(height: 12),
-          Text(_error!, textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 13)),
-          const SizedBox(height: 16),
-          FilledButton.icon(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, size: 48, color: Colors.red),
+            const SizedBox(height: 12),
+            Text(
+              _error!,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
               icon: const Icon(Icons.refresh),
               label: const Text('다시 시도'),
-              onPressed: _load),
-        ]),
+              onPressed: _load,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -265,7 +314,11 @@ class _LawChip extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
 
-  const _LawChip({required this.label, required this.selected, required this.onTap});
+  const _LawChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -279,19 +332,19 @@ class _LawChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected ? color.withOpacity(0.12) : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: selected ? color : Colors.grey.shade300,
-          ),
+          border: Border.all(color: selected ? color : Colors.grey.shade300),
         ),
         child: Row(
           children: [
             Expanded(
-              child: Text(label,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-                    color: selected ? color : null,
-                  )),
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                  color: selected ? color : null,
+                ),
+              ),
             ),
             if (selected) Icon(Icons.check, size: 16, color: color),
           ],
@@ -324,22 +377,22 @@ class _NavBar extends StatelessWidget {
   static const _cats = [
     ('traffic', '교통위반'),
     ('parking', '주정차위반'),
-    ('other',   '기타위반'),
+    ('other', '기타위반'),
   ];
 
   static const _types = [
-    ('agency',        '기관별'),
-    ('person',        '담당자별'),
+    ('agency', '기관별'),
+    ('person', '담당자별'),
     ('police-agency', '경찰 기관'),
     ('police-person', '경찰 담당자'),
-    ('other-agency',  '비경찰 기관'),
-    ('other-person',  '비경찰 담당자'),
+    ('other-agency', '비경찰 기관'),
+    ('other-person', '비경찰 담당자'),
   ];
 
   Color _catColor(String c) => switch (c) {
     'traffic' => Colors.blue,
     'parking' => Colors.orange,
-    _         => Colors.green,
+    _ => Colors.green,
   };
 
   @override
@@ -357,7 +410,10 @@ class _NavBar extends StatelessWidget {
               height: 36,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
                 itemCount: yearOptions.length,
                 separatorBuilder: (_, __) => const SizedBox(width: 6),
                 itemBuilder: (_, i) {
@@ -370,10 +426,14 @@ class _NavBar extends StatelessWidget {
                       duration: const Duration(milliseconds: 150),
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       decoration: BoxDecoration(
-                        color: selected ? Colors.blueGrey.shade700 : Colors.blueGrey.withOpacity(0.08),
+                        color: selected
+                            ? Colors.blueGrey.shade700
+                            : Colors.blueGrey.withOpacity(0.08),
                         borderRadius: BorderRadius.circular(16),
                         border: Border.all(
-                          color: selected ? Colors.blueGrey.shade700 : Colors.blueGrey.withOpacity(0.3),
+                          color: selected
+                              ? Colors.blueGrey.shade700
+                              : Colors.blueGrey.withOpacity(0.3),
                         ),
                       ),
                       alignment: Alignment.center,
@@ -381,8 +441,12 @@ class _NavBar extends StatelessWidget {
                         label,
                         style: TextStyle(
                           fontSize: 12,
-                          fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-                          color: selected ? Colors.white : Colors.blueGrey.shade700,
+                          fontWeight: selected
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                          color: selected
+                              ? Colors.white
+                              : Colors.blueGrey.shade700,
                         ),
                       ),
                     ),
@@ -406,9 +470,7 @@ class _NavBar extends StatelessWidget {
                         duration: const Duration(milliseconds: 150),
                         padding: const EdgeInsets.symmetric(vertical: 8),
                         decoration: BoxDecoration(
-                          color: selected
-                              ? color
-                              : color.withOpacity(0.08),
+                          color: selected ? color : color.withOpacity(0.08),
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(
                             color: selected ? color : color.withOpacity(0.3),
@@ -447,9 +509,7 @@ class _NavBar extends StatelessWidget {
                     duration: const Duration(milliseconds: 150),
                     padding: const EdgeInsets.symmetric(horizontal: 14),
                     decoration: BoxDecoration(
-                      color: selected
-                          ? catColor
-                          : catColor.withOpacity(0.07),
+                      color: selected ? catColor : catColor.withOpacity(0.07),
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
                         color: selected ? catColor : catColor.withOpacity(0.3),
@@ -460,7 +520,9 @@ class _NavBar extends StatelessWidget {
                       e.$2,
                       style: TextStyle(
                         fontSize: 13,
-                        fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                        fontWeight: selected
+                            ? FontWeight.bold
+                            : FontWeight.normal,
                         color: selected ? Colors.white : catColor,
                       ),
                     ),
@@ -482,12 +544,16 @@ class _StatsTable extends StatelessWidget {
   final List<AgencyStatRow> rows;
   final bool showPerson;
   final String category;
+  final String year;
+  final String? law;
   final Future<void> Function() onRefresh;
 
   const _StatsTable({
     required this.rows,
     required this.showPerson,
     required this.category,
+    required this.year,
+    required this.law,
     required this.onRefresh,
   });
 
@@ -500,8 +566,7 @@ class _StatsTable extends StatelessWidget {
           children: const [
             SizedBox(height: 120),
             Center(
-              child: Text('데이터가 없습니다.',
-                  style: TextStyle(color: Colors.grey)),
+              child: Text('데이터가 없습니다.', style: TextStyle(color: Colors.grey)),
             ),
           ],
         ),
@@ -514,7 +579,13 @@ class _StatsTable extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 80),
         itemCount: rows.length,
         itemBuilder: (context, i) => _RowCard(
-            row: rows[i], showPerson: showPerson, rank: i + 1, category: category),
+          row: rows[i],
+          showPerson: showPerson,
+          rank: i + 1,
+          category: category,
+          year: year,
+          law: law,
+        ),
       ),
     );
   }
@@ -525,12 +596,16 @@ class _RowCard extends StatelessWidget {
   final bool showPerson;
   final int rank;
   final String category;
+  final String year;
+  final String? law;
 
   const _RowCard({
     required this.row,
     required this.showPerson,
     required this.rank,
     required this.category,
+    required this.year,
+    required this.law,
   });
 
   String _formatFine(int amount) {
@@ -546,7 +621,9 @@ class _RowCard extends StatelessWidget {
 
   String _comma(int v) {
     return v.toString().replaceAllMapped(
-        RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (m) => '${m[1]},');
+      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+      (m) => '${m[1]},',
+    );
   }
 
   @override
@@ -561,19 +638,26 @@ class _RowCard extends StatelessWidget {
         onTap: () {
           final agency = row.agency;
           final person = showPerson ? row.person : '';
+          final provider = context.read<ReportProvider>();
+          final reportDateStart = year == 'all' ? '' : '$year-01-01';
+          final reportDateEnd = year == 'all' ? '' : '$year-12-31';
+          provider.setFilter(
+            ReportFilter(
+              agency: agency,
+              manager: person,
+              law: law ?? '',
+              reportDateStart: reportDateStart,
+              reportDateEnd: reportDateEnd,
+            ),
+          );
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => FilteredListScreen(
-                title: (showPerson && person.isNotEmpty)
-                    ? '$agency / $person'
-                    : agency,
-                category: category,
-                filter: (r) {
-                  final agencyMatch = r.agency == agency;
-                  final personMatch =
-                      person.isEmpty || r.manager == person;
-                  return agencyMatch && personMatch;
+              builder: (_) => ReportListScreen(
+                initialTabIndex: switch (category) {
+                  'parking' => 1,
+                  'other' => 2,
+                  _ => 0,
                 },
               ),
             ),
@@ -598,35 +682,44 @@ class _RowCard extends StatelessWidget {
                         Text(
                           '${row.avgRating!.toStringAsFixed(2)} (${row.ratingCount})',
                           style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.amber),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.amber,
+                          ),
                         ),
                         const SizedBox(width: 10),
                       ],
                       if (row.avgResponseDays != null) ...[
-                        const Icon(Icons.schedule,
-                            size: 11, color: Colors.teal),
+                        const Icon(
+                          Icons.schedule,
+                          size: 11,
+                          color: Colors.teal,
+                        ),
                         const SizedBox(width: 2),
                         Text(
                           '${row.avgResponseDays!.toStringAsFixed(1)}일',
                           style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.teal),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.teal,
+                          ),
                         ),
                         const SizedBox(width: 10),
                       ],
                       if (fineStr.isNotEmpty) ...[
-                        const Icon(Icons.payments_outlined,
-                            size: 11, color: Colors.deepOrange),
+                        const Icon(
+                          Icons.payments_outlined,
+                          size: 11,
+                          color: Colors.deepOrange,
+                        ),
                         const SizedBox(width: 2),
                         Text(
                           fineStr,
                           style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.deepOrange),
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.deepOrange,
+                          ),
                         ),
                       ],
                     ],
@@ -636,19 +729,27 @@ class _RowCard extends StatelessWidget {
               Row(
                 children: [
                   Container(
-                    width: 22, height: 22,
+                    width: 22,
+                    height: 22,
                     decoration: BoxDecoration(
                       color: rank <= 3
-                          ? [Colors.amber, Colors.grey.shade400, Colors.brown.shade300][rank - 1]
+                          ? [
+                              Colors.amber,
+                              Colors.grey.shade400,
+                              Colors.brown.shade300,
+                            ][rank - 1]
                           : scheme.surfaceContainerHighest,
                       shape: BoxShape.circle,
                     ),
                     child: Center(
-                      child: Text('$rank',
-                          style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              color: rank <= 3 ? Colors.white : scheme.onSurface)),
+                      child: Text(
+                        '$rank',
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: rank <= 3 ? Colors.white : scheme.onSurface,
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -656,15 +757,23 @@ class _RowCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(row.agency,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.bold, fontSize: 13.5),
-                            softWrap: true),
+                        Text(
+                          row.agency,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13.5,
+                          ),
+                          softWrap: true,
+                        ),
                         if (showPerson && row.person.isNotEmpty)
-                          Text(row.person,
-                              style: TextStyle(
-                                  fontSize: 11.5, color: Colors.grey.shade600),
-                              softWrap: true),
+                          Text(
+                            row.person,
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: Colors.grey.shade600,
+                            ),
+                            softWrap: true,
+                          ),
                       ],
                     ),
                   ),
@@ -676,20 +785,19 @@ class _RowCard extends StatelessWidget {
                         children: [
                           const TextSpan(
                             text: '총 처리 ',
-                            style: TextStyle(
-                                fontSize: 11, color: Colors.grey),
+                            style: TextStyle(fontSize: 11, color: Colors.grey),
                           ),
                           TextSpan(
                             text: '${row.total}',
                             style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: scheme.primary),
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: scheme.primary,
+                            ),
                           ),
                           const TextSpan(
                             text: '건',
-                            style: TextStyle(
-                                fontSize: 11, color: Colors.grey),
+                            style: TextStyle(fontSize: 11, color: Colors.grey),
                           ),
                         ],
                       ),
@@ -702,7 +810,12 @@ class _RowCard extends StatelessWidget {
                 children: [
                   _statBadge('과태료', row.fines, row.finesPct, Colors.red),
                   const SizedBox(width: 6),
-                  _statBadge('경고/범칙금', row.warnings, row.warningsPct, Colors.orange),
+                  _statBadge(
+                    '경고/범칙금',
+                    row.warnings,
+                    row.warningsPct,
+                    Colors.orange,
+                  ),
                   const SizedBox(width: 6),
                   _statBadge('불수용', row.rejects, row.rejectsPct, Colors.grey),
                 ],
@@ -716,21 +829,35 @@ class _RowCard extends StatelessWidget {
                       if (row.fines > 0)
                         Flexible(
                           flex: row.fines,
-                          child: Container(height: 6, color: Colors.red.shade400),
+                          child: Container(
+                            height: 6,
+                            color: Colors.red.shade400,
+                          ),
                         ),
                       if (row.warnings > 0)
                         Flexible(
                           flex: row.warnings,
-                          child: Container(height: 6, color: Colors.orange.shade400),
+                          child: Container(
+                            height: 6,
+                            color: Colors.orange.shade400,
+                          ),
                         ),
                       if (row.rejects > 0)
                         Flexible(
                           flex: row.rejects,
-                          child: Container(height: 6, color: Colors.grey.shade400),
+                          child: Container(
+                            height: 6,
+                            color: Colors.grey.shade400,
+                          ),
                         ),
                       Flexible(
-                        flex: (row.total - row.fines - row.warnings - row.rejects).clamp(0, row.total),
-                        child: Container(height: 6, color: Colors.blue.shade100),
+                        flex:
+                            (row.total - row.fines - row.warnings - row.rejects)
+                                .clamp(0, row.total),
+                        child: Container(
+                          height: 6,
+                          color: Colors.blue.shade100,
+                        ),
                       ),
                     ],
                   ),
@@ -753,14 +880,19 @@ class _RowCard extends StatelessWidget {
         ),
         child: Column(
           children: [
-            Text('$count',
-                style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                    color: color)),
-            Text('$label (${pct.toStringAsFixed(1)}%)',
-                style: TextStyle(fontSize: 10, color: color.withOpacity(0.8)),
-                textAlign: TextAlign.center),
+            Text(
+              '$count',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+            Text(
+              '$label (${pct.toStringAsFixed(1)}%)',
+              style: TextStyle(fontSize: 10, color: color.withOpacity(0.8)),
+              textAlign: TextAlign.center,
+            ),
           ],
         ),
       ),

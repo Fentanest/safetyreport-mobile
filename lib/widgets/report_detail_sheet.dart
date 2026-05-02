@@ -10,6 +10,8 @@ import 'package:video_player/video_player.dart';
 import '../models/report.dart';
 import '../services/standalone_auth_service.dart';
 
+const _officialSafetyReportUrl = 'https://www.safetyreport.go.kr/';
+
 void showReportDetailSheet(BuildContext context, Report report) {
   showModalBottomSheet(
     context: context,
@@ -61,23 +63,40 @@ class ReportDetailSheet extends StatelessWidget {
 
   Future<void> _openInSafetyApp(BuildContext context) async {
     if (report.id.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('신고 ID 정보가 없습니다.')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('신고 ID 정보가 없습니다.')));
       return;
     }
     final uri = Uri.parse(
-        'appsafetyreport://view?c_no=${report.id}&ext_path=M_MY_01_S0002.html&mem_yn=Y');
+      'appsafetyreport://view?c_no=${report.id}&ext_path=M_MY_01_S0002.html&mem_yn=Y',
+    );
     try {
-      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      final launched = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
       if (!launched && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('안전신문고 앱이 설치되어 있지 않습니다.')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('안전신문고 앱이 설치되어 있지 않습니다.')));
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('안전신문고 앱이 설치되어 있지 않습니다.')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('안전신문고 앱이 설치되어 있지 않습니다.')));
       }
+    }
+  }
+
+  Future<void> _openOfficialSource(BuildContext context) async {
+    final uri = Uri.parse(_officialSafetyReportUrl);
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!launched && context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('공식 사이트를 열 수 없습니다.')));
     }
   }
 
@@ -92,15 +111,19 @@ class ReportDetailSheet extends StatelessWidget {
 
   bool _isVideo(String url) {
     final path = Uri.tryParse(url)?.path.toLowerCase() ?? url.toLowerCase();
-    return path.endsWith('.mp4') || path.endsWith('.mov') ||
-        path.endsWith('.avi') || path.endsWith('.webm') ||
+    return path.endsWith('.mp4') ||
+        path.endsWith('.mov') ||
+        path.endsWith('.avi') ||
+        path.endsWith('.webm') ||
         path.endsWith('.mkv');
   }
 
   bool _isImage(String url) {
     final path = Uri.tryParse(url)?.path.toLowerCase() ?? url.toLowerCase();
-    return path.endsWith('.jpg') || path.endsWith('.jpeg') ||
-        path.endsWith('.png') || path.endsWith('.gif') ||
+    return path.endsWith('.jpg') ||
+        path.endsWith('.jpeg') ||
+        path.endsWith('.png') ||
+        path.endsWith('.gif') ||
         path.endsWith('.webp');
   }
 
@@ -128,8 +151,10 @@ class ReportDetailSheet extends StatelessWidget {
     }
     // 파일 중 이미지/동영상/기타 분류
     for (final u in files) {
-      if (_isImage(u) && !imageUrls.contains(u)) imageUrls.add(u);
-      else if (_isVideo(u) && !videoUrls.contains(u)) videoUrls.add(u);
+      if (_isImage(u) && !imageUrls.contains(u))
+        imageUrls.add(u);
+      else if (_isVideo(u) && !videoUrls.contains(u))
+        videoUrls.add(u);
     }
     final otherFiles = files
         .where((u) => !_isImage(u) && !_isVideo(u))
@@ -148,7 +173,8 @@ class ReportDetailSheet extends StatelessWidget {
             // 핸들
             Center(
               child: Container(
-                width: 40, height: 4,
+                width: 40,
+                height: 4,
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
                   color: Colors.grey.shade300,
@@ -163,23 +189,32 @@ class ReportDetailSheet extends StatelessWidget {
                 Expanded(
                   child: Text(
                     report.name,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
                 if (report.status.isNotEmpty) ...[
                   const SizedBox(width: 10),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: color.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(color: color.withOpacity(0.4)),
                     ),
-                    child: Text(report.status,
-                        style: TextStyle(
-                            color: color,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold)),
+                    child: Text(
+                      report.status,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                 ],
               ],
@@ -199,7 +234,11 @@ class ReportDetailSheet extends StatelessWidget {
             if (report.manager.isNotEmpty)
               _field(Icons.person_outline, '담당자', report.manager),
             if (report.fineInfo.isNotEmpty)
-              _field(Icons.monetization_on_outlined, '과태료/범칙금', report.fineInfo),
+              _field(
+                Icons.monetization_on_outlined,
+                '과태료/범칙금',
+                report.fineInfo,
+              ),
             if (report.penaltyPoints.isNotEmpty)
               _field(Icons.warning_amber_outlined, '벌점', report.penaltyPoints),
             if (report.carNumber.isNotEmpty)
@@ -209,8 +248,14 @@ class ReportDetailSheet extends StatelessWidget {
             if (report.location.isNotEmpty)
               _field(Icons.location_on_outlined, '위반장소', report.location),
             if (report.occurrenceDate.isNotEmpty)
-              _field(Icons.event_outlined, '발생일자', report.occurrenceDate +
-                  (report.occurrenceTime.isNotEmpty ? '  ${report.occurrenceTime}' : '')),
+              _field(
+                Icons.event_outlined,
+                '발생일자',
+                report.occurrenceDate +
+                    (report.occurrenceTime.isNotEmpty
+                        ? '  ${report.occurrenceTime}'
+                        : ''),
+              ),
             if (_ratingLabel().isNotEmpty)
               _field(Icons.star_outline, '별점', _ratingLabel()),
             if (report.ratingCause.isNotEmpty)
@@ -222,73 +267,91 @@ class ReportDetailSheet extends StatelessWidget {
             if (report.processContent.isNotEmpty) ...[
               const SizedBox(height: 8),
               _textBlock('처리내용', report.processContent),
-              Builder(builder: (ctx) {
-                final phone = _extractPhone(report.processContent);
-                if (phone == null) return const SizedBox.shrink();
-                return Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.phone, size: 16),
-                    label: Text('전화걸기  $phone'),
-                    onPressed: () async {
-                      final uri = Uri.parse('tel:$phone');
-                      if (await canLaunchUrl(uri)) {
-                        await launchUrl(uri);
-                      }
-                    },
-                  ),
-                );
-              }),
+              Builder(
+                builder: (ctx) {
+                  final phone = _extractPhone(report.processContent);
+                  if (phone == null) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.phone, size: 16),
+                      label: Text('전화걸기  $phone'),
+                      onPressed: () async {
+                        final uri = Uri.parse('tel:$phone');
+                        if (await canLaunchUrl(uri)) {
+                          await launchUrl(uri);
+                        }
+                      },
+                    ),
+                  );
+                },
+              ),
             ],
             // 인라인 이미지
             if (imageUrls.isNotEmpty) ...[
               const SizedBox(height: 12),
               _sectionLabel('첨부 사진'),
               const SizedBox(height: 8),
-              ...imageUrls.map((url) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _RetryableImage(url: url),
-                    const SizedBox(height: 4),
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.open_in_new, size: 14),
-                      label: const Text('다른 앱으로 열기', style: TextStyle(fontSize: 12)),
-                      style: OutlinedButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              ...imageUrls.map(
+                (url) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _RetryableImage(url: url),
+                      const SizedBox(height: 4),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.open_in_new, size: 14),
+                        label: const Text(
+                          '다른 앱으로 열기',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                        ),
+                        onPressed: () => _openExternal(context, url),
                       ),
-                      onPressed: () => _openExternal(context, url),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              )),
+              ),
             ],
             // 인라인 동영상
             if (videoUrls.isNotEmpty) ...[
               const SizedBox(height: 12),
               _sectionLabel('첨부 동영상'),
               const SizedBox(height: 8),
-              ...videoUrls.map((url) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _VideoPlayer(url: url),
-                    const SizedBox(height: 4),
-                    OutlinedButton.icon(
-                      icon: const Icon(Icons.open_in_new, size: 14),
-                      label: const Text('다른 앱으로 열기', style: TextStyle(fontSize: 12)),
-                      style: OutlinedButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              ...videoUrls.map(
+                (url) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _VideoPlayer(url: url),
+                      const SizedBox(height: 4),
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.open_in_new, size: 14),
+                        label: const Text(
+                          '다른 앱으로 열기',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                        ),
+                        onPressed: () => _openExternal(context, url),
                       ),
-                      onPressed: () => _openExternal(context, url),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              )),
+              ),
             ],
             // 기타 첨부파일 — 인라인 동영상 재생 시도
             if (otherFiles.isNotEmpty) ...[
@@ -298,9 +361,11 @@ class ReportDetailSheet extends StatelessWidget {
               ...otherFiles.asMap().entries.map((e) {
                 final url = e.value;
                 final idx = e.key + 1;
-                final fileName = Uri.tryParse(url)?.pathSegments
-                    .where((s) => s.isNotEmpty)
-                    .lastOrNull ?? '첨부파일 $idx';
+                final fileName =
+                    Uri.tryParse(
+                      url,
+                    )?.pathSegments.where((s) => s.isNotEmpty).lastOrNull ??
+                    '첨부파일 $idx';
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: _VideoPlayer(url: url, label: fileName),
@@ -319,6 +384,54 @@ class ReportDetailSheet extends StatelessWidget {
               '안전신문고 앱이 설치되어 있고 로그인된 상태여야 합니다.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blueGrey.shade50,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.blueGrey.shade100),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '정부 정보 원문 출처',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 6),
+                  const SelectableText(
+                    _officialSafetyReportUrl,
+                    style: TextStyle(fontSize: 12.5, height: 1.4),
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.open_in_browser, size: 16),
+                      label: const Text('안전신문고 공식 사이트 열기'),
+                      onPressed: () => _openOfficialSource(context),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    '이 앱은 안전신문고의 공식 앱이 아니며 행정안전부 또는 정부기관을 대표하지 않습니다.',
+                    style: TextStyle(fontSize: 12.5, height: 1.45),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    '안전신문고 데이터를 사용자의 편의를 위해 조회·정리해 보여주는 비공식 도구입니다.',
+                    style: TextStyle(fontSize: 12.5, height: 1.45),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    '원문 확인과 실제 민원 처리는 안전신문고 공식 서비스에서 진행해 주세요.',
+                    style: TextStyle(fontSize: 12.5, height: 1.45),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -367,28 +480,34 @@ class ReportDetailSheet extends StatelessWidget {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('파일을 열지 못했습니다: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('파일을 열지 못했습니다: $e')));
       }
     }
   }
 
-  Widget _sectionLabel(String text) => Text(text,
-      style: TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.bold,
-          color: Colors.grey.shade700));
+  Widget _sectionLabel(String text) => Text(
+    text,
+    style: TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.bold,
+      color: Colors.grey.shade700,
+    ),
+  );
 
   Widget _textBlock(String label, String value) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label,
-            style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey.shade600)),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            color: Colors.grey.shade600,
+          ),
+        ),
         const SizedBox(height: 6),
         Container(
           width: double.infinity,
@@ -398,8 +517,10 @@ class ReportDetailSheet extends StatelessWidget {
             borderRadius: BorderRadius.circular(8),
             border: Border.all(color: Colors.grey.shade200),
           ),
-          child: SelectableText(value,
-              style: const TextStyle(fontSize: 13, height: 1.6)),
+          child: SelectableText(
+            value,
+            style: const TextStyle(fontSize: 13, height: 1.6),
+          ),
         ),
       ],
     );
@@ -415,13 +536,16 @@ class ReportDetailSheet extends StatelessWidget {
           const SizedBox(width: 8),
           SizedBox(
             width: 82,
-            child: Text(label,
-                style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
+            child: Text(
+              label,
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+            ),
           ),
           Expanded(
-            child: Text(value,
-                style: const TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.w500)),
+            child: Text(
+              value,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+            ),
           ),
         ],
       ),
@@ -517,7 +641,9 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
           ),
           // 하단 컨트롤 바 — 재생 중 자동 숨김
           Positioned(
-            left: 0, right: 0, bottom: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
             child: AnimatedOpacity(
               opacity: _showControls ? 1.0 : 0.0,
               duration: const Duration(milliseconds: 200),
@@ -528,20 +654,33 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
                   builder: (_, value, __) {
                     final pos = _seeking ? _seekPosition : value.position;
                     final dur = value.duration;
-                    final maxMs = dur.inMilliseconds > 0 ? dur.inMilliseconds.toDouble() : 1.0;
-                    final posMs = pos.inMilliseconds.toDouble().clamp(0.0, maxMs);
+                    final maxMs = dur.inMilliseconds > 0
+                        ? dur.inMilliseconds.toDouble()
+                        : 1.0;
+                    final posMs = pos.inMilliseconds.toDouble().clamp(
+                      0.0,
+                      maxMs,
+                    );
                     return Container(
                       color: Colors.black54,
-                      padding: const EdgeInsets.only(left: 4, right: 4, bottom: 2),
+                      padding: const EdgeInsets.only(
+                        left: 4,
+                        right: 4,
+                        bottom: 2,
+                      ),
                       child: Row(
                         children: [
                           // 재생/일시정지
                           IconButton(
                             padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                            constraints: const BoxConstraints(
+                              minWidth: 36,
+                              minHeight: 36,
+                            ),
                             icon: Icon(
                               value.isPlaying ? Icons.pause : Icons.play_arrow,
-                              color: Colors.white, size: 22,
+                              color: Colors.white,
+                              size: 22,
                             ),
                             onPressed: () {
                               if (value.isPlaying) {
@@ -555,13 +694,22 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
                               }
                             },
                           ),
-                          Text(_fmt(pos),
-                              style: const TextStyle(color: Colors.white, fontSize: 11)),
+                          Text(
+                            _fmt(pos),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                            ),
+                          ),
                           Expanded(
                             child: SliderTheme(
                               data: SliderTheme.of(context).copyWith(
-                                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                                overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                                thumbShape: const RoundSliderThumbShape(
+                                  enabledThumbRadius: 6,
+                                ),
+                                overlayShape: const RoundSliderOverlayShape(
+                                  overlayRadius: 12,
+                                ),
                                 trackHeight: 2,
                                 activeTrackColor: Colors.white,
                                 inactiveTrackColor: Colors.white30,
@@ -575,25 +723,45 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
                                 onChangeStart: (_) {
                                   _wasPlaying = value.isPlaying;
                                   if (_wasPlaying) widget.controller.pause();
-                                  setState(() { _seeking = true; _seekPosition = pos; });
+                                  setState(() {
+                                    _seeking = true;
+                                    _seekPosition = pos;
+                                  });
                                 },
-                                onChanged: (v) => setState(() =>
-                                    _seekPosition = Duration(milliseconds: v.toInt())),
+                                onChanged: (v) => setState(
+                                  () => _seekPosition = Duration(
+                                    milliseconds: v.toInt(),
+                                  ),
+                                ),
                                 onChangeEnd: (v) {
-                                  widget.controller.seekTo(Duration(milliseconds: v.toInt()));
+                                  widget.controller.seekTo(
+                                    Duration(milliseconds: v.toInt()),
+                                  );
                                   if (_wasPlaying) widget.controller.play();
                                   setState(() => _seeking = false);
                                 },
                               ),
                             ),
                           ),
-                          Text(_fmt(dur),
-                              style: const TextStyle(color: Colors.white70, fontSize: 11)),
+                          Text(
+                            _fmt(dur),
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 11,
+                            ),
+                          ),
                           // 축소 버튼 (우측)
                           IconButton(
                             padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                            icon: const Icon(Icons.fullscreen_exit, color: Colors.white, size: 22),
+                            constraints: const BoxConstraints(
+                              minWidth: 36,
+                              minHeight: 36,
+                            ),
+                            icon: const Icon(
+                              Icons.fullscreen_exit,
+                              color: Colors.white,
+                              size: 22,
+                            ),
                             onPressed: () => Navigator.pop(context),
                           ),
                         ],
@@ -625,7 +793,7 @@ class _RetryableImageState extends State<_RetryableImage> {
   static const _retryDelay = Duration(seconds: 1);
 
   int _attempt = 0;
-  bool _failed = false;   // 최종 실패 (수동 버튼 표시)
+  bool _failed = false; // 최종 실패 (수동 버튼 표시)
   bool _retrying = false; // 재시도 대기 중 (스피너 표시)
   Timer? _retryTimer;
   Map<String, String>? _headers;
@@ -661,13 +829,20 @@ class _RetryableImageState extends State<_RetryableImage> {
         });
       });
     } else {
-      setState(() { _failed = true; _retrying = false; });
+      setState(() {
+        _failed = true;
+        _retrying = false;
+      });
     }
   }
 
   void _manualRetry() {
     if (!mounted) return;
-    setState(() { _attempt++; _failed = false; _retrying = false; });
+    setState(() {
+      _attempt++;
+      _failed = false;
+      _retrying = false;
+    });
   }
 
   @override
@@ -707,7 +882,9 @@ class _RetryableImageState extends State<_RetryableImage> {
             return Container(
               height: 160,
               color: Colors.grey.shade100,
-              child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+              child: const Center(
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
             );
           }
           return Container(
@@ -716,7 +893,8 @@ class _RetryableImageState extends State<_RetryableImage> {
             child: Center(
               child: CircularProgressIndicator(
                 value: progress.expectedTotalBytes != null
-                    ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                    ? progress.cumulativeBytesLoaded /
+                          progress.expectedTotalBytes!
                     : null,
               ),
             ),
@@ -741,7 +919,7 @@ class _RetryableImageState extends State<_RetryableImage> {
 // ──────────────────────────────────────────────────────────────
 class _VideoPlayer extends StatefulWidget {
   final String url;
-  final String? label;  // 파일명 표시용 (otherFiles에서 사용)
+  final String? label; // 파일명 표시용 (otherFiles에서 사용)
   const _VideoPlayer({required this.url, this.label});
 
   @override
@@ -766,11 +944,13 @@ class _VideoPlayerState extends State<_VideoPlayer> {
 
   void _initController() {
     _ctrl = VideoPlayerController.networkUrl(Uri.parse(widget.url))
-      ..initialize().then((_) {
-        if (mounted) setState(() => _initialized = true);
-      }).catchError((_) {
-        if (mounted) setState(() => _error = true);
-      });
+      ..initialize()
+          .then((_) {
+            if (mounted) setState(() => _initialized = true);
+          })
+          .catchError((_) {
+            if (mounted) setState(() => _error = true);
+          });
   }
 
   // 재생 시작 시 3초 후 컨트롤 자동 숨김
@@ -813,19 +993,30 @@ class _VideoPlayerState extends State<_VideoPlayer> {
         ),
         child: Row(
           children: [
-            const Icon(Icons.videocam_off_outlined, color: Colors.grey, size: 20),
+            const Icon(
+              Icons.videocam_off_outlined,
+              color: Colors.grey,
+              size: 20,
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
                 widget.label ?? '동영상',
                 style: const TextStyle(fontSize: 13, color: Colors.grey),
-                maxLines: 1, overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
             TextButton(
               style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
               onPressed: () {
-                if (mounted) setState(() { _error = false; _initialized = false; _seeking = false; _seekPosition = Duration.zero; });
+                if (mounted)
+                  setState(() {
+                    _error = false;
+                    _initialized = false;
+                    _seeking = false;
+                    _seekPosition = Duration.zero;
+                  });
                 _ctrl.dispose();
                 _initController();
               },
@@ -843,7 +1034,8 @@ class _VideoPlayerState extends State<_VideoPlayer> {
           borderRadius: BorderRadius.circular(8),
         ),
         child: const Center(
-          child: CircularProgressIndicator(color: Colors.white)),
+          child: CircularProgressIndicator(color: Colors.white),
+        ),
       );
     }
     return ClipRRect(
@@ -876,7 +1068,9 @@ class _VideoPlayerState extends State<_VideoPlayer> {
             builder: (_, value, __) {
               final pos = _seeking ? _seekPosition : value.position;
               final dur = value.duration;
-              final maxMs = dur.inMilliseconds > 0 ? dur.inMilliseconds.toDouble() : 1.0;
+              final maxMs = dur.inMilliseconds > 0
+                  ? dur.inMilliseconds.toDouble()
+                  : 1.0;
               final posMs = pos.inMilliseconds.toDouble().clamp(0.0, maxMs);
               return AnimatedOpacity(
                 opacity: _showControls ? 1.0 : 0.0,
@@ -884,77 +1078,112 @@ class _VideoPlayerState extends State<_VideoPlayer> {
                 child: IgnorePointer(
                   ignoring: !_showControls,
                   child: Container(
-                color: Colors.black54,
-                padding: const EdgeInsets.only(left: 4, right: 8, bottom: 2),
-                child: Row(
-                  children: [
-                    // 재생/일시정지 버튼
-                    IconButton(
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                      icon: Icon(
-                        value.isPlaying ? Icons.pause : Icons.play_arrow,
-                        color: Colors.white, size: 22,
-                      ),
-                      onPressed: () {
-                        if (value.isPlaying) {
-                          _ctrl.pause();
-                          _hideTimer?.cancel();
-                          setState(() => _showControls = true);
-                        } else {
-                          _ctrl.play();
-                          _scheduleHide();
-                          setState(() {});
-                        }
-                      },
+                    color: Colors.black54,
+                    padding: const EdgeInsets.only(
+                      left: 4,
+                      right: 8,
+                      bottom: 2,
                     ),
-                    // 현재 위치
-                    Text(_fmt(pos),
-                        style: const TextStyle(color: Colors.white, fontSize: 11)),
-                    // 시크 바
-                    Expanded(
-                      child: SliderTheme(
-                        data: SliderTheme.of(context).copyWith(
-                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
-                          trackHeight: 2,
-                          activeTrackColor: Colors.white,
-                          inactiveTrackColor: Colors.white30,
-                          thumbColor: Colors.white,
-                          overlayColor: Colors.white24,
-                        ),
-                        child: Slider(
-                          value: posMs,
-                          min: 0,
-                          max: maxMs,
-                          onChangeStart: (_) {
-                            _wasPlaying = value.isPlaying;
-                            if (_wasPlaying) _ctrl.pause();
-                            setState(() { _seeking = true; _seekPosition = pos; });
-                          },
-                          onChanged: (v) => setState(() =>
-                              _seekPosition = Duration(milliseconds: v.toInt())),
-                          onChangeEnd: (v) {
-                            _ctrl.seekTo(Duration(milliseconds: v.toInt()));
-                            if (_wasPlaying) _ctrl.play();
-                            setState(() => _seeking = false);
+                    child: Row(
+                      children: [
+                        // 재생/일시정지 버튼
+                        IconButton(
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 36,
+                            minHeight: 36,
+                          ),
+                          icon: Icon(
+                            value.isPlaying ? Icons.pause : Icons.play_arrow,
+                            color: Colors.white,
+                            size: 22,
+                          ),
+                          onPressed: () {
+                            if (value.isPlaying) {
+                              _ctrl.pause();
+                              _hideTimer?.cancel();
+                              setState(() => _showControls = true);
+                            } else {
+                              _ctrl.play();
+                              _scheduleHide();
+                              setState(() {});
+                            }
                           },
                         ),
-                      ),
+                        // 현재 위치
+                        Text(
+                          _fmt(pos),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                          ),
+                        ),
+                        // 시크 바
+                        Expanded(
+                          child: SliderTheme(
+                            data: SliderTheme.of(context).copyWith(
+                              thumbShape: const RoundSliderThumbShape(
+                                enabledThumbRadius: 6,
+                              ),
+                              overlayShape: const RoundSliderOverlayShape(
+                                overlayRadius: 12,
+                              ),
+                              trackHeight: 2,
+                              activeTrackColor: Colors.white,
+                              inactiveTrackColor: Colors.white30,
+                              thumbColor: Colors.white,
+                              overlayColor: Colors.white24,
+                            ),
+                            child: Slider(
+                              value: posMs,
+                              min: 0,
+                              max: maxMs,
+                              onChangeStart: (_) {
+                                _wasPlaying = value.isPlaying;
+                                if (_wasPlaying) _ctrl.pause();
+                                setState(() {
+                                  _seeking = true;
+                                  _seekPosition = pos;
+                                });
+                              },
+                              onChanged: (v) => setState(
+                                () => _seekPosition = Duration(
+                                  milliseconds: v.toInt(),
+                                ),
+                              ),
+                              onChangeEnd: (v) {
+                                _ctrl.seekTo(Duration(milliseconds: v.toInt()));
+                                if (_wasPlaying) _ctrl.play();
+                                setState(() => _seeking = false);
+                              },
+                            ),
+                          ),
+                        ),
+                        // 전체 길이
+                        Text(
+                          _fmt(dur),
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 11,
+                          ),
+                        ),
+                        // 전체화면
+                        IconButton(
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 36,
+                            minHeight: 36,
+                          ),
+                          icon: const Icon(
+                            Icons.fullscreen,
+                            color: Colors.white,
+                            size: 22,
+                          ),
+                          onPressed: _openFullscreen,
+                        ),
+                      ],
                     ),
-                    // 전체 길이
-                    Text(_fmt(dur),
-                        style: const TextStyle(color: Colors.white70, fontSize: 11)),
-                    // 전체화면
-                    IconButton(
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-                      icon: const Icon(Icons.fullscreen, color: Colors.white, size: 22),
-                      onPressed: _openFullscreen,
-                    ),
-                  ],
-                ),
-              ),
+                  ),
                 ),
               );
             },

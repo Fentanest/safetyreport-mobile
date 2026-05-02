@@ -84,7 +84,7 @@ lib/
     rating_batch_result.dart         ── 별점 배치 결과 / 개별 신고 결과 모델
     agency_stats.dart                ── 통계 데이터 모델
   providers/
-    report_provider.dart             ── 신고/요약/필터 (`&`/`,` 검색, 상태/별점 다중선택), 자동 sync 트리거 (init/resume), 데모 모드 상태
+    report_provider.dart             ── 신고/요약/필터 (`&`/`,` 검색, 상태/별점 다중선택, 위반법규 단일선택 + `없음` sentinel), 자동 sync 트리거 (init/resume), 데모 모드 상태
     notification_history_provider.dart ── 알림 히스토리 + 알림 탭 서브탭 인덱스 상태
   services/
     api_service.dart                 ── Client 모드 HTTP/WS 클라이언트
@@ -99,21 +99,21 @@ lib/
   screens/
     setup_screen.dart                ── 초기 모드 선택 + 로그인/서버 설정 + demo/demo/demo 데모 진입
     dashboard_screen.dart            ── 처리 요약, 모드별 에러 메시지
-    report_list_screen.dart          ── 4탭 (교통/주정차/기타/중복차량)
-    statistics_screen.dart           ── 연도×카테고리×유형 통계, 위반법규 필터, softWrap
+    report_list_screen.dart          ── 4탭 (교통/주정차/기타/중복차량) + 통계/검색에서 넘어온 활성 필터 Chip 표시
+    statistics_screen.dart           ── 연도×카테고리×유형 통계, 위반법규 필터, 행 탭 시 신고리스트 상세검색 기반 drilldown
     notifications_screen.dart        ── 알림 히스토리 (크롤링/신고결과/별점 주기 3탭)
     file_browser_screen.dart         ── 로컬/서버 파일 브라우저 + share_plus fallback
     crawl_screen.dart                ── Standalone 동기화 / Client 크롤링 (모드 분기, 데모 모드 동기화 비활성화)
-    settings_screen.dart             ── 설정 (모드별 카드 분기 + 버그 제보 버튼)
+    settings_screen.dart             ── 설정 (모드별 카드 분기 + 버그 제보 버튼 + 공식 출처/비공식 고지)
     permission_screen.dart           ── 권한 가이드
     search_screen.dart               ── 신고번호/차량번호 검색
     filtered_list_screen.dart        ── 필터 적용된 신고 리스트
     watchlist_screen.dart            ── 감시목록
   widgets/
-    report_detail_sheet.dart         ── 신고 상세 시트 + 인라인/전체화면 동영상
+    report_detail_sheet.dart         ── 신고 상세 시트 + 인라인/전체화면 동영상 + 공식 출처 링크/비공식 고지
     report_list_card.dart            ── 신고 카드 공용 UI (`report_list`/`search`/`filtered_list` 공유)
     selection_action_bar.dart        ── 다중 선택 액션 바 (복사/크롤링/감시/별점 주기)
-    search_filter_sheet.dart         ── 검색 필터 시트 (처리상태/별점 다중선택, 초록 `v`, `&`/`,` 안내)
+    search_filter_sheet.dart         ── 검색 필터 시트 (처리상태/별점 다중선택, 위반법규 데이터 기반 단일선택 + `없음`, 초록 `v`, `&`/`,` 안내)
 ```
 
 ---
@@ -308,11 +308,32 @@ CREATE TABLE sync_meta (key TEXT PRIMARY KEY, value TEXT);
 - `SearchFilterSheet`는 `report_list_screen.dart`와 `search_screen.dart`가 공용 사용.
 - 실제 필터 적용은 `ReportProvider._applyFilter()`에서 처리하므로 **Client(server) 모드와 Standalone 모드에 동일하게 적용**된다.
 - 신고 카드 렌더링은 `widgets/report_list_card.dart`로 공용화되어 `report_list_screen.dart`, `search_screen.dart`, `filtered_list_screen.dart`가 같은 카드 골격을 공유한다.
-- `신고명`, `신고번호`, `차량번호`, `위반법규`, `위반장소`, `처리기관`, `담당자`, `과태료/범칙금`, `별점사유`, `신고내용`, `처리내용`은 `&` = AND, `,` = OR 문법을 사용한다.
+- `신고명`, `신고번호`, `차량번호`, `위반장소`, `처리기관`, `담당자`, `과태료/범칙금`, `별점사유`, `신고내용`, `처리내용`은 `&` = AND, `,` = OR 문법을 사용한다.
+- `위반법규`는 자유입력이 아니라 로드된 신고 데이터에서 distinct 추출한 **단일선택 드롭다운**이다.
+  - 빈 값 신고가 하나라도 있으면 내부 sentinel `kEmptyLawFilterValue = "__없음__"` 를 포함하고, UI에는 `없음`으로 표시한다.
+  - `ReportProvider._applyFilter()`는 일반 법규는 exact match, sentinel 은 `r.law.trim().isEmpty` 로 처리한다.
 - `처리상태`는 로드된 신고 목록에서 distinct 값을 추출해 다중선택 UI로 노출한다.
 - `별점`은 `없음`, `1~5점` 다중선택 UI로 노출한다.
 - 두 다중선택 UI 모두 선택된 항목 우측에 초록 `v`를 표시한다.
 - `만족도 조사 여부`는 `참여 완료`, `참여 가능` 단일선택 드롭다운으로 노출한다. 서버 `data_table.html` 상세 검색에도 동일하게 추가되어 있다.
+- `statistics_screen.dart`의 통계 행 탭은 별도 `FilteredListScreen`이 아니라 `ReportFilter`를 세팅한 뒤 `ReportListScreen(initialTabIndex: ...)`로 이동한다.
+  - 기관/담당자/연도/위반법규 필터를 함께 넘기며, 통계의 `법규 없음`도 같은 sentinel 으로 전달한다.
+
+---
+
+## 정부 정보 출처 / 비공식 고지
+
+- Play Console 대응으로 **앱 안에서 정부 정보 원문 출처를 직접 열 수 있어야 한다**.
+- 현재 공식 출처는 `https://www.safetyreport.go.kr/` 로 통일한다.
+- 출처/비공식 고지는 아래 두 위치에 중복 노출한다.
+  - `widgets/report_detail_sheet.dart`
+    - `안전신문고 앱에서 보기` 버튼 바로 아래
+  - `screens/settings_screen.dart`
+    - `앱 정보` 카드 내부
+- 고지 문구 핵심:
+  - 이 앱은 안전신문고의 공식 앱이 아니며 정부기관을 대표하지 않는다.
+  - 안전신문고 데이터를 사용자 편의용으로 조회/정리해 보여주는 비공식 도구다.
+  - 원문 확인과 실제 민원 처리는 안전신문고 공식 서비스에서 진행해야 한다.
 
 ---
 

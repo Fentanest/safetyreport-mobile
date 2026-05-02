@@ -24,6 +24,8 @@ const _defaultStatusOrder = <String>[
   '답변완료',
 ];
 
+const kEmptyLawFilterValue = '__없음__';
+
 class ReportFilter {
   final String name;
   final String reportNumber;
@@ -117,7 +119,11 @@ class ReportFilter {
     if (agency.isNotEmpty) list.add('기관: $agency');
     if (manager.isNotEmpty) list.add('담당자: $manager');
     if (carNumber.isNotEmpty) list.add('차량: $carNumber');
-    if (law.isNotEmpty) list.add('위반법규: $law');
+    if (law == kEmptyLawFilterValue) {
+      list.add('위반법규: 없음');
+    } else if (law.isNotEmpty) {
+      list.add('위반법규: $law');
+    }
     if (location.isNotEmpty) list.add('위반장소: $location');
     if (fine.isNotEmpty) list.add('과태료: $fine');
     if (reportContent.isNotEmpty) list.add('신고내용: $reportContent');
@@ -259,6 +265,41 @@ class ReportProvider with ChangeNotifier {
     return [...preferred, ...extras];
   }
 
+  List<String> get availableLaws {
+    final seen = <String>{};
+    final discovered = <String>[];
+    var hasEmptyLaw = false;
+
+    void collect(Iterable<Report> reports) {
+      for (final report in reports) {
+        final law = report.law.trim();
+        if (law.isEmpty) {
+          hasEmptyLaw = true;
+          continue;
+        }
+        if (!seen.add(law)) continue;
+        discovered.add(law);
+      }
+    }
+
+    collect(_trafficReports);
+    collect(_parkingReports);
+    collect(_otherReports);
+
+    final selectedLaw = _filter.law.trim();
+    if (selectedLaw == kEmptyLawFilterValue) {
+      hasEmptyLaw = true;
+    } else if (selectedLaw.isNotEmpty && seen.add(selectedLaw)) {
+      discovered.add(selectedLaw);
+    }
+
+    discovered.sort((a, b) => a.compareTo(b));
+    if (hasEmptyLaw) {
+      discovered.insert(0, kEmptyLawFilterValue);
+    }
+    return discovered;
+  }
+
   List<List<String>> _parseAndOrGroups(String query) {
     final text = query.trim();
     if (text.isEmpty) return const [];
@@ -301,7 +342,11 @@ class ReportProvider with ChangeNotifier {
       if (!_contains(r.agency, f.agency)) return false;
       if (!_contains(r.manager, f.manager)) return false;
       if (!_contains(r.carNumber, f.carNumber)) return false;
-      if (!_contains(r.law, f.law)) return false;
+      if (f.law == kEmptyLawFilterValue) {
+        if (r.law.trim().isNotEmpty) return false;
+      } else if (f.law.isNotEmpty && r.law.trim() != f.law) {
+        return false;
+      }
       if (!_contains(r.location, f.location)) return false;
       if (!_contains(r.fineInfo, f.fine)) return false;
       if (!_contains(r.reportContent, f.reportContent)) return false;

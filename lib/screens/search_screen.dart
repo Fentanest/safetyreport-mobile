@@ -23,8 +23,11 @@ class _SearchScreenState extends State<SearchScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final provider = context.read<ReportProvider>();
-      if (provider.trafficReports.isEmpty && provider.otherReports.isEmpty) {
+      if (provider.trafficReports.isEmpty &&
+          provider.parkingReports.isEmpty &&
+          provider.otherReports.isEmpty) {
         provider.fetchTrafficReports();
+        provider.fetchParkingReports();
         provider.fetchOtherReports();
       }
     });
@@ -59,6 +62,7 @@ class _SearchScreenState extends State<SearchScreen> {
     final provider = context.watch<ReportProvider>();
     final allFiltered = [
       ...provider.filteredTrafficReports,
+      ...provider.filteredParkingReports,
       ...provider.filteredOtherReports,
     ];
     final hasFilter = provider.hasFilter;

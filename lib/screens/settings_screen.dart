@@ -19,6 +19,8 @@ import 'setup_screen.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:file_picker/file_picker.dart';
 
+const _officialSafetyReportUrl = 'https://www.safetyreport.go.kr/';
+
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -87,8 +89,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           final status = upToDate == null
               ? null
               : upToDate
-                  ? 'up_to_date'
-                  : 'outdated';
+              ? 'up_to_date'
+              : 'outdated';
           setState(() {
             _serverVersion = ver;
             _serverVersionStatus = status;
@@ -244,9 +246,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         });
       } else {
         setState(() {
-          _testResult = _TestResult.warn(
-            '예상치 못한 응답: $status\n$body',
-          );
+          _testResult = _TestResult.warn('예상치 못한 응답: $status\n$body');
         });
       }
     } on Exception catch (e) {
@@ -262,9 +262,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final url = _urlController.text.trim();
     final key = _apiController.text.trim();
     if (url.isEmpty || key.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('모든 필드를 입력해주세요.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('모든 필드를 입력해주세요.')));
       return;
     }
     final provider = context.read<ReportProvider>();
@@ -284,9 +284,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // ── 스탠드어론 재로그인 다이얼로그 ─────────────────────────────
   Future<void> _showReloginDialog() async {
     final provider = context.read<ReportProvider>();
-    final usernameCtrl = TextEditingController(text: provider.standaloneUsername);
+    final usernameCtrl = TextEditingController(
+      text: provider.standaloneUsername,
+    );
     final passwordCtrl = TextEditingController();
-    final phoneCtrl = TextEditingController(text: provider.standalonePhoneNumber);
+    final phoneCtrl = TextEditingController(
+      text: provider.standalonePhoneNumber,
+    );
     bool obscurePw = true;
     bool loggingIn = false;
     String? err;
@@ -316,7 +320,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   labelText: '비밀번호',
                   prefixIcon: const Icon(Icons.lock_outline),
                   suffixIcon: IconButton(
-                    icon: Icon(obscurePw ? Icons.visibility_off : Icons.visibility, size: 20),
+                    icon: Icon(
+                      obscurePw ? Icons.visibility_off : Icons.visibility,
+                      size: 20,
+                    ),
                     onPressed: () => setDlg(() => obscurePw = !obscurePw),
                   ),
                 ),
@@ -337,7 +344,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               if (err != null) ...[
                 const SizedBox(height: 10),
-                Text(err!, style: const TextStyle(color: Colors.red, fontSize: 13)),
+                Text(
+                  err!,
+                  style: const TextStyle(color: Colors.red, fontSize: 13),
+                ),
               ],
             ],
           ),
@@ -357,10 +367,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       try {
                         final username = usernameCtrl.text.trim();
                         final rawPhone = phoneCtrl.text.trim();
-                        final phone = rawPhone.replaceAll(RegExp(r'[^0-9]'), '');
+                        final phone = rawPhone.replaceAll(
+                          RegExp(r'[^0-9]'),
+                          '',
+                        );
                         final isDemoLogin =
                             username == LocalDbService.playReviewDemoUsername &&
-                            passwordCtrl.text == LocalDbService.playReviewDemoPassword &&
+                            passwordCtrl.text ==
+                                LocalDbService.playReviewDemoPassword &&
                             rawPhone == LocalDbService.playReviewDemoPhone;
                         if (!isDemoLogin && phone.isEmpty) {
                           throw Exception('휴대폰번호를 입력해주세요.');
@@ -382,7 +396,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           Navigator.pop(ctx);
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                              content: Text(isDemoLogin ? '데모 모드 전환 완료' : '재로그인 완료'),
+                              content: Text(
+                                isDemoLogin ? '데모 모드 전환 완료' : '재로그인 완료',
+                              ),
                               backgroundColor: Colors.green,
                             ),
                           );
@@ -398,7 +414,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ? const SizedBox(
                       width: 16,
                       height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
                     )
                   : const Text('로그인'),
             ),
@@ -425,16 +444,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
         try {
           dir.createSync(recursive: true);
         } catch (_) {
-          final altDir = Directory('/storage/emulated/0/Download/mysafetyreport');
+          final altDir = Directory(
+            '/storage/emulated/0/Download/mysafetyreport',
+          );
           if (!altDir.existsSync()) altDir.createSync(recursive: true);
         }
       }
 
       final p = context.read<ReportProvider>();
       final isStandalone = p.appMode == AppMode.standalone;
-      
-      final targetDir = dir.existsSync() ? dir : Directory('/storage/emulated/0/Download/mysafetyreport');
-      final fileName = 'backup_data_${DateTime.now().millisecondsSinceEpoch}.db';
+
+      final targetDir = dir.existsSync()
+          ? dir
+          : Directory('/storage/emulated/0/Download/mysafetyreport');
+      final fileName =
+          'backup_data_${DateTime.now().millisecondsSinceEpoch}.db';
       final targetFile = File('${targetDir.path}/$fileName');
 
       if (isStandalone) {
@@ -447,7 +471,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('DB 백업 완료: ${targetFile.path}'), backgroundColor: Colors.green),
+          SnackBar(
+            content: Text('DB 백업 완료: ${targetFile.path}'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
     } catch (e) {
@@ -467,16 +494,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (_isRestoringDb) return;
 
-    final result = await FilePicker.pickFiles(
-      type: FileType.any,
-    );
+    final result = await FilePicker.pickFiles(type: FileType.any);
 
     if (result == null || result.files.single.path == null) return;
 
     final dialogMsg = isStandalone
         ? '기존 모바일 DB가 모두 삭제되고 선택한 파일로 대체됩니다.\n계속하시겠습니까?'
         : '서버의 DB가 선택한 파일로 교체됩니다. (서버 형식·모바일 형식 모두 자동 감지)\n'
-          '서버는 기존 DB를 자동 백업합니다.\n계속하시겠습니까?';
+              '서버는 기존 DB를 자동 백업합니다.\n계속하시겠습니까?';
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -529,13 +554,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
           final imported = res['imported'];
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('서버 DB 복원 완료 (${kind == 'mobile' ? '모바일→서버 변환' : '서버 형식'}, $imported건)'),
+              content: Text(
+                '서버 DB 복원 완료 (${kind == 'mobile' ? '모바일→서버 변환' : '서버 형식'}, $imported건)',
+              ),
               backgroundColor: Colors.green,
             ),
           );
         }
       }
-      return;  // 아래 standalone 전용 블록 스킵
+      return; // 아래 standalone 전용 블록 스킵
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -545,7 +572,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } finally {
       if (mounted) setState(() => _isRestoringDb = false);
     }
-
   }
 
   // ── 모드 변경 ─────────────────────────────────────────────────
@@ -589,8 +615,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('취소')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
             child: const Text('전환'),
@@ -618,9 +645,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (e) {
       // 백업 실패해도 모드 전환 자체는 진행 (사용자가 명시 요청)
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('백업 실패 (모드 전환은 진행): $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('백업 실패 (모드 전환은 진행): $e')));
       }
     }
 
@@ -666,7 +693,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _ChoiceTile(
                 icon: Icons.cloud_download,
                 title: '서버 DB 받아 변환',
-                subtitle: '현재 Client 서버에서 DB 를 받아 모바일 형식으로 변환.\n'
+                subtitle:
+                    '현재 Client 서버에서 DB 를 받아 모바일 형식으로 변환.\n'
                     '서버 데이터를 Standalone 에 그대로 가져옴.',
                 onTap: () => Navigator.pop(ctx, 'server'),
               ),
@@ -674,7 +702,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _ChoiceTile(
                 icon: Icons.folder_open,
                 title: '백업 파일 선택',
-                subtitle: '.db 파일을 직접 찾아 선택합니다.\n'
+                subtitle:
+                    '.db 파일을 직접 찾아 선택합니다.\n'
                     'Documents/Download 어디에 있든 가져올 수 있습니다.',
                 onTap: () => Navigator.pop(ctx, 'pick_backup'),
               ),
@@ -690,8 +719,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('취소')),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('취소'),
+          ),
         ],
       ),
     );
@@ -710,17 +740,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
           if (!st.isGranted) await Permission.storage.request();
         }
         // 진행 다이얼로그
-        unawaited(showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (_) => const AlertDialog(
-            content: Row(children: [
-              CircularProgressIndicator(),
-              SizedBox(width: 16),
-              Expanded(child: Text('서버 DB 다운로드 중...')),
-            ]),
+        unawaited(
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => const AlertDialog(
+              content: Row(
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(width: 16),
+                  Expanded(child: Text('서버 DB 다운로드 중...')),
+                ],
+              ),
+            ),
           ),
-        ));
+        );
         final api = ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
         final bytes = await api.downloadDb();
         final dir = _backupDir();
@@ -735,8 +769,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Navigator.of(context).pop(); // 진행 다이얼로그 닫기 (실패 시)
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-                content: Text('서버 DB 다운로드 실패: $e'),
-                backgroundColor: Colors.red),
+              content: Text('서버 DB 다운로드 실패: $e'),
+              backgroundColor: Colors.red,
+            ),
           );
         }
         return;
@@ -783,12 +818,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// GitHub 이슈 트래커로 이동 (양쪽 모드 공통, 버그/기능요청).
   Future<void> _openBugReport() async {
     final url = Uri.parse(
-        'https://github.com/Fentanest/safetyreport-mobile/issues');
+      'https://github.com/Fentanest/safetyreport-mobile/issues',
+    );
     final ok = await launchUrl(url, mode: LaunchMode.externalApplication);
     if (!ok && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('브라우저를 열 수 없습니다.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('브라우저를 열 수 없습니다.')));
+    }
+  }
+
+  Future<void> _openOfficialSource() async {
+    final url = Uri.parse(_officialSafetyReportUrl);
+    final ok = await launchUrl(url, mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('브라우저를 열 수 없습니다.')));
     }
   }
 
@@ -808,12 +854,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
             // ── 연결 방식 카드 ─────────────────────────────
             Card(
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 16,
+                ),
                 child: Row(
                   children: [
                     Icon(
-                      isStandalone ? Icons.phone_android_rounded : Icons.dns_rounded,
-                      color: isStandalone ? const Color(0xFF0F9D58) : cs.primary,
+                      isStandalone
+                          ? Icons.phone_android_rounded
+                          : Icons.dns_rounded,
+                      color: isStandalone
+                          ? const Color(0xFF0F9D58)
+                          : cs.primary,
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -823,14 +876,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           Text(
                             isStandalone ? '직접 연결 (스탠드어론)' : 'Client 모드',
                             style: const TextStyle(
-                              fontSize: 14, fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
                           Text(
                             isStandalone
                                 ? provider.standaloneUsername
-                                : provider.baseUrl.isEmpty ? '미설정' : provider.baseUrl,
-                            style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                : provider.baseUrl.isEmpty
+                                ? '미설정'
+                                : provider.baseUrl,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ],
@@ -856,20 +915,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       Row(
                         children: [
-                          const Icon(Icons.account_circle_outlined,
-                              color: Color(0xFF0F9D58)),
+                          const Icon(
+                            Icons.account_circle_outlined,
+                            color: Color(0xFF0F9D58),
+                          ),
                           const SizedBox(width: 8),
                           const Text(
                             '안전신문고 계정',
                             style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF0F9D58)),
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF0F9D58),
+                            ),
                           ),
                         ],
                       ),
                       const SizedBox(height: 12),
-                      _InfoRow(label: '아이디', value: provider.standaloneUsername),
+                      _InfoRow(
+                        label: '아이디',
+                        value: provider.standaloneUsername,
+                      ),
                       _InfoRow(
                         label: '휴대폰번호',
                         value: provider.standalonePhoneNumber.isEmpty
@@ -893,248 +958,285 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
             // ── 서버 모드 전용 섹션 시작 ──────────────────────
             if (!isStandalone) ...[
-
-            const SizedBox(height: 16),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                child: Row(
-                  children: [
-                    Icon(Icons.cloud_outlined, color: cs.primary),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _serverVersionLoading
-                          ? const Text('서버 버전 확인 중...',
-                              style: TextStyle(fontSize: 13, color: Colors.grey))
-                          : _serverVersion == null
-                              ? const Text('서버 버전 정보 없음',
-                                  style: TextStyle(fontSize: 13, color: Colors.grey))
-                              : Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text('서버 v$_serverVersion',
-                                        style: const TextStyle(
-                                            fontSize: 14, fontWeight: FontWeight.bold)),
-                                    if (_serverVersionStatus != null)
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 2),
-                                        child: Text(
-                                          _serverVersionStatus == 'up_to_date'
-                                              ? '최신 버전입니다'
-                                              : _serverVersionStatus == 'outdated'
-                                                  ? '업데이트 가능: v$_serverVersionLatest'
-                                                  : '업데이트 확인 불가',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: _serverVersionStatus == 'up_to_date'
-                                                ? Colors.green
-                                                : _serverVersionStatus == 'outdated'
-                                                    ? Colors.orange
-                                                    : Colors.grey,
-                                          ),
+              const SizedBox(height: 16),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 16,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.cloud_outlined, color: cs.primary),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _serverVersionLoading
+                            ? const Text(
+                                '서버 버전 확인 중...',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey,
+                                ),
+                              )
+                            : _serverVersion == null
+                            ? const Text(
+                                '서버 버전 정보 없음',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey,
+                                ),
+                              )
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '서버 v$_serverVersion',
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  if (_serverVersionStatus != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 2),
+                                      child: Text(
+                                        _serverVersionStatus == 'up_to_date'
+                                            ? '최신 버전입니다'
+                                            : _serverVersionStatus == 'outdated'
+                                            ? '업데이트 가능: v$_serverVersionLatest'
+                                            : '업데이트 확인 불가',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color:
+                                              _serverVersionStatus ==
+                                                  'up_to_date'
+                                              ? Colors.green
+                                              : _serverVersionStatus ==
+                                                    'outdated'
+                                              ? Colors.orange
+                                              : Colors.grey,
                                         ),
                                       ),
-                                  ],
-                                ),
-                    ),
-                    if (_serverVersionLoading)
-                      const SizedBox(
-                        width: 16, height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    else
-                      IconButton(
-                        icon: const Icon(Icons.refresh, size: 20),
-                        visualDensity: VisualDensity.compact,
-                        onPressed: _loadServerVersion,
-                        tooltip: '새로고침',
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            // ── 서버 연결 카드 ─────────────────────────────
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.dns_rounded, color: cs.primary),
-                        const SizedBox(width: 8),
-                        Text(
-                          '서버 연결',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: cs.primary,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Cloudflare Tunnel 또는 서버 주소를 입력하세요.',
-                      style: TextStyle(color: Colors.grey, fontSize: 13),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: _urlController,
-                      decoration: InputDecoration(
-                        labelText: '서버 URL',
-                        hintText: 'https://example.com',
-                        border: const OutlineInputBorder(),
-                        prefixIcon: const Icon(Icons.link),
-                        suffixIcon: IconButton(
-                          icon: const Icon(Icons.clear, size: 18),
-                          onPressed: () => _urlController.clear(),
-                        ),
-                      ),
-                      keyboardType: TextInputType.url,
-                      autocorrect: false,
-                    ),
-                    const SizedBox(height: 14),
-                    TextField(
-                      controller: _apiController,
-                      decoration: InputDecoration(
-                        labelText: 'API Key',
-                        hintText: 'sk-...',
-                        border: const OutlineInputBorder(),
-                        prefixIcon: const Icon(Icons.vpn_key),
-                        suffixIcon: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              icon: Icon(
-                                _obscureKey
-                                    ? Icons.visibility_off
-                                    : Icons.visibility,
-                                size: 20,
+                                    ),
+                                ],
                               ),
-                              onPressed: () =>
-                                  setState(() => _obscureKey = !_obscureKey),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.copy, size: 18),
-                              tooltip: '복사',
-                              onPressed: () {
-                                Clipboard.setData(
-                                  ClipboardData(text: _apiController.text),
-                                );
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                      content: Text('API 키가 복사되었습니다.')),
-                                );
-                              },
-                            ),
-                          ],
-                        ),
                       ),
-                      obscureText: _obscureKey,
-                      autocorrect: false,
-                    ),
-                    const SizedBox(height: 16),
-                    // 연결 테스트 결과
-                    if (_testResult != null) _buildTestResult(_testResult!),
-                    if (_testResult != null) const SizedBox(height: 12),
-                    // 버튼 행
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            icon: _testing
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                        strokeWidth: 2),
-                                  )
-                                : const Icon(Icons.wifi_find, size: 18),
-                            label: Text(_testing ? '테스트 중...' : '연결 테스트'),
-                            onPressed: _testing ? null : _testConnection,
-                          ),
+                      if (_serverVersionLoading)
+                        const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      else
+                        IconButton(
+                          icon: const Icon(Icons.refresh, size: 20),
+                          visualDensity: VisualDensity.compact,
+                          onPressed: _loadServerVersion,
+                          tooltip: '새로고침',
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: FilledButton.icon(
-                            icon: const Icon(Icons.save, size: 18),
-                            label: const Text('저장'),
-                            onPressed: _save,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-
-            // ── 크롤링 자동 저장 카드 ──────────────────────
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.save_outlined, color: cs.primary),
-                        const SizedBox(width: 8),
-                        Text(
-                          '크롤링 자동 저장',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: cs.primary,
-                          ),
-                        ),
-                        if (_filterLoading) ...[
+              const SizedBox(height: 16),
+              // ── 서버 연결 카드 ─────────────────────────────
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.dns_rounded, color: cs.primary),
                           const SizedBox(width: 8),
-                          const SizedBox(
-                            width: 14, height: 14,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                          Text(
+                            '서버 연결',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: cs.primary,
+                            ),
                           ),
                         ],
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    const Text(
-                      '크롤링 완료 후 자동으로 내보내기를 실행합니다.',
-                      style: TextStyle(color: Colors.grey, fontSize: 12),
-                    ),
-                    const SizedBox(height: 12),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('엑셀 자동 저장', style: TextStyle(fontSize: 14)),
-                      subtitle: const Text('크롤링 완료 후 서버에 Excel 파일을 자동 생성합니다.', style: TextStyle(fontSize: 12)),
-                      value: _autoExportExcel,
-                      onChanged: _filterLoading ? null : (v) {
-                        setState(() => _autoExportExcel = v);
-                        _toggleFilter('auto_export_excel', v);
-                      },
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('구글 스프레드시트 자동 업로드', style: TextStyle(fontSize: 14)),
-                      subtitle: const Text('크롤링 완료 후 구글 시트에 자동 업로드합니다.', style: TextStyle(fontSize: 12)),
-                      value: _autoExportSheet,
-                      onChanged: _filterLoading ? null : (v) {
-                        setState(() => _autoExportSheet = v);
-                        _toggleFilter('auto_export_sheet', v);
-                      },
-                    ),
-                  ],
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Cloudflare Tunnel 또는 서버 주소를 입력하세요.',
+                        style: TextStyle(color: Colors.grey, fontSize: 13),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _urlController,
+                        decoration: InputDecoration(
+                          labelText: '서버 URL',
+                          hintText: 'https://example.com',
+                          border: const OutlineInputBorder(),
+                          prefixIcon: const Icon(Icons.link),
+                          suffixIcon: IconButton(
+                            icon: const Icon(Icons.clear, size: 18),
+                            onPressed: () => _urlController.clear(),
+                          ),
+                        ),
+                        keyboardType: TextInputType.url,
+                        autocorrect: false,
+                      ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: _apiController,
+                        decoration: InputDecoration(
+                          labelText: 'API Key',
+                          hintText: 'sk-...',
+                          border: const OutlineInputBorder(),
+                          prefixIcon: const Icon(Icons.vpn_key),
+                          suffixIcon: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: Icon(
+                                  _obscureKey
+                                      ? Icons.visibility_off
+                                      : Icons.visibility,
+                                  size: 20,
+                                ),
+                                onPressed: () =>
+                                    setState(() => _obscureKey = !_obscureKey),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.copy, size: 18),
+                                tooltip: '복사',
+                                onPressed: () {
+                                  Clipboard.setData(
+                                    ClipboardData(text: _apiController.text),
+                                  );
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('API 키가 복사되었습니다.'),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                        obscureText: _obscureKey,
+                        autocorrect: false,
+                      ),
+                      const SizedBox(height: 16),
+                      // 연결 테스트 결과
+                      if (_testResult != null) _buildTestResult(_testResult!),
+                      if (_testResult != null) const SizedBox(height: 12),
+                      // 버튼 행
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              icon: _testing
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.wifi_find, size: 18),
+                              label: Text(_testing ? '테스트 중...' : '연결 테스트'),
+                              onPressed: _testing ? null : _testConnection,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: FilledButton.icon(
+                              icon: const Icon(Icons.save, size: 18),
+                              label: const Text('저장'),
+                              onPressed: _save,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
+              const SizedBox(height: 16),
 
+              // ── 크롤링 자동 저장 카드 ──────────────────────
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.save_outlined, color: cs.primary),
+                          const SizedBox(width: 8),
+                          Text(
+                            '크롤링 자동 저장',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: cs.primary,
+                            ),
+                          ),
+                          if (_filterLoading) ...[
+                            const SizedBox(width: 8),
+                            const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        '크롤링 완료 후 자동으로 내보내기를 실행합니다.',
+                        style: TextStyle(color: Colors.grey, fontSize: 12),
+                      ),
+                      const SizedBox(height: 12),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text(
+                          '엑셀 자동 저장',
+                          style: TextStyle(fontSize: 14),
+                        ),
+                        subtitle: const Text(
+                          '크롤링 완료 후 서버에 Excel 파일을 자동 생성합니다.',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        value: _autoExportExcel,
+                        onChanged: _filterLoading
+                            ? null
+                            : (v) {
+                                setState(() => _autoExportExcel = v);
+                                _toggleFilter('auto_export_excel', v);
+                              },
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text(
+                          '구글 스프레드시트 자동 업로드',
+                          style: TextStyle(fontSize: 14),
+                        ),
+                        subtitle: const Text(
+                          '크롤링 완료 후 구글 시트에 자동 업로드합니다.',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        value: _autoExportSheet,
+                        onChanged: _filterLoading
+                            ? null
+                            : (v) {
+                                setState(() => _autoExportSheet = v);
+                                _toggleFilter('auto_export_sheet', v);
+                              },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
             ], // if (!isStandalone)
-
             // ── 기타 데이터 필터 세팅 카드 (양쪽 모드 공통) ──────
             Card(
               child: Padding(
@@ -1157,7 +1259,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         if (_filterLoading) ...[
                           const SizedBox(width: 8),
                           const SizedBox(
-                            width: 14, height: 14,
+                            width: 14,
+                            height: 14,
                             child: CircularProgressIndicator(strokeWidth: 2),
                           ),
                         ],
@@ -1173,23 +1276,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 12),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('취하 데이터 숨기기', style: TextStyle(fontSize: 14)),
-                      subtitle: const Text('처리상태가 취하인 신고를 목록에서 제외합니다.', style: TextStyle(fontSize: 12)),
+                      title: const Text(
+                        '취하 데이터 숨기기',
+                        style: TextStyle(fontSize: 14),
+                      ),
+                      subtitle: const Text(
+                        '처리상태가 취하인 신고를 목록에서 제외합니다.',
+                        style: TextStyle(fontSize: 12),
+                      ),
                       value: _excludeWithdraw,
-                      onChanged: _filterLoading ? null : (v) {
-                        setState(() => _excludeWithdraw = v);
-                        _toggleFilter('exclude_withdraw', v);
-                      },
+                      onChanged: _filterLoading
+                          ? null
+                          : (v) {
+                              setState(() => _excludeWithdraw = v);
+                              _toggleFilter('exclude_withdraw', v);
+                            },
                     ),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
-                      title: const Text('경찰 기관명 정규화', style: TextStyle(fontSize: 14)),
-                      subtitle: const Text('처리기관명을 "XX경찰서" 형태로 통일합니다.', style: TextStyle(fontSize: 12)),
+                      title: const Text(
+                        '경찰 기관명 정규화',
+                        style: TextStyle(fontSize: 14),
+                      ),
+                      subtitle: const Text(
+                        '처리기관명을 "XX경찰서" 형태로 통일합니다.',
+                        style: TextStyle(fontSize: 12),
+                      ),
                       value: _normalizePolice,
-                      onChanged: _filterLoading ? null : (v) {
-                        setState(() => _normalizePolice = v);
-                        _toggleFilter('normalize_police', v);
-                      },
+                      onChanged: _filterLoading
+                          ? null
+                          : (v) {
+                              setState(() => _normalizePolice = v);
+                              _toggleFilter('normalize_police', v);
+                            },
                     ),
                   ],
                 ),
@@ -1221,7 +1340,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 12),
                     const Text(
                       '현재 기기(또는 서버)의 데이터를 파일로 백업합니다.\n저장 경로: Documents/mysafetyreport/',
-                      style: TextStyle(fontSize: 12, color: Colors.grey, height: 1.5),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey,
+                        height: 1.5,
+                      ),
                     ),
                     const SizedBox(height: 14),
                     SizedBox(
@@ -1230,7 +1353,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ? const Center(
                               child: Padding(
                                 padding: EdgeInsets.all(8),
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               ),
                             )
                           : OutlinedButton.icon(
@@ -1246,7 +1371,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ? const Center(
                               child: Padding(
                                 padding: EdgeInsets.all(8),
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               ),
                             )
                           : OutlinedButton.icon(
@@ -1283,8 +1410,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    _InfoRow(label: '앱 버전', value: _appVersion.isEmpty ? '...' : 'v$_appVersion'),
+                    _InfoRow(
+                      label: '앱 버전',
+                      value: _appVersion.isEmpty ? '...' : 'v$_appVersion',
+                    ),
                     const _InfoRow(label: '플랫폼', value: 'Android / iOS'),
+                    const _InfoRow(label: '공식 출처', value: '안전신문고'),
+                    const SizedBox(height: 6),
+                    const SelectableText(
+                      _officialSafetyReportUrl,
+                      style: TextStyle(fontSize: 12.5, height: 1.4),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.open_in_browser, size: 18),
+                        label: const Text('안전신문고 공식 사이트 열기'),
+                        onPressed: _openOfficialSource,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blueGrey.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.blueGrey.shade100),
+                      ),
+                      child: const Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '이 앱은 안전신문고의 공식 앱이 아니며 행정안전부 또는 정부기관을 대표하지 않습니다.',
+                            style: TextStyle(fontSize: 12.5, height: 1.45),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            '안전신문고 데이터를 사용자의 편의를 위해 조회·정리해 보여주는 비공식 도구입니다.',
+                            style: TextStyle(fontSize: 12.5, height: 1.45),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            '원문 확인과 실제 민원 처리는 안전신문고 공식 서비스에서 진행해 주세요.',
+                            style: TextStyle(fontSize: 12.5, height: 1.45),
+                          ),
+                        ],
+                      ),
+                    ),
                     const SizedBox(height: 12),
                     SizedBox(
                       width: double.infinity,
@@ -1304,90 +1478,105 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             if (!isStandalone) ...[
-            const SizedBox(height: 16),
+              const SizedBox(height: 16),
 
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.wifi_tethering,
-                          color: _wsRunning ? Colors.green : Colors.grey,
-                        ),
-                        const SizedBox(width: 8),
-                        const Expanded(
-                          child: Text(
-                            '백그라운드 서버 연결',
-                            style: TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.bold),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.wifi_tethering,
+                            color: _wsRunning ? Colors.green : Colors.grey,
                           ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: _wsRunning
-                                ? Colors.green.shade50
-                                : Colors.red.shade50,
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: _wsRunning
-                                  ? Colors.green.shade300
-                                  : Colors.red.shade200,
+                          const SizedBox(width: 8),
+                          const Expanded(
+                            child: Text(
+                              '백그라운드 서버 연결',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
-                          child: Text(
-                            _wsRunning ? '● 실행 중' : '○ 중지됨',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
                               color: _wsRunning
-                                  ? Colors.green.shade700
-                                  : Colors.red.shade700,
+                                  ? Colors.green.shade50
+                                  : Colors.red.shade50,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: _wsRunning
+                                    ? Colors.green.shade300
+                                    : Colors.red.shade200,
+                              ),
+                            ),
+                            child: Text(
+                              _wsRunning ? '● 실행 중' : '○ 중지됨',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: _wsRunning
+                                    ? Colors.green.shade700
+                                    : Colors.red.shade700,
+                              ),
                             ),
                           ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        '앱 종료 후에도 크롤링 시작·완료 이벤트를 실시간으로 알림으로 받습니다.\n상단 상태바에 지속 알림이 표시됩니다.',
+                        style: TextStyle(
+                          color: Colors.grey,
+                          fontSize: 12,
+                          height: 1.5,
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    const Text(
-                      '앱 종료 후에도 크롤링 시작·완료 이벤트를 실시간으로 알림으로 받습니다.\n상단 상태바에 지속 알림이 표시됩니다.',
-                      style: TextStyle(color: Colors.grey, fontSize: 12, height: 1.5),
-                    ),
-                    const SizedBox(height: 14),
-                    SizedBox(
-                      width: double.infinity,
-                      child: _wsToggling
-                          ? const Center(
-                              child: Padding(
-                                padding: EdgeInsets.all(8),
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              ),
-                            )
-                          : OutlinedButton.icon(
-                              icon: Icon(
-                                _wsRunning ? Icons.stop_circle_outlined : Icons.play_circle_outline,
-                                size: 18,
-                              ),
-                              label: Text(_wsRunning ? '서비스 중지' : '서비스 시작'),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor:
-                                    _wsRunning ? Colors.red : Colors.green,
-                                side: BorderSide(
-                                  color: _wsRunning ? Colors.red : Colors.green,
+                      ),
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        width: double.infinity,
+                        child: _wsToggling
+                            ? const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(8),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
                                 ),
+                              )
+                            : OutlinedButton.icon(
+                                icon: Icon(
+                                  _wsRunning
+                                      ? Icons.stop_circle_outlined
+                                      : Icons.play_circle_outline,
+                                  size: 18,
+                                ),
+                                label: Text(_wsRunning ? '서비스 중지' : '서비스 시작'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: _wsRunning
+                                      ? Colors.red
+                                      : Colors.green,
+                                  side: BorderSide(
+                                    color: _wsRunning
+                                        ? Colors.red
+                                        : Colors.green,
+                                  ),
+                                ),
+                                onPressed: _toggleWsService,
                               ),
-                              onPressed: _toggleWsService,
-                            ),
-                    ),
-                  ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
             ], // if (!isStandalone) WS service
             const SizedBox(height: 16),
 
@@ -1419,7 +1608,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             const SizedBox(height: 2),
                             const Text(
                               '알림 접근, 배터리 최적화 제외, 백그라운드 서비스 등 권한을 관리합니다.',
-                              style: TextStyle(color: Colors.grey, fontSize: 13),
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontSize: 13,
+                              ),
                             ),
                           ],
                         ),
@@ -1437,7 +1629,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: const Icon(Icons.language, size: 18),
                 label: const Text('홈페이지 바로가기'),
                 onPressed: () async {
-                  final url = Uri.parse('https://hb.worklazy.net/mysafetyreport/');
+                  final url = Uri.parse(
+                    'https://hb.worklazy.net/mysafetyreport/',
+                  );
                   await launchUrl(url, mode: LaunchMode.externalApplication);
                 },
               ),
@@ -1517,11 +1711,15 @@ class _InfoRow extends StatelessWidget {
         children: [
           SizedBox(
             width: 80,
-            child: Text(label,
-                style: const TextStyle(color: Colors.grey, fontSize: 13)),
+            child: Text(
+              label,
+              style: const TextStyle(color: Colors.grey, fontSize: 13),
+            ),
           ),
-          Text(value,
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+          Text(
+            value,
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+          ),
         ],
       ),
     );
@@ -1562,16 +1760,19 @@ class _ChoiceTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title,
-                      style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold)),
+                  Text(
+                    title,
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                  ),
                   const SizedBox(height: 4),
-                  Text(subtitle,
-                      style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.grey.shade700,
-                          height: 1.3)),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey.shade700,
+                      height: 1.3,
+                    ),
+                  ),
                 ],
               ),
             ),

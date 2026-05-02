@@ -9,6 +9,45 @@
 
 ## 2026-05-02
 
+### 통계 드릴다운을 신고리스트 상세검색 기반으로 전환 + 위반법규 단일선택 보강
+
+상태: 완료
+
+변경:
+- `lib/screens/statistics_screen.dart`
+  - 통계 행 탭 시 기존 `FilteredListScreen` 대신 신고리스트 화면을 열도록 변경
+  - 기관/담당자/연도/위반법규 필터를 `ReportFilter`에 주입하고 카테고리에 맞는 탭으로 진입
+  - 통계의 `법규 없음(__없음__)` 상태도 신고리스트 필터로 그대로 전달
+- `lib/screens/report_list_screen.dart`
+  - 초기 탭 인덱스 지정 지원 추가
+  - 통계/검색에서 넘어온 활성 필터를 상단 Chip으로 표시
+- `lib/providers/report_provider.dart`
+  - 위반법규 빈 값 전용 sentinel `kEmptyLawFilterValue` 추가
+  - 로드된 교통/주정차/기타 신고 데이터에서 유효한 위반법규 목록을 수집하고, 빈 값 신고가 있으면 `없음` 옵션도 포함
+  - 위반법규 필터를 자유입력 부분검색이 아닌 단일 선택 exact match / `없음` 매칭으로 변경
+- `lib/widgets/search_filter_sheet.dart`
+  - 위반법규 입력을 데이터 기반 단일선택 드롭다운으로 변경
+  - 드롭다운의 `__없음__` 내부값을 사용자에게는 `없음`으로 표시
+- `lib/screens/search_screen.dart`
+  - 공용 상세검색 시트가 주정차 데이터까지 함께 로드/검색하도록 보강
+
+비고:
+- Client 모드는 이미 `/api/v1/reports/{category}` 원본 목록을 받아 모바일에서 필터링하는 구조라 서버 API 추가는 불필요
+
+### Play Console 정부 정보 출처/비공식 고지 추가
+
+상태: 완료
+
+변경:
+- `lib/widgets/report_detail_sheet.dart`
+  - `안전신문고 앱에서 보기` 버튼 아래에 안전신문고 공식 출처 URL(`https://www.safetyreport.go.kr/`) 표시
+  - `안전신문고 공식 사이트 열기` 외부 링크 버튼 추가
+  - 비공식 앱 / 비정부 대표 아님 / 원문은 공식 서비스에서 확인해야 함 안내 문구 추가
+- `lib/screens/settings_screen.dart`
+  - `앱 정보` 카드에 동일한 공식 출처 URL, 외부 링크 버튼, 비공식 고지 문구 추가
+- `CHANGELOG.md`, `CLAUDE.md`
+  - 검색/통계 드릴다운 변경 및 Play Console 대응 지점 기록
+
 ### Standalone 모드 다중 선택 동기화 버튼 추가
 
 상태: 완료

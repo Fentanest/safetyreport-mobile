@@ -9,7 +9,9 @@ import '../widgets/selection_action_bar.dart';
 import 'settings_screen.dart';
 
 class ReportListScreen extends StatefulWidget {
-  const ReportListScreen({super.key});
+  final int initialTabIndex;
+
+  const ReportListScreen({super.key, this.initialTabIndex = 0});
 
   @override
   State<ReportListScreen> createState() => _ReportListScreenState();
@@ -23,7 +25,15 @@ class _ReportListScreenState extends State<ReportListScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(
+      length: 4,
+      vsync: this,
+      initialIndex: widget.initialTabIndex < 0
+          ? 0
+          : widget.initialTabIndex > 3
+          ? 3
+          : widget.initialTabIndex,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<ReportProvider>().fetchTrafficReports();
       context.read<ReportProvider>().fetchParkingReports();
@@ -77,6 +87,7 @@ class _ReportListScreenState extends State<ReportListScreen>
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<ReportProvider>();
+    final activeLabels = provider.filter.activeLabels;
 
     final allReports = [
       ...provider.filteredTrafficReports,
@@ -145,25 +156,62 @@ class _ReportListScreenState extends State<ReportListScreen>
             ),
       body: Stack(
         children: [
-          TabBarView(
-            controller: _tabController,
+          Column(
             children: [
-              _buildTab(
-                provider,
-                provider.filteredTrafficReports,
-                provider.fetchTrafficReports,
+              if (provider.hasFilter && activeLabels.isNotEmpty)
+                Container(
+                  width: double.infinity,
+                  color: Colors.blue.shade50,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: activeLabels
+                          .map(
+                            (label) => Padding(
+                              padding: const EdgeInsets.only(right: 6),
+                              child: Chip(
+                                label: Text(
+                                  label,
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                                backgroundColor: Colors.blue.shade100,
+                                padding: EdgeInsets.zero,
+                                materialTapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ),
+                ),
+              Expanded(
+                child: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _buildTab(
+                      provider,
+                      provider.filteredTrafficReports,
+                      provider.fetchTrafficReports,
+                    ),
+                    _buildTab(
+                      provider,
+                      provider.filteredParkingReports,
+                      provider.fetchParkingReports,
+                    ),
+                    _buildTab(
+                      provider,
+                      provider.filteredOtherReports,
+                      provider.fetchOtherReports,
+                    ),
+                    _buildDuplicateTab(provider),
+                  ],
+                ),
               ),
-              _buildTab(
-                provider,
-                provider.filteredParkingReports,
-                provider.fetchParkingReports,
-              ),
-              _buildTab(
-                provider,
-                provider.filteredOtherReports,
-                provider.fetchOtherReports,
-              ),
-              _buildDuplicateTab(provider),
             ],
           ),
           if (_selectionMode)

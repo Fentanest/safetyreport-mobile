@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../models/report.dart';
 import '../models/file_item.dart';
 import '../models/agency_stats.dart';
+import '../models/sunwi.dart';
 
 class ApiService {
   final String baseUrl;
@@ -125,6 +126,35 @@ class ApiService {
     } else {
       throw Exception('통계 로드 실패: ${response.statusCode}');
     }
+  }
+
+  Future<SunwiPayload> getSunwiPayload() async {
+    final response = await _sendWithRetry(
+      () => http.get(
+        Uri.parse('$baseUrl/api/v1/sunwi/payload'),
+        headers: _headers,
+      ),
+      timeout: const Duration(minutes: 2),
+    );
+    if (response.statusCode == 200) {
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      return SunwiPayload.fromJson(json['data'] as Map<String, dynamic>);
+    }
+    throw Exception('신고현황 로드 실패: ${response.statusCode}');
+  }
+
+  Future<Map<String, dynamic>> exportSunwiCsv(String kind) async {
+    final response = await _sendWithRetry(
+      () => http.post(
+        Uri.parse('$baseUrl/api/v1/sunwi/export/$kind'),
+        headers: _headers,
+      ),
+      timeout: const Duration(minutes: 2),
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    throw Exception('신고현황 CSV 생성 실패: ${response.statusCode}');
   }
 
   Future<List<Report>> getWatchlist() async {

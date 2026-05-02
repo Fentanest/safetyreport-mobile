@@ -102,7 +102,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       await _permChannel.invokeMethod('showNotification', {
         'title': '✅ 크롤링 완료',
         'body': body,
-        'nav_tab': 3,
+        'nav_tab': 4,
         'nav_subtab': 1,
         'event_type': 'crawl_result',
       });

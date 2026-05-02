@@ -176,8 +176,10 @@ class ReportProvider with ChangeNotifier {
   // 화면들은 이 값을 watch 하다가 변경 시 refresh 를 수행.
   int _statsRefreshNonce = 0;
   int _filesRefreshNonce = 0;
+  int _sunwiRefreshNonce = 0;
   int get statsRefreshNonce => _statsRefreshNonce;
   int get filesRefreshNonce => _filesRefreshNonce;
+  int get sunwiRefreshNonce => _sunwiRefreshNonce;
   void bumpStatsRefresh() {
     _statsRefreshNonce++;
     notifyListeners();
@@ -185,6 +187,11 @@ class ReportProvider with ChangeNotifier {
 
   void bumpFilesRefresh() {
     _filesRefreshNonce++;
+    notifyListeners();
+  }
+
+  void bumpSunwiRefresh() {
+    _sunwiRefreshNonce++;
     notifyListeners();
   }
 

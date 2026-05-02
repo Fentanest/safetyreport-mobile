@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/report_list_screen.dart';
 import 'screens/statistics_screen.dart';
+import 'screens/sunwi_screen.dart';
 import 'screens/setup_screen.dart';
 import 'screens/file_browser_screen.dart';
 import 'screens/notifications_screen.dart';
@@ -168,6 +169,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     const DashboardScreen(),
     const ReportListScreen(),
     const StatisticsScreen(),
+    const SunwiScreen(),
     const NotificationsScreen(),
     const FileBrowserScreen(),
     const CrawlScreen(),
@@ -213,7 +215,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   Future<dynamic> _handleNativeCall(MethodCall call) async {
     if (call.method == 'navigateToTab') {
       final args = call.arguments as Map?;
-      final tab = (args?['tab'] as num?)?.toInt() ?? 3;
+      final tab = (args?['tab'] as num?)?.toInt() ?? 4;
       final subTab = (args?['sub_tab'] as num?)?.toInt();
       final eventType = args?['event_type']?.toString() ?? '';
       if (subTab != null && subTab >= 0) {
@@ -234,7 +236,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   }
 
   /// 탭 변경 시 해당 화면 새로고침.
-  /// 0 대시보드, 1 신고리스트, 2 통계, 3 알림, 4 파일, 5 동기화/크롤링
+  /// 0 대시보드, 1 신고리스트, 2 통계, 3 신고현황, 4 알림, 5 파일, 6 동기화/크롤링
   void _refreshOnTab(int index) {
     if (!mounted) return;
     final p = context.read<ReportProvider>();
@@ -255,12 +257,15 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
         p.bumpStatsRefresh();
         break;
       case 3:
-        context.read<NotificationHistoryProvider>().load();
+        p.bumpSunwiRefresh();
         break;
       case 4:
-        p.bumpFilesRefresh();
+        context.read<NotificationHistoryProvider>().load();
         break;
       case 5:
+        p.bumpFilesRefresh();
+        break;
+      case 6:
         // 동기화/크롤링 탭은 사용자 액션 기반이므로 자동 새로고침 없음
         break;
     }
@@ -292,7 +297,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
           duration: const Duration(seconds: 4),
           action: SnackBarAction(
             label: '알림 보기',
-            onPressed: () => setState(() => _selectedIndex = 3),
+            onPressed: () => setState(() => _selectedIndex = 4),
           ),
         ),
       );
@@ -325,7 +330,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     );
 
     // 알림 탭으로 이동
-    setState(() => _selectedIndex = 3);
+    setState(() => _selectedIndex = 4);
 
     // 변경 신고건 카드 뷰 표시
     await Future.delayed(const Duration(milliseconds: 200));
@@ -707,6 +712,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
             icon: Icon(Icons.bar_chart_outlined),
             selectedIcon: Icon(Icons.bar_chart),
             label: '통계',
+          ),
+          const NavigationDestination(
+            icon: Icon(Icons.map_outlined),
+            selectedIcon: Icon(Icons.map),
+            label: '신고현황',
           ),
           NavigationDestination(
             icon: Badge(

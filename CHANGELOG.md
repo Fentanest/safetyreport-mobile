@@ -189,6 +189,27 @@
   - 선택된 항목 우측에 초록 `v` 표시
   - `report_list_screen.dart`, `search_screen.dart`가 공유하는 필터 시트에 동일 동작 적용
 
+## 2026-05-02
+
+### 신고현황 탭 + sunwi 이식
+
+변경:
+- 하단 네비게이션에 `신고현황` 탭 추가. 위치는 `통계`와 `알림` 사이.
+- 새 `SunwiScreen` / `SunwiService` / `SunwiPayload` 모델 추가.
+- Client 모드에서는 서버 `/api/v1/sunwi/payload` 데이터를 그대로 표시.
+- Standalone 모드에서는 안전신문고 통계 API를 직접 순회 호출해 전국 Top5 데이터를 생성.
+- 화면 상단에 `ALL CSV 생성`, `TOP5 CSV 생성` 버튼 추가.
+- Standalone CSV는 `Documents/mysafetyreport/sunwi/`에 `sunwi_category_all_latest.csv`, `sunwi_category_top5_latest.csv`로 저장.
+- 새 탭 삽입에 맞춰 알림/파일/동기화 탭 인덱스를 한 칸씩 뒤로 조정하고, Android `NotificationService` / `WsService` / Flutter `showNotification` 연동 인덱스도 함께 수정.
+
+### DB import 안정화
+
+변경:
+- 외부 `.db` import 전에 임시 staging/snapshot을 만들어 `-wal`/`-shm`를 함께 병합하는 경로 추가.
+- `LocalDbService.detectDbKind`, `importFromServerDb`, `replaceFromBackup`가 모두 같은 snapshot 규칙을 사용하도록 통일.
+- Setup/복원 화면의 파일 선택을 다중 선택 허용으로 바꿔 `.db`와 `-wal`/`-shm`를 함께 staging 가능하게 보강.
+- Standalone 복원도 파일 형식을 자동 감지해 모바일 백업은 그대로 복원, 서버 DB는 변환 import 하도록 수정.
+
 ### 문서 정리
 
 상태: 완료

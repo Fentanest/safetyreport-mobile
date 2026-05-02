@@ -214,7 +214,7 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
       await _permChannel.invokeMethod('showNotification', {
         'title': title,
         'body': result.summary,
-        'nav_tab': 3,
+        'nav_tab': 4,
         'nav_subtab': 2,
         'event_type': 'rating_result',
       });

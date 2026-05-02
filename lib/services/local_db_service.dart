@@ -805,7 +805,8 @@ class LocalDbService {
     final src = File(dbPath);
     if (!src.existsSync()) return 'unknown';
 
-    final extDb = await openDatabase(dbPath, readOnly: true);
+    final preparedDbPath = await _prepareExternalDbSnapshot(dbPath);
+    final extDb = await openDatabase(preparedDbPath, readOnly: true);
     try {
       final tables = await extDb.rawQuery(
         "SELECT name FROM sqlite_master WHERE type='table'",
@@ -838,6 +839,7 @@ class LocalDbService {
       return 'unknown';
     } finally {
       await extDb.close();
+      await _cleanupPreparedSnapshot(preparedDbPath);
     }
   }
 
@@ -854,6 +856,67 @@ class LocalDbService {
     await src.copy(targetPath);
   }
 
+  static Future<String> _prepareExternalDbSnapshot(String sourceDbPath) async {
+    final src = File(sourceDbPath);
+    if (!src.existsSync()) {
+      throw Exception('DB 파일이 존재하지 않습니다: $sourceDbPath');
+    }
+
+    final tmpDir = await Directory.systemTemp.createTemp(
+      'mysafetyreport_import_',
+    );
+    final preparedDbPath = join(tmpDir.path, basename(sourceDbPath));
+    await src.copy(preparedDbPath);
+
+    for (final ext in ['-wal', '-shm']) {
+      final sidecar = File('$sourceDbPath$ext');
+      if (!sidecar.existsSync()) continue;
+      try {
+        await sidecar.copy('$preparedDbPath$ext');
+      } catch (_) {
+        // content URI/권한 제한 등으로 sidecar 접근이 안 되면 복사 가능한 파일만 사용
+      }
+    }
+
+    Database? preparedDb;
+    try {
+      preparedDb = await openDatabase(preparedDbPath);
+      await preparedDb.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+    } catch (_) {
+      // 이미 단일 스냅샷이면 그대로 사용
+    } finally {
+      await preparedDb?.close();
+    }
+
+    for (final ext in ['-wal', '-shm']) {
+      final sidecar = File('$preparedDbPath$ext');
+      if (!sidecar.existsSync()) continue;
+      try {
+        await sidecar.delete();
+      } catch (_) {}
+    }
+
+    return preparedDbPath;
+  }
+
+  static Future<void> _cleanupPreparedSnapshot(String preparedDbPath) async {
+    final dir = Directory(dirname(preparedDbPath));
+    if (!dir.existsSync()) return;
+    try {
+      await dir.delete(recursive: true);
+    } catch (_) {}
+  }
+
+  static Future<void> _deleteDbSidecars(String dbPath) async {
+    for (final ext in ['-wal', '-shm']) {
+      final sidecar = File('$dbPath$ext');
+      if (!sidecar.existsSync()) continue;
+      try {
+        await sidecar.delete();
+      } catch (_) {}
+    }
+  }
+
   // ── 서버 DB → 모바일 DB 변환 ────────────────────────────────────────────────
 
   /// 서버 DB (mysafetymerge_traffic / parking / other 3개 테이블 + mysafety_watchlist)
@@ -864,10 +927,10 @@ class LocalDbService {
   ///
   /// 기존 reports / sync_meta 데이터는 모두 삭제됨.
   static Future<int> importFromServerDb(String serverDbPath) async {
-    await clearAll();
-
-    final serverDb = await openDatabase(serverDbPath, readOnly: true);
+    final preparedDbPath = await _prepareExternalDbSnapshot(serverDbPath);
+    final serverDb = await openDatabase(preparedDbPath, readOnly: true);
     try {
+      await clearAll();
       final localDb = await db;
       int imported = 0;
       final now = DateTime.now().millisecondsSinceEpoch;
@@ -929,6 +992,7 @@ class LocalDbService {
       return imported;
     } finally {
       await serverDb.close();
+      await _cleanupPreparedSnapshot(preparedDbPath);
     }
   }
 
@@ -936,13 +1000,17 @@ class LocalDbService {
   /// Standalone 백업 → 같은 모바일 스키마 DB 를 그대로 사용.
   /// (서버 DB 는 스키마가 달라서 이 메서드 사용 불가 → importFromServerDb 사용)
   static Future<void> replaceFromBackup(String backupDbPath) async {
+    final preparedDbPath = await _prepareExternalDbSnapshot(backupDbPath);
     await closeDb();
     final dbPath = await getDbPath();
-    final src = File(backupDbPath);
+    final src = File(preparedDbPath);
     if (!src.existsSync()) {
+      await _cleanupPreparedSnapshot(preparedDbPath);
       throw Exception('백업 파일이 존재하지 않습니다: $backupDbPath');
     }
+    await _deleteDbSidecars(dbPath);
     await src.copy(dbPath);
+    await _cleanupPreparedSnapshot(preparedDbPath);
     // 다음 db getter 호출 시 새로 open.
   }
 

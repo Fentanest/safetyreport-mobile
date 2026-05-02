@@ -150,10 +150,10 @@ Kotlin NotificationService.onNotificationPosted(sbn)
             │           (서버가 처리 후 WS crawl_changes → WsService.showCrawlChangesNotif)
             └─ Standalone → handleStandaloneDetection
                               ├─ appendPendingReport (CSV 형식 큐)
-                              └─ "📬 신규 신고 감지" heads-up 알림 (탭 시 nav_tab=5)
+                              └─ "📬 신규 신고 감지" heads-up 알림 (탭 시 nav_tab=6)
 ```
 
-알림 탭 → MainActivity.onNewIntent → handleNavIntent → 500ms 지연 후 MethodChannel `navigateToTab` →  
+감지 알림 탭 → MainActivity.onNewIntent → handleNavIntent → 500ms 지연 후 MethodChannel `navigateToTab` →  
 Flutter `_handleNativeCall` → 동기화 탭 이동 + (Standalone) `checkAutoSyncOnResume()` → `_drainAndRefresh()`.
 단, `standaloneDemoMode=true` 이면 resume 시 refreshAll 만 수행하고 실제 drain/sync 는 생략.
 
@@ -215,7 +215,7 @@ ReportListScreen
 
 완료 후:
   ├─ NotificationHistoryProvider.addRatingBatchResult()
-  ├─ MethodChannel showNotification(nav_tab=3, nav_subtab=2)
+  ├─ MethodChannel showNotification(nav_tab=4, nav_subtab=2)
   └─ NotificationsScreen 의 "별점 주기" 탭에서 상세 카드 시트 표시
 ```
 
@@ -605,6 +605,15 @@ CI 와 동일한 Docker 이미지 (`ghcr.io/cirruslabs/flutter:stable`).
 17. **모드 전환 + DB 마이그레이션**: standalone→client 자동 백업, client→standalone 3-way 선택 (서버 DB 변환 / 최신 백업 사용 / 처음부터). `pending_db_import` SharedPref 로 SetupScreen 까지 의도 전달. `LocalDbService.importFromServerDb` (서버 3 merge 테이블 → 모바일 단일 reports + category, watchlist CSV 변환), `replaceFromBackup` 추가
 18. **errno=104 retry 매트릭스 보강**: standalone 로그인 Step 3 (토큰 POST) 에 3회 retry 추가, Client `downloadDb` 에 3회 retry + 2분 timeout. standalone 일반 GET / 로그인 Step 1 은 기존부터 retry 있어 그대로 유지
 19. **main 브랜치 병합**: 1.0.7+11 (main minor bump + alone build 누적), READ_MEDIA_* tools:remove 권한 정리, 개인정보처리방침 통합
+20. **신고현황(sunwi) 탭 추가**:
+    - 하단 탭 순서가 `대시보드 / 신고리스트 / 통계 / 신고현황 / 알림 / 파일 / 동기화(크롤링)`로 변경.
+    - Client 모드: 서버 `/api/v1/sunwi/payload` 데이터를 그대로 표시.
+    - Standalone 모드: `SunwiService.fetchStandalone()` 이 안전신문고 통계 API를 전국 행정구역 기준으로 직접 순회 호출해 Top5 payload를 구성.
+    - 상단 `ALL CSV 생성`, `TOP5 CSV 생성` 버튼 제공. Standalone 저장 경로는 `Documents/mysafetyreport/sunwi/`.
+21. **외부 DB import WAL 병합 보강**:
+    - `LocalDbService.detectDbKind/importFromServerDb/replaceFromBackup`가 import 전에 임시 snapshot을 만들고, 가능하면 `-wal`/`-shm`를 함께 머지한 뒤 처리.
+    - `SettingsScreen`의 DB 선택은 다중 선택을 허용해 `.db` 본파일과 `-wal`/`-shm`를 함께 staging 가능.
+    - Standalone 복원도 형식 자동 감지로 모바일 백업은 그대로 복원, 서버 DB는 변환 import.
 
 ---
 

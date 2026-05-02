@@ -365,7 +365,7 @@ class WsService : Service() {
         val openIntent = packageManager.getLaunchIntentForPackage(packageName)
             ?.apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                putExtra("nav_tab", 3)        // 알림 탭 인덱스
+                putExtra("nav_tab", 4)        // 알림 탭 인덱스
                 putExtra("nav_event_type", type)
             }
         val notifId = pushIdGen.get()

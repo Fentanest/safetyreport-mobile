@@ -148,11 +148,11 @@ class NotificationService : NotificationListenerService() {
 
     private fun showDetectedNotif(id: Int, reportNumber: String) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        // 앱 실행 intent — 동기화 탭(인덱스 5)으로 이동 + Flutter drainIfPending 트리거
+        // 앱 실행 intent — 동기화 탭(인덱스 6)으로 이동 + Flutter drainIfPending 트리거
         val intent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
             flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
                     android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra("nav_tab", 5)
+            putExtra("nav_tab", 6)
             putExtra("nav_event_type", "standalone_sync")
         }
         val pending = if (intent != null) {

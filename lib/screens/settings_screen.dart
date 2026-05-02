@@ -488,18 +488,69 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  bool _isPrimaryDbFileName(String name) {
+    final lower = name.toLowerCase();
+    return lower.endsWith('.db') &&
+        !lower.endsWith('.db-wal') &&
+        !lower.endsWith('.db-shm');
+  }
+
+  Future<String?> _stagePickedDbFiles(FilePickerResult result) async {
+    final files = result.files.where((file) => file.path != null).toList();
+    if (files.isEmpty) return null;
+
+    PlatformFile? mainDb;
+    for (final file in files) {
+      if (_isPrimaryDbFileName(file.name)) {
+        mainDb = file;
+        break;
+      }
+    }
+    if (mainDb == null || mainDb.path == null) {
+      throw Exception('.db 본파일을 함께 선택해주세요.');
+    }
+
+    final stageDir = await Directory.systemTemp.createTemp(
+      'mysafetyreport_pick_',
+    );
+    final stagedDbPath = '${stageDir.path}/${mainDb.name}';
+    await File(mainDb.path!).copy(stagedDbPath);
+
+    final walName = '${mainDb.name}-wal'.toLowerCase();
+    final shmName = '${mainDb.name}-shm'.toLowerCase();
+
+    for (final file in files) {
+      final path = file.path;
+      if (path == null) continue;
+      final lowerName = file.name.toLowerCase();
+      if (lowerName == walName) {
+        await File(path).copy('$stagedDbPath-wal');
+      } else if (lowerName == shmName) {
+        await File(path).copy('$stagedDbPath-shm');
+      }
+    }
+
+    return stagedDbPath;
+  }
+
   Future<void> _restoreDb() async {
     final p = context.read<ReportProvider>();
     final isStandalone = p.appMode == AppMode.standalone;
 
     if (_isRestoringDb) return;
 
-    final result = await FilePicker.pickFiles(type: FileType.any);
+    final result = await FilePicker.pickFiles(
+      type: FileType.any,
+      allowMultiple: true,
+    );
 
-    if (result == null || result.files.single.path == null) return;
+    if (result == null) return;
 
     final dialogMsg = isStandalone
-        ? '기존 모바일 DB가 모두 삭제되고 선택한 파일로 대체됩니다.\n계속하시겠습니까?'
+        ? '선택한 .db 파일 형식을 자동 감지합니다.\n'
+              '모바일 백업이면 그대로 복원하고, 서버 DB면 standalone 형식으로 변환합니다.\n'
+              '같은 폴더에 -wal/-shm 파일이 있으면 함께 반영합니다.\n'
+              '계속하시겠습니까?'
         : '서버의 DB가 선택한 파일로 교체됩니다. (서버 형식·모바일 형식 모두 자동 감지)\n'
               '서버는 기존 DB를 자동 백업합니다.\n계속하시겠습니까?';
 
@@ -527,20 +578,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _isRestoringDb = true);
 
     try {
-      final selectedPath = result.files.single.path!;
+      final selectedPath = await _stagePickedDbFiles(result);
+      if (selectedPath == null || selectedPath.isEmpty) return;
 
       if (isStandalone) {
-        // Standalone: 로컬 DB 덮어쓰기
-        final dbPath = await LocalDbService.getDbPath();
-        await LocalDbService.closeDb();
-        final selectedFile = File(selectedPath);
-        await selectedFile.copy(dbPath);
+        final kind = await LocalDbService.detectDbKind(selectedPath);
+        if (kind == 'server') {
+          await LocalDbService.importFromServerDb(selectedPath);
+        } else if (kind == 'mobile') {
+          await LocalDbService.replaceFromBackup(selectedPath);
+        } else {
+          throw Exception(
+            '알 수 없는 DB 형식입니다. 서버 DB 또는 모바일 백업 .db 파일만 사용할 수 있습니다.',
+          );
+        }
 
         if (mounted) {
           await context.read<ReportProvider>().refreshAll();
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('DB 복원이 완료되었습니다.'),
+            SnackBar(
+              content: Text(
+                kind == 'server'
+                    ? '서버 DB 변환 복원이 완료되었습니다.'
+                    : '모바일 백업 복원이 완료되었습니다.',
+              ),
               backgroundColor: Colors.green,
             ),
           );
@@ -704,7 +765,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 title: '백업 파일 선택',
                 subtitle:
                     '.db 파일을 직접 찾아 선택합니다.\n'
-                    'Documents/Download 어디에 있든 가져올 수 있습니다.',
+                    '서버 live DB라면 같은 폴더의 -wal/-shm도 함께 반영합니다.',
                 onTap: () => Navigator.pop(ctx, 'pick_backup'),
               ),
               const SizedBox(height: 8),
@@ -779,10 +840,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } else if (choice == 'pick_backup') {
       try {
         final result = await FilePicker.pickFiles(
-          type: FileType.custom,
-          allowedExtensions: ['db'],
+          type: FileType.any,
+          allowMultiple: true,
         );
-        final selectedPath = result?.files.single.path;
+        if (result == null) return;
+        final selectedPath = await _stagePickedDbFiles(result);
         if (selectedPath == null || selectedPath.isEmpty) return;
         pendingAction = 'file:$selectedPath';
       } catch (e) {

@@ -238,6 +238,22 @@
 - `CLAUDE.md`
   - `sunwi` 3시간 TTL/5초 자동 전환과 standalone 파일 탭 하위 폴더 탐색 규칙을 구조 문서에 반영
 
+### Play Console demo 로그인 완화
+
+상태: 완료
+
+변경:
+- `lib/services/local_db_service.dart`
+  - Play review demo 판정 로직을 공용 helper로 추출
+  - demo 계정을 `demo / demo / demo`뿐 아니라 `demo / demo` + 휴대폰번호 공란도 허용하도록 완화
+- `lib/screens/setup_screen.dart`
+  - 초기 Standalone 로그인에서 휴대폰번호가 비어 있어도 `demo / demo`로 심사용 데모 진입 가능하게 수정
+  - 데모 모드 저장 시 내부 phone 값은 기존과 동일하게 `demo`로 유지
+- `lib/screens/settings_screen.dart`
+  - 재로그인 / 휴대폰번호 갱신 다이얼로그도 같은 demo 판정 규칙을 사용하도록 통일
+- `CLAUDE.md`
+  - Play Console 심사 계정 안내를 `phone blank allowed` 기준으로 갱신
+
 ### 문서 정리
 
 상태: 완료

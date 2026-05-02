@@ -21,6 +21,16 @@ class LocalDbService {
   static const playReviewDemoPassword = 'demo';
   static const playReviewDemoPhone = 'demo';
 
+  static bool isPlayReviewDemoLogin({
+    required String username,
+    required String password,
+    required String rawPhone,
+  }) {
+    return username == playReviewDemoUsername &&
+        password == playReviewDemoPassword &&
+        (rawPhone.isEmpty || rawPhone == playReviewDemoPhone);
+  }
+
   static Future<Database> get db async {
     if (_db != null) return _db!;
     _initFuture ??= _open();
@@ -660,7 +670,7 @@ class LocalDbService {
   }
 
   /// Play Console 심사용 데모 데이터 3건을 로컬 DB에 시드한다.
-  /// standalone demo/demo/demo 계정에서 사용.
+  /// standalone demo/demo 또는 demo/demo/demo 계정에서 사용.
   static Future<void> seedPlayReviewDemo() async {
     await clearAll();
     final d = await db;

@@ -372,10 +372,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           '',
                         );
                         final isDemoLogin =
-                            username == LocalDbService.playReviewDemoUsername &&
-                            passwordCtrl.text ==
-                                LocalDbService.playReviewDemoPassword &&
-                            rawPhone == LocalDbService.playReviewDemoPhone;
+                            LocalDbService.isPlayReviewDemoLogin(
+                              username: username,
+                              password: passwordCtrl.text,
+                              rawPhone: rawPhone,
+                            );
                         if (!isDemoLogin && phone.isEmpty) {
                           throw Exception('휴대폰번호를 입력해주세요.');
                         }
@@ -390,7 +391,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         if (ctx.mounted) {
                           await ctx.read<ReportProvider>().setStandaloneConfig(
                             username,
-                            phoneNumber: isDemoLogin ? rawPhone : phone,
+                            phoneNumber: isDemoLogin
+                                ? (rawPhone.isEmpty
+                                      ? LocalDbService.playReviewDemoPhone
+                                      : rawPhone)
+                                : phone,
                             isDemoMode: isDemoLogin,
                           );
                           Navigator.pop(ctx);

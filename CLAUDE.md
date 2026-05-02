@@ -20,7 +20,7 @@ Flutter + Kotlin 하이브리드 Android 앱. 안전신문고 신고 처리 현�
 
 `AppMode` enum (`lib/models/app_mode.dart`) 으로 식별. `ReportProvider.appMode` 가 단일 source of truth.
 숨은 **Play Console 심사용 데모 경로**도 존재:
-Standalone 로그인 화면에서 `demo / demo / demo` 입력 시
+Standalone 로그인 화면에서 `demo / demo`(휴대폰번호 공란) 또는 `demo / demo / demo` 입력 시
 실제 로그인 없이 예시 신고 3건이 들어있는 로컬 DB를 연다.
 
 ---
@@ -100,7 +100,7 @@ lib/
     permission_service.dart          ── 권한 체크, WsService 토글
     sunwi_service.dart               ── Standalone 전국 신고현황 수집 + sunwi CSV 생성
   screens/
-    setup_screen.dart                ── 초기 모드 선택 + 로그인/서버 설정 + demo/demo/demo 데모 진입
+    setup_screen.dart                ── 초기 모드 선택 + 로그인/서버 설정 + demo/demo(휴대폰 공란 허용) 데모 진입
     dashboard_screen.dart            ── 처리 요약, 모드별 에러 메시지
     report_list_screen.dart          ── 4탭 (교통/주정차/기타/중복차량) + 통계/검색에서 넘어온 활성 필터 Chip 표시
     statistics_screen.dart           ── 연도×카테고리×유형 통계, 위반법규 필터, 행 탭 시 신고리스트 상세검색 기반 drilldown
@@ -250,7 +250,7 @@ ReportListScreen
 ### Play review 데모 모드
 
 - SetupScreen / SettingsScreen 재로그인 다이얼로그에서
-  `username=demo`, `password=demo`, `phone=demo` 입력 시 진입
+  `username=demo`, `password=demo` 입력 후 휴대폰번호를 비우거나 `demo`를 입력하면 진입
 - `LocalDbService.seedPlayReviewDemo()` 가 아래 3건을 로컬 DB에 시드:
   - `SPP-2604-2344496` (traffic, 별점 5, 별점사유 있음)
   - `SPP-2604-0419411` (parking, 별점 5)
@@ -259,7 +259,7 @@ ReportListScreen
   - keep-alive 타이머 시작 안 함
   - pending queue drain, 실제 sync, 자동 재로그인 진입 안 함
   - crawl/sync 화면에서 동기화 버튼 비활성화 + 안내 카드 표시
-- Play Console review credentials 에는 영어로 `demo / demo / demo` 기재
+- Play Console review credentials 에는 영어로 `Standalone mode -> username demo, password demo, phone blank allowed` 로 기재
 
 ### 토큰 만료 + 자동 재로그인
 

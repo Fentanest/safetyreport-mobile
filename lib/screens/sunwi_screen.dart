@@ -497,11 +497,9 @@ class _SunwiScreenState extends State<SunwiScreen> {
               spacing: 8,
               runSpacing: 8,
               children: [
-                _MetaChip(
+                const _MetaChip(
                   icon: Icons.calendar_today_outlined,
-                  label: payload.periodLabel.isEmpty
-                      ? '기간 미확인'
-                      : '${payload.periodLabel} 기준',
+                  label: '전일기준',
                 ),
                 _MetaChip(
                   icon: Icons.schedule_outlined,

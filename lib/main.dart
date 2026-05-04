@@ -706,7 +706,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
           const NavigationDestination(
             icon: Icon(Icons.list_alt_outlined),
             selectedIcon: Icon(Icons.list_alt),
-            label: '신고리스트',
+            label: '신고내역',
           ),
           const NavigationDestination(
             icon: Icon(Icons.bar_chart_outlined),

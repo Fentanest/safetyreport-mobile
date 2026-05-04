@@ -5,9 +5,12 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import '../models/report.dart';
+import '../providers/report_provider.dart';
+import '../screens/report_list_screen.dart';
 import '../services/standalone_auth_service.dart';
 
 const _officialSafetyReportUrl = 'https://www.safetyreport.go.kr/';
@@ -232,7 +235,13 @@ class ReportDetailSheet extends StatelessWidget {
             if (report.agency.isNotEmpty)
               _field(Icons.business, '처리기관', report.agency),
             if (report.manager.isNotEmpty)
-              _field(Icons.person_outline, '담당자', report.manager),
+              _linkField(
+                context,
+                Icons.person_outline,
+                '담당자',
+                report.manager,
+                ReportFilter(manager: report.manager),
+              ),
             if (report.fineInfo.isNotEmpty)
               _field(
                 Icons.monetization_on_outlined,
@@ -242,11 +251,29 @@ class ReportDetailSheet extends StatelessWidget {
             if (report.penaltyPoints.isNotEmpty)
               _field(Icons.warning_amber_outlined, '벌점', report.penaltyPoints),
             if (report.carNumber.isNotEmpty)
-              _field(Icons.directions_car, '차량번호', report.carNumber),
+              _linkField(
+                context,
+                Icons.directions_car,
+                '차량번호',
+                report.carNumber,
+                ReportFilter(carNumber: report.carNumber),
+              ),
             if (report.law.isNotEmpty)
-              _field(Icons.gavel_outlined, '위반법규', report.law),
+              _linkField(
+                context,
+                Icons.gavel_outlined,
+                '위반법규',
+                report.law,
+                ReportFilter(law: report.law),
+              ),
             if (report.location.isNotEmpty)
-              _field(Icons.location_on_outlined, '위반장소', report.location),
+              _linkField(
+                context,
+                Icons.location_on_outlined,
+                '위반장소',
+                report.location,
+                ReportFilter(location: report.location),
+              ),
             if (report.occurrenceDate.isNotEmpty)
               _field(
                 Icons.event_outlined,
@@ -548,6 +575,70 @@ class ReportDetailSheet extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// 신고 카테고리(traffic/parking/other)에 맞는 신고리스트 탭으로
+  /// 특정 필드 값을 검색 조건으로 넘겨 이동.
+  Widget _linkField(
+    BuildContext context,
+    IconData icon,
+    String label,
+    String value,
+    ReportFilter filter,
+  ) {
+    final color = Theme.of(context).colorScheme.primary;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(6),
+        onTap: () => _navigateToFiltered(context, filter),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, size: 16, color: Colors.grey.shade600),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 82,
+                child: Text(
+                  label,
+                  style:
+                      TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: color,
+                    decoration: TextDecoration.underline,
+                    decorationColor: color.withOpacity(0.5),
+                  ),
+                ),
+              ),
+              Icon(Icons.chevron_right, size: 16, color: color.withOpacity(0.6)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _navigateToFiltered(BuildContext context, ReportFilter filter) {
+    final provider = context.read<ReportProvider>();
+    final category = provider.findCategory(report);
+    final tabIndex = provider.categoryToTabIndex(category);
+    provider.setFilter(filter);
+    Navigator.of(context).pop(); // close bottom sheet
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ReportListScreen(initialTabIndex: tabIndex),
       ),
     );
   }

@@ -5,6 +5,7 @@ import '../models/app_mode.dart';
 import '../providers/report_provider.dart';
 import '../models/report.dart';
 import '../widgets/report_detail_sheet.dart';
+import 'recent_answers_screen.dart';
 import 'settings_screen.dart';
 import 'watchlist_screen.dart';
 import 'filtered_list_screen.dart';
@@ -145,23 +146,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const SizedBox(height: 16),
           _buildWatchlistSection(context, stats.watchlist),
           const SizedBox(height: 16),
-          _buildSectionHeader(
-              '최근 답변 완료 (3일)', Icons.notifications_active, Colors.green),
-          const SizedBox(height: 8),
-          _buildRecentList(stats.recentAnswers),
+          _buildRecentSection(context, stats.recentAnswers),
         ],
       ),
-    );
-  }
-
-  Widget _buildSectionHeader(String title, IconData icon, Color color) {
-    return Row(
-      children: [
-        Icon(icon, size: 18, color: color),
-        const SizedBox(width: 6),
-        Text(title,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-      ],
     );
   }
 
@@ -528,70 +515,112 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // ── 최근 답변 완료 리스트 ───────────────────────────
-  Widget _buildRecentList(List<Report> reports) {
-    if (reports.isEmpty) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Text('3일 내 답변 완료된 신고가 없습니다.',
-              style: TextStyle(color: Colors.grey)),
-        ),
-      );
-    }
-
-    return ListView.separated(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: reports.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 6),
-      itemBuilder: (context, index) {
-        final r = reports[index];
-        return Card(
-          margin: EdgeInsets.zero,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => showReportDetailSheet(context, r),
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Text(r.name,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.w600, fontSize: 14)),
-                      ),
-                      const SizedBox(width: 8),
-                      _statusChip(r.status),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  if (r.reportNumber.isNotEmpty)
-                    _metaRow(Icons.tag, '신고번호', r.reportNumber),
-                  if (r.date.isNotEmpty)
-                    _metaRow(Icons.calendar_today, '신고일', r.date),
-                  if (r.responseDate.isNotEmpty)
-                    _metaRow(Icons.check_circle_outline, '답변일', r.responseDate),
-                  if (r.agency.isNotEmpty)
-                    _metaRow(Icons.business, '처리기관', r.agency),
-                  if (r.manager.isNotEmpty)
-                    _metaRow(Icons.person_outline, '담당자', r.manager),
-                  if (r.fineInfo.isNotEmpty)
-                    _metaRow(Icons.monetization_on_outlined, '과태료/범칙금', r.fineInfo),
-                  if (r.carNumber.isNotEmpty)
-                    _metaRow(Icons.directions_car_outlined, '차량번호', r.carNumber),
-                ],
+  // ── 최근 답변 완료 섹션 ─────────────────────────────
+  Widget _buildRecentSection(BuildContext context, List<Report> reports) {
+    const previewLimit = 5;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.notifications_active,
+                size: 18, color: Colors.green),
+            const SizedBox(width: 6),
+            const Expanded(
+              child: Text('최근 답변 완료 (3일)',
+                  style:
+                      TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+            if (reports.isNotEmpty)
+              TextButton.icon(
+                icon: const Icon(Icons.open_in_new, size: 14),
+                label: const Text('모두 보기'),
+                style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(0, 28)),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const RecentAnswersScreen()),
+                ),
               ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (reports.isEmpty)
+          const Padding(
+            padding: EdgeInsets.all(24),
+            child: Center(
+              child: Text('3일 내 답변 완료된 신고가 없습니다.',
+                  style: TextStyle(color: Colors.grey)),
+            ),
+          )
+        else
+          ...reports.take(previewLimit).map(_buildRecentCard),
+        if (reports.length > previewLimit)
+          Center(
+            child: TextButton(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => const RecentAnswersScreen()),
+              ),
+              child: Text('+ ${reports.length - previewLimit}건 더 보기'),
             ),
           ),
-        );
-      },
+      ],
+    );
+  }
+
+  Widget _buildRecentCard(Report r) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Card(
+        margin: EdgeInsets.zero,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => showReportDetailSheet(context, r),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(r.name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 14)),
+                    ),
+                    const SizedBox(width: 8),
+                    _statusChip(r.status),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                if (r.reportNumber.isNotEmpty)
+                  _metaRow(Icons.tag, '신고번호', r.reportNumber),
+                if (r.date.isNotEmpty)
+                  _metaRow(Icons.calendar_today, '신고일', r.date),
+                if (r.responseDate.isNotEmpty)
+                  _metaRow(Icons.check_circle_outline, '답변일', r.responseDate),
+                if (r.agency.isNotEmpty)
+                  _metaRow(Icons.business, '처리기관', r.agency),
+                if (r.manager.isNotEmpty)
+                  _metaRow(Icons.person_outline, '담당자', r.manager),
+                if (r.fineInfo.isNotEmpty)
+                  _metaRow(
+                      Icons.monetization_on_outlined, '과태료/범칙금', r.fineInfo),
+                if (r.carNumber.isNotEmpty)
+                  _metaRow(
+                      Icons.directions_car_outlined, '차량번호', r.carNumber),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 

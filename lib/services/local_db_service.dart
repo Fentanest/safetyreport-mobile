@@ -300,15 +300,28 @@ class LocalDbService {
       }
     }
 
-    // 최근 답변: 취하 제외 옵션 적용 (서버 get_dashboard_stats 와 동일)
+    // 최근 답변: 서버 get_dashboard_stats 와 동일하게 답변일이 최근 3일 이내인
+    // 항목만 골라온다 (취하 제외 옵션도 함께 반영). 한도는 서버와 같이 200건.
+    final today = DateTime.now();
+    final threeDaysAgo = today.subtract(const Duration(days: 3));
+    String two(int v) => v.toString().padLeft(2, '0');
+    String fmtDate(DateTime t) =>
+        '${t.year}-${two(t.month)}-${two(t.day)}';
+    final lowerBound = fmtDate(threeDaysAgo);
+    final upperBound = '${fmtDate(today)} 99';
+    final recentBase =
+        "처리상태 IN ('수용', '일부수용', '불수용', '기타', '답변완료') "
+        "AND 답변일 IS NOT NULL AND 답변일 != '' "
+        "AND 답변일 >= ? AND 답변일 <= ?";
     final recentWhere = excludeWithdraw
-        ? "처리상태 IN ('수용', '일부수용', '불수용', '기타', '답변완료') AND 처리상태 != '취하'"
-        : "처리상태 IN ('수용', '일부수용', '불수용', '기타', '답변완료')";
+        ? "$recentBase AND 처리상태 != '취하'"
+        : recentBase;
     final recentRows = await d.query(
       'reports',
       where: recentWhere,
+      whereArgs: [lowerBound, upperBound],
       orderBy: '답변일 DESC',
-      limit: 10,
+      limit: 200,
     );
 
     final watchlistNums = await getWatchlistNumbers();
@@ -592,6 +605,7 @@ class LocalDbService {
       ratingCause: r['별점사유'] as String? ?? '',
       totalCount: (r['total_count'] as num?)?.toInt() ?? 0,
       validCount: (r['valid_count'] as num?)?.toInt() ?? 0,
+      category: r['category'] as String? ?? '',
     );
   }
 
@@ -1058,6 +1072,7 @@ class LocalDbService {
       processingFinish: r['종결여부'] as String? ?? 'N',
       rating: (r['별점'] as num?)?.toInt(),
       ratingCause: r['별점사유'] as String? ?? '',
+      category: r['category'] as String? ?? '',
     );
   }
 }

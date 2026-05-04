@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -119,31 +121,53 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
     final historyProvider = context.read<NotificationHistoryProvider>();
     final pickedScore = await _showRatingDialog();
     if (pickedScore == null) return;
+    if (!mounted) return;
 
-    setState(() => _busy = true);
-    try {
-      final result = await reportProvider.submitRatings(
-        reports,
-        score: pickedScore,
-      );
-      historyProvider.setPreferredTabIndex(2, notify: false);
-      await historyProvider.addRatingBatchResult(result);
-      await _pushRatingNotification(result);
-      if (mounted) {
-        _snack(
-          '별점 ${result.score}점 처리 완료: 성공 ${result.successCount}, 스킵 ${result.skipCount}, 실패 ${result.failureCount}',
-          icon: result.failureCount > 0 ? Icons.warning_amber : Icons.star,
-          error: result.failureCount > 0,
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        _snack('별점 주기 실패: $e', icon: Icons.warning_amber, error: true);
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+    // 별점 batch 는 안전신문고 응답 + 서버 로그 폴링까지 수십 초~수 분이 걸릴 수 있다.
+    // 이전엔 _busy=true 로 액션 바 전체가 잠겨 사용자에게 화면이 멈춘 듯한 인상을 줬음.
+    // 이제는 fire-and-forget 으로 처리: 즉시 SnackBar 안내 → 선택 모드 종료 →
+    // 완료 시 알림/히스토리/SnackBar(가능하면) 로 결과만 통지.
+    final reportsCopy = List<Report>.unmodifiable(reports);
+    final messenger = ScaffoldMessenger.of(context);
+    _snack(
+      '별점 $pickedScore점 처리 시작: ${reportsCopy.length}건. 완료 시 알림으로 결과를 알려드립니다.',
+      icon: Icons.star_outline,
+    );
     widget.onActionDone?.call();
+
+    unawaited(() async {
+      try {
+        final result = await reportProvider.submitRatings(
+          reportsCopy,
+          score: pickedScore,
+        );
+        historyProvider.setPreferredTabIndex(2, notify: false);
+        await historyProvider.addRatingBatchResult(result);
+        await _pushRatingNotification(result);
+        try {
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text(
+                '별점 ${result.score}점 처리 완료: 성공 ${result.successCount}, 스킵 ${result.skipCount}, 실패 ${result.failureCount}',
+              ),
+              backgroundColor:
+                  result.failureCount > 0 ? Colors.red.shade700 : null,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        } catch (_) {}
+      } catch (e) {
+        try {
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text('별점 주기 실패: $e'),
+              backgroundColor: Colors.red.shade700,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        } catch (_) {}
+      }
+    }());
   }
 
   Future<int?> _showRatingDialog() async {

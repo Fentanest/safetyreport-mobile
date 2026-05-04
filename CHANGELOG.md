@@ -7,6 +7,57 @@
 
 ---
 
+## 2026-05-05
+
+### 대시보드 최근 답변 더보기 / 상세 시트 필드 링크 / 별점 batch 비차단화
+
+상태: 완료
+
+변경:
+- `lib/screens/dashboard_screen.dart`
+  - "최근 답변 완료 (3일)" 섹션을 감시 목록과 동일한 패턴으로 정리: 5건만 미리 보여주고
+    그 이상은 "+ N건 더 보기" 링크로 별도 화면 이동
+  - 우측 상단에 "모두 보기" 바로가기도 추가
+- `lib/screens/recent_answers_screen.dart` (신규)
+  - 대시보드 최근 답변 전체 리스트 화면. `ReportProvider.stats?.recentAnswers` 를 그대로 표시
+- `lib/services/local_db_service.dart`
+  - Standalone `computeSummary` 의 최근 답변 쿼리에 서버와 동일한 3일 윈도우 필터 추가,
+    한도를 10 → 200 으로 상향 (대시보드에서 가려졌던 항목까지 더보기로 노출 가능)
+- `services/data_service.py` (서버 프로젝트)
+  - `recent_answers[:20]` → `[:200]` 로 한도 상향
+  - 대시보드 `recent_answers` / `watchlist` 항목에 `category` 필드 부여 (`traffic`/`parking`/`other`)
+  - `get_duplicate_records`, `get_all_watchlist` 도 행마다 `category` 라벨 부여
+- `lib/models/report.dart`
+  - `Report.category` 필드 추가, `Report.fromJson` 에서 `category` JSON 키 읽기
+- `lib/services/local_db_service.dart`
+  - `_rowToReport`, `_rowToReportWithCounts` 에서 `category` 컬럼을 Report 로 매핑
+- `lib/providers/report_provider.dart`
+  - `findCategory(report)` / `categoryToTabIndex(category)` 헬퍼 추가
+    (Report.category 우선, 없으면 현재 로드된 카테고리 리스트에서 검색)
+- `lib/widgets/report_detail_sheet.dart`
+  - 차량번호 / 위반장소 / 위반법규 / 담당자 4개 필드를 클릭 가능한 링크로 변경
+  - 탭 시 시트를 닫고 신고 내역 화면으로 이동, 동시에 해당 신고 카테고리 탭과 일치하는
+    `ReportFilter` (carNumber / location / law / manager) 를 적용
+- `web/templates/base.html` (서버 프로젝트)
+  - `linkField` 헬퍼 추가, 모달 상세에서 위 4개 필드를 카테고리별 데이터 페이지로 이동하는
+    `<a>` 링크로 렌더링
+  - 행 데이터의 `category` 필드를 우선 사용하고, 없으면 현재 URL 의 `/data/<cat>` 로 추정
+- `web/templates/data_table.html` (서버 프로젝트)
+  - URL 쿼리 `car`, `law`, `location` 파라미터를 받아 상세 검색 입력에 자동 채우고
+    `qAgency || qPerson || qCar || qLaw || qLocation` 일 때 자동 검색 트리거
+- `lib/widgets/selection_action_bar.dart`
+  - 별점 batch 처리(`_rate`)를 fire-and-forget 으로 변경
+  - 시작 즉시 SnackBar 로 안내하고 선택 모드를 해제. 액션 바 전체가 스피너로 잠기는
+    문제 해결 (FGS keep-alive 는 RatingService 내부 acquireFgs/releaseFgs 로 그대로 유지)
+  - 결과는 알림 (rating_result) + 히스토리 + 완료 SnackBar 로만 통지
+  - `dart:async` 의 `unawaited` 사용
+
+비고:
+- Standalone DB(스키마 v4) 는 이미 `category` 컬럼을 갖고 있어 모바일은 추가 마이그레이션
+  없이 바로 활용 가능
+- Client(server) 모드는 신규로 응답에 `category` 키가 들어오지만 기존 모바일 빌드는
+  무시하므로 호환성 영향 없음
+
 ## 2026-05-04
 - '신고리스트'탭을 '신고내역'탭으로 변경(줄바꿈 이슈)
 

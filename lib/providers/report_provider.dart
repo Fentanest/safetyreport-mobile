@@ -225,6 +225,35 @@ class ReportProvider with ChangeNotifier {
   Set<String> get watchlistNumbers => _watchlistNumbers;
   bool isInWatchlist(String reportNumber) =>
       _watchlistNumbers.contains(reportNumber);
+
+  /// 신고번호로 카테고리(traffic/parking/other)를 추정.
+  /// 1) Report.category 가 채워져 있으면 그대로 사용
+  /// 2) 그렇지 않으면 현재 로드된 카테고리 리스트에서 매칭되는 것 검색
+  String? findCategory(Report report) {
+    final fromModel = report.category.trim();
+    if (fromModel == 'traffic' ||
+        fromModel == 'parking' ||
+        fromModel == 'other') {
+      return fromModel;
+    }
+    final number = report.reportNumber;
+    if (number.isEmpty) return null;
+    if (_trafficReports.any((r) => r.reportNumber == number)) return 'traffic';
+    if (_parkingReports.any((r) => r.reportNumber == number)) return 'parking';
+    if (_otherReports.any((r) => r.reportNumber == number)) return 'other';
+    return null;
+  }
+
+  int categoryToTabIndex(String? category) {
+    switch (category) {
+      case 'parking':
+        return 1;
+      case 'other':
+        return 2;
+      default:
+        return 0;
+    }
+  }
   ReportFilter get filter => _filter;
   bool get isSyncing => _isSyncing;
   bool _isSyncing = false;

@@ -38,6 +38,7 @@ class Report {
   final String ratingCause;      // 별점사유 (불만족 텍스트, 없으면 '')
   final int totalCount;
   final int validCount;
+  final String category;         // 'traffic' | 'parking' | 'other' | '' (서버 응답에서 카테고리를 모를 때 빈 값)
 
   Report({
     required this.id,
@@ -67,6 +68,7 @@ class Report {
     this.ratingCause = '',
     this.totalCount = 0,
     this.validCount = 0,
+    this.category = '',
   });
 
   factory Report.fromJson(Map<String, dynamic> json) {
@@ -98,6 +100,7 @@ class Report {
       ratingCause: json['별점사유']?.toString() ?? '',
       totalCount: _toIntOrNull(json['total_count']) ?? 0,
       validCount: _toIntOrNull(json['valid_count']) ?? 0,
+      category: json['category']?.toString() ?? '',
     );
   }
 }

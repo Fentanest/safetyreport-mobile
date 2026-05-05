@@ -13,6 +13,7 @@ import '../providers/report_provider.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
 import '../services/permission_service.dart';
+import '../services/server_contract.dart';
 import '../services/standalone_auth_service.dart';
 import 'permission_screen.dart';
 import 'setup_screen.dart';
@@ -76,9 +77,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final p = context.read<ReportProvider>();
       final baseUrl = p.baseUrl.trimRight().replaceAll(RegExp(r'/$'), '');
-      final headers = {'X-API-Key': p.apiKey};
+      final headers = ServerContract.apiHeaders(
+        p.apiKey,
+        includeJsonContentType: false,
+      );
       final res = await http
-          .get(Uri.parse('$baseUrl/api/v1/server/version'), headers: headers)
+          .get(
+            ServerContract.apiUri(baseUrl, ServerContract.serverVersionPath),
+            headers: headers,
+          )
           .timeout(const Duration(seconds: 5));
       if (mounted) {
         if (res.statusCode == 200) {
@@ -204,13 +211,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _testResult = null;
     });
 
-    final cleanUrl = url.endsWith('/') ? url.substring(0, url.length - 1) : url;
+    final cleanUrl = ServerContract.normalizeBaseUrl(url);
 
     try {
       final response = await http
           .get(
-            Uri.parse('$cleanUrl/api/v1/summary'),
-            headers: {'X-API-Key': key, 'Content-Type': 'application/json'},
+            ServerContract.apiUri(cleanUrl, ServerContract.summaryPath),
+            headers: ServerContract.apiHeaders(key),
           )
           .timeout(const Duration(seconds: 10));
 

@@ -93,11 +93,13 @@ class NotificationService : NotificationListenerService() {
 
         Thread {
             try {
-                val conn = java.net.URL("$baseUrl/api/v1/crawl/enqueue")
+                val conn = java.net.URL(
+                    ServerContract.apiUrl(baseUrl, ServerContract.CRAWL_ENQUEUE_PATH)
+                )
                     .openConnection() as java.net.HttpURLConnection
                 conn.requestMethod = "POST"
                 conn.setRequestProperty("Content-Type", "application/json")
-                conn.setRequestProperty("X-API-Key", apiKey)
+                conn.setRequestProperty(ServerContract.API_KEY_HEADER, apiKey)
                 conn.doOutput = true
 
                 val body = "{\"report_number\": \"$reportNumber\"}"

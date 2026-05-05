@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../providers/report_provider.dart';
 import '../services/local_db_service.dart';
+import '../services/server_contract.dart';
 import '../services/standalone_auth_service.dart';
 import 'permission_screen.dart';
 
@@ -73,7 +74,7 @@ class _SetupScreenState extends State<SetupScreen> {
       _loading = true;
       _errorMessage = null;
     });
-    final cleanUrl = url.endsWith('/') ? url.substring(0, url.length - 1) : url;
+    final cleanUrl = ServerContract.normalizeBaseUrl(url);
     try {
       Object? lastError;
       http.Response? response;
@@ -81,8 +82,8 @@ class _SetupScreenState extends State<SetupScreen> {
         try {
           response = await http
               .get(
-                Uri.parse('$cleanUrl/api/v1/summary'),
-                headers: {'X-API-Key': key, 'Content-Type': 'application/json'},
+                ServerContract.apiUri(cleanUrl, ServerContract.summaryPath),
+                headers: ServerContract.apiHeaders(key),
               )
               .timeout(const Duration(seconds: 10));
           break;

@@ -109,10 +109,7 @@ class WsService : Service() {
                 }
 
                 // http → ws, https → wss 변환
-                val wsUrl = baseUrl
-                    .replace(Regex("^https://"), "wss://")
-                    .replace(Regex("^http://"), "ws://") +
-                    "/ws/events?api_key=$apiKey"
+                val wsUrl = ServerContract.wsEventsUrl(baseUrl, apiKey)
 
                 Log.i(TAG, "WS 연결 시도 #$attempt: $wsUrl")
                 updateForegroundNotif("서버 연결 중... (#$attempt)")
@@ -194,16 +191,16 @@ class WsService : Service() {
             Log.d(TAG, "WS 이벤트: $type")
 
             when (type) {
-                "ping"           -> ws.send("pong")
-                "connected"      -> Log.i(TAG, "서버 연결 확인: ${data.optString("message")}")
-                "crawl_started"  -> showCrawlStartedNotif(data)
-                "crawl_finished" -> showCrawlFinishedNotif(data)
-                "crawl_changes"  -> showCrawlChangesNotif(data)
+                ServerContract.EVENT_PING -> ws.send("pong")
+                ServerContract.EVENT_CONNECTED -> Log.i(TAG, "서버 연결 확인: ${data.optString("message")}")
+                ServerContract.EVENT_CRAWL_STARTED -> showCrawlStartedNotif(data)
+                ServerContract.EVENT_CRAWL_FINISHED -> showCrawlFinishedNotif(data)
+                ServerContract.EVENT_CRAWL_CHANGES -> showCrawlChangesNotif(data)
                 else             -> Log.d(TAG, "알 수 없는 이벤트: $type")
             }
 
             // 알림 히스토리 저장 (crawl_started, crawl_finished만)
-            if (type in listOf("crawl_started", "crawl_finished")) {
+            if (type in listOf(ServerContract.EVENT_CRAWL_STARTED, ServerContract.EVENT_CRAWL_FINISHED)) {
                 saveToHistory(type, data)
             }
         } catch (e: Exception) {
@@ -222,7 +219,7 @@ class WsService : Service() {
         showPushNotif(
             title = "🔄 크롤링 시작",
             body  = "$sourceLabel 에서 크롤링이 시작되었습니다.\n모드: $mode / 방식: $type",
-            type  = "crawl_started"
+            type  = ServerContract.EVENT_CRAWL_STARTED
         )
     }
 
@@ -242,7 +239,7 @@ class WsService : Service() {
         showPushNotif(
             title = "✅ 크롤링 완료",
             body  = body,
-            type  = "crawl_finished"
+            type  = ServerContract.EVENT_CRAWL_FINISHED
         )
     }
 
@@ -305,7 +302,7 @@ class WsService : Service() {
             showPushNotif(
                 title = "$titlePrefix — $name",
                 body  = bodyLines.joinToString("\n"),
-                type  = "crawl_changes"
+                type  = ServerContract.EVENT_CRAWL_CHANGES
             )
         }
     }
@@ -409,17 +406,17 @@ class WsService : Service() {
             val existing = JSONObject("{\"arr\":$historyJson}").getJSONArray("arr")
             val count = data.optInt("changed_count", 0)
             val title = when (type) {
-                "crawl_started"  -> "🔄 크롤링 시작"
-                "crawl_finished" -> "✅ 크롤링 완료"
+                ServerContract.EVENT_CRAWL_STARTED  -> "🔄 크롤링 시작"
+                ServerContract.EVENT_CRAWL_FINISHED -> "✅ 크롤링 완료"
                 else             -> type
             }
             val body = when (type) {
-                "crawl_started"  -> {
+                ServerContract.EVENT_CRAWL_STARTED  -> {
                     val source = data.optString("source", "")
                     val sourceLabel = if (source.startsWith("mobile")) "📱 모바일" else "🖥️ 웹"
                     "$sourceLabel 에서 크롤링이 시작되었습니다."
                 }
-                "crawl_finished" -> if (count > 0)
+                ServerContract.EVENT_CRAWL_FINISHED -> if (count > 0)
                     "크롤링이 완료되었습니다. ${count}건의 변경사항이 있습니다."
                 else
                     "크롤링이 완료되었습니다. 변경사항이 없습니다."

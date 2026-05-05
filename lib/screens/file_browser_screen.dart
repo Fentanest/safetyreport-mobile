@@ -15,6 +15,7 @@ import '../models/report.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
+import '../services/server_contract.dart';
 
 /// 확장자 → MIME type 매핑 (top-level — 모든 State 에서 공유).
 /// open_filex 가 자동 추론에 실패하는 경우(특히 Android에서 xlsx)가 있어 명시적으로 전달.
@@ -752,9 +753,11 @@ class _TreeNodeState extends State<_TreeNode> {
   }
 
   Future<void> _download(BuildContext ctx, FileItem item) async {
-    final downloadUri = Uri.parse(widget.baseUrl)
-        .replace(path: '/api/v1/files/download')
-        .replace(queryParameters: {'path': item.path});
+    final downloadUri = ServerContract.apiUri(
+      widget.baseUrl,
+      ServerContract.filesDownloadPath,
+      queryParameters: {'path': item.path},
+    );
 
     ScaffoldMessenger.of(ctx).showSnackBar(
       const SnackBar(
@@ -769,7 +772,13 @@ class _TreeNodeState extends State<_TreeNode> {
       for (var attempt = 1; attempt <= 3; attempt++) {
         try {
           response = await http
-              .get(downloadUri, headers: {'X-API-Key': widget.apiKey})
+              .get(
+                downloadUri,
+                headers: ServerContract.apiHeaders(
+                  widget.apiKey,
+                  includeJsonContentType: false,
+                ),
+              )
               .timeout(const Duration(minutes: 2));
           break;
         } on SocketException catch (e) {

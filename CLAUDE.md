@@ -65,8 +65,8 @@ build_test_apk.sh                ── 빠른 로컬 테스트 빌드
   build-apk.yml                    ── Android APK/AAB CI 빌드 + GitHub Release
 android/
   app/src/main/kotlin/com/fentanest/mysafetyreport/
-    MainActivity.kt                ── FlutterActivity, MethodChannel handler, intent 라우팅,
-                                     edge-to-edge, SharedPreferences 손상 마이그레이션
+    MainActivity.kt                ── FlutterFragmentActivity, MethodChannel handler, intent 라우팅,
+                                     AndroidX enableEdgeToEdge, SharedPreferences 손상 마이그레이션
     NotificationService.kt         ── NotificationListenerService — SPP 신고번호 추출 →
                                      Client: /crawl/enqueue / Standalone: 큐 + 감지 알림
     WsService.kt                   ── Client 모드 Foreground Service — WebSocket 유지
@@ -86,7 +86,7 @@ lib/
     agency_stats.dart                ── 통계 데이터 모델
     sunwi.dart                       ── 신고현황 payload / 대분류 / 소분류 / 순위 항목 모델
   providers/
-    report_provider.dart             ── 신고/요약/필터 (`&`/`,` 검색, 상태/별점 다중선택, 위반법규 단일선택 + `없음` sentinel), 자동 sync 트리거 (init/resume), 데모 모드 상태
+    report_provider.dart             ── 신고/요약/필터 (`&`/`,` 검색, 상태/별점 다중선택, 위반법규 단일선택 + `없음` sentinel), recentAnswerReports 재계산, 자동 sync 트리거 (init/resume), 데모 모드 상태
     notification_history_provider.dart ── 알림 히스토리 + 알림 탭 서브탭 인덱스 상태
   services/
     api_service.dart                 ── Client 모드 HTTP/WS 클라이언트
@@ -101,7 +101,7 @@ lib/
     sunwi_service.dart               ── Standalone 전국 신고현황 수집 + sunwi CSV 생성
   screens/
     setup_screen.dart                ── 초기 모드 선택 + 로그인/서버 설정 + demo/demo(휴대폰 공란 허용) 데모 진입
-    dashboard_screen.dart            ── 처리 요약, 모드별 에러 메시지
+    dashboard_screen.dart            ── 처리 요약, recentAnswerReports 기반 최근 답변 5건+더보기, 모드별 에러 메시지
     report_list_screen.dart          ── 4탭 (교통/주정차/기타/중복차량) + 통계/검색에서 넘어온 활성 필터 Chip 표시
     statistics_screen.dart           ── 연도×카테고리×유형 통계, 위반법규 필터, 행 탭 시 신고리스트 상세검색 기반 drilldown
     sunwi_screen.dart                ── 신고현황 탭 (Client 서버 payload / Standalone 직접 수집, 3시간 TTL, 5초 자동 페이지 전환)
@@ -112,11 +112,12 @@ lib/
     permission_screen.dart           ── 권한 가이드
     search_screen.dart               ── 신고번호/차량번호 검색
     filtered_list_screen.dart        ── 필터 적용된 신고 리스트
+    recent_answers_screen.dart       ── 최근 3일 답변 전체 화면 (summary fallback 대신 실제 카테고리 목록 재계산 결과 사용)
     watchlist_screen.dart            ── 감시목록 + 서버/다중선택 추가 안내
   widgets/
-    report_detail_sheet.dart         ── 신고 상세 시트 + 인라인/전체화면 동영상 + 공식 출처 링크/비공식 고지
+    report_detail_sheet.dart         ── 신고 상세 시트 + 카테고리 보존 필드 링크 + 인라인/전체화면 동영상 + 공식 출처 링크/비공식 고지
     report_list_card.dart            ── 신고 카드 공용 UI (`report_list`/`search`/`filtered_list` 공유)
-    selection_action_bar.dart        ── 다중 선택 액션 바 (복사/크롤링/감시/별점 주기)
+    selection_action_bar.dart        ── 다중 선택 액션 바 (복사/크롤링/감시/별점 주기, batch 결과 비차단 알림 처리)
     search_filter_sheet.dart         ── 검색 필터 시트 (처리상태/별점 다중선택, 위반법규 데이터 기반 단일선택 + `없음`, 초록 `v`, `&`/`,` 안내)
 ```
 
@@ -129,8 +130,8 @@ lib/
 ```
 MainActivity.onCreate
   ├─ cleanupCorruptedPrefs()         ── 손상된 v1 큐 (LIST_PREFIX+JSON) 데이터 마이그레이션
-  ├─ WindowCompat.setDecorFitsSystemWindows(false)  ── Android 15 edge-to-edge
   ├─ super.onCreate()                ── Flutter 엔진 시작
+  ├─ enableEdgeToEdge()              ── AndroidX 공식 edge-to-edge bootstrap
   └─ handleNavIntent(intent)         ── 알림 탭으로 실행됐으면 nav_tab/event_type 추출
 
 Flutter main()
@@ -226,6 +227,26 @@ ReportListScreen
 `RatingService` 는 Standalone 뿐 아니라 Client 모드에서도 `SyncForegroundService`
 를 재사용한다. 별점 작업/로그 추적이 끝날 때까지 앱 프로세스가 쉽게 정리되지 않도록
 동기화와 같은 보호 경로를 탄다.
+UI 레벨에서는 `SelectionActionBar._rate()` 가 `_busy` 전체 잠금을 걸지 않고
+fire-and-forget 으로 시작한다. 사용자는 즉시 선택 모드에서 빠져나오고,
+완료 결과만 알림/히스토리/SnackBar 로 확인한다.
+
+### 6. 최근 답변 / 카테고리 라우팅
+
+- `DashboardStats.recentAnswers` 는 가벼운 요약용 fallback 이다. 대시보드와
+  `RecentAnswersScreen` 은 가능하면 `ReportProvider.recentAnswerReports` 를 사용한다.
+- `ReportProvider.ensureCategoryReportsLoaded()` 는 traffic / parking / other 원본 목록을
+  한 번 확보하고, `recentAnswerReports` 는 그 실제 목록에서 최근 3일 답변을 다시 계산한다.
+  그래서 summary 쿼리 한도에 잘리지 않고 카테고리도 유지된다.
+- `ReportProvider.findCategory(report)` 는 `Report.category` 를 우선 사용하고, 비어 있으면
+  로드된 카테고리 목록에서 다시 찾는다.
+- `report_detail_sheet.dart` 의 차량번호 / 위반장소 / 위반법규 / 담당자 링크는
+  `ensureCategoryReportsLoaded()` 후에도 카테고리를 못 찾으면 이동을 막고 SnackBar 로 종료한다.
+  교통 탭(0번)으로 조용히 기본 이동시키지 않는다.
+- `ApiService.getReports(category)` 는 서버 응답에 `category` 가 비어 와도
+  `traffic` / `parking` / `other` 를 보강해서 넣는다.
+- `rating_batch_result.dart` 의 히스토리 직렬화도 `category` 를 함께 저장한다.
+  알림/별점 결과 화면에서 상세 시트를 다시 열어도 원래 신고 탭으로 돌아갈 수 있어야 한다.
 
 ---
 

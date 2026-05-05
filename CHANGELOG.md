@@ -19,10 +19,11 @@
     그 이상은 "+ N건 더 보기" 링크로 별도 화면 이동
   - 우측 상단에 "모두 보기" 바로가기도 추가
 - `lib/screens/recent_answers_screen.dart` (신규)
-  - 대시보드 최근 답변 전체 리스트 화면. `ReportProvider.stats?.recentAnswers` 를 그대로 표시
+  - 대시보드 최근 답변 전체 리스트 화면
+  - `ReportProvider.recentAnswerReports` 를 사용해 실제 카테고리 목록에서 최근 3일 답변을 재계산한 결과를 표시
 - `lib/services/local_db_service.dart`
   - Standalone `computeSummary` 의 최근 답변 쿼리에 서버와 동일한 3일 윈도우 필터 추가,
-    한도를 10 → 200 으로 상향 (대시보드에서 가려졌던 항목까지 더보기로 노출 가능)
+    한도를 10 → 200 으로 상향
 - `services/data_service.py` (서버 프로젝트)
   - `recent_answers[:20]` → `[:200]` 로 한도 상향
   - 대시보드 `recent_answers` / `watchlist` 항목에 `category` 필드 부여 (`traffic`/`parking`/`other`)
@@ -34,10 +35,13 @@
 - `lib/providers/report_provider.dart`
   - `findCategory(report)` / `categoryToTabIndex(category)` 헬퍼 추가
     (Report.category 우선, 없으면 현재 로드된 카테고리 리스트에서 검색)
+  - `ensureCategoryReportsLoaded()` / `recentAnswerReports` / `refreshSummaryAndRecentAnswers()` 추가
+  - 최근 답변 화면은 summary 축약본이 아니라 실제 traffic/parking/other 목록에서 최근 3일 답변을 다시 계산해 사용
 - `lib/widgets/report_detail_sheet.dart`
   - 차량번호 / 위반장소 / 위반법규 / 담당자 4개 필드를 클릭 가능한 링크로 변경
   - 탭 시 시트를 닫고 신고 내역 화면으로 이동, 동시에 해당 신고 카테고리 탭과 일치하는
     `ReportFilter` (carNumber / location / law / manager) 를 적용
+  - 이동 전 `ensureCategoryReportsLoaded()` 를 통해 카테고리 재확인, 끝까지 못 찾으면 잘못된 기본 탭으로 보내지 않고 SnackBar 로 중단
 - `web/templates/base.html` (서버 프로젝트)
   - `linkField` 헬퍼 추가, 모달 상세에서 위 4개 필드를 카테고리별 데이터 페이지로 이동하는
     `<a>` 링크로 렌더링
@@ -51,12 +55,31 @@
     문제 해결 (FGS keep-alive 는 RatingService 내부 acquireFgs/releaseFgs 로 그대로 유지)
   - 결과는 알림 (rating_result) + 히스토리 + 완료 SnackBar 로만 통지
   - `dart:async` 의 `unawaited` 사용
+- `lib/services/api_service.dart`
+  - 카테고리별 목록 API 응답에 `category` 가 빠져 있으면 요청한 카테고리(`traffic`/`parking`/`other`)를 보강
+- `lib/models/rating_batch_result.dart`
+  - 별점 batch 결과 히스토리 직렬화에 `category` 저장 추가
 
 비고:
 - Standalone DB(스키마 v4) 는 이미 `category` 컬럼을 갖고 있어 모바일은 추가 마이그레이션
   없이 바로 활용 가능
 - Client(server) 모드는 신규로 응답에 `category` 키가 들어오지만 기존 모바일 빌드는
   무시하므로 호환성 영향 없음
+
+### Android 15 edge-to-edge 공식 경로 전환
+
+상태: 완료
+
+변경:
+- `android/app/src/main/kotlin/com/fentanest/mysafetyreport/MainActivity.kt`
+  - `FlutterActivity` → `FlutterFragmentActivity` 로 전환
+  - 수동 `WindowCompat.setDecorFitsSystemWindows(false)` 호출 제거
+  - AndroidX `enableEdgeToEdge()` 를 적용해 Android 15+ 기본 edge-to-edge 와
+    하위 버전 동작을 같은 경로로 맞춤
+
+비고:
+- 앱 코드에서 직접 쓰던 수동 edge-to-edge 진입점은 제거했다. 이후 Play Console 에
+  경고가 남는다면 Flutter/AndroidX 내부 호출 여부를 추가 점검해야 한다.
 
 ## 2026-05-04
 - '신고리스트'탭을 '신고내역'탭으로 변경(줄바꿈 이슈)

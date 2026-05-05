@@ -5,14 +5,31 @@ import '../providers/report_provider.dart';
 import '../widgets/report_detail_sheet.dart';
 
 /// 대시보드의 "최근 답변 완료 (3일)" 더보기 화면.
-/// 별도 데이터 fetch 없이 ReportProvider.stats.recentAnswers 를 watch.
-class RecentAnswersScreen extends StatelessWidget {
+/// 실제 카테고리 목록을 기준으로 최근 답변을 재구성해 모두 보여준다.
+class RecentAnswersScreen extends StatefulWidget {
   const RecentAnswersScreen({super.key});
+
+  @override
+  State<RecentAnswersScreen> createState() => _RecentAnswersScreenState();
+}
+
+class _RecentAnswersScreenState extends State<RecentAnswersScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final provider = context.read<ReportProvider>();
+      if (provider.stats == null) {
+        provider.fetchSummary();
+      }
+      provider.ensureCategoryReportsLoaded();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<ReportProvider>();
-    final items = provider.stats?.recentAnswers ?? const <Report>[];
+    final items = provider.recentAnswerReports;
 
     return Scaffold(
       appBar: AppBar(
@@ -37,7 +54,7 @@ class RecentAnswersScreen extends StatelessWidget {
               ),
             )
           : RefreshIndicator(
-              onRefresh: provider.fetchSummary,
+              onRefresh: provider.refreshSummaryAndRecentAnswers,
               child: ListView.separated(
                 padding: const EdgeInsets.symmetric(
                   vertical: 8,

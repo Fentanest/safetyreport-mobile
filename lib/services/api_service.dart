@@ -88,7 +88,18 @@ class ApiService {
     if (response.statusCode == 200) {
       final json = jsonDecode(response.body);
       var list = json['data'] as List? ?? [];
-      return list.map((i) => Report.fromJson(i)).toList();
+      final fallbackCategory = switch (category) {
+        'traffic' || 'parking' || 'other' => category,
+        _ => '',
+      };
+      return list.map((item) {
+        final data = Map<String, dynamic>.from(item as Map);
+        final currentCategory = data['category']?.toString().trim() ?? '';
+        if (fallbackCategory.isNotEmpty && currentCategory.isEmpty) {
+          data['category'] = fallbackCategory;
+        }
+        return Report.fromJson(data);
+      }).toList();
     } else {
       throw Exception('Failed to load reports');
     }

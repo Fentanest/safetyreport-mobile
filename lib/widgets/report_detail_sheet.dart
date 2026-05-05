@@ -629,14 +629,26 @@ class ReportDetailSheet extends StatelessWidget {
     );
   }
 
-  void _navigateToFiltered(BuildContext context, ReportFilter filter) {
+  Future<void> _navigateToFiltered(BuildContext context, ReportFilter filter) async {
+    final navigator = Navigator.of(context);
     final provider = context.read<ReportProvider>();
-    final category = provider.findCategory(report);
+    var category = provider.findCategory(report);
+    if (category == null) {
+      await provider.ensureCategoryReportsLoaded();
+      if (!context.mounted) return;
+      category = provider.findCategory(report);
+    }
+    if (category == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('신고 카테고리 정보를 찾지 못했습니다.')),
+      );
+      return;
+    }
+
     final tabIndex = provider.categoryToTabIndex(category);
     provider.setFilter(filter);
-    Navigator.of(context).pop(); // close bottom sheet
-    Navigator.push(
-      context,
+    navigator.pop(); // close bottom sheet
+    navigator.push(
       MaterialPageRoute(
         builder: (_) => ReportListScreen(initialTabIndex: tabIndex),
       ),

@@ -25,6 +25,13 @@ const _defaultStatusOrder = <String>[
 ];
 
 const kEmptyLawFilterValue = '__없음__';
+const _recentAnswerStatuses = <String>{
+  '수용',
+  '일부수용',
+  '불수용',
+  '기타',
+  '답변완료',
+};
 
 class ReportFilter {
   final String name;
@@ -167,6 +174,9 @@ class ReportProvider with ChangeNotifier {
   List<Report> _otherReports = [];
   List<Report> _duplicateReports = [];
   Set<String> _watchlistNumbers = {};
+  bool _hasLoadedTrafficReports = false;
+  bool _hasLoadedParkingReports = false;
+  bool _hasLoadedOtherReports = false;
 
   ReportFilter _filter = const ReportFilter();
   bool _excludeWithdraw = false;
@@ -225,6 +235,50 @@ class ReportProvider with ChangeNotifier {
   Set<String> get watchlistNumbers => _watchlistNumbers;
   bool isInWatchlist(String reportNumber) =>
       _watchlistNumbers.contains(reportNumber);
+  bool get hasLoadedCategoryReports =>
+      _hasLoadedTrafficReports &&
+      _hasLoadedParkingReports &&
+      _hasLoadedOtherReports;
+
+  List<Report> get recentAnswerReports {
+    if (!hasLoadedCategoryReports) {
+      return _stats?.recentAnswers ?? const <Report>[];
+    }
+
+    final today = DateTime.now();
+    final lowerBound = _formatDateOnly(
+      today.subtract(const Duration(days: 3)),
+    );
+    final upperBound = _formatDateOnly(today);
+    final byReportNumber = <String, Report>{};
+
+    for (final report in [..._trafficReports, ..._parkingReports, ..._otherReports]) {
+      if (!_isRecentAnswerReport(
+        report,
+        lowerBound: lowerBound,
+        upperBound: upperBound,
+      )) {
+        continue;
+      }
+
+      final key = report.reportNumber.isNotEmpty
+          ? report.reportNumber
+          : '${report.category}:${report.name}:${report.responseDate}';
+      final existing = byReportNumber[key];
+      if (existing == null ||
+          report.responseDate.compareTo(existing.responseDate) > 0) {
+        byReportNumber[key] = report;
+      }
+    }
+
+    final items = byReportNumber.values.toList();
+    items.sort((a, b) {
+      final dateComp = b.responseDate.compareTo(a.responseDate);
+      if (dateComp != 0) return dateComp;
+      return b.reportNumber.compareTo(a.reportNumber);
+    });
+    return items;
+  }
 
   /// 신고번호로 카테고리(traffic/parking/other)를 추정.
   /// 1) Report.category 가 채워져 있으면 그대로 사용
@@ -356,6 +410,31 @@ class ReportProvider with ChangeNotifier {
       _parseAndOrGroups(query).any(
         (group) => group.every((term) => source.toLowerCase().contains(term)),
       );
+
+  String _formatDateOnly(DateTime time) {
+    String two(int value) => value.toString().padLeft(2, '0');
+    return '${time.year}-${two(time.month)}-${two(time.day)}';
+  }
+
+  String? _extractDateOnly(String raw) {
+    final match = RegExp(r'^(\d{4}-\d{2}-\d{2})').firstMatch(raw.trim());
+    return match?.group(1);
+  }
+
+  bool _isRecentAnswerReport(
+    Report report, {
+    required String lowerBound,
+    required String upperBound,
+  }) {
+    final status = report.status.trim();
+    if (!_recentAnswerStatuses.contains(status)) return false;
+
+    final responseDate = _extractDateOnly(report.responseDate);
+    if (responseDate == null || responseDate.isEmpty) return false;
+
+    return responseDate.compareTo(lowerBound) >= 0 &&
+        responseDate.compareTo(upperBound) <= 0;
+  }
 
   bool _dateGte(String value, String bound) =>
       bound.isEmpty || value.isEmpty || value.compareTo(bound) >= 0;
@@ -527,6 +606,9 @@ class ReportProvider with ChangeNotifier {
     _baseUrl = cleanUrl;
     _apiKey = key;
     _errorMessage = null;
+    _hasLoadedTrafficReports = false;
+    _hasLoadedParkingReports = false;
+    _hasLoadedOtherReports = false;
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('appMode', AppMode.server.name);
@@ -556,6 +638,9 @@ class ReportProvider with ChangeNotifier {
         : phoneNumber.replaceAll(RegExp(r'[^0-9]'), '');
     _isStandaloneDemo = isDemoMode;
     _errorMessage = null;
+    _hasLoadedTrafficReports = false;
+    _hasLoadedParkingReports = false;
+    _hasLoadedOtherReports = false;
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('appMode', AppMode.standalone.name);
@@ -581,6 +666,9 @@ class ReportProvider with ChangeNotifier {
     _otherReports = [];
     _duplicateReports = [];
     _watchlistNumbers = {};
+    _hasLoadedTrafficReports = false;
+    _hasLoadedParkingReports = false;
+    _hasLoadedOtherReports = false;
     _errorMessage = null;
 
     final prefs = await SharedPreferences.getInstance();
@@ -647,6 +735,7 @@ class ReportProvider with ChangeNotifier {
       } else {
         _trafficReports = await _api.getReports('traffic');
       }
+      _hasLoadedTrafficReports = true;
     } catch (e) {
       _errorMessage = '교통위반 내역 로드 실패: $e';
     } finally {
@@ -669,6 +758,7 @@ class ReportProvider with ChangeNotifier {
       } else {
         _parkingReports = await _api.getReports('parking');
       }
+      _hasLoadedParkingReports = true;
     } catch (e) {
       _errorMessage = '주정차위반 내역 로드 실패: $e';
     } finally {
@@ -691,6 +781,7 @@ class ReportProvider with ChangeNotifier {
       } else {
         _otherReports = await _api.getReports('other');
       }
+      _hasLoadedOtherReports = true;
     } catch (e) {
       _errorMessage = '기타위반 내역 로드 실패: $e';
     } finally {
@@ -757,6 +848,37 @@ class ReportProvider with ChangeNotifier {
 
   Future<void> enqueueCrawl(String reportNumber) async {
     await _api.enqueueCrawl(reportNumber);
+  }
+
+  Future<void> ensureCategoryReportsLoaded({bool forceRefresh = false}) async {
+    if (!isConfigured) return;
+
+    final shouldLoadTraffic = forceRefresh || !_hasLoadedTrafficReports;
+    final shouldLoadParking = forceRefresh || !_hasLoadedParkingReports;
+    final shouldLoadOther = forceRefresh || !_hasLoadedOtherReports;
+
+    if (!shouldLoadTraffic && !shouldLoadParking && !shouldLoadOther) {
+      return;
+    }
+
+    if (_appMode == AppMode.standalone) {
+      if (shouldLoadTraffic) await fetchTrafficReports();
+      if (shouldLoadParking) await fetchParkingReports();
+      if (shouldLoadOther) await fetchOtherReports();
+      return;
+    }
+
+    await Future.wait([
+      if (shouldLoadTraffic) fetchTrafficReports(),
+      if (shouldLoadParking) fetchParkingReports(),
+      if (shouldLoadOther) fetchOtherReports(),
+    ]);
+  }
+
+  Future<void> refreshSummaryAndRecentAnswers() async {
+    if (!isConfigured) return;
+    await fetchSummary();
+    await ensureCategoryReportsLoaded(forceRefresh: true);
   }
 
   Future<void> startCrawlQueue(List<String> reportNumbers) async {

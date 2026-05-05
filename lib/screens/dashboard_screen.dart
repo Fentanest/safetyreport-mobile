@@ -22,7 +22,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ReportProvider>().fetchSummary();
+      final provider = context.read<ReportProvider>();
+      provider.fetchSummary();
+      provider.ensureCategoryReportsLoaded();
     });
   }
 
@@ -46,12 +48,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: provider.fetchSummary,
+        onRefresh: provider.refreshSummaryAndRecentAnswers,
         child: provider.isLoading && stats == null
             ? const Center(child: CircularProgressIndicator())
             : stats == null
                 ? _buildErrorState(context, provider)
-                : _buildContent(context, stats),
+                : _buildContent(context, provider, stats),
       ),
     );
   }
@@ -127,7 +129,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   // ── 메인 콘텐츠 ────────────────────────────────────
-  Widget _buildContent(BuildContext context, DashboardStats stats) {
+  Widget _buildContent(
+    BuildContext context,
+    ReportProvider provider,
+    DashboardStats stats,
+  ) {
     final trafficTotal = stats.tFineCount + stats.tPenaltyCount +
         stats.tRejectCount + stats.tUnconfirmedCount;
     return SingleChildScrollView(
@@ -146,7 +152,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const SizedBox(height: 16),
           _buildWatchlistSection(context, stats.watchlist),
           const SizedBox(height: 16),
-          _buildRecentSection(context, stats.recentAnswers),
+          _buildRecentSection(context, provider.recentAnswerReports),
         ],
       ),
     );

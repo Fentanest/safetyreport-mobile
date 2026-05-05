@@ -220,5 +220,6 @@ Map<String, dynamic> reportToMap(Report report) {
     '별점사유': report.ratingCause,
     'total_count': report.totalCount,
     'valid_count': report.validCount,
+    'category': report.category,
   };
 }

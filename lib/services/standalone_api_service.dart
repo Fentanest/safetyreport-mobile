@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'network_retry_config.dart';
 import 'standalone_auth_service.dart';
 
 /// 안전신문고 직접 API 클라이언트 (Authorization: BEARER 토큰 사용)
@@ -55,7 +56,7 @@ class StandaloneApiService {
 
   static Future<http.Response?> _getPublicWithRetry(Uri uri) async {
     Object? lastError;
-    for (var attempt = 1; attempt <= 3; attempt++) {
+    for (var attempt = 1; attempt <= mobileMaxRetryAttempts; attempt++) {
       try {
         return await http
             .get(uri, headers: _commonHeaders)
@@ -67,12 +68,14 @@ class StandaloneApiService {
       } on TimeoutException catch (e) {
         lastError = e;
       }
-      if (attempt < 3) {
-        await Future.delayed(const Duration(seconds: 1));
+      if (attempt < mobileMaxRetryAttempts) {
+        await Future.delayed(
+          const Duration(seconds: mobileRetryDelaySeconds),
+        );
       }
     }
     if (lastError != null) {
-      throw Exception('공개 API 조회 실패 (3회 재시도): $lastError');
+      throw Exception('공개 API 조회 실패 (${mobileMaxRetryAttempts}회 재시도): $lastError');
     }
     return null;
   }
@@ -83,7 +86,7 @@ class StandaloneApiService {
     String? referer,
   }) async {
     Object? lastError;
-    for (var attempt = 1; attempt <= 3; attempt++) {
+    for (var attempt = 1; attempt <= mobileMaxRetryAttempts; attempt++) {
       try {
         final response = await http
             .post(
@@ -106,11 +109,13 @@ class StandaloneApiService {
       } on TimeoutException catch (e) {
         lastError = e;
       }
-      if (attempt < 3) {
-        await Future.delayed(const Duration(seconds: 1));
+      if (attempt < mobileMaxRetryAttempts) {
+        await Future.delayed(
+          const Duration(seconds: mobileRetryDelaySeconds),
+        );
       }
     }
-    throw Exception('별점 전송 실패 (3회 재시도): $lastError');
+    throw Exception('별점 전송 실패 (${mobileMaxRetryAttempts}회 재시도): $lastError');
   }
 
   /// 유효한 토큰으로 헤더 구성. 만료 시 자동 재로그인.
@@ -130,7 +135,7 @@ class StandaloneApiService {
     http.Response? res;
     Object? lastError;
 
-    for (var attempt = 1; attempt <= 3; attempt++) {
+    for (var attempt = 1; attempt <= mobileMaxRetryAttempts; attempt++) {
       try {
         res = await http
             .get(uri, headers: headers)
@@ -144,11 +149,15 @@ class StandaloneApiService {
       } on TimeoutException catch (e) {
         lastError = e;
       }
-      if (attempt < 3) await Future.delayed(const Duration(seconds: 1));
+      if (attempt < mobileMaxRetryAttempts) {
+        await Future.delayed(
+          const Duration(seconds: mobileRetryDelaySeconds),
+        );
+      }
     }
 
     if (res == null) {
-      throw Exception('네트워크 오류 (3회 재시도 실패): $lastError');
+      throw Exception('네트워크 오류 (${mobileMaxRetryAttempts}회 재시도 실패): $lastError');
     }
 
     // 401이면 토큰 만료 — 자동 재로그인 후 1회 재시도

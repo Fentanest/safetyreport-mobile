@@ -7,14 +7,26 @@ import '../services/api_service.dart';
 import '../services/local_db_service.dart';
 import '../widgets/report_detail_sheet.dart';
 
-class WatchlistScreen extends StatefulWidget {
+class WatchlistScreen extends StatelessWidget {
   const WatchlistScreen({super.key});
 
   @override
-  State<WatchlistScreen> createState() => _WatchlistScreenState();
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('감시 목록')),
+      body: const WatchlistPanel(),
+    );
+  }
 }
 
-class _WatchlistScreenState extends State<WatchlistScreen> {
+class WatchlistPanel extends StatefulWidget {
+  const WatchlistPanel({super.key});
+
+  @override
+  State<WatchlistPanel> createState() => _WatchlistPanelState();
+}
+
+class _WatchlistPanelState extends State<WatchlistPanel> {
   List<Report> _items = [];
   bool _loading = true;
   String? _error;
@@ -40,6 +52,7 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
         items = await LocalDbService.getWatchlistReports(
           excludeWithdraw: p.excludeWithdraw,
           normalizePolice: p.normalizePolice,
+          useRepresentativeRecords: p.useRepresentativeRecords,
         );
       } else {
         final p = context.read<ReportProvider>();
@@ -144,81 +157,92 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('감시 목록${_items.isNotEmpty ? " (${_items.length})" : ""}'),
-        actions: [
-          if (_items.isNotEmpty)
-            TextButton.icon(
-              icon: const Icon(Icons.delete_sweep, size: 18),
-              label: const Text('전체 해제'),
-              style: TextButton.styleFrom(foregroundColor: Colors.white),
-              onPressed: _removeAll,
-            ),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.error_outline, size: 48, color: Colors.red),
-                  const SizedBox(height: 12),
-                  Text(_error!, textAlign: TextAlign.center),
-                  const SizedBox(height: 16),
-                  FilledButton.icon(
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('다시 시도'),
-                    onPressed: _load,
-                  ),
-                ],
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '감시 목록${_items.isNotEmpty ? " (${_items.length})" : ""}',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
               ),
-            )
-          : _items.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.bookmark_border,
-                    size: 64,
-                    color: Colors.grey.shade300,
+              if (_items.isNotEmpty)
+                TextButton.icon(
+                  icon: const Icon(Icons.delete_sweep, size: 18),
+                  label: const Text('전체 해제'),
+                  onPressed: _removeAll,
+                ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                      const SizedBox(height: 12),
+                      Text(_error!, textAlign: TextAlign.center),
+                      const SizedBox(height: 16),
+                      FilledButton.icon(
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('다시 시도'),
+                        onPressed: _load,
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    '감시 목록이 비어 있습니다.',
-                    style: TextStyle(color: Colors.grey, fontSize: 15),
+                )
+              : _items.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.bookmark_border,
+                        size: 64,
+                        color: Colors.grey.shade300,
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        '감시 목록이 비어 있습니다.',
+                        style: TextStyle(color: Colors.grey, fontSize: 15),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        '서버에서 감시 목록에 추가하거나\n신고리스트 다중 선택 모드에서 바로 추가할 수 있습니다.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.grey,
+                          fontSize: 12,
+                          height: 1.5,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    '서버에서 감시 목록에 추가하거나\n신고리스트 다중 선택 모드에서 바로 추가할 수 있습니다.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.grey,
-                      fontSize: 12,
-                      height: 1.5,
+                )
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 8,
+                      horizontal: 12,
+                    ),
+                    itemCount: _items.length,
+                    separatorBuilder: (_, index) => const SizedBox(height: 6),
+                    itemBuilder: (context, i) => _WatchCard(
+                      report: _items[i],
+                      onRemove: () => _remove(_items[i]),
                     ),
                   ),
-                ],
-              ),
-            )
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView.separated(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 8,
-                  horizontal: 12,
                 ),
-                itemCount: _items.length,
-                separatorBuilder: (_, index) => const SizedBox(height: 6),
-                itemBuilder: (context, i) => _WatchCard(
-                  report: _items[i],
-                  onRemove: () => _remove(_items[i]),
-                ),
-              ),
-            ),
+        ),
+      ],
     );
   }
 }

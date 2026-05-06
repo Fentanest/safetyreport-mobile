@@ -80,6 +80,7 @@ lib/
   main.dart                          ── 앱 lifecycle, MaterialApp 모드별 테마, 변경 카드 시트
   models/
     app_mode.dart                    ── AppMode enum + fromString
+    duplicate_group.dart             ── 중복 신고 그룹/멤버 모델 + 상태/대표건 모드 라벨
     report.dart                      ── Report 데이터 모델 (서버 컬럼명 한국어 그대로)
     file_item.dart                   ── 파일 브라우저 항목
     notification_item.dart           ── 알림 히스토리 항목
@@ -91,7 +92,9 @@ lib/
     notification_history_provider.dart ── 알림 히스토리 + 알림 탭 서브탭 인덱스 상태
   services/
     api_service.dart                 ── Client 모드 HTTP 클라이언트 (ServerContract 기반 URI/헤더 생성)
+    duplicate_projection_service.dart ── Standalone 중복군 계산/대표건 projection/중복 상태 갱신
     local_db_service.dart            ── Standalone SQLite (서버와 동일 한국어 컬럼, Play review demo seed 포함)
+    network_retry_config.dart        ── 모바일 공용 재시도 횟수/기본 대기 상수 (`5회`)
     rating_service.dart              ── Client/Standalone 공통 별점 배치 처리 서비스
     server_contract.dart             ── Client 모드 서버 API/WS 경로, 헤더, URI 빌더 단일 소스
     sync_engine.dart                 ── 동기화 엔진 + ChangeType 상수 + FGS ref counting
@@ -104,9 +107,10 @@ lib/
   screens/
     setup_screen.dart                ── 초기 모드 선택 + 로그인/서버 설정 + demo/demo(휴대폰 공란 허용) 데모 진입
     dashboard_screen.dart            ── 처리 요약, recentAnswerReports 기반 최근 답변 5건+더보기, 모드별 에러 메시지
+    duplicate_management_screen.dart ── Client/Standalone 겸용 중복 신고 관리 패널
     report_list_screen.dart          ── 4탭 (교통/주정차/기타/중복차량) + 통계/검색에서 넘어온 활성 필터 Chip 표시
     statistics_screen.dart           ── 연도×카테고리×유형 통계, 위반법규 필터, 행 탭 시 신고리스트 상세검색 기반 drilldown
-    sunwi_screen.dart                ── 신고현황 탭 (Client 서버 payload / Standalone 직접 수집, 3시간 TTL, 5초 자동 페이지 전환)
+    sunwi_screen.dart                ── 신고현황 화면 + 재사용 가능한 `SunwiSection` (Client 서버 payload / Standalone 직접 수집, 3시간 TTL, 5초 자동 페이지 전환)
     notifications_screen.dart        ── 알림 히스토리 (크롤링/신고결과/별점 주기 3탭)
     file_browser_screen.dart         ── 로컬/서버 파일 브라우저 + standalone 하위 폴더 탐색 + share_plus fallback
     crawl_screen.dart                ── Standalone 동기화 / Client 크롤링 (모드 분기, 데모 모드 동기화 비활성화)
@@ -121,6 +125,7 @@ lib/
     report_list_card.dart            ── 신고 카드 공용 UI (`report_list`/`search`/`filtered_list` 공유)
     selection_action_bar.dart        ── 다중 선택 액션 바 (복사/크롤링/감시/별점 주기, batch 결과 비차단 알림 처리)
     search_filter_sheet.dart         ── 검색 필터 시트 (처리상태/별점 다중선택, 위반법규 데이터 기반 단일선택 + `없음`, 초록 `v`, `&`/`,` 안내)
+    duplicate_group_detail_sheet.dart ── 중복군/child 상세 바텀시트
 ```
 
 ---
@@ -142,6 +147,48 @@ Client 모드 서버 경로와 이벤트 문자열은 Flutter/Dart 와 Android/K
 - Client 모드 관련 문자열을 화면/서비스에 직접 하드코딩하지 않는다.
 - 서버 경로를 바꿀 때는 Dart/Kotlin 계약 파일부터 수정하고, 그 다음 호출부를 따라간다.
 - 서버 리팩토링이 내부 구조만 바꾸는 경우에도, 모바일 Client 모드는 위 계약이 유지되는지 먼저 확인한다.
+
+## Standalone 중복 projection
+
+- Standalone 모드는 서버의 `duplicate_group_service.py` 를 그대로 공유하지 못하므로,
+  `lib/services/duplicate_projection_service.dart` 에서 로컬 SQLite 기준 중복군 계산을 별도로 유지한다.
+- source of truth 는 `report_raw.raw_content` 이다.
+  - `raw_content` normalize → payload hash
+  - 같은 hash 가 2건 이상이면 중복군 후보
+- 중복 상태는 세 가지다.
+  - `review_required`
+  - `confirmed_duplicate`
+  - `not_duplicate`
+- 대표건 모드는 두 가지다.
+  - `auto`: refresh 때마다 우선순위로 재선정
+  - `manual`: 사용자가 고른 대표건 유지
+- 모바일 중복 신고 관리 패널에서는 child를 직접 고르면 대표건 모드를 즉시 `manual` 로 전환한다.
+  서버 저장 로직도 동일하게 auto 추천값과 다른 child를 저장하려는 경우 `manual` 로 승격시킨다.
+- 로컬 projection 규칙:
+  - `confirmed_duplicate` 만 canonical collapse 대상
+  - `review_required` 와 `not_duplicate` 는 child 전체 유지
+- `LocalDbService` 의 요약/목록/검색/통계는 `useRepresentativeRecords` 플래그를 받아
+  raw 또는 canonical projection 을 선택한다.
+
+## 설정 기본값 / 재시도 정책
+
+- 모바일 공용 재시도 횟수는 `lib/services/network_retry_config.dart` 의 `mobileMaxRetryAttempts = 5` 가 단일 소스다.
+- 다음 경로가 이 상수를 공유한다.
+  - `ApiService`
+  - `StandaloneApiService`
+  - `StandaloneAuthService`
+  - `SetupScreen` 서버 연결 테스트
+  - `FileBrowserScreen` 다운로드
+- 설정 기본값:
+  - `auto_export_sheet = false`
+  - `use_representative_records = true`
+
+## 재사용 패널 구조
+
+- `WatchlistScreen` 은 실제 본문을 `WatchlistPanel` 로 분리했다.
+- `SunwiScreen` 은 실제 본문을 `SunwiSection` 으로 분리했다.
+- 목적:
+  - 추후 대시보드/관리 탭 안으로 같은 UI 를 재배치할 때 화면 전체를 복제하지 않기 위함
 
 ---
 

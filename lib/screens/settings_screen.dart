@@ -43,8 +43,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // 기타 데이터 필터 세팅
   bool _excludeWithdraw = true;
   bool _normalizePolice = true;
+  bool _useRepresentativeRecords = true;
   bool _autoExportExcel = true;
-  bool _autoExportSheet = true;
+  bool _autoExportSheet = false;
   bool _filterLoading = false;
 
   // 앱 버전
@@ -128,6 +129,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         setState(() {
           _excludeWithdraw = p.excludeWithdraw;
           _normalizePolice = p.normalizePolice;
+          _useRepresentativeRecords = p.useRepresentativeRecords;
           // 자동 Excel/Sheet 내보내기는 서버 기능이므로 standalone에서는 비활성
           _autoExportExcel = false;
           _autoExportSheet = false;
@@ -143,8 +145,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         setState(() {
           _excludeWithdraw = cfg['exclude_withdraw'] as bool? ?? true;
           _normalizePolice = cfg['normalize_police'] as bool? ?? true;
+          _useRepresentativeRecords =
+              cfg['use_representative_records'] as bool? ?? true;
           _autoExportExcel = cfg['auto_export_excel'] as bool? ?? true;
-          _autoExportSheet = cfg['auto_export_sheet'] as bool? ?? true;
+          _autoExportSheet = cfg['auto_export_sheet'] as bool? ?? false;
         });
       }
     } catch (_) {}
@@ -156,6 +160,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (p.appMode == AppMode.standalone) {
       if (key == 'exclude_withdraw') {
         await p.setStandaloneFilter(excludeWithdraw: value);
+      } else if (key == 'use_representative_records') {
+        await p.setStandaloneFilter(useRepresentativeRecords: value);
       } else if (key == 'normalize_police') {
         await p.setStandaloneFilter(normalizePolice: value);
       }
@@ -1364,6 +1370,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           : (v) {
                               setState(() => _excludeWithdraw = v);
                               _toggleFilter('exclude_withdraw', v);
+                            },
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        '중복 신고 대표건만 반영',
+                        style: TextStyle(fontSize: 14),
+                      ),
+                      subtitle: const Text(
+                        '비활성화할 경우 원본 신고 row를 모두 반영합니다. 검토 필요 그룹은 항상 child 전체를 보여줍니다.',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      value: _useRepresentativeRecords,
+                      onChanged: _filterLoading
+                          ? null
+                          : (v) {
+                              setState(() => _useRepresentativeRecords = v);
+                              _toggleFilter('use_representative_records', v);
                             },
                     ),
                     SwitchListTile(

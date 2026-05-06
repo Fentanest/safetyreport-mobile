@@ -8,6 +8,8 @@ class ServerContract {
   static const filesPath = '$apiPrefix/files';
   static const statsPath = '$apiPrefix/stats';
   static const watchlistPath = '$apiPrefix/watchlist';
+  static const duplicateGroupsPath = '$apiPrefix/duplicates/groups';
+  static const editorSchemaPath = '$apiPrefix/editor/schema';
   static const crawlEnqueuePath = '$apiPrefix/crawl/enqueue';
   static const crawlStatusPath = '$apiPrefix/crawl/status';
   static const crawlDonePath = '$apiPrefix/crawl/done';
@@ -29,6 +31,9 @@ class ServerContract {
       baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
 
   static String reportsPath(String category) => '$apiPrefix/reports/$category';
+  static String duplicateGroupPath(String groupId) => '$duplicateGroupsPath/$groupId';
+  static String editorRecordPath(String category, String recordId) =>
+      '$apiPrefix/editor/$category/$recordId';
 
   static String sunwiExportPath(String kind) => '$apiPrefix/sunwi/export/$kind';
 

@@ -181,6 +181,7 @@ class ReportProvider with ChangeNotifier {
   ReportFilter _filter = const ReportFilter();
   bool _excludeWithdraw = false;
   bool _normalizePolice = false;
+  bool _useRepresentativeRecords = true;
 
   // 탭 전환 시 내부 state 가 있는 화면(통계/파일)이 재로드하도록 바꾸는 nonce.
   // 화면들은 이 값을 watch 하다가 변경 시 refresh 를 수행.
@@ -228,6 +229,7 @@ class ReportProvider with ChangeNotifier {
   DashboardStats? get stats => _stats;
   bool get excludeWithdraw => _excludeWithdraw;
   bool get normalizePolice => _normalizePolice;
+  bool get useRepresentativeRecords => _useRepresentativeRecords;
   List<Report> get trafficReports => _trafficReports;
   List<Report> get parkingReports => _parkingReports;
   List<Report> get otherReports => _otherReports;
@@ -500,6 +502,8 @@ class ReportProvider with ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       _excludeWithdraw = prefs.getBool('standaloneExcludeWithdraw') ?? true;
       _normalizePolice = prefs.getBool('standaloneNormalizePolice') ?? true;
+      _useRepresentativeRecords =
+          prefs.getBool('standaloneUseRepresentativeRecords') ?? true;
       notifyListeners();
       return;
     }
@@ -507,6 +511,8 @@ class ReportProvider with ChangeNotifier {
       final cfg = await _api.getAppConfig();
       _excludeWithdraw = cfg['exclude_withdraw'] as bool? ?? false;
       _normalizePolice = cfg['normalize_police'] as bool? ?? false;
+      _useRepresentativeRecords =
+          cfg['use_representative_records'] as bool? ?? true;
       notifyListeners();
     } catch (_) {}
   }
@@ -515,6 +521,7 @@ class ReportProvider with ChangeNotifier {
   Future<void> setStandaloneFilter({
     bool? excludeWithdraw,
     bool? normalizePolice,
+    bool? useRepresentativeRecords,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     if (excludeWithdraw != null) {
@@ -524,6 +531,13 @@ class ReportProvider with ChangeNotifier {
     if (normalizePolice != null) {
       _normalizePolice = normalizePolice;
       await prefs.setBool('standaloneNormalizePolice', normalizePolice);
+    }
+    if (useRepresentativeRecords != null) {
+      _useRepresentativeRecords = useRepresentativeRecords;
+      await prefs.setBool(
+        'standaloneUseRepresentativeRecords',
+        useRepresentativeRecords,
+      );
     }
     notifyListeners();
     await refreshAll();
@@ -696,6 +710,7 @@ class ReportProvider with ChangeNotifier {
             await LocalDbService.computeSummary(
               excludeWithdraw: _excludeWithdraw,
               normalizePolice: _normalizePolice,
+              useRepresentativeRecords: _useRepresentativeRecords,
             ).timeout(
               const Duration(seconds: 5),
               onTimeout: () {
@@ -731,6 +746,7 @@ class ReportProvider with ChangeNotifier {
           'traffic',
           excludeWithdraw: _excludeWithdraw,
           normalizePolice: _normalizePolice,
+          useRepresentativeRecords: _useRepresentativeRecords,
         );
       } else {
         _trafficReports = await _api.getReports('traffic');
@@ -754,6 +770,7 @@ class ReportProvider with ChangeNotifier {
           'parking',
           excludeWithdraw: _excludeWithdraw,
           normalizePolice: _normalizePolice,
+          useRepresentativeRecords: _useRepresentativeRecords,
         );
       } else {
         _parkingReports = await _api.getReports('parking');
@@ -777,6 +794,7 @@ class ReportProvider with ChangeNotifier {
           'other',
           excludeWithdraw: _excludeWithdraw,
           normalizePolice: _normalizePolice,
+          useRepresentativeRecords: _useRepresentativeRecords,
         );
       } else {
         _otherReports = await _api.getReports('other');
@@ -953,4 +971,6 @@ class ReportProvider with ChangeNotifier {
       ]);
     }
   }
+
+  List<Report> applyFilterToReports(List<Report> reports) => _applyFilter(reports);
 }

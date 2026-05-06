@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:pointycastle/export.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'network_retry_config.dart';
 
 /// 토큰 만료 예외 — StandaloneApiService에서 자동 재로그인 트리거에 사용
 class TokenExpiredException implements Exception {
@@ -60,7 +61,7 @@ class StandaloneAuthService {
       // ── Step 1: RSA 키 조회 (최대 3회 재시도) ──
       late HttpClientResponse keyRes;
       late String keyBody;
-      for (var attempt = 1; attempt <= 3; attempt++) {
+      for (var attempt = 1; attempt <= mobileMaxRetryAttempts; attempt++) {
         try {
           final req = await client.getUrl(
             Uri.parse('$_base/api/v1/common/rsa/getPublicKey'),
@@ -70,7 +71,7 @@ class StandaloneAuthService {
           keyBody = await keyRes.transform(utf8.decoder).join();
           break;
         } catch (e) {
-          if (attempt == 3) rethrow;
+          if (attempt == mobileMaxRetryAttempts) rethrow;
           await Future.delayed(Duration(seconds: attempt));
         }
       }
@@ -112,7 +113,7 @@ class StandaloneAuthService {
       late String tokenBody;
       Object? tokenLastError;
       var tokenSuccess = false;
-      for (var attempt = 1; attempt <= 3; attempt++) {
+      for (var attempt = 1; attempt <= mobileMaxRetryAttempts; attempt++) {
         try {
           final tokenReq = await client.postUrl(
             Uri.parse('$_base/oauth/token'),
@@ -138,11 +139,13 @@ class StandaloneAuthService {
           // errno 104 (connection reset), 110 (timeout) 등 일시 오류는 조용히 재시도.
           // 4xx/5xx 응답은 close() 가 throw 하지 않으므로 위 분기에서 처리됨.
           tokenLastError = e;
-          if (attempt < 3) await Future.delayed(Duration(seconds: attempt));
+          if (attempt < mobileMaxRetryAttempts) {
+            await Future.delayed(Duration(seconds: attempt));
+          }
         }
       }
       if (!tokenSuccess) {
-        throw Exception('토큰 요청 네트워크 오류 (3회 재시도 실패): $tokenLastError');
+        throw Exception('토큰 요청 네트워크 오류 (${mobileMaxRetryAttempts}회 재시도 실패): $tokenLastError');
       }
 
       if (tokenRes.statusCode == 401 || tokenRes.statusCode == 400) {

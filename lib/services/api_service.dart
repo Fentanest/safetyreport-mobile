@@ -4,9 +4,11 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import '../models/report.dart';
+import '../models/duplicate_group.dart';
 import '../models/file_item.dart';
 import '../models/agency_stats.dart';
 import '../models/sunwi.dart';
+import 'network_retry_config.dart';
 import 'server_contract.dart';
 
 class ApiService {
@@ -22,7 +24,7 @@ class ApiService {
     Duration timeout = const Duration(seconds: 20),
   }) async {
     Object? lastError;
-    for (var attempt = 1; attempt <= 3; attempt++) {
+    for (var attempt = 1; attempt <= mobileMaxRetryAttempts; attempt++) {
       try {
         return await request().timeout(timeout);
       } on SocketException catch (e) {
@@ -32,11 +34,13 @@ class ApiService {
       } on TimeoutException catch (e) {
         lastError = e;
       }
-      if (attempt < 3) {
-        await Future.delayed(const Duration(seconds: 1));
+      if (attempt < mobileMaxRetryAttempts) {
+        await Future.delayed(
+          const Duration(seconds: mobileRetryDelaySeconds),
+        );
       }
     }
-    throw Exception('네트워크 오류 (3회 재시도 실패): $lastError');
+    throw Exception('네트워크 오류 (${mobileMaxRetryAttempts}회 재시도 실패): $lastError');
   }
 
   Future<http.StreamedResponse> _sendMultipartWithRetry(
@@ -44,7 +48,7 @@ class ApiService {
     String filePath,
   ) async {
     Object? lastError;
-    for (var attempt = 1; attempt <= 3; attempt++) {
+    for (var attempt = 1; attempt <= mobileMaxRetryAttempts; attempt++) {
       try {
         final req = http.MultipartRequest('POST', uri);
         req.headers.addAll(
@@ -59,11 +63,13 @@ class ApiService {
       } on TimeoutException catch (e) {
         lastError = e;
       }
-      if (attempt < 3) {
-        await Future.delayed(const Duration(seconds: 1));
+      if (attempt < mobileMaxRetryAttempts) {
+        await Future.delayed(
+          const Duration(seconds: mobileRetryDelaySeconds),
+        );
       }
     }
-    throw Exception('업로드 네트워크 오류 (3회 재시도 실패): $lastError');
+    throw Exception('업로드 네트워크 오류 (${mobileMaxRetryAttempts}회 재시도 실패): $lastError');
   }
 
   Future<DashboardStats> getSummary() async {
@@ -81,12 +87,16 @@ class ApiService {
     }
   }
 
-  Future<List<Report>> getReports(String category) async {
+  Future<List<Report>> getReports(String category, {String? dedupe}) async {
+    final uri = ServerContract.apiUri(
+      baseUrl,
+      ServerContract.reportsPath(category),
+      queryParameters: (dedupe == null || dedupe.isEmpty)
+          ? null
+          : {'dedupe': dedupe},
+    );
     final response = await _sendWithRetry(
-      () => http.get(
-        ServerContract.apiUri(baseUrl, ServerContract.reportsPath(category)),
-        headers: _headers,
-      ),
+      () => http.get(uri, headers: _headers),
     );
     if (response.statusCode == 200) {
       final json = jsonDecode(response.body);
@@ -105,6 +115,107 @@ class ApiService {
       }).toList();
     } else {
       throw Exception('Failed to load reports');
+    }
+  }
+
+  Future<List<DuplicateGroup>> getDuplicateGroups({String? status}) async {
+    final response = await _sendWithRetry(
+      () => http.get(
+        ServerContract.apiUri(
+          baseUrl,
+          ServerContract.duplicateGroupsPath,
+          queryParameters: status == null || status.isEmpty
+              ? null
+              : {'status': status},
+        ),
+        headers: _headers,
+      ),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('중복 신고 그룹 조회 실패: ${response.statusCode}');
+    }
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    final list = json['data'] as List? ?? const [];
+    return list
+        .map((item) => DuplicateGroup.fromJson(Map<String, dynamic>.from(item as Map)))
+        .toList();
+  }
+
+  Future<void> updateDuplicateGroup(
+    String groupId, {
+    String? representativeId,
+    String? duplicateStatus,
+    String? representativeMode,
+    String? note,
+  }) async {
+    final response = await _sendWithRetry(
+      () => http.post(
+        ServerContract.apiUri(baseUrl, ServerContract.duplicateGroupPath(groupId)),
+        headers: _headers,
+        body: jsonEncode({
+          if (representativeId != null) 'representative_id': representativeId,
+          if (duplicateStatus != null) 'duplicate_status': duplicateStatus,
+          if (representativeMode != null) 'representative_mode': representativeMode,
+          if (note != null) 'note': note,
+        }),
+      ),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('중복 신고 그룹 저장 실패: ${response.statusCode}');
+    }
+  }
+
+  Future<Map<String, dynamic>> getEditorSchema() async {
+    final response = await _sendWithRetry(
+      () => http.get(
+        ServerContract.apiUri(baseUrl, ServerContract.editorSchemaPath),
+        headers: _headers,
+      ),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('데이터 수정 스키마 조회 실패: ${response.statusCode}');
+    }
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    return Map<String, dynamic>.from(json['data'] as Map);
+  }
+
+  Future<Map<String, dynamic>> getEditableRecord(
+    String category,
+    String recordId,
+  ) async {
+    final response = await _sendWithRetry(
+      () => http.get(
+        ServerContract.apiUri(
+          baseUrl,
+          ServerContract.editorRecordPath(category, recordId),
+        ),
+        headers: _headers,
+      ),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('수정 대상 조회 실패: ${response.statusCode}');
+    }
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    return Map<String, dynamic>.from(json['data'] as Map);
+  }
+
+  Future<void> saveEditableRecord(
+    String category,
+    String recordId,
+    Map<String, dynamic> values,
+  ) async {
+    final response = await _sendWithRetry(
+      () => http.post(
+        ServerContract.apiUri(
+          baseUrl,
+          ServerContract.editorRecordPath(category, recordId),
+        ),
+        headers: _headers,
+        body: jsonEncode({'values': values}),
+      ),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('데이터 수정 저장 실패: ${response.statusCode}');
     }
   }
 

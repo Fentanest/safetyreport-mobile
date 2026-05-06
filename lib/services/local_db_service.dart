@@ -4,6 +4,7 @@ import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../models/report.dart';
+import 'duplicate_projection_service.dart';
 import 'standalone_parser.dart';
 
 /// 서버 _normalize_police_agency 동일: '경찰서' 이후 문자열 제거
@@ -56,7 +57,7 @@ class LocalDbService {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       join(dbPath, 'standalone_reports.db'),
-      version: 5,
+      version: 6,
       onCreate: _create,
       onUpgrade: (db, oldV, newV) async {
         if (oldV < 4) {
@@ -72,6 +73,9 @@ class LocalDbService {
         if (oldV < 5) {
           await _createRawTable(db);
           await _migrateRawContentToSidecar(db);
+        }
+        if (oldV < 6) {
+          await DuplicateProjectionService.createSchema(db);
         }
       },
     );
@@ -113,6 +117,7 @@ class LocalDbService {
       )
     ''');
     await _createRawTable(db);
+    await DuplicateProjectionService.createSchema(db);
     await db.execute('''
       CREATE TABLE sync_meta (
         key   TEXT PRIMARY KEY,
@@ -204,6 +209,20 @@ class LocalDbService {
       }
     }
     return true;
+  }
+
+  static Future<List<Map<String, dynamic>>> _projectRows(
+    DatabaseExecutor db,
+    List<Map<String, dynamic>> rows, {
+    required bool useRepresentativeRecords,
+  }) async {
+    final normalized = rows.map((row) => Map<String, dynamic>.from(row)).toList();
+    if (normalized.isEmpty) return normalized;
+    return DuplicateProjectionService.projectReportRows(
+      db,
+      normalized,
+      useRepresentativeRecords: useRepresentativeRecords,
+    );
   }
 
   static const _syncedAtTrackedKeys = <String>[
@@ -316,6 +335,7 @@ class LocalDbService {
     String category, {
     bool excludeWithdraw = false,
     bool normalizePolice = false,
+    bool useRepresentativeRecords = false,
   }) async {
     final d = await db;
     var where = 'category = ?';
@@ -329,7 +349,17 @@ class LocalDbService {
       whereArgs: args,
       orderBy: '신고일 DESC',
     );
-    return rows
+    final projected = await _projectRows(
+      d,
+      rows,
+      useRepresentativeRecords: useRepresentativeRecords,
+    );
+    projected.sort(
+      (left, right) => _stringify(right['신고번호']).compareTo(
+        _stringify(left['신고번호']),
+      ),
+    );
+    return projected
         .map((r) => _rowToReport(r, normalizePolice: normalizePolice))
         .toList();
   }
@@ -337,6 +367,7 @@ class LocalDbService {
   static Future<List<Report>> getAllReports({
     bool excludeWithdraw = false,
     bool normalizePolice = false,
+    bool useRepresentativeRecords = false,
   }) async {
     final d = await db;
     final rows = await d.query(
@@ -344,7 +375,17 @@ class LocalDbService {
       where: excludeWithdraw ? "처리상태 != '취하'" : null,
       orderBy: '신고일 DESC',
     );
-    return rows
+    final projected = await _projectRows(
+      d,
+      rows,
+      useRepresentativeRecords: useRepresentativeRecords,
+    );
+    projected.sort(
+      (left, right) => _stringify(right['신고번호']).compareTo(
+        _stringify(left['신고번호']),
+      ),
+    );
+    return projected
         .map((r) => _rowToReport(r, normalizePolice: normalizePolice))
         .toList();
   }
@@ -412,9 +453,14 @@ class LocalDbService {
   static Future<DashboardStats> computeSummary({
     bool excludeWithdraw = false,
     bool normalizePolice = false,
+    bool useRepresentativeRecords = false,
   }) async {
     final d = await db;
-    final rows = await d.query('reports');
+    final rows = await _projectRows(
+      d,
+      await d.query('reports'),
+      useRepresentativeRecords: useRepresentativeRecords,
+    );
 
     int accept = 0,
         partial = 0,
@@ -453,40 +499,40 @@ class LocalDbService {
     String fmtDate(DateTime t) => '${t.year}-${two(t.month)}-${two(t.day)}';
     final lowerBound = fmtDate(threeDaysAgo);
     final upperBound = '${fmtDate(today)} 99';
-    final recentBase =
-        "처리상태 IN ('수용', '일부수용', '불수용', '기타', '답변완료') "
-        "AND 답변일 IS NOT NULL AND 답변일 != '' "
-        "AND 답변일 >= ? AND 답변일 <= ?";
-    final recentWhere = excludeWithdraw
-        ? "$recentBase AND 처리상태 != '취하'"
-        : recentBase;
-    final recentRows = await d.rawQuery(
-      '''
-      SELECT *
-      FROM reports
-      WHERE $recentWhere
-      ORDER BY
-        CASE WHEN synced_at IS NULL THEN 1 ELSE 0 END ASC,
-        synced_at DESC,
-        CASE WHEN synced_at IS NULL THEN 답변일 ELSE '' END DESC,
-        신고번호 DESC
-      LIMIT 200
-      ''',
-      [lowerBound, upperBound],
-    );
+    final recentRows = rows.where((row) {
+      final status = _stringify(row['처리상태']);
+      if (!const {'수용', '일부수용', '불수용', '기타', '답변완료'}.contains(status)) {
+        return false;
+      }
+      if (excludeWithdraw && status == '취하') return false;
+      final responseDate = _stringify(row['답변일']);
+      if (responseDate.isEmpty) return false;
+      return responseDate.compareTo(lowerBound) >= 0 &&
+          responseDate.compareTo(upperBound) <= 0;
+    }).toList()
+      ..sort((left, right) {
+        final leftSynced = _toEpochMillis(left['synced_at']) ?? -1;
+        final rightSynced = _toEpochMillis(right['synced_at']) ?? -1;
+        if (leftSynced != rightSynced) return rightSynced.compareTo(leftSynced);
+        final leftAnswer = _stringify(left['답변일']);
+        final rightAnswer = _stringify(right['답변일']);
+        final answerComp = rightAnswer.compareTo(leftAnswer);
+        if (answerComp != 0) return answerComp;
+        return _stringify(right['신고번호']).compareTo(_stringify(left['신고번호']));
+      });
 
-    final watchlistNums = await getWatchlistNumbers();
-    List<Map<String, dynamic>> watchlistRows = [];
-    if (watchlistNums.isNotEmpty) {
-      final placeholders = watchlistNums.map((_) => '?').join(',');
-      final wlWhere = excludeWithdraw
-          ? "신고번호 IN ($placeholders) AND 처리상태 != '취하'"
-          : "신고번호 IN ($placeholders)";
-      watchlistRows = await d.rawQuery(
-        'SELECT * FROM reports WHERE $wlWhere ORDER BY 신고일 DESC',
-        watchlistNums.toList(),
+    final watchlistRows = rows.where((row) {
+      if (_stringify(row['감시목록']) != 'Y') return false;
+      if (excludeWithdraw && _stringify(row['처리상태']) == '취하') {
+        return false;
+      }
+      return true;
+    }).toList()
+      ..sort(
+        (left, right) => _stringify(right['신고번호']).compareTo(
+          _stringify(left['신고번호']),
+        ),
       );
-    }
 
     final lastSync = await getMeta('last_sync') ?? '';
 
@@ -504,6 +550,7 @@ class LocalDbService {
       tRejectCount: tReject,
       tUnconfirmedCount: tUnconfirmed,
       recentAnswers: recentRows
+          .take(200)
           .map((r) => _rowToReport(r, normalizePolice: normalizePolice))
           .toList(),
       watchlist: watchlistRows
@@ -519,6 +566,7 @@ class LocalDbService {
     String? law,
     bool excludeWithdraw = false,
     bool normalizePolice = false,
+    bool useRepresentativeRecords = false,
   }) async {
     final d = await db;
 
@@ -541,17 +589,27 @@ class LocalDbService {
       where += " AND 처리상태 != '취하'";
     }
 
-    final rows = await d.query(
+    var rows = await d.query(
       'reports',
       where: where,
       whereArgs: args.isEmpty ? null : args,
     );
+    rows = await _projectRows(
+      d,
+      rows,
+      useRepresentativeRecords: useRepresentativeRecords,
+    );
 
     // 필터와 무관하게 전체에서 available_years/laws 추출
     // (취하 제외는 available_years/laws에는 영향 안 줌 — 서버도 동일)
-    final allRows = await d.query(
+    var allRows = await d.query(
       'reports',
       columns: ['신고일', '위반법규', 'category'],
+    );
+    allRows = await _projectRows(
+      d,
+      allRows,
+      useRepresentativeRecords: useRepresentativeRecords,
     );
     return _aggregateStats(rows, allRows, normalizePolice);
   }
@@ -785,6 +843,7 @@ class LocalDbService {
   static Future<List<Report>> getWatchlistReports({
     bool excludeWithdraw = false,
     bool normalizePolice = false,
+    bool useRepresentativeRecords = false,
   }) async {
     final numbers = await getWatchlistNumbers();
     if (numbers.isEmpty) return [];
@@ -795,7 +854,17 @@ class LocalDbService {
       'SELECT * FROM reports WHERE 신고번호 IN ($placeholders)$withdrawFilter ORDER BY 신고일 DESC',
       numbers.toList(),
     );
-    return rows
+    final projected = await _projectRows(
+      d,
+      rows,
+      useRepresentativeRecords: useRepresentativeRecords,
+    );
+    projected.sort(
+      (left, right) => _stringify(right['신고번호']).compareTo(
+        _stringify(left['신고번호']),
+      ),
+    );
+    return projected
         .map((r) => _rowToReport(r, normalizePolice: normalizePolice))
         .toList();
   }
@@ -806,6 +875,7 @@ class LocalDbService {
     String query, {
     bool excludeWithdraw = false,
     bool normalizePolice = false,
+    bool useRepresentativeRecords = false,
   }) async {
     final d = await db;
     final q = '%$query%';
@@ -821,7 +891,17 @@ class LocalDbService {
       whereArgs: args,
       orderBy: '신고일 DESC',
     );
-    return rows
+    final projected = await _projectRows(
+      d,
+      rows,
+      useRepresentativeRecords: useRepresentativeRecords,
+    );
+    projected.sort(
+      (left, right) => _stringify(right['신고번호']).compareTo(
+        _stringify(left['신고번호']),
+      ),
+    );
+    return projected
         .map((r) => _rowToReport(r, normalizePolice: normalizePolice))
         .toList();
   }
@@ -831,6 +911,10 @@ class LocalDbService {
   static Future<void> clearAll() async {
     final d = await db;
     await d.delete('report_raw');
+    try {
+      await d.delete(DuplicateProjectionService.memberTable);
+      await d.delete(DuplicateProjectionService.groupTable);
+    } catch (_) {}
     await d.delete('reports');
     await d.delete('sync_meta');
   }
@@ -954,11 +1038,11 @@ class LocalDbService {
       },
     ];
 
-    await d.transaction((txn) async {
-      for (final row in rows) {
-        await txn.insert(
-          'reports',
-          row,
+      await d.transaction((txn) async {
+        for (final row in rows) {
+          await txn.insert(
+            'reports',
+            row,
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }
@@ -971,6 +1055,7 @@ class LocalDbService {
         'value': watchlistNumber,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     });
+    await DuplicateProjectionService.refreshDuplicateGroups(d);
   }
 
   /// 업로드/선택된 .db 파일의 종류 판별.
@@ -1198,6 +1283,7 @@ class LocalDbService {
 
       // 마지막 sync 시각 기록 — 다음 증분 동기화의 기준점
       await setMeta('last_sync', DateTime.now().toIso8601String());
+      await DuplicateProjectionService.refreshDuplicateGroups(localDb);
 
       return imported;
     } finally {
@@ -1221,7 +1307,58 @@ class LocalDbService {
     await _deleteDbSidecars(dbPath);
     await src.copy(dbPath);
     await _cleanupPreparedSnapshot(preparedDbPath);
+    final reopened = await db;
+    await DuplicateProjectionService.refreshDuplicateGroups(reopened);
     // 다음 db getter 호출 시 새로 open.
+  }
+
+  static Future<Map<String, dynamic>?> getEditableRecord(String reportId) async {
+    final d = await db;
+    final rows = await d.query('reports', where: 'ID = ?', whereArgs: [reportId], limit: 1);
+    if (rows.isEmpty) return null;
+    return Map<String, dynamic>.from(rows.first);
+  }
+
+  static Future<bool> updateEditableRecord(
+    String reportId,
+    Map<String, dynamic> values,
+  ) async {
+    final d = await db;
+    final existingRows = await d.query(
+      'reports',
+      where: 'ID = ?',
+      whereArgs: [reportId],
+      limit: 1,
+    );
+    if (existingRows.isEmpty) return false;
+
+    final existing = Map<String, dynamic>.from(existingRows.first);
+    final next = Map<String, dynamic>.from(existing);
+    for (final entry in values.entries) {
+      next[entry.key] = entry.value;
+    }
+
+    final existingComparable = <String, Object?>{};
+    final nextComparable = <String, Object?>{};
+    for (final key in _syncedAtTrackedKeys) {
+      existingComparable[key] = existing[key];
+      nextComparable[key] = next[key];
+    }
+    final reportChanged = !_rowsEqual(existingComparable, nextComparable);
+    final syncedAt = reportChanged
+        ? DateTime.now().millisecondsSinceEpoch
+        : (_toEpochMillis(existing['synced_at']) ?? DateTime.now().millisecondsSinceEpoch);
+    next['synced_at'] = syncedAt;
+
+    await d.update(
+      'reports',
+      next,
+      where: 'ID = ?',
+      whereArgs: [reportId],
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    await DuplicateProjectionService.refreshDuplicateGroups(d);
+    return true;
   }
 
   // ── 내부 변환 ─────────────────────────────────────────────────────────────

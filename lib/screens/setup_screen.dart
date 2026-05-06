@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../providers/report_provider.dart';
 import '../services/local_db_service.dart';
+import '../services/network_retry_config.dart';
 import '../services/server_contract.dart';
 import '../services/standalone_auth_service.dart';
 import 'permission_screen.dart';
@@ -78,7 +79,7 @@ class _SetupScreenState extends State<SetupScreen> {
     try {
       Object? lastError;
       http.Response? response;
-      for (var attempt = 1; attempt <= 3; attempt++) {
+      for (var attempt = 1; attempt <= mobileMaxRetryAttempts; attempt++) {
         try {
           response = await http
               .get(
@@ -94,12 +95,14 @@ class _SetupScreenState extends State<SetupScreen> {
         } on TimeoutException catch (e) {
           lastError = e;
         }
-        if (attempt < 3) {
-          await Future.delayed(const Duration(seconds: 1));
+        if (attempt < mobileMaxRetryAttempts) {
+          await Future.delayed(
+            const Duration(seconds: mobileRetryDelaySeconds),
+          );
         }
       }
       if (response == null) {
-        throw Exception('네트워크 오류 (3회 재시도 실패): $lastError');
+        throw Exception('네트워크 오류 (${mobileMaxRetryAttempts}회 재시도 실패): $lastError');
       }
       final checkedResponse = response;
       if (checkedResponse.statusCode == 200) {

@@ -11,14 +11,28 @@ import '../providers/report_provider.dart';
 import '../services/api_service.dart';
 import '../services/sunwi_service.dart';
 
-class SunwiScreen extends StatefulWidget {
+class SunwiScreen extends StatelessWidget {
   const SunwiScreen({super.key});
 
   @override
-  State<SunwiScreen> createState() => _SunwiScreenState();
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text('신고현황')),
+      body: const SunwiSection(),
+    );
+  }
 }
 
-class _SunwiScreenState extends State<SunwiScreen> {
+class SunwiSection extends StatefulWidget {
+  final bool embedded;
+
+  const SunwiSection({super.key, this.embedded = false});
+
+  @override
+  State<SunwiSection> createState() => _SunwiSectionState();
+}
+
+class _SunwiSectionState extends State<SunwiSection> {
   static const _resyncInterval = Duration(hours: 3);
   static const _autoPageInterval = Duration(seconds: 5);
   static final Map<AppMode, _SunwiCacheEntry> _cacheByMode = {};
@@ -332,32 +346,53 @@ class _SunwiScreenState extends State<SunwiScreen> {
   Widget build(BuildContext context) {
     final provider = context.watch<ReportProvider>();
     final isStandalone = provider.appMode == AppMode.standalone;
-    return Scaffold(
-      appBar: AppBar(title: const Text('신고현황')),
-      body: RefreshIndicator(
-        onRefresh: () => _load(force: true),
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(16),
-          children: [
-            _buildActionCard(isStandalone),
-            const SizedBox(height: 12),
-            if (_loading && _payload == null) _buildLoadingState(),
-            if (!_loading && _payload == null) _buildEmptyOrErrorState(),
-            if (_payload != null) ...[
-              _buildInfoCard(isStandalone),
-              const SizedBox(height: 12),
-              if (_loading)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: LinearProgressIndicator(
-                    borderRadius: BorderRadius.circular(999),
+    return RefreshIndicator(
+      onRefresh: () => _load(force: true),
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: EdgeInsets.fromLTRB(
+          16,
+          widget.embedded ? 0 : 16,
+          16,
+          16,
+        ),
+        children: [
+          if (widget.embedded)
+            Row(
+              children: [
+                const Icon(Icons.map_outlined, size: 18, color: Colors.indigo),
+                const SizedBox(width: 6),
+                const Expanded(
+                  child: Text(
+                    '신고현황',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                 ),
-              _buildCategoryCard(),
-            ],
+                IconButton(
+                  onPressed: _loading ? null : () => _load(force: true),
+                  tooltip: '새로고침',
+                  icon: const Icon(Icons.refresh),
+                ),
+              ],
+            ),
+          if (widget.embedded) const SizedBox(height: 8),
+          _buildActionCard(isStandalone),
+          const SizedBox(height: 12),
+          if (_loading && _payload == null) _buildLoadingState(),
+          if (!_loading && _payload == null) _buildEmptyOrErrorState(),
+          if (_payload != null) ...[
+            _buildInfoCard(isStandalone),
+            const SizedBox(height: 12),
+            if (_loading)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: LinearProgressIndicator(
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            _buildCategoryCard(),
           ],
-        ),
+        ],
       ),
     );
   }

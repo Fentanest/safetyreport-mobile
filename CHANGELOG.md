@@ -9,6 +9,71 @@
 
 ## 2026-05-06
 
+### Standalone 중복 신고 projection 추가 + 대표건 기준 전역 설정 준비
+
+상태: 완료
+
+변경:
+- `lib/services/duplicate_projection_service.dart`
+  - `raw_content` exact match 기준의 Standalone 중복군 계산 로직 추가
+  - `duplicate_group`, `duplicate_member` 로컬 테이블 생성/갱신
+  - 대표건 자동 우선순위(`과태료 > 경고/범칙금 > 처리상태 > 답변일 > synced_at > 신고번호`) 적용
+  - `review_required`, `confirmed_duplicate`, `not_duplicate` 상태와 `auto`, `manual` 대표건 모드 지원
+- `lib/models/duplicate_group.dart`
+  - 중복군/멤버 모델 및 라벨 헬퍼 추가
+- `lib/widgets/duplicate_group_detail_sheet.dart`
+  - 중복군 상세 바텀시트 추가
+- `lib/screens/duplicate_management_screen.dart`
+  - Client/Standalone 겸용 중복 신고 관리 패널 추가
+  - 대표건 child를 직접 선택하면 자동 모드에서도 저장 전에 `수동 고정`으로 전환되도록 UX 보강
+- `lib/services/local_db_service.dart`
+  - Standalone DB version `5 -> 6`
+  - DB 생성/업그레이드 시 중복 projection 스키마 자동 생성
+  - 요약/목록/통계/감시목록/검색에 `useRepresentativeRecords` 기준 projection 반영
+  - demo seed, 서버 DB import, 백업 복원, 수정 저장 후 중복군 재계산 연결
+- `lib/providers/report_provider.dart`
+  - `useRepresentativeRecords` 전역 상태 추가
+  - Standalone `fetchSummary`/카테고리 로드에 대표건 기준 여부 전달
+
+검증:
+- `dart analyze ...` 대상 파일 기준 에러 없음
+  - 경고/info만 남음
+
+비고:
+- `review_required` 그룹은 대표건 기준 설정과 무관하게 child 전체를 보여주는 방향을 로컬 projection에서도 유지한다.
+
+### 모바일 기본 재시도 5회 상향 + 설정 기본값 정리
+
+상태: 완료
+
+변경:
+- `lib/services/network_retry_config.dart`
+  - 모바일 공용 재시도 횟수 상수 추가 (`5회`)
+- `lib/services/api_service.dart`
+- `lib/services/standalone_api_service.dart`
+- `lib/services/standalone_auth_service.dart`
+- `lib/screens/setup_screen.dart`
+- `lib/screens/file_browser_screen.dart`
+  - 각 네트워크 재시도 루프가 공용 상수를 사용하도록 정리
+- `lib/screens/settings_screen.dart`
+  - `크롤링 완료 후 구글 시트 자동 업로드` 기본값을 `false` 로 정리
+  - `중복 신고 대표건만 반영` 전역 스위치 추가
+
+비고:
+- 서버 기본값(`auto_export_sheet=false`, `use_representative_records=true`)과 맞춘 변경이다.
+
+### Watchlist / Sunwi 섹션 분리 기반 정리
+
+상태: 완료
+
+변경:
+- `lib/screens/watchlist_screen.dart`
+  - `WatchlistScreen` 을 `WatchlistPanel` 래퍼로 분리
+  - 다른 화면/탭 안에 감시목록 패널을 재사용할 수 있게 구조 정리
+- `lib/screens/sunwi_screen.dart`
+  - `SunwiScreen` 을 `SunwiSection` 래퍼로 분리
+  - `embedded` 모드를 추가해 대시보드 하단 등에 같은 섹션을 재사용할 수 있는 기반 추가
+
 ### Standalone DB version 5 / entry_value·raw_content·synced_at round-trip 보존
 
 상태: 완료

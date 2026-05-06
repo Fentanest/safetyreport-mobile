@@ -14,6 +14,7 @@ String normalizePoliceAgency(String agency) {
 
 /// 서버 DB 컬럼명(한국어)과 동일한 스키마 사용.
 /// mobile-only 추가 컬럼: category, entry_value, synced_at
+/// raw payload 는 report_raw 사이드카 테이블에 저장한다.
 class LocalDbService {
   static Database? _db;
   static Future<Database>? _initFuture;
@@ -55,10 +56,9 @@ class LocalDbService {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       join(dbPath, 'standalone_reports.db'),
-      version: 4,
+      version: 5,
       onCreate: _create,
       onUpgrade: (db, oldV, newV) async {
-        // v4 마이그레이션: 별점/별점사유 컬럼만 ADD (기존 데이터 보존)
         if (oldV < 4) {
           try {
             await db.execute("ALTER TABLE reports ADD COLUMN 별점 INTEGER");
@@ -68,12 +68,11 @@ class LocalDbService {
           } catch (_) {
             // 이미 컬럼이 있는 경우 무시
           }
-          return;
         }
-        // 그 외 버전 증가는 안전하게 재생성
-        await db.execute('DROP TABLE IF EXISTS reports');
-        await db.execute('DROP TABLE IF EXISTS sync_meta');
-        await _create(db, newV);
+        if (oldV < 5) {
+          await _createRawTable(db);
+          await _migrateRawContentToSidecar(db);
+        }
       },
     );
   }
@@ -113,6 +112,7 @@ class LocalDbService {
         synced_at       INTEGER
       )
     ''');
+    await _createRawTable(db);
     await db.execute('''
       CREATE TABLE sync_meta (
         key   TEXT PRIMARY KEY,
@@ -120,6 +120,113 @@ class LocalDbService {
       )
     ''');
   }
+
+  static Future<void> _createRawTable(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS report_raw (
+        ID          TEXT PRIMARY KEY,
+        raw_content TEXT NOT NULL DEFAULT '',
+        raw_type    TEXT NOT NULL DEFAULT '',
+        saved_at    INTEGER
+      )
+    ''');
+  }
+
+  static Future<void> _migrateRawContentToSidecar(Database db) async {
+    try {
+      await db.execute('''
+        INSERT OR REPLACE INTO report_raw (ID, raw_content, raw_type, saved_at)
+        SELECT ID, raw_content, '', synced_at
+        FROM reports
+        WHERE raw_content IS NOT NULL AND raw_content != ''
+      ''');
+      await db.execute(
+        "UPDATE reports SET raw_content = '' WHERE raw_content IS NOT NULL AND raw_content != ''",
+      );
+    } catch (_) {
+      // report_raw migration best-effort
+    }
+  }
+
+  static int? _toEpochMillis(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toInt();
+    if (value is String) {
+      if (value.trim().isEmpty) return null;
+      return int.tryParse(value) ?? double.tryParse(value)?.toInt();
+    }
+    return null;
+  }
+
+  static String _stringify(dynamic value) => value?.toString() ?? '';
+
+  static Future<Map<String, dynamic>?> _getRawPayload(
+    DatabaseExecutor db,
+    String reportId,
+  ) async {
+    final rows = await db.query(
+      'report_raw',
+      where: 'ID = ?',
+      whereArgs: [reportId],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  static Future<void> _replaceRawPayload(
+    DatabaseExecutor db,
+    String reportId, {
+    required String rawContent,
+    String rawType = '',
+    int? savedAt,
+  }) async {
+    if (reportId.isEmpty) return;
+    if (rawContent.isEmpty) {
+      await db.delete('report_raw', where: 'ID = ?', whereArgs: [reportId]);
+      return;
+    }
+    await db.insert('report_raw', {
+      'ID': reportId,
+      'raw_content': rawContent,
+      'raw_type': rawType,
+      'saved_at': savedAt,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  static bool _rowsEqual(
+    Map<String, Object?> left,
+    Map<String, Object?> right,
+  ) {
+    if (left.length != right.length) return false;
+    for (final key in left.keys) {
+      if (_stringify(left[key]) != _stringify(right[key])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  static const _syncedAtTrackedKeys = <String>[
+    '처리상태',
+    '차량번호',
+    '위반법규',
+    '범칙금_과태료',
+    '벌점',
+    '처리기관',
+    '담당자',
+    '답변일',
+    '발생일자',
+    '발생시각',
+    '위반장소',
+    '종결여부',
+    '신고내용',
+    '처리내용',
+    '지도',
+    '첨부사진',
+    '첨부파일',
+    'category',
+    'entry_value',
+  ];
 
   // ── 신고 저장/업데이트 ─────────────────────────────────────────────────────
 
@@ -131,7 +238,8 @@ class LocalDbService {
   }) async {
     final watchlistNums = await getWatchlistNumbers();
     final d = await db;
-    await d.insert('reports', {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final reportRow = <String, Object?>{
       'ID': r.id,
       '상태': r.result,
       '신고번호': r.reportNumber,
@@ -160,9 +268,46 @@ class LocalDbService {
       '첨부파일': r.attachedFiles,
       'category': category,
       'entry_value': entryValue,
-      'raw_content': rawContent,
-      'synced_at': DateTime.now().millisecondsSinceEpoch,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+      'raw_content': '',
+    };
+
+    await d.transaction((txn) async {
+      final existingRows = await txn.query(
+        'reports',
+        where: 'ID = ?',
+        whereArgs: [r.id],
+        limit: 1,
+      );
+      final existingRaw = await _getRawPayload(txn, r.id);
+
+      int syncedAt = now;
+      if (existingRows.isNotEmpty) {
+        final existing = Map<String, Object?>.from(existingRows.first);
+        final existingComparable = <String, Object?>{};
+        final reportComparable = <String, Object?>{};
+        for (final key in _syncedAtTrackedKeys) {
+          existingComparable[key] = existing[key];
+          reportComparable[key] = reportRow[key];
+        }
+        final reportChanged = !_rowsEqual(existingComparable, reportComparable);
+        final rawChanged =
+            _stringify(existingRaw?['raw_content']) != _stringify(rawContent);
+        syncedAt = (!reportChanged && !rawChanged)
+            ? (_toEpochMillis(existing['synced_at']) ?? now)
+            : now;
+      }
+
+      await txn.insert('reports', {
+        ...reportRow,
+        'synced_at': syncedAt,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await _replaceRawPayload(
+        txn,
+        r.id,
+        rawContent: rawContent,
+        savedAt: syncedAt,
+      );
+    });
   }
 
   // ── 신고 조회 ─────────────────────────────────────────────────────────────
@@ -305,8 +450,7 @@ class LocalDbService {
     final today = DateTime.now();
     final threeDaysAgo = today.subtract(const Duration(days: 3));
     String two(int v) => v.toString().padLeft(2, '0');
-    String fmtDate(DateTime t) =>
-        '${t.year}-${two(t.month)}-${two(t.day)}';
+    String fmtDate(DateTime t) => '${t.year}-${two(t.month)}-${two(t.day)}';
     final lowerBound = fmtDate(threeDaysAgo);
     final upperBound = '${fmtDate(today)} 99';
     final recentBase =
@@ -316,12 +460,19 @@ class LocalDbService {
     final recentWhere = excludeWithdraw
         ? "$recentBase AND 처리상태 != '취하'"
         : recentBase;
-    final recentRows = await d.query(
-      'reports',
-      where: recentWhere,
-      whereArgs: [lowerBound, upperBound],
-      orderBy: '답변일 DESC',
-      limit: 200,
+    final recentRows = await d.rawQuery(
+      '''
+      SELECT *
+      FROM reports
+      WHERE $recentWhere
+      ORDER BY
+        CASE WHEN synced_at IS NULL THEN 1 ELSE 0 END ASC,
+        synced_at DESC,
+        CASE WHEN synced_at IS NULL THEN 답변일 ELSE '' END DESC,
+        신고번호 DESC
+      LIMIT 200
+      ''',
+      [lowerBound, upperBound],
     );
 
     final watchlistNums = await getWatchlistNumbers();
@@ -679,6 +830,7 @@ class LocalDbService {
 
   static Future<void> clearAll() async {
     final d = await db;
+    await d.delete('report_raw');
     await d.delete('reports');
     await d.delete('sync_meta');
   }
@@ -959,6 +1111,30 @@ class LocalDbService {
       int imported = 0;
       final now = DateTime.now().millisecondsSinceEpoch;
 
+      final entryValueById = <String, String>{};
+      try {
+        final rows = await serverDb.query('mysafety_entry_value');
+        for (final row in rows) {
+          final id = row['ID']?.toString() ?? '';
+          if (id.isEmpty) continue;
+          entryValueById[id] = row['entry_value']?.toString() ?? '';
+        }
+      } catch (_) {}
+
+      final rawPayloadById = <String, Map<String, dynamic>>{};
+      try {
+        final rows = await serverDb.query('mysafety_raw_content');
+        for (final row in rows) {
+          final id = row['ID']?.toString() ?? '';
+          if (id.isEmpty) continue;
+          rawPayloadById[id] = {
+            'raw_content': row['raw_content']?.toString() ?? '',
+            'raw_type': row['raw_type']?.toString() ?? '',
+            'saved_at': _toEpochMillis(row['saved_at']),
+          };
+        }
+      } catch (_) {}
+
       // 서버 DB 의 3개 merge 테이블 → mobile reports + category
       const tableMap = {
         'mysafetymerge_traffic': 'traffic',
@@ -973,13 +1149,23 @@ class LocalDbService {
           final rows = await serverDb.query(tableName);
           await localDb.transaction((txn) async {
             for (final row in rows) {
+              final reportId = row['ID']?.toString() ?? '';
+              final rawPayload = rawPayloadById[reportId];
+              final syncedAt = _toEpochMillis(row['synced_at']) ?? now;
               await txn.insert('reports', {
                 ...row,
                 'category': category,
-                'entry_value': '',
+                'entry_value': entryValueById[reportId] ?? '',
                 'raw_content': '',
-                'synced_at': now,
+                'synced_at': syncedAt,
               }, conflictAlgorithm: ConflictAlgorithm.replace);
+              await _replaceRawPayload(
+                txn,
+                reportId,
+                rawContent: rawPayload?['raw_content']?.toString() ?? '',
+                rawType: rawPayload?['raw_type']?.toString() ?? '',
+                savedAt: _toEpochMillis(rawPayload?['saved_at']) ?? syncedAt,
+              );
             }
           });
           imported += rows.length;

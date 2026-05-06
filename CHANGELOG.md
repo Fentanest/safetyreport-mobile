@@ -9,6 +9,32 @@
 
 ## 2026-05-06
 
+### Standalone DB version 5 / entry_value·raw_content·synced_at round-trip 보존
+
+상태: 완료
+
+변경:
+- `lib/services/local_db_service.dart`
+  - Standalone DB version `4 -> 5`
+  - 원본 payload 보존용 `report_raw` 사이드카 테이블 추가
+  - 기존 `reports.raw_content` 는 마이그레이션 시 `report_raw` 로 이관하고 본 테이블에서는 비워 두도록 변경
+  - `upsertReport()` 가 동일 내용 재동기화에서는 `synced_at` 를 유지하고,
+    실제 추적 필드 변경 또는 raw payload 변경이 있을 때만 갱신하도록 수정
+  - 최근 답변 쿼리를 `synced_at DESC` 기준으로 변경하고,
+    `synced_at` 가 없는 레코드는 `답변일 DESC`, `신고번호 DESC` fallback 정렬 적용
+  - `clearAll()` 이 `report_raw` 도 함께 정리하도록 수정
+  - `importFromServerDb()` 가 `mysafety_entry_value`, `mysafety_raw_content`, `merge_* .synced_at` 를 함께 읽어
+    더 이상 `entry_value=''`, `raw_content=''`, `synced_at=now` 로 덮어쓰지 않도록 수정
+
+검증:
+- `dart format lib/services/local_db_service.dart`
+- `dart analyze lib/services/local_db_service.dart lib/models/report.dart lib/services/sync_engine.dart`
+  - 새 변경과 직접 관련 없는 기존 info 4건 외 추가 오류 없음
+
+비고:
+- 서버 쪽 `mysafety_raw_content` / `detail+merge.synced_at` 구조는 `safetyreport` 레포의 동일자 CHANGELOG 참고
+- 이번 변경으로 Standalone DB 가 서버 DB 를 import 해도 `entry_value` 와 `synced_at` 를 더 정확히 보존한다
+
 ### Client 서버 계약 상수화 / Flutter-Android 호출 경로 정리
 
 상태: 완료

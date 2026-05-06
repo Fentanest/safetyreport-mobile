@@ -324,9 +324,10 @@ fire-and-forget 으로 시작한다. 사용자는 즉시 선택 모드에서 빠
 
 ## SQLite 스키마 (Standalone)
 
-`lib/services/local_db_service.dart` — `standalone_reports.db`, version 4.
+`lib/services/local_db_service.dart` — `standalone_reports.db`, version 5.
 
 서버 DB 와 컬럼명 동일 (한국어). mobile-only 추가: `category`, `entry_value`, `raw_content`, `synced_at`.
+2026-05-06부터 raw payload 의 정본은 `report_raw` 사이드카 테이블에 둔다.
 
 ```sql
 CREATE TABLE reports (
@@ -339,11 +340,29 @@ CREATE TABLE reports (
   category TEXT, entry_value TEXT DEFAULT '', raw_content TEXT DEFAULT '',
   synced_at INTEGER
 );
+CREATE TABLE report_raw (
+  ID TEXT PRIMARY KEY,
+  raw_content TEXT NOT NULL DEFAULT '',
+  raw_type TEXT NOT NULL DEFAULT '',
+  saved_at INTEGER
+);
 CREATE TABLE sync_meta (key TEXT PRIMARY KEY, value TEXT);
 ```
 
+- `reports.synced_at`
+  - Unix epoch milliseconds
+  - "이 신고 row 의 추적 대상 필드가 마지막으로 실제 반영된 시각"
+  - 동일 내용 재동기화에서는 유지, 실제 처리결과/답변 payload 변경 시에만 갱신
+- `reports.raw_content`
+  - 레거시 호환용 컬럼으로 남아 있지만 신규 데이터의 payload 정본은 `report_raw` 가 담당
+- `importFromServerDb()`
+  - `mysafetymerge_*` 뿐 아니라 `mysafety_entry_value`, `mysafety_raw_content` 를 함께 읽는다
+  - 서버 `synced_at` 가 있으면 그대로 복원하고, 없을 때만 import 시점 `now` 를 fallback 사용
+
 ### 주요 쿼리 함수
 - `computeSummary(excludeWithdraw, normalizePolice)` — 대시보드 요약
+- 최근 답변 정렬은 `synced_at DESC`, 동순위 `신고번호 DESC`
+  - `synced_at` 없는 과거 row 는 `답변일 DESC`, `신고번호 DESC` fallback
 - `computeStats(year, law, ...)` — 통계 화면 데이터
 - `getDuplicateVehicleReports(...)` — 차량별 그룹화 (서버 `get_duplicate_records` 동일 정렬: `max(신고번호) DESC, 차량번호 ASC, 신고번호 DESC`)
 - `getReportByNumber(reportNumber)` — 단건 fetch 용

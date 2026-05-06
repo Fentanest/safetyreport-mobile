@@ -35,7 +35,7 @@ Standalone 로그인 화면에서 `demo / demo`(휴대폰번호 공란) 또는 `
 
 ## 디렉토리 구조
 
-아래 루트 항목은 **2026-05-01 기준 `git ls-files`로 추적되는 경로만** 적는다.
+아래 루트 항목은 **2026-05-06 기준 `git ls-files`로 추적되는 경로만** 적는다.
 로컬 산출물/작업물 (`resultstest/`, `android/.kotlin/` 등)은 구조 표기에서 제외.
 
 ```
@@ -67,9 +67,10 @@ android/
   app/src/main/kotlin/com/fentanest/mysafetyreport/
     MainActivity.kt                ── FlutterFragmentActivity, MethodChannel handler, intent 라우팅,
                                      AndroidX enableEdgeToEdge, SharedPreferences 손상 마이그레이션
+    ServerContract.kt              ── Client 모드 서버 API/WS 경로, 헤더, 이벤트 타입 단일 소스
     NotificationService.kt         ── NotificationListenerService — SPP 신고번호 추출 →
-                                     Client: /crawl/enqueue / Standalone: 큐 + 감지 알림
-    WsService.kt                   ── Client 모드 Foreground Service — WebSocket 유지
+                                     Client: ServerContract 기준 /crawl/enqueue / Standalone: 큐 + 감지 알림
+    WsService.kt                   ── Client 모드 Foreground Service — ServerContract 기준 WebSocket 유지
     SyncForegroundService.kt       ── Standalone 동기화 진행 중 프로세스 보호 FGS
 build_test_apk.sh                 ── 빠른 로컬 APK 테스트 스크립트
 build_android_common.sh           ── 버전/signer 공통 헬퍼
@@ -89,9 +90,10 @@ lib/
     report_provider.dart             ── 신고/요약/필터 (`&`/`,` 검색, 상태/별점 다중선택, 위반법규 단일선택 + `없음` sentinel), recentAnswerReports 재계산, 자동 sync 트리거 (init/resume), 데모 모드 상태
     notification_history_provider.dart ── 알림 히스토리 + 알림 탭 서브탭 인덱스 상태
   services/
-    api_service.dart                 ── Client 모드 HTTP/WS 클라이언트
+    api_service.dart                 ── Client 모드 HTTP 클라이언트 (ServerContract 기반 URI/헤더 생성)
     local_db_service.dart            ── Standalone SQLite (서버와 동일 한국어 컬럼, Play review demo seed 포함)
     rating_service.dart              ── Client/Standalone 공통 별점 배치 처리 서비스
+    server_contract.dart             ── Client 모드 서버 API/WS 경로, 헤더, URI 빌더 단일 소스
     sync_engine.dart                 ── 동기화 엔진 + ChangeType 상수 + FGS ref counting
     standalone_auth_service.dart     ── 안전신문고 로그인 (RSA + OAuth2 + 자동 재로그인)
     standalone_api_service.dart      ── 안전신문고 직접 API 호출 (재시도/토큰만료 처리, 만족도 POST 포함)
@@ -120,6 +122,26 @@ lib/
     selection_action_bar.dart        ── 다중 선택 액션 바 (복사/크롤링/감시/별점 주기, batch 결과 비차단 알림 처리)
     search_filter_sheet.dart         ── 검색 필터 시트 (처리상태/별점 다중선택, 위반법규 데이터 기반 단일선택 + `없음`, 초록 `v`, `&`/`,` 안내)
 ```
+
+---
+
+## Client 서버 계약 단일 소스
+
+Client 모드 서버 경로와 이벤트 문자열은 Flutter/Dart 와 Android/Kotlin 에서 각각 한 곳에 모아둔다.
+
+- Dart: `lib/services/server_contract.dart`
+  - `/api/v1` prefix, `X-API-Key`, `/ws/events`, `api_key`
+  - `summary`, `reports/{category}`, `stats`, `watchlist`, `crawl/*`, `settings/db`, `rating/start`, `files/download`, `server/version`, `sunwi/*`
+  - `apiUri()`, `apiHeaders()`, `wsEventsUri()` 로 URI/헤더 구성
+- Kotlin: `android/app/src/main/kotlin/com/fentanest/mysafetyreport/ServerContract.kt`
+  - `API_PREFIX`, `API_KEY_HEADER`, `WS_EVENTS_PATH`, `WS_API_KEY_QUERY`
+  - `EVENT_CONNECTED`, `EVENT_PING`, `EVENT_CRAWL_STARTED`, `EVENT_CRAWL_FINISHED`, `EVENT_CRAWL_CHANGES`
+  - `CRAWL_ENQUEUE_PATH`, `apiUrl()`, `wsEventsUrl()`
+
+원칙:
+- Client 모드 관련 문자열을 화면/서비스에 직접 하드코딩하지 않는다.
+- 서버 경로를 바꿀 때는 Dart/Kotlin 계약 파일부터 수정하고, 그 다음 호출부를 따라간다.
+- 서버 리팩토링이 내부 구조만 바꾸는 경우에도, 모바일 Client 모드는 위 계약이 유지되는지 먼저 확인한다.
 
 ---
 
@@ -403,9 +425,10 @@ CREATE TABLE sync_meta (key TEXT PRIMARY KEY, value TEXT);
 ## Foreground Service 정책
 
 ### `WsService` (Client 모드)
-- WebSocket `ws://<baseUrl>/ws/events?api_key=<key>` 유지
+- WebSocket URL 은 `ServerContract.wsEventsUrl(baseUrl, apiKey)` 로 생성
 - 지수 백오프 재연결 (3→6→12→24→60초)
 - START_STICKY (OS 가 죽여도 자동 재시작)
+- `connected`, `ping`, `crawl_started`, `crawl_finished`, `crawl_changes` 이벤트는 `ServerContract` 상수 기준으로 처리
 - crawl_started/finished/changes 이벤트 수신 → push 알림
 
 ### `SyncForegroundService` (Standalone 모드)
@@ -509,7 +532,7 @@ class ChangeType {
 | Standalone 로그인 Step 1 (RSA 키) | `StandaloneAuthService.login` | 3회 / `attempt`초 backoff / 15s timeout |
 | Standalone 로그인 Step 3 (OAuth 토큰 POST) | `StandaloneAuthService.login` | 3회 / `attempt`초 backoff / 15s timeout |
 | Client DB 다운로드 (서버→standalone 변환) | `ApiService.downloadDb` | 3회 / 1초 sleep / **2분** timeout (DB 가 MB 단위) |
-| Client 일반 API (crawl/enqueue 등) | `ApiService` 메서드들 | retry 없음 (사용자 명시 요청 범위 외) |
+| Client 일반 API (crawl/enqueue 등) | `ApiService` 메서드들 (`ServerContract` 경유) | retry 없음 (사용자 명시 요청 범위 외) |
 
 catch 대상: `SocketException` (errno 104), `http.ClientException`, `TimeoutException`. 4xx/5xx HTTP 응답은 재시도 무의미 → 즉시 throw.
 
@@ -595,6 +618,9 @@ CI 와 동일한 Docker 이미지 (`ghcr.io/cirruslabs/flutter:stable`).
 ---
 
 ## 서버 API 주요 엔드포인트 (Client 모드)
+
+Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.dart` 와
+`android/.../ServerContract.kt` 를 단일 source of truth 로 사용한다.
 
 - `POST /api/v1/crawl/enqueue` — 단건 큐 등록 `{"report_number": "SPP-..."}`
 - `POST /api/v1/crawl/start` — 크롤링 시작 (mode/type/queue_list)

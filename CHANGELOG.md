@@ -7,6 +7,32 @@
 
 ---
 
+## 2026-05-06
+
+### Client 서버 계약 상수화 / Flutter-Android 호출 경로 정리
+
+상태: 완료
+
+변경:
+- `lib/services/server_contract.dart`
+  - Client 모드 서버 API prefix, 헤더 이름, WebSocket 경로, 주요 엔드포인트를 단일 상수 집합으로 정리
+- `android/app/src/main/kotlin/com/fentanest/mysafetyreport/ServerContract.kt`
+  - 네이티브 쪽에서도 동일한 API/WS 경로와 이벤트 타입 상수를 사용하도록 정리
+- `lib/services/api_service.dart`
+  - Client 모드 HTTP 호출이 `ServerContract` 를 통해 URI/헤더를 만들도록 전환
+- `lib/screens/setup_screen.dart`, `lib/screens/settings_screen.dart`, `lib/screens/file_browser_screen.dart`
+  - 화면별로 흩어져 있던 Client 모드 서버 경로 하드코딩을 계약 헬퍼 기준으로 정리
+- `android/app/src/main/kotlin/com/fentanest/mysafetyreport/WsService.kt`
+  - `/ws/events`, `api_key`, `crawl_started`/`crawl_finished`/`crawl_changes`/`ping` 문자열을 공용 계약 상수로 정리
+- `android/app/src/main/kotlin/com/fentanest/mysafetyreport/NotificationService.kt`
+  - `/api/v1/crawl/enqueue`, `X-API-Key` 를 공용 계약 상수로 사용하도록 전환
+
+비고:
+- 서버 쪽 공용 서비스/크롤러 리팩토링은 `safetyreport` 레포의 동일자 CHANGELOG 참고
+- Client 모드 서버 계약 문자열을 한 곳으로 모은 변경이며, 기존 서버 API 경로 자체는 바꾸지 않음
+
+---
+
 ## 2026-05-05
 
 ### 대시보드 최근 답변 더보기 / 상세 시트 필드 링크 / 별점 batch 비차단화

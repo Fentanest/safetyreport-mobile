@@ -193,6 +193,8 @@ Client 모드 서버 경로와 이벤트 문자열은 Flutter/Dart 와 Android/K
 
 - `WatchlistScreen` 은 실제 본문을 `WatchlistPanel` 로 분리했다.
 - `SunwiScreen` 은 실제 본문을 `SunwiSection` 으로 분리했다.
+- `SunwiSection(embedded: true)` 는 대시보드 안에 들어가므로 자체 스크롤 컨테이너를 만들지 않고
+  일반 children 묶음만 렌더해야 한다. 독립 화면일 때만 `RefreshIndicator + ListView` 를 사용한다.
 - `ReportManagementScreen` 은 하단 네비게이션 탭 셸이고,
   실제 중복 관리는 `DuplicateManagementScreen`, 감시 목록은 `WatchlistPanel` 을 재사용한다.
 - 목적:
@@ -223,6 +225,13 @@ Client 모드 서버 경로와 이벤트 문자열은 Flutter/Dart 와 Android/K
   - `duplicate_group_detail_sheet.dart` 로 바로 상세를 연다.
 - 일반 신고 변경과 중복군 변경은 같은 신고 결과 탭을 공유하지만,
   `NotificationItemKind.duplicate` 로 구분해 아이콘/상세 시트를 다르게 처리한다.
+
+## Client 중복 신고 API 호환성
+
+- Client 서버가 아직 `/api/v1/duplicates/groups` 를 제공하지 않는 구버전일 수 있다.
+- 이 경우 모바일은 `404`를 치명 에러로 취급하지 않고,
+  `DuplicateManagementScreen` 에서 “서버가 중복 신고 관리 API를 아직 지원하지 않습니다.” 안내와 빈 상태를 보여준다.
+- Standalone 모드는 HTTP가 아니라 로컬 SQLite projection 을 읽으므로 같은 `404` 증상은 발생하지 않는다.
 
 ---
 

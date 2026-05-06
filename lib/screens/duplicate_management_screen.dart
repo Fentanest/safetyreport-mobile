@@ -20,6 +20,7 @@ class DuplicateManagementPanel extends StatefulWidget {
 class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
   bool _loading = true;
   String? _error;
+  String? _infoMessage;
   String _statusFilter = '';
   List<DuplicateGroup> _groups = const [];
 
@@ -33,12 +34,14 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
     setState(() {
       _loading = true;
       _error = null;
+      _infoMessage = null;
     });
     try {
       final provider = context.read<ReportProvider>();
       List<DuplicateGroup> groups;
       if (provider.appMode == AppMode.standalone) {
         final d = await LocalDbService.db;
+        await DuplicateProjectionService.createSchema(d);
         await DuplicateProjectionService.refreshDuplicateGroups(d);
         groups = await DuplicateProjectionService.getDuplicateGroups(d);
       } else {
@@ -48,6 +51,16 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
       if (!mounted) return;
       setState(() {
         _groups = groups;
+        if (provider.appMode == AppMode.server && groups.isEmpty) {
+          _infoMessage = '현재 표시할 중복 신고 그룹이 없습니다.';
+        }
+        _loading = false;
+      });
+    } on ApiFeatureUnavailableException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _groups = const [];
+        _infoMessage = e.message;
         _loading = false;
       });
     } catch (e) {
@@ -399,12 +412,13 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
           ),
           const SizedBox(height: 12),
           if (_filteredGroups.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(24),
+            Padding(
+              padding: const EdgeInsets.all(24),
               child: Center(
                 child: Text(
-                  '현재 조건에 맞는 중복 신고 그룹이 없습니다.',
-                  style: TextStyle(color: Colors.grey),
+                  _infoMessage ?? '현재 조건에 맞는 중복 신고 그룹이 없습니다.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.grey),
                 ),
               ),
             )

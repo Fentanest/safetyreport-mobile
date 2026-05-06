@@ -11,6 +11,15 @@ import '../models/sunwi.dart';
 import 'network_retry_config.dart';
 import 'server_contract.dart';
 
+class ApiFeatureUnavailableException implements Exception {
+  final String message;
+
+  const ApiFeatureUnavailableException(this.message);
+
+  @override
+  String toString() => message;
+}
+
 class ApiService {
   final String baseUrl;
   final String apiKey;
@@ -131,6 +140,11 @@ class ApiService {
         headers: _headers,
       ),
     );
+    if (response.statusCode == 404) {
+      throw const ApiFeatureUnavailableException(
+        '서버가 중복 신고 관리 API를 아직 지원하지 않습니다.',
+      );
+    }
     if (response.statusCode != 200) {
       throw Exception('중복 신고 그룹 조회 실패: ${response.statusCode}');
     }

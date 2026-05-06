@@ -9,6 +9,23 @@
 
 ## 2026-05-07
 
+### 대시보드 임베드 신고현황 백지 방지 + Client 중복 신고 404 방어
+
+상태: 완료
+
+변경:
+- `lib/screens/sunwi_screen.dart`
+  - `SunwiSection(embedded: true)` 가 대시보드 안에서 자체 `ListView` 를 만들지 않고 일반 `Column`만 렌더하도록 수정
+  - 대시보드 `SingleChildScrollView` 안에서 중첩 스크롤로 레이아웃이 깨져 백지로 보이던 문제 방지
+- `lib/services/api_service.dart`
+  - 서버가 `/api/v1/duplicates/groups` 를 아직 제공하지 않아 `404`를 돌릴 때 전용 예외로 분기
+- `lib/screens/duplicate_management_screen.dart`
+  - Client 모드에서 중복 신고 API 미지원(`404`)이면 크래시성 에러 대신 안내 문구와 빈 상태로 표시
+  - Standalone 모드에서는 로드 전에 중복 projection 스키마 생성을 한 번 더 보장
+
+비고:
+- `404 중복 신고 그룹 조회 실패`는 Client 서버 버전 미지원일 때만 가능한 증상이고, Standalone은 동일 증상이 나지 않는다.
+
 ### 신고관리 탭 추가 + 신고현황 대시보드 하단 이동
 
 상태: 완료

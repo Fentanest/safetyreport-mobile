@@ -346,55 +346,63 @@ class _SunwiSectionState extends State<SunwiSection> {
   Widget build(BuildContext context) {
     final provider = context.watch<ReportProvider>();
     final isStandalone = provider.appMode == AppMode.standalone;
+    final children = _buildChildren(isStandalone);
+
+    if (widget.embedded) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: children,
+      );
+    }
+
     return RefreshIndicator(
       onRefresh: () => _load(force: true),
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: EdgeInsets.fromLTRB(
-          16,
-          widget.embedded ? 0 : 16,
-          16,
-          16,
-        ),
-        children: [
-          if (widget.embedded)
-            Row(
-              children: [
-                const Icon(Icons.map_outlined, size: 18, color: Colors.indigo),
-                const SizedBox(width: 6),
-                const Expanded(
-                  child: Text(
-                    '신고현황',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                IconButton(
-                  onPressed: _loading ? null : () => _load(force: true),
-                  tooltip: '새로고침',
-                  icon: const Icon(Icons.refresh),
-                ),
-              ],
-            ),
-          if (widget.embedded) const SizedBox(height: 8),
-          _buildActionCard(isStandalone),
-          const SizedBox(height: 12),
-          if (_loading && _payload == null) _buildLoadingState(),
-          if (!_loading && _payload == null) _buildEmptyOrErrorState(),
-          if (_payload != null) ...[
-            _buildInfoCard(isStandalone),
-            const SizedBox(height: 12),
-            if (_loading)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: LinearProgressIndicator(
-                  borderRadius: BorderRadius.circular(999),
-                ),
-              ),
-            _buildCategoryCard(),
-          ],
-        ],
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+        children: children,
       ),
     );
+  }
+
+  List<Widget> _buildChildren(bool isStandalone) {
+    return [
+      if (widget.embedded)
+        Row(
+          children: [
+            const Icon(Icons.map_outlined, size: 18, color: Colors.indigo),
+            const SizedBox(width: 6),
+            const Expanded(
+              child: Text(
+                '신고현황',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+            IconButton(
+              onPressed: _loading ? null : () => _load(force: true),
+              tooltip: '새로고침',
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
+        ),
+      if (widget.embedded) const SizedBox(height: 8),
+      _buildActionCard(isStandalone),
+      const SizedBox(height: 12),
+      if (_loading && _payload == null) _buildLoadingState(),
+      if (!_loading && _payload == null) _buildEmptyOrErrorState(),
+      if (_payload != null) ...[
+        _buildInfoCard(isStandalone),
+        const SizedBox(height: 12),
+        if (_loading)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: LinearProgressIndicator(
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
+        _buildCategoryCard(),
+      ],
+    ];
   }
 
   Widget _buildActionCard(bool isStandalone) {

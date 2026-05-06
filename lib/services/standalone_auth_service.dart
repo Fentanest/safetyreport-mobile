@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:pointycastle/export.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'app_prefs_keys.dart';
 import 'network_retry_config.dart';
 
 /// 토큰 만료 예외 — StandaloneApiService에서 자동 재로그인 트리거에 사용
@@ -20,12 +21,12 @@ class TokenExpiredException implements Exception {
 class StandaloneAuthService {
   static const _base = 'https://www.safetyreport.go.kr';
 
-  // SharedPreferences 키
-  static const _tokenKey = 'standaloneToken';
-  static const _expiresAtKey = 'standaloneTokenExpiresAt';
+  // SharedPreferences 키 — `AppPrefsKeys` alias (Kotlin 호환 이름)
+  static const _tokenKey = AppPrefsKeys.standaloneToken;
+  static const _expiresAtKey = AppPrefsKeys.standaloneTokenExpiresAt;
 
   // FlutterSecureStorage 키 (비밀번호 암호화 저장)
-  static const _securePasswordKey = 'standalone_password';
+  static const _securePasswordKey = AppPrefsKeys.standalonePassword;
   static const _secureStorage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
@@ -206,7 +207,7 @@ class StandaloneAuthService {
 
   static Future<String> getPhoneNumber() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('standalonePhoneNumber') ?? '';
+    return prefs.getString(AppPrefsKeys.standalonePhoneNumber) ?? '';
   }
 
   /// 토큰이 유효한지(존재하고, 만료되지 않았는지) 확인
@@ -272,7 +273,7 @@ class StandaloneAuthService {
   /// 성공하면 새 토큰 반환, 자격증명 없으면 null 반환.
   static Future<String?> tryAutoRelogin() async {
     final prefs = await SharedPreferences.getInstance();
-    final username = prefs.getString('standaloneUsername');
+    final username = prefs.getString(AppPrefsKeys.standaloneUsername);
     final password = await _secureStorage.read(key: _securePasswordKey);
 
     if (username == null ||

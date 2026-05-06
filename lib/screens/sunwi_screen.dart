@@ -8,8 +8,7 @@ import 'package:provider/provider.dart';
 import '../models/app_mode.dart';
 import '../models/sunwi.dart';
 import '../providers/report_provider.dart';
-import '../services/api_service.dart';
-import '../services/sunwi_service.dart';
+import '../services/repositories/sunwi_repository.dart';
 
 class SunwiScreen extends StatelessWidget {
   const SunwiScreen({super.key});
@@ -38,7 +37,7 @@ class _SunwiSectionState extends State<SunwiSection> {
   static final Map<AppMode, _SunwiCacheEntry> _cacheByMode = {};
 
   SunwiPayload? _payload;
-  SunwiDataset? _dataset;
+  SunwiSnapshot? _snapshot;
   bool _loading = true;
   bool _exporting = false;
   String? _error;
@@ -83,7 +82,7 @@ class _SunwiSectionState extends State<SunwiSection> {
     if (cached != null) {
       if (!mounted) return;
       setState(() {
-        _dataset = cached.dataset;
+        _snapshot = cached.snapshot;
         _payload = cached.payload;
         _loading = false;
         _error = null;
@@ -104,44 +103,25 @@ class _SunwiSectionState extends State<SunwiSection> {
 
     _requestInFlight = true;
     try {
-      if (provider.appMode == AppMode.standalone) {
-        final dataset = await SunwiService.fetchStandalone(
-          onProgress: (completed, total, label) {
-            if (!mounted) return;
-            setState(() {
-              _statusMessage = '전국 신고현황 수집 중... ($completed/$total) $label';
-            });
-          },
-        );
-        if (!mounted) return;
-        setState(() {
-          _dataset = dataset;
-          _payload = dataset.payload;
-          _statusMessage = '';
-        });
-        _cacheByMode[appMode] = _SunwiCacheEntry(
-          payload: dataset.payload,
-          dataset: dataset,
-          fetchedAt: DateTime.now(),
-        );
-      } else {
-        final api = ApiService(
-          baseUrl: provider.baseUrl,
-          apiKey: provider.apiKey,
-        );
-        final payload = await api.getSunwiPayload();
-        if (!mounted) return;
-        setState(() {
-          _dataset = null;
-          _payload = payload;
-          _statusMessage = '';
-        });
-        _cacheByMode[appMode] = _SunwiCacheEntry(
-          payload: payload,
-          dataset: null,
-          fetchedAt: DateTime.now(),
-        );
-      }
+      final repo = SunwiRepository.fromProvider(provider);
+      final snapshot = await repo.fetch(
+        onProgress: (completed, total, label) {
+          if (!mounted) return;
+          setState(() {
+            _statusMessage = '전국 신고현황 수집 중... ($completed/$total) $label';
+          });
+        },
+      );
+      if (!mounted) return;
+      setState(() {
+        _snapshot = snapshot;
+        _payload = snapshot.payload;
+        _statusMessage = '';
+      });
+      _cacheByMode[appMode] = _SunwiCacheEntry(
+        snapshot: snapshot,
+        fetchedAt: DateTime.now(),
+      );
       _syncSelection();
       _resetAutoPageTimer();
     } catch (e) {
@@ -208,36 +188,20 @@ class _SunwiSectionState extends State<SunwiSection> {
         }
       }
 
-      if (provider.appMode == AppMode.standalone) {
-        var dataset = _dataset;
-        if (dataset == null) {
-          await _load(force: true);
-          dataset = _dataset;
-        }
-        if (dataset == null) {
-          throw Exception('신고현황 데이터를 먼저 불러와주세요.');
-        }
-        final path = await SunwiService.exportStandaloneCsv(
-          dataset,
-          top5: top5,
-        );
-        if (!mounted) return;
-        _showSnack(
-          '${top5 ? 'TOP5' : 'ALL'} CSV 저장 완료\n$path',
-          color: Colors.green,
-        );
-        return;
+      final repo = SunwiRepository.fromProvider(provider);
+
+      // standalone CSV 는 dataset 이 필요한데, 캐시 만료 등으로 비어 있으면 한 번 더 fetch.
+      if (provider.appMode == AppMode.standalone && _snapshot?.dataset == null) {
+        await _load(force: true);
       }
 
-      final api = ApiService(
-        baseUrl: provider.baseUrl,
-        apiKey: provider.apiKey,
-      );
-      final result = await api.exportSunwiCsv(top5 ? 'top5' : 'all');
+      final result = await repo.exportCsv(top5: top5, snapshot: _snapshot);
       if (!mounted) return;
-      final path = result['path']?.toString() ?? '';
+      final prefix = result.serverGenerated ? '서버 ' : '';
+      final kindLabel = top5 ? 'TOP5' : 'ALL';
+      final verb = result.serverGenerated ? '생성' : '저장';
       _showSnack(
-        '서버 ${top5 ? 'TOP5' : 'ALL'} CSV 생성 완료\n$path',
+        '$prefix$kindLabel CSV $verb 완료\n${result.path}',
         color: Colors.green,
       );
     } catch (e) {
@@ -413,38 +377,95 @@ class _SunwiSectionState extends State<SunwiSection> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
+            Row(
               children: [
-                Chip(
-                  avatar: Icon(
-                    isStandalone ? Icons.storage_rounded : Icons.cloud_done,
-                    size: 18,
+                Expanded(
+                  flex: 11,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF7F8FA),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          isStandalone
+                              ? Icons.storage_rounded
+                              : Icons.cloud_done,
+                          size: 16,
+                          color: Colors.black54,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            modeLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  label: Text(modeLabel),
                 ),
-                FilledButton.icon(
-                  onPressed: _exporting ? null : () => _exportCsv(false),
-                  icon: _exporting
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.table_chart_outlined),
-                  label: const Text('ALL CSV 생성'),
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 10,
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 10,
+                      ),
+                      textStyle: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    onPressed: _exporting ? null : () => _exportCsv(false),
+                    icon: _exporting
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.table_chart_outlined, size: 16),
+                    label: const Text(
+                      'ALL CSV',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                 ),
-                OutlinedButton.icon(
-                  onPressed: _exporting ? null : () => _exportCsv(true),
-                  icon: const Icon(Icons.leaderboard_outlined),
-                  label: const Text('TOP5 CSV 생성'),
-                ),
-                IconButton(
-                  onPressed: _loading ? null : () => _load(force: true),
-                  tooltip: '새로고침',
-                  icon: const Icon(Icons.refresh),
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 10,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 10,
+                      ),
+                      textStyle: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    onPressed: _exporting ? null : () => _exportCsv(true),
+                    icon: const Icon(Icons.leaderboard_outlined, size: 16),
+                    label: const Text(
+                      'TOP5 CSV',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -523,6 +544,26 @@ class _SunwiSectionState extends State<SunwiSection> {
     final failedText = payload.failedCount > 0
         ? '일부 지역 실패 ${payload.failedCount}건'
         : '실패 지역 없음';
+    final metaItems = [
+      const _MetaChip(
+        icon: Icons.calendar_today_outlined,
+        label: '전일기준',
+      ),
+      _MetaChip(
+        icon: Icons.schedule_outlined,
+        label: payload.updatedAt.isEmpty ? '수집 시각 없음' : payload.updatedAt,
+      ),
+      _MetaChip(
+        icon: payload.failedCount > 0
+            ? Icons.warning_amber_rounded
+            : Icons.check_circle_outline,
+        label: failedText,
+      ),
+      _MetaChip(
+        icon: isStandalone ? Icons.phone_android : Icons.dns,
+        label: isStandalone ? '기기 직접 조회' : '서버 캐시 사용',
+      ),
+    ];
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -536,30 +577,19 @@ class _SunwiSectionState extends State<SunwiSection> {
               ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            Row(
               children: [
-                const _MetaChip(
-                  icon: Icons.calendar_today_outlined,
-                  label: '전일기준',
-                ),
-                _MetaChip(
-                  icon: Icons.schedule_outlined,
-                  label: payload.updatedAt.isEmpty
-                      ? '수집 시각 없음'
-                      : payload.updatedAt,
-                ),
-                _MetaChip(
-                  icon: payload.failedCount > 0
-                      ? Icons.warning_amber_rounded
-                      : Icons.check_circle_outline,
-                  label: failedText,
-                ),
-                _MetaChip(
-                  icon: isStandalone ? Icons.phone_android : Icons.dns,
-                  label: isStandalone ? '기기 직접 조회' : '서버 캐시 사용',
-                ),
+                Expanded(child: metaItems[0]),
+                const SizedBox(width: 8),
+                Expanded(child: metaItems[1]),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(child: metaItems[2]),
+                const SizedBox(width: 8),
+                Expanded(child: metaItems[3]),
               ],
             ),
             if (payload.error.isNotEmpty) ...[
@@ -784,17 +814,24 @@ class _MetaChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
         color: const Color(0xFFF7F8FA),
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 15, color: Colors.black54),
           const SizedBox(width: 6),
-          Text(label, style: const TextStyle(fontSize: 12)),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12, height: 1.25),
+            ),
+          ),
         ],
       ),
     );
@@ -802,13 +839,13 @@ class _MetaChip extends StatelessWidget {
 }
 
 class _SunwiCacheEntry {
-  final SunwiPayload payload;
-  final SunwiDataset? dataset;
+  final SunwiSnapshot snapshot;
   final DateTime fetchedAt;
 
   const _SunwiCacheEntry({
-    required this.payload,
-    required this.dataset,
+    required this.snapshot,
     required this.fetchedAt,
   });
+
+  SunwiPayload get payload => snapshot.payload;
 }

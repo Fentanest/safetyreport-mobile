@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../models/app_mode.dart';
 import '../models/report.dart';
 import '../providers/report_provider.dart';
-import '../services/api_service.dart';
-import '../services/local_db_service.dart';
+import '../services/repositories/watchlist_repository.dart';
 import '../widgets/report_detail_sheet.dart';
 
 class WatchlistScreen extends StatelessWidget {
@@ -37,28 +35,16 @@ class _WatchlistPanelState extends State<WatchlistPanel> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
-  bool get _isStandalone =>
-      context.read<ReportProvider>().appMode == AppMode.standalone;
-
   Future<void> _load() async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      List<Report> items;
-      if (_isStandalone) {
-        final p = context.read<ReportProvider>();
-        items = await LocalDbService.getWatchlistReports(
-          excludeWithdraw: p.excludeWithdraw,
-          normalizePolice: p.normalizePolice,
-          useRepresentativeRecords: p.useRepresentativeRecords,
-        );
-      } else {
-        final p = context.read<ReportProvider>();
-        final api = ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
-        items = await api.getWatchlist();
-      }
+      final repo = WatchlistRepository.fromProvider(
+        context.read<ReportProvider>(),
+      );
+      final items = await repo.getReports();
       if (mounted) {
         setState(() {
           _items = items;

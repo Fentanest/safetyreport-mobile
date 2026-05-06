@@ -7,12 +7,14 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../models/app_mode.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
+import '../services/app_storage_paths.dart';
 import '../services/local_db_service.dart';
+import '../services/pending_db_import_action.dart';
 import '../services/permission_service.dart';
+import '../services/server_connection_service.dart';
 import '../services/server_contract.dart';
 import '../services/standalone_auth_service.dart';
 import 'permission_screen.dart';
@@ -72,44 +74,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadServerVersion() async {
-    final api = _buildApi();
-    if (api == null) return;
+    final p = context.read<ReportProvider>();
+    if (p.baseUrl.isEmpty) return;
     setState(() => _serverVersionLoading = true);
     try {
-      final p = context.read<ReportProvider>();
-      final baseUrl = p.baseUrl.trimRight().replaceAll(RegExp(r'/$'), '');
-      final headers = ServerContract.apiHeaders(
-        p.apiKey,
-        includeJsonContentType: false,
+      final info = await ServerConnectionService.fetchVersionInfo(
+        baseUrl: p.baseUrl,
+        apiKey: p.apiKey,
       );
-      final res = await http
-          .get(
-            ServerContract.apiUri(baseUrl, ServerContract.serverVersionPath),
-            headers: headers,
-          )
-          .timeout(const Duration(seconds: 5));
-      if (mounted) {
-        if (res.statusCode == 200) {
-          final j = jsonDecode(res.body);
-          final ver = j['version'] as String?;
-          final latest = j['latest_version'] as String?;
-          final upToDate = j['up_to_date'] as bool?;
-          final status = upToDate == null
-              ? null
-              : upToDate
-              ? 'up_to_date'
-              : 'outdated';
-          setState(() {
-            _serverVersion = ver;
-            _serverVersionStatus = status;
-            _serverVersionLatest = latest;
-          });
-        } else {
-          setState(() => _serverVersion = null);
-        }
-      }
-    } catch (_) {
-      if (mounted) setState(() => _serverVersion = null);
+      if (!mounted) return;
+      setState(() {
+        _serverVersion = info.version;
+        _serverVersionStatus = info.status;
+        _serverVersionLatest = info.latestVersion;
+      });
     } finally {
       if (mounted) setState(() => _serverVersionLoading = false);
     }
@@ -457,24 +435,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
       }
 
-      final dir = Directory('/storage/emulated/0/Documents/mysafetyreport');
-      if (!dir.existsSync()) {
-        try {
-          dir.createSync(recursive: true);
-        } catch (_) {
-          final altDir = Directory(
-            '/storage/emulated/0/Download/mysafetyreport',
-          );
-          if (!altDir.existsSync()) altDir.createSync(recursive: true);
-        }
-      }
+      final targetDir = AppStoragePaths.exportsRoot();
 
       final p = context.read<ReportProvider>();
       final isStandalone = p.appMode == AppMode.standalone;
 
-      final targetDir = dir.existsSync()
-          ? dir
-          : Directory('/storage/emulated/0/Download/mysafetyreport');
       final fileName =
           'backup_data_${DateTime.now().millisecondsSinceEpoch}.db';
       final targetFile = File('${targetDir.path}/$fileName');
@@ -658,18 +623,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // Client → Standalone: 3-way 선택 (서버 DB 변환 / 백업 파일 선택 / 처음부터).
 
   /// Documents/mysafetyreport (없으면 Download/mysafetyreport) 디렉토리 보장.
-  static Directory _backupDir() {
-    final docs = Directory('/storage/emulated/0/Documents/mysafetyreport');
-    if (docs.existsSync()) return docs;
-    try {
-      docs.createSync(recursive: true);
-      return docs;
-    } catch (_) {
-      final dl = Directory('/storage/emulated/0/Download/mysafetyreport');
-      if (!dl.existsSync()) dl.createSync(recursive: true);
-      return dl;
-    }
-  }
+  static Directory _backupDir() => AppStoragePaths.exportsRoot();
 
   Future<void> _confirmModeReset() async {
     final p = context.read<ReportProvider>();
@@ -750,8 +704,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   /// Client → Standalone: 3-way 선택 (서버 DB 변환 / 백업 파일 선택 / 처음부터).
-  /// 선택 결과는 SharedPreferences 의 'pending_db_import' 에 저장 → setup_screen
-  /// 의 standalone 로그인 직후 LocalDbService 가 적용.
+  /// 선택 결과는 [PendingDbImportAction] 으로 직렬화돼 setup_screen 의
+  /// standalone 로그인 직후 [PendingDbImportAction.apply] 로 실행된다.
   Future<void> _confirmServerToStandalone() async {
     final p = context.read<ReportProvider>();
 
@@ -807,8 +761,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (choice == null || !mounted) return;
 
-    final prefs = await SharedPreferences.getInstance();
-    String? pendingAction;
+    PendingDbImportAction? pendingAction;
 
     if (choice == 'server') {
       // 서버 DB 다운로드 (지금) → Documents/mysafetyreport 에 저장 → pending action 으로 표기.
@@ -841,7 +794,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             'server_db_${DateTime.now().millisecondsSinceEpoch}.db';
         final target = File('${dir.path}/$fileName');
         await target.writeAsBytes(bytes);
-        pendingAction = 'convert:${target.path}';
+        pendingAction = ConvertServerDbAction(target.path);
         if (mounted) Navigator.of(context).pop(); // 진행 다이얼로그 닫기
       } catch (e) {
         if (mounted) {
@@ -864,7 +817,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (result == null) return;
         final selectedPath = await _stagePickedDbFiles(result);
         if (selectedPath == null || selectedPath.isEmpty) return;
-        pendingAction = 'file:$selectedPath';
+        pendingAction = DetectAndApplyDbFileAction(selectedPath);
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -879,11 +832,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
     // 'fresh' 는 pendingAction = null
 
-    if (pendingAction != null) {
-      await prefs.setString('pending_db_import', pendingAction);
-    } else {
-      await prefs.remove('pending_db_import');
-    }
+    await PendingDbImportAction.save(pendingAction);
 
     if (!mounted) return;
     await context.read<ReportProvider>().resetConfig();

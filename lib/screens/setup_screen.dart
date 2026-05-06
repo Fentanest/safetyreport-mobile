@@ -1,16 +1,12 @@
-import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../providers/report_provider.dart';
+import '../services/app_prefs_keys.dart';
 import '../services/local_db_service.dart';
-import '../services/network_retry_config.dart';
-import '../services/server_contract.dart';
+import '../services/pending_db_import_action.dart';
+import '../services/server_connection_service.dart';
 import '../services/standalone_auth_service.dart';
 import 'permission_screen.dart';
 
@@ -75,59 +71,26 @@ class _SetupScreenState extends State<SetupScreen> {
       _loading = true;
       _errorMessage = null;
     });
-    final cleanUrl = ServerContract.normalizeBaseUrl(url);
     try {
-      Object? lastError;
-      http.Response? response;
-      for (var attempt = 1; attempt <= mobileMaxRetryAttempts; attempt++) {
-        try {
-          response = await http
-              .get(
-                ServerContract.apiUri(cleanUrl, ServerContract.summaryPath),
-                headers: ServerContract.apiHeaders(key),
-              )
-              .timeout(const Duration(seconds: 10));
-          break;
-        } on SocketException catch (e) {
-          lastError = e;
-        } on http.ClientException catch (e) {
-          lastError = e;
-        } on TimeoutException catch (e) {
-          lastError = e;
-        }
-        if (attempt < mobileMaxRetryAttempts) {
-          await Future.delayed(
-            const Duration(seconds: mobileRetryDelaySeconds),
-          );
-        }
-      }
-      if (response == null) {
-        throw Exception('네트워크 오류 (${mobileMaxRetryAttempts}회 재시도 실패): $lastError');
-      }
-      final checkedResponse = response;
-      if (checkedResponse.statusCode == 200) {
-        try {
-          jsonDecode(checkedResponse.body);
-          if (!mounted) return;
-          await context.read<ReportProvider>().setConfig(cleanUrl, key);
-          if (!mounted) return;
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (_) => const PermissionScreen(isSetup: true),
-            ),
-          );
-          return;
-        } catch (_) {
-          setState(() => _errorMessage = '서버 응답 파싱 실패. 올바른 서버인지 확인해주세요.');
-        }
-      } else if (checkedResponse.statusCode == 401) {
-        setState(() => _errorMessage = 'API Key 인증 실패 (401)');
-      } else {
+      final result = await ServerConnectionService.testConnection(
+        baseUrl: url,
+        apiKey: key,
+      );
+      if (!result.isOk) {
         setState(
-          () => _errorMessage = '서버 오류: HTTP ${checkedResponse.statusCode}',
+          () => _errorMessage = result.message ?? '서버에 연결할 수 없습니다.',
         );
+        return;
       }
+      if (!mounted) return;
+      await context.read<ReportProvider>().setConfig(result.normalizedUrl, key);
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const PermissionScreen(isSetup: true),
+        ),
+      );
     } catch (e) {
       setState(() => _errorMessage = '서버에 연결할 수 없습니다.\n$e');
     } finally {
@@ -156,7 +119,7 @@ class _SetupScreenState extends State<SetupScreen> {
           isDemoMode: true,
         );
         final prefs = await SharedPreferences.getInstance();
-        await prefs.remove('pending_db_import');
+        await prefs.remove(AppPrefsKeys.pendingDbImport);
         if (!mounted) return;
         Navigator.pushReplacement(
           context,
@@ -205,73 +168,21 @@ class _SetupScreenState extends State<SetupScreen> {
     }
   }
 
-  /// SharedPreferences 의 'pending_db_import' 키 처리:
-  ///   - "convert:<path>" → 서버 DB 형식 .db 파일을 모바일 reports 테이블로 마이그레이션
-  ///   - "copy:<path>"    → 모바일 형식 .db 백업 파일을 통째로 덮어쓰기
-  ///   - "file:<path>"    → 선택한 .db 파일을 판별해 server면 변환, mobile이면 복원
-  ///   - 없음              → 빈 DB 그대로
-  /// 적용 후 키 제거. 실패해도 로그인 자체는 성공으로 진행 (에러 메시지만 표시).
+  /// `pending_db_import` 키에 저장된 [PendingDbImportAction] 을 읽고 적용.
+  /// 실패해도 로그인 자체는 성공으로 진행 (에러 메시지만 표시).
   Future<void> _applyPendingDbImport() async {
-    final prefs = await SharedPreferences.getInstance();
-    final action = prefs.getString('pending_db_import');
-    if (action == null || action.isEmpty) return;
-    await prefs.remove('pending_db_import');
-
+    final action = await PendingDbImportAction.readAndClear();
+    if (action == null) return;
     try {
-      if (action.startsWith('convert:')) {
-        final path = action.substring('convert:'.length);
-        final imported = await LocalDbService.importFromServerDb(path);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('서버 DB 변환 완료: $imported건 임포트'),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 4),
-            ),
-          );
-        }
-      } else if (action.startsWith('copy:')) {
-        final path = action.substring('copy:'.length);
-        await LocalDbService.replaceFromBackup(path);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('백업 복원 완료: ${path.split('/').last}'),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 4),
-            ),
-          );
-        }
-      } else if (action.startsWith('file:')) {
-        final path = action.substring('file:'.length);
-        final kind = await LocalDbService.detectDbKind(path);
-        if (kind == 'server') {
-          final imported = await LocalDbService.importFromServerDb(path);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('서버 DB 변환 완료: $imported건 임포트'),
-                backgroundColor: Colors.green,
-                duration: const Duration(seconds: 4),
-              ),
-            );
-          }
-        } else if (kind == 'mobile') {
-          await LocalDbService.replaceFromBackup(path);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('모바일 백업 복원 완료: ${path.split('/').last}'),
-                backgroundColor: Colors.green,
-                duration: const Duration(seconds: 4),
-              ),
-            );
-          }
-        } else {
-          throw Exception(
-            '알 수 없는 DB 형식입니다. 서버 DB 또는 모바일 백업 .db 파일만 사용할 수 있습니다.',
-          );
-        }
+      final message = await action.apply();
+      if (message != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {

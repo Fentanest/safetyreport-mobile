@@ -4,8 +4,10 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/report.dart';
+import 'app_prefs_keys.dart';
 import 'duplicate_projection_service.dart';
 import 'local_db_service.dart';
+import 'pending_changes_store.dart';
 import 'standalone_api_service.dart';
 import 'standalone_auth_service.dart';
 import 'standalone_parser.dart';
@@ -303,20 +305,9 @@ class SyncEngine {
   ///   3. changesEmitted Stream 신호 → ReportProvider 가 nonce 갱신
   static Future<void> emitChanges(List<Map<String, dynamic>> changes) async {
     if (changes.isEmpty) return;
-    final prefs = await SharedPreferences.getInstance();
 
     // 기존 pending 데이터에 누적 (main.dart 가 처리 전이면 함께 노출)
-    final existingRaw = prefs.getString('pending_crawl_changes');
-    List<dynamic> existing = const [];
-    if (existingRaw != null && existingRaw.isNotEmpty) {
-      try {
-        existing = jsonDecode(existingRaw) as List<dynamic>;
-      } catch (_) {}
-    }
-    await prefs.setString(
-      'pending_crawl_changes',
-      jsonEncode([...existing, ...changes]),
-    );
+    await PendingChangesStore.append(changes);
 
     for (final r in changes) {
       final notificationKind =
@@ -424,7 +415,7 @@ class SyncEngine {
     if (report.rating == null || report.rating! <= 0) return report;
     if (report.ratingCause.isNotEmpty) return report;  // 이미 있으면 스킵
     final prefs = await SharedPreferences.getInstance();
-    final phone = (prefs.getString('standalonePhoneNumber') ?? '')
+    final phone = (prefs.getString(AppPrefsKeys.standalonePhoneNumber) ?? '')
         .replaceAll(RegExp(r'[^0-9]'), '');
     if (phone.isEmpty) return report;
     final result = await StandaloneApiService.fetchSatisfaction(report.reportNumber, phone);
@@ -463,7 +454,7 @@ class SyncEngine {
     final now = DateTime.now().toIso8601String();
     await LocalDbService.setMeta('last_sync', now);
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('standaloneSyncTime', now);
+    await prefs.setString(AppPrefsKeys.standaloneSyncTime, now);
   }
 
   static Future<String?> getLastSyncTime() async {

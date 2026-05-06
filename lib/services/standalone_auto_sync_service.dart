@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'app_prefs_keys.dart';
 import 'duplicate_projection_service.dart';
 import 'local_db_service.dart';
 import 'standalone_api_service.dart';
 import 'standalone_parser.dart';
+import 'standalone_pending_queue_store.dart';
 import 'sync_engine.dart';
 
 /// 개별 fetch 결과 — drainIfPending 분기용.
@@ -40,38 +42,13 @@ enum _FetchResult {
 ///   - flutter.pending_crawl_changes SharedPref 에 누적 → main.dart 카드 시트
 ///   - 각 신고에 대해 개별 heads-up 알림 (MainActivity.showNotification)
 class StandaloneAutoSyncService {
-  static const _pendingQueueKey = 'standalone_pending_reports';
-
   static bool _running = false;
   static bool get isRunning => _running;
 
-  /// Pending 큐 read — Kotlin NotificationService.appendPendingReport 와 호환되는
-  /// CSV 형식 (LIST_IDENTIFIER prefix 없는 일반 String).
-  ///
-  /// LIST_IDENTIFIER + JSON 형식은 LegacySharedPreferencesPlugin 이 Java
-  /// deserialize 시도하다 StreamCorruptedException 발생 → getAll() 전체 실패.
-  static List<String> readPendingQueue(SharedPreferences prefs) {
-    final raw = prefs.getString(_pendingQueueKey) ?? '';
-    return raw.split(',').where((s) => s.isNotEmpty).toList();
-  }
-
-  static Future<void> _writeQueue(
-    SharedPreferences prefs,
-    Iterable<String> queue,
-  ) async {
-    final dedup = <String>{...queue}.toList();
-    await prefs.setString(_pendingQueueKey, dedup.join(','));
-  }
-
-  /// 큐에서 한 항목만 안전하게 제거. (Kotlin 이 동시에 추가한 다른 항목은 보존)
-  static Future<void> _removeFromQueue(
-    SharedPreferences prefs,
-    String item,
-  ) async {
-    await prefs.reload();
-    final cur = readPendingQueue(prefs)..remove(item);
-    await _writeQueue(prefs, cur);
-  }
+  /// Pending 큐 read — `StandalonePendingQueueStore.read` 의 호환 alias.
+  /// 외부 호출자가 줄어들면 제거 예정.
+  static List<String> readPendingQueue(SharedPreferences prefs) =>
+      StandalonePendingQueueStore.read(prefs);
 
   /// 개별 fetch 에서 발견한 변경사항. SyncEngine.emitChanges 로 일괄 emit.
   /// (SyncEngine.start() 의 자체 _lastChanges 는 자동 emit 됨.)
@@ -89,7 +66,7 @@ class StandaloneAutoSyncService {
 
       while (true) {
         await prefs.reload();
-        final queue = readPendingQueue(prefs);
+        final queue = StandalonePendingQueueStore.read(prefs);
         if (queue.isEmpty) break;
 
         // 첫 작업 직전에 FGS 가동 (큐가 비어 있으면 굳이 가동 안 함).
@@ -137,7 +114,7 @@ class StandaloneAutoSyncService {
           SyncEngine.emitLog('처리 포기: $spp ($result)');
         }
         // 성공/포기(notInDb 끝까지/otherError) 모두 큐에서 제거. networkError 만 위에서 break.
-        await _removeFromQueue(prefs, spp);
+        await StandalonePendingQueueStore.remove(prefs, spp);
         // 다음 iteration 으로 → drain 도중 Kotlin 이 추가한 항목까지 처리.
       }
 
@@ -221,6 +198,6 @@ class StandaloneAutoSyncService {
   /// 수동 초기화 용도.
   static Future<void> clearPending() async {
     final prefs = await SharedPreferences.getInstance();
-    await _writeQueue(prefs, []);
+    await prefs.remove(AppPrefsKeys.standalonePendingReports);
   }
 }

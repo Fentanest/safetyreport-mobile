@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 import '../models/sunwi.dart';
+import 'app_storage_paths.dart';
 
 class SunwiDataset {
   final SunwiPayload payload;
@@ -154,22 +155,8 @@ class SunwiService {
     return target.path;
   }
 
-  static Future<Directory> _standaloneExportDir() async {
-    final docs = Directory(
-      '/storage/emulated/0/Documents/mysafetyreport/sunwi',
-    );
-    if (docs.existsSync()) return docs;
-    try {
-      docs.createSync(recursive: true);
-      return docs;
-    } catch (_) {
-      final fallback = Directory(
-        '/storage/emulated/0/Download/mysafetyreport/sunwi',
-      );
-      if (!fallback.existsSync()) fallback.createSync(recursive: true);
-      return fallback;
-    }
-  }
+  static Future<Directory> _standaloneExportDir() async =>
+      AppStoragePaths.subDir('sunwi');
 
   static List<_SunwiRegionRequest> _buildRegionQueue() {
     final queue = <_SunwiRegionRequest>[];

@@ -5,6 +5,7 @@ import '../models/app_mode.dart';
 import '../models/rating_batch_result.dart';
 import '../models/report.dart';
 import '../services/api_service.dart';
+import '../services/app_prefs_keys.dart';
 import '../services/local_db_service.dart';
 import '../services/permission_service.dart';
 import '../services/rating_service.dart';
@@ -174,13 +175,13 @@ class ReportProvider with ChangeNotifier {
   List<Report> _otherReports = [];
   List<Report> _duplicateReports = [];
   Set<String> _watchlistNumbers = {};
-  bool _hasLoadedTrafficReports = false;
-  bool _hasLoadedParkingReports = false;
-  bool _hasLoadedOtherReports = false;
+  /// 카테고리별로 한 번이라도 fetch 했는지 여부. `ensureCategoryReportsLoaded`
+  /// 가 캐시 hit/miss 판정에 사용한다.
+  final Set<String> _loadedCategories = <String>{};
 
   ReportFilter _filter = const ReportFilter();
-  bool _excludeWithdraw = false;
-  bool _normalizePolice = false;
+  bool _excludeWithdraw = true;
+  bool _normalizePolice = true;
   bool _useRepresentativeRecords = true;
 
   // 탭 전환 시 내부 state 가 있는 화면(통계/파일)이 재로드하도록 바꾸는 nonce.
@@ -237,10 +238,10 @@ class ReportProvider with ChangeNotifier {
   Set<String> get watchlistNumbers => _watchlistNumbers;
   bool isInWatchlist(String reportNumber) =>
       _watchlistNumbers.contains(reportNumber);
+  static const _kCoreCategories = ['traffic', 'parking', 'other'];
+
   bool get hasLoadedCategoryReports =>
-      _hasLoadedTrafficReports &&
-      _hasLoadedParkingReports &&
-      _hasLoadedOtherReports;
+      _kCoreCategories.every(_loadedCategories.contains);
 
   List<Report> get recentAnswerReports {
     if (!hasLoadedCategoryReports) {
@@ -548,12 +549,13 @@ class ReportProvider with ChangeNotifier {
       final prefs = await SharedPreferences.getInstance().timeout(
         const Duration(seconds: 5),
       );
-      _appMode = AppModeX.fromString(prefs.getString('appMode'));
-      _standaloneUsername = prefs.getString('standaloneUsername') ?? '';
-      _standalonePhoneNumber = prefs.getString('standalonePhoneNumber') ?? '';
-      _isStandaloneDemo = prefs.getBool('standaloneDemoMode') ?? false;
-      _baseUrl = prefs.getString('baseUrl') ?? '';
-      _apiKey = prefs.getString('apiKey') ?? '';
+      _appMode = AppModeX.fromString(prefs.getString(AppPrefsKeys.appMode));
+      _standaloneUsername = prefs.getString(AppPrefsKeys.standaloneUsername) ?? '';
+      _standalonePhoneNumber =
+          prefs.getString(AppPrefsKeys.standalonePhoneNumber) ?? '';
+      _isStandaloneDemo = prefs.getBool(AppPrefsKeys.standaloneDemoMode) ?? false;
+      _baseUrl = prefs.getString(AppPrefsKeys.baseUrl) ?? '';
+      _apiKey = prefs.getString(AppPrefsKeys.apiKey) ?? '';
 
       _changesEmittedSub ??= SyncEngine.changesEmitted.listen((_) {
         _pendingChangesNonce++;
@@ -620,15 +622,13 @@ class ReportProvider with ChangeNotifier {
     _baseUrl = cleanUrl;
     _apiKey = key;
     _errorMessage = null;
-    _hasLoadedTrafficReports = false;
-    _hasLoadedParkingReports = false;
-    _hasLoadedOtherReports = false;
+    _loadedCategories.clear();
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('appMode', AppMode.server.name);
-    await prefs.setString('baseUrl', _baseUrl);
-    await prefs.setString('apiKey', _apiKey);
-    await prefs.remove('standaloneDemoMode');
+    await prefs.setString(AppPrefsKeys.appMode, AppMode.server.name);
+    await prefs.setString(AppPrefsKeys.baseUrl, _baseUrl);
+    await prefs.setString(AppPrefsKeys.apiKey, _apiKey);
+    await prefs.remove(AppPrefsKeys.standaloneDemoMode);
 
     notifyListeners();
   }
@@ -652,15 +652,16 @@ class ReportProvider with ChangeNotifier {
         : phoneNumber.replaceAll(RegExp(r'[^0-9]'), '');
     _isStandaloneDemo = isDemoMode;
     _errorMessage = null;
-    _hasLoadedTrafficReports = false;
-    _hasLoadedParkingReports = false;
-    _hasLoadedOtherReports = false;
+    _loadedCategories.clear();
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('appMode', AppMode.standalone.name);
-    await prefs.setString('standaloneUsername', username);
-    await prefs.setString('standalonePhoneNumber', _standalonePhoneNumber);
-    await prefs.setBool('standaloneDemoMode', isDemoMode);
+    await prefs.setString(AppPrefsKeys.appMode, AppMode.standalone.name);
+    await prefs.setString(AppPrefsKeys.standaloneUsername, username);
+    await prefs.setString(
+      AppPrefsKeys.standalonePhoneNumber,
+      _standalonePhoneNumber,
+    );
+    await prefs.setBool(AppPrefsKeys.standaloneDemoMode, isDemoMode);
 
     notifyListeners();
   }
@@ -680,18 +681,16 @@ class ReportProvider with ChangeNotifier {
     _otherReports = [];
     _duplicateReports = [];
     _watchlistNumbers = {};
-    _hasLoadedTrafficReports = false;
-    _hasLoadedParkingReports = false;
-    _hasLoadedOtherReports = false;
+    _loadedCategories.clear();
     _errorMessage = null;
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('appMode');
-    await prefs.remove('baseUrl');
-    await prefs.remove('apiKey');
-    await prefs.remove('standaloneUsername');
-    await prefs.remove('standalonePhoneNumber');
-    await prefs.remove('standaloneDemoMode');
+    await prefs.remove(AppPrefsKeys.appMode);
+    await prefs.remove(AppPrefsKeys.baseUrl);
+    await prefs.remove(AppPrefsKeys.apiKey);
+    await prefs.remove(AppPrefsKeys.standaloneUsername);
+    await prefs.remove(AppPrefsKeys.standalonePhoneNumber);
+    await prefs.remove(AppPrefsKeys.standaloneDemoMode);
     await StandaloneAuthService.clearToken();
 
     notifyListeners();
@@ -736,77 +735,59 @@ class ReportProvider with ChangeNotifier {
     }
   }
 
-  Future<void> fetchTrafficReports() async {
+  /// 카테고리 별 fetch 공통 경로 — 모드 분기와 결과 저장만 다르고 형태는 동일.
+  /// `traffic` / `parking` / `other` 만 정식 카테고리. 알 수 없는 값은 무시.
+  Future<void> fetchCategoryReports(String category) async {
     if (!isConfigured) return;
+    if (!_kCoreCategories.contains(category)) return;
     _isLoading = true;
     notifyListeners();
     try {
-      if (_appMode == AppMode.standalone) {
-        _trafficReports = await LocalDbService.getReportsByCategory(
-          'traffic',
-          excludeWithdraw: _excludeWithdraw,
-          normalizePolice: _normalizePolice,
-          useRepresentativeRecords: _useRepresentativeRecords,
-        );
-      } else {
-        _trafficReports = await _api.getReports('traffic');
+      final reports = _appMode == AppMode.standalone
+          ? await LocalDbService.getReportsByCategory(
+              category,
+              excludeWithdraw: _excludeWithdraw,
+              normalizePolice: _normalizePolice,
+              useRepresentativeRecords: _useRepresentativeRecords,
+            )
+          : await _api.getReports(category);
+      switch (category) {
+        case 'traffic':
+          _trafficReports = reports;
+          break;
+        case 'parking':
+          _parkingReports = reports;
+          break;
+        case 'other':
+          _otherReports = reports;
+          break;
       }
-      _hasLoadedTrafficReports = true;
+      _loadedCategories.add(category);
     } catch (e) {
-      _errorMessage = '교통위반 내역 로드 실패: $e';
+      _errorMessage = '${_categoryLabel(category)} 내역 로드 실패: $e';
     } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
-  Future<void> fetchParkingReports() async {
-    if (!isConfigured) return;
-    _isLoading = true;
-    notifyListeners();
-    try {
-      if (_appMode == AppMode.standalone) {
-        _parkingReports = await LocalDbService.getReportsByCategory(
-          'parking',
-          excludeWithdraw: _excludeWithdraw,
-          normalizePolice: _normalizePolice,
-          useRepresentativeRecords: _useRepresentativeRecords,
-        );
-      } else {
-        _parkingReports = await _api.getReports('parking');
-      }
-      _hasLoadedParkingReports = true;
-    } catch (e) {
-      _errorMessage = '주정차위반 내역 로드 실패: $e';
-    } finally {
-      _isLoading = false;
-      notifyListeners();
+  static String _categoryLabel(String category) {
+    switch (category) {
+      case 'traffic':
+        return '교통위반';
+      case 'parking':
+        return '주정차위반';
+      case 'other':
+        return '기타위반';
+      default:
+        return category;
     }
   }
 
-  Future<void> fetchOtherReports() async {
-    if (!isConfigured) return;
-    _isLoading = true;
-    notifyListeners();
-    try {
-      if (_appMode == AppMode.standalone) {
-        _otherReports = await LocalDbService.getReportsByCategory(
-          'other',
-          excludeWithdraw: _excludeWithdraw,
-          normalizePolice: _normalizePolice,
-          useRepresentativeRecords: _useRepresentativeRecords,
-        );
-      } else {
-        _otherReports = await _api.getReports('other');
-      }
-      _hasLoadedOtherReports = true;
-    } catch (e) {
-      _errorMessage = '기타위반 내역 로드 실패: $e';
-    } finally {
-      _isLoading = false;
-      notifyListeners();
-    }
-  }
+  // 기존 API 호환 — 화면 측은 카테고리 이름을 직접 알지 않아도 되도록 thin wrapper 유지.
+  Future<void> fetchTrafficReports() => fetchCategoryReports('traffic');
+  Future<void> fetchParkingReports() => fetchCategoryReports('parking');
+  Future<void> fetchOtherReports() => fetchCategoryReports('other');
 
   Future<void> fetchDuplicateReports() async {
     if (!isConfigured) return;
@@ -871,26 +852,21 @@ class ReportProvider with ChangeNotifier {
   Future<void> ensureCategoryReportsLoaded({bool forceRefresh = false}) async {
     if (!isConfigured) return;
 
-    final shouldLoadTraffic = forceRefresh || !_hasLoadedTrafficReports;
-    final shouldLoadParking = forceRefresh || !_hasLoadedParkingReports;
-    final shouldLoadOther = forceRefresh || !_hasLoadedOtherReports;
-
-    if (!shouldLoadTraffic && !shouldLoadParking && !shouldLoadOther) {
-      return;
-    }
+    final pending = _kCoreCategories
+        .where((c) => forceRefresh || !_loadedCategories.contains(c))
+        .toList();
+    if (pending.isEmpty) return;
 
     if (_appMode == AppMode.standalone) {
-      if (shouldLoadTraffic) await fetchTrafficReports();
-      if (shouldLoadParking) await fetchParkingReports();
-      if (shouldLoadOther) await fetchOtherReports();
+      // Standalone 은 sqflite 단일 connection 이라 직렬 실행. (자세한 배경은 CLAUDE.md
+      // 의 "refreshAll 직렬화" 절 참조.)
+      for (final c in pending) {
+        await fetchCategoryReports(c);
+      }
       return;
     }
 
-    await Future.wait([
-      if (shouldLoadTraffic) fetchTrafficReports(),
-      if (shouldLoadParking) fetchParkingReports(),
-      if (shouldLoadOther) fetchOtherReports(),
-    ]);
+    await Future.wait(pending.map(fetchCategoryReports));
   }
 
   Future<void> refreshSummaryAndRecentAnswers() async {
@@ -952,20 +928,18 @@ class ReportProvider with ChangeNotifier {
     _errorMessage = null;
     if (_appMode == AppMode.standalone) {
       // sqflite 는 단일 connection 으로 모든 작업을 직렬화하므로
-      // Future.wait 로 6개를 동시에 던지면 큐만 가득 차서 fetchSummary 의
+      // Future.wait 로 동시에 던지면 큐만 가득 차서 fetchSummary 의
       // 5초 timeout 이 발동 (실제 deadlock 아님). 순차 실행으로 변경.
       await fetchSummary();
-      await fetchTrafficReports();
-      await fetchParkingReports();
-      await fetchOtherReports();
+      for (final c in _kCoreCategories) {
+        await fetchCategoryReports(c);
+      }
       await fetchDuplicateReports();
       await fetchWatchlistNumbers();
     } else {
       await Future.wait([
         fetchSummary(),
-        fetchTrafficReports(),
-        fetchParkingReports(),
-        fetchOtherReports(),
+        ..._kCoreCategories.map(fetchCategoryReports),
         fetchWatchlistNumbers(),
         fetchAppConfig(),
       ]);

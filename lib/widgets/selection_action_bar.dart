@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../models/app_mode.dart';
 import '../models/rating_batch_result.dart';
 import '../providers/report_provider.dart';
@@ -11,6 +10,7 @@ import '../providers/notification_history_provider.dart';
 import '../models/report.dart';
 import '../services/rating_service.dart';
 import '../services/standalone_auto_sync_service.dart';
+import '../services/standalone_pending_queue_store.dart';
 
 const _permChannel = MethodChannel('com.fentanest.mysafetyreport/permissions');
 
@@ -69,13 +69,7 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
     try {
       final reportNumbers = reports.map((r) => r.reportNumber).toList();
       // 선택된 신고번호를 pending 큐에 추가 후 drain
-      final prefs = await SharedPreferences.getInstance();
-      final existing = StandaloneAutoSyncService.readPendingQueue(prefs);
-      final merged = <String>{...existing, ...reportNumbers}.toList();
-      await prefs.setString(
-        'standalone_pending_reports',
-        merged.join(','),
-      );
+      await StandalonePendingQueueStore.append(reportNumbers);
       if (!mounted) return;
       _snack('동기화 요청: ${reportNumbers.length}건', icon: Icons.sync);
       // 백그라운드 drain 시작 — 완료되면 refreshAll

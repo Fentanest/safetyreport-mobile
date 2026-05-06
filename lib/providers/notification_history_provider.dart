@@ -3,10 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/notification_item.dart';
 import '../models/rating_batch_result.dart';
+import '../services/app_prefs_keys.dart';
 import '../services/sync_engine.dart' show ChangeType;
 
 class NotificationHistoryProvider with ChangeNotifier {
-  static const _key = 'notifications_history';
+  static const _key = AppPrefsKeys.notificationsHistory;
 
   List<NotificationItem> _items = [];
   int _preferredTabIndex = 0;

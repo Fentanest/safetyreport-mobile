@@ -7,6 +7,57 @@
 
 ---
 
+## 2026-05-07 (P0~P3 리팩토링)
+
+### `docs/mobile-refactoring-plan-2026-05.md` 적용 1차 — 문자열 키/패널/카테고리 fetch 정리
+
+상태: 완료 (P0~P3 1차 분량). P4 (refresh nonce 제거) 와 ReportProvider 분해는 별도 차수로 보류.
+
+신규 파일:
+- `lib/services/app_prefs_keys.dart` — SharedPreferences 키 단일 소스
+- `lib/services/app_storage_paths.dart` — `mysafetyreport` 산출물 디렉토리 fallback 단일 소스
+- `lib/services/pending_db_import_action.dart` — 모드 전환 시 SetupScreen 이 적용할 액션 value object
+- `lib/services/pending_changes_store.dart` — `pending_crawl_changes` / `foreground_event` 키 wrapper
+- `lib/services/standalone_pending_queue_store.dart` — Standalone 알림 큐 read/append/remove 단일 소스
+- `lib/services/server_connection_service.dart` — Setup 공용 서버 연결 테스트 + Settings 서버 버전 조회용 공통 서비스
+- `lib/services/repositories/watchlist_repository.dart`
+- `lib/services/repositories/duplicate_repository.dart`
+- `lib/services/repositories/sunwi_repository.dart`
+- `test/services/pending_changes_store_test.dart`
+- `test/services/pending_db_import_action_test.dart`
+- `test/services/server_connection_service_test.dart`
+- `test/services/standalone_pending_queue_store_test.dart`
+
+화면/위젯 변경:
+- `lib/screens/setup_screen.dart` — `_connectServer` 가 `ServerConnectionService.testConnection()` 사용. `_applyPendingDbImport` 이 `PendingDbImportAction` 사용. raw http retry 루프 / pending action 문자열 파서 제거.
+- `lib/screens/settings_screen.dart` — `_loadServerVersion` 이 `ServerConnectionService.fetchVersionInfo()` 사용. `_backupDir` / `_exportsDir` 가 `AppStoragePaths` alias. pending action 저장이 `PendingDbImportAction.save()` 호출. 연결 테스트 UI(`_testConnection`)는 아직 기존 상세 응답 표시 경로 유지.
+- `lib/screens/file_browser_screen.dart` — `_exportsDir` 이 `AppStoragePaths.exportsRoot()` 호출.
+- `lib/screens/watchlist_screen.dart` — `WatchlistPanel._load` 이 `WatchlistRepository.fromProvider` 경유, `ApiService` / `LocalDbService` 직접 호출 제거.
+- `lib/screens/duplicate_management_screen.dart` — `DuplicateManagementPanel._load` / `_saveGroup` 이 `DuplicateRepository.fromProvider` 경유.
+- `lib/screens/sunwi_screen.dart` — `SunwiSection._load` / `_exportCsv` 가 `SunwiRepository.fromProvider` 경유. 캐시 엔트리도 `SunwiSnapshot` 단일 객체로 단순화.
+- `lib/widgets/selection_action_bar.dart` — `_sync` 가 `StandalonePendingQueueStore.append()` 호출 (raw prefs.setString 제거).
+- `lib/main.dart` — `_checkForegroundEvent` 가 `ForegroundEventStore.readAndClear()`, `_checkPendingChanges` 가 `PendingChangesStore.readAndClear()` 사용.
+
+서비스/Provider 변경:
+- `lib/providers/report_provider.dart` — `_hasLoadedTraffic/Parking/Other` 3개 boolean 을 `Set<String> _loadedCategories` 로 통합. `fetchTrafficReports/Parking/Other` 가 `fetchCategoryReports(category)` 공용 경로의 thin wrapper. `ensureCategoryReportsLoaded` / `refreshAll` 도 한 줄 루프로 정리.
+- `lib/services/sync_engine.dart` — `pending_crawl_changes` 직접 쓰기 대신 `PendingChangesStore.append()` 사용. 키 문자열 모두 `AppPrefsKeys` 로 치환.
+- `lib/services/standalone_auto_sync_service.dart` — 큐 IO 가 `StandalonePendingQueueStore` 경유.
+- `lib/services/standalone_auth_service.dart`, `lib/providers/notification_history_provider.dart` — 키 문자열을 `AppPrefsKeys` alias 로 치환.
+- `lib/services/sunwi_service.dart` — `_standaloneExportDir` 이 `AppStoragePaths.subDir('sunwi')` alias.
+
+검증:
+- `dart analyze`
+  - 에러 없음
+  - warning/info 잔존 (`settings_screen.dart` dead code, deprecation/style lint 포함)
+- `flutter test`
+  - 기존 placeholder 1건 + 신규 service/store 테스트 통과
+
+비고:
+- 이번 차수에서 보류한 항목 (P4 refresh nonce 정리, `ReportProvider` 분해, `DbTransferService`/`FileExportService` 추출) 은 다음 차수로 이월.
+- Kotlin native 의 SharedPreferences 키 이름과 호환을 유지한다. Kotlin 측 코드는 손대지 않았다.
+
+---
+
 ## 2026-05-07
 
 ### 대시보드 임베드 신고현황 백지 방지 + Client 중복 신고 404 방어

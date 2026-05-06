@@ -5,8 +5,7 @@ import '../models/app_mode.dart';
 import '../models/duplicate_group.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
-import '../services/duplicate_projection_service.dart';
-import '../services/local_db_service.dart';
+import '../services/repositories/duplicate_repository.dart';
 import '../widgets/duplicate_group_detail_sheet.dart';
 import '../widgets/report_detail_sheet.dart';
 
@@ -38,16 +37,8 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
     });
     try {
       final provider = context.read<ReportProvider>();
-      List<DuplicateGroup> groups;
-      if (provider.appMode == AppMode.standalone) {
-        final d = await LocalDbService.db;
-        await DuplicateProjectionService.createSchema(d);
-        await DuplicateProjectionService.refreshDuplicateGroups(d);
-        groups = await DuplicateProjectionService.getDuplicateGroups(d);
-      } else {
-        final api = ApiService(baseUrl: provider.baseUrl, apiKey: provider.apiKey);
-        groups = await api.getDuplicateGroups();
-      }
+      final repo = DuplicateRepository.fromProvider(provider);
+      final groups = await repo.getGroups();
       if (!mounted) return;
       setState(() {
         _groups = groups;
@@ -90,27 +81,14 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
     required String note,
   }) async {
     final provider = context.read<ReportProvider>();
-    if (provider.appMode == AppMode.standalone) {
-      final d = await LocalDbService.db;
-      await DuplicateProjectionService.updateDuplicateGroup(
-        d,
-        group.groupId,
-        duplicateStatus: duplicateStatus,
-        representativeMode: representativeMode,
-        representativeId: representativeId,
-        note: note,
-      );
-      await DuplicateProjectionService.refreshDuplicateGroups(d);
-    } else {
-      final api = ApiService(baseUrl: provider.baseUrl, apiKey: provider.apiKey);
-      await api.updateDuplicateGroup(
-        group.groupId,
-        duplicateStatus: duplicateStatus,
-        representativeMode: representativeMode,
-        representativeId: representativeId,
-        note: note,
-      );
-    }
+    final repo = DuplicateRepository.fromProvider(provider);
+    await repo.updateGroup(
+      group.groupId,
+      duplicateStatus: duplicateStatus,
+      representativeMode: representativeMode,
+      representativeId: representativeId,
+      note: note,
+    );
     await provider.refreshAll();
     await _load();
   }

@@ -14,6 +14,7 @@ import '../models/file_item.dart';
 import '../models/report.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
+import '../services/app_storage_paths.dart';
 import '../services/local_db_service.dart';
 import '../services/network_retry_config.dart';
 import '../services/server_contract.dart';
@@ -146,20 +147,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
 
   // ── 스탠드어론 ─────────────────────────────────────────────────────────────
 
-  Future<Directory> _exportsDir() async {
-    final dir = Directory('/storage/emulated/0/Documents/mysafetyreport');
-    if (!dir.existsSync()) {
-      try {
-        dir.createSync(recursive: true);
-      } catch (_) {
-        // Fallback for some devices that restrict Documents creation
-        final altDir = Directory('/storage/emulated/0/Download/mysafetyreport');
-        if (!altDir.existsSync()) altDir.createSync(recursive: true);
-        return altDir;
-      }
-    }
-    return dir;
-  }
+  Future<Directory> _exportsDir() async => AppStoragePaths.exportsRoot();
 
   Future<void> _loadLocalFiles([String? path]) async {
     setState(() {

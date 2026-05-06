@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/report_list_screen.dart';
 import 'screens/report_management_screen.dart';
@@ -16,6 +15,7 @@ import 'models/duplicate_group.dart';
 import 'models/report.dart';
 import 'providers/report_provider.dart';
 import 'providers/notification_history_provider.dart';
+import 'services/pending_changes_store.dart';
 import 'services/sync_engine.dart' show ChangeType;
 import 'widgets/duplicate_group_detail_sheet.dart';
 import 'widgets/report_detail_sheet.dart';
@@ -281,42 +281,35 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   }
 
   Future<void> _checkForegroundEvent() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.reload();
-    final raw = prefs.getString('foreground_event');
-    if (raw == null) return;
-    await prefs.remove('foreground_event');
-    if (!mounted) return;
-    try {
-      final event = jsonDecode(raw) as Map<String, dynamic>;
-      final title = event['title']?.toString() ?? '';
-      final body = event['body']?.toString() ?? '';
-      final payloadJson = event['payload_json']?.toString() ?? '';
-      if (title.isEmpty) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-              if (body.isNotEmpty)
-                Text(body, style: const TextStyle(fontSize: 12)),
-            ],
-          ),
-          duration: const Duration(seconds: 4),
-          action: SnackBarAction(
-            label: payloadJson.isNotEmpty ? '상세 보기' : '알림 보기',
-            onPressed: () {
-              setState(() => _selectedIndex = 4);
-              if (payloadJson.isNotEmpty) {
-                _openNotificationPayloadDetail(payloadJson);
-              }
-            },
-          ),
+    final event = await ForegroundEventStore.readAndClear();
+    if (event == null || !mounted) return;
+    final title = event['title']?.toString() ?? '';
+    final body = event['body']?.toString() ?? '';
+    final payloadJson = event['payload_json']?.toString() ?? '';
+    if (title.isEmpty) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+            if (body.isNotEmpty)
+              Text(body, style: const TextStyle(fontSize: 12)),
+          ],
         ),
-      );
-    } catch (_) {}
+        duration: const Duration(seconds: 4),
+        action: SnackBarAction(
+          label: payloadJson.isNotEmpty ? '상세 보기' : '알림 보기',
+          onPressed: () {
+            setState(() => _selectedIndex = 4);
+            if (payloadJson.isNotEmpty) {
+              _openNotificationPayloadDetail(payloadJson);
+            }
+          },
+        ),
+      ),
+    );
   }
 
   void _openNotificationPayloadDetail(String payloadJson) {
@@ -334,20 +327,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   }
 
   Future<void> _checkPendingChanges() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.reload();
-    final raw = prefs.getString('pending_crawl_changes');
-    if (raw == null || raw.isEmpty) return;
-    await prefs.remove('pending_crawl_changes');
-
-    List<dynamic> changes;
-    try {
-      changes = jsonDecode(raw) as List<dynamic>;
-    } catch (_) {
-      return;
-    }
-    if (changes.isEmpty) return;
-    if (!mounted) return;
+    final changes = await PendingChangesStore.readAndClear();
+    if (changes.isEmpty || !mounted) return;
 
     // 알림 히스토리에 extraData 포함해서 저장 (신고 결과 탭에서 상세 조회 가능하도록)
     context.read<NotificationHistoryProvider>().setPreferredTabIndex(
@@ -355,7 +336,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
       notify: false,
     );
     await context.read<NotificationHistoryProvider>().addFromServerResults(
-      changes.cast<Map<String, dynamic>>(),
+      changes,
     );
 
     // 알림 탭으로 이동
@@ -367,7 +348,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     _showChangesBottomSheet(changes);
   }
 
-  void _showChangesBottomSheet(List<dynamic> changes) {
+  void _showChangesBottomSheet(List<Map<String, dynamic>> changes) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -383,19 +364,19 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
           final newCount = changes
               .where(
                 (r) =>
-                    (r as Map)['notification_kind'] != 'duplicate' &&
-                    (r as Map)['change_type'] == ChangeType.newReport,
+                    r['notification_kind'] != 'duplicate' &&
+                    r['change_type'] == ChangeType.newReport,
               )
               .length;
           final confirmCount = changes
               .where(
                 (r) =>
-                    (r as Map)['notification_kind'] != 'duplicate' &&
-                    (r as Map)['change_type'] == ChangeType.individualConfirm,
+                    r['notification_kind'] != 'duplicate' &&
+                    r['change_type'] == ChangeType.individualConfirm,
               )
               .length;
           final duplicateCount = changes
-              .where((r) => (r as Map)['notification_kind'] == 'duplicate')
+              .where((r) => r['notification_kind'] == 'duplicate')
               .length;
           final changedCount =
               changes.length - newCount - confirmCount - duplicateCount;
@@ -459,7 +440,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                   itemCount: changes.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
                   itemBuilder: (ctx, i) {
-                    final r = changes[i] as Map<String, dynamic>;
+                    final r = changes[i];
                     final isDuplicate =
                         (r['notification_kind']?.toString() ?? '') ==
                         'duplicate';

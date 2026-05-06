@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/report.dart';
+import 'duplicate_projection_service.dart';
 import 'local_db_service.dart';
 import 'standalone_api_service.dart';
 import 'standalone_auth_service.dart';
@@ -265,6 +266,20 @@ class SyncEngine {
       await Future.delayed(const Duration(milliseconds: 100));
     }
 
+    final duplicateRefresh = await DuplicateProjectionService.refreshDuplicateGroups(
+      await LocalDbService.db,
+      trackChanges: !fullSync,
+    );
+    if (!fullSync) {
+      final duplicateChanges =
+          (duplicateRefresh['changes'] as List? ?? const [])
+              .whereType<Map<String, dynamic>>()
+              .toList();
+      if (duplicateChanges.isNotEmpty) {
+        _lastChanges = [..._lastChanges, ...duplicateChanges];
+      }
+    }
+
     await _saveSyncTime();
 
     if (_lastChanges.isNotEmpty) {
@@ -304,6 +319,24 @@ class SyncEngine {
     );
 
     for (final r in changes) {
+      final notificationKind =
+          r['notification_kind']?.toString() ?? 'report';
+      if (notificationKind == 'duplicate') {
+        final title = r['title']?.toString() ?? '🧩 중복 신고 변경';
+        final body = r['body']?.toString() ?? '';
+        try {
+          await _methodChannel.invokeMethod('showNotification', {
+            'title': title,
+            'body': body,
+            'nav_tab': 4,
+            'nav_subtab': 1,
+            'event_type': 'crawl_changes',
+            'payload_json': jsonEncode(r),
+          });
+        } catch (_) {}
+        continue;
+      }
+
       final changeType = r['change_type']?.toString() ?? '';
       final name = (r['신고명'] ?? '신고').toString();
       final reportNo = (r['신고번호'] ?? '').toString();
@@ -327,6 +360,10 @@ class SyncEngine {
         await _methodChannel.invokeMethod('showNotification', {
           'title': title,
           'body': lines.join('\n'),
+          'nav_tab': 4,
+          'nav_subtab': 1,
+          'event_type': 'crawl_changes',
+          'payload_json': jsonEncode(r),
         });
       } catch (_) {
         // MainActivity 미준비 등 — 무시

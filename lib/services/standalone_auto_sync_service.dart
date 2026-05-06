@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'duplicate_projection_service.dart';
 import 'local_db_service.dart';
 import 'standalone_api_service.dart';
 import 'standalone_parser.dart';
@@ -180,10 +181,18 @@ class StandaloneAutoSyncService {
       final raw = (detail['C_A_CONTENTS'] ?? detail['C_A_BODY'] ?? '').toString();
       report = await SyncEngine.augmentRatingCause(report);
       await LocalDbService.upsertReport(report, cat, ev, rawContent: raw);
+      final duplicateRefresh = await DuplicateProjectionService.refreshDuplicateGroups(
+        await LocalDbService.db,
+        trackChanges: true,
+      );
       final changeType = beforeStatus != report.status
           ? ChangeType.statusChanged
           : ChangeType.individualConfirm;
       _singleFetchChanges.add(SyncEngine.reportToChangeMap(report, changeType));
+      _singleFetchChanges.addAll(
+        (duplicateRefresh['changes'] as List? ?? const [])
+            .whereType<Map<String, dynamic>>(),
+      );
       SyncEngine.emitLog('완료: $reportNumber → $changeType (상태=${report.status})');
       return _FetchResult.success;
     } on SocketException catch (e) {

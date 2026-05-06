@@ -1357,6 +1357,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text(
+                        '경찰 기관명 정규화',
+                        style: TextStyle(fontSize: 14),
+                      ),
+                      subtitle: const Text(
+                        '처리기관명을 "XX경찰서" 형태로 통일합니다.',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      value: _normalizePolice,
+                      onChanged: _filterLoading
+                          ? null
+                          : (v) {
+                              setState(() => _normalizePolice = v);
+                              _toggleFilter('normalize_police', v);
+                            },
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
                         '취하 데이터 숨기기',
                         style: TextStyle(fontSize: 14),
                       ),
@@ -1379,7 +1397,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         style: TextStyle(fontSize: 14),
                       ),
                       subtitle: const Text(
-                        '비활성화할 경우 원본 신고 row를 모두 반영합니다. 검토 필요 그룹은 항상 child 전체를 보여줍니다.',
+                        '전체 신고 조회, 차량/주소 검색, 대시보드, 통계 등의 기본 집계 기준을 대표건 1건으로 맞춥니다.\n비활성화할 경우 원본 신고 row를 모두 반영합니다. 검토 필요 그룹은 항상 child 전체를 보여줍니다.',
                         style: TextStyle(fontSize: 12),
                       ),
                       value: _useRepresentativeRecords,
@@ -1388,24 +1406,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           : (v) {
                               setState(() => _useRepresentativeRecords = v);
                               _toggleFilter('use_representative_records', v);
-                            },
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text(
-                        '경찰 기관명 정규화',
-                        style: TextStyle(fontSize: 14),
-                      ),
-                      subtitle: const Text(
-                        '처리기관명을 "XX경찰서" 형태로 통일합니다.',
-                        style: TextStyle(fontSize: 12),
-                      ),
-                      value: _normalizePolice,
-                      onChanged: _filterLoading
-                          ? null
-                          : (v) {
-                              setState(() => _normalizePolice = v);
-                              _toggleFilter('normalize_police', v);
                             },
                     ),
                   ],

@@ -77,7 +77,8 @@ build_android_common.sh           ── 버전/signer 공통 헬퍼
 build_android_release.sh          ── build-apk.yml 과 동일한 Docker 기반 로컬 release APK/AAB 빌드
 
 lib/
-  main.dart                          ── 앱 lifecycle, MaterialApp 모드별 테마, 변경 카드 시트
+  main.dart                          ── 앱 lifecycle, MaterialApp 모드별 테마, 변경 카드 시트,
+                                       하단 탭 라우팅(대시보드/신고내역/신고관리/통계/알림/파일/동기화)
   models/
     app_mode.dart                    ── AppMode enum + fromString
     duplicate_group.dart             ── 중복 신고 그룹/멤버 모델 + 상태/대표건 모드 라벨
@@ -106,12 +107,17 @@ lib/
     sunwi_service.dart               ── Standalone 전국 신고현황 수집 + sunwi CSV 생성
   screens/
     setup_screen.dart                ── 초기 모드 선택 + 로그인/서버 설정 + demo/demo(휴대폰 공란 허용) 데모 진입
-    dashboard_screen.dart            ── 처리 요약, recentAnswerReports 기반 최근 답변 5건+더보기, 모드별 에러 메시지
+    dashboard_screen.dart            ── 처리 요약, recentAnswerReports 기반 최근 답변 5건+더보기,
+                                       감시 목록 요약, 대시보드 하단 임베드 신고현황
+    report_management_screen.dart    ── 하단 `신고관리` 탭 셸 (감시 목록 / 중복 신고 서브탭)
     duplicate_management_screen.dart ── Client/Standalone 겸용 중복 신고 관리 패널
     report_list_screen.dart          ── 4탭 (교통/주정차/기타/중복차량) + 통계/검색에서 넘어온 활성 필터 Chip 표시
     statistics_screen.dart           ── 연도×카테고리×유형 통계, 위반법규 필터, 행 탭 시 신고리스트 상세검색 기반 drilldown
-    sunwi_screen.dart                ── 신고현황 화면 + 재사용 가능한 `SunwiSection` (Client 서버 payload / Standalone 직접 수집, 3시간 TTL, 5초 자동 페이지 전환)
-    notifications_screen.dart        ── 알림 히스토리 (크롤링/신고결과/별점 주기 3탭)
+    sunwi_screen.dart                ── 신고현황 화면 + 재사용 가능한 `SunwiSection`
+                                       (Client 서버 payload / Standalone 직접 수집, 3시간 TTL,
+                                        대시보드 임베드 / 5초 자동 페이지 전환)
+    notifications_screen.dart        ── 알림 히스토리 (크롤링/신고결과/별점 주기 3탭,
+                                       duplicate 변경 상세 시트 포함)
     file_browser_screen.dart         ── 로컬/서버 파일 브라우저 + standalone 하위 폴더 탐색 + share_plus fallback
     crawl_screen.dart                ── Standalone 동기화 / Client 크롤링 (모드 분기, 데모 모드 동기화 비활성화)
     settings_screen.dart             ── 설정 (모드별 카드 분기 + 버그 제보 버튼 + 공식 출처/비공식 고지)
@@ -187,8 +193,36 @@ Client 모드 서버 경로와 이벤트 문자열은 Flutter/Dart 와 Android/K
 
 - `WatchlistScreen` 은 실제 본문을 `WatchlistPanel` 로 분리했다.
 - `SunwiScreen` 은 실제 본문을 `SunwiSection` 으로 분리했다.
+- `ReportManagementScreen` 은 하단 네비게이션 탭 셸이고,
+  실제 중복 관리는 `DuplicateManagementScreen`, 감시 목록은 `WatchlistPanel` 을 재사용한다.
 - 목적:
   - 추후 대시보드/관리 탭 안으로 같은 UI 를 재배치할 때 화면 전체를 복제하지 않기 위함
+
+## 하단 탭 구조
+
+- 현재 하단 탭 순서:
+  - `대시보드`
+  - `신고내역`
+  - `신고관리`
+  - `통계`
+  - `알림`
+  - `파일`
+  - `동기화`
+- `신고현황`은 더 이상 독립 하단 탭이 아니고, 대시보드 최하단 `SunwiSection(embedded: true)` 로 노출된다.
+- 감시 목록 `관리`/`더 보기` 동선은 별도 전체화면 `WatchlistScreen` 이 아니라
+  `신고관리 > 감시 목록` 탭으로 연결한다.
+
+## 중복 변경 알림 흐름
+
+- 서버/Standalone 중복군 재계산에서 `notification_kind=duplicate` 변경이 나오면:
+  - `sync_engine.dart` / `standalone_auto_sync_service.dart` 가 pending changes 에 합친다.
+  - `NotificationHistoryProvider` 가 신고 결과 탭 히스토리로 적재한다.
+  - `MainActivity` / `WsService` 는 Android 알림 intent 에 `payload_json` 을 함께 싣는다.
+- 사용자가 푸시나 앱 내 알림을 눌렀을 때:
+  - `main.dart` 가 `payload_json` 을 읽어
+  - `duplicate_group_detail_sheet.dart` 로 바로 상세를 연다.
+- 일반 신고 변경과 중복군 변경은 같은 신고 결과 탭을 공유하지만,
+  `NotificationItemKind.duplicate` 로 구분해 아이콘/상세 시트를 다르게 처리한다.
 
 ---
 

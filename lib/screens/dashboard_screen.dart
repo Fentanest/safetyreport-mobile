@@ -6,9 +6,10 @@ import '../providers/report_provider.dart';
 import '../models/report.dart';
 import '../widgets/report_detail_sheet.dart';
 import 'recent_answers_screen.dart';
+import 'report_management_screen.dart';
 import 'settings_screen.dart';
-import 'watchlist_screen.dart';
 import 'filtered_list_screen.dart';
+import 'sunwi_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -153,6 +154,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _buildWatchlistSection(context, stats.watchlist),
           const SizedBox(height: 16),
           _buildRecentSection(context, provider.recentAnswerReports),
+          const SizedBox(height: 16),
+          const SunwiSection(embedded: true),
         ],
       ),
     );
@@ -434,7 +437,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   minimumSize: const Size(0, 28)),
               onPressed: () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const WatchlistScreen()),
+                MaterialPageRoute(
+                  builder: (_) => const ReportManagementScreen(initialTabIndex: 0),
+                ),
               ),
             ),
           ],
@@ -463,7 +468,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: TextButton(
               onPressed: () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const WatchlistScreen()),
+                MaterialPageRoute(
+                  builder: (_) => const ReportManagementScreen(initialTabIndex: 0),
+                ),
               ),
               child: Text('+ ${items.length - 5}건 더 보기'),
             ),

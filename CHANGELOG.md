@@ -7,6 +7,50 @@
 
 ---
 
+## 2026-05-07
+
+### 신고관리 탭 추가 + 신고현황 대시보드 하단 이동
+
+상태: 완료
+
+변경:
+- `lib/main.dart`
+  - 하단 `신고현황` 탭 제거
+  - `신고내역`과 `통계` 사이에 `신고관리` 탭 추가
+- `lib/screens/report_management_screen.dart`
+  - `감시 목록`, `중복 신고` 하위 탭을 가진 관리 화면 추가
+- `lib/screens/dashboard_screen.dart`
+  - 대시보드 최하단에 `신고현황` 섹션을 임베드
+  - 감시 목록 `관리`/`더 보기` 동선을 새 `신고관리 > 감시 목록` 화면으로 연결
+
+비고:
+- `SunwiSection` 은 대시보드 요약 로딩과 별개로 자체 로딩되어, 신고현황 데이터가 늦어도 대시보드 전체를 막지 않는다.
+
+### 중복 신고 변경을 모바일 알림/신고 결과에 반영
+
+상태: 완료
+
+변경:
+- `lib/models/notification_item.dart`
+- `lib/providers/notification_history_provider.dart`
+- `lib/screens/notifications_screen.dart`
+  - `notification_kind=duplicate` 항목을 신고 결과 탭과 상세 시트에서 처리
+- `lib/services/sync_engine.dart`
+- `lib/services/standalone_auto_sync_service.dart`
+  - 크롤링/동기화 뒤 중복군 변경을 감지해 pending change 및 앱 알림에 포함
+- `android/app/src/main/kotlin/com/fentanest/mysafetyreport/MainActivity.kt`
+- `android/app/src/main/kotlin/com/fentanest/mysafetyreport/WsService.kt`
+  - 푸시/알림 탭 클릭 시 중복군 상세 payload까지 전달
+
+### 모바일 설정 문구/배치 정리
+
+상태: 완료
+
+변경:
+- `lib/screens/settings_screen.dart`
+  - `경찰 기관명 정규화 → 취하 데이터 숨기기 → 중복 신고 대표건만 반영` 순서로 정리
+  - 대표건 기준 설명 문구를 줄바꿈하고 `비활성화할 경우` 표현으로 수정
+
 ## 2026-05-06
 
 ### Standalone 중복 신고 projection 추가 + 대표건 기준 전역 설정 준비

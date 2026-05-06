@@ -1,6 +1,7 @@
 class NotificationItemKind {
   static const crawl = 'crawl';
   static const report = 'report';
+  static const duplicate = 'duplicate';
   static const rating = 'rating';
 }
 
@@ -39,11 +40,16 @@ class NotificationItem {
   );
 
   factory NotificationItem.fromJson(Map<String, dynamic> json) {
+    final extraData = json['extraData'] is Map
+        ? Map<String, dynamic>.from(json['extraData'] as Map)
+        : null;
     final inferredKind =
         json['kind']?.toString() ??
-        ((json['extraData'] is Map)
-            ? NotificationItemKind.report
-            : NotificationItemKind.crawl);
+        (extraData == null
+            ? NotificationItemKind.crawl
+            : ((extraData['notification_kind']?.toString() ?? '') == 'duplicate'
+                ? NotificationItemKind.duplicate
+                : NotificationItemKind.report));
     return NotificationItem(
       id: json['id']?.toString() ?? '',
       kind: inferredKind,
@@ -52,9 +58,7 @@ class NotificationItem {
       reportNumber: json['reportNumber']?.toString() ?? '',
       timestamp: json['timestamp']?.toString() ?? '',
       isRead: json['isRead'] == true,
-      extraData: json['extraData'] is Map
-          ? Map<String, dynamic>.from(json['extraData'] as Map)
-          : null,
+      extraData: extraData,
     );
   }
 

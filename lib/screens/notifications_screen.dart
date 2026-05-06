@@ -5,12 +5,14 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/app_mode.dart';
+import '../models/duplicate_group.dart';
 import '../models/notification_item.dart';
 import '../models/rating_batch_result.dart';
 import '../models/report.dart';
 import '../providers/notification_history_provider.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
+import '../widgets/duplicate_group_detail_sheet.dart';
 import '../widgets/report_detail_sheet.dart';
 
 const _permChannel = MethodChannel('com.fentanest.mysafetyreport/permissions');
@@ -147,6 +149,16 @@ class _NotificationsScreenState extends State<NotificationsScreen>
         item.extraData!.isNotEmpty) {
       final report = Report.fromJson(item.extraData!);
       showReportDetailSheet(context, report);
+      return;
+    }
+
+    if (item.kind == NotificationItemKind.duplicate &&
+        item.extraData != null &&
+        item.extraData!.isNotEmpty) {
+      showDuplicateGroupDetailSheet(
+        context,
+        DuplicateGroup.fromJson(item.extraData!),
+      );
       return;
     }
 
@@ -398,7 +410,11 @@ class _NotificationsScreenState extends State<NotificationsScreen>
         .where((item) => item.kind == NotificationItemKind.crawl)
         .toList(growable: false);
     final reportItems = allItems
-        .where((item) => item.kind == NotificationItemKind.report)
+        .where(
+          (item) =>
+              item.kind == NotificationItemKind.report ||
+              item.kind == NotificationItemKind.duplicate,
+        )
         .toList(growable: false);
     final ratingItems = allItems
         .where((item) => item.kind == NotificationItemKind.rating)
@@ -455,7 +471,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
             items: reportItems,
             emptyMessage: '신고 결과가 없습니다.',
             emptySubMessage:
-                '크롤링 후 변경된 신고건이 여기에 기록됩니다.\n각 항목을 눌러 상세 정보를 확인하세요.',
+                '크롤링 후 변경된 신고건과 중복 신고 변경이 여기에 기록됩니다.\n각 항목을 눌러 상세 정보를 확인하세요.',
           ),
           _buildRatingList(ratingItems),
         ],
@@ -606,11 +622,17 @@ class _NotifTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final unread = !item.isRead;
     final hasDetail =
-        item.kind == NotificationItemKind.report &&
+        (item.kind == NotificationItemKind.report ||
+            item.kind == NotificationItemKind.duplicate) &&
         item.extraData != null &&
         item.extraData!.isNotEmpty;
-    final status = (item.extraData?['처리상태']?.toString() ?? '').trim();
-    final fine = (item.extraData?['범칙금_과태료']?.toString() ?? '').trim();
+    final isDuplicate = item.kind == NotificationItemKind.duplicate;
+    final status = isDuplicate
+        ? (item.extraData?['status_label']?.toString() ?? '').trim()
+        : (item.extraData?['처리상태']?.toString() ?? '').trim();
+    final fine = isDuplicate
+        ? ''
+        : (item.extraData?['범칙금_과태료']?.toString() ?? '').trim();
 
     return InkWell(
       onTap: onTap,
@@ -634,14 +656,22 @@ class _NotifTile extends StatelessWidget {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: hasDetail ? Colors.orange.shade50 : Colors.blue.shade50,
+                color: isDuplicate
+                    ? Colors.indigo.shade50
+                    : hasDetail
+                    ? Colors.orange.shade50
+                    : Colors.blue.shade50,
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(
-                hasDetail
+                isDuplicate
+                    ? Icons.content_copy_outlined
+                    : hasDetail
                     ? Icons.assignment_outlined
                     : Icons.notifications_active,
-                color: hasDetail
+                color: isDuplicate
+                    ? Colors.indigo.shade700
+                    : hasDetail
                     ? Colors.orange.shade700
                     : Colors.blue.shade700,
                 size: 20,
@@ -677,7 +707,10 @@ class _NotifTile extends StatelessWidget {
                       runSpacing: 4,
                       children: [
                         if (status.isNotEmpty)
-                          _miniChip(status, _statusColor(status)),
+                          _miniChip(
+                            status,
+                            isDuplicate ? Colors.indigo : _statusColor(status),
+                          ),
                         if (fine.isNotEmpty && fine != 'null')
                           _miniChip(
                             fine.split(':').first.trim(),

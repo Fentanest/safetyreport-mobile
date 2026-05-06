@@ -82,15 +82,66 @@ class NotificationHistoryProvider with ChangeNotifier {
         ),
       );
     } else {
-      // 이미 history에 있는 신고번호는 중복 추가 방지
-      final existingRnums = _items
-          .where((i) => i.reportNumber.isNotEmpty)
-          .map((i) => i.reportNumber)
+      final existingKeys = _items
+          .map((item) {
+            final extra = item.extraData ?? const <String, dynamic>{};
+            if (item.kind == NotificationItemKind.duplicate) {
+              final groupId = extra['group_id']?.toString() ?? '';
+              final changeType =
+                  extra['duplicate_change_type']?.toString() ?? '';
+              return 'duplicate:$groupId:$changeType';
+            }
+            if (item.reportNumber.isNotEmpty) {
+              return 'report:${item.reportNumber}';
+            }
+            return 'generic:${item.id}';
+          })
           .toSet();
 
       for (final r in serverData) {
+        final notificationKind = r['notification_kind']?.toString() ?? 'report';
+        if (notificationKind == 'duplicate') {
+          final groupId = r['group_id']?.toString() ?? '';
+          final duplicateChangeType =
+              r['duplicate_change_type']?.toString() ?? '';
+          final uniqueKey = 'duplicate:$groupId:$duplicateChangeType';
+          if (groupId.isNotEmpty && existingKeys.contains(uniqueKey)) continue;
+
+          final title = r['title']?.toString() ?? '🧩 중복 신고 변경';
+          final body =
+              r['body']?.toString() ??
+              [
+                if ((r['status_label']?.toString() ?? '').isNotEmpty)
+                  '상태: ${r['status_label']}',
+                if ((r['representative_report_number']?.toString() ?? '').isNotEmpty)
+                  '대표 신고번호: ${r['representative_report_number']}',
+                if ((r['member_count']?.toString() ?? '').isNotEmpty)
+                  '멤버 수: ${r['member_count']}건',
+              ].join('\n');
+
+          newItems.add(
+            NotificationItem(
+              id:
+                  '${now.millisecondsSinceEpoch}_${groupId.isEmpty ? 'duplicate' : groupId}',
+              kind: NotificationItemKind.duplicate,
+              title: title,
+              body: body,
+              reportNumber:
+                  r['representative_report_number']?.toString() ??
+                  r['신고번호']?.toString() ??
+                  '',
+              timestamp: ts,
+              isRead: false,
+              extraData: Map<String, dynamic>.from(r),
+            ),
+          );
+          existingKeys.add(uniqueKey);
+          continue;
+        }
+
         final rnum = r['신고번호']?.toString() ?? '';
-        if (rnum.isNotEmpty && existingRnums.contains(rnum)) continue;
+        final uniqueKey = 'report:$rnum';
+        if (rnum.isNotEmpty && existingKeys.contains(uniqueKey)) continue;
         final name = r['신고명']?.toString() ?? '신고';
         final status = r['처리상태']?.toString() ?? '';
         final agency = r['처리기관']?.toString() ?? '';
@@ -120,6 +171,7 @@ class NotificationHistoryProvider with ChangeNotifier {
             extraData: Map<String, dynamic>.from(r),
           ),
         );
+        if (rnum.isNotEmpty) existingKeys.add(uniqueKey);
       }
     }
 

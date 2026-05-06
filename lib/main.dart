@@ -5,17 +5,19 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/report_list_screen.dart';
+import 'screens/report_management_screen.dart';
 import 'screens/statistics_screen.dart';
-import 'screens/sunwi_screen.dart';
 import 'screens/setup_screen.dart';
 import 'screens/file_browser_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/crawl_screen.dart';
 import 'models/app_mode.dart';
+import 'models/duplicate_group.dart';
 import 'models/report.dart';
 import 'providers/report_provider.dart';
 import 'providers/notification_history_provider.dart';
 import 'services/sync_engine.dart' show ChangeType;
+import 'widgets/duplicate_group_detail_sheet.dart';
 import 'widgets/report_detail_sheet.dart';
 
 void main() {
@@ -168,8 +170,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   final List<Widget> _screens = [
     const DashboardScreen(),
     const ReportListScreen(),
+    const ReportManagementScreen(),
     const StatisticsScreen(),
-    const SunwiScreen(),
     const NotificationsScreen(),
     const FileBrowserScreen(),
     const CrawlScreen(),
@@ -218,6 +220,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
       final tab = (args?['tab'] as num?)?.toInt() ?? 4;
       final subTab = (args?['sub_tab'] as num?)?.toInt();
       final eventType = args?['event_type']?.toString() ?? '';
+      final payloadJson = args?['payload_json']?.toString() ?? '';
       if (subTab != null && subTab >= 0) {
         context.read<NotificationHistoryProvider>().setPreferredTabIndex(
           subTab,
@@ -228,6 +231,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
         setState(() => _selectedIndex = tab);
         _refreshOnTab(tab);
       }
+      if (payloadJson.isNotEmpty && mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _openNotificationPayloadDetail(payloadJson);
+        });
+      }
       // standalone: 알림 탭으로 진입 → 동기화 즉시 트리거
       if (eventType == 'standalone_sync' && mounted) {
         await context.read<ReportProvider>().checkAutoSyncOnResume();
@@ -236,7 +245,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   }
 
   /// 탭 변경 시 해당 화면 새로고침.
-  /// 0 대시보드, 1 신고리스트, 2 통계, 3 신고현황, 4 알림, 5 파일, 6 동기화/크롤링
+  /// 0 대시보드, 1 신고내역, 2 신고관리, 3 통계, 4 알림, 5 파일, 6 동기화/크롤링
   void _refreshOnTab(int index) {
     if (!mounted) return;
     final p = context.read<ReportProvider>();
@@ -254,10 +263,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
         }
         break;
       case 2:
-        p.bumpStatsRefresh();
+        p.fetchWatchlistNumbers();
         break;
       case 3:
-        p.bumpSunwiRefresh();
+        p.bumpStatsRefresh();
         break;
       case 4:
         context.read<NotificationHistoryProvider>().load();
@@ -282,6 +291,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
       final event = jsonDecode(raw) as Map<String, dynamic>;
       final title = event['title']?.toString() ?? '';
       final body = event['body']?.toString() ?? '';
+      final payloadJson = event['payload_json']?.toString() ?? '';
       if (title.isEmpty) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -296,11 +306,30 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
           ),
           duration: const Duration(seconds: 4),
           action: SnackBarAction(
-            label: '알림 보기',
-            onPressed: () => setState(() => _selectedIndex = 4),
+            label: payloadJson.isNotEmpty ? '상세 보기' : '알림 보기',
+            onPressed: () {
+              setState(() => _selectedIndex = 4);
+              if (payloadJson.isNotEmpty) {
+                _openNotificationPayloadDetail(payloadJson);
+              }
+            },
           ),
         ),
       );
+    } catch (_) {}
+  }
+
+  void _openNotificationPayloadDetail(String payloadJson) {
+    try {
+      final decoded = jsonDecode(payloadJson);
+      if (decoded is! Map) return;
+      final data = Map<String, dynamic>.from(decoded as Map);
+      final kind = data['notification_kind']?.toString() ?? 'report';
+      if (kind == 'duplicate') {
+        showDuplicateGroupDetailSheet(context, DuplicateGroup.fromJson(data));
+      } else {
+        showReportDetailSheet(context, Report.fromJson(data));
+      }
     } catch (_) {}
   }
 
@@ -352,15 +381,24 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
         expand: false,
         builder: (_, controller) {
           final newCount = changes
-              .where((r) => (r as Map)['change_type'] == ChangeType.newReport)
+              .where(
+                (r) =>
+                    (r as Map)['notification_kind'] != 'duplicate' &&
+                    (r as Map)['change_type'] == ChangeType.newReport,
+              )
               .length;
           final confirmCount = changes
               .where(
                 (r) =>
+                    (r as Map)['notification_kind'] != 'duplicate' &&
                     (r as Map)['change_type'] == ChangeType.individualConfirm,
               )
               .length;
-          final changedCount = changes.length - newCount - confirmCount;
+          final duplicateCount = changes
+              .where((r) => (r as Map)['notification_kind'] == 'duplicate')
+              .length;
+          final changedCount =
+              changes.length - newCount - confirmCount - duplicateCount;
           return Column(
             children: [
               Padding(
@@ -386,7 +424,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                         ),
                         const SizedBox(width: 8),
                         Text(
-                          '신고 변경 ${changes.length}건',
+                          '변경 결과 ${changes.length}건',
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -406,6 +444,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                           _changeBadge('처리변경', changedCount, Colors.orange),
                         if (confirmCount > 0)
                           _changeBadge('개별 확인', confirmCount, Colors.blueGrey),
+                        if (duplicateCount > 0)
+                          _changeBadge('중복 변경', duplicateCount, Colors.indigo),
                       ],
                     ),
                   ],
@@ -420,6 +460,146 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
                   itemBuilder: (ctx, i) {
                     final r = changes[i] as Map<String, dynamic>;
+                    final isDuplicate =
+                        (r['notification_kind']?.toString() ?? '') ==
+                        'duplicate';
+                    if (isDuplicate) {
+                      final statusLabel =
+                          r['status_label']?.toString() ?? '중복 신고 변경';
+                      final title = r['title']?.toString() ?? '중복 신고 변경';
+                      final body = r['body']?.toString() ?? '';
+                      final memberCount =
+                          r['member_count']?.toString() ?? '';
+                      final representativeReportNumber =
+                          r['representative_report_number']?.toString() ?? '';
+
+                      return InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          showDuplicateGroupDetailSheet(
+                            context,
+                            DuplicateGroup.fromJson(r),
+                          );
+                        },
+                        child: Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(14),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      margin: const EdgeInsets.only(right: 6),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.indigo.withValues(
+                                          alpha: 0.12,
+                                        ),
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(
+                                          color: Colors.indigo.withValues(
+                                            alpha: 0.5,
+                                          ),
+                                        ),
+                                      ),
+                                      child: const Text(
+                                        '중복 변경',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.indigo,
+                                        ),
+                                      ),
+                                    ),
+                                    Expanded(
+                                      child: Text(
+                                        title,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 3,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.indigo.withValues(
+                                          alpha: 0.12,
+                                        ),
+                                        borderRadius: BorderRadius.circular(20),
+                                        border: Border.all(
+                                          color: Colors.indigo.withValues(
+                                            alpha: 0.4,
+                                          ),
+                                        ),
+                                      ),
+                                      child: Text(
+                                        statusLabel,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.indigo,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Icon(
+                                      Icons.chevron_right,
+                                      size: 16,
+                                      color: Colors.grey.shade400,
+                                    ),
+                                  ],
+                                ),
+                                if (body.isNotEmpty) ...[
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    body,
+                                    maxLines: 3,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade700,
+                                      height: 1.45,
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(height: 6),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 4,
+                                  children: [
+                                    if (representativeReportNumber.isNotEmpty)
+                                      Text(
+                                        '대표 신고번호: $representativeReportNumber',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      ),
+                                    if (memberCount.isNotEmpty)
+                                      Text(
+                                        '멤버 수: ${memberCount}건',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    }
                     final changeType = r['change_type']?.toString() ?? '변경';
                     final isNew = changeType == ChangeType.newReport;
                     final isConfirm =
@@ -709,14 +889,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
             label: '신고내역',
           ),
           const NavigationDestination(
+            icon: Icon(Icons.inventory_2_outlined),
+            selectedIcon: Icon(Icons.inventory_2),
+            label: '신고관리',
+          ),
+          const NavigationDestination(
             icon: Icon(Icons.bar_chart_outlined),
             selectedIcon: Icon(Icons.bar_chart),
             label: '통계',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.map_outlined),
-            selectedIcon: Icon(Icons.map),
-            label: '신고현황',
           ),
           NavigationDestination(
             icon: Badge(

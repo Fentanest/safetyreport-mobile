@@ -279,6 +279,27 @@ class WsService : Service() {
 
         for (i in 0 until changes.length()) {
             val record     = changes.getJSONObject(i)
+            val notificationKind = record.optString("notification_kind", "report")
+            if (notificationKind == "duplicate") {
+                val title = record.optString("title", "🧩 중복 신고 변경")
+                val body = record.optString("body", "").ifEmpty {
+                    buildList {
+                        val statusLabel = record.optString("status_label", "")
+                        val representativeReportNumber = record.optString("representative_report_number", "")
+                        val memberCount = record.optInt("member_count", 0)
+                        if (statusLabel.isNotEmpty()) add("상태: $statusLabel")
+                        if (representativeReportNumber.isNotEmpty()) add("대표 신고번호: $representativeReportNumber")
+                        if (memberCount > 0) add("멤버 수: ${memberCount}건")
+                    }.joinToString("\n")
+                }
+                showPushNotif(
+                    title = title,
+                    body = body,
+                    type = ServerContract.EVENT_CRAWL_CHANGES,
+                    payloadJson = record.toString()
+                )
+                continue
+            }
             val changeType = record.optString("change_type", "변경")
             val reportNo   = record.optString("신고번호", "")
             val name       = record.optString("신고명", "신고")
@@ -302,7 +323,8 @@ class WsService : Service() {
             showPushNotif(
                 title = "$titlePrefix — $name",
                 body  = bodyLines.joinToString("\n"),
-                type  = ServerContract.EVENT_CRAWL_CHANGES
+                type  = ServerContract.EVENT_CRAWL_CHANGES,
+                payloadJson = record.toString()
             )
         }
     }
@@ -318,6 +340,35 @@ class WsService : Service() {
 
             for (i in 0 until changes.length()) {
                 val record     = changes.getJSONObject(i)
+                val notificationKind = record.optString("notification_kind", "report")
+                if (notificationKind == "duplicate") {
+                    val groupId = record.optString("group_id", "")
+                    val title = record.optString("title", "🧩 중복 신고 변경")
+                    val body = record.optString("body", "").ifEmpty {
+                        buildList {
+                            val statusLabel = record.optString("status_label", "")
+                            val representativeReportNumber = record.optString("representative_report_number", "")
+                            val memberCount = record.optInt("member_count", 0)
+                            if (statusLabel.isNotEmpty()) add("상태: $statusLabel")
+                            if (representativeReportNumber.isNotEmpty()) add("대표 신고번호: $representativeReportNumber")
+                            if (memberCount > 0) add("멤버 수: ${memberCount}건")
+                        }.joinToString("\n")
+                    }
+
+                    val item = JSONObject().apply {
+                        put("id", "${baseMs}_${if (groupId.isNotEmpty()) groupId else i}")
+                        put("kind", "duplicate")
+                        put("title", title)
+                        put("body", body)
+                        put("reportNumber", record.optString("representative_report_number", ""))
+                        put("timestamp", ts)
+                        put("isRead", false)
+                        put("extraData", record)
+                    }
+                    newArr.put(item)
+                    continue
+                }
+
                 val changeType = record.optString("change_type", "변경")
                 val reportNo   = record.optString("신고번호", "")
                 val name       = record.optString("신고명", "신고")
@@ -335,6 +386,7 @@ class WsService : Service() {
 
                 val item = JSONObject().apply {
                     put("id",           "${baseMs}_$reportNo")
+                    put("kind",         "report")
                     put("title",        title)
                     put("body",         bodyLines.joinToString("\n"))
                     put("reportNumber", reportNo)
@@ -354,7 +406,7 @@ class WsService : Service() {
         }
     }
 
-    private fun showPushNotif(title: String, body: String, type: String) {
+    private fun showPushNotif(title: String, body: String, type: String, payloadJson: String? = null) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         // 앱 열기 인텐트 — SINGLE_TOP으로 onNewIntent 트리거, 앱 재시작 방지
@@ -364,6 +416,7 @@ class WsService : Service() {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 putExtra("nav_tab", 4)        // 알림 탭 인덱스
                 putExtra("nav_event_type", type)
+                if (!payloadJson.isNullOrEmpty()) putExtra("nav_payload_json", payloadJson)
             }
         val notifId = pushIdGen.get()
         val pi = PendingIntent.getActivity(
@@ -390,6 +443,7 @@ class WsService : Service() {
                 put("title", title)
                 put("body", body)
                 put("type", type)
+                if (!payloadJson.isNullOrEmpty()) put("payload_json", payloadJson)
             }
             prefs.edit().putString("flutter.foreground_event", event.toString()).apply()
         } catch (_: Exception) {}

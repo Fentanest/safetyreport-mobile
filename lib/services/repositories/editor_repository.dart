@@ -60,8 +60,16 @@ class _ServerEditorRepository implements EditorRepository {
   }
 
   @override
-  Future<Map<String, dynamic>?> getRecord(String category, String recordId) {
-    return _api.getEditableRecord(category, recordId);
+  Future<Map<String, dynamic>?> getRecord(
+    String category,
+    String recordId,
+  ) async {
+    final payload = await _api.getEditableRecord(category, recordId);
+    final nestedRecord = payload['record'];
+    if (nestedRecord is Map) {
+      return Map<String, dynamic>.from(nestedRecord);
+    }
+    return payload;
   }
 
   @override

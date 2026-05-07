@@ -118,6 +118,19 @@
 - 모바일에서 `신고관리` 탭을 눌렀는데 `데이터 수정`이 보이지 않던 문제는
   실제 UI 연결이 빠져 있던 상태였고, 이번에 기능 탭까지 복구했다.
 
+### Client 데이터 수정 상세 값 비어 보이던 문제 수정
+
+상태: 완료
+
+변경:
+- `lib/services/repositories/editor_repository.dart`
+  - Client 서버의 수정 대상 조회 응답이 `data.record` 중첩 구조라는 점을 반영
+  - 모바일이 상위 payload를 그대로 record로 오해해 `ID`만 보이고 기본 정보/입력값이 비어 있던 문제 수정
+
+검증:
+- `dart analyze lib/services/repositories/editor_repository.dart lib/screens/data_editor_screen.dart`
+  - 에러 없음
+
 ### 대시보드 임베드 신고현황 백지 방지 + Client 중복 신고 404 방어
 
 상태: 완료

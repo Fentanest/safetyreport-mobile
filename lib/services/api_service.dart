@@ -220,6 +220,11 @@ class ApiService {
         headers: _headers,
       ),
     );
+    if (response.statusCode == 404) {
+      throw const ApiFeatureUnavailableException(
+        '서버가 데이터 수정 API를 아직 지원하지 않습니다.',
+      );
+    }
     if (response.statusCode != 200) {
       throw Exception('데이터 수정 스키마 조회 실패: ${response.statusCode}');
     }
@@ -240,6 +245,11 @@ class ApiService {
         headers: _headers,
       ),
     );
+    if (response.statusCode == 404) {
+      throw const ApiFeatureUnavailableException(
+        '서버가 데이터 수정 API를 아직 지원하지 않습니다.',
+      );
+    }
     if (response.statusCode != 200) {
       throw Exception('수정 대상 조회 실패: ${response.statusCode}');
     }
@@ -262,6 +272,11 @@ class ApiService {
         body: jsonEncode({'values': values}),
       ),
     );
+    if (response.statusCode == 404) {
+      throw const ApiFeatureUnavailableException(
+        '서버가 데이터 수정 API를 아직 지원하지 않습니다.',
+      );
+    }
     if (response.statusCode != 200) {
       throw Exception('데이터 수정 저장 실패: ${response.statusCode}');
     }

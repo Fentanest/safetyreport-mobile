@@ -82,6 +82,7 @@ lib/
   models/
     app_mode.dart                    ── AppMode enum + fromString
     duplicate_group.dart             ── 중복 신고 그룹/멤버 모델 + 상태/대표건 모드 라벨
+    editor_schema.dart               ── 모바일/서버 공용 데이터 수정 필드 순서/예시 문구 모델
     report.dart                      ── Report 데이터 모델 (서버 컬럼명 한국어 그대로)
     file_item.dart                   ── 파일 브라우저 항목
     notification_item.dart           ── 알림 히스토리 항목
@@ -105,11 +106,13 @@ lib/
     standalone_auto_sync_service.dart ── 알림 큐 drain (개별 fetch + 1회 증분 fallback)
     permission_service.dart          ── 권한 체크, WsService 토글
     sunwi_service.dart               ── Standalone 전국 신고현황 수집 + sunwi CSV 생성
+    repositories/editor_repository.dart ── Client/Standalone 데이터 수정 저장소 추상화
   screens/
     setup_screen.dart                ── 초기 모드 선택 + 로그인/서버 설정 + demo/demo(휴대폰 공란 허용) 데모 진입
     dashboard_screen.dart            ── 처리 요약, recentAnswerReports 기반 최근 답변 5건+더보기,
                                        감시 목록 요약, 대시보드 하단 임베드 신고현황
-    report_management_screen.dart    ── 하단 `신고관리` 탭 셸 (감시 목록 / 중복 신고 서브탭)
+    report_management_screen.dart    ── 하단 `신고관리` 탭 셸 (감시 목록 / 중복 신고 / 데이터 수정 서브탭)
+    data_editor_screen.dart          ── 모바일 데이터 수정 패널 + 수정 바텀시트
     duplicate_management_screen.dart ── Client/Standalone 겸용 중복 신고 관리 패널
     report_list_screen.dart          ── 4탭 (교통/주정차/기타/중복차량) + 통계/검색에서 넘어온 활성 필터 Chip 표시
     statistics_screen.dart           ── 연도×카테고리×유형 통계, 위반법규 필터, 행 탭 시 신고리스트 상세검색 기반 drilldown
@@ -196,7 +199,8 @@ Client 모드 서버 경로와 이벤트 문자열은 Flutter/Dart 와 Android/K
 - `SunwiSection(embedded: true)` 는 대시보드 안에 들어가므로 자체 스크롤 컨테이너를 만들지 않고
   일반 children 묶음만 렌더해야 한다. 독립 화면일 때만 `RefreshIndicator + ListView` 를 사용한다.
 - `ReportManagementScreen` 은 하단 네비게이션 탭 셸이고,
-  실제 중복 관리는 `DuplicateManagementScreen`, 감시 목록은 `WatchlistPanel` 을 재사용한다.
+  실제 중복 관리는 `DuplicateManagementScreen`, 감시 목록은 `WatchlistPanel`,
+  데이터 수정은 `DataEditorPanel` 을 재사용한다.
 - 목적:
   - 추후 대시보드/관리 탭 안으로 같은 UI 를 재배치할 때 화면 전체를 복제하지 않기 위함
 
@@ -213,6 +217,8 @@ Client 모드 서버 경로와 이벤트 문자열은 Flutter/Dart 와 Android/K
 - `신고현황`은 더 이상 독립 하단 탭이 아니고, 대시보드 최하단 `SunwiSection(embedded: true)` 로 노출된다.
 - 감시 목록 `관리`/`더 보기` 동선은 별도 전체화면 `WatchlistScreen` 이 아니라
   `신고관리 > 감시 목록` 탭으로 연결한다.
+- `신고관리`의 세 번째 하위 탭은 `데이터 수정`이며,
+  Client 모드는 서버 editor API를, Standalone은 로컬 SQLite 수정 경로를 사용한다.
 
 ## 중복 변경 알림 흐름
 

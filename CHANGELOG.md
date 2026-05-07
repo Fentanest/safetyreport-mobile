@@ -94,6 +94,30 @@
 
 ## 2026-05-07
 
+### 신고관리 `데이터 수정` 탭 실제 연결
+
+상태: 완료
+
+변경:
+- `lib/screens/report_management_screen.dart`
+  - `신고관리` 하위 탭을 `감시 목록 / 중복 신고 / 데이터 수정` 3개로 확장
+- `lib/screens/data_editor_screen.dart`
+  - 신고번호 역순 수정 목록 추가
+  - 신고내역과 같은 상세검색 시트 재사용
+  - 수정 카드를 누르면 서버 수정 페이지와 같은 순서의 필드를 바텀시트에 표시
+  - `범칙금_과태료` 입력 칸에 서버와 동일한 예시 문구 표시
+- `lib/models/editor_schema.dart`
+- `lib/services/repositories/editor_repository.dart`
+  - Client/Standalone 공통 데이터 수정 repository 계층 추가
+  - Client는 서버 `editor/schema`, `editor/{category}/{id}` API 사용
+  - Standalone은 로컬 SQLite `reports` row 직접 수정 사용
+- `lib/services/api_service.dart`
+  - 구버전 서버가 데이터 수정 API를 아직 제공하지 않는 경우 `404`를 전용 예외로 분기
+
+비고:
+- 모바일에서 `신고관리` 탭을 눌렀는데 `데이터 수정`이 보이지 않던 문제는
+  실제 UI 연결이 빠져 있던 상태였고, 이번에 기능 탭까지 복구했다.
+
 ### 대시보드 임베드 신고현황 백지 방지 + Client 중복 신고 404 방어
 
 상태: 완료

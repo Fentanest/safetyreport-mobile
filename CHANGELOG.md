@@ -9,6 +9,21 @@
 
 ## 2026-05-07 (P0~P3 리팩토링)
 
+### Client 파일 여러 개 다운로드/삭제 302 리다이렉트 수정
+
+상태: 완료
+
+변경:
+- `lib/services/server_contract.dart`
+  - 다중 파일 다운로드/삭제 경로를 `/api/v1/files/download-multi`, `/api/v1/files/delete-multi`로 정의
+- `lib/services/api_service.dart`
+  - 모바일 Client가 세션 로그인용 `/file-browser/*` 레거시 경로를 호출하지 않도록 수정
+  - 다중 파일 다운로드/삭제를 API 키 인증 기반 파일 API로 전환
+
+비고:
+- 원인은 Client 모드에서 API 키만 가진 상태로 `/file-browser/download-multi`를 호출해
+  서버가 `/login`으로 `302` 리다이렉트하던 구조였다.
+
 ### 서버-모바일 DB round-trip 항목 전수 점검 + exact import 보강
 
 상태: 완료

@@ -333,10 +333,7 @@ class ApiService {
   Future<DownloadedFilePayload> downloadFilesArchive(List<String> paths) async {
     final response = await _sendWithRetry(
       () => http.post(
-        ServerContract.apiUri(
-          baseUrl,
-          ServerContract.legacyFilesMultiDownloadPath,
-        ),
+        ServerContract.apiUri(baseUrl, ServerContract.filesMultiDownloadPath),
         headers: _headers,
         body: jsonEncode({'paths': paths}),
       ),
@@ -362,10 +359,7 @@ class ApiService {
   Future<DeleteFilesResult> deleteFiles(List<String> paths) async {
     final response = await _sendWithRetry(
       () => http.post(
-        ServerContract.apiUri(
-          baseUrl,
-          ServerContract.legacyFilesDeleteMultiPath,
-        ),
+        ServerContract.apiUri(baseUrl, ServerContract.filesDeleteMultiPath),
         headers: _headers,
         body: jsonEncode({'paths': paths}),
       ),

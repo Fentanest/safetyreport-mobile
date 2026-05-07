@@ -24,8 +24,8 @@ class ServerContract {
   static const settingsPath = '$apiPrefix/settings';
   static const ratingStartPath = '$apiPrefix/rating/start';
   static const filesDownloadPath = '$apiPrefix/files/download';
-  static const legacyFilesMultiDownloadPath = '/file-browser/download-multi';
-  static const legacyFilesDeleteMultiPath = '/file-browser/delete-multi';
+  static const filesMultiDownloadPath = '$apiPrefix/files/download-multi';
+  static const filesDeleteMultiPath = '$apiPrefix/files/delete-multi';
   static const serverVersionPath = '$apiPrefix/server/version';
   static const sunwiPayloadPath = '$apiPrefix/sunwi/payload';
 

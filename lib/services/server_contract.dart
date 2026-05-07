@@ -24,6 +24,8 @@ class ServerContract {
   static const settingsPath = '$apiPrefix/settings';
   static const ratingStartPath = '$apiPrefix/rating/start';
   static const filesDownloadPath = '$apiPrefix/files/download';
+  static const legacyFilesMultiDownloadPath = '/file-browser/download-multi';
+  static const legacyFilesDeleteMultiPath = '/file-browser/delete-multi';
   static const serverVersionPath = '$apiPrefix/server/version';
   static const sunwiPayloadPath = '$apiPrefix/sunwi/payload';
 
@@ -31,7 +33,8 @@ class ServerContract {
       baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
 
   static String reportsPath(String category) => '$apiPrefix/reports/$category';
-  static String duplicateGroupPath(String groupId) => '$duplicateGroupsPath/$groupId';
+  static String duplicateGroupPath(String groupId) =>
+      '$duplicateGroupsPath/$groupId';
   static String editorRecordPath(String category, String recordId) =>
       '$apiPrefix/editor/$category/$recordId';
 

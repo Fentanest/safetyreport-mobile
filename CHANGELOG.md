@@ -253,10 +253,6 @@
 - `lib/services/local_db_service.dart`
   - Standalone `computeSummary` 의 최근 답변 쿼리에 서버와 동일한 3일 윈도우 필터 추가,
     한도를 10 → 200 으로 상향
-- `services/data_service.py` (서버 프로젝트)
-  - `recent_answers[:20]` → `[:200]` 로 한도 상향
-  - 대시보드 `recent_answers` / `watchlist` 항목에 `category` 필드 부여 (`traffic`/`parking`/`other`)
-  - `get_duplicate_records`, `get_all_watchlist` 도 행마다 `category` 라벨 부여
 - `lib/models/report.dart`
   - `Report.category` 필드 추가, `Report.fromJson` 에서 `category` JSON 키 읽기
 - `lib/services/local_db_service.dart`
@@ -271,13 +267,6 @@
   - 탭 시 시트를 닫고 신고 내역 화면으로 이동, 동시에 해당 신고 카테고리 탭과 일치하는
     `ReportFilter` (carNumber / location / law / manager) 를 적용
   - 이동 전 `ensureCategoryReportsLoaded()` 를 통해 카테고리 재확인, 끝까지 못 찾으면 잘못된 기본 탭으로 보내지 않고 SnackBar 로 중단
-- `web/templates/base.html` (서버 프로젝트)
-  - `linkField` 헬퍼 추가, 모달 상세에서 위 4개 필드를 카테고리별 데이터 페이지로 이동하는
-    `<a>` 링크로 렌더링
-  - 행 데이터의 `category` 필드를 우선 사용하고, 없으면 현재 URL 의 `/data/<cat>` 로 추정
-- `web/templates/data_table.html` (서버 프로젝트)
-  - URL 쿼리 `car`, `law`, `location` 파라미터를 받아 상세 검색 입력에 자동 채우고
-    `qAgency || qPerson || qCar || qLaw || qLocation` 일 때 자동 검색 트리거
 - `lib/widgets/selection_action_bar.dart`
   - 별점 batch 처리(`_rate`)를 fire-and-forget 으로 변경
   - 시작 즉시 SnackBar 로 안내하고 선택 모드를 해제. 액션 바 전체가 스피너로 잠기는
@@ -294,6 +283,8 @@
   없이 바로 활용 가능
 - Client(server) 모드는 신규로 응답에 `category` 키가 들어오지만 기존 모바일 빌드는
   무시하므로 호환성 영향 없음
+- 서버 대응 항목(`recent_answers[:200]`, `category` 전파, 웹 상세 링크/URL 연동)은
+  `safetyreport` 레포 `2026-05-05` CHANGELOG에 기록한다.
 
 ### Android 15 edge-to-edge 공식 경로 전환
 
@@ -387,10 +378,6 @@
 상태: 완료
 
 변경:
-- 서버 `web/templates/data_table.html`
-  - 상세 검색 사이드바의 별점사유 뒤에 `만족도 조사 여부` 드롭다운 추가
-  - 옵션: 전체 / 참여 완료 / 참여 가능 (단일 선택)
-  - JS 필터 로직에 `만족도조사여부` 필드 검사 추가
 - 모바일 `lib/providers/report_provider.dart`
   - `ReportFilter`에 `pollStatus` 필드 추가
   - `_applyFilter()`에 `pollStatus` 필터 로직 반영
@@ -398,6 +385,9 @@
 - 모바일 `lib/widgets/search_filter_sheet.dart`
   - 별점사유 아래에 `만족도 조사 여부` 단일선택 드롭다운 UI 추가
   - `_singleSelectDropdown` 위젯 메서드 추가
+
+비고:
+- 서버 웹 상세검색 드롭다운 추가 내역은 `safetyreport` 레포 `2026-05-02` CHANGELOG에 기록한다.
 
 ## 2026-05-01
 

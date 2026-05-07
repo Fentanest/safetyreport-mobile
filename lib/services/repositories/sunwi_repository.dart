@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../../models/app_mode.dart';
 import '../../models/sunwi.dart';
 import '../../providers/report_provider.dart';
@@ -11,25 +13,12 @@ class SunwiSnapshot {
   const SunwiSnapshot({required this.payload, this.dataset});
 }
 
-/// CSV export 결과.
-class SunwiCsvExportResult {
-  final String path;
-  final bool serverGenerated;
-  const SunwiCsvExportResult({required this.path, required this.serverGenerated});
-}
-
 /// 신고현황 데이터 source 단일 인터페이스. `SunwiSection` 이 mode 분기를
 /// 직접 하지 않도록 모음.
 abstract class SunwiRepository {
   /// payload (+ 가능하면 dataset) fetch. progress 는 standalone 에서만 동작.
   Future<SunwiSnapshot> fetch({
     void Function(int completed, int total, String label)? onProgress,
-  });
-
-  /// CSV export. dataset 이 필요한 경우 호출자가 [snapshot] 으로 함께 넘겨야 한다.
-  Future<SunwiCsvExportResult> exportCsv({
-    required bool top5,
-    SunwiSnapshot? snapshot,
   });
 
   factory SunwiRepository.fromProvider(ReportProvider provider) {
@@ -49,20 +38,15 @@ class _StandaloneSunwiRepository implements SunwiRepository {
     void Function(int, int, String)? onProgress,
   }) async {
     final dataset = await SunwiService.fetchStandalone(onProgress: onProgress);
+    unawaited(_writeLatestCsvs(dataset));
     return SunwiSnapshot(payload: dataset.payload, dataset: dataset);
   }
 
-  @override
-  Future<SunwiCsvExportResult> exportCsv({
-    required bool top5,
-    SunwiSnapshot? snapshot,
-  }) async {
-    final dataset = snapshot?.dataset;
-    if (dataset == null) {
-      throw StateError('신고현황 데이터를 먼저 불러와주세요.');
-    }
-    final path = await SunwiService.exportStandaloneCsv(dataset, top5: top5);
-    return SunwiCsvExportResult(path: path, serverGenerated: false);
+  Future<void> _writeLatestCsvs(SunwiDataset dataset) async {
+    try {
+      await SunwiService.exportStandaloneCsv(dataset, top5: false);
+      await SunwiService.exportStandaloneCsv(dataset, top5: true);
+    } catch (_) {}
   }
 }
 
@@ -80,17 +64,5 @@ class _ServerSunwiRepository implements SunwiRepository {
   }) async {
     final payload = await _api.getSunwiPayload();
     return SunwiSnapshot(payload: payload);
-  }
-
-  @override
-  Future<SunwiCsvExportResult> exportCsv({
-    required bool top5,
-    SunwiSnapshot? snapshot,
-  }) async {
-    final result = await _api.exportSunwiCsv(top5 ? 'top5' : 'all');
-    return SunwiCsvExportResult(
-      path: result['path']?.toString() ?? '',
-      serverGenerated: true,
-    );
   }
 }

@@ -20,6 +20,20 @@ class ApiFeatureUnavailableException implements Exception {
   String toString() => message;
 }
 
+class DownloadedFilePayload {
+  final String filename;
+  final Uint8List bytes;
+
+  const DownloadedFilePayload({required this.filename, required this.bytes});
+}
+
+class DeleteFilesResult {
+  final int deletedCount;
+  final List<String> errors;
+
+  const DeleteFilesResult({required this.deletedCount, required this.errors});
+}
+
 class ApiService {
   final String baseUrl;
   final String apiKey;
@@ -44,12 +58,10 @@ class ApiService {
         lastError = e;
       }
       if (attempt < mobileMaxRetryAttempts) {
-        await Future.delayed(
-          const Duration(seconds: mobileRetryDelaySeconds),
-        );
+        await Future.delayed(const Duration(seconds: mobileRetryDelaySeconds));
       }
     }
-    throw Exception('네트워크 오류 (${mobileMaxRetryAttempts}회 재시도 실패): $lastError');
+    throw Exception('네트워크 오류 ($mobileMaxRetryAttempts회 재시도 실패): $lastError');
   }
 
   Future<http.StreamedResponse> _sendMultipartWithRetry(
@@ -73,12 +85,27 @@ class ApiService {
         lastError = e;
       }
       if (attempt < mobileMaxRetryAttempts) {
-        await Future.delayed(
-          const Duration(seconds: mobileRetryDelaySeconds),
-        );
+        await Future.delayed(const Duration(seconds: mobileRetryDelaySeconds));
       }
     }
-    throw Exception('업로드 네트워크 오류 (${mobileMaxRetryAttempts}회 재시도 실패): $lastError');
+    throw Exception(
+      '업로드 네트워크 오류 ($mobileMaxRetryAttempts회 재시도 실패): $lastError',
+    );
+  }
+
+  String _filenameFromResponse(
+    http.Response response, {
+    required String fallback,
+  }) {
+    final contentDisposition = response.headers['content-disposition'];
+    if (contentDisposition == null || contentDisposition.isEmpty) {
+      return fallback;
+    }
+    final match = RegExp(
+      r'filename=\"?([^\";]+)\"?',
+    ).firstMatch(contentDisposition);
+    if (match == null) return fallback;
+    return Uri.decodeComponent(match.group(1) ?? fallback);
   }
 
   Future<DashboardStats> getSummary() async {
@@ -151,7 +178,10 @@ class ApiService {
     final json = jsonDecode(response.body) as Map<String, dynamic>;
     final list = json['data'] as List? ?? const [];
     return list
-        .map((item) => DuplicateGroup.fromJson(Map<String, dynamic>.from(item as Map)))
+        .map(
+          (item) =>
+              DuplicateGroup.fromJson(Map<String, dynamic>.from(item as Map)),
+        )
         .toList();
   }
 
@@ -164,12 +194,16 @@ class ApiService {
   }) async {
     final response = await _sendWithRetry(
       () => http.post(
-        ServerContract.apiUri(baseUrl, ServerContract.duplicateGroupPath(groupId)),
+        ServerContract.apiUri(
+          baseUrl,
+          ServerContract.duplicateGroupPath(groupId),
+        ),
         headers: _headers,
         body: jsonEncode({
           if (representativeId != null) 'representative_id': representativeId,
           if (duplicateStatus != null) 'duplicate_status': duplicateStatus,
-          if (representativeMode != null) 'representative_mode': representativeMode,
+          if (representativeMode != null)
+            'representative_mode': representativeMode,
           if (note != null) 'note': note,
         }),
       ),
@@ -249,6 +283,92 @@ class ApiService {
     } else {
       throw Exception('파일 목록 로드 실패: ${response.statusCode}');
     }
+  }
+
+  Future<DownloadedFilePayload> downloadFile(String path) async {
+    final uri = ServerContract.apiUri(
+      baseUrl,
+      ServerContract.filesDownloadPath,
+      queryParameters: {'path': path},
+    );
+    final response = await _sendWithRetry(
+      () => http.get(
+        uri,
+        headers: ServerContract.apiHeaders(
+          apiKey,
+          includeJsonContentType: false,
+        ),
+      ),
+      timeout: const Duration(minutes: 2),
+    );
+    if (response.statusCode == 404) {
+      throw const ApiFeatureUnavailableException(
+        '서버가 파일 다운로드 API를 아직 지원하지 않습니다.',
+      );
+    }
+    if (response.statusCode != 200) {
+      throw Exception('파일 다운로드 실패: ${response.statusCode}');
+    }
+    return DownloadedFilePayload(
+      filename: _filenameFromResponse(response, fallback: path.split('/').last),
+      bytes: response.bodyBytes,
+    );
+  }
+
+  Future<DownloadedFilePayload> downloadFilesArchive(List<String> paths) async {
+    final response = await _sendWithRetry(
+      () => http.post(
+        ServerContract.apiUri(
+          baseUrl,
+          ServerContract.legacyFilesMultiDownloadPath,
+        ),
+        headers: _headers,
+        body: jsonEncode({'paths': paths}),
+      ),
+      timeout: const Duration(minutes: 2),
+    );
+    if (response.statusCode == 404) {
+      throw const ApiFeatureUnavailableException(
+        '서버가 다중 파일 다운로드를 아직 지원하지 않습니다.',
+      );
+    }
+    if (response.statusCode != 200) {
+      throw Exception('다중 파일 다운로드 실패: ${response.statusCode}');
+    }
+    return DownloadedFilePayload(
+      filename: _filenameFromResponse(
+        response,
+        fallback: 'safetyreport_files.zip',
+      ),
+      bytes: response.bodyBytes,
+    );
+  }
+
+  Future<DeleteFilesResult> deleteFiles(List<String> paths) async {
+    final response = await _sendWithRetry(
+      () => http.post(
+        ServerContract.apiUri(
+          baseUrl,
+          ServerContract.legacyFilesDeleteMultiPath,
+        ),
+        headers: _headers,
+        body: jsonEncode({'paths': paths}),
+      ),
+    );
+    if (response.statusCode == 404) {
+      throw const ApiFeatureUnavailableException(
+        '서버가 파일 삭제 API를 아직 지원하지 않습니다.',
+      );
+    }
+    if (response.statusCode != 200) {
+      throw Exception('파일 삭제 실패: ${response.statusCode}');
+    }
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    final rawErrors = json['errors'] as List? ?? const [];
+    return DeleteFilesResult(
+      deletedCount: (json['deleted_count'] as num?)?.toInt() ?? 0,
+      errors: rawErrors.map((error) => error.toString()).toList(),
+    );
   }
 
   Future<AgencyStats> getStats({String? year, String? law}) async {

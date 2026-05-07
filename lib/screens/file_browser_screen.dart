@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'package:excel/excel.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
@@ -16,8 +15,6 @@ import '../providers/report_provider.dart';
 import '../services/api_service.dart';
 import '../services/app_storage_paths.dart';
 import '../services/local_db_service.dart';
-import '../services/network_retry_config.dart';
-import '../services/server_contract.dart';
 
 /// 확장자 → MIME type 매핑 (top-level — 모든 State 에서 공유).
 /// open_filex 가 자동 추론에 실패하는 경우(특히 Android에서 xlsx)가 있어 명시적으로 전달.
@@ -42,6 +39,39 @@ String? mimeForPath(String path) {
   return map[ext];
 }
 
+String formatFileSize(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+}
+
+IconData fileIconForName(String name) {
+  final ext = name.contains('.') ? name.split('.').last.toLowerCase() : '';
+  switch (ext) {
+    case 'db':
+      return Icons.storage;
+    case 'log':
+      return Icons.article;
+    case 'csv':
+      return Icons.table_chart;
+    case 'xlsx':
+    case 'xls':
+      return Icons.table_chart;
+    case 'json':
+      return Icons.data_object;
+    case 'txt':
+      return Icons.text_snippet;
+    case 'ini':
+      return Icons.settings;
+    case 'png':
+    case 'jpg':
+    case 'jpeg':
+      return Icons.image;
+    default:
+      return Icons.insert_drive_file;
+  }
+}
+
 class FileBrowserScreen extends StatefulWidget {
   const FileBrowserScreen({super.key});
 
@@ -63,6 +93,8 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
   String _localRootPath = '';
   String _currentLocalPath = '';
   bool _exporting = false;
+  final Map<String, FileSystemEntity> _selectedLocalFiles = {};
+  final Map<String, FileItem> _selectedServerFiles = {};
 
   bool _loading = true;
   late final bool _isStandalone;
@@ -104,6 +136,52 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     final parent = Directory(_currentLocalPath).parent.path;
     if (!parent.startsWith(_localRootPath)) return _localRootPath;
     return parent;
+  }
+
+  bool get _selectionMode => _isStandalone
+      ? _selectedLocalFiles.isNotEmpty
+      : _selectedServerFiles.isNotEmpty;
+
+  int get _selectedCount =>
+      _isStandalone ? _selectedLocalFiles.length : _selectedServerFiles.length;
+
+  Future<void> _ensureStoragePermission() async {
+    if (!Platform.isAndroid) return;
+    final status = await Permission.storage.status;
+    if (!status.isGranted) {
+      await Permission.storage.request();
+    }
+  }
+
+  void _clearSelection() {
+    if (!_selectionMode) return;
+    setState(() {
+      _selectedLocalFiles.clear();
+      _selectedServerFiles.clear();
+    });
+  }
+
+  void _toggleLocalSelection(FileSystemEntity entity) {
+    if (_isDirectory(entity)) return;
+    final path = entity.path;
+    setState(() {
+      if (_selectedLocalFiles.containsKey(path)) {
+        _selectedLocalFiles.remove(path);
+      } else {
+        _selectedLocalFiles[path] = entity;
+      }
+    });
+  }
+
+  void _toggleServerSelection(FileItem item) {
+    if (item.isDir) return;
+    setState(() {
+      if (_selectedServerFiles.containsKey(item.path)) {
+        _selectedServerFiles.remove(item.path);
+      } else {
+        _selectedServerFiles[item.path] = item;
+      }
+    });
   }
 
   @override
@@ -153,6 +231,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      _selectedLocalFiles.clear();
     });
     try {
       final rootDir = await _exportsDir();
@@ -188,14 +267,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
   Future<void> _exportExcel() async {
     if (_exporting) return;
     final p = context.read<ReportProvider>();
-
-    // 권한 요청 (안드로이드 10 이하용, 11 이상은 Documents 쓰기 기본 허용인 경우 많음)
-    if (Platform.isAndroid) {
-      final status = await Permission.storage.status;
-      if (!status.isGranted) {
-        await Permission.storage.request();
-      }
-    }
+    await _ensureStoragePermission();
 
     setState(() => _exporting = true);
 
@@ -383,26 +455,26 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     return source.copy(staged.path);
   }
 
+  Future<void> _openSavedFile(File file) async {
+    final mime = mimeForPath(file.path);
+    final result = await OpenFilex.open(file.path, type: mime);
+    if (result.type == ResultType.noAppToOpen && mounted) {
+      await Share.shareXFiles([
+        XFile(file.path),
+      ], subject: file.path.split('/').last);
+    } else if (result.type != ResultType.done && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('파일 열기 실패: ${result.message}')));
+    }
+  }
+
   void _openLocalFile(FileSystemEntity f) async {
     // 일부 기기에서는 외부 저장소 원본을 바로 열 때 MANAGE_EXTERNAL_STORAGE를 요구하므로
     // 앱 임시 디렉토리로 복사한 뒤 연다.
     try {
       final staged = await _stageTempCopy(File(f.path));
-      final mime = mimeForPath(staged.path);
-      final result = await OpenFilex.open(staged.path, type: mime);
-      // 정말로 처리할 앱이 없을 때만 (noAppToOpen) share sheet fallback
-      if (result.type == ResultType.noAppToOpen && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('파일을 열 앱이 설치되어 있지 않습니다. 공유로 대체합니다.')),
-        );
-        await Share.shareXFiles([
-          XFile(staged.path),
-        ], subject: staged.path.split('/').last);
-      } else if (result.type != ResultType.done && mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('파일 열기 실패: ${result.message}')));
-      }
+      await _openSavedFile(staged);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -411,12 +483,101 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     }
   }
 
+  Future<File> _saveDownloadedFile(
+    DownloadedFilePayload payload, {
+    String subdir = 'downloads',
+  }) async {
+    await _ensureStoragePermission();
+    final dir = AppStoragePaths.subDir(subdir);
+    final baseName = payload.filename.trim().isEmpty
+        ? 'download_${DateTime.now().millisecondsSinceEpoch}'
+        : payload.filename.trim();
+    var target = File('${dir.path}/$baseName');
+    if (!target.existsSync()) {
+      await target.writeAsBytes(payload.bytes);
+      return target;
+    }
+
+    final dot = baseName.lastIndexOf('.');
+    final stem = dot >= 0 ? baseName.substring(0, dot) : baseName;
+    final ext = dot >= 0 ? baseName.substring(dot) : '';
+    var index = 2;
+    while (target.existsSync()) {
+      target = File('${dir.path}/${stem}_$index$ext');
+      index++;
+    }
+    await target.writeAsBytes(payload.bytes);
+    return target;
+  }
+
+  Future<bool> _downloadServerItems(List<FileItem> items) async {
+    if (items.isEmpty) return false;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          items.length == 1 ? '다운로드 중...' : '${items.length}개 파일 묶음 다운로드 중...',
+        ),
+        duration: const Duration(seconds: 30),
+      ),
+    );
+
+    try {
+      final payload = items.length == 1
+          ? await _api.downloadFile(items.first.path)
+          : await _api.downloadFilesArchive(
+              items.map((item) => item.path).toList(),
+            );
+      final saved = await _saveDownloadedFile(payload);
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('저장됨: ${saved.path.split('/').last}')),
+      );
+      await _openSavedFile(saved);
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('다운로드 실패: $e')));
+      return false;
+    }
+  }
+
+  Future<void> _downloadSelectedServerFiles() async {
+    final items = _selectedServerFiles.values.toList()
+      ..sort((a, b) => _compareNamesDesc(a.name, b.name));
+    final success = await _downloadServerItems(items);
+    if (mounted && success) _clearSelection();
+  }
+
   /// 사용자가 명시적으로 '다른 앱으로 열기' 원할 때 (long-press) 또는
   /// OpenFilex 실패 시 fallback 으로 호출. share_plus 가 FileProvider 자동 설정.
   Future<void> _shareLocalFile(FileSystemEntity f) async {
     final name = f.path.split('/').last;
     try {
       await Share.shareXFiles([XFile(f.path)], subject: name);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('공유 실패: $e')));
+    }
+  }
+
+  Future<void> _shareSelectedLocalFiles() async {
+    final files = _selectedLocalFiles.values.toList()
+      ..sort((a, b) => _compareNamesDesc(_entityName(a), _entityName(b)));
+    if (files.isEmpty) return;
+    try {
+      await Share.shareXFiles(
+        files.map((file) => XFile(file.path)).toList(),
+        subject: files.length == 1
+            ? _entityName(files.first)
+            : '${files.length}개 파일',
+      );
+      if (mounted) _clearSelection();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -450,6 +611,189 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
       _loadLocalFiles(_currentLocalPath);
     }
   }
+
+  Future<void> _deleteSelectedLocalFiles() async {
+    final files = _selectedLocalFiles.values.toList();
+    if (files.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('파일 삭제'),
+        content: Text('${files.length}개 파일을 삭제하시겠습니까?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    var deletedCount = 0;
+    final errors = <String>[];
+    for (final file in files) {
+      try {
+        await file.delete();
+        deletedCount++;
+      } catch (e) {
+        errors.add('${_entityName(file)}: $e');
+      }
+    }
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    _clearSelection();
+    await _loadLocalFiles(_currentLocalPath);
+    final baseMessage = errors.isEmpty
+        ? '$deletedCount개 파일을 삭제했습니다.'
+        : '$deletedCount개 삭제, ${errors.length}개 실패';
+    messenger.showSnackBar(SnackBar(content: Text(baseMessage)));
+  }
+
+  Future<void> _deleteSelectedServerFiles() async {
+    final items = _selectedServerFiles.values.toList();
+    if (items.isEmpty) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('파일 삭제'),
+        content: Text('${items.length}개 서버 파일을 삭제하시겠습니까?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('삭제'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    try {
+      final result = await _api.deleteFiles(
+        items.map((item) => item.path).toList(),
+      );
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      _clearSelection();
+      await _loadServer(_currentPath);
+      final hasErrors = result.errors.isNotEmpty;
+      final message = hasErrors
+          ? '${result.deletedCount}개 삭제, ${result.errors.length}개 제외'
+          : '${result.deletedCount}개 파일을 삭제했습니다.';
+      messenger.showSnackBar(SnackBar(content: Text(message)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('삭제 실패: $e')));
+    }
+  }
+
+  void _handleServerFileTap(FileItem item) {
+    if (_selectionMode) {
+      _toggleServerSelection(item);
+      return;
+    }
+    _showServerFileDetails(item);
+  }
+
+  void _handleServerFileLongPress(FileItem item) {
+    _toggleServerSelection(item);
+  }
+
+  void _showServerFileDetails(FileItem item) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Icon(
+                  fileIconForName(item.name),
+                  color: Colors.blueGrey,
+                  size: 24,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    item.name,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const Divider(height: 24),
+            _detailRow('경로', item.path),
+            _detailRow(
+              '크기',
+              item.size != null ? formatFileSize(item.size!) : '-',
+            ),
+            _detailRow('수정일', item.modified),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                icon: const Icon(Icons.download),
+                label: const Text('다운로드'),
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  _downloadServerItems([item]);
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _detailRow(String label, String value) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 56,
+          child: Text(
+            label,
+            style: const TextStyle(color: Colors.grey, fontSize: 13),
+          ),
+        ),
+        Expanded(child: Text(value, style: const TextStyle(fontSize: 13))),
+      ],
+    ),
+  );
 
   Widget _buildStandaloneBody() {
     final hasParent = _parentLocalPath != null;
@@ -514,7 +858,9 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
               leading: const Icon(Icons.arrow_upward_rounded),
               title: const Text('상위 폴더로 이동'),
               subtitle: Text(_localDisplayPath(_parentLocalPath!)),
-              onTap: () => _loadLocalFiles(_parentLocalPath),
+              onTap: _selectionMode
+                  ? null
+                  : () => _loadLocalFiles(_parentLocalPath),
             ),
         ],
       ),
@@ -528,6 +874,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
       'yy/MM/dd HH:mm',
     ).format(stat.modified.toLocal());
     final isDirectory = _isDirectory(entity);
+    final isSelected = _selectedLocalFiles.containsKey(entity.path);
 
     if (isDirectory) {
       return ListTile(
@@ -538,57 +885,101 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
           style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
         ),
         trailing: const Icon(Icons.chevron_right),
-        onTap: () => _loadLocalFiles(entity.path),
+        onTap: _selectionMode ? null : () => _loadLocalFiles(entity.path),
       );
     }
 
     final size = stat.size;
-    final sizeStr = size < 1024 * 1024
-        ? '${(size / 1024).toStringAsFixed(1)} KB'
-        : '${(size / (1024 * 1024)).toStringAsFixed(1)} MB';
+    final sizeStr = formatFileSize(size);
     return ListTile(
-      leading: const Icon(Icons.table_chart, color: Colors.green),
+      selected: isSelected,
+      selectedTileColor: Theme.of(context).colorScheme.primaryContainer,
+      leading: Icon(
+        _selectionMode && isSelected
+            ? Icons.check_circle
+            : fileIconForName(name),
+        color: _selectionMode && isSelected
+            ? Theme.of(context).colorScheme.primary
+            : Colors.green,
+      ),
       title: Text(name, style: const TextStyle(fontSize: 13)),
       subtitle: Text(
-        '$sizeStr  ·  $modified  ·  길게 눌러 공유',
+        '$sizeStr  ·  $modified  ·  길게 눌러 선택',
         style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
       ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
+      trailing: _selectionMode
+          ? Icon(
+              isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
+              color: isSelected
+                  ? Theme.of(context).colorScheme.primary
+                  : Colors.grey.shade400,
+            )
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.share_outlined, size: 22),
+                  tooltip: '다른 앱으로 열기 / 공유',
+                  onPressed: () => _shareLocalFile(entity),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  onPressed: () => _deleteLocalFile(entity),
+                ),
+              ],
+            ),
+      onTap: _selectionMode
+          ? () => _toggleLocalSelection(entity)
+          : () => _openLocalFile(entity),
+      onLongPress: () => _toggleLocalSelection(entity),
+    );
+  }
+
+  PreferredSizeWidget _buildStandaloneAppBar() {
+    if (_selectionMode) {
+      return AppBar(
+        leading: IconButton(
+          onPressed: _clearSelection,
+          icon: const Icon(Icons.close),
+          tooltip: '선택 해제',
+        ),
+        title: Text('$_selectedCount개 선택됨'),
+        actions: [
           IconButton(
-            icon: const Icon(Icons.share_outlined, size: 22),
-            tooltip: '다른 앱으로 열기 / 공유',
-            onPressed: () => _shareLocalFile(entity),
+            onPressed: _shareSelectedLocalFiles,
+            tooltip: '공유',
+            icon: const Icon(Icons.share_outlined),
           ),
           IconButton(
-            icon: const Icon(Icons.delete_outline, color: Colors.red),
-            onPressed: () => _deleteLocalFile(entity),
+            onPressed: _deleteSelectedLocalFiles,
+            tooltip: '삭제',
+            icon: const Icon(Icons.delete_outline),
           ),
         ],
-      ),
-      onTap: () => _openLocalFile(entity),
-      onLongPress: () => _shareLocalFile(entity),
-    );
+      );
+    }
+    return AppBar(title: const Text('파일 브라우저'));
   }
 
   Widget _buildStandalone() {
     return Scaffold(
-      appBar: AppBar(title: const Text('파일 브라우저')),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _exporting ? null : _exportExcel,
-        icon: _exporting
-            ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white,
-                ),
-              )
-            : const Icon(Icons.file_download),
-        label: Text(_exporting ? '내보내는 중...' : 'Excel 내보내기'),
-      ),
+      appBar: _buildStandaloneAppBar(),
+      floatingActionButton: _selectionMode
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _exporting ? null : _exportExcel,
+              icon: _exporting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.file_download),
+              label: Text(_exporting ? '내보내는 중...' : 'Excel 내보내기'),
+            ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
@@ -608,6 +999,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
       _loading = true;
       _error = null;
       _rootItems = null;
+      _selectedServerFiles.clear();
     });
     try {
       final items = await _api.getFiles(path);
@@ -657,7 +1049,28 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     if (_isStandalone) return _buildStandalone();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('파일 브라우저')),
+      appBar: _selectionMode
+          ? AppBar(
+              leading: IconButton(
+                onPressed: _clearSelection,
+                icon: const Icon(Icons.close),
+                tooltip: '선택 해제',
+              ),
+              title: Text('$_selectedCount개 선택됨'),
+              actions: [
+                IconButton(
+                  onPressed: _downloadSelectedServerFiles,
+                  tooltip: '다운로드',
+                  icon: const Icon(Icons.download_outlined),
+                ),
+                IconButton(
+                  onPressed: _deleteSelectedServerFiles,
+                  tooltip: '삭제',
+                  icon: const Icon(Icons.delete_outline),
+                ),
+              ],
+            )
+          : AppBar(title: const Text('파일 브라우저')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
@@ -670,8 +1083,10 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
                   item: _rootItems![i],
                   api: _api,
                   depth: 0,
-                  baseUrl: _baseUrl,
-                  apiKey: _apiKey,
+                  selectionMode: _selectionMode,
+                  isSelectedPath: _selectedServerFiles.containsKey,
+                  onFileTap: _handleServerFileTap,
+                  onFileLongPress: _handleServerFileLongPress,
                 ),
               ),
             ),
@@ -684,15 +1099,19 @@ class _TreeNode extends StatefulWidget {
   final FileItem item;
   final ApiService api;
   final int depth;
-  final String baseUrl;
-  final String apiKey;
+  final bool selectionMode;
+  final bool Function(String path) isSelectedPath;
+  final ValueChanged<FileItem> onFileTap;
+  final ValueChanged<FileItem> onFileLongPress;
 
   const _TreeNode({
     required this.item,
     required this.api,
     required this.depth,
-    required this.baseUrl,
-    required this.apiKey,
+    required this.selectionMode,
+    required this.isSelectedPath,
+    required this.onFileTap,
+    required this.onFileLongPress,
   });
 
   @override
@@ -706,7 +1125,7 @@ class _TreeNodeState extends State<_TreeNode> {
 
   Future<void> _toggle() async {
     if (!widget.item.isDir) {
-      _showDetails();
+      widget.onFileTap(widget.item);
       return;
     }
     if (_expanded) {
@@ -741,208 +1160,18 @@ class _TreeNodeState extends State<_TreeNode> {
     }
   }
 
-  Future<void> _download(BuildContext ctx, FileItem item) async {
-    final downloadUri = ServerContract.apiUri(
-      widget.baseUrl,
-      ServerContract.filesDownloadPath,
-      queryParameters: {'path': item.path},
-    );
-
-    ScaffoldMessenger.of(ctx).showSnackBar(
-      const SnackBar(
-        content: Text('다운로드 중...'),
-        duration: Duration(seconds: 30),
-      ),
-    );
-
-    try {
-      Object? lastError;
-      http.Response? response;
-      for (var attempt = 1; attempt <= mobileMaxRetryAttempts; attempt++) {
-        try {
-          response = await http
-              .get(
-                downloadUri,
-                headers: ServerContract.apiHeaders(
-                  widget.apiKey,
-                  includeJsonContentType: false,
-                ),
-              )
-              .timeout(const Duration(minutes: 2));
-          break;
-        } on SocketException catch (e) {
-          lastError = e;
-        } on http.ClientException catch (e) {
-          lastError = e;
-        } on TimeoutException catch (e) {
-          lastError = e;
-        }
-        if (attempt < mobileMaxRetryAttempts) {
-          await Future.delayed(
-            const Duration(seconds: mobileRetryDelaySeconds),
-          );
-        }
-      }
-      if (response == null) {
-        throw Exception('네트워크 오류 (${mobileMaxRetryAttempts}회 재시도 실패): $lastError');
-      }
-      if (response.statusCode != 200) {
-        if (ctx.mounted) {
-          ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
-          ScaffoldMessenger.of(ctx).showSnackBar(
-            SnackBar(content: Text('다운로드 실패: ${response.statusCode}')),
-          );
-        }
-        return;
-      }
-
-      final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/${item.name}');
-      await file.writeAsBytes(response.bodyBytes);
-
-      if (ctx.mounted) ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
-
-      final result = await OpenFilex.open(
-        file.path,
-        type: mimeForPath(file.path),
-      );
-      // 진짜 핸들러 없을 때만 (noAppToOpen) share sheet fallback
-      if (result.type == ResultType.noAppToOpen && ctx.mounted) {
-        await Share.shareXFiles([XFile(file.path)], subject: item.name);
-      } else if (result.type != ResultType.done && ctx.mounted) {
-        ScaffoldMessenger.of(
-          ctx,
-        ).showSnackBar(SnackBar(content: Text('파일 열기 실패: ${result.message}')));
-      }
-    } catch (e) {
-      if (ctx.mounted) {
-        ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
-        ScaffoldMessenger.of(
-          ctx,
-        ).showSnackBar(SnackBar(content: Text('오류: $e')));
-      }
-    }
-  }
-
-  void _showDetails() {
-    final item = widget.item;
-
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Icon(_fileIcon(item.name), color: Colors.blueGrey, size: 24),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    item.name,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const Divider(height: 24),
-            _row('경로', item.path),
-            _row('크기', item.size != null ? _fmt(item.size!) : '-'),
-            _row('수정일', item.modified),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                icon: const Icon(Icons.download),
-                label: const Text('다운로드'),
-                onPressed: () => _download(ctx, item),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _row(String label, String value) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 4),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 56,
-          child: Text(
-            label,
-            style: const TextStyle(color: Colors.grey, fontSize: 13),
-          ),
-        ),
-        Expanded(child: Text(value, style: const TextStyle(fontSize: 13))),
-      ],
-    ),
-  );
-
-  String _fmt(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-  }
-
-  IconData _fileIcon(String name) {
-    final ext = name.contains('.') ? name.split('.').last.toLowerCase() : '';
-    switch (ext) {
-      case 'db':
-        return Icons.storage;
-      case 'log':
-        return Icons.article;
-      case 'csv':
-        return Icons.table_chart;
-      case 'xlsx':
-      case 'xls':
-        return Icons.table_chart;
-      case 'json':
-        return Icons.data_object;
-      case 'txt':
-        return Icons.text_snippet;
-      case 'ini':
-        return Icons.settings;
-      case 'png':
-      case 'jpg':
-      case 'jpeg':
-        return Icons.image;
-      default:
-        return Icons.insert_drive_file;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final item = widget.item;
     final indent = widget.depth * 20.0;
+    final isSelected = widget.isSelectedPath(item.path);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         InkWell(
-          onTap: _toggle,
+          onTap: item.isDir ? _toggle : () => widget.onFileTap(item),
+          onLongPress: item.isDir ? null : () => widget.onFileLongPress(item),
           child: Padding(
             padding: EdgeInsets.only(
               left: 16 + indent,
@@ -972,9 +1201,13 @@ class _TreeNodeState extends State<_TreeNode> {
                     : Icon(
                         item.isDir
                             ? (_expanded ? Icons.folder_open : Icons.folder)
-                            : _fileIcon(item.name),
+                            : widget.selectionMode && isSelected
+                            ? Icons.check_circle
+                            : fileIconForName(item.name),
                         color: item.isDir
                             ? Colors.amber.shade700
+                            : widget.selectionMode && isSelected
+                            ? Theme.of(context).colorScheme.primary
                             : Colors.blueGrey,
                         size: 20,
                       ),
@@ -992,7 +1225,7 @@ class _TreeNodeState extends State<_TreeNode> {
                 ),
                 if (!item.isDir && item.size != null)
                   Text(
-                    _fmt(item.size!),
+                    formatFileSize(item.size!),
                     style: const TextStyle(fontSize: 11, color: Colors.grey),
                   ),
                 if (!item.isDir)
@@ -1001,6 +1234,19 @@ class _TreeNodeState extends State<_TreeNode> {
                     child: Text(
                       item.modified,
                       style: const TextStyle(fontSize: 10, color: Colors.grey),
+                    ),
+                  ),
+                if (!item.isDir && widget.selectionMode)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: Icon(
+                      isSelected
+                          ? Icons.check_circle
+                          : Icons.radio_button_unchecked,
+                      size: 18,
+                      color: isSelected
+                          ? Theme.of(context).colorScheme.primary
+                          : Colors.grey.shade400,
                     ),
                   ),
                 if (item.isDir)
@@ -1019,8 +1265,10 @@ class _TreeNodeState extends State<_TreeNode> {
               item: child,
               api: widget.api,
               depth: widget.depth + 1,
-              baseUrl: widget.baseUrl,
-              apiKey: widget.apiKey,
+              selectionMode: widget.selectionMode,
+              isSelectedPath: widget.isSelectedPath,
+              onFileTap: widget.onFileTap,
+              onFileLongPress: widget.onFileLongPress,
             ),
           ),
         Divider(height: 1, indent: 16 + indent, color: Colors.grey.shade100),

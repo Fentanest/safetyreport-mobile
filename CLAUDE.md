@@ -414,10 +414,11 @@ fire-and-forget 으로 시작한다. 사용자는 즉시 선택 모드에서 빠
 
 ## SQLite 스키마 (Standalone)
 
-`lib/services/local_db_service.dart` — `standalone_reports.db`, version 5.
+`lib/services/local_db_service.dart` — `standalone_reports.db`, version 7.
 
 서버 DB 와 컬럼명 동일 (한국어). mobile-only 추가: `category`, `entry_value`, `raw_content`, `synced_at`.
 2026-05-06부터 raw payload 의 정본은 `report_raw` 사이드카 테이블에 둔다.
+2026-05-07부터 중복군 hash는 서버와 동일한 SHA-256 기준을 사용하고, version 7부터 `duplicate_group.apply_globally` 컬럼을 가진다.
 
 ```sql
 CREATE TABLE reports (
@@ -446,8 +447,10 @@ CREATE TABLE sync_meta (key TEXT PRIMARY KEY, value TEXT);
 - `reports.raw_content`
   - 레거시 호환용 컬럼으로 남아 있지만 신규 데이터의 payload 정본은 `report_raw` 가 담당
 - `importFromServerDb()`
-  - `mysafetymerge_*` 뿐 아니라 `mysafety_entry_value`, `mysafety_raw_content` 를 함께 읽는다
+  - `mysafetymerge_*` 뿐 아니라 `mysafety_entry_value`, `mysafety_raw_content`, `mysafety_sync_meta`, `mysafety_duplicate_group`, `mysafety_duplicate_member` 를 함께 읽는다
   - 서버 `synced_at` 가 있으면 그대로 복원하고, 없을 때만 import 시점 `now` 를 fallback 사용
+  - 서버 duplicate group/member 테이블이 이미 있으면 import 직후 재계산으로 덮어쓰지 않고 exact copy 를 유지한다
+  - 서버 `last_sync`, `watchlist`, 기타 sync meta key/value 도 함께 복원한다
 
 ### 주요 쿼리 함수
 - `computeSummary(excludeWithdraw, normalizePolice)` — 대시보드 요약
@@ -624,7 +627,7 @@ class ChangeType {
 - 적용 후 키 제거. 실패해도 로그인은 성공으로 처리 (SnackBar 만 안내).
 
 ### `LocalDbService.importFromServerDb(path)`
-서버 DB 의 3개 merge 테이블 (`mysafetymerge_traffic` / `parking` / `other`) → 모바일 단일 `reports` 테이블 + `category` 컬럼 부여. `mysafety_watchlist` → `sync_meta('watchlist')` CSV 변환. 트랜잭션으로 묶어 일괄 INSERT. 임포트 건수 반환.
+서버 DB 의 3개 merge 테이블 (`mysafetymerge_traffic` / `parking` / `other`) → 모바일 단일 `reports` 테이블 + `category` 컬럼 부여. `mysafety_entry_value`, `mysafety_raw_content`, `mysafety_sync_meta`, `mysafety_duplicate_group`, `mysafety_duplicate_member`도 함께 복원한다. `mysafety_watchlist` 는 `sync_meta('watchlist')` 와 `reports.감시목록`을 다시 맞춘다. duplicate group/member가 없는 구서버 DB만 마지막에 로컬 projection 재계산을 수행한다.
 
 ### `LocalDbService.replaceFromBackup(path)`
 모바일 형식 백업 .db 를 그대로 덮어씀 (closeDb → File.copy → 다음 db getter 가 재오픈). 서버 DB 는 스키마 다르므로 이 메서드 사용 불가.

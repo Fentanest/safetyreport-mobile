@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:sqflite/sqflite.dart';
 
 import '../models/duplicate_group.dart';
@@ -18,6 +19,7 @@ class DuplicateProjectionService {
         representative_mode TEXT NOT NULL DEFAULT 'auto',
         representative_id TEXT,
         member_count INTEGER NOT NULL DEFAULT 0,
+        apply_globally INTEGER NOT NULL DEFAULT 1,
         note TEXT DEFAULT '',
         created_at INTEGER,
         updated_at INTEGER
@@ -38,6 +40,13 @@ class DuplicateProjectionService {
         PRIMARY KEY (group_id, report_id)
       )
     ''');
+    try {
+      await db.execute(
+        'ALTER TABLE $groupTable ADD COLUMN apply_globally INTEGER NOT NULL DEFAULT 1',
+      );
+    } catch (_) {
+      // already exists
+    }
   }
 
   static int _nowMs() => DateTime.now().millisecondsSinceEpoch;
@@ -56,6 +65,10 @@ class DuplicateProjectionService {
   }
 
   static String _payloadHash(String rawContent) {
+    return crypto.sha256.convert(utf8.encode(rawContent)).toString();
+  }
+
+  static String _legacyPayloadHash(String rawContent) {
     var hash = 1469598103934665603;
     for (final unit in utf8.encode(rawContent)) {
       hash ^= unit;
@@ -144,6 +157,8 @@ class DuplicateProjectionService {
       final normalized = normalizeRawContent(item['raw_content']);
       item['payload_normalized'] = normalized;
       item['payload_hash'] = normalized.isEmpty ? '' : _payloadHash(normalized);
+      item['payload_hash_legacy'] =
+          normalized.isEmpty ? '' : _legacyPayloadHash(normalized);
       return item;
     }).toList();
   }
@@ -154,10 +169,18 @@ class DuplicateProjectionService {
   }) async {
     final inventory = await _loadInventory(db);
     final existingGroups = <String, Map<String, dynamic>>{};
+    final existingGroupsByLegacyId = <String, Map<String, dynamic>>{};
     final existingGroupRows = await db.query(groupTable);
     for (final row in existingGroupRows) {
-      existingGroups[row['group_id']?.toString() ?? ''] =
-          Map<String, dynamic>.from(row);
+      final normalized = Map<String, dynamic>.from(row);
+      final groupId = row['group_id']?.toString() ?? '';
+      if (groupId.isNotEmpty) {
+        existingGroups[groupId] = normalized;
+      }
+      final legacyKey = row['fingerprint']?.toString() ?? '';
+      if (legacyKey.isNotEmpty) {
+        existingGroupsByLegacyId[legacyKey] = normalized;
+      }
     }
 
     final existingMembersByGroup = <String, Set<String>>{};
@@ -199,7 +222,10 @@ class DuplicateProjectionService {
 
       final recommendedRepresentative = _chooseRepresentative(records);
       final recommendedRepresentativeId = _text(recommendedRepresentative['ID']);
-      final existing = existingGroups[groupId];
+      final legacyGroupId = _text(records.first['payload_hash_legacy']);
+      final existing =
+          existingGroups[groupId] ??
+          (legacyGroupId.isEmpty ? null : existingGroupsByLegacyId[legacyGroupId]);
       final preservedStatus = _text(existing?['status']);
       final preservedMode = _text(existing?['representative_mode']);
       final preservedRep = _text(existing?['representative_id']);
@@ -254,6 +280,8 @@ class DuplicateProjectionService {
         'representative_mode': representativeMode,
         'representative_id': representativeId,
         'member_count': records.length,
+        'apply_globally':
+            status == DuplicateStatuses.confirmedDuplicate ? 1 : 0,
         'note': existing?['note']?.toString() ?? '',
         'created_at': createdAt,
         'updated_at': currentTs,
@@ -556,6 +584,8 @@ class DuplicateProjectionService {
           'status': nextStatus,
           'representative_mode': nextMode,
           'representative_id': resolvedRepresentativeId,
+          'apply_globally':
+              nextStatus == DuplicateStatuses.confirmedDuplicate ? 1 : 0,
           'note': note ?? currentGroup['note']?.toString() ?? '',
           'updated_at': updatedAt,
         },
@@ -597,10 +627,15 @@ class DuplicateProjectionService {
     return await db.rawUpdate(
       '''
       UPDATE $groupTable
-      SET status = ?, updated_at = ?
+      SET status = ?, apply_globally = ?, updated_at = ?
       WHERE group_id IN ($placeholders)
       ''',
-      [normalizedStatus, _nowMs(), ...normalizedIds],
+      [
+        normalizedStatus,
+        normalizedStatus == DuplicateStatuses.confirmedDuplicate ? 1 : 0,
+        _nowMs(),
+        ...normalizedIds,
+      ],
     );
   }
 

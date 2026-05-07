@@ -96,9 +96,8 @@ class _DuplicateGroupDetailSheet extends StatelessWidget {
             _detailRow('ID', representative.reportId),
             _detailRow('신고번호', representative.report.reportNumber),
             _detailRow('신고명', representative.report.name),
-            _detailRow('처리상태', representative.report.status),
+            _detailRow('처리상태', representative.report.statusWithFine),
             _detailRow('처리기관', representative.report.agency),
-            _detailRow('범칙금/과태료', representative.report.fineInfo),
             const SizedBox(height: 10),
           ],
           _sectionTitle('멤버 목록'),
@@ -145,7 +144,7 @@ class _DuplicateGroupDetailSheet extends StatelessWidget {
                         style: const TextStyle(fontSize: 11, height: 1.4),
                       ),
                       Text(
-                        '${member.entryValue.isNotEmpty ? member.entryValue : member.category} · ${member.report.status}',
+                        '${member.entryValue.isNotEmpty ? member.entryValue : member.category} · ${member.report.statusWithFine}',
                         style: const TextStyle(fontSize: 11, height: 1.4),
                       ),
                       if (member.report.agency.isNotEmpty)

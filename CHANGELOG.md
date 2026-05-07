@@ -9,6 +9,40 @@
 
 ## 2026-05-07 (P0~P3 리팩토링)
 
+### 서버-모바일 DB round-trip 항목 전수 점검 + exact import 보강
+
+상태: 완료
+
+변경:
+- `pubspec.yaml`
+  - 중복군 payload hash를 서버와 동일한 SHA-256으로 맞추기 위해 `crypto` 직접 의존성 선언
+- `lib/services/duplicate_projection_service.dart`
+  - 중복군 `group_id`/`fingerprint` 생성 기준을 서버와 동일한 SHA-256으로 통일
+  - 예전 FNV hash로 만들어진 모바일 중복군도 한 번은 이어받을 수 있게 legacy hash 매핑 추가
+  - `duplicate_group` 스키마에 `apply_globally` 컬럼 추가 및 refresh/update 시 같이 관리
+- `lib/services/local_db_service.dart`
+  - Standalone DB version `6 -> 7`
+  - `importFromServerDb()` 가 `mysafety_sync_meta`, `mysafety_duplicate_group`, `mysafety_duplicate_member`를 함께 읽어 exact import 하도록 확장
+  - 서버에서 `last_sync`, `watchlist`, 기타 sync meta key/value를 더 이상 잃지 않도록 복원
+  - 서버 duplicate group/member 테이블이 있으면 import 직후 재계산으로 덮어쓰지 않고 그대로 유지
+- `lib/models/report.dart`
+  - 중복 신고 UI에서 `처리상태 · 과태료/범칙금`을 함께 표기하는 공용 getter 추가
+- `lib/screens/duplicate_management_screen.dart`
+- `lib/widgets/duplicate_group_detail_sheet.dart`
+  - parent/child 카드와 상세 보기에서 처리상태 옆에 과태료 정보가 있으면 함께 노출
+
+검증:
+- `dart analyze lib/services/local_db_service.dart lib/services/duplicate_projection_service.dart lib/models/report.dart lib/screens/duplicate_management_screen.dart lib/widgets/duplicate_group_detail_sheet.dart`
+  - 에러 없음
+  - 기존 deprecated info 4건만 잔존
+- `flutter pub get` 로 direct dependency 반영 확인
+
+비고:
+- 이번 정리 기준으로 모바일이 서버 DB를 import 할 때 보존 대상은
+  `entry_value`, `raw_content`, `raw_type`, `saved_at`, `synced_at`,
+  `sync_meta.*`, `duplicate_group.*`, `duplicate_member.*` 이다.
+- `review_required` / `confirmed_duplicate` / `not_duplicate` 의미와 대표건 로직은 그대로 유지한다.
+
 ### `docs/mobile-refactoring-plan-2026-05.md` 적용 1차 — 문자열 키/패널/카테고리 fetch 정리
 
 상태: 완료 (P0~P3 1차 분량). P4 (refresh nonce 제거) 와 ReportProvider 분해는 별도 차수로 보류.

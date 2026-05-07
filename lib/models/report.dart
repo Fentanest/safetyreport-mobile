@@ -71,6 +71,14 @@ class Report {
     this.category = '',
   });
 
+  String get statusWithFine {
+    final statusText = status.trim();
+    final fineText = fineInfo.trim();
+    if (statusText.isEmpty) return fineText;
+    if (fineText.isEmpty) return statusText;
+    return '$statusText · $fineText';
+  }
+
   factory Report.fromJson(Map<String, dynamic> json) {
     return Report(
       id: json['ID']?.toString() ?? '',

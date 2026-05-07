@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../models/duplicate_group.dart';
 import '../models/report.dart';
 import 'duplicate_projection_service.dart';
 import 'standalone_parser.dart';
@@ -57,7 +58,7 @@ class LocalDbService {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       join(dbPath, 'standalone_reports.db'),
-      version: 6,
+      version: 7,
       onCreate: _create,
       onUpgrade: (db, oldV, newV) async {
         if (oldV < 4) {
@@ -75,6 +76,9 @@ class LocalDbService {
           await _migrateRawContentToSidecar(db);
         }
         if (oldV < 6) {
+          await DuplicateProjectionService.createSchema(db);
+        }
+        if (oldV < 7) {
           await DuplicateProjectionService.createSchema(db);
         }
       },
@@ -1220,6 +1224,76 @@ class LocalDbService {
         }
       } catch (_) {}
 
+      final syncMetaRows = <Map<String, Object?>>[];
+      try {
+        final rows = await serverDb.query('mysafety_sync_meta');
+        for (final row in rows) {
+          final key = row['key']?.toString() ?? '';
+          if (key.isEmpty) continue;
+          syncMetaRows.add({
+            'key': key,
+            'value': row['value']?.toString() ?? '',
+          });
+        }
+      } catch (_) {}
+
+      final duplicateGroups = <Map<String, Object?>>[];
+      try {
+        final rows = await serverDb.query('mysafety_duplicate_group');
+        for (final row in rows) {
+          final groupId = row['group_id']?.toString() ?? '';
+          if (groupId.isEmpty) continue;
+          duplicateGroups.add({
+            'group_id': groupId,
+            'fingerprint': row['fingerprint']?.toString() ?? groupId,
+            'match_type': row['match_type']?.toString() ?? 'payload_exact',
+            'status':
+                row['status']?.toString() ?? DuplicateStatuses.confirmedDuplicate,
+            'representative_mode':
+                row['representative_mode']?.toString() ??
+                RepresentativeModes.auto,
+            'representative_id': row['representative_id']?.toString() ?? '',
+            'member_count':
+                int.tryParse(row['member_count']?.toString() ?? '') ?? 0,
+            'apply_globally':
+                int.tryParse(row['apply_globally']?.toString() ?? '') ??
+                ((row['status']?.toString() ?? '') ==
+                        DuplicateStatuses.confirmedDuplicate
+                    ? 1
+                    : 0),
+            'note': row['note']?.toString() ?? '',
+            'created_at': _toEpochMillis(row['created_at']),
+            'updated_at': _toEpochMillis(row['updated_at']),
+          });
+        }
+      } catch (_) {}
+
+      final duplicateMembers = <Map<String, Object?>>[];
+      try {
+        final rows = await serverDb.query('mysafety_duplicate_member');
+        for (final row in rows) {
+          final groupId = row['group_id']?.toString() ?? '';
+          final reportId = row['report_id']?.toString() ?? '';
+          if (groupId.isEmpty || reportId.isEmpty) continue;
+          duplicateMembers.add({
+            'group_id': groupId,
+            'report_id': reportId,
+            'report_number': row['report_number']?.toString() ?? '',
+            'category': row['category']?.toString() ?? 'other',
+            'is_representative':
+                int.tryParse(row['is_representative']?.toString() ?? '') ?? 0,
+            'priority_score':
+                int.tryParse(row['priority_score']?.toString() ?? '') ?? 0,
+            'raw_match':
+                int.tryParse(row['raw_match']?.toString() ?? '') ?? 0,
+            'field_match':
+                int.tryParse(row['field_match']?.toString() ?? '') ?? 0,
+            'created_at': _toEpochMillis(row['created_at']),
+            'updated_at': _toEpochMillis(row['updated_at']),
+          });
+        }
+      } catch (_) {}
+
       // 서버 DB 의 3개 merge 테이블 → mobile reports + category
       const tableMap = {
         'mysafetymerge_traffic': 'traffic',
@@ -1259,6 +1333,37 @@ class LocalDbService {
         }
       }
 
+      if (syncMetaRows.isNotEmpty) {
+        await localDb.transaction((txn) async {
+          for (final row in syncMetaRows) {
+            await txn.insert(
+              'sync_meta',
+              row,
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            );
+          }
+        });
+      }
+
+      if (duplicateGroups.isNotEmpty) {
+        await localDb.transaction((txn) async {
+          for (final row in duplicateGroups) {
+            await txn.insert(
+              DuplicateProjectionService.groupTable,
+              row,
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            );
+          }
+          for (final row in duplicateMembers) {
+            await txn.insert(
+              DuplicateProjectionService.memberTable,
+              row,
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            );
+          }
+        });
+      }
+
       // 감시목록: server 의 mysafety_watchlist 테이블 → mobile sync_meta('watchlist') CSV
       try {
         final watchRows = await serverDb.query(
@@ -1282,8 +1387,13 @@ class LocalDbService {
       } catch (_) {}
 
       // 마지막 sync 시각 기록 — 다음 증분 동기화의 기준점
-      await setMeta('last_sync', DateTime.now().toIso8601String());
-      await DuplicateProjectionService.refreshDuplicateGroups(localDb);
+      if (syncMetaRows
+          .every((row) => (row['key']?.toString() ?? '') != 'last_sync')) {
+        await setMeta('last_sync', DateTime.now().toIso8601String());
+      }
+      if (duplicateGroups.isEmpty || duplicateMembers.isEmpty) {
+        await DuplicateProjectionService.refreshDuplicateGroups(localDb);
+      }
 
       return imported;
     } finally {

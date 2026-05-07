@@ -242,7 +242,7 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
                             overflow: TextOverflow.ellipsis,
                           ),
                         Text(
-                          '${member.entryValue.isNotEmpty ? member.entryValue : member.category} · ${member.report.status}',
+                          '${member.entryValue.isNotEmpty ? member.entryValue : member.category} · ${member.report.statusWithFine}',
                         ),
                         if (member.report.agency.isNotEmpty)
                           Text(
@@ -491,7 +491,7 @@ class _DuplicateGroupCard extends StatelessWidget {
             children: [
               if (rep != null)
                 Text(
-                  '대표 신고번호 ${rep.report.reportNumber} · ${rep.report.status}',
+                  '대표 신고번호 ${rep.report.reportNumber} · ${rep.report.statusWithFine}',
                   style: const TextStyle(fontSize: 12),
                 ),
               Text(

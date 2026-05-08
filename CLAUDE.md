@@ -356,6 +356,10 @@ fire-and-forget 으로 시작한다. 사용자는 즉시 선택 모드에서 빠
 - `ReportProvider.ensureCategoryReportsLoaded()` 는 traffic / parking / other 원본 목록을
   한 번 확보하고, `recentAnswerReports` 는 그 실제 목록에서 최근 3일 답변을 다시 계산한다.
   그래서 summary 쿼리 한도에 잘리지 않고 카테고리도 유지된다.
+- `recentAnswerReports` 의 최종 정렬 기준은 서버 대시보드와 맞춰 `synced_at DESC`,
+  fallback `답변일 DESC`, `신고번호 DESC` 이다.
+  `답변일`만 보면 같은 날 여러 건이 섞일 수 있으므로, `Report` 모델이 `syncedAt` 을
+  실제로 보존하고 있어야 한다.
 - `ReportProvider.findCategory(report)` 는 `Report.category` 를 우선 사용하고, 비어 있으면
   로드된 카테고리 목록에서 다시 찾는다.
 - `report_detail_sheet.dart` 의 차량번호 / 위반장소 / 위반법규 / 담당자 링크는
@@ -450,6 +454,8 @@ CREATE TABLE sync_meta (key TEXT PRIMARY KEY, value TEXT);
   - Unix epoch milliseconds
   - "이 신고 row 의 추적 대상 필드가 마지막으로 실제 반영된 시각"
   - 동일 내용 재동기화에서는 유지, 실제 처리결과/답변 payload 변경 시에만 갱신
+  - `Report.fromJson`, local row → `Report`, 알림 extraData 직렬화 모두 이 값을 잃지 않아야
+    최근 답변 / 알림 상세 정렬이 서버와 같은 기준으로 유지된다.
 - `reports.raw_content`
   - 레거시 호환용 컬럼으로 남아 있지만 신규 데이터의 payload 정본은 `report_raw` 가 담당
 - `importFromServerDb()`
@@ -548,6 +554,9 @@ CREATE TABLE sync_meta (key TEXT PRIMARY KEY, value TEXT);
 - START_STICKY (OS 가 죽여도 자동 재시작)
 - `connected`, `ping`, `crawl_started`, `crawl_finished`, `crawl_changes` 이벤트는 `ServerContract` 상수 기준으로 처리
 - crawl_started/finished/changes 이벤트 수신 → push 알림
+- `crawl_changes` 의 일반 신고 payload는 서버가 `notification_kind=report`, `synced_at`,
+  `category` 를 포함해 준다는 계약을 전제로 한다.
+  WsService / pending changes / 알림 히스토리 / 상세 시트는 이 값을 그대로 유지해야 한다.
 
 ### `SyncForegroundService` (Standalone 모드)
 - `SyncEngine.start()` 또는 `drainIfPending()` 실행 동안 가동

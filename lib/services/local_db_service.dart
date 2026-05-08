@@ -220,7 +220,9 @@ class LocalDbService {
     List<Map<String, dynamic>> rows, {
     required bool useRepresentativeRecords,
   }) async {
-    final normalized = rows.map((row) => Map<String, dynamic>.from(row)).toList();
+    final normalized = rows
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList();
     if (normalized.isEmpty) return normalized;
     return DuplicateProjectionService.projectReportRows(
       db,
@@ -359,9 +361,8 @@ class LocalDbService {
       useRepresentativeRecords: useRepresentativeRecords,
     );
     projected.sort(
-      (left, right) => _stringify(right['신고번호']).compareTo(
-        _stringify(left['신고번호']),
-      ),
+      (left, right) =>
+          _stringify(right['신고번호']).compareTo(_stringify(left['신고번호'])),
     );
     return projected
         .map((r) => _rowToReport(r, normalizePolice: normalizePolice))
@@ -385,9 +386,8 @@ class LocalDbService {
       useRepresentativeRecords: useRepresentativeRecords,
     );
     projected.sort(
-      (left, right) => _stringify(right['신고번호']).compareTo(
-        _stringify(left['신고번호']),
-      ),
+      (left, right) =>
+          _stringify(right['신고번호']).compareTo(_stringify(left['신고번호'])),
     );
     return projected
         .map((r) => _rowToReport(r, normalizePolice: normalizePolice))
@@ -503,40 +503,40 @@ class LocalDbService {
     String fmtDate(DateTime t) => '${t.year}-${two(t.month)}-${two(t.day)}';
     final lowerBound = fmtDate(threeDaysAgo);
     final upperBound = '${fmtDate(today)} 99';
-    final recentRows = rows.where((row) {
-      final status = _stringify(row['처리상태']);
-      if (!const {'수용', '일부수용', '불수용', '기타', '답변완료'}.contains(status)) {
-        return false;
-      }
-      if (excludeWithdraw && status == '취하') return false;
-      final responseDate = _stringify(row['답변일']);
-      if (responseDate.isEmpty) return false;
-      return responseDate.compareTo(lowerBound) >= 0 &&
-          responseDate.compareTo(upperBound) <= 0;
-    }).toList()
-      ..sort((left, right) {
-        final leftSynced = _toEpochMillis(left['synced_at']) ?? -1;
-        final rightSynced = _toEpochMillis(right['synced_at']) ?? -1;
-        if (leftSynced != rightSynced) return rightSynced.compareTo(leftSynced);
-        final leftAnswer = _stringify(left['답변일']);
-        final rightAnswer = _stringify(right['답변일']);
-        final answerComp = rightAnswer.compareTo(leftAnswer);
-        if (answerComp != 0) return answerComp;
-        return _stringify(right['신고번호']).compareTo(_stringify(left['신고번호']));
-      });
+    final recentRows =
+        rows.where((row) {
+          final status = _stringify(row['처리상태']);
+          if (!const {'수용', '일부수용', '불수용', '기타', '답변완료'}.contains(status)) {
+            return false;
+          }
+          if (excludeWithdraw && status == '취하') return false;
+          final responseDate = _stringify(row['답변일']);
+          if (responseDate.isEmpty) return false;
+          return responseDate.compareTo(lowerBound) >= 0 &&
+              responseDate.compareTo(upperBound) <= 0;
+        }).toList()..sort((left, right) {
+          final leftSynced = _toEpochMillis(left['synced_at']) ?? -1;
+          final rightSynced = _toEpochMillis(right['synced_at']) ?? -1;
+          if (leftSynced != rightSynced)
+            return rightSynced.compareTo(leftSynced);
+          final leftAnswer = _stringify(left['답변일']);
+          final rightAnswer = _stringify(right['답변일']);
+          final answerComp = rightAnswer.compareTo(leftAnswer);
+          if (answerComp != 0) return answerComp;
+          return _stringify(right['신고번호']).compareTo(_stringify(left['신고번호']));
+        });
 
-    final watchlistRows = rows.where((row) {
-      if (_stringify(row['감시목록']) != 'Y') return false;
-      if (excludeWithdraw && _stringify(row['처리상태']) == '취하') {
-        return false;
-      }
-      return true;
-    }).toList()
-      ..sort(
-        (left, right) => _stringify(right['신고번호']).compareTo(
-          _stringify(left['신고번호']),
-        ),
-      );
+    final watchlistRows =
+        rows.where((row) {
+          if (_stringify(row['감시목록']) != 'Y') return false;
+          if (excludeWithdraw && _stringify(row['처리상태']) == '취하') {
+            return false;
+          }
+          return true;
+        }).toList()..sort(
+          (left, right) =>
+              _stringify(right['신고번호']).compareTo(_stringify(left['신고번호'])),
+        );
 
     final lastSync = await getMeta('last_sync') ?? '';
 
@@ -819,6 +819,7 @@ class LocalDbService {
       totalCount: (r['total_count'] as num?)?.toInt() ?? 0,
       validCount: (r['valid_count'] as num?)?.toInt() ?? 0,
       category: r['category'] as String? ?? '',
+      syncedAt: _toEpochMillis(r['synced_at']),
     );
   }
 
@@ -864,9 +865,8 @@ class LocalDbService {
       useRepresentativeRecords: useRepresentativeRecords,
     );
     projected.sort(
-      (left, right) => _stringify(right['신고번호']).compareTo(
-        _stringify(left['신고번호']),
-      ),
+      (left, right) =>
+          _stringify(right['신고번호']).compareTo(_stringify(left['신고번호'])),
     );
     return projected
         .map((r) => _rowToReport(r, normalizePolice: normalizePolice))
@@ -901,9 +901,8 @@ class LocalDbService {
       useRepresentativeRecords: useRepresentativeRecords,
     );
     projected.sort(
-      (left, right) => _stringify(right['신고번호']).compareTo(
-        _stringify(left['신고번호']),
-      ),
+      (left, right) =>
+          _stringify(right['신고번호']).compareTo(_stringify(left['신고번호'])),
     );
     return projected
         .map((r) => _rowToReport(r, normalizePolice: normalizePolice))
@@ -1042,11 +1041,11 @@ class LocalDbService {
       },
     ];
 
-      await d.transaction((txn) async {
-        for (final row in rows) {
-          await txn.insert(
-            'reports',
-            row,
+    await d.transaction((txn) async {
+      for (final row in rows) {
+        await txn.insert(
+          'reports',
+          row,
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }
@@ -1248,7 +1247,8 @@ class LocalDbService {
             'fingerprint': row['fingerprint']?.toString() ?? groupId,
             'match_type': row['match_type']?.toString() ?? 'payload_exact',
             'status':
-                row['status']?.toString() ?? DuplicateStatuses.confirmedDuplicate,
+                row['status']?.toString() ??
+                DuplicateStatuses.confirmedDuplicate,
             'representative_mode':
                 row['representative_mode']?.toString() ??
                 RepresentativeModes.auto,
@@ -1284,8 +1284,7 @@ class LocalDbService {
                 int.tryParse(row['is_representative']?.toString() ?? '') ?? 0,
             'priority_score':
                 int.tryParse(row['priority_score']?.toString() ?? '') ?? 0,
-            'raw_match':
-                int.tryParse(row['raw_match']?.toString() ?? '') ?? 0,
+            'raw_match': int.tryParse(row['raw_match']?.toString() ?? '') ?? 0,
             'field_match':
                 int.tryParse(row['field_match']?.toString() ?? '') ?? 0,
             'created_at': _toEpochMillis(row['created_at']),
@@ -1387,8 +1386,9 @@ class LocalDbService {
       } catch (_) {}
 
       // 마지막 sync 시각 기록 — 다음 증분 동기화의 기준점
-      if (syncMetaRows
-          .every((row) => (row['key']?.toString() ?? '') != 'last_sync')) {
+      if (syncMetaRows.every(
+        (row) => (row['key']?.toString() ?? '') != 'last_sync',
+      )) {
         await setMeta('last_sync', DateTime.now().toIso8601String());
       }
       if (duplicateGroups.isEmpty || duplicateMembers.isEmpty) {
@@ -1422,9 +1422,16 @@ class LocalDbService {
     // 다음 db getter 호출 시 새로 open.
   }
 
-  static Future<Map<String, dynamic>?> getEditableRecord(String reportId) async {
+  static Future<Map<String, dynamic>?> getEditableRecord(
+    String reportId,
+  ) async {
     final d = await db;
-    final rows = await d.query('reports', where: 'ID = ?', whereArgs: [reportId], limit: 1);
+    final rows = await d.query(
+      'reports',
+      where: 'ID = ?',
+      whereArgs: [reportId],
+      limit: 1,
+    );
     if (rows.isEmpty) return null;
     return Map<String, dynamic>.from(rows.first);
   }
@@ -1457,7 +1464,8 @@ class LocalDbService {
     final reportChanged = !_rowsEqual(existingComparable, nextComparable);
     final syncedAt = reportChanged
         ? DateTime.now().millisecondsSinceEpoch
-        : (_toEpochMillis(existing['synced_at']) ?? DateTime.now().millisecondsSinceEpoch);
+        : (_toEpochMillis(existing['synced_at']) ??
+              DateTime.now().millisecondsSinceEpoch);
     next['synced_at'] = syncedAt;
 
     await d.update(
@@ -1506,6 +1514,7 @@ class LocalDbService {
       rating: (r['별점'] as num?)?.toInt(),
       ratingCause: r['별점사유'] as String? ?? '',
       category: r['category'] as String? ?? '',
+      syncedAt: _toEpochMillis(r['synced_at']),
     );
   }
 }

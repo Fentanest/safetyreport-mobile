@@ -221,5 +221,6 @@ Map<String, dynamic> reportToMap(Report report) {
     'total_count': report.totalCount,
     'valid_count': report.validCount,
     'category': report.category,
+    'synced_at': report.syncedAt,
   };
 }

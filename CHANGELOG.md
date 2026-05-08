@@ -9,6 +9,32 @@
 
 ## 2026-05-08
 
+### Client 최근 답변 / 알림 상세가 `synced_at`을 버리던 문제 수정
+
+상태: 완료
+
+변경:
+- `lib/models/report.dart`
+  - `Report` 모델에 `syncedAt` 추가, 서버/알림 payload의 `synced_at` 파싱
+- `lib/providers/report_provider.dart`
+  - `recentAnswerReports` 재계산 시 `답변일`만 보지 않고 `syncedAt DESC`, fallback `답변일 DESC`, `신고번호 DESC` 정렬 사용
+- `lib/services/local_db_service.dart`
+  - 로컬 DB row → `Report` 변환 시 `synced_at` 보존
+- `lib/services/sync_engine.dart`
+  - pending changes / heads-up 상세 payload 직렬화에 `synced_at` 포함
+- `lib/models/rating_batch_result.dart`
+  - reportData 직렬화에도 `synced_at` 포함
+
+검증:
+- `dart format lib/models/report.dart lib/models/rating_batch_result.dart lib/providers/report_provider.dart lib/services/local_db_service.dart lib/services/sync_engine.dart`
+- `dart analyze lib/models/report.dart lib/models/rating_batch_result.dart lib/providers/report_provider.dart lib/services/local_db_service.dart lib/services/sync_engine.dart`
+  - 에러 없음
+  - 기존 style/info lint만 잔존
+
+비고:
+- Standalone DB 자체는 예전부터 `reports.synced_at` 을 저장하고 있었지만, 모바일 상위 `Report` 모델과 recent-answer 재계산 경로가 이 값을 실제로 쓰지 않아 서버/Standalone 모두에서 순서가 미세하게 흔들릴 수 있었다.
+- Client 모드에서는 서버 WS `crawl_changes` payload에도 `synced_at` 이 빠져 있었기 때문에 증상이 더 두드러졌고, 이번 서버 패치와 함께 맞물려 해결된다.
+
 ### Client 모드 기존 사용자 웹소켓 서비스 비활성화 버그 수정
 
 상태: 완료

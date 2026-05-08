@@ -26,13 +26,7 @@ const _defaultStatusOrder = <String>[
 ];
 
 const kEmptyLawFilterValue = '__없음__';
-const _recentAnswerStatuses = <String>{
-  '수용',
-  '일부수용',
-  '불수용',
-  '기타',
-  '답변완료',
-};
+const _recentAnswerStatuses = <String>{'수용', '일부수용', '불수용', '기타', '답변완료'};
 
 class ReportFilter {
   final String name;
@@ -175,6 +169,7 @@ class ReportProvider with ChangeNotifier {
   List<Report> _otherReports = [];
   List<Report> _duplicateReports = [];
   Set<String> _watchlistNumbers = {};
+
   /// 카테고리별로 한 번이라도 fetch 했는지 여부. `ensureCategoryReportsLoaded`
   /// 가 캐시 hit/miss 판정에 사용한다.
   final Set<String> _loadedCategories = <String>{};
@@ -249,13 +244,15 @@ class ReportProvider with ChangeNotifier {
     }
 
     final today = DateTime.now();
-    final lowerBound = _formatDateOnly(
-      today.subtract(const Duration(days: 3)),
-    );
+    final lowerBound = _formatDateOnly(today.subtract(const Duration(days: 3)));
     final upperBound = _formatDateOnly(today);
     final byReportNumber = <String, Report>{};
 
-    for (final report in [..._trafficReports, ..._parkingReports, ..._otherReports]) {
+    for (final report in [
+      ..._trafficReports,
+      ..._parkingReports,
+      ..._otherReports,
+    ]) {
       if (!_isRecentAnswerReport(
         report,
         lowerBound: lowerBound,
@@ -269,17 +266,13 @@ class ReportProvider with ChangeNotifier {
           : '${report.category}:${report.name}:${report.responseDate}';
       final existing = byReportNumber[key];
       if (existing == null ||
-          report.responseDate.compareTo(existing.responseDate) > 0) {
+          _compareRecentAnswerReports(report, existing) < 0) {
         byReportNumber[key] = report;
       }
     }
 
     final items = byReportNumber.values.toList();
-    items.sort((a, b) {
-      final dateComp = b.responseDate.compareTo(a.responseDate);
-      if (dateComp != 0) return dateComp;
-      return b.reportNumber.compareTo(a.reportNumber);
-    });
+    items.sort(_compareRecentAnswerReports);
     return items;
   }
 
@@ -311,6 +304,7 @@ class ReportProvider with ChangeNotifier {
         return 0;
     }
   }
+
   ReportFilter get filter => _filter;
   bool get isSyncing => _isSyncing;
   bool _isSyncing = false;
@@ -422,6 +416,17 @@ class ReportProvider with ChangeNotifier {
   String? _extractDateOnly(String raw) {
     final match = RegExp(r'^(\d{4}-\d{2}-\d{2})').firstMatch(raw.trim());
     return match?.group(1);
+  }
+
+  int _compareRecentAnswerReports(Report left, Report right) {
+    final leftSynced = left.syncedAt ?? -1;
+    final rightSynced = right.syncedAt ?? -1;
+    if (leftSynced != rightSynced) {
+      return rightSynced.compareTo(leftSynced);
+    }
+    final responseComp = right.responseDate.compareTo(left.responseDate);
+    if (responseComp != 0) return responseComp;
+    return right.reportNumber.compareTo(left.reportNumber);
   }
 
   bool _isRecentAnswerReport(
@@ -550,10 +555,12 @@ class ReportProvider with ChangeNotifier {
         const Duration(seconds: 5),
       );
       _appMode = AppModeX.fromString(prefs.getString(AppPrefsKeys.appMode));
-      _standaloneUsername = prefs.getString(AppPrefsKeys.standaloneUsername) ?? '';
+      _standaloneUsername =
+          prefs.getString(AppPrefsKeys.standaloneUsername) ?? '';
       _standalonePhoneNumber =
           prefs.getString(AppPrefsKeys.standalonePhoneNumber) ?? '';
-      _isStandaloneDemo = prefs.getBool(AppPrefsKeys.standaloneDemoMode) ?? false;
+      _isStandaloneDemo =
+          prefs.getBool(AppPrefsKeys.standaloneDemoMode) ?? false;
       _baseUrl = prefs.getString(AppPrefsKeys.baseUrl) ?? '';
       _apiKey = prefs.getString(AppPrefsKeys.apiKey) ?? '';
 
@@ -946,5 +953,6 @@ class ReportProvider with ChangeNotifier {
     }
   }
 
-  List<Report> applyFilterToReports(List<Report> reports) => _applyFilter(reports);
+  List<Report> applyFilterToReports(List<Report> reports) =>
+      _applyFilter(reports);
 }

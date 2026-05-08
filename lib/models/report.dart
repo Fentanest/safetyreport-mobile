@@ -18,8 +18,8 @@ class Report {
   final String responseDate;
   final String agency;
   final String manager;
-  final String status;       // 처리상태
-  final String result;       // 상태 (C_NOW)
+  final String status; // 처리상태
+  final String result; // 상태 (C_NOW)
   final String fineInfo;
   final String penaltyPoints;
   final String carNumber;
@@ -32,13 +32,15 @@ class Report {
   final String attachedPhotos;
   final String attachedFiles;
   final String mapImage;
-  final String pollStatus;      // 만족도조사여부
+  final String pollStatus; // 만족도조사여부
   final String processingFinish; // 종결여부 (Y/N)
-  final int? rating;             // 별점 (1~5, null=미부여)
-  final String ratingCause;      // 별점사유 (불만족 텍스트, 없으면 '')
+  final int? rating; // 별점 (1~5, null=미부여)
+  final String ratingCause; // 별점사유 (불만족 텍스트, 없으면 '')
   final int totalCount;
   final int validCount;
-  final String category;         // 'traffic' | 'parking' | 'other' | '' (서버 응답에서 카테고리를 모를 때 빈 값)
+  final String
+  category; // 'traffic' | 'parking' | 'other' | '' (서버 응답에서 카테고리를 모를 때 빈 값)
+  final int? syncedAt; // 마지막 실제 반영 시각 (epoch millis)
 
   Report({
     required this.id,
@@ -69,6 +71,7 @@ class Report {
     this.totalCount = 0,
     this.validCount = 0,
     this.category = '',
+    this.syncedAt,
   });
 
   String get statusWithFine {
@@ -109,6 +112,7 @@ class Report {
       totalCount: _toIntOrNull(json['total_count']) ?? 0,
       validCount: _toIntOrNull(json['valid_count']) ?? 0,
       category: json['category']?.toString() ?? '',
+      syncedAt: _toIntOrNull(json['synced_at']),
     );
   }
 }

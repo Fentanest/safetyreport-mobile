@@ -62,8 +62,9 @@ class SyncEngine {
   static final _changesEmittedController = StreamController<void>.broadcast();
   static Stream<void> get changesEmitted => _changesEmittedController.stream;
 
-  static const _methodChannel =
-      MethodChannel('com.fentanest.mysafetyreport/permissions');
+  static const _methodChannel = MethodChannel(
+    'com.fentanest.mysafetyreport/permissions',
+  );
 
   /// FGS ref counting — SyncEngine.start 와 drainIfPending 가 중첩 호출될 때
   /// (drain → SyncEngine.start) 한 번만 startSyncFgs / stopSyncFgs 호출되도록 관리.
@@ -173,7 +174,8 @@ class SyncEngine {
           startRow: start,
           endRow: end,
         );
-        final list = (data['result'] as List? ?? []).cast<Map<String, dynamic>>();
+        final list = (data['result'] as List? ?? [])
+            .cast<Map<String, dynamic>>();
         allItems.addAll(list);
       } catch (e) {
         _log('[오류] 목록 조회 실패: $e');
@@ -185,8 +187,14 @@ class SyncEngine {
     // - 신규: DB에 없는 ID
     // - 변경: 종결여부='N' AND 목록의 C_NOW 상태가 DB 상태와 다름
     final _cNowStatus = <int, String>{
-      0: '진행', 10: '답변완료', 11: '일부수용', 12: '검토중',
-      14: '불수용', 15: '기타', 20: '취하', 30: '이송',
+      0: '진행',
+      10: '답변완료',
+      11: '일부수용',
+      12: '검토중',
+      14: '불수용',
+      15: '기타',
+      20: '취하',
+      30: '이송',
     };
     final toSync = fullSync
         ? allItems
@@ -197,7 +205,9 @@ class SyncEngine {
             if (snap['종결여부'] == 'Y') return false; // 종결 완료 → 스킵
             // 목록의 C_NOW 매핑 상태와 DB의 담당자 처리상태 비교 (서버 동일)
             int cNow = 0;
-            try { cNow = (item['C_NOW'] as num?)?.toInt() ?? 0; } catch (_) {}
+            try {
+              cNow = (item['C_NOW'] as num?)?.toInt() ?? 0;
+            } catch (_) {}
             final listStatus = _cNowStatus[cNow] ?? '진행';
             return listStatus != snap['처리상태'];
           }).toList();
@@ -211,12 +221,14 @@ class SyncEngine {
       final cNo = item['C_NO']?.toString() ?? '';
       if (cNo.isEmpty) continue;
 
-      _emit(SyncEvent(
-        type: SyncEventType.progress,
-        message: '상세 조회 중... ($cNo)',
-        current: done,
-        total: toSync.length,
-      ));
+      _emit(
+        SyncEvent(
+          type: SyncEventType.progress,
+          message: '상세 조회 중... ($cNo)',
+          current: done,
+          total: toSync.length,
+        ),
+      );
 
       try {
         final detail = await StandaloneApiService.fetchReportDetail(cNo);
@@ -224,7 +236,8 @@ class SyncEngine {
         final ev = entryValueFromDetail(item, detail);
         final cat = categoryFromEntryValue(ev);
         // 차량번호 파싱 실패 디버깅용: API 원본 C_A_CONTENTS 저장
-        final raw = (detail['C_A_CONTENTS'] ?? detail['C_A_BODY'] ?? '').toString();
+        final raw = (detail['C_A_CONTENTS'] ?? detail['C_A_BODY'] ?? '')
+            .toString();
 
         // 별점이 있는 신고 한정으로 사유 추가 fetch (인증 불필요 별도 API)
         report = await _augmentRatingCause(report);
@@ -250,7 +263,8 @@ class SyncEngine {
           var report = parseJsonToReport(item, detail);
           final ev = entryValueFromDetail(item, detail);
           final cat = categoryFromEntryValue(ev);
-          final raw = (detail['C_A_CONTENTS'] ?? detail['C_A_BODY'] ?? '').toString();
+          final raw = (detail['C_A_CONTENTS'] ?? detail['C_A_BODY'] ?? '')
+              .toString();
           report = await _augmentRatingCause(report);
           await LocalDbService.upsertReport(report, cat, ev, rawContent: raw);
           if (!fullSync) _trackChange(existingStatus[cNo], report);
@@ -268,10 +282,11 @@ class SyncEngine {
       await Future.delayed(const Duration(milliseconds: 100));
     }
 
-    final duplicateRefresh = await DuplicateProjectionService.refreshDuplicateGroups(
-      await LocalDbService.db,
-      trackChanges: !fullSync,
-    );
+    final duplicateRefresh =
+        await DuplicateProjectionService.refreshDuplicateGroups(
+          await LocalDbService.db,
+          trackChanges: !fullSync,
+        );
     if (!fullSync) {
       final duplicateChanges =
           (duplicateRefresh['changes'] as List? ?? const [])
@@ -288,15 +303,18 @@ class SyncEngine {
       await emitChanges(_lastChanges);
     }
 
-    final msg = '동기화 완료: ${done}건 저장'
+    final msg =
+        '동기화 완료: ${done}건 저장'
         '${errors > 0 ? ', $errors건 오류' : ''}';
     _log(msg);
-    _emit(SyncEvent(
-      type: SyncEventType.done,
-      message: msg,
-      current: done,
-      total: toSync.length,
-    ));
+    _emit(
+      SyncEvent(
+        type: SyncEventType.done,
+        message: msg,
+        current: done,
+        total: toSync.length,
+      ),
+    );
   }
 
   /// 신규/처리변경 신고 emit:
@@ -310,8 +328,7 @@ class SyncEngine {
     await PendingChangesStore.append(changes);
 
     for (final r in changes) {
-      final notificationKind =
-          r['notification_kind']?.toString() ?? 'report';
+      final notificationKind = r['notification_kind']?.toString() ?? 'report';
       if (notificationKind == 'duplicate') {
         final title = r['title']?.toString() ?? '🧩 중복 신고 변경';
         final body = r['body']?.toString() ?? '';
@@ -402,6 +419,8 @@ class SyncEngine {
       '지도': r.mapImage,
       '만족도조사여부': r.pollStatus,
       '종결여부': r.processingFinish,
+      'category': r.category,
+      'synced_at': r.syncedAt,
     };
   }
 
@@ -409,16 +428,20 @@ class SyncEngine {
   /// 안전신문고 만족도 조회는 로그인 ID가 아니라 휴대폰번호가 필요하다.
   /// fetch 실패해도 별점 자체는 보존, ratingCause만 빈 채로 남김.
   /// (auto_sync_service에서도 호출 → public)
-  static Future<Report> augmentRatingCause(Report report) => _augmentRatingCause(report);
+  static Future<Report> augmentRatingCause(Report report) =>
+      _augmentRatingCause(report);
 
   static Future<Report> _augmentRatingCause(Report report) async {
     if (report.rating == null || report.rating! <= 0) return report;
-    if (report.ratingCause.isNotEmpty) return report;  // 이미 있으면 스킵
+    if (report.ratingCause.isNotEmpty) return report; // 이미 있으면 스킵
     final prefs = await SharedPreferences.getInstance();
     final phone = (prefs.getString(AppPrefsKeys.standalonePhoneNumber) ?? '')
         .replaceAll(RegExp(r'[^0-9]'), '');
     if (phone.isEmpty) return report;
-    final result = await StandaloneApiService.fetchSatisfaction(report.reportNumber, phone);
+    final result = await StandaloneApiService.fetchSatisfaction(
+      report.reportNumber,
+      phone,
+    );
     return Report(
       id: report.id,
       reportNumber: report.reportNumber,
@@ -447,6 +470,8 @@ class SyncEngine {
       ratingCause: result.cause,
       totalCount: report.totalCount,
       validCount: report.validCount,
+      category: report.category,
+      syncedAt: report.syncedAt,
     );
   }
 

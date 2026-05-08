@@ -7,6 +7,20 @@
 
 ---
 
+## 2026-05-08
+
+### Client 모드 기존 사용자 웹소켓 서비스 비활성화 버그 수정
+
+상태: 완료
+
+원인:
+- Standalone 모드 리팩토링 과정에서 안드로이드 백그라운드 웹소켓 서비스(`WsService`)가 현재 앱 모드(`appMode`)가 "server"일 때만 작동하도록 방어 코드가 추가됨.
+- 기존 사용자나 초기화 직후에는 내부 저장소(SharedPreferences)에 `appMode` 값이 누락되어 빈 문자열(`""`)로 반환되는데, Kotlin 네이티브 단에서 이를 "서버 모드가 아님"으로 간주하고 서비스를 강제 종료시키는 문제가 발생함.
+
+변경:
+- `android/app/src/main/kotlin/com/fentanest/mysafetyreport/MainActivity.kt`
+  - `autoStartWsServiceIfConfigured()`에서 `appMode`를 읽을 때 기본값을 `""` 대신 `"server"`로 지정하여 값이 없을 때도 기존처럼 정상적으로 웹소켓을 실행하도록 수정.
+
 ## 2026-05-07 (P0~P3 리팩토링)
 
 ### Client 파일 여러 개 다운로드/삭제 302 리다이렉트 수정

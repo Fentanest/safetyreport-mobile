@@ -246,7 +246,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     private fun autoStartWsServiceIfConfigured() {
         val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
-        val appMode = prefs.getString("flutter.appMode", "") ?: ""
+        val appMode = prefs.getString("flutter.appMode", "server") ?: "server"
         if (appMode != "server") {
             try {
                 val intent = Intent(this, WsService::class.java).apply {

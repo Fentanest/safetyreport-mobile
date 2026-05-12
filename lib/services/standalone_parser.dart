@@ -125,7 +125,22 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
     cNow = (detailData['C_NOW'] as num?)?.toInt() ??
         int.tryParse(detailData['C_NOW']?.toString() ?? '') ?? 0;
   } catch (_) {}
-  final processStatus = _cNowStatus[cNow] ?? (cNow > 0 ? cNow.toString() : '진행');
+
+  // 보완요청 상태 판정 (서버 parse_json_details 동일)
+  int splmntDmndNo = 0;
+  final rawDmndNo = detailData['SPLMNT_DMND_NO'];
+  if (rawDmndNo is num) splmntDmndNo = rawDmndNo.toInt();
+  else if (rawDmndNo is String) splmntDmndNo = int.tryParse(rawDmndNo) ?? 0;
+  final answersList = detailData['answers'] as List? ?? [];
+  final splmntOpen = splmntDmndNo > 0 &&
+      detailData['SPLMNT_FNSH_YN'] == 'N' &&
+      detailData['SPLMNT_CMPTN_YN'] == 'N' &&
+      answersList.isEmpty &&
+      cNow == 0;
+
+  final processStatus = splmntOpen
+      ? '보완요청'
+      : (_cNowStatus[cNow] ?? (cNow > 0 ? cNow.toString() : '진행'));
 
   // ── 신고 내용 (차량번호 이전 텍스트에서 intro 문장 제거) ─────────────────
   var reportContent = content.split(RegExp(r'\*\s*차량번호')).first;
@@ -220,6 +235,12 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
     penaltyPoints = '';
   }
 
+  // 보완요청 상태 통일 (열린 round 가 있을 때만 — 서버 parser 동일)
+  if (splmntOpen && processStatus == '보완요청') {
+    processingStatus = '보완요청';
+    processingFinish = 'N';
+  }
+
   if (processingStatus.isEmpty) processingStatus = '처리중';
 
   // ── 첨부파일 ─────────────────────────────────────────────────────────────
@@ -292,6 +313,12 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
   // 에서만 얻을 수 있으므로 parser 단계에서는 비움. sync_engine 에서 보강.
   final ratingValue = stsfdg > 0 ? stsfdg : null;
 
+  // 보완요청 마지막 round 요약 (count / open / 요청자 prefix 텍스트 / 신고자 의견).
+  final _supplementSummary = summarizeLastSupplementFromJson(
+    detailData,
+    closedState: processStatus != '보완요청',
+  );
+
   return Report(
     id: cNo,
     reportNumber: reportNumber,
@@ -317,5 +344,117 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
     pollStatus: pollStatus,
     processingFinish: processingFinish,
     rating: ratingValue,
+    supplementCount: _supplementSummary.count,
+    supplementOpen: _supplementSummary.open,
+    supplementRequest: _supplementSummary.request,
+    supplementOpinion: _supplementSummary.opinion,
+  );
+}
+
+/// 보완요청 마지막 round 요약 (count / open / request prefix 포함 텍스트 / 신고자 의견).
+class _SupplementSummary {
+  final int count;
+  final bool open;
+  final String request;
+  final String opinion;
+  const _SupplementSummary({
+    required this.count,
+    required this.open,
+    required this.request,
+    required this.opinion,
+  });
+
+  static const empty = _SupplementSummary(
+    count: 0,
+    open: false,
+    request: '',
+    opinion: '',
+  );
+}
+
+String _formatSupplementEpoch(dynamic epoch) {
+  if (epoch == null) return '';
+  int? ms;
+  if (epoch is num) ms = epoch.toInt();
+  if (epoch is String) ms = int.tryParse(epoch);
+  if (ms == null || ms <= 0) return '';
+  final dt = DateTime.fromMillisecondsSinceEpoch(ms);
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${dt.year}-${two(dt.month)}-${two(dt.day)} '
+      '${two(dt.hour)}:${two(dt.minute)}:${two(dt.second)}';
+}
+
+String _formatSupplementPhone(dynamic value) {
+  final s = (value ?? '').toString().trim();
+  if (s.isEmpty) return '';
+  final digits = s.replaceAll(RegExp(r'\D'), '');
+  if (digits.length == 11) {
+    return '${digits.substring(0, 3)}-${digits.substring(3, 7)}-${digits.substring(7)}';
+  }
+  if (digits.length == 10) {
+    if (digits.startsWith('02')) {
+      return '${digits.substring(0, 2)}-${digits.substring(2, 6)}-${digits.substring(6)}';
+    }
+    return '${digits.substring(0, 3)}-${digits.substring(3, 6)}-${digits.substring(6)}';
+  }
+  return s;
+}
+
+/// API JSON 응답에서 "마지막 보완 round" 1건을 추출하고 사용자 표시용 4필드로 압축.
+/// 서버 `_build_last_supplement_round_from_json` + `_build_supplement_summary` 와 동등.
+///
+/// [closedState] true 면 신고 자체가 종결 (취하/답변완료 등) 이라 미응답 round 도 강제로 닫힌 것으로 본다.
+_SupplementSummary summarizeLastSupplementFromJson(
+  Map<String, dynamic> detailData, {
+  bool closedState = false,
+}) {
+  int dmndNo = 0;
+  final raw = detailData['SPLMNT_DMND_NO'];
+  if (raw is num) dmndNo = raw.toInt();
+  else if (raw is String) dmndNo = int.tryParse(raw) ?? 0;
+
+  final dmndContents = (detailData['SPLMNT_DMND_CONTENTS'] ?? '').toString();
+  final cmptnDt = detailData['SPLMNT_CMPTN_DT'];
+  if (dmndNo <= 0 && dmndContents.isEmpty && cmptnDt == null) {
+    return _SupplementSummary.empty;
+  }
+
+  final requester = (detailData['SPLMNT_RQSTR'] ?? '').toString().trim();
+  final phone = _formatSupplementPhone(detailData['SPLMNT_RQSTR_TELNO']);
+  final requestedAt = _formatSupplementEpoch(detailData['SPLMNT_DMND_DT']);
+  final completedAt = _formatSupplementEpoch(detailData['SPLMNT_FNSH_DT']);
+  final content = dmndContents.trim();
+
+  final isOpenRaw = detailData['SPLMNT_FNSH_YN'] == 'N' &&
+      detailData['SPLMNT_CMPTN_YN'] == 'N';
+  final isOpen = isOpenRaw && !closedState;
+  final opinion = isOpen
+      ? ''
+      : (detailData['SPLMNT_ANS_CONTENTS'] ?? '').toString().trim();
+
+  final headerParts = <String>[];
+  if (requester.isNotEmpty || phone.isNotEmpty) {
+    final meta = requester.isNotEmpty ? requester : '(요청자 미상)';
+    headerParts.add('보완 요청자: $meta${phone.isNotEmpty ? ' ($phone)' : ''}');
+  }
+  if (requestedAt.isNotEmpty) headerParts.add('요청 일시: $requestedAt');
+  headerParts.add(
+    completedAt.isNotEmpty ? '완료 일시: $completedAt' : '완료 일시: (미응답)',
+  );
+
+  String request;
+  if (headerParts.isNotEmpty && content.isNotEmpty) {
+    request = '${headerParts.join(' · ')}\n\n$content';
+  } else if (headerParts.isNotEmpty) {
+    request = headerParts.join(' · ');
+  } else {
+    request = content;
+  }
+
+  return _SupplementSummary(
+    count: dmndNo > 0 ? dmndNo : (request.isEmpty ? 0 : 1),
+    open: isOpen,
+    request: request,
+    opinion: opinion,
   );
 }

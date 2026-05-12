@@ -41,6 +41,10 @@ class Report {
   final String
   category; // 'traffic' | 'parking' | 'other' | '' (서버 응답에서 카테고리를 모를 때 빈 값)
   final int? syncedAt; // 마지막 실제 반영 시각 (epoch millis)
+  final int supplementCount; // 누적 보완요청 횟수 (없으면 0)
+  final bool supplementOpen; // 마지막 round 가 아직 미응답인지 (Y → true)
+  final String supplementRequest; // 마지막 round 요청 내용 (요청자/연락처/일시 prefix 포함)
+  final String supplementOpinion; // 마지막 round 의 신고자 보완 의견
 
   Report({
     required this.id,
@@ -72,6 +76,10 @@ class Report {
     this.validCount = 0,
     this.category = '',
     this.syncedAt,
+    this.supplementCount = 0,
+    this.supplementOpen = false,
+    this.supplementRequest = '',
+    this.supplementOpinion = '',
   });
 
   String get statusWithFine {
@@ -113,6 +121,10 @@ class Report {
       validCount: _toIntOrNull(json['valid_count']) ?? 0,
       category: json['category']?.toString() ?? '',
       syncedAt: _toIntOrNull(json['synced_at']),
+      supplementCount: _toIntOrNull(json['보완횟수']) ?? 0,
+      supplementOpen: (json['보완_미응답']?.toString() ?? 'N') == 'Y',
+      supplementRequest: json['보완_요청_내용']?.toString() ?? '',
+      supplementOpinion: json['보완_신고자_의견']?.toString() ?? '',
     );
   }
 }

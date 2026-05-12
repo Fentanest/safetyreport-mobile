@@ -72,7 +72,7 @@ class ReportDetailSheet extends StatelessWidget {
       return;
     }
     final uri = Uri.parse(
-      'appsafetyreport://view?c_no=${report.id}&ext_path=M_MY_01_S0002.html&mem_yn=Y',
+      'appsafetyreport://view?openpage=true&c_no=${report.id}&ext_path=M_MY_01_S0002.html',
     );
     try {
       final launched = await launchUrl(
@@ -290,6 +290,12 @@ class ReportDetailSheet extends StatelessWidget {
             if (report.reportContent.isNotEmpty) ...[
               const Divider(height: 20),
               _textBlock('신고내용', report.reportContent),
+            ],
+            if (report.supplementCount > 0 ||
+                report.supplementRequest.isNotEmpty ||
+                report.supplementOpinion.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              _SupplementSection(report: report),
             ],
             if (report.processContent.isNotEmpty) ...[
               const SizedBox(height: 8),
@@ -1303,6 +1309,105 @@ class _VideoPlayerState extends State<_VideoPlayer> {
         fullscreenDialog: true,
         builder: (_) => _FullscreenVideoPage(controller: _ctrl),
       ),
+    );
+  }
+}
+
+/// 보완요청 마지막 round 카드. 다회차 이력 전체는 별도 API 없이 신고 row 컬럼만 사용.
+class _SupplementSection extends StatelessWidget {
+  final Report report;
+  const _SupplementSection({required this.report});
+
+  @override
+  Widget build(BuildContext context) {
+    final count = report.supplementCount;
+    final open = report.supplementOpen;
+    final request = report.supplementRequest.trim();
+    final opinion = report.supplementOpinion.trim();
+    final accent = open ? const Color(0xFFFD7E14) : Colors.grey.shade600;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.history_edu, size: 16, color: Color(0xFFFD7E14)),
+            const SizedBox(width: 6),
+            const Text(
+              '보완 요청',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFFFD7E14),
+              ),
+            ),
+            if (count > 0) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFD7E14),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  '$count회',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+              decoration: BoxDecoration(
+                color: open ? Colors.red : Colors.grey,
+                borderRadius: BorderRadius.circular(3),
+              ),
+              child: Text(
+                open ? '미응답' : '응답 완료',
+                style: const TextStyle(color: Colors.white, fontSize: 10),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: open
+                ? const Color(0xFFFD7E14).withOpacity(0.08)
+                : Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: accent.withOpacity(0.4)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                request.isNotEmpty ? request : '(요청 내용 없음)',
+                style: const TextStyle(fontSize: 12.5, height: 1.5),
+              ),
+              if (opinion.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                const Text(
+                  '신고자 의견',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(opinion, style: const TextStyle(fontSize: 12.5, height: 1.5)),
+              ],
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

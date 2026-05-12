@@ -112,13 +112,37 @@ class ReportListCard extends StatelessWidget {
                       children: [
                         const Icon(Icons.tag, size: 13, color: Colors.grey),
                         const SizedBox(width: 3),
-                        Text(
-                          report.reportNumber,
-                          style: const TextStyle(
-                            color: Colors.grey,
-                            fontSize: 12,
+                        Flexible(
+                          child: Text(
+                            report.reportNumber,
+                            style: const TextStyle(
+                              color: Colors.grey,
+                              fontSize: 12,
+                            ),
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
+                        if (report.supplementCount > 0) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFD7E14),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              '보완횟수:${report.supplementCount}회',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                     const Divider(height: 14),

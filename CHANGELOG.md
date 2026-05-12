@@ -7,6 +7,49 @@
 
 ---
 
+## 2026-05-12
+
+### 보완요청 마지막 round 표시 + 누적 횟수 (다회차 이력 보존은 제거)
+
+상태: 완료
+
+배경:
+- 서버 측 정책이 "마지막 round 1세트 + 누적 횟수만 보존" 으로 단순화됨. 모바일도 동일 모델로 정렬.
+- 마지막 답변자와 최종 판정자가 다를 수 있으므로 보완 요청 내용 본문 prefix 에 요청자/연락처/요청·완료 일시를 함께 표시한다.
+
+변경:
+- `lib/services/local_db_service.dart`
+  - DB version 7 → 8. `reports` 테이블에 `보완횟수 INTEGER DEFAULT 0`, `보완_미응답 TEXT DEFAULT 'N'`, `보완_요청_내용 TEXT DEFAULT ''`, `보완_신고자_의견 TEXT DEFAULT ''` 4 컬럼 추가. 기존 DB 는 `_addSupplementColumns()` 가 ALTER TABLE 로 보강한다.
+  - 이전 임시 `report_supplement_history` 테이블은 마이그레이션에서 `DROP TABLE IF EXISTS` 로 정리. 관련 함수 (`upsertSupplementHistory`, `getSupplementHistoryForReport`, `_loadSupplementCounts`, `_attachSupplementCounts`) 와 `_SupplementSummary` 호출부 전부 삭제.
+  - `_syncedAtTrackedKeys` 에 4 새 컬럼 추가 → 마지막 round 변동도 synced_at 갱신 트리거로 작동.
+  - `_rowToReport` / `_rowToReportWithCounts` 가 `보완횟수 / 보완_미응답 / 보완_요청_내용 / 보완_신고자_의견` 을 Report 의 새 필드로 매핑.
+- `lib/models/report.dart`
+  - `Report` 에 `supplementCount`, `supplementOpen`, `supplementRequest`, `supplementOpinion` 필드 추가. `fromJson` 이 서버 JSON 의 한국어 키 4개를 그대로 매핑.
+- `lib/services/standalone_parser.dart`
+  - `buildSupplementHistoryFromJson` 삭제. 대신 `summarizeLastSupplementFromJson(detailData, closedState: ...)` 가 안전신문고 API JSON `SPLMNT_*` 필드를 읽어 `_SupplementSummary` 로 압축. 본문 prefix 는 서버 `_build_supplement_summary` 와 동일한 형식.
+  - `parseJsonToReport` 가 `_supplementSummary` 를 만들어 Report 생성자에 4 필드 함께 전달. 보완요청이 열려 있는 신고는 `processStatus='보완요청'`, `processingStatus='보완요청'`, `processingFinish='N'` 으로 통일.
+- `lib/services/sync_engine.dart`, `lib/services/standalone_auto_sync_service.dart`
+  - `upsertSupplementHistory(...)` + `buildSupplementHistoryFromJson(...)` 호출 제거. Report 자체가 4 필드를 들고 있으므로 별도 저장 단계가 필요 없다.
+- `lib/services/server_contract.dart`, `lib/services/api_service.dart`
+  - `supplementsPath`, `supplementsForReportPath`, `getSupplementHistory()` 모두 삭제.
+- `lib/widgets/report_detail_sheet.dart`
+  - 기존 다회차 round 리스트 위젯 (`_SupplementHistorySection`, `_SupplementRoundCard`, `_SupplementSectionHeader`) 제거.
+  - 대신 `_SupplementSection` 단일 카드로 단순화: 보완 횟수 배지 + 미응답/응답 완료 상태 배지 + 요청 내용 본문(요청자 prefix 포함) + 신고자 의견.
+- `lib/widgets/report_list_card.dart`
+  - 신고번호 옆 `보완횟수:N회` 주황색 배지 유지 (이전 작업 그대로).
+
+검증:
+- `Report.fromJson` 이 서버 응답의 `보완횟수 / 보완_미응답 / 보완_요청_내용 / 보완_신고자_의견` 을 읽어 모델 필드로 보존.
+- `parseJsonToReport(testresults/59614484)` (서버 testresults 동일 JSON) → `processStatus='보완요청'`, `processingFinish='N'`, `supplementCount=1`, `supplementOpen=true`, `supplementRequest` 가 `"보완 요청자: 이민지 (032-456-0263) · 요청 일시: 2026-05-12 10:32:40 · 완료 일시: (미응답)\n\n[본문]"` 형식.
+- 종결 상태(취하) JSON → `supplementOpen=false`, 누적 횟수는 `SPLMNT_DMND_NO` 기반으로 보존.
+- 상세 시트 위젯이 `report.supplementCount > 0 || supplementRequest != ''` 일 때만 보완 카드 렌더.
+
+비고:
+- 클라이언트 모드는 서버 응답 형식에 의존하므로 서버 동일 시점 커밋과 함께 배포해야 카드/배지가 채워진다.
+- 다회차 이력 전체가 필요하면 안전신문고 공식 페이지를 직접 열어 확인. 앱은 마지막 round + 횟수 표시만 책임진다.
+
+---
+
 ## 2026-05-08
 
 ### Client 최근 답변 / 알림 상세가 `synced_at`을 버리던 문제 수정

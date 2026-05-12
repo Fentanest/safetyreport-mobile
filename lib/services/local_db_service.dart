@@ -58,7 +58,7 @@ class LocalDbService {
     final dbPath = await getDatabasesPath();
     return openDatabase(
       join(dbPath, 'standalone_reports.db'),
-      version: 7,
+      version: 8,
       onCreate: _create,
       onUpgrade: (db, oldV, newV) async {
         if (oldV < 4) {
@@ -81,8 +81,31 @@ class LocalDbService {
         if (oldV < 7) {
           await DuplicateProjectionService.createSchema(db);
         }
+        if (oldV < 8) {
+          await _addSupplementColumns(db);
+        }
       },
     );
+  }
+
+  /// 보완요청 마지막 round 1개 + 누적 횟수 + 미응답 플래그를 reports row 에 보존.
+  /// 이전 빌드에서 잠시 존재했던 report_supplement_history 테이블은 정리한다.
+  static Future<void> _addSupplementColumns(DatabaseExecutor db) async {
+    for (final col in const [
+      "ALTER TABLE reports ADD COLUMN 보완횟수 INTEGER DEFAULT 0",
+      "ALTER TABLE reports ADD COLUMN 보완_미응답 TEXT DEFAULT 'N'",
+      "ALTER TABLE reports ADD COLUMN 보완_요청_내용 TEXT DEFAULT ''",
+      "ALTER TABLE reports ADD COLUMN 보완_신고자_의견 TEXT DEFAULT ''",
+    ]) {
+      try {
+        await db.execute(col);
+      } catch (_) {
+        // 이미 추가된 경우 무시
+      }
+    }
+    try {
+      await db.execute('DROP TABLE IF EXISTS report_supplement_history');
+    } catch (_) {}
   }
 
   static Future<void> _create(Database db, int version) async {
@@ -117,7 +140,11 @@ class LocalDbService {
         category        TEXT,
         entry_value     TEXT DEFAULT '',
         raw_content     TEXT DEFAULT '',
-        synced_at       INTEGER
+        synced_at       INTEGER,
+        보완횟수         INTEGER DEFAULT 0,
+        보완_미응답      TEXT DEFAULT 'N',
+        보완_요청_내용   TEXT DEFAULT '',
+        보완_신고자_의견 TEXT DEFAULT ''
       )
     ''');
     await _createRawTable(db);
@@ -251,6 +278,10 @@ class LocalDbService {
     '첨부파일',
     'category',
     'entry_value',
+    '보완횟수',
+    '보완_미응답',
+    '보완_요청_내용',
+    '보완_신고자_의견',
   ];
 
   // ── 신고 저장/업데이트 ─────────────────────────────────────────────────────
@@ -294,6 +325,10 @@ class LocalDbService {
       'category': category,
       'entry_value': entryValue,
       'raw_content': '',
+      '보완횟수': r.supplementCount,
+      '보완_미응답': r.supplementOpen ? 'Y' : 'N',
+      '보완_요청_내용': r.supplementRequest,
+      '보완_신고자_의견': r.supplementOpinion,
     };
 
     await d.transaction((txn) async {
@@ -820,6 +855,10 @@ class LocalDbService {
       validCount: (r['valid_count'] as num?)?.toInt() ?? 0,
       category: r['category'] as String? ?? '',
       syncedAt: _toEpochMillis(r['synced_at']),
+      supplementCount: (r['보완횟수'] as num?)?.toInt() ?? 0,
+      supplementOpen: (r['보완_미응답'] as String? ?? 'N') == 'Y',
+      supplementRequest: r['보완_요청_내용'] as String? ?? '',
+      supplementOpinion: r['보완_신고자_의견'] as String? ?? '',
     );
   }
 
@@ -1515,6 +1554,10 @@ class LocalDbService {
       ratingCause: r['별점사유'] as String? ?? '',
       category: r['category'] as String? ?? '',
       syncedAt: _toEpochMillis(r['synced_at']),
+      supplementCount: (r['보완횟수'] as num?)?.toInt() ?? 0,
+      supplementOpen: (r['보완_미응답'] as String? ?? 'N') == 'Y',
+      supplementRequest: r['보완_요청_내용'] as String? ?? '',
+      supplementOpinion: r['보완_신고자_의견'] as String? ?? '',
     );
   }
 }

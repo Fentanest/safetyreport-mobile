@@ -424,11 +424,12 @@ fire-and-forget 으로 시작한다. 사용자는 즉시 선택 모드에서 빠
 
 ## SQLite 스키마 (Standalone)
 
-`lib/services/local_db_service.dart` — `standalone_reports.db`, version 7.
+`lib/services/local_db_service.dart` — `standalone_reports.db`, version 8.
 
 서버 DB 와 컬럼명 동일 (한국어). mobile-only 추가: `category`, `entry_value`, `raw_content`, `synced_at`.
 2026-05-06부터 raw payload 의 정본은 `report_raw` 사이드카 테이블에 둔다.
 2026-05-07부터 중복군 hash는 서버와 동일한 SHA-256 기준을 사용하고, version 7부터 `duplicate_group.apply_globally` 컬럼을 가진다.
+version 8 부터 보완요청 마지막 round 요약 4컬럼(`보완횟수`, `보완_미응답`, `보완_요청_내용`, `보완_신고자_의견`) 이 `reports` 테이블에 들어간다. 잠시 존재했던 `report_supplement_history` 다회차 테이블은 `_addSupplementColumns()` 마이그레이션에서 DROP 처리된다.
 
 ```sql
 CREATE TABLE reports (
@@ -439,7 +440,11 @@ CREATE TABLE reports (
   종결여부 TEXT DEFAULT 'N', 신고내용 TEXT, 처리내용 TEXT, 지도 TEXT,
   첨부사진 TEXT, 첨부파일 TEXT,
   category TEXT, entry_value TEXT DEFAULT '', raw_content TEXT DEFAULT '',
-  synced_at INTEGER
+  synced_at INTEGER,
+  보완횟수 INTEGER DEFAULT 0,
+  보완_미응답 TEXT DEFAULT 'N',
+  보완_요청_내용 TEXT DEFAULT '',
+  보완_신고자_의견 TEXT DEFAULT ''
 );
 CREATE TABLE report_raw (
   ID TEXT PRIMARY KEY,
@@ -458,6 +463,11 @@ CREATE TABLE sync_meta (key TEXT PRIMARY KEY, value TEXT);
     최근 답변 / 알림 상세 정렬이 서버와 같은 기준으로 유지된다.
 - `reports.raw_content`
   - 레거시 호환용 컬럼으로 남아 있지만 신규 데이터의 payload 정본은 `report_raw` 가 담당
+- `reports.보완횟수 / 보완_미응답 / 보완_요청_내용 / 보완_신고자_의견`
+  - 보완요청 마지막 round 1세트만 보존. 다회차 이력 전체는 저장하지 않는다.
+  - `보완_요청_내용` 본문 prefix 에 `"보완 요청자: <name> (<phone>) · 요청 일시: ... · 완료 일시: ..."` 가 함께 들어가 마지막 답변자와 다를 수 있는 보완 요청자를 텍스트로 명시한다.
+  - Standalone 은 `standalone_parser.summarizeLastSupplementFromJson()` 가 안전신문고 API 응답 `SPLMNT_*` 필드로 같은 4 컬럼을 채운다.
+  - Client 모드는 서버 응답 `보완횟수 / 보완_미응답 / 보완_요청_내용 / 보완_신고자_의견` 을 그대로 받아 `Report.fromJson` 에서 매핑한다.
 - `importFromServerDb()`
   - `mysafetymerge_*` 뿐 아니라 `mysafety_entry_value`, `mysafety_raw_content`, `mysafety_sync_meta`, `mysafety_duplicate_group`, `mysafety_duplicate_member` 를 함께 읽는다
   - 서버 `synced_at` 가 있으면 그대로 복원하고, 없을 때만 import 시점 `now` 를 fallback 사용

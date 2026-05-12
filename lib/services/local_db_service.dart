@@ -56,7 +56,7 @@ class LocalDbService {
 
   static Future<Database> _open() async {
     final dbPath = await getDatabasesPath();
-    return openDatabase(
+    final database = await openDatabase(
       join(dbPath, 'standalone_reports.db'),
       version: 9,
       onCreate: _create,
@@ -86,6 +86,43 @@ class LocalDbService {
         }
       },
     );
+    try {
+      await database.execute("""
+        UPDATE reports
+        SET 처리상태 = 상태,
+            종결여부 = 'Y',
+            보완_미응답 = 'N'
+        WHERE 상태 IN ('수용', '일부수용', '불수용', '기타', '답변완료', '취하', '이송')
+          AND (처리상태 IS NULL OR 처리상태 IN ('', '진행', '진행중', '처리중', '검토중') OR 보완_미응답 = 'Y')
+      """);
+      await database.execute("""
+        UPDATE reports
+        SET 처리상태 = '보완요청',
+            종결여부 = 'N',
+            보완_미응답 = 'Y'
+        WHERE 상태 = '보완요청'
+          AND (처리상태 IS NULL OR 처리상태 IN ('', '진행', '진행중', '처리중', '검토중', '보완요청'))
+      """);
+      await database.execute("""
+        UPDATE reports
+        SET 처리상태 = '보완요청',
+            종결여부 = 'N'
+        WHERE 보완_미응답 = 'Y'
+          AND 상태 NOT IN ('수용', '일부수용', '불수용', '기타', '답변완료', '취하', '이송')
+          AND 처리상태 != '보완요청'
+      """);
+      await database.execute("""
+        UPDATE reports
+        SET 처리상태 = '처리중',
+            종결여부 = 'N'
+        WHERE 상태 NOT IN ('수용', '일부수용', '불수용', '기타', '답변완료', '취하', '이송', '보완요청')
+          AND 보완_미응답 != 'Y'
+          AND (처리상태 IS NULL OR 처리상태 IN ('', '진행', '진행중', '처리중', '검토중'))
+      """);
+    } catch (_) {
+      // best-effort normalization for legacy standalone DBs
+    }
+    return database;
   }
 
   /// 보완요청 마지막 round 1개 + 누적 횟수 + 요청자/일시 메타를 reports row 에 보존.
@@ -532,7 +569,12 @@ class LocalDbService {
       if (status == '일부수용') partial++;
       if (status == '불수용' || status == '기타') reject++;
       if (status == '보완요청') supplement++;
-      if (status == '처리중' || status == '진행' || status == '진행중') processing++;
+      if (status == '처리중' ||
+          status == '진행' ||
+          status == '진행중' ||
+          status == '검토중') {
+        processing++;
+      }
       if (['수용', '불수용', '일부수용', '기타', '답변완료'].contains(status)) completed++;
       if (status == '취하') withdraw++;
 
@@ -743,6 +785,7 @@ class LocalDbService {
           (status == '처리중' ||
               status == '진행' ||
               status == '진행중' ||
+              status == '검토중' ||
               status == '취하')) {
         continue;
       }

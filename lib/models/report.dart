@@ -19,7 +19,7 @@ class Report {
   final String agency;
   final String manager;
   final String status; // 처리상태
-  final String result; // 상태 (C_NOW)
+  final String result; // 상태 (원본 진행상황)
   final String fineInfo;
   final String penaltyPoints;
   final String carNumber;
@@ -106,7 +106,7 @@ class Report {
       agency: json['처리기관']?.toString() ?? '',
       manager: json['담당자']?.toString() ?? '',
       status: (json['처리상태'] ?? json['상태'])?.toString() ?? '',
-      result: json['결과']?.toString() ?? '',
+      result: (json['상태'] ?? json['결과'])?.toString() ?? '',
       fineInfo: json['범칙금_과태료']?.toString() ?? '',
       penaltyPoints: json['벌점']?.toString() ?? '',
       carNumber: json['차량번호']?.toString() ?? '',

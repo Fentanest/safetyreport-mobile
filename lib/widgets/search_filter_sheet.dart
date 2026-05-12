@@ -63,7 +63,10 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
 
   static String _canonicalStatusOption(String value) {
     final trimmed = value.trim();
-    if (trimmed == '진행' || trimmed == '진행중' || trimmed == '처리중') {
+    if (trimmed == '진행' ||
+        trimmed == '진행중' ||
+        trimmed == '검토중' ||
+        trimmed == '처리중') {
       return '처리중';
     }
     return trimmed;

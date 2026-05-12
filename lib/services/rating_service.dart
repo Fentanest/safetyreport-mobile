@@ -10,7 +10,7 @@ import 'standalone_api_service.dart';
 import 'sync_engine.dart';
 
 class RatingService {
-  static const _terminalStatuses = {'취하', '답변 대기', '처리중', '진행', '진행중'};
+  static const _terminalStatuses = {'취하', '답변 대기', '처리중', '진행', '진행중', '검토중'};
 
   static Future<RatingBatchResult> submit({
     required AppMode appMode,

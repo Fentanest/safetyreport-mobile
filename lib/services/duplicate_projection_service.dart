@@ -58,7 +58,9 @@ class DuplicateProjectionService {
   }
 
   static String normalizeRawContent(dynamic rawContent) {
-    var text = _text(rawContent).replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+    var text = _text(
+      rawContent,
+    ).replaceAll('\r\n', '\n').replaceAll('\r', '\n');
     text = text.replaceAll(RegExp(r'[ \t]+'), ' ');
     text = text.replaceAll(RegExp(r'\n+'), '\n');
     return text.trim();
@@ -105,6 +107,7 @@ class DuplicateProjectionService {
     '처리중': 0,
     '진행': 0,
     '진행중': 0,
+    '검토중': 0,
     '취하': -1,
   };
 
@@ -118,7 +121,13 @@ class DuplicateProjectionService {
     final statusRank = _statusPriority[_text(record['처리상태'])] ?? -2;
     final answerRank = _parseMillis(record['답변일']);
     final syncedRank = int.tryParse(_text(record['synced_at'])) ?? 0;
-    return [fineRank, statusRank, answerRank, syncedRank, _text(record['신고번호'])];
+    return [
+      fineRank,
+      statusRank,
+      answerRank,
+      syncedRank,
+      _text(record['신고번호']),
+    ];
   }
 
   static int _compareTuple(
@@ -157,8 +166,9 @@ class DuplicateProjectionService {
       final normalized = normalizeRawContent(item['raw_content']);
       item['payload_normalized'] = normalized;
       item['payload_hash'] = normalized.isEmpty ? '' : _payloadHash(normalized);
-      item['payload_hash_legacy'] =
-          normalized.isEmpty ? '' : _legacyPayloadHash(normalized);
+      item['payload_hash_legacy'] = normalized.isEmpty
+          ? ''
+          : _legacyPayloadHash(normalized);
       return item;
     }).toList();
   }
@@ -190,7 +200,9 @@ class DuplicateProjectionService {
         final groupId = row['group_id']?.toString() ?? '';
         final reportId = row['report_id']?.toString() ?? '';
         if (groupId.isEmpty || reportId.isEmpty) continue;
-        existingMembersByGroup.putIfAbsent(groupId, () => <String>{}).add(reportId);
+        existingMembersByGroup
+            .putIfAbsent(groupId, () => <String>{})
+            .add(reportId);
       }
     }
 
@@ -221,11 +233,15 @@ class DuplicateProjectionService {
       if (records.length <= 1) continue;
 
       final recommendedRepresentative = _chooseRepresentative(records);
-      final recommendedRepresentativeId = _text(recommendedRepresentative['ID']);
+      final recommendedRepresentativeId = _text(
+        recommendedRepresentative['ID'],
+      );
       final legacyGroupId = _text(records.first['payload_hash_legacy']);
       final existing =
           existingGroups[groupId] ??
-          (legacyGroupId.isEmpty ? null : existingGroupsByLegacyId[legacyGroupId]);
+          (legacyGroupId.isEmpty
+              ? null
+              : existingGroupsByLegacyId[legacyGroupId]);
       final preservedStatus = _text(existing?['status']);
       final preservedMode = _text(existing?['representative_mode']);
       final preservedRep = _text(existing?['representative_id']);
@@ -256,11 +272,12 @@ class DuplicateProjectionService {
       final defaultStatus = hasConflict
           ? DuplicateStatuses.reviewRequired
           : DuplicateStatuses.confirmedDuplicate;
-      final status = {
-        DuplicateStatuses.reviewRequired,
-        DuplicateStatuses.confirmedDuplicate,
-        DuplicateStatuses.notDuplicate,
-      }.contains(preservedStatus)
+      final status =
+          {
+            DuplicateStatuses.reviewRequired,
+            DuplicateStatuses.confirmedDuplicate,
+            DuplicateStatuses.notDuplicate,
+          }.contains(preservedStatus)
           ? preservedStatus
           : defaultStatus;
 
@@ -280,8 +297,9 @@ class DuplicateProjectionService {
         'representative_mode': representativeMode,
         'representative_id': representativeId,
         'member_count': records.length,
-        'apply_globally':
-            status == DuplicateStatuses.confirmedDuplicate ? 1 : 0,
+        'apply_globally': status == DuplicateStatuses.confirmedDuplicate
+            ? 1
+            : 0,
         'note': existing?['note']?.toString() ?? '',
         'created_at': createdAt,
         'updated_at': currentTs,
@@ -295,8 +313,7 @@ class DuplicateProjectionService {
           freq[fingerprint] = (freq[fingerprint] ?? 0) + 1;
         }
         majorityFingerprint =
-            (freq.entries.toList()
-                  ..sort((a, b) => b.value.compareTo(a.value)))
+            (freq.entries.toList()..sort((a, b) => b.value.compareTo(a.value)))
                 .first
                 .key;
       }
@@ -315,8 +332,9 @@ class DuplicateProjectionService {
           'is_representative': isRepresentative ? 1 : 0,
           'priority_score': ranked.length - index,
           'raw_match': 1,
-          'field_match':
-              _fieldFingerprint(record) == majorityFingerprint ? 1 : 0,
+          'field_match': _fieldFingerprint(record) == majorityFingerprint
+              ? 1
+              : 0,
           'created_at': currentTs,
           'updated_at': currentTs,
         };
@@ -333,9 +351,10 @@ class DuplicateProjectionService {
             _text(existing['representative_id']) != representativeId;
         final membersChanged =
             existing != null &&
-            previousMemberIds.length == currentMemberIds.length
+                previousMemberIds.length == currentMemberIds.length
             ? previousMemberIds.difference(currentMemberIds).isNotEmpty
-            : existing != null && previousMemberIds.length != currentMemberIds.length;
+            : existing != null &&
+                  previousMemberIds.length != currentMemberIds.length;
 
         String changeKind = '';
         if (existing == null) {
@@ -372,10 +391,18 @@ class DuplicateProjectionService {
       if (groups.isNotEmpty) {
         final batch = txn.batch();
         for (final row in groups) {
-          batch.insert(groupTable, row, conflictAlgorithm: ConflictAlgorithm.replace);
+          batch.insert(
+            groupTable,
+            row,
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
         }
         for (final row in members) {
-          batch.insert(memberTable, row, conflictAlgorithm: ConflictAlgorithm.replace);
+          batch.insert(
+            memberTable,
+            row,
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
         }
         await batch.commit(noResult: true);
       }
@@ -461,15 +488,19 @@ class DuplicateProjectionService {
     );
     final inventory = await _loadInventory(db);
     final inventoryById = {
-      for (final row in inventory) _text(row['ID']): Map<String, dynamic>.from(row),
+      for (final row in inventory)
+        _text(row['ID']): Map<String, dynamic>.from(row),
     };
 
     final membersByGroup = <String, List<Map<String, dynamic>>>{};
     for (final row in memberRows) {
       final reportId = _text(row['report_id']);
-      final base = Map<String, dynamic>.from(inventoryById[reportId] ?? const {});
+      final base = Map<String, dynamic>.from(
+        inventoryById[reportId] ?? const {},
+      );
       final merged = {...base, ...Map<String, dynamic>.from(row)};
-      membersByGroup.putIfAbsent(_text(row['group_id']), () => <Map<String, dynamic>>[])
+      membersByGroup
+          .putIfAbsent(_text(row['group_id']), () => <Map<String, dynamic>>[])
           .add(merged);
     }
 
@@ -521,7 +552,8 @@ class DuplicateProjectionService {
     final currentStatus = _text(currentGroup['status']).isEmpty
         ? DuplicateStatuses.confirmedDuplicate
         : _text(currentGroup['status']);
-    final currentMode = _text(currentGroup['representative_mode']) == RepresentativeModes.manual
+    final currentMode =
+        _text(currentGroup['representative_mode']) == RepresentativeModes.manual
         ? RepresentativeModes.manual
         : RepresentativeModes.auto;
 
@@ -533,19 +565,18 @@ class DuplicateProjectionService {
     if (members.isEmpty) return false;
 
     final records = await _loadInventory(db);
-    final inventoryById = {
-      for (final row in records) _text(row['ID']): row,
-    };
+    final inventoryById = {for (final row in records) _text(row['ID']): row};
     final groupRecords = members
         .map((row) => inventoryById[_text(row['report_id'])])
         .whereType<Map<String, dynamic>>()
         .toList();
 
-    final nextStatus = {
-      DuplicateStatuses.reviewRequired,
-      DuplicateStatuses.confirmedDuplicate,
-      DuplicateStatuses.notDuplicate,
-    }.contains(_text(duplicateStatus))
+    final nextStatus =
+        {
+          DuplicateStatuses.reviewRequired,
+          DuplicateStatuses.confirmedDuplicate,
+          DuplicateStatuses.notDuplicate,
+        }.contains(_text(duplicateStatus))
         ? _text(duplicateStatus)
         : currentStatus;
     var nextMode = _text(representativeMode) == RepresentativeModes.manual
@@ -555,7 +586,9 @@ class DuplicateProjectionService {
         : currentMode;
 
     final requestedRepresentativeId = _text(representativeId);
-    final autoRepresentativeId = _text(_chooseRepresentative(groupRecords)['ID']);
+    final autoRepresentativeId = _text(
+      _chooseRepresentative(groupRecords)['ID'],
+    );
     final memberIds = groupRecords.map((row) => _text(row['ID'])).toSet();
     if (nextMode == RepresentativeModes.auto &&
         requestedRepresentativeId.isNotEmpty &&
@@ -584,8 +617,9 @@ class DuplicateProjectionService {
           'status': nextStatus,
           'representative_mode': nextMode,
           'representative_id': resolvedRepresentativeId,
-          'apply_globally':
-              nextStatus == DuplicateStatuses.confirmedDuplicate ? 1 : 0,
+          'apply_globally': nextStatus == DuplicateStatuses.confirmedDuplicate
+              ? 1
+              : 0,
           'note': note ?? currentGroup['note']?.toString() ?? '',
           'updated_at': updatedAt,
         },
@@ -613,7 +647,10 @@ class DuplicateProjectionService {
     List<String> groupIds,
     String duplicateStatus,
   ) async {
-    final normalizedIds = groupIds.map(_text).where((item) => item.isNotEmpty).toList();
+    final normalizedIds = groupIds
+        .map(_text)
+        .where((item) => item.isNotEmpty)
+        .toList();
     final normalizedStatus = _text(duplicateStatus);
     if (normalizedIds.isEmpty ||
         !{

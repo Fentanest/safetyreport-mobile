@@ -389,7 +389,18 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
   bool _saving = false;
   String? _error;
 
-  static const _statusOptions = <String>['', '처리중', '수용', '일부수용', '불수용', '취하'];
+  static const _statusOptions = <String>[
+    '',
+    '처리중',
+    '보완요청',
+    '수용',
+    '일부수용',
+    '불수용',
+    '기타',
+    '답변완료',
+    '취하',
+    '이송',
+  ];
   static const _finishOptions = <String>['', 'Y', 'N'];
   static const _multilineFields = <String>{'신고내용', '처리내용', '첨부사진', '첨부파일'};
   static const _dateFields = <String>{'답변일', '발생일자'};

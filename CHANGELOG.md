@@ -7,6 +7,32 @@
 
 ---
 
+## 2026-05-13
+
+### 상태 계층 재설계 구현
+
+상태: 완료
+
+변경:
+- `lib/services/standalone_parser.dart`
+  - standalone API 상세 파서가 `result(raw 상태)` 와 `status(canonical 처리상태)` 를 분리하도록 정리.
+  - 일반 `C_NOW=0` 은 `result=진행`, `status=처리중`, 열린 보완은 `status=보완요청` 으로 저장.
+- `lib/services/local_db_service.dart`
+  - 앱 시작 시 legacy `reports` row 를 raw `상태` + `보완_미응답` 기준으로 canonical `처리상태` 로 정규화하는 backfill 추가.
+  - standalone 요약 통계의 `처리중` 버킷이 `검토중` legacy 값도 같이 흡수하도록 보강.
+- `lib/services/sync_engine.dart`
+  - standalone 증분 동기화가 더 이상 목록 raw 상태와 로컬 `처리상태` mismatch 를 비교하지 않고, `종결여부` 와 `보완_미응답` 기준으로 대상을 선정.
+- `lib/models/report.dart`
+  - 서버 응답을 읽을 때 raw `상태` 를 우선 보존하도록 `result` 매핑 수정.
+- `lib/providers/report_provider.dart`, `lib/widgets/search_filter_sheet.dart`, `lib/screens/dashboard_screen.dart`, `lib/screens/data_editor_screen.dart`
+  - 검색/대시보드/수정 화면이 canonical `처리상태` 중심으로 동작하도록 정리하고, legacy `진행/진행중/검토중` 은 UI에서 `처리중` 으로만 노출.
+
+검증:
+- `dart format` on touched files
+- `dart analyze ...`
+  - 에러 없음
+  - 기존 `dashboard_screen.dart` 의 `withOpacity` deprecation info 6건만 잔존
+
 ## 2026-05-12 (문서/마무리)
 
 ### 대시보드 보완 요청 카드 + 신고내역 검색 항목 마감 정리

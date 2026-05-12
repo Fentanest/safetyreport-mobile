@@ -12,6 +12,7 @@ const _cNowStatus = {
   20: '취하',
   30: '이송',
 };
+const _canonicalDoneStatuses = {'수용', '일부수용', '불수용', '기타', '답변완료', '취하', '이송'};
 
 const _rejectKeywords = ['부득이하게', '종결합니다', '처벌이 어려운 점', '처분이 불가'];
 const _warningKeywords = [
@@ -166,10 +167,11 @@ Report parseJsonToReport(
   // 보완요청 상태 판정 (서버 parse_json_details 동일)
   int splmntDmndNo = 0;
   final rawDmndNo = detailData['SPLMNT_DMND_NO'];
-  if (rawDmndNo is num)
+  if (rawDmndNo is num) {
     splmntDmndNo = rawDmndNo.toInt();
-  else if (rawDmndNo is String)
+  } else if (rawDmndNo is String) {
     splmntDmndNo = int.tryParse(rawDmndNo) ?? 0;
+  }
   final answersList = detailData['answers'] as List? ?? [];
   final splmntOpen =
       splmntDmndNo > 0 &&
@@ -178,9 +180,7 @@ Report parseJsonToReport(
       answersList.isEmpty &&
       cNow == 0;
 
-  final processStatus = splmntOpen
-      ? '보완요청'
-      : (_cNowStatus[cNow] ?? (cNow > 0 ? cNow.toString() : '진행'));
+  final rawStatus = _cNowStatus[cNow] ?? (cNow > 0 ? cNow.toString() : '진행');
 
   // ── 신고 내용 (차량번호 이전 텍스트에서 intro 문장 제거) ─────────────────
   var reportContent = content.split(RegExp(r'\*\s*차량번호')).first;
@@ -203,17 +203,19 @@ Report parseJsonToReport(
     processingStatus = latest['C_MANAGER_TYPE_NM'] as String? ?? '';
     if (processingStatus.isEmpty ||
         processingStatus == '진행' ||
-        processingStatus == '처리중') {
+        processingStatus == '처리중' ||
+        processingStatus == '검토중') {
       processingStatus =
           latest['C_R_PROC_STAT_NM'] as String? ?? processingStatus;
     }
     if ((processingStatus.isEmpty ||
             processingStatus == '진행' ||
-            processingStatus == '처리중') &&
-        ['답변완료', '수용', '불수용', '일부수용', '기타'].contains(processStatus)) {
-      processingStatus = processStatus;
+            processingStatus == '처리중' ||
+            processingStatus == '검토중') &&
+        _canonicalDoneStatuses.contains(rawStatus)) {
+      processingStatus = rawStatus;
     }
-    if (['수용', '불수용', '일부수용', '기타', '검토중', '답변완료'].contains(processingStatus)) {
+    if (_canonicalDoneStatuses.contains(processingStatus)) {
       processingFinish = 'Y';
     }
     processingAgency =
@@ -286,20 +288,27 @@ Report parseJsonToReport(
   }
 
   // 취하 처리
-  if (processStatus == '취하') {
-    processingFinish = 'Y';
-    processingStatus = '취하';
+  processingStatus = processingStatus.trim();
+  if (rawStatus == '취하' || rawStatus == '이송') {
+    processingStatus = rawStatus;
+  } else if (_canonicalDoneStatuses.contains(processingStatus)) {
+    // 이미 final status 를 파싱한 경우 그대로 유지
+  } else if (!_canonicalDoneStatuses.contains(processingStatus) &&
+      _canonicalDoneStatuses.contains(rawStatus)) {
+    processingStatus = rawStatus;
+  } else if (splmntOpen) {
+    processingStatus = '보완요청';
+  } else {
+    processingStatus = '처리중';
+  }
+
+  processingFinish = _canonicalDoneStatuses.contains(processingStatus)
+      ? 'Y'
+      : 'N';
+  if (processingStatus == '취하') {
     penaltyAmount = '';
     penaltyPoints = '';
   }
-
-  // 보완요청 상태 통일 (열린 round 가 있을 때만 — 서버 parser 동일)
-  if (splmntOpen && processStatus == '보완요청') {
-    processingStatus = '보완요청';
-    processingFinish = 'N';
-  }
-
-  if (processingStatus.isEmpty) processingStatus = '처리중';
 
   // ── 첨부파일 ─────────────────────────────────────────────────────────────
   var mapImage = '';
@@ -324,8 +333,9 @@ Report parseJsonToReport(
           : '';
     }
     if (fileUrl.isEmpty) continue;
-    if (fileUrl.startsWith('/'))
+    if (fileUrl.startsWith('/')) {
       fileUrl = 'https://www.safetyreport.go.kr$fileUrl';
+    }
 
     if (fileUrl.contains('MAPIMG')) {
       if (mapImage.isEmpty) mapImage = fileUrl;
@@ -383,7 +393,7 @@ Report parseJsonToReport(
   // 보완요청 마지막 round 요약 (count / open / 요청자 / 일시 / 본문 / 신고자 의견).
   final supplementSummary = _summarizeLastSupplementFromJson(
     detailData,
-    closedState: processStatus != '보완요청',
+    closedState: processingStatus != '보완요청',
   );
 
   return Report(
@@ -395,7 +405,7 @@ Report parseJsonToReport(
     agency: processingAgency,
     manager: personInCharge,
     status: processingStatus,
-    result: processStatus,
+    result: rawStatus,
     fineInfo: penaltyAmount,
     penaltyPoints: penaltyPoints,
     carNumber: carNumber,

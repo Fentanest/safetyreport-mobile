@@ -203,7 +203,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Colors.orange,
           Icons.pending_rounded,
           filter: (r) =>
-              r.status == '처리중' || r.status == '진행' || r.status == '진행중',
+              r.status == '처리중' ||
+              r.status == '진행' ||
+              r.status == '진행중' ||
+              r.status == '검토중',
         ),
         _buildStatCard(
           '수용',

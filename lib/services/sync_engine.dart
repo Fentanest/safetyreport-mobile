@@ -152,7 +152,11 @@ class SyncEngine {
       final reports = await LocalDbService.getAllReports();
       for (final r in reports) {
         if (r.id.isNotEmpty) {
-          existingStatus[r.id] = {'처리상태': r.status, '종결여부': r.processingFinish};
+          existingStatus[r.id] = {
+            '처리상태': r.status,
+            '종결여부': r.processingFinish,
+            '보완_미응답': r.supplementOpen ? 'Y' : 'N',
+          };
         }
       }
       _log('기존 저장 ${existingStatus.length}건, 신규/변경 확인 시작');
@@ -168,7 +172,7 @@ class SyncEngine {
 
     while (start <= totalCount) {
       final end = (start + pageSize - 1).clamp(1, totalCount);
-      _log('목록 ${start}~${end}건 조회 중...');
+      _log('목록 $start~$end건 조회 중...');
       try {
         final data = await StandaloneApiService.fetchReportList(
           startRow: start,
@@ -183,33 +187,18 @@ class SyncEngine {
       start += pageSize;
     }
 
-    // 신규/변경 항목 필터 (서버 _get_new_and_incomplete_ids 동일 로직)
+    // 신규/증분 대상 필터 (서버 get_pending_detail_ids 동일)
     // - 신규: DB에 없는 ID
-    // - 변경: 종결여부='N' AND 목록의 C_NOW 상태가 DB 상태와 다름
-    final _cNowStatus = <int, String>{
-      0: '진행',
-      10: '답변완료',
-      11: '일부수용',
-      12: '검토중',
-      14: '불수용',
-      15: '기타',
-      20: '취하',
-      30: '이송',
-    };
+    // - 미종결: 종결여부 != 'Y'
+    // - 열린 보완: 보완_미응답 = 'Y'
     final toSync = fullSync
         ? allItems
         : allItems.where((item) {
             final cNo = item['C_NO']?.toString() ?? '';
             final snap = existingStatus[cNo];
             if (snap == null) return true; // 신규
-            if (snap['종결여부'] == 'Y') return false; // 종결 완료 → 스킵
-            // 목록의 C_NOW 매핑 상태와 DB의 담당자 처리상태 비교 (서버 동일)
-            int cNow = 0;
-            try {
-              cNow = (item['C_NOW'] as num?)?.toInt() ?? 0;
-            } catch (_) {}
-            final listStatus = _cNowStatus[cNow] ?? '진행';
-            return listStatus != snap['처리상태'];
+            if (snap['보완_미응답'] == 'Y') return true;
+            return snap['종결여부'] != 'Y';
           }).toList();
 
     _log('상세 조회 대상: ${toSync.length}건');
@@ -303,9 +292,7 @@ class SyncEngine {
       await emitChanges(_lastChanges);
     }
 
-    final msg =
-        '동기화 완료: ${done}건 저장'
-        '${errors > 0 ? ', $errors건 오류' : ''}';
+    final msg = '동기화 완료: $done건 저장${errors > 0 ? ', $errors건 오류' : ''}';
     _log(msg);
     _emit(
       SyncEvent(

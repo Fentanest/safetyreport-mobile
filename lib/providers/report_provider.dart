@@ -26,7 +26,10 @@ const _defaultStatusOrder = <String>[
 
 String _canonicalStatusLabel(String status) {
   final trimmed = status.trim();
-  if (trimmed == '진행' || trimmed == '진행중' || trimmed == '처리중') {
+  if (trimmed == '진행' ||
+      trimmed == '진행중' ||
+      trimmed == '검토중' ||
+      trimmed == '처리중') {
     return '처리중';
   }
   return trimmed;

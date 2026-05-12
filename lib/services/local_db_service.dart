@@ -516,6 +516,7 @@ class LocalDbService {
     int accept = 0,
         partial = 0,
         reject = 0,
+        supplement = 0,
         processing = 0,
         completed = 0,
         withdraw = 0;
@@ -530,6 +531,7 @@ class LocalDbService {
       if (status == '수용') accept++;
       if (status == '일부수용') partial++;
       if (status == '불수용' || status == '기타') reject++;
+      if (status == '보완요청') supplement++;
       if (status == '처리중' || status == '진행' || status == '진행중') processing++;
       if (['수용', '불수용', '일부수용', '기타', '답변완료'].contains(status)) completed++;
       if (status == '취하') withdraw++;
@@ -564,8 +566,9 @@ class LocalDbService {
         }).toList()..sort((left, right) {
           final leftSynced = _toEpochMillis(left['synced_at']) ?? -1;
           final rightSynced = _toEpochMillis(right['synced_at']) ?? -1;
-          if (leftSynced != rightSynced)
+          if (leftSynced != rightSynced) {
             return rightSynced.compareTo(leftSynced);
+          }
           final leftAnswer = _stringify(left['답변일']);
           final rightAnswer = _stringify(right['답변일']);
           final answerComp = rightAnswer.compareTo(leftAnswer);
@@ -593,6 +596,7 @@ class LocalDbService {
       acceptCount: accept,
       partialCount: partial,
       rejectCount: reject,
+      supplementCount: supplement,
       processingCount: processing,
       completedCount: completed,
       withdrawCount: withdraw,

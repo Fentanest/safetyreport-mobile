@@ -18,12 +18,19 @@ const _defaultStatusOrder = <String>[
   '일부수용',
   '불수용',
   '처리중',
-  '진행',
-  '진행중',
+  '보완요청',
   '취하',
   '기타',
   '답변완료',
 ];
+
+String _canonicalStatusLabel(String status) {
+  final trimmed = status.trim();
+  if (trimmed == '진행' || trimmed == '진행중' || trimmed == '처리중') {
+    return '처리중';
+  }
+  return trimmed;
+}
 
 const kEmptyLawFilterValue = '__없음__';
 const _recentAnswerStatuses = <String>{'수용', '일부수용', '불수용', '기타', '답변완료'};
@@ -39,6 +46,7 @@ class ReportFilter {
   final String law;
   final String location;
   final String fine;
+  final String supplementCount;
   final String reportContent;
   final String processContent;
   final List<String> statuses;
@@ -65,6 +73,7 @@ class ReportFilter {
     this.law = '',
     this.location = '',
     this.fine = '',
+    this.supplementCount = '',
     this.reportContent = '',
     this.processContent = '',
     this.statuses = const [],
@@ -92,6 +101,7 @@ class ReportFilter {
       law.isEmpty &&
       location.isEmpty &&
       fine.isEmpty &&
+      supplementCount.isEmpty &&
       reportContent.isEmpty &&
       processContent.isEmpty &&
       statuses.isEmpty &&
@@ -127,7 +137,8 @@ class ReportFilter {
       list.add('위반법규: $law');
     }
     if (location.isNotEmpty) list.add('위반장소: $location');
-    if (fine.isNotEmpty) list.add('과태료: $fine');
+    if (fine.isNotEmpty) list.add('범칙금/과태료: $fine');
+    if (supplementCount.isNotEmpty) list.add('보완횟수: $supplementCount');
     if (reportContent.isNotEmpty) list.add('신고내용: $reportContent');
     if (processContent.isNotEmpty) list.add('처리내용: $processContent');
     if (statuses.isNotEmpty) list.add('상태: ${statuses.join(', ')}');
@@ -328,7 +339,7 @@ class ReportProvider with ChangeNotifier {
 
     void collect(Iterable<Report> reports) {
       for (final report in reports) {
-        final status = report.status.trim();
+        final status = _canonicalStatusLabel(report.status);
         if (status.isEmpty || !seen.add(status)) continue;
         discovered.add(status);
       }
@@ -338,7 +349,7 @@ class ReportProvider with ChangeNotifier {
     collect(_parkingReports);
     collect(_otherReports);
     for (final status in _filter.statuses) {
-      final trimmed = status.trim();
+      final trimmed = _canonicalStatusLabel(status);
       if (trimmed.isEmpty || !seen.add(trimmed)) continue;
       discovered.add(trimmed);
     }
@@ -472,10 +483,15 @@ class ReportProvider with ChangeNotifier {
       }
       if (!_contains(r.location, f.location)) return false;
       if (!_contains(r.fineInfo, f.fine)) return false;
+      if (!_contains(r.supplementCount.toString(), f.supplementCount)) {
+        return false;
+      }
       if (!_contains(r.reportContent, f.reportContent)) return false;
       if (!_contains(r.processContent, f.processContent)) return false;
-      if (f.statuses.isNotEmpty && !f.statuses.contains(r.status.trim()))
+      if (f.statuses.isNotEmpty &&
+          !f.statuses.contains(_canonicalStatusLabel(r.status))) {
         return false;
+      }
       if (!_dateGte(r.date, f.reportDateStart)) return false;
       if (!_dateLte(r.date, f.reportDateEnd)) return false;
       if (!_dateGte(r.occurrenceDate, f.occurDateStart)) return false;
@@ -486,8 +502,9 @@ class ReportProvider with ChangeNotifier {
       if (!_dateLte(r.occurrenceTime, f.occurTimeEnd)) return false;
       if (f.excludePolice && r.agency.contains('경찰')) return false;
       if (f.onlyPolice && !r.agency.contains('경찰')) return false;
-      if (f.pollStatus.isNotEmpty && r.pollStatus.trim() != f.pollStatus)
+      if (f.pollStatus.isNotEmpty && r.pollStatus.trim() != f.pollStatus) {
         return false;
+      }
       return true;
     }).toList();
   }

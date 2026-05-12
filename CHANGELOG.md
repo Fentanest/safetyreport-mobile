@@ -7,6 +7,32 @@
 
 ---
 
+## 2026-05-12 (문서/마무리)
+
+### 대시보드 보완 요청 카드 + 신고내역 검색 항목 마감 정리
+
+상태: 완료
+
+변경:
+- `lib/models/report.dart`
+  - `DashboardStats` 에 `supplementCount` 추가. 서버 `/summary` 와 standalone 집계가 같은 필드를 공유.
+- `lib/services/local_db_service.dart`
+  - standalone 대시보드 집계가 `처리상태='보완요청'` 을 별도 카운트하도록 보강.
+- `lib/screens/dashboard_screen.dart`
+  - 대시보드 요약 카드에 `보완 요청` 추가.
+  - 처리 현황 파이 차트에도 `보완요청` 구간 추가.
+- `lib/providers/report_provider.dart`, `lib/widgets/search_filter_sheet.dart`
+  - 신고내역 검색에서 `진행/진행중/처리중` raw 값을 UI에는 `처리중` 하나로만 노출하도록 정규화.
+  - `보완요청` 상태 선택과 `보완횟수` 입력 필드 추가.
+  - `과태료` 검색 라벨/활성 필터 문구를 실제 데이터 컬럼에 맞게 `범칙금/과태료` 로 정리.
+- `README.md`
+  - 대시보드 `보완 요청` 카드, 신고내역 `보완요청`/`보완횟수` 검색, 보완 컬럼 round-trip 보존 설명 반영.
+
+검증:
+- `dart analyze lib/models/report.dart lib/providers/report_provider.dart lib/screens/dashboard_screen.dart lib/services/local_db_service.dart lib/widgets/search_filter_sheet.dart`
+  - 에러 없음
+  - 기존 `withOpacity` deprecation info 만 잔존
+
 ## 2026-05-12 (최종 정리)
 
 ### 보완요청 마지막 round 저장 구조를 서버와 동일하게 정렬

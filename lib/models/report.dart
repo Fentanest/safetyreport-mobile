@@ -144,6 +144,7 @@ class DashboardStats {
   final int acceptCount;
   final int partialCount;
   final int rejectCount;
+  final int supplementCount;
   final int processingCount;
   final int completedCount;
   final int withdrawCount;
@@ -160,6 +161,7 @@ class DashboardStats {
     required this.acceptCount,
     required this.partialCount,
     required this.rejectCount,
+    required this.supplementCount,
     required this.processingCount,
     required this.completedCount,
     required this.withdrawCount,
@@ -180,6 +182,7 @@ class DashboardStats {
       acceptCount: _toIntOrNull(json['acceptCount']) ?? 0,
       partialCount: _toIntOrNull(json['partialCount']) ?? 0,
       rejectCount: _toIntOrNull(json['rejectCount']) ?? 0,
+      supplementCount: _toIntOrNull(json['supplementCount']) ?? 0,
       processingCount: _toIntOrNull(json['processingCount']) ?? 0,
       completedCount: _toIntOrNull(json['completedCount']) ?? 0,
       withdrawCount: _toIntOrNull(json['withdrawCount']) ?? 0,

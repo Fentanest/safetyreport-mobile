@@ -53,8 +53,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: provider.isLoading && stats == null
             ? const Center(child: CircularProgressIndicator())
             : stats == null
-                ? _buildErrorState(context, provider)
-                : _buildContent(context, provider, stats),
+            ? _buildErrorState(context, provider)
+            : _buildContent(context, provider, stats),
       ),
     );
   }
@@ -64,10 +64,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final error = provider.errorMessage;
     final isStandalone = provider.appMode == AppMode.standalone;
     final icon = isStandalone ? Icons.storage_rounded : Icons.cloud_off_rounded;
-    final title =
-        isStandalone ? '데이터를 불러올 수 없습니다' : '서버에 연결할 수 없습니다';
-    final subtitle =
-        isStandalone ? '아래로 당겨 다시 시도하거나 동기화를 실행하세요.' : '아래로 당겨 다시 시도하세요.';
+    final title = isStandalone ? '데이터를 불러올 수 없습니다' : '서버에 연결할 수 없습니다';
+    final subtitle = isStandalone
+        ? '아래로 당겨 다시 시도하거나 동기화를 실행하세요.'
+        : '아래로 당겨 다시 시도하세요.';
     return LayoutBuilder(
       builder: (context, constraints) => SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -81,12 +81,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 children: [
                   Icon(icon, size: 72, color: Colors.grey.shade400),
                   const SizedBox(height: 20),
-                  Text(title,
-                      style: const TextStyle(
-                          fontSize: 18, fontWeight: FontWeight.bold)),
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   const SizedBox(height: 8),
-                  Text(subtitle,
-                      style: const TextStyle(color: Colors.grey, fontSize: 13)),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(color: Colors.grey, fontSize: 13),
+                  ),
                   if (error != null) ...[
                     const SizedBox(height: 16),
                     Container(
@@ -97,12 +103,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: Colors.red.shade200),
                       ),
-                      child: SelectableText(error,
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.red.shade800,
-                              height: 1.6,
-                              fontFamily: 'monospace')),
+                      child: SelectableText(
+                        error,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.red.shade800,
+                          height: 1.6,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
                     ),
                   ],
                   const SizedBox(height: 24),
@@ -135,8 +144,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     ReportProvider provider,
     DashboardStats stats,
   ) {
-    final trafficTotal = stats.tFineCount + stats.tPenaltyCount +
-        stats.tRejectCount + stats.tUnconfirmedCount;
+    final trafficTotal =
+        stats.tFineCount +
+        stats.tPenaltyCount +
+        stats.tRejectCount +
+        stats.tUnconfirmedCount;
     return SingleChildScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(16),
@@ -171,30 +183,67 @@ class _DashboardScreenState extends State<DashboardScreen> {
       mainAxisSpacing: 10,
       crossAxisSpacing: 10,
       children: [
-        _buildStatCard('전체', stats.total, Colors.blue, Icons.assignment_rounded,
-            filter: (r) => true),
-        _buildStatCard('수용', stats.acceptCount, Colors.green,
-            Icons.check_circle_rounded,
-            filter: (r) => r.status == '수용'),
-        _buildStatCard('일부수용', stats.partialCount, const Color(0xFF43A047),
-            Icons.check_circle_outline_rounded,
-            filter: (r) => r.status == '일부수용'),
-        _buildStatCard('불수용/기타', stats.rejectCount, Colors.red,
-            Icons.cancel_rounded,
-            filter: (r) => r.status == '불수용' || r.status == '기타'),
-        _buildStatCard('처리 중', stats.processingCount, Colors.orange,
-            Icons.pending_rounded,
-            filter: (r) =>
-                r.status == '처리중' || r.status == '진행' || r.status == '진행중'),
-        _buildStatCard('취하', stats.withdrawCount, Colors.grey,
-            Icons.remove_circle_outline_rounded,
-            filter: (r) => r.status == '취하'),
+        _buildStatCard(
+          '전체',
+          stats.total,
+          Colors.blue,
+          Icons.assignment_rounded,
+          filter: (r) => true,
+        ),
+        _buildStatCard(
+          '보완 요청',
+          stats.supplementCount,
+          const Color(0xFFFD7E14),
+          Icons.assignment_late_rounded,
+          filter: (r) => r.status == '보완요청',
+        ),
+        _buildStatCard(
+          '처리 중',
+          stats.processingCount,
+          Colors.orange,
+          Icons.pending_rounded,
+          filter: (r) =>
+              r.status == '처리중' || r.status == '진행' || r.status == '진행중',
+        ),
+        _buildStatCard(
+          '수용',
+          stats.acceptCount,
+          Colors.green,
+          Icons.check_circle_rounded,
+          filter: (r) => r.status == '수용',
+        ),
+        _buildStatCard(
+          '일부수용',
+          stats.partialCount,
+          const Color(0xFF43A047),
+          Icons.check_circle_outline_rounded,
+          filter: (r) => r.status == '일부수용',
+        ),
+        _buildStatCard(
+          '불수용/기타',
+          stats.rejectCount,
+          Colors.red,
+          Icons.cancel_rounded,
+          filter: (r) => r.status == '불수용' || r.status == '기타',
+        ),
+        _buildStatCard(
+          '취하',
+          stats.withdrawCount,
+          Colors.grey,
+          Icons.remove_circle_outline_rounded,
+          filter: (r) => r.status == '취하',
+        ),
       ],
     );
   }
 
-  Widget _buildStatCard(String label, int value, Color color, IconData icon,
-      {required bool Function(Report) filter}) {
+  Widget _buildStatCard(
+    String label,
+    int value,
+    Color color,
+    IconData icon, {
+    required bool Function(Report) filter,
+  }) {
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(
@@ -206,15 +255,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
         borderRadius: BorderRadius.circular(14),
         onTap: value > 0
             ? () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => FilteredListScreen(
-                      title: label,
-                      category: 'all',
-                      filter: filter,
-                    ),
+                context,
+                MaterialPageRoute(
+                  builder: (_) => FilteredListScreen(
+                    title: label,
+                    category: 'all',
+                    filter: filter,
                   ),
-                )
+                ),
+              )
             : null,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -225,25 +274,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(label,
-                      style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: color)),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: color,
+                    ),
+                  ),
                   Icon(icon, color: color.withOpacity(0.7), size: 20),
                 ],
               ),
               Row(
                 children: [
-                  Text('$value건',
-                      style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: color)),
+                  Text(
+                    '$value건',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: color,
+                    ),
+                  ),
                   if (value > 0) ...[
                     const Spacer(),
-                    Icon(Icons.chevron_right,
-                        size: 16, color: color.withOpacity(0.5)),
+                    Icon(
+                      Icons.chevron_right,
+                      size: 16,
+                      color: color.withOpacity(0.5),
+                    ),
                   ],
                 ],
               ),
@@ -262,29 +320,51 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [
-              const Icon(Icons.directions_car, size: 18, color: Colors.blueGrey),
-              const SizedBox(width: 6),
-              const Text('교통위반 처리 현황',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-            ]),
+            Row(
+              children: [
+                const Icon(
+                  Icons.directions_car,
+                  size: 18,
+                  color: Colors.blueGrey,
+                ),
+                const SizedBox(width: 6),
+                const Text(
+                  '교통위반 처리 현황',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
             const SizedBox(height: 14),
             Row(
               children: [
-                _miniStat('과태료', stats.tFineCount, Colors.red,
-                    filter: (r) => r.fineInfo.contains('과태료')),
-                _miniStat('경고/범칙금', stats.tPenaltyCount, Colors.orange,
-                    filter: (r) =>
-                        r.fineInfo.contains('경고') ||
-                        r.fineInfo.contains('범칙금')),
-                _miniStat('불수용', stats.tRejectCount, Colors.grey,
-                    filter: (r) =>
-                        r.status.contains('불수용') || r.status == '기타'),
-                _miniStat('미확인', stats.tUnconfirmedCount, Colors.blueGrey,
-                    filter: (r) =>
-                        r.fineInfo == '미확인' &&
-                        !r.status.contains('불수용') &&
-                        r.status != '기타'),
+                _miniStat(
+                  '과태료',
+                  stats.tFineCount,
+                  Colors.red,
+                  filter: (r) => r.fineInfo.contains('과태료'),
+                ),
+                _miniStat(
+                  '경고/범칙금',
+                  stats.tPenaltyCount,
+                  Colors.orange,
+                  filter: (r) =>
+                      r.fineInfo.contains('경고') || r.fineInfo.contains('범칙금'),
+                ),
+                _miniStat(
+                  '불수용',
+                  stats.tRejectCount,
+                  Colors.grey,
+                  filter: (r) => r.status.contains('불수용') || r.status == '기타',
+                ),
+                _miniStat(
+                  '미확인',
+                  stats.tUnconfirmedCount,
+                  Colors.blueGrey,
+                  filter: (r) =>
+                      r.fineInfo == '미확인' &&
+                      !r.status.contains('불수용') &&
+                      r.status != '기타',
+                ),
               ],
             ),
           ],
@@ -293,34 +373,45 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _miniStat(String label, int value, Color color,
-      {required bool Function(Report) filter}) {
+  Widget _miniStat(
+    String label,
+    int value,
+    Color color, {
+    required bool Function(Report) filter,
+  }) {
     return Expanded(
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
         onTap: value > 0
             ? () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => FilteredListScreen(
-                      title: '교통위반 — $label',
-                      category: 'traffic',
-                      filter: filter,
-                    ),
+                context,
+                MaterialPageRoute(
+                  builder: (_) => FilteredListScreen(
+                    title: '교통위반 — $label',
+                    category: 'traffic',
+                    filter: filter,
                   ),
-                )
+                ),
+              )
             : null,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
           child: Column(
             children: [
-              Text('$value',
-                  style: TextStyle(
-                      fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+              Text(
+                '$value',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
               const SizedBox(height: 2),
-              Text(label,
-                  style: const TextStyle(fontSize: 11, color: Colors.grey),
-                  textAlign: TextAlign.center),
+              Text(
+                label,
+                style: const TextStyle(fontSize: 11, color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
             ],
           ),
         ),
@@ -337,6 +428,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       (stats.acceptCount, Colors.green, '수용'),
       (stats.partialCount, const Color(0xFF43A047), '일부수용'),
       (stats.rejectCount, Colors.red, '불수용'),
+      (stats.supplementCount, const Color(0xFFFD7E14), '보완요청'),
       (stats.processingCount, Colors.orange, '처리중'),
       (stats.withdrawCount, Colors.grey, '취하'),
     ].where((e) => e.$1 > 0).toList();
@@ -346,65 +438,85 @@ class _DashboardScreenState extends State<DashboardScreen> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            Row(children: [
-              const Icon(Icons.pie_chart, size: 18, color: Colors.blueGrey),
-              const SizedBox(width: 6),
-              const Text('처리 현황',
-                  style:
-                      TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-              const Spacer(),
-              Text('총 $total건',
-                  style: const TextStyle(color: Colors.grey, fontSize: 13)),
-            ]),
+            Row(
+              children: [
+                const Icon(Icons.pie_chart, size: 18, color: Colors.blueGrey),
+                const SizedBox(width: 6),
+                const Text(
+                  '처리 현황',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                ),
+                const Spacer(),
+                Text(
+                  '총 $total건',
+                  style: const TextStyle(color: Colors.grey, fontSize: 13),
+                ),
+              ],
+            ),
             const SizedBox(height: 16),
             Row(
               children: [
                 SizedBox(
                   height: 160,
                   width: 160,
-                  child: PieChart(PieChartData(
-                    sections: sections
-                        .map((e) => PieChartSectionData(
+                  child: PieChart(
+                    PieChartData(
+                      sections: sections
+                          .map(
+                            (e) => PieChartSectionData(
                               value: e.$1.toDouble(),
                               color: e.$2,
                               title:
                                   '${(e.$1 / total * 100).toStringAsFixed(0)}%',
                               radius: 48,
                               titleStyle: const TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white),
-                            ))
-                        .toList(),
-                    centerSpaceRadius: 32,
-                    sectionsSpace: 2,
-                  )),
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          )
+                          .toList(),
+                      centerSpaceRadius: 32,
+                      sectionsSpace: 2,
+                    ),
+                  ),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: sections
-                        .map((e) => Padding(
-                              padding:
-                                  const EdgeInsets.symmetric(vertical: 4),
-                              child: Row(children: [
+                        .map(
+                          (e) => Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              children: [
                                 Container(
-                                    width: 10,
-                                    height: 10,
-                                    decoration: BoxDecoration(
-                                        color: e.$2,
-                                        shape: BoxShape.circle)),
+                                  width: 10,
+                                  height: 10,
+                                  decoration: BoxDecoration(
+                                    color: e.$2,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
                                 const SizedBox(width: 6),
-                                Text(e.$3,
-                                    style: const TextStyle(fontSize: 12)),
+                                Text(
+                                  e.$3,
+                                  style: const TextStyle(fontSize: 12),
+                                ),
                                 const Spacer(),
-                                Text('${e.$1}건',
-                                    style: const TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600)),
-                              ]),
-                            ))
+                                Text(
+                                  '${e.$1}건',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
                         .toList(),
                   ),
                 ),
@@ -426,19 +538,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
             const Icon(Icons.bookmark, size: 18, color: Colors.blue),
             const SizedBox(width: 6),
             const Expanded(
-              child: Text('감시 목록',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              child: Text(
+                '감시 목록',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
             ),
             TextButton.icon(
               icon: const Icon(Icons.open_in_new, size: 14),
               label: const Text('관리'),
               style: TextButton.styleFrom(
-                  padding: EdgeInsets.zero,
-                  minimumSize: const Size(0, 28)),
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(0, 28),
+              ),
               onPressed: () => Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => const ReportManagementScreen(initialTabIndex: 0),
+                  builder: (_) =>
+                      const ReportManagementScreen(initialTabIndex: 0),
                 ),
               ),
             ),
@@ -454,12 +570,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: Colors.grey.shade200),
             ),
-            child: Column(children: [
-              Icon(Icons.bookmark_border, size: 32, color: Colors.grey.shade300),
-              const SizedBox(height: 6),
-              const Text('감시 중인 신고가 없습니다.',
-                  style: TextStyle(color: Colors.grey, fontSize: 12)),
-            ]),
+            child: Column(
+              children: [
+                Icon(
+                  Icons.bookmark_border,
+                  size: 32,
+                  color: Colors.grey.shade300,
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  '감시 중인 신고가 없습니다.',
+                  style: TextStyle(color: Colors.grey, fontSize: 12),
+                ),
+              ],
+            ),
           )
         else
           ...items.take(5).map((r) => _buildWatchItem(r)),
@@ -469,7 +593,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
               onPressed: () => Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => const ReportManagementScreen(initialTabIndex: 0),
+                  builder: (_) =>
+                      const ReportManagementScreen(initialTabIndex: 0),
                 ),
               ),
               child: Text('+ ${items.length - 5}건 더 보기'),
@@ -496,11 +621,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   const Icon(Icons.bookmark, color: Colors.blue, size: 16),
                   const SizedBox(width: 6),
                   Expanded(
-                    child: Text(r.name,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w600, fontSize: 14)),
+                    child: Text(
+                      r.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
                   ),
                   const SizedBox(width: 8),
                   _statusChip(r.status),
@@ -536,25 +665,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
       children: [
         Row(
           children: [
-            const Icon(Icons.notifications_active,
-                size: 18, color: Colors.green),
+            const Icon(
+              Icons.notifications_active,
+              size: 18,
+              color: Colors.green,
+            ),
             const SizedBox(width: 6),
             const Expanded(
-              child: Text('최근 답변 완료 (3일)',
-                  style:
-                      TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              child: Text(
+                '최근 답변 완료 (3일)',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
             ),
             if (reports.isNotEmpty)
               TextButton.icon(
                 icon: const Icon(Icons.open_in_new, size: 14),
                 label: const Text('모두 보기'),
                 style: TextButton.styleFrom(
-                    padding: EdgeInsets.zero,
-                    minimumSize: const Size(0, 28)),
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(0, 28),
+                ),
                 onPressed: () => Navigator.push(
                   context,
                   MaterialPageRoute(
-                      builder: (_) => const RecentAnswersScreen()),
+                    builder: (_) => const RecentAnswersScreen(),
+                  ),
                 ),
               ),
           ],
@@ -564,8 +699,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const Padding(
             padding: EdgeInsets.all(24),
             child: Center(
-              child: Text('3일 내 답변 완료된 신고가 없습니다.',
-                  style: TextStyle(color: Colors.grey)),
+              child: Text(
+                '3일 내 답변 완료된 신고가 없습니다.',
+                style: TextStyle(color: Colors.grey),
+              ),
             ),
           )
         else
@@ -575,8 +712,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: TextButton(
               onPressed: () => Navigator.push(
                 context,
-                MaterialPageRoute(
-                    builder: (_) => const RecentAnswersScreen()),
+                MaterialPageRoute(builder: (_) => const RecentAnswersScreen()),
               ),
               child: Text('+ ${reports.length - previewLimit}건 더 보기'),
             ),
@@ -602,11 +738,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
-                      child: Text(r.name,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              fontWeight: FontWeight.w600, fontSize: 14)),
+                      child: Text(
+                        r.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                        ),
+                      ),
                     ),
                     const SizedBox(width: 8),
                     _statusChip(r.status),
@@ -625,10 +765,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   _metaRow(Icons.person_outline, '담당자', r.manager),
                 if (r.fineInfo.isNotEmpty)
                   _metaRow(
-                      Icons.monetization_on_outlined, '과태료/범칙금', r.fineInfo),
+                    Icons.monetization_on_outlined,
+                    '과태료/범칙금',
+                    r.fineInfo,
+                  ),
                 if (r.carNumber.isNotEmpty)
-                  _metaRow(
-                      Icons.directions_car_outlined, '차량번호', r.carNumber),
+                  _metaRow(Icons.directions_car_outlined, '차량번호', r.carNumber),
               ],
             ),
           ),
@@ -640,16 +782,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _metaRow(IconData icon, String label, String value) {
     return Padding(
       padding: const EdgeInsets.only(top: 3),
-      child: Row(children: [
-        Icon(icon, size: 12, color: Colors.grey),
-        const SizedBox(width: 4),
-        Text('$label ', style: const TextStyle(fontSize: 11, color: Colors.grey)),
-        Expanded(
-          child: Text(value,
+      child: Row(
+        children: [
+          Icon(icon, size: 12, color: Colors.grey),
+          const SizedBox(width: 4),
+          Text(
+            '$label ',
+            style: const TextStyle(fontSize: 11, color: Colors.grey),
+          ),
+          Expanded(
+            child: Text(
+              value,
               style: const TextStyle(fontSize: 11),
-              overflow: TextOverflow.ellipsis),
-        ),
-      ]),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -662,9 +811,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: color.withOpacity(0.4)),
       ),
-      child: Text(status,
-          style: TextStyle(
-              color: color, fontSize: 11, fontWeight: FontWeight.bold)),
+      child: Text(
+        status,
+        style: TextStyle(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
     );
   }
 

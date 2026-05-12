@@ -20,6 +20,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   late final TextEditingController _carCtrl;
   late final TextEditingController _locationCtrl;
   late final TextEditingController _fineCtrl;
+  late final TextEditingController _supplementCountCtrl;
   late final TextEditingController _reportContentCtrl;
   late final TextEditingController _processContentCtrl;
   late final TextEditingController _occurTimeStartCtrl;
@@ -45,8 +46,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     '일부수용',
     '불수용',
     '처리중',
-    '진행',
-    '진행중',
+    '보완요청',
     '취하',
     '기타',
     '답변완료',
@@ -61,6 +61,14 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   ];
   static const _pollStatusOptions = <String>['참여 완료', '참여 가능'];
 
+  static String _canonicalStatusOption(String value) {
+    final trimmed = value.trim();
+    if (trimmed == '진행' || trimmed == '진행중' || trimmed == '처리중') {
+      return '처리중';
+    }
+    return trimmed;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -73,11 +81,16 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     _carCtrl = TextEditingController(text: f.carNumber);
     _locationCtrl = TextEditingController(text: f.location);
     _fineCtrl = TextEditingController(text: f.fine);
+    _supplementCountCtrl = TextEditingController(text: f.supplementCount);
     _reportContentCtrl = TextEditingController(text: f.reportContent);
     _processContentCtrl = TextEditingController(text: f.processContent);
     _occurTimeStartCtrl = TextEditingController(text: f.occurTimeStart);
     _occurTimeEndCtrl = TextEditingController(text: f.occurTimeEnd);
-    _selectedStatuses = List<String>.from(f.statuses);
+    _selectedStatuses = f.statuses
+        .map(_canonicalStatusOption)
+        .where((v) => v.isNotEmpty)
+        .toSet()
+        .toList();
     _selectedRatings = List<String>.from(f.ratings);
     _reportDateStart = f.reportDateStart;
     _reportDateEnd = f.reportDateEnd;
@@ -101,6 +114,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
       _carCtrl,
       _locationCtrl,
       _fineCtrl,
+      _supplementCountCtrl,
       _reportContentCtrl,
       _ratingCauseCtrl,
       _processContentCtrl,
@@ -139,6 +153,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
         law: _selectedLaw,
         location: _locationCtrl.text.trim(),
         fine: _fineCtrl.text.trim(),
+        supplementCount: _supplementCountCtrl.text.trim(),
         reportContent: _reportContentCtrl.text.trim(),
         processContent: _processContentCtrl.text.trim(),
         statuses: List<String>.from(_selectedStatuses),
@@ -171,7 +186,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     final seen = <String>{};
     final values = <String>[...source, ..._selectedStatuses];
     return values
-        .map((value) => value.trim())
+        .map(_canonicalStatusOption)
         .where((value) => value.isNotEmpty && seen.add(value))
         .map((value) => MapEntry(value, value))
         .toList();
@@ -331,6 +346,8 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
             _input(_managerCtrl, '담당자', Icons.person_outline),
             const SizedBox(height: 8),
             _input(_fineCtrl, '과태료/범칙금', Icons.monetization_on_outlined),
+            const SizedBox(height: 8),
+            _input(_supplementCountCtrl, '보완횟수', Icons.history_edu_outlined),
             const SizedBox(height: 8),
             _input(_processContentCtrl, '처리내용', Icons.task_alt_outlined),
             const SizedBox(height: 8),

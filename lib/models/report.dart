@@ -43,7 +43,10 @@ class Report {
   final int? syncedAt; // 마지막 실제 반영 시각 (epoch millis)
   final int supplementCount; // 누적 보완요청 횟수 (없으면 0)
   final bool supplementOpen; // 마지막 round 가 아직 미응답인지 (Y → true)
-  final String supplementRequest; // 마지막 round 요청 내용 (요청자/연락처/일시 prefix 포함)
+  final String supplementRequester; // 마지막 round 보완 요청자
+  final String supplementRequestedAt; // 마지막 round 보완 요청 일시
+  final String supplementCompletedAt; // 마지막 round 보완 완료 일시
+  final String supplementRequest; // 마지막 round 요청 내용
   final String supplementOpinion; // 마지막 round 의 신고자 보완 의견
 
   Report({
@@ -78,6 +81,9 @@ class Report {
     this.syncedAt,
     this.supplementCount = 0,
     this.supplementOpen = false,
+    this.supplementRequester = '',
+    this.supplementRequestedAt = '',
+    this.supplementCompletedAt = '',
     this.supplementRequest = '',
     this.supplementOpinion = '',
   });
@@ -123,6 +129,9 @@ class Report {
       syncedAt: _toIntOrNull(json['synced_at']),
       supplementCount: _toIntOrNull(json['보완횟수']) ?? 0,
       supplementOpen: (json['보완_미응답']?.toString() ?? 'N') == 'Y',
+      supplementRequester: json['보완_요청자']?.toString() ?? '',
+      supplementRequestedAt: json['보완_요청일시']?.toString() ?? '',
+      supplementCompletedAt: json['보완_완료일시']?.toString() ?? '',
       supplementRequest: json['보완_요청_내용']?.toString() ?? '',
       supplementOpinion: json['보완_신고자_의견']?.toString() ?? '',
     );

@@ -72,7 +72,7 @@ class ReportDetailSheet extends StatelessWidget {
       return;
     }
     final uri = Uri.parse(
-      'appsafetyreport://view?openpage=true&c_no=${report.id}&ext_path=M_MY_01_S0002.html',
+      'appsafetyreport://view?c_no=${report.id}&ext_path=M_MY_01_S0002.html&mem_yn=Y',
     );
     try {
       final launched = await launchUrl(
@@ -292,6 +292,9 @@ class ReportDetailSheet extends StatelessWidget {
               _textBlock('신고내용', report.reportContent),
             ],
             if (report.supplementCount > 0 ||
+                report.supplementRequester.isNotEmpty ||
+                report.supplementRequestedAt.isNotEmpty ||
+                report.supplementCompletedAt.isNotEmpty ||
                 report.supplementRequest.isNotEmpty ||
                 report.supplementOpinion.isNotEmpty) ...[
               const SizedBox(height: 12),
@@ -611,8 +614,7 @@ class ReportDetailSheet extends StatelessWidget {
                 width: 82,
                 child: Text(
                   label,
-                  style:
-                      TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
                 ),
               ),
               Expanded(
@@ -627,7 +629,11 @@ class ReportDetailSheet extends StatelessWidget {
                   ),
                 ),
               ),
-              Icon(Icons.chevron_right, size: 16, color: color.withOpacity(0.6)),
+              Icon(
+                Icons.chevron_right,
+                size: 16,
+                color: color.withOpacity(0.6),
+              ),
             ],
           ),
         ),
@@ -635,7 +641,10 @@ class ReportDetailSheet extends StatelessWidget {
     );
   }
 
-  Future<void> _navigateToFiltered(BuildContext context, ReportFilter filter) async {
+  Future<void> _navigateToFiltered(
+    BuildContext context,
+    ReportFilter filter,
+  ) async {
     final navigator = Navigator.of(context);
     final provider = context.read<ReportProvider>();
     var category = provider.findCategory(report);
@@ -645,9 +654,9 @@ class ReportDetailSheet extends StatelessWidget {
       category = provider.findCategory(report);
     }
     if (category == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('신고 카테고리 정보를 찾지 못했습니다.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('신고 카테고리 정보를 찾지 못했습니다.')));
       return;
     }
 
@@ -1322,6 +1331,9 @@ class _SupplementSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final count = report.supplementCount;
     final open = report.supplementOpen;
+    final requester = report.supplementRequester.trim();
+    final requestedAt = report.supplementRequestedAt.trim();
+    final completedAt = report.supplementCompletedAt.trim();
     final request = report.supplementRequest.trim();
     final opinion = report.supplementOpinion.trim();
     final accent = open ? const Color(0xFFFD7E14) : Colors.grey.shade600;
@@ -1344,8 +1356,7 @@ class _SupplementSection extends StatelessWidget {
             if (count > 0) ...[
               const SizedBox(width: 6),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: const Color(0xFFFD7E14),
                   borderRadius: BorderRadius.circular(4),
@@ -1379,14 +1390,27 @@ class _SupplementSection extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
             color: open
-                ? const Color(0xFFFD7E14).withOpacity(0.08)
+                ? const Color(0xFFFD7E14).withValues(alpha: 0.08)
                 : Colors.grey.shade100,
             borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: accent.withOpacity(0.4)),
+            border: Border.all(color: accent.withValues(alpha: 0.4)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (requester.isNotEmpty ||
+                  requestedAt.isNotEmpty ||
+                  completedAt.isNotEmpty) ...[
+                if (requester.isNotEmpty)
+                  _SupplementMetaRow(label: '보완 요청자', value: requester),
+                if (requestedAt.isNotEmpty)
+                  _SupplementMetaRow(label: '요청 일시', value: requestedAt),
+                _SupplementMetaRow(
+                  label: '완료 일시',
+                  value: completedAt.isNotEmpty ? completedAt : '(미응답)',
+                ),
+                const SizedBox(height: 8),
+              ],
               Text(
                 request.isNotEmpty ? request : '(요청 내용 없음)',
                 style: const TextStyle(fontSize: 12.5, height: 1.5),
@@ -1402,12 +1426,47 @@ class _SupplementSection extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 2),
-                Text(opinion, style: const TextStyle(fontSize: 12.5, height: 1.5)),
+                Text(
+                  opinion,
+                  style: const TextStyle(fontSize: 12.5, height: 1.5),
+                ),
               ],
             ],
           ),
         ),
       ],
+    );
+  }
+}
+
+class _SupplementMetaRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _SupplementMetaRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: RichText(
+        text: TextSpan(
+          style: const TextStyle(fontSize: 12, height: 1.45),
+          children: [
+            TextSpan(
+              text: '$label ',
+              style: TextStyle(
+                color: Colors.grey.shade600,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            TextSpan(
+              text: value,
+              style: const TextStyle(color: Colors.black87),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

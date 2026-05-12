@@ -472,6 +472,13 @@ class SyncEngine {
       validCount: report.validCount,
       category: report.category,
       syncedAt: report.syncedAt,
+      supplementCount: report.supplementCount,
+      supplementOpen: report.supplementOpen,
+      supplementRequester: report.supplementRequester,
+      supplementRequestedAt: report.supplementRequestedAt,
+      supplementCompletedAt: report.supplementCompletedAt,
+      supplementRequest: report.supplementRequest,
+      supplementOpinion: report.supplementOpinion,
     );
   }
 

@@ -3,14 +3,25 @@ import '../models/report.dart';
 // ── 상수 ─────────────────────────────────────────────────────────────────────
 
 const _cNowStatus = {
-  0: '진행', 10: '답변완료', 11: '일부수용', 12: '검토중',
-  14: '불수용', 15: '기타', 20: '취하', 30: '이송',
+  0: '진행',
+  10: '답변완료',
+  11: '일부수용',
+  12: '검토중',
+  14: '불수용',
+  15: '기타',
+  20: '취하',
+  30: '이송',
 };
 
 const _rejectKeywords = ['부득이하게', '종결합니다', '처벌이 어려운 점', '처분이 불가'];
 const _warningKeywords = [
-  '교통질서 안내장', '훈방권', '증거에 의해서만', '12대 중과실',
-  '82도117', '관리대상으로', '12개 중과실',
+  '교통질서 안내장',
+  '훈방권',
+  '증거에 의해서만',
+  '12대 중과실',
+  '82도117',
+  '관리대상으로',
+  '12개 중과실',
 ];
 const _trafficEntry = '자동차·교통위반';
 
@@ -19,15 +30,16 @@ const _trafficEntry = '자동차·교통위반';
 /// 목록+상세 API 응답에서 entryValue를 추출한다.
 /// sync_engine 에서 카테고리 분류용으로 사용.
 String entryValueFromDetail(
-    Map<String, dynamic> listData, Map<String, dynamic> detailData) {
+  Map<String, dynamic> listData,
+  Map<String, dynamic> detailData,
+) {
   final rawContent =
       (detailData['C_A_CONTENTS'] ?? detailData['C_A_BODY'] ?? '') as String;
   final content = _normalizeNumbers(rawContent);
   final m = RegExp(
     r'본 신고는 안전신문고 (?:앱의|포털의) (.+?) 메뉴로 접수된 신고입니다',
   ).firstMatch(content);
-  return m?.group(1)?.trim() ??
-      (detailData['C_APP_GUBUN_NM'] as String? ?? '');
+  return m?.group(1)?.trim() ?? (detailData['C_APP_GUBUN_NM'] as String? ?? '');
 }
 
 String categoryFromEntryValue(String entryValue) {
@@ -42,10 +54,17 @@ const _parkingFineEntries = ['불법주정차신고', '버스전용차로 위반
 // ── 전각 숫자 → 반각 변환 ────────────────────────────────────────────────────
 
 String _normalizeNumbers(String s) => s
-    .replaceAll('０', '0').replaceAll('１', '1').replaceAll('２', '2')
-    .replaceAll('３', '3').replaceAll('４', '4').replaceAll('５', '5')
-    .replaceAll('６', '6').replaceAll('７', '7').replaceAll('８', '8')
-    .replaceAll('９', '9').replaceAll('，', ',');
+    .replaceAll('０', '0')
+    .replaceAll('１', '1')
+    .replaceAll('２', '2')
+    .replaceAll('３', '3')
+    .replaceAll('４', '4')
+    .replaceAll('５', '5')
+    .replaceAll('６', '6')
+    .replaceAll('７', '7')
+    .replaceAll('８', '8')
+    .replaceAll('９', '9')
+    .replaceAll('，', ',');
 
 // ── 과태료 금액 → 원 단위 정수 추출 (서버 _extract_fine_amount 와 동일) ──────
 // '과태료: 40,000원' 형식만 합산. '범칙금: 40,000원'은 0 반환.
@@ -64,45 +83,60 @@ int extractFineAmount(String fineInfo) {
 /// [cNo]: 안전신문고 C_NO (내부 ID)
 /// [listData]: 목록 API 항목 (STTEMNT_NO, C_A_TITLE, C_DATE, STSFDG_SCORE)
 /// [detailData]: 상세 API 응답 전체
-Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> detailData) {
-  final cNo = detailData['C_NO']?.toString() ?? listData['C_NO']?.toString() ?? '';
+Report parseJsonToReport(
+  Map<String, dynamic> listData,
+  Map<String, dynamic> detailData,
+) {
+  final cNo =
+      detailData['C_NO']?.toString() ?? listData['C_NO']?.toString() ?? '';
 
   // ── 신고 내용 텍스트 파싱 ────────────────────────────────────────────────
   // Traffic 신고는 CRLF(\r\n)를 사용함. Dart regex의 '.'는 \r을 매치하지 않아
   // 차량번호 파싱이 실패. \r\n → \n, 단독 \r → \n 으로 정규화.
-  final rawContent = (detailData['C_A_CONTENTS'] ?? detailData['C_A_BODY'] ?? '') as String;
-  final content = _normalizeNumbers(rawContent)
-      .replaceAll('\r\n', '\n')
-      .replaceAll('\r', '\n');
+  final rawContent =
+      (detailData['C_A_CONTENTS'] ?? detailData['C_A_BODY'] ?? '') as String;
+  final content = _normalizeNumbers(
+    rawContent,
+  ).replaceAll('\r\n', '\n').replaceAll('\r', '\n');
 
   final entryMatch = RegExp(
     r'본 신고는 안전신문고 (?:앱의|포털의) (.+?) 메뉴로 접수된 신고입니다',
   ).firstMatch(content);
-  final entryValue = entryMatch?.group(1)?.trim() ??
+  final entryValue =
+      entryMatch?.group(1)?.trim() ??
       (detailData['C_APP_GUBUN_NM'] as String? ?? '');
 
   // \n, *(다음 항목), (위, 문자열 끝 모두를 종단점으로 처리
-  final carMatch = RegExp(r'차량번호\s*:\s*(.*?)(?=\n|\*|\(위|$)').firstMatch(content);
+  final carMatch = RegExp(
+    r'차량번호\s*:\s*(.*?)(?=\n|\*|\(위|$)',
+  ).firstMatch(content);
   var carNumber = carMatch != null
       ? carMatch.group(1)!.replaceAll(RegExp(r'\s+'), '')
       : '';
 
-  final dateMatch = RegExp(r'발생일자\s*:\s*(\d{4}[.]\d{1,2}[.]\d{1,2})').firstMatch(content);
+  final dateMatch = RegExp(
+    r'발생일자\s*:\s*(\d{4}[.]\d{1,2}[.]\d{1,2})',
+  ).firstMatch(content);
   var occurrenceDate = dateMatch?.group(1)?.trim().replaceAll('.', '-') ?? '';
 
   final timeMatch = RegExp(r'발생시각\s*:\s*(\d{2}:\d{2})').firstMatch(content);
   var occurrenceTime = timeMatch?.group(1)?.trim() ?? '';
 
   // 위반장소
-  var violationLocation = (detailData['RN_ADRES'] as String? ??
-      detailData['C_A_ADD2'] as String? ??
-      '${detailData['C_A_ADDR_HEAD'] ?? ''} ${detailData['C_A_ADDR_TAIL'] ?? ''}').trim();
+  var violationLocation =
+      (detailData['RN_ADRES'] as String? ??
+              detailData['C_A_ADD2'] as String? ??
+              '${detailData['C_A_ADDR_HEAD'] ?? ''} ${detailData['C_A_ADDR_TAIL'] ?? ''}')
+          .trim();
 
   // 보완 완료 시 신고 정보 갱신
   if ((detailData['SPLMNT_CMPTN_DT'] != null) &&
       (detailData['SPLMNT_CMPTN_YN'] as String?) != 'N') {
     if (detailData['SPLMNT_VHRNO'] != null) {
-      carNumber = (detailData['SPLMNT_VHRNO'] as String).replaceAll(RegExp(r'\s+'), '');
+      carNumber = (detailData['SPLMNT_VHRNO'] as String).replaceAll(
+        RegExp(r'\s+'),
+        '',
+      );
     }
     final rawDate = (detailData['SPLMNT_DEVEL_DATE'] ?? '').toString();
     if (rawDate.length == 8) {
@@ -114,7 +148,8 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
       occurrenceTime = '${rawTime.substring(0, 2)}:${rawTime.substring(2, 4)}';
     }
     final splmntLoc =
-        ((detailData['SPLMNT_RN_ADRES'] ?? detailData['SPLMNT_C_A_ADD2'] ?? '') as String)
+        ((detailData['SPLMNT_RN_ADRES'] ?? detailData['SPLMNT_C_A_ADD2'] ?? '')
+                as String)
             .trim();
     if (splmntLoc.isNotEmpty) violationLocation = splmntLoc;
   }
@@ -122,17 +157,22 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
   // ── 신고 상태 (C_NOW) ────────────────────────────────────────────────────
   int cNow = 0;
   try {
-    cNow = (detailData['C_NOW'] as num?)?.toInt() ??
-        int.tryParse(detailData['C_NOW']?.toString() ?? '') ?? 0;
+    cNow =
+        (detailData['C_NOW'] as num?)?.toInt() ??
+        int.tryParse(detailData['C_NOW']?.toString() ?? '') ??
+        0;
   } catch (_) {}
 
   // 보완요청 상태 판정 (서버 parse_json_details 동일)
   int splmntDmndNo = 0;
   final rawDmndNo = detailData['SPLMNT_DMND_NO'];
-  if (rawDmndNo is num) splmntDmndNo = rawDmndNo.toInt();
-  else if (rawDmndNo is String) splmntDmndNo = int.tryParse(rawDmndNo) ?? 0;
+  if (rawDmndNo is num)
+    splmntDmndNo = rawDmndNo.toInt();
+  else if (rawDmndNo is String)
+    splmntDmndNo = int.tryParse(rawDmndNo) ?? 0;
   final answersList = detailData['answers'] as List? ?? [];
-  final splmntOpen = splmntDmndNo > 0 &&
+  final splmntOpen =
+      splmntDmndNo > 0 &&
       detailData['SPLMNT_FNSH_YN'] == 'N' &&
       detailData['SPLMNT_CMPTN_YN'] == 'N' &&
       answersList.isEmpty &&
@@ -161,21 +201,30 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
   if (answers.isNotEmpty) {
     final latest = answers.last as Map<String, dynamic>;
     processingStatus = latest['C_MANAGER_TYPE_NM'] as String? ?? '';
-    if (processingStatus.isEmpty || processingStatus == '진행' || processingStatus == '처리중') {
-      processingStatus = latest['C_R_PROC_STAT_NM'] as String? ?? processingStatus;
+    if (processingStatus.isEmpty ||
+        processingStatus == '진행' ||
+        processingStatus == '처리중') {
+      processingStatus =
+          latest['C_R_PROC_STAT_NM'] as String? ?? processingStatus;
     }
-    if ((processingStatus.isEmpty || processingStatus == '진행' || processingStatus == '처리중') &&
+    if ((processingStatus.isEmpty ||
+            processingStatus == '진행' ||
+            processingStatus == '처리중') &&
         ['답변완료', '수용', '불수용', '일부수용', '기타'].contains(processStatus)) {
       processingStatus = processStatus;
     }
     if (['수용', '불수용', '일부수용', '기타', '검토중', '답변완료'].contains(processingStatus)) {
       processingFinish = 'Y';
     }
-    processingAgency = (latest['C_MANAGE_ORG_NAME'] ?? latest['C_MANAGER_TYPE_NM'] ?? '') as String;
-    personInCharge = (latest['C_MANAGE_MAN'] ?? latest['C_R_MOD_ID'] ?? '') as String;
+    processingAgency =
+        (latest['C_MANAGE_ORG_NAME'] ?? latest['C_MANAGER_TYPE_NM'] ?? '')
+            as String;
+    personInCharge =
+        (latest['C_MANAGE_MAN'] ?? latest['C_R_MOD_ID'] ?? '') as String;
     final rd = (latest['C_DATE'] ?? latest['C_R_MOD_DATE'] ?? '') as String;
     responseDate = rd.length >= 10 ? rd.substring(0, 10) : rd;
-    processingContent = (latest['C_MANAGE_CONTENTS'] ?? latest['C_R_BODY'] ?? '') as String;
+    processingContent =
+        (latest['C_MANAGE_CONTENTS'] ?? latest['C_R_BODY'] ?? '') as String;
     processingContent = processingContent
         .replaceAll(RegExp(r'<[^>]+>'), '\n')
         .trim();
@@ -184,23 +233,32 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
 
   // 위반법규
   var violationLaw = '';
-  final lawMatch = RegExp(r'도로교통법\s*제\d+조(?:\s*제?\d{1,2}항)?').firstMatch(processingContent);
+  final lawMatch = RegExp(
+    r'도로교통법\s*제\d+조(?:\s*제?\d{1,2}항)?',
+  ).firstMatch(processingContent);
   if (lawMatch != null) {
-    violationLaw = lawMatch.group(0)!.replaceAll(RegExp(r'\s+'), '').replaceAll('법제', '법 제');
+    violationLaw = lawMatch
+        .group(0)!
+        .replaceAll(RegExp(r'\s+'), '')
+        .replaceAll('법제', '법 제');
   }
 
   // 과태료/범칙금
   var fineEntry = '';
-  if (_parkingFineEntries.any((e) => entryValue.contains(e)) && processingStatus == '수용') {
+  if (_parkingFineEntries.any((e) => entryValue.contains(e)) &&
+      processingStatus == '수용') {
     fineEntry = '과태료';
   }
 
   var penaltyAmount = '';
   var penaltyPoints = '';
   // 서버 parse_json_details 와 동일. 점(.)도 숫자로 취급 (예: '40.000원')
-  final penaltyMatch = RegExp(r'범칙금\s*([\d,.]+)\s*원[,\s]*벌점\s*(\d{0,4})\s*점')
-      .firstMatch(processingContent);
-  final fineMatch = RegExp(r'과태료\s*([\d,.]+)\s*원').firstMatch(processingContent);
+  final penaltyMatch = RegExp(
+    r'범칙금\s*([\d,.]+)\s*원[,\s]*벌점\s*(\d{0,4})\s*점',
+  ).firstMatch(processingContent);
+  final fineMatch = RegExp(
+    r'과태료\s*([\d,.]+)\s*원',
+  ).firstMatch(processingContent);
 
   if (penaltyMatch != null) {
     penaltyAmount = '범칙금: ${penaltyMatch.group(1)}원';
@@ -247,13 +305,15 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
   var mapImage = '';
   final stmntImg = detailData['STTEMNT_IMAGE_URL'] as String? ?? '';
   if (stmntImg.isNotEmpty) {
-    mapImage =
-        stmntImg.startsWith('/') ? 'https://www.safetyreport.go.kr$stmntImg' : stmntImg;
+    mapImage = stmntImg.startsWith('/')
+        ? 'https://www.safetyreport.go.kr$stmntImg'
+        : stmntImg;
   }
 
   final imgLinks = <String>[];
   final otherLinks = <String>[];
-  final files = (detailData['ARR_C_FILES'] ?? detailData['files'] ?? []) as List;
+  final files =
+      (detailData['ARR_C_FILES'] ?? detailData['files'] ?? []) as List;
 
   for (final f in files.cast<Map<String, dynamic>>()) {
     var fileUrl = f['FILE_URL'] as String? ?? '';
@@ -264,7 +324,8 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
           : '';
     }
     if (fileUrl.isEmpty) continue;
-    if (fileUrl.startsWith('/')) fileUrl = 'https://www.safetyreport.go.kr$fileUrl';
+    if (fileUrl.startsWith('/'))
+      fileUrl = 'https://www.safetyreport.go.kr$fileUrl';
 
     if (fileUrl.contains('MAPIMG')) {
       if (mapImage.isEmpty) mapImage = fileUrl;
@@ -287,16 +348,22 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
   }
 
   // ── 제목/신고번호 ─────────────────────────────────────────────────────────
-  final titleRaw = (detailData['C_A_TITLE'] ?? listData['C_A_TITLE'] ?? '') as String;
-  final name = titleRaw.contains(')') ? titleRaw.split(')').sublist(1).join(')').trim() : titleRaw.trim();
-  final reportNumber = (detailData['STTEMNT_NO'] ?? listData['STTEMNT_NO'] ?? '') as String;
+  final titleRaw =
+      (detailData['C_A_TITLE'] ?? listData['C_A_TITLE'] ?? '') as String;
+  final name = titleRaw.contains(')')
+      ? titleRaw.split(')').sublist(1).join(')').trim()
+      : titleRaw.trim();
+  final reportNumber =
+      (detailData['STTEMNT_NO'] ?? listData['STTEMNT_NO'] ?? '') as String;
   final dateRaw = (detailData['C_DATE'] ?? listData['C_DATE'] ?? '') as String;
   final date = dateRaw.isNotEmpty ? dateRaw.split(' ').first : '';
 
   // ── 만족도조사여부 (서버 crawltitle_api.py 동일 로직) + 별점 점수 ─────────────
   // 점수는 detailData → listData 순으로 fallback. 응답이 둘 다에 있을 수 있음.
-  final stsfdg = int.tryParse(
-        (detailData['STSFDG_SCORE'] ?? listData['STSFDG_SCORE'] ?? '0').toString(),
+  final stsfdg =
+      int.tryParse(
+        (detailData['STSFDG_SCORE'] ?? listData['STSFDG_SCORE'] ?? '0')
+            .toString(),
       ) ??
       0;
   final String pollStatus;
@@ -313,8 +380,8 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
   // 에서만 얻을 수 있으므로 parser 단계에서는 비움. sync_engine 에서 보강.
   final ratingValue = stsfdg > 0 ? stsfdg : null;
 
-  // 보완요청 마지막 round 요약 (count / open / 요청자 prefix 텍스트 / 신고자 의견).
-  final _supplementSummary = summarizeLastSupplementFromJson(
+  // 보완요청 마지막 round 요약 (count / open / 요청자 / 일시 / 본문 / 신고자 의견).
+  final supplementSummary = _summarizeLastSupplementFromJson(
     detailData,
     closedState: processStatus != '보완요청',
   );
@@ -344,22 +411,31 @@ Report parseJsonToReport(Map<String, dynamic> listData, Map<String, dynamic> det
     pollStatus: pollStatus,
     processingFinish: processingFinish,
     rating: ratingValue,
-    supplementCount: _supplementSummary.count,
-    supplementOpen: _supplementSummary.open,
-    supplementRequest: _supplementSummary.request,
-    supplementOpinion: _supplementSummary.opinion,
+    supplementCount: supplementSummary.count,
+    supplementOpen: supplementSummary.open,
+    supplementRequester: supplementSummary.requester,
+    supplementRequestedAt: supplementSummary.requestedAt,
+    supplementCompletedAt: supplementSummary.completedAt,
+    supplementRequest: supplementSummary.request,
+    supplementOpinion: supplementSummary.opinion,
   );
 }
 
-/// 보완요청 마지막 round 요약 (count / open / request prefix 포함 텍스트 / 신고자 의견).
+/// 보완요청 마지막 round 요약 (count / open / 요청자 / 일시 / 본문 / 신고자 의견).
 class _SupplementSummary {
   final int count;
   final bool open;
+  final String requester;
+  final String requestedAt;
+  final String completedAt;
   final String request;
   final String opinion;
   const _SupplementSummary({
     required this.count,
     required this.open,
+    required this.requester,
+    required this.requestedAt,
+    required this.completedAt,
     required this.request,
     required this.opinion,
   });
@@ -367,6 +443,9 @@ class _SupplementSummary {
   static const empty = _SupplementSummary(
     count: 0,
     open: false,
+    requester: '',
+    requestedAt: '',
+    completedAt: '',
     request: '',
     opinion: '',
   );
@@ -384,34 +463,21 @@ String _formatSupplementEpoch(dynamic epoch) {
       '${two(dt.hour)}:${two(dt.minute)}:${two(dt.second)}';
 }
 
-String _formatSupplementPhone(dynamic value) {
-  final s = (value ?? '').toString().trim();
-  if (s.isEmpty) return '';
-  final digits = s.replaceAll(RegExp(r'\D'), '');
-  if (digits.length == 11) {
-    return '${digits.substring(0, 3)}-${digits.substring(3, 7)}-${digits.substring(7)}';
-  }
-  if (digits.length == 10) {
-    if (digits.startsWith('02')) {
-      return '${digits.substring(0, 2)}-${digits.substring(2, 6)}-${digits.substring(6)}';
-    }
-    return '${digits.substring(0, 3)}-${digits.substring(3, 6)}-${digits.substring(6)}';
-  }
-  return s;
-}
-
-/// API JSON 응답에서 "마지막 보완 round" 1건을 추출하고 사용자 표시용 4필드로 압축.
+/// API JSON 응답에서 "마지막 보완 round" 1건을 추출하고 사용자 표시용 필드로 압축.
 /// 서버 `_build_last_supplement_round_from_json` + `_build_supplement_summary` 와 동등.
 ///
 /// [closedState] true 면 신고 자체가 종결 (취하/답변완료 등) 이라 미응답 round 도 강제로 닫힌 것으로 본다.
-_SupplementSummary summarizeLastSupplementFromJson(
+_SupplementSummary _summarizeLastSupplementFromJson(
   Map<String, dynamic> detailData, {
   bool closedState = false,
 }) {
   int dmndNo = 0;
   final raw = detailData['SPLMNT_DMND_NO'];
-  if (raw is num) dmndNo = raw.toInt();
-  else if (raw is String) dmndNo = int.tryParse(raw) ?? 0;
+  if (raw is num) {
+    dmndNo = raw.toInt();
+  } else if (raw is String) {
+    dmndNo = int.tryParse(raw) ?? 0;
+  }
 
   final dmndContents = (detailData['SPLMNT_DMND_CONTENTS'] ?? '').toString();
   final cmptnDt = detailData['SPLMNT_CMPTN_DT'];
@@ -420,41 +486,25 @@ _SupplementSummary summarizeLastSupplementFromJson(
   }
 
   final requester = (detailData['SPLMNT_RQSTR'] ?? '').toString().trim();
-  final phone = _formatSupplementPhone(detailData['SPLMNT_RQSTR_TELNO']);
   final requestedAt = _formatSupplementEpoch(detailData['SPLMNT_DMND_DT']);
   final completedAt = _formatSupplementEpoch(detailData['SPLMNT_FNSH_DT']);
   final content = dmndContents.trim();
 
-  final isOpenRaw = detailData['SPLMNT_FNSH_YN'] == 'N' &&
+  final isOpenRaw =
+      detailData['SPLMNT_FNSH_YN'] == 'N' &&
       detailData['SPLMNT_CMPTN_YN'] == 'N';
   final isOpen = isOpenRaw && !closedState;
   final opinion = isOpen
       ? ''
       : (detailData['SPLMNT_ANS_CONTENTS'] ?? '').toString().trim();
 
-  final headerParts = <String>[];
-  if (requester.isNotEmpty || phone.isNotEmpty) {
-    final meta = requester.isNotEmpty ? requester : '(요청자 미상)';
-    headerParts.add('보완 요청자: $meta${phone.isNotEmpty ? ' ($phone)' : ''}');
-  }
-  if (requestedAt.isNotEmpty) headerParts.add('요청 일시: $requestedAt');
-  headerParts.add(
-    completedAt.isNotEmpty ? '완료 일시: $completedAt' : '완료 일시: (미응답)',
-  );
-
-  String request;
-  if (headerParts.isNotEmpty && content.isNotEmpty) {
-    request = '${headerParts.join(' · ')}\n\n$content';
-  } else if (headerParts.isNotEmpty) {
-    request = headerParts.join(' · ');
-  } else {
-    request = content;
-  }
-
   return _SupplementSummary(
-    count: dmndNo > 0 ? dmndNo : (request.isEmpty ? 0 : 1),
+    count: dmndNo > 0 ? dmndNo : (content.isEmpty ? 0 : 1),
     open: isOpen,
-    request: request,
+    requester: requester,
+    requestedAt: requestedAt,
+    completedAt: completedAt,
+    request: content,
     opinion: opinion,
   );
 }

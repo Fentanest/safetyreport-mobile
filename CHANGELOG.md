@@ -7,6 +7,38 @@
 
 ---
 
+## 2026-05-12 (최종 정리)
+
+### 보완요청 마지막 round 저장 구조를 서버와 동일하게 정렬
+
+상태: 완료
+
+배경:
+- 서버가 `보완_요청자 / 보완_요청일시 / 보완_완료일시 / 보완_요청_내용 / 보완_신고자_의견 + 보완횟수` 구조로 정리되면서, 모바일도 요청자 정보를 본문 prefix 문자열에 섞어 들고 있을 필요가 없어졌다.
+- 답변 담당자와 보완 요청자가 다를 수 있으므로, 모바일 카드/상세 화면에서도 요청자 이름을 별도 텍스트로 보여줘야 했다.
+
+변경:
+- `lib/models/report.dart`
+  - `Report` 에 `supplementRequester`, `supplementRequestedAt`, `supplementCompletedAt` 필드 추가.
+  - `fromJson` 이 서버 응답의 `보완_요청자 / 보완_요청일시 / 보완_완료일시` 를 직접 매핑.
+- `lib/services/local_db_service.dart`
+  - DB version `8 -> 9`.
+  - `reports` 테이블에 `보완_요청자`, `보완_요청일시`, `보완_완료일시` 3개 컬럼 추가.
+  - 업서트, `synced_at` 변경 추적, row→Report 변환 모두 새 컬럼까지 반영.
+- `lib/services/standalone_parser.dart`
+  - standalone JSON 파서도 마지막 보완요청을 `요청자/요청일시/완료일시/본문` 구조로 압축.
+  - 기존의 "요청자/연락처/일시 prefix를 본문 문자열에 붙이기" 로직 제거.
+- `lib/widgets/report_detail_sheet.dart`
+  - 보완 카드 상단에 `보완 요청자`, `요청 일시`, `완료 일시`를 별도 메타 행으로 표시.
+  - 공식 안전신문고 앱 호출 URI를 `appsafetyreport://view?c_no=...&ext_path=M_MY_01_S0002.html&mem_yn=Y` 형식으로 정리.
+- `lib/widgets/report_list_card.dart`
+  - 개별 신고 카드에도 `보완 요청자: <이름>` 을 별도 줄로 표시.
+- `lib/services/sync_engine.dart`
+  - 별점 사유 보강으로 `Report` 를 재생성할 때 보완요청 관련 새 필드가 유실되지 않도록 보존.
+
+비고:
+- 연락처는 앱 UI에 별도 표시하지 않는다. 사용자 요청 범위는 "요청자 이름을 답변 담당자와 구분해서 보여주기" 였고, 서버도 최종적으로는 이름/일시/본문만 주력으로 보존한다.
+
 ## 2026-05-12
 
 ### 보완요청 마지막 round 표시 + 누적 횟수 (다회차 이력 보존은 제거)

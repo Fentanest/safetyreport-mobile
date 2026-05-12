@@ -40,6 +40,7 @@ class ReportListCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = reportStatusColor(report.status);
+    final supplementRequester = report.supplementRequester.trim();
     final visibleMetaItems = metaItems
         .where((item) => item.text.trim().isNotEmpty)
         .toList(growable: false);
@@ -145,6 +146,31 @@ class ReportListCard extends StatelessWidget {
                         ],
                       ],
                     ),
+                    if (report.supplementCount > 0 &&
+                        supplementRequester.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.history_edu,
+                            size: 12,
+                            color: Color(0xFFFD7E14),
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              '보완 요청자: $supplementRequester',
+                              style: const TextStyle(
+                                color: Color(0xFFFD7E14),
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                     const Divider(height: 14),
                     Row(
                       children: [

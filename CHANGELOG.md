@@ -9,6 +9,21 @@
 
 ## 2026-05-13
 
+### 최근 답변 전체 목록 진입 시 1회 자동 새로고침
+
+상태: 완료
+
+변경:
+- `lib/screens/recent_answers_screen.dart`
+  - 대시보드의 `최근 답변 완료 (3일)`에서 `모두 보기` 화면을 열면 `refreshSummaryAndRecentAnswers()`를 즉시 1회 호출하도록 변경.
+  - 화면 첫 진입 시 캐시된 recent answers만 보여주지 않고, summary와 카테고리 목록을 다시 읽어 최신 답변 목록으로 갱신.
+
+검증:
+- `dart format lib/screens/recent_answers_screen.dart`
+- `dart analyze lib/screens/recent_answers_screen.dart lib/providers/report_provider.dart`
+  - 에러 없음
+  - 기존 `withOpacity` / `_` 관련 info 3건만 잔존
+
 ### 서버 앱 기준 상태/처분 색상으로 모바일 표시 통일
 
 상태: 완료

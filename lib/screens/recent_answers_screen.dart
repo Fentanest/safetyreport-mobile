@@ -18,12 +18,9 @@ class _RecentAnswersScreenState extends State<RecentAnswersScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final provider = context.read<ReportProvider>();
-      if (provider.stats == null) {
-        provider.fetchSummary();
-      }
-      provider.ensureCategoryReportsLoaded();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await context.read<ReportProvider>().refreshSummaryAndRecentAnswers();
     });
   }
 

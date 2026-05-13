@@ -4,6 +4,7 @@ import 'package:fl_chart/fl_chart.dart';
 import '../models/app_mode.dart';
 import '../providers/report_provider.dart';
 import '../models/report.dart';
+import '../server_palette.dart';
 import '../widgets/report_detail_sheet.dart';
 import 'recent_answers_screen.dart';
 import 'report_management_screen.dart';
@@ -193,14 +194,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _buildStatCard(
           '보완 요청',
           stats.supplementCount,
-          const Color(0xFFFD7E14),
+          serverSupplementColor,
           Icons.assignment_late_rounded,
           filter: (r) => r.status == '보완요청',
         ),
         _buildStatCard(
           '처리 중',
           stats.processingCount,
-          Colors.orange,
+          serverProcessingColor,
           Icons.pending_rounded,
           filter: (r) =>
               r.status == '처리중' ||
@@ -211,28 +212,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _buildStatCard(
           '수용',
           stats.acceptCount,
-          Colors.green,
+          serverAcceptColor,
           Icons.check_circle_rounded,
           filter: (r) => r.status == '수용',
         ),
         _buildStatCard(
           '일부수용',
           stats.partialCount,
-          const Color(0xFF43A047),
+          serverPartialAcceptColor,
           Icons.check_circle_outline_rounded,
           filter: (r) => r.status == '일부수용',
         ),
         _buildStatCard(
           '불수용/기타',
           stats.rejectCount,
-          Colors.red,
+          serverRejectColor,
           Icons.cancel_rounded,
           filter: (r) => r.status == '불수용' || r.status == '기타',
         ),
         _buildStatCard(
           '취하',
           stats.withdrawCount,
-          Colors.grey,
+          serverWithdrawColor,
           Icons.remove_circle_outline_rounded,
           filter: (r) => r.status == '취하',
         ),
@@ -343,20 +344,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 _miniStat(
                   '과태료',
                   stats.tFineCount,
-                  Colors.red,
+                  serverTrafficFineColor,
                   filter: (r) => r.fineInfo.contains('과태료'),
                 ),
                 _miniStat(
                   '경고/범칙금',
                   stats.tPenaltyCount,
-                  Colors.orange,
+                  serverTrafficPenaltyColor,
                   filter: (r) =>
                       r.fineInfo.contains('경고') || r.fineInfo.contains('범칙금'),
                 ),
                 _miniStat(
                   '불수용',
                   stats.tRejectCount,
-                  Colors.grey,
+                  serverRejectColor,
                   filter: (r) => r.status.contains('불수용') || r.status == '기타',
                 ),
                 _miniStat(
@@ -428,12 +429,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (total == 0) return const SizedBox.shrink();
 
     final sections = [
-      (stats.acceptCount, Colors.green, '수용'),
-      (stats.partialCount, const Color(0xFF43A047), '일부수용'),
-      (stats.rejectCount, Colors.red, '불수용'),
-      (stats.supplementCount, const Color(0xFFFD7E14), '보완요청'),
-      (stats.processingCount, Colors.orange, '처리중'),
-      (stats.withdrawCount, Colors.grey, '취하'),
+      (stats.acceptCount, serverAcceptColor, '수용'),
+      (stats.partialCount, serverPartialAcceptColor, '일부수용'),
+      (stats.rejectCount, serverRejectColor, '불수용'),
+      (stats.supplementCount, serverSupplementColor, '보완요청'),
+      (stats.processingCount, serverProcessingColor, '처리중'),
+      (stats.withdrawCount, serverWithdrawColor, '취하'),
     ].where((e) => e.$1 > 0).toList();
 
     return Card(
@@ -826,10 +827,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Color _statusColor(String status) {
-    if (status == '일부수용') return const Color(0xFF43A047);
-    if (status.contains('수용') && !status.contains('불')) return Colors.green;
-    if (status.contains('불수용')) return Colors.red;
-    if (status.contains('처리') || status.contains('진행')) return Colors.orange;
-    return Colors.grey;
+    return serverStatusColor(status);
   }
 }

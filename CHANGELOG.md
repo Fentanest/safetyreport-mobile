@@ -9,6 +9,26 @@
 
 ## 2026-05-13
 
+### 서버 앱 기준 상태/처분 색상으로 모바일 표시 통일
+
+상태: 완료
+
+변경:
+- `lib/server_palette.dart`
+  - 서버 웹 대시보드/배지 기준 색상을 모바일 공용 팔레트로 정리.
+  - `보완요청`, `처리중`, `답변완료`, `불수용/기타`, `과태료`, `경고장/범칙금` 매핑을 한 곳에서 관리.
+- `lib/widgets/report_list_card.dart`, `lib/widgets/report_detail_sheet.dart`
+  - 개별 신고 카드와 상세 시트의 상태/보완 배지 색을 서버 기준으로 통일.
+- `lib/screens/dashboard_screen.dart`, `lib/screens/watchlist_screen.dart`, `lib/screens/recent_answers_screen.dart`, `lib/screens/notifications_screen.dart`, `lib/screens/data_editor_screen.dart`, `lib/screens/statistics_screen.dart`, `lib/main.dart`
+  - 대시보드, 최근 답변, 감시목록, 알림, 데이터 수정, 앱 내부 변경 알림 시트까지 같은 색상 매핑을 재사용하도록 정리.
+  - `과태료` 는 분홍, `경고장/범칙금` 은 회색, `보완요청` 은 주황, `처리중` 은 회색, `답변완료` 는 하늘색으로 통일.
+
+검증:
+- `dart format` on touched files
+- `dart analyze ...`
+  - 에러 없음
+  - 기존 `withOpacity` / 스타일 info warning 만 잔존
+
 ### 상태 계층 재설계 구현
 
 상태: 완료

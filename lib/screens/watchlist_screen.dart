@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/report.dart';
 import '../providers/report_provider.dart';
+import '../server_palette.dart';
 import '../services/repositories/watchlist_repository.dart';
 import '../widgets/report_detail_sheet.dart';
 
@@ -152,7 +153,10 @@ class _WatchlistPanelState extends State<WatchlistPanel> {
               Expanded(
                 child: Text(
                   '감시 목록${_items.isNotEmpty ? " (${_items.length})" : ""}',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
               if (_items.isNotEmpty)
@@ -172,7 +176,11 @@ class _WatchlistPanelState extends State<WatchlistPanel> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                      const Icon(
+                        Icons.error_outline,
+                        size: 48,
+                        color: Colors.red,
+                      ),
                       const SizedBox(height: 12),
                       Text(_error!, textAlign: TextAlign.center),
                       const SizedBox(height: 16),
@@ -240,11 +248,7 @@ class _WatchCard extends StatelessWidget {
   const _WatchCard({required this.report, required this.onRemove});
 
   Color _statusColor(String s) {
-    if (s == '일부수용') return const Color(0xFF43A047);
-    if (s.contains('수용') && !s.contains('불')) return Colors.green;
-    if (s.contains('불수용')) return Colors.red;
-    if (s.contains('처리') || s.contains('진행')) return Colors.orange;
-    return Colors.grey;
+    return serverStatusColor(s);
   }
 
   @override

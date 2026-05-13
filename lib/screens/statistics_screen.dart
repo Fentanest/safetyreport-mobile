@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../models/agency_stats.dart';
 import '../models/app_mode.dart';
 import '../providers/report_provider.dart';
+import '../server_palette.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
 import 'report_list_screen.dart';
@@ -711,7 +712,7 @@ class _RowCard extends StatelessWidget {
                         const Icon(
                           Icons.payments_outlined,
                           size: 11,
-                          color: Colors.deepOrange,
+                          color: serverTrafficFineColor,
                         ),
                         const SizedBox(width: 2),
                         Text(
@@ -719,7 +720,7 @@ class _RowCard extends StatelessWidget {
                           style: const TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
-                            color: Colors.deepOrange,
+                            color: serverTrafficFineColor,
                           ),
                         ),
                       ],
@@ -809,16 +810,26 @@ class _RowCard extends StatelessWidget {
               const SizedBox(height: 8),
               Row(
                 children: [
-                  _statBadge('과태료', row.fines, row.finesPct, Colors.red),
+                  _statBadge(
+                    '과태료',
+                    row.fines,
+                    row.finesPct,
+                    serverTrafficFineColor,
+                  ),
                   const SizedBox(width: 6),
                   _statBadge(
                     '경고/범칙금',
                     row.warnings,
                     row.warningsPct,
-                    Colors.orange,
+                    serverTrafficPenaltyColor,
                   ),
                   const SizedBox(width: 6),
-                  _statBadge('불수용', row.rejects, row.rejectsPct, Colors.grey),
+                  _statBadge(
+                    '불수용',
+                    row.rejects,
+                    row.rejectsPct,
+                    serverRejectColor,
+                  ),
                 ],
               ),
               const SizedBox(height: 6),

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/editor_schema.dart';
 import '../models/report.dart';
 import '../providers/report_provider.dart';
+import '../server_palette.dart';
 import '../services/api_service.dart';
 import '../services/repositories/editor_repository.dart';
 import '../widgets/search_filter_sheet.dart';
@@ -250,12 +251,7 @@ class _EditableReportCard extends StatelessWidget {
   });
 
   Color _statusColor(String status) {
-    if (status == '일부수용') return const Color(0xFF43A047);
-    if (status.contains('수용') && !status.contains('불')) return Colors.green;
-    if (status.contains('불수용')) return Colors.red;
-    if (status.contains('처리') || status.contains('진행')) return Colors.orange;
-    if (status == '취하') return Colors.brown;
-    return Colors.grey;
+    return serverStatusColor(status);
   }
 
   @override

@@ -10,6 +10,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import '../models/report.dart';
 import '../providers/report_provider.dart';
+import '../server_palette.dart';
 import '../screens/report_list_screen.dart';
 import '../services/standalone_auth_service.dart';
 
@@ -37,11 +38,7 @@ class ReportDetailSheet extends StatelessWidget {
   }
 
   Color _statusColor(String s) {
-    if (s == '일부수용') return const Color(0xFF43A047);
-    if (s.contains('수용') && !s.contains('불')) return Colors.green;
-    if (s.contains('불수용')) return Colors.red;
-    if (s.contains('처리') || s.contains('진행')) return Colors.orange;
-    return Colors.grey;
+    return serverStatusColor(s);
   }
 
   /// 처리내용에서 전화번호 추출
@@ -1336,21 +1333,25 @@ class _SupplementSection extends StatelessWidget {
     final completedAt = report.supplementCompletedAt.trim();
     final request = report.supplementRequest.trim();
     final opinion = report.supplementOpinion.trim();
-    final accent = open ? const Color(0xFFFD7E14) : Colors.grey.shade600;
+    final accent = open ? serverSupplementColor : Colors.grey.shade600;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
           children: [
-            const Icon(Icons.history_edu, size: 16, color: Color(0xFFFD7E14)),
+            const Icon(
+              Icons.history_edu,
+              size: 16,
+              color: serverSupplementColor,
+            ),
             const SizedBox(width: 6),
             const Text(
               '보완 요청',
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFFFD7E14),
+                color: serverSupplementColor,
               ),
             ),
             if (count > 0) ...[
@@ -1358,7 +1359,7 @@ class _SupplementSection extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFD7E14),
+                  color: serverSupplementColor,
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
@@ -1390,7 +1391,7 @@ class _SupplementSection extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
             color: open
-                ? const Color(0xFFFD7E14).withValues(alpha: 0.08)
+                ? serverSupplementColor.withValues(alpha: 0.08)
                 : Colors.grey.shade100,
             borderRadius: BorderRadius.circular(6),
             border: Border.all(color: accent.withValues(alpha: 0.4)),

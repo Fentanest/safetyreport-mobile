@@ -11,6 +11,7 @@ import '../models/rating_batch_result.dart';
 import '../models/report.dart';
 import '../providers/notification_history_provider.dart';
 import '../providers/report_provider.dart';
+import '../server_palette.dart';
 import '../services/api_service.dart';
 import '../widgets/duplicate_group_detail_sheet.dart';
 import '../widgets/report_detail_sheet.dart';
@@ -773,21 +774,12 @@ class _NotifTile extends StatelessWidget {
   );
 
   Color _statusColor(String status) {
-    if (status == '일부수용') return const Color(0xFF43A047);
-    if (status.contains('수용') && !status.contains('불')) return Colors.green;
-    if (status.contains('불수용') || status == '기타') return Colors.red;
-    if (status.contains('처리') || status.contains('진행')) return Colors.orange;
-    if (status.contains('완료')) return Colors.blue;
-    if (status == '취하') return Colors.brown;
-    return Colors.grey;
+    return serverStatusColor(status);
   }
 
   Color _fineColor(String fine) {
-    if (fine.contains('과태료')) return Colors.red.shade600;
-    if (fine.contains('범칙금')) return Colors.deepOrange;
-    if (fine.contains('경고')) return Colors.amber.shade800;
     if (fine == '미확인') return Colors.grey;
-    return Colors.grey;
+    return serverFineColor(fine);
   }
 }
 

@@ -17,6 +17,7 @@ import 'providers/report_provider.dart';
 import 'providers/notification_history_provider.dart';
 import 'services/pending_changes_store.dart';
 import 'services/sync_engine.dart' show ChangeType;
+import 'server_palette.dart';
 import 'widgets/duplicate_group_detail_sheet.dart';
 import 'widgets/report_detail_sheet.dart';
 
@@ -449,8 +450,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                           r['status_label']?.toString() ?? '중복 신고 변경';
                       final title = r['title']?.toString() ?? '중복 신고 변경';
                       final body = r['body']?.toString() ?? '';
-                      final memberCount =
-                          r['member_count']?.toString() ?? '';
+                      final memberCount = r['member_count']?.toString() ?? '';
                       final representativeReportNumber =
                           r['representative_report_number']?.toString() ?? '';
 
@@ -601,30 +601,15 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                     final agency = r['처리기관']?.toString() ?? '';
                     final fine = r['범칙금_과태료']?.toString() ?? '';
 
-                    Color statusColor = Colors.grey;
-                    if (status == '수용')
-                      statusColor = Colors.green;
-                    else if (status == '일부수용')
-                      statusColor = const Color(0xFF43A047);
-                    else if (status.contains('불수용') || status == '기타')
-                      statusColor = Colors.red;
-                    else if (status.contains('처리') || status.contains('진행'))
-                      statusColor = Colors.orange;
-                    else if (status.contains('완료'))
-                      statusColor = Colors.blue;
-                    else if (status == '취하')
-                      statusColor = Colors.brown;
+                    final statusColor = serverStatusColor(status);
 
                     // 과태료/범칙금/경고/미확인 결과 라벨용 색상
                     Color? fineColor;
-                    if (fine.contains('과태료'))
-                      fineColor = Colors.red.shade600;
-                    else if (fine.contains('범칙금'))
-                      fineColor = Colors.deepOrange;
-                    else if (fine.contains('경고'))
-                      fineColor = Colors.amber.shade800;
-                    else if (fine == '미확인')
+                    if (fine == '미확인') {
                       fineColor = Colors.grey;
+                    } else if (fine.isNotEmpty) {
+                      fineColor = serverFineColor(fine);
+                    }
 
                     return InkWell(
                       borderRadius: BorderRadius.circular(12),

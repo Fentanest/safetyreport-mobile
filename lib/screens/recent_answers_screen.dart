@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/report.dart';
 import '../providers/report_provider.dart';
+import '../server_palette.dart';
 import '../widgets/report_detail_sheet.dart';
 
 /// 대시보드의 "최근 답변 완료 (3일)" 더보기 화면.
@@ -33,7 +34,9 @@ class _RecentAnswersScreenState extends State<RecentAnswersScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('최근 답변 완료 (3일)${items.isNotEmpty ? ' (${items.length})' : ''}'),
+        title: Text(
+          '최근 답변 완료 (3일)${items.isNotEmpty ? ' (${items.length})' : ''}',
+        ),
       ),
       body: items.isEmpty
           ? Center(
@@ -74,11 +77,7 @@ class _RecentCard extends StatelessWidget {
   const _RecentCard({required this.report});
 
   Color _statusColor(String s) {
-    if (s == '일부수용') return const Color(0xFF43A047);
-    if (s.contains('수용') && !s.contains('불')) return Colors.green;
-    if (s.contains('불수용')) return Colors.red;
-    if (s.contains('처리') || s.contains('진행')) return Colors.orange;
-    return Colors.grey;
+    return serverStatusColor(s);
   }
 
   @override

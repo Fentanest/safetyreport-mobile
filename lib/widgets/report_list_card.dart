@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/report.dart';
+import '../server_palette.dart';
 
 class ReportCardMetaItem {
   final IconData icon;
@@ -10,11 +11,7 @@ class ReportCardMetaItem {
 }
 
 Color reportStatusColor(String status) {
-  if (status == '일부수용') return const Color(0xFF43A047);
-  if (status.contains('수용') && !status.contains('불')) return Colors.green;
-  if (status.contains('불수용')) return Colors.red;
-  if (status.contains('처리') || status.contains('진행')) return Colors.orange;
-  return Colors.grey;
+  return serverStatusColor(status);
 }
 
 class ReportListCard extends StatelessWidget {
@@ -131,7 +128,7 @@ class ReportListCard extends StatelessWidget {
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFFD7E14),
+                              color: serverSupplementColor,
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
@@ -154,14 +151,14 @@ class ReportListCard extends StatelessWidget {
                           const Icon(
                             Icons.history_edu,
                             size: 12,
-                            color: Color(0xFFFD7E14),
+                            color: serverSupplementColor,
                           ),
                           const SizedBox(width: 4),
                           Expanded(
                             child: Text(
                               '보완 요청자: $supplementRequester',
                               style: const TextStyle(
-                                color: Color(0xFFFD7E14),
+                                color: serverSupplementColor,
                                 fontSize: 11.5,
                                 fontWeight: FontWeight.w600,
                               ),

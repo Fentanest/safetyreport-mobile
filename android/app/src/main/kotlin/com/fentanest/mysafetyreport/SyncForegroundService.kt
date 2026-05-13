@@ -49,12 +49,14 @@ class SyncForegroundService : Service() {
                 Log.i(TAG, "FGS started: $message")
             }
             ACTION_STOP -> {
-                Log.i(TAG, "FGS stop requested")
-                stopForegroundCompat()
-                stopSelf()
+                stopServiceNow("FGS stop requested")
             }
         }
         return START_NOT_STICKY  // 종료 시 자동 재시작 안 함 (Flutter 가 명시적으로 시작)
+    }
+
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        stopServiceNow("FGS timed out: startId=$startId, fgsType=$fgsType")
     }
 
     private fun startForegroundCompat(message: String) {
@@ -84,6 +86,12 @@ class SyncForegroundService : Service() {
             @Suppress("DEPRECATION")
             stopForeground(true)
         }
+    }
+
+    private fun stopServiceNow(reason: String) {
+        Log.w(TAG, reason)
+        stopForegroundCompat()
+        stopSelf()
     }
 
     private fun createChannel() {

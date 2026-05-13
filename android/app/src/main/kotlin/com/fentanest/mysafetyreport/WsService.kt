@@ -7,7 +7,9 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.Uri
+import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import okhttp3.OkHttpClient
@@ -65,13 +67,12 @@ class WsService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
-                stopForeground(true)
-                stopSelf()
+                shutdownService("WsService stop requested")
                 return START_NOT_STICKY
             }
             else -> {
                 if (!running.get()) {
-                    startForeground(FOREGROUND_NOTIF_ID, buildForegroundNotif("서버에 연결 중..."))
+                    startForegroundCompat("서버에 연결 중...")
                     running.set(true)
                     startWsLoop()
                 }
@@ -80,11 +81,13 @@ class WsService : Service() {
         return START_STICKY   // 시스템이 강제 종료해도 재시작
     }
 
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        shutdownService("WsService timed out: startId=$startId, fgsType=$fgsType")
+    }
+
     override fun onDestroy() {
         running.set(false)
-        activeWs?.cancel()
-        okClient?.dispatcher?.executorService?.shutdown()
-        reconnectThread?.interrupt()
+        closeActiveConnections()
         super.onDestroy()
     }
 
@@ -527,9 +530,48 @@ class WsService : Service() {
             .build()
     }
 
+    private fun startForegroundCompat(text: String) {
+        val notif = buildForegroundNotif(text)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(
+                FOREGROUND_NOTIF_ID,
+                notif,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            )
+        } else {
+            startForeground(FOREGROUND_NOTIF_ID, notif)
+        }
+    }
+
+    private fun stopForegroundCompat() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
+    }
+
     private fun updateForegroundNotif(text: String) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(FOREGROUND_NOTIF_ID, buildForegroundNotif(text))
+    }
+
+    private fun shutdownService(reason: String) {
+        Log.w(TAG, reason)
+        running.set(false)
+        closeActiveConnections()
+        stopForegroundCompat()
+        stopSelf()
+    }
+
+    private fun closeActiveConnections() {
+        activeWs?.cancel()
+        activeWs = null
+        okClient?.dispatcher?.executorService?.shutdown()
+        okClient = null
+        reconnectThread?.interrupt()
+        reconnectThread = null
     }
 
     private fun createNotificationChannels() {

@@ -148,12 +148,14 @@ class DashboardStats {
   final int processingCount;
   final int completedCount;
   final int withdrawCount;
+  final int withdrawRawCount;
   final int tFineCount;
   final int tPenaltyCount;
   final int tRejectCount;
   final int tUnconfirmedCount;
   final List<Report> recentAnswers;
   final List<Report> watchlist;
+  final bool? excludeWithdraw;
 
   DashboardStats({
     required this.lastCrawlTime,
@@ -165,13 +167,55 @@ class DashboardStats {
     required this.processingCount,
     required this.completedCount,
     required this.withdrawCount,
+    required this.withdrawRawCount,
     required this.tFineCount,
     required this.tPenaltyCount,
     required this.tRejectCount,
     required this.tUnconfirmedCount,
     required this.recentAnswers,
     required this.watchlist,
+    this.excludeWithdraw,
   });
+
+  DashboardStats copyWith({
+    String? lastCrawlTime,
+    int? total,
+    int? acceptCount,
+    int? partialCount,
+    int? rejectCount,
+    int? supplementCount,
+    int? processingCount,
+    int? completedCount,
+    int? withdrawCount,
+    int? withdrawRawCount,
+    int? tFineCount,
+    int? tPenaltyCount,
+    int? tRejectCount,
+    int? tUnconfirmedCount,
+    List<Report>? recentAnswers,
+    List<Report>? watchlist,
+    bool? excludeWithdraw,
+  }) {
+    return DashboardStats(
+      lastCrawlTime: lastCrawlTime ?? this.lastCrawlTime,
+      total: total ?? this.total,
+      acceptCount: acceptCount ?? this.acceptCount,
+      partialCount: partialCount ?? this.partialCount,
+      rejectCount: rejectCount ?? this.rejectCount,
+      supplementCount: supplementCount ?? this.supplementCount,
+      processingCount: processingCount ?? this.processingCount,
+      completedCount: completedCount ?? this.completedCount,
+      withdrawCount: withdrawCount ?? this.withdrawCount,
+      withdrawRawCount: withdrawRawCount ?? this.withdrawRawCount,
+      tFineCount: tFineCount ?? this.tFineCount,
+      tPenaltyCount: tPenaltyCount ?? this.tPenaltyCount,
+      tRejectCount: tRejectCount ?? this.tRejectCount,
+      tUnconfirmedCount: tUnconfirmedCount ?? this.tUnconfirmedCount,
+      recentAnswers: recentAnswers ?? this.recentAnswers,
+      watchlist: watchlist ?? this.watchlist,
+      excludeWithdraw: excludeWithdraw ?? this.excludeWithdraw,
+    );
+  }
 
   factory DashboardStats.fromJson(Map<String, dynamic> json) {
     var recentList = json['recent_answers'] as List? ?? [];
@@ -186,6 +230,10 @@ class DashboardStats {
       processingCount: _toIntOrNull(json['processingCount']) ?? 0,
       completedCount: _toIntOrNull(json['completedCount']) ?? 0,
       withdrawCount: _toIntOrNull(json['withdrawCount']) ?? 0,
+      withdrawRawCount:
+          _toIntOrNull(json['withdrawRawCount']) ??
+          _toIntOrNull(json['withdrawCount']) ??
+          0,
       tFineCount: _toIntOrNull(json['tFineCount']) ?? 0,
       tPenaltyCount: _toIntOrNull(json['tPenaltyCount']) ?? 0,
       tRejectCount: _toIntOrNull(json['tRejectCount']) ?? 0,
@@ -196,6 +244,9 @@ class DashboardStats {
       watchlist: watchList
           .map((i) => Report.fromJson(i as Map<String, dynamic>))
           .toList(),
+      excludeWithdraw: json.containsKey('exclude_withdraw')
+          ? json['exclude_withdraw'] as bool?
+          : null,
     );
   }
 }

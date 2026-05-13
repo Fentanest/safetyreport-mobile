@@ -9,6 +9,27 @@
 
 ## 2026-05-13
 
+### 취하 숨김 대시보드 기준 서버/client/standalone 일치화
+
+상태: 완료
+
+변경:
+- `lib/services/local_db_service.dart`
+  - standalone `computeSummary(excludeWithdraw: true)` 가 `withdrawCount` 를 0 으로 내려 서버 `/summary` 와 같은 그래프 기준을 사용하도록 수정.
+  - 실제 원본 취하 건수는 `withdrawRawCount` 로 함께 보존.
+- `lib/models/report.dart`
+  - `DashboardStats` 에 `withdrawRawCount`, `excludeWithdraw`, `copyWith()` 추가.
+- `lib/providers/report_provider.dart`
+  - Client 모드가 서버 `/summary` 를 받았을 때도 `exclude_withdraw=true` payload 면 `withdrawCount=0` / recent answers / watchlist 취하 제거를 한 번 더 적용.
+  - 서버가 먼저 배포되지 않았거나 구버전 응답이 와도 모바일 화면 기준이 흔들리지 않도록 보정.
+- `lib/screens/dashboard_screen.dart`
+  - 파이 차트의 `총 N건` 라벨을 `stats.total` 대신 실제 표시 section 합계로 계산해, 취하 숨김 시 원형 그래프 비중과 총합이 어긋나지 않게 수정.
+
+검증:
+- `dart analyze lib/models/report.dart lib/providers/report_provider.dart lib/services/local_db_service.dart lib/screens/dashboard_screen.dart`
+  - 새 에러 없음
+  - 기존 `dashboard_screen.dart` 의 `withOpacity` deprecation info 6건만 잔존
+
 ### 최근 답변 전체 목록 진입 시 1회 자동 새로고침
 
 상태: 완료

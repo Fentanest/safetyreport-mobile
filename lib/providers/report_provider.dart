@@ -725,6 +725,19 @@ class ReportProvider with ChangeNotifier {
 
   ApiService get _api => ApiService(baseUrl: _baseUrl, apiKey: _apiKey);
 
+  DashboardStats _normalizeSummaryForFilters(DashboardStats stats) {
+    if (stats.excludeWithdraw != true) return stats;
+    return stats.copyWith(
+      withdrawCount: 0,
+      recentAnswers: stats.recentAnswers
+          .where((report) => report.status != '취하')
+          .toList(),
+      watchlist: stats.watchlist
+          .where((report) => report.status != '취하')
+          .toList(),
+    );
+  }
+
   Future<void> fetchSummary() async {
     if (!isConfigured) return;
     _isLoading = true;
@@ -732,8 +745,8 @@ class ReportProvider with ChangeNotifier {
     notifyListeners();
     try {
       if (_appMode == AppMode.standalone) {
-        _stats =
-            await LocalDbService.computeSummary(
+        _stats = _normalizeSummaryForFilters(
+          await LocalDbService.computeSummary(
               excludeWithdraw: _excludeWithdraw,
               normalizePolice: _normalizePolice,
               useRepresentativeRecords: _useRepresentativeRecords,
@@ -742,13 +755,16 @@ class ReportProvider with ChangeNotifier {
               onTimeout: () {
                 throw Exception('로컬 DB 응답 지연 (데드락 의심)');
               },
-            );
+            ),
+        );
       } else {
-        _stats = await _api.getSummary().timeout(
-          const Duration(seconds: 5),
-          onTimeout: () {
-            throw Exception('서버 응답 지연');
-          },
+        _stats = _normalizeSummaryForFilters(
+          await _api.getSummary().timeout(
+            const Duration(seconds: 5),
+            onTimeout: () {
+              throw Exception('서버 응답 지연');
+            },
+          ),
         );
       }
     } catch (e) {

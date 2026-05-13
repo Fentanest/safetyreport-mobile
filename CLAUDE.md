@@ -353,6 +353,8 @@ fire-and-forget 으로 시작한다. 사용자는 즉시 선택 모드에서 빠
 
 - `DashboardStats.recentAnswers` 는 가벼운 요약용 fallback 이다. 대시보드와
   `RecentAnswersScreen` 은 가능하면 `ReportProvider.recentAnswerReports` 를 사용한다.
+- Client 모드 `fetchSummary()` 는 서버 `/summary` 가 `exclude_withdraw=true` 를 함께 보내면
+  `withdrawCount=0`, recent answers/watchlist 취하 제거를 한 번 더 적용해 서버/앱 배포 순서가 엇갈려도 화면 기준을 유지한다.
 - `ReportProvider.ensureCategoryReportsLoaded()` 는 traffic / parking / other 원본 목록을
   한 번 확보하고, `recentAnswerReports` 는 그 실제 목록에서 최근 3일 답변을 다시 계산한다.
   그래서 summary 쿼리 한도에 잘리지 않고 카테고리도 유지된다.
@@ -476,6 +478,7 @@ CREATE TABLE sync_meta (key TEXT PRIMARY KEY, value TEXT);
 
 ### 주요 쿼리 함수
 - `computeSummary(excludeWithdraw, normalizePolice)` — 대시보드 요약
+- `excludeWithdraw=true` 면 summary/원형 그래프 기준 `withdrawCount=0` 으로 내려간다. 실제 로컬 원본 취하 개수는 `withdrawRawCount` 로 별도 보존한다.
 - 최근 답변 정렬은 `synced_at DESC`, 동순위 `신고번호 DESC`
   - `synced_at` 없는 과거 row 는 `답변일 DESC`, `신고번호 DESC` fallback
 - `computeStats(year, law, ...)` — 통계 화면 데이터

@@ -632,6 +632,8 @@ class LocalDbService {
 
     final lastSync = await getMeta('last_sync') ?? '';
 
+    final effectiveWithdraw = excludeWithdraw ? 0 : withdraw;
+
     return DashboardStats(
       lastCrawlTime: lastSync,
       total: rows.length,
@@ -641,7 +643,8 @@ class LocalDbService {
       supplementCount: supplement,
       processingCount: processing,
       completedCount: completed,
-      withdrawCount: withdraw,
+      withdrawCount: effectiveWithdraw,
+      withdrawRawCount: withdraw,
       tFineCount: tFine,
       tPenaltyCount: tPenalty,
       tRejectCount: tReject,
@@ -653,6 +656,7 @@ class LocalDbService {
       watchlist: watchlistRows
           .map((r) => _rowToReport(r, normalizePolice: normalizePolice))
           .toList(),
+      excludeWithdraw: excludeWithdraw,
     );
   }
 

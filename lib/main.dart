@@ -22,6 +22,8 @@ import 'widgets/duplicate_group_detail_sheet.dart';
 import 'widgets/report_detail_sheet.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   runApp(
     MultiProvider(
       providers: [
@@ -80,6 +82,10 @@ class SafetyReportApp extends StatelessWidget {
               backgroundColor: primary,
               foregroundColor: Colors.white,
               elevation: 0,
+              systemOverlayStyle: const SystemUiOverlayStyle(
+                statusBarBrightness: Brightness.dark,
+                statusBarIconBrightness: Brightness.light,
+              ),
               titleTextStyle: const TextStyle(
                 color: Colors.white,
                 fontSize: 18,
@@ -123,6 +129,10 @@ class SafetyReportApp extends StatelessWidget {
               backgroundColor: Color(0xFF1E1E2E),
               foregroundColor: Colors.white,
               elevation: 0,
+              systemOverlayStyle: SystemUiOverlayStyle(
+                statusBarBrightness: Brightness.dark,
+                statusBarIconBrightness: Brightness.light,
+              ),
               titleTextStyle: TextStyle(
                 color: Colors.white,
                 fontSize: 18,

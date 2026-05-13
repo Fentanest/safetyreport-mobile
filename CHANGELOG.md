@@ -9,6 +9,36 @@
 
 ## 2026-05-13
 
+### Android 15 더 넓은 화면 권장조치 1차 대응 + Play Console 잔여 경고 원인 분리
+
+상태: 완료
+
+변경:
+- `android/app/src/main/kotlin/com/fentanest/mysafetyreport/MainActivity.kt`
+  - `enableEdgeToEdge()` 를 `super.onCreate()` 전에 호출해 AndroidX 공식 edge-to-edge 진입 순서로 정리.
+  - 이후에는 `WindowInsetsControllerCompat` 로 status/navigation icon appearance 만 조정하고, 수동 시스템 바 색상 설정 경로는 두지 않음.
+- `lib/main.dart`
+  - 앱 시작 시 `SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge)` 를 명시.
+  - light/dark `AppBarTheme.systemOverlayStyle` 를 직접 지정해 상태바 아이콘 밝기만 넘기고 `statusBarColor` 는 보내지 않도록 정리.
+
+조사 결과:
+- release APK 기준으로 앱 리소스/테마 쪽 `windowLayoutInDisplayCutoutMode` 문자열은 남지 않음을 확인.
+- 하지만 APK 내부 DEX 에는 여전히 `setStatusBarColor`, `setNavigationBarColor`, `setNavigationBarDividerColor` 가 남아 있었고,
+  Play Console 이 지목한 obfuscated 시작 지점(`A1.o.o`, `A1.o.p`, `X0.k.a`, `b.n.y`, `b.o.y`, `b.q.y`)도 release 산출물에서 재현됨.
+- 이 잔여 호출은 앱 코드보다는 Flutter embedding (`FlutterFragmentActivity`, platform overlay bridge) 과 AndroidX `activity` edge-to-edge 구현의 정적 참조 영향으로 판단.
+- 따라서 1번 권장조치(더 넓은 화면 / edge-to-edge 기본 대응)는 앱 쪽에서 정리했지만,
+  2번 권장조치의 일부 경고는 Flutter/AndroidX 업스트림 변경 전까지 Play Console 에 계속 남을 수 있음.
+
+검증:
+- `flutter analyze lib/main.dart`
+  - 새 에러 없음
+  - 기존 `withOpacity` / style info 만 잔존
+- `JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 ./gradlew :app:compileDebugKotlin`
+  - 성공
+- `JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 flutter build apk --release`
+  - 성공
+- release APK `classes.dex` 를 `dexdump` 로 확인해 Play Console 지목 API/심볼 존재 여부 점검
+
 ### 취하 숨김 대시보드 기준 서버/client/standalone 일치화
 
 상태: 완료

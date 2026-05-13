@@ -6,9 +6,11 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.enableEdgeToEdge
+import androidx.core.view.WindowInsetsControllerCompat
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -26,14 +28,27 @@ class MainActivity : FlutterFragmentActivity() {
         // 내부적으로 실행되는데, 손상된 List 항목이 있으면 StreamCorruptedException
         // 으로 모든 prefs 읽기 실패 → 로그인 풀림.)
         cleanupCorruptedPrefs()
-        super.onCreate(savedInstanceState)
-        // AndroidX 공식 edge-to-edge 진입점.
-        // Android 15+ 의 기본 동작과 하위 버전 동작을 맞춰 주고,
-        // 수동 WindowCompat.setDecorFitsSystemWindows(...) 경로를 제거한다.
+        // Android 15+/16 의 edge-to-edge 기본 동작과 이전 버전 호환을 동일 경로로 맞춘다.
         enableEdgeToEdge()
+        super.onCreate(savedInstanceState)
+        configureSystemBarAppearance()
         createAppNotifChannel()
         // 앱이 종료 상태에서 알림 탭으로 실행된 경우 처리
         intent?.let { handleNavIntent(it) }
+    }
+
+    private fun configureSystemBarAppearance() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+        }
+
+        val isLightTheme =
+            (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) !=
+                Configuration.UI_MODE_NIGHT_YES
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = isLightTheme
+            isAppearanceLightNavigationBars = isLightTheme
+        }
     }
 
     /**

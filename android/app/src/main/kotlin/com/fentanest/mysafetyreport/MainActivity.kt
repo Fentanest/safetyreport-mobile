@@ -50,11 +50,6 @@ class MainActivity : FlutterFragmentActivity() {
         intent?.let { handleNavIntent(it) }
     }
 
-    override fun onResume() {
-        super.onResume()
-        updateAppShortcuts()
-    }
-
     private fun configureSystemBarAppearance() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
@@ -354,6 +349,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun onResume() {
         super.onResume()
+        updateAppShortcuts()
         // 앱이 포그라운드로 돌아올 때 WsService 자동 시작 (설정이 완료된 경우)
         autoStartWsServiceIfConfigured()
     }

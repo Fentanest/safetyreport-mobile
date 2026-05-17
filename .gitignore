@@ -33,6 +33,9 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# Local planning docs
+docs/mobile-refactoring-plan-2026-05.md
+
 # Symbolication related
 app.*.symbols
 

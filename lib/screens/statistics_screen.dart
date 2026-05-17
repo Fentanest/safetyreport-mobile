@@ -6,7 +6,9 @@ import '../providers/report_provider.dart';
 import '../server_palette.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
+import 'report_map_screen.dart';
 import 'report_list_screen.dart';
+import 'settings_screen.dart';
 
 class StatisticsScreen extends StatefulWidget {
   const StatisticsScreen({super.key});
@@ -221,7 +223,30 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   Widget build(BuildContext context) {
     final lawActive = _law != null;
     return Scaffold(
-      appBar: AppBar(title: const Text('통계')),
+      appBar: AppBar(
+        title: const Text('통계'),
+        actions: [
+          TextButton.icon(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) =>
+                    ReportMapScreen(initialYear: _year, initialCategory: _cat),
+              ),
+            ),
+            icon: const Icon(Icons.map_outlined, size: 18, color: Colors.white),
+            label: const Text('지도', style: TextStyle(color: Colors.white)),
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: '설정',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const SettingsScreen()),
+            ),
+          ),
+        ],
+      ),
       body: Column(
         children: [
           _NavBar(

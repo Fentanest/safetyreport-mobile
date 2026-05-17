@@ -174,6 +174,7 @@ class ReportProvider with ChangeNotifier {
   bool _isStandaloneDemo = false;
   String _baseUrl = '';
   String _apiKey = '';
+  String _standaloneKakaoRestApiKey = '';
   bool _isLoading = false;
   bool _isInitialized = false;
   String? _errorMessage;
@@ -228,6 +229,7 @@ class ReportProvider with ChangeNotifier {
   bool get isStandaloneDemo => _isStandaloneDemo;
   String get baseUrl => _baseUrl;
   String get apiKey => _apiKey;
+  String get standaloneKakaoRestApiKey => _standaloneKakaoRestApiKey;
   bool get isLoading => _isLoading;
   bool get isInitialized => _isInitialized;
   bool get isConfigured {
@@ -583,6 +585,8 @@ class ReportProvider with ChangeNotifier {
           prefs.getBool(AppPrefsKeys.standaloneDemoMode) ?? false;
       _baseUrl = prefs.getString(AppPrefsKeys.baseUrl) ?? '';
       _apiKey = prefs.getString(AppPrefsKeys.apiKey) ?? '';
+      _standaloneKakaoRestApiKey =
+          prefs.getString(AppPrefsKeys.standaloneKakaoRestApiKey) ?? '';
 
       _changesEmittedSub ??= SyncEngine.changesEmitted.listen((_) {
         _pendingChangesNonce++;
@@ -693,12 +697,23 @@ class ReportProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setStandaloneKakaoRestApiKey(String value) async {
+    _standaloneKakaoRestApiKey = value.trim();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      AppPrefsKeys.standaloneKakaoRestApiKey,
+      _standaloneKakaoRestApiKey,
+    );
+    notifyListeners();
+  }
+
   Future<void> resetConfig() async {
     await PermissionService.stopWsService();
     StandaloneAuthService.stopKeepAlive();
     _appMode = AppMode.server;
     _baseUrl = '';
     _apiKey = '';
+    _standaloneKakaoRestApiKey = '';
     _standaloneUsername = '';
     _standalonePhoneNumber = '';
     _isStandaloneDemo = false;
@@ -715,6 +730,7 @@ class ReportProvider with ChangeNotifier {
     await prefs.remove(AppPrefsKeys.appMode);
     await prefs.remove(AppPrefsKeys.baseUrl);
     await prefs.remove(AppPrefsKeys.apiKey);
+    await prefs.remove(AppPrefsKeys.standaloneKakaoRestApiKey);
     await prefs.remove(AppPrefsKeys.standaloneUsername);
     await prefs.remove(AppPrefsKeys.standalonePhoneNumber);
     await prefs.remove(AppPrefsKeys.standaloneDemoMode);
@@ -728,7 +744,6 @@ class ReportProvider with ChangeNotifier {
   DashboardStats _normalizeSummaryForFilters(DashboardStats stats) {
     if (stats.excludeWithdraw != true) return stats;
     return stats.copyWith(
-      withdrawCount: 0,
       recentAnswers: stats.recentAnswers
           .where((report) => report.status != '취하')
           .toList(),
@@ -747,15 +762,15 @@ class ReportProvider with ChangeNotifier {
       if (_appMode == AppMode.standalone) {
         _stats = _normalizeSummaryForFilters(
           await LocalDbService.computeSummary(
-              excludeWithdraw: _excludeWithdraw,
-              normalizePolice: _normalizePolice,
-              useRepresentativeRecords: _useRepresentativeRecords,
-            ).timeout(
-              const Duration(seconds: 5),
-              onTimeout: () {
-                throw Exception('로컬 DB 응답 지연 (데드락 의심)');
-              },
-            ),
+            excludeWithdraw: _excludeWithdraw,
+            normalizePolice: _normalizePolice,
+            useRepresentativeRecords: _useRepresentativeRecords,
+          ).timeout(
+            const Duration(seconds: 5),
+            onTimeout: () {
+              throw Exception('로컬 DB 응답 지연 (데드락 의심)');
+            },
+          ),
         );
       } else {
         _stats = _normalizeSummaryForFilters(

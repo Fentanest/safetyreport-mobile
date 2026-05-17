@@ -7,6 +7,60 @@
 
 ---
 
+## 2026-05-17
+
+### 신고 지도 화면, 좌표 백필, 서버/Standalone 지도 연동 추가
+
+상태: 완료
+
+변경:
+- `lib/screens/statistics_screen.dart`, `lib/screens/report_map_screen.dart`
+  - 통계 탭 우측 상단에 설정 아이콘을 유지하고, 그 왼쪽에 `지도` 진입 버튼 추가
+  - 모바일 전용 신고 지도 화면 추가. 클러스터/개별 원 탭 시 바텀시트로 행정구역, 기관, 처리상태, 처분 비중 표시
+- `lib/services/api_service.dart`, `lib/services/server_contract.dart`, `lib/models/report_map.dart`
+  - client 모드에서 서버 `/api/v1/stats/map` 및 진행률 API 를 읽어 지도 payload 와 백필 진행률을 사용
+- `lib/services/local_db_service.dart`, `lib/services/local_geocode_service.dart`, `lib/services/geocode_utils.dart`
+  - standalone `reports` 테이블에 `주소정규화`, `행정구역`, `위도`, `경도`, `지오코딩상태` 컬럼 추가
+  - `geocode_cache` 테이블과 주소 정규화 헬퍼 추가
+  - 지도 첫 진입 시 누락 좌표만 백그라운드 백필하고 진행률을 화면에 노출
+- `lib/screens/settings_screen.dart`, `lib/services/app_prefs_keys.dart`
+  - standalone 설정에 Kakao REST API 키 입력란 추가
+
+검증:
+- `flutter test`
+- `flutter analyze lib/models/report_map.dart lib/services/local_db_service.dart test/services/local_db_service_regression_test.dart`
+
+### DB import/export 좌표 보존 + 대시보드/지도 안정화
+
+상태: 완료
+
+변경:
+- `lib/services/local_db_service.dart`
+  - `importFromServerDb()` 를 staging DB 기반으로 재구성하고, 서버 DB 필수 테이블/컬럼을 사전 검증
+  - 서버→모바일 import 시 geocode cache, duplicate projection, sync meta, 좌표/행정구역/지오코딩상태를 함께 보존
+  - 모바일 DB 교체 실패 시 기존 backup 으로 복구를 시도하고, 복구 실패 시 backup 경로를 포함한 에러를 유지
+  - 감시목록 변경 시 projection cache 를 무효화하고 cache key 에 `감시목록` 상태를 반영
+- `lib/models/report.dart`, `lib/providers/report_provider.dart`, `lib/screens/dashboard_screen.dart`
+  - `취하 데이터 숨기기` 옵션이 켜져 있어도 취하 카드에는 실제 건수를 유지하고, 그래프 반영용 값만 분리
+- `lib/models/report_map.dart`
+  - 사용하지 않는 `top_agency` 필드 제거
+
+검증:
+- `flutter test`
+  - standalone watchlist projection cache 회귀 테스트 추가
+  - invalid server DB import 실패 시 기존 standalone data 보존 테스트 추가
+
+### 구조 정리와 테스트 보강
+
+상태: 완료
+
+변경:
+- `pubspec.yaml`, `pubspec.lock`
+  - `sqflite_common_ffi` dev dependency 추가
+- `test/services/local_db_service_regression_test.dart`
+  - standalone DB 기반 회귀 테스트 추가
+  - watchlist cache invalidation, import preserve 시나리오 자동화
+
 ## 2026-05-13
 
 ### Android 15 더 넓은 화면 권장조치 1차 대응 + Play Console 잔여 경고 원인 분리

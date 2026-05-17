@@ -431,7 +431,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       (stats.rejectCount, serverRejectColor, '불수용'),
       (stats.supplementCount, serverSupplementColor, '보완요청'),
       (stats.processingCount, serverProcessingColor, '처리중'),
-      (stats.withdrawCount, serverWithdrawColor, '취하'),
+      (stats.withdrawGraphCount, serverWithdrawColor, '취하'),
     ].where((e) => e.$1 > 0).toList();
     final total = sections.fold<int>(0, (sum, item) => sum + item.$1);
     if (total == 0) return const SizedBox.shrink();

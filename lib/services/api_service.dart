@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import '../models/report.dart';
+import '../models/report_map.dart';
 import '../models/duplicate_group.dart';
 import '../models/file_item.dart';
 import '../models/agency_stats.dart';
@@ -398,6 +399,47 @@ class ApiService {
     } else {
       throw Exception('통계 로드 실패: ${response.statusCode}');
     }
+  }
+
+  Future<ReportMapPayload> getReportMapStats({
+    String? year,
+    String category = 'all',
+  }) async {
+    final params = <String, String>{};
+    if (year != null && year != 'all') params['year'] = year;
+    if (category != 'all') params['category'] = category;
+    final uri = ServerContract.apiUri(
+      baseUrl,
+      ServerContract.statsMapPath,
+      queryParameters: params.isNotEmpty ? params : null,
+    );
+    final response = await _sendWithRetry(
+      () => http.get(uri, headers: _headers),
+      timeout: const Duration(minutes: 2),
+    );
+    if (response.statusCode == 200) {
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      return ReportMapPayload.fromJson(json['data'] as Map<String, dynamic>);
+    }
+    throw Exception('지도 통계 로드 실패: ${response.statusCode}');
+  }
+
+  Future<GeocodeBackfillProgress> getReportMapProgress() async {
+    final response = await _sendWithRetry(
+      () => http.get(
+        ServerContract.apiUri(baseUrl, ServerContract.statsMapProgressPath),
+        headers: _headers,
+      ),
+      timeout: const Duration(minutes: 2),
+    );
+    if (response.statusCode == 200) {
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      final data = json['data'] is Map
+          ? Map<String, dynamic>.from(json['data'] as Map)
+          : const <String, dynamic>{};
+      return GeocodeBackfillProgress.fromJson(data);
+    }
+    throw Exception('지도 진행률 로드 실패: ${response.statusCode}');
   }
 
   Future<SunwiPayload> getSunwiPayload() async {

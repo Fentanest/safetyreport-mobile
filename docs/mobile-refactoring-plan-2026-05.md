@@ -275,3 +275,32 @@
 - 문자열 key 와 로컬 경로 수정이 한 곳에서 끝난다.
 - 신규 기능을 붙일 때 `Client`/`Standalone` 분기를 또 복제하지 않아도 된다.
 - 최근 추가된 `중복 신고`, `신고관리`, `sunwi 임베드` 기능도 같은 패턴으로 유지할 수 있다.
+
+## 2026-05-17 실행 상태
+
+### 이번 라운드에서 실제 반영된 항목
+
+- `P0` 일부 반영
+  - `lib/services/app_prefs_keys.dart` 기반 설정 key 정리 지속
+  - standalone 지오코딩/지도 설정, pending import 흐름, 지도 진행률 표시가 공용 key 와 service 쪽으로 이동
+- `P1/P3` 일부 반영
+  - 통계 탭의 지도 기능은 화면이 직접 좌표 계산을 하지 않고 `ApiService` / `LocalGeocodeService` / `LocalDbService` 를 통해 가져오도록 분리
+  - DB import 는 staging/validation/commit 절차가 `LocalDbService.importFromServerDb()` 내부로 정리되어 설정 화면이 세부 교체 절차를 덜 알게 됨
+- 안정화 후속
+  - watchlist 변경 시 representative projection cache 무효화
+  - import 교체 실패 시 backup 복구 및 backup 보존 경로 보강
+  - dead field `top_agency` 제거
+  - `sqflite_common_ffi` 기반 regression test 추가
+
+### 이번 라운드에서 자동 검증된 항목
+
+- `flutter analyze lib/models/report_map.dart lib/services/local_db_service.dart test/services/local_db_service_regression_test.dart`
+- `flutter test`
+  - representative projection cache invalidation
+  - invalid server DB import preserve
+
+### 아직 남아 있는 구조 작업
+
+- `ReportProvider` 분해 자체는 아직 시작 전이며, `Client`/`Standalone` 분기 다수는 그대로 남아 있다.
+- `Watchlist`, `Duplicate`, `Sunwi` 패널의 repository 추상화도 아직 계획 단계다.
+- 이번 차수는 새 지도/지오코딩 기능과 import 안정화, 회귀 테스트 보강이 우선이었고, 대규모 provider 분해는 다음 차수 대상이다.

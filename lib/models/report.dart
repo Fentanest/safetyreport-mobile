@@ -149,6 +149,7 @@ class DashboardStats {
   final int completedCount;
   final int withdrawCount;
   final int withdrawRawCount;
+  final int withdrawGraphCount;
   final int tFineCount;
   final int tPenaltyCount;
   final int tRejectCount;
@@ -168,6 +169,7 @@ class DashboardStats {
     required this.completedCount,
     required this.withdrawCount,
     required this.withdrawRawCount,
+    required this.withdrawGraphCount,
     required this.tFineCount,
     required this.tPenaltyCount,
     required this.tRejectCount,
@@ -188,6 +190,7 @@ class DashboardStats {
     int? completedCount,
     int? withdrawCount,
     int? withdrawRawCount,
+    int? withdrawGraphCount,
     int? tFineCount,
     int? tPenaltyCount,
     int? tRejectCount,
@@ -207,6 +210,7 @@ class DashboardStats {
       completedCount: completedCount ?? this.completedCount,
       withdrawCount: withdrawCount ?? this.withdrawCount,
       withdrawRawCount: withdrawRawCount ?? this.withdrawRawCount,
+      withdrawGraphCount: withdrawGraphCount ?? this.withdrawGraphCount,
       tFineCount: tFineCount ?? this.tFineCount,
       tPenaltyCount: tPenaltyCount ?? this.tPenaltyCount,
       tRejectCount: tRejectCount ?? this.tRejectCount,
@@ -220,6 +224,18 @@ class DashboardStats {
   factory DashboardStats.fromJson(Map<String, dynamic> json) {
     var recentList = json['recent_answers'] as List? ?? [];
     var watchList = json['watchlist'] as List? ?? [];
+    final excludeWithdraw = json.containsKey('exclude_withdraw')
+        ? json['exclude_withdraw'] as bool?
+        : null;
+    final rawWithdrawCount =
+        _toIntOrNull(json['withdrawRawCount']) ??
+        _toIntOrNull(json['withdrawCount']) ??
+        0;
+    final serverWithdrawCount = _toIntOrNull(json['withdrawCount']) ?? 0;
+    final graphWithdrawCount =
+        _toIntOrNull(json['withdrawGraphCount']) ??
+        (excludeWithdraw == true ? serverWithdrawCount : rawWithdrawCount);
+
     return DashboardStats(
       lastCrawlTime: json['last_crawl_time']?.toString() ?? '',
       total: _toIntOrNull(json['total']) ?? 0,
@@ -229,11 +245,9 @@ class DashboardStats {
       supplementCount: _toIntOrNull(json['supplementCount']) ?? 0,
       processingCount: _toIntOrNull(json['processingCount']) ?? 0,
       completedCount: _toIntOrNull(json['completedCount']) ?? 0,
-      withdrawCount: _toIntOrNull(json['withdrawCount']) ?? 0,
-      withdrawRawCount:
-          _toIntOrNull(json['withdrawRawCount']) ??
-          _toIntOrNull(json['withdrawCount']) ??
-          0,
+      withdrawCount: rawWithdrawCount,
+      withdrawRawCount: rawWithdrawCount,
+      withdrawGraphCount: graphWithdrawCount,
       tFineCount: _toIntOrNull(json['tFineCount']) ?? 0,
       tPenaltyCount: _toIntOrNull(json['tPenaltyCount']) ?? 0,
       tRejectCount: _toIntOrNull(json['tRejectCount']) ?? 0,
@@ -244,9 +258,7 @@ class DashboardStats {
       watchlist: watchList
           .map((i) => Report.fromJson(i as Map<String, dynamic>))
           .toList(),
-      excludeWithdraw: json.containsKey('exclude_withdraw')
-          ? json['exclude_withdraw'] as bool?
-          : null,
+      excludeWithdraw: excludeWithdraw,
     );
   }
 }

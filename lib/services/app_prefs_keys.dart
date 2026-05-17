@@ -13,6 +13,7 @@ class AppPrefsKeys {
   static const standaloneUsername = 'standaloneUsername';
   static const standalonePhoneNumber = 'standalonePhoneNumber';
   static const standaloneDemoMode = 'standaloneDemoMode';
+  static const standaloneKakaoRestApiKey = 'standaloneKakaoRestApiKey';
   static const standaloneToken = 'standaloneToken';
   static const standaloneTokenExpiresAt = 'standaloneTokenExpiresAt';
   static const standaloneSyncTime = 'standaloneSyncTime';

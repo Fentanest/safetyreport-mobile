@@ -34,7 +34,9 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final _urlController = TextEditingController();
   final _apiController = TextEditingController();
+  final _standaloneKakaoController = TextEditingController();
   bool _obscureKey = true;
+  bool _obscureStandaloneKakaoKey = true;
   bool _testing = false;
   _TestResult? _testResult;
   bool _wsRunning = false;
@@ -65,6 +67,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final provider = context.read<ReportProvider>();
     _urlController.text = provider.baseUrl;
     _apiController.text = provider.apiKey;
+    _standaloneKakaoController.text = provider.standaloneKakaoRestApiKey;
     _checkWsStatus();
     _loadFilterSettings();
     _loadServerVersion();
@@ -177,6 +180,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void dispose() {
     _urlController.dispose();
     _apiController.dispose();
+    _standaloneKakaoController.dispose();
     super.dispose();
   }
 
@@ -270,6 +274,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       );
     }
+  }
+
+  Future<void> _saveStandaloneKakaoKey() async {
+    final provider = context.read<ReportProvider>();
+    await provider.setStandaloneKakaoRestApiKey(
+      _standaloneKakaoController.text,
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('카카오 REST API 키가 저장되었습니다.'),
+        backgroundColor: Colors.green,
+      ),
+    );
   }
 
   // ── 스탠드어론 재로그인 다이얼로그 ─────────────────────────────
@@ -983,6 +1001,72 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
               ),
+              const SizedBox(height: 16),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.map_outlined,
+                            color: Color(0xFF0F9D58),
+                          ),
+                          const SizedBox(width: 8),
+                          const Text(
+                            '지도 지오코딩',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF0F9D58),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Standalone 지도 통계에서 주소를 위도/경도로 변환할 때 사용합니다.',
+                        style: TextStyle(color: Colors.grey, fontSize: 12),
+                      ),
+                      const SizedBox(height: 14),
+                      TextField(
+                        controller: _standaloneKakaoController,
+                        decoration: InputDecoration(
+                          labelText: 'Kakao REST API Key',
+                          hintText: '2648...',
+                          border: const OutlineInputBorder(),
+                          prefixIcon: const Icon(Icons.key_outlined),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscureStandaloneKakaoKey
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
+                              size: 20,
+                            ),
+                            onPressed: () => setState(
+                              () => _obscureStandaloneKakaoKey =
+                                  !_obscureStandaloneKakaoKey,
+                            ),
+                          ),
+                        ),
+                        obscureText: _obscureStandaloneKakaoKey,
+                        autocorrect: false,
+                      ),
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton.icon(
+                          icon: const Icon(Icons.save_outlined, size: 18),
+                          label: const Text('카카오 키 저장'),
+                          onPressed: _saveStandaloneKakaoKey,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ],
 
             // ── 서버 모드 전용 섹션 시작 ──────────────────────
@@ -1638,7 +1722,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   padding: const EdgeInsets.all(20),
                   child: Row(
                     children: [
-                      Icon(Icons.security, color: cs.tertiary ?? cs.primary),
+                      Icon(Icons.security, color: cs.tertiary),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
@@ -1649,7 +1733,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                color: cs.tertiary ?? cs.primary,
+                                color: cs.tertiary,
                               ),
                             ),
                             const SizedBox(height: 2),

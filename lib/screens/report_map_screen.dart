@@ -1,0 +1,954 @@
+import 'dart:async';
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
+import 'package:latlong2/latlong.dart';
+import 'package:provider/provider.dart';
+
+import '../models/app_mode.dart';
+import '../models/report_map.dart';
+import '../providers/report_provider.dart';
+import '../server_palette.dart';
+import '../services/api_service.dart';
+import '../services/local_db_service.dart';
+import '../services/local_geocode_service.dart';
+import 'settings_screen.dart';
+
+class ReportMapScreen extends StatefulWidget {
+  final String initialYear;
+  final String initialCategory;
+
+  const ReportMapScreen({
+    super.key,
+    this.initialYear = 'all',
+    this.initialCategory = 'all',
+  });
+
+  @override
+  State<ReportMapScreen> createState() => _ReportMapScreenState();
+}
+
+class _ReportMapScreenState extends State<ReportMapScreen> {
+  ReportMapPayload? _payload;
+  GeocodeBackfillProgress? _progress;
+  bool _loading = true;
+  String? _error;
+  Timer? _progressTimer;
+  String _selectedYear = 'all';
+  String _selectedCategory = 'all';
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedYear = widget.initialYear;
+    _selectedCategory = widget.initialCategory;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadMap());
+  }
+
+  @override
+  void dispose() {
+    _progressTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadMap({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+
+    final provider = context.read<ReportProvider>();
+    try {
+      ReportMapPayload payload;
+      GeocodeBackfillProgress progress;
+      if (provider.appMode == AppMode.standalone) {
+        progress = await LocalGeocodeService.ensureMapBackfillStarted(
+          apiKey: provider.standaloneKakaoRestApiKey,
+          batchSize: 80,
+        );
+        payload = ReportMapPayload.fromJson(
+          await LocalDbService.computeReportMapStats(
+            year: _selectedYear == 'all' ? null : _selectedYear,
+            category: _selectedCategory,
+            excludeWithdraw: provider.excludeWithdraw,
+            normalizePolice: provider.normalizePolice,
+            useRepresentativeRecords: provider.useRepresentativeRecords,
+          ),
+        );
+      } else {
+        final api = ApiService(
+          baseUrl: provider.baseUrl,
+          apiKey: provider.apiKey,
+        );
+        payload = await api.getReportMapStats(
+          year: _selectedYear == 'all' ? null : _selectedYear,
+          category: _selectedCategory,
+        );
+        progress = await api.getReportMapProgress();
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _payload = payload;
+        _progress = progress;
+        _loading = false;
+        _error = null;
+      });
+      _syncProgressPolling(progress);
+    } catch (exc) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = '$exc';
+      });
+    }
+  }
+
+  void _syncProgressPolling(GeocodeBackfillProgress progress) {
+    _progressTimer?.cancel();
+    if (!progress.running) return;
+    _progressTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
+      final provider = context.read<ReportProvider>();
+      try {
+        GeocodeBackfillProgress next;
+        if (provider.appMode == AppMode.standalone) {
+          next = LocalGeocodeService.currentProgress();
+        } else {
+          next = await ApiService(
+            baseUrl: provider.baseUrl,
+            apiKey: provider.apiKey,
+          ).getReportMapProgress();
+        }
+
+        if (!mounted) return;
+        setState(() => _progress = next);
+        if (!next.running) {
+          _progressTimer?.cancel();
+          await _loadMap(silent: true);
+        }
+      } catch (_) {
+        _progressTimer?.cancel();
+      }
+    });
+  }
+
+  List<String> get _availableYears {
+    final years = _payload?.meta.availableYears ?? const <String>[];
+    return ['all', ...years.where((year) => year != 'all')];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final progress = _progress;
+    final payload = _payload;
+    final points = payload?.points ?? const <ReportMapPoint>[];
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('신고 지도'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: '새로고침',
+            onPressed: () => _loadMap(),
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: '설정',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const SettingsScreen()),
+            ).then((_) => _loadMap()),
+          ),
+        ],
+      ),
+      body: _loading && payload == null
+          ? const Center(child: CircularProgressIndicator())
+          : Column(
+              children: [
+                _buildFilterBar(cs),
+                if (progress != null &&
+                    (progress.running || progress.errorMessage.isNotEmpty))
+                  _buildProgressCard(progress),
+                if (_error != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: _buildErrorCard(_error!),
+                  ),
+                if (payload != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: _buildMetaSummary(payload.meta),
+                  ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: points.isEmpty
+                        ? _buildEmptyState(progress)
+                        : _buildMap(points),
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildFilterBar(ColorScheme cs) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        border: Border(
+          bottom: BorderSide(color: cs.outlineVariant.withOpacity(0.35)),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.filter_alt_outlined, size: 18),
+              const SizedBox(width: 6),
+              const Text(
+                '지도 필터',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+              ),
+              const Spacer(),
+              DropdownButton<String>(
+                value: _availableYears.contains(_selectedYear)
+                    ? _selectedYear
+                    : 'all',
+                underline: const SizedBox.shrink(),
+                items: _availableYears
+                    .map(
+                      (year) => DropdownMenuItem<String>(
+                        value: year,
+                        child: Text(year == 'all' ? '전체 연도' : year),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => _selectedYear = value);
+                  _loadMap();
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _categoryChip('all', '전체'),
+              _categoryChip('traffic', '교통'),
+              _categoryChip('parking', '주정차'),
+              _categoryChip('other', '기타'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _categoryChip(String value, String label) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: _selectedCategory == value,
+      onSelected: (selected) {
+        if (!selected) return;
+        setState(() => _selectedCategory = value);
+        _loadMap();
+      },
+    );
+  }
+
+  Widget _buildProgressCard(GeocodeBackfillProgress progress) {
+    final provider = context.watch<ReportProvider>();
+    final isStandalone = provider.appMode == AppMode.standalone;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+      child: Card(
+        color: progress.isError
+            ? Colors.red.withOpacity(0.05)
+            : Colors.blue.withOpacity(0.05),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    progress.isError ? Icons.error_outline : Icons.public,
+                    color: progress.isError ? Colors.red : Colors.blueGrey,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      progress.isError
+                          ? '좌표 변환을 마치지 못했습니다'
+                          : progress.running
+                          ? '주소 좌표 변환 진행 중'
+                          : '주소 좌표 변환 완료',
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              LinearProgressIndicator(
+                value: progress.running ? progress.progressPct / 100 : 1,
+                minHeight: 8,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                '진행률 ${progress.progressPct.toStringAsFixed(1)}%  ·  ${progress.processed}/${progress.total}건 처리',
+                style: const TextStyle(fontSize: 13),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '성공 ${progress.updated}건 · 주소 미발견 ${progress.notFound}건 · 남은 대상 ${progress.remainingMissing}건',
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              if (progress.errorMessage.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                Text(
+                  progress.errorMessage,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.red,
+                    height: 1.4,
+                  ),
+                ),
+                if (progress.isError && isStandalone)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: OutlinedButton.icon(
+                      icon: const Icon(Icons.settings_outlined, size: 18),
+                      label: const Text('모바일 설정 열기'),
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const SettingsScreen(),
+                        ),
+                      ).then((_) => _loadMap()),
+                    ),
+                  ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildErrorCard(String message) {
+    return Card(
+      color: Colors.red.withOpacity(0.05),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: Colors.red),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(fontSize: 13, height: 1.45),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMetaSummary(ReportMapMeta meta) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        _smallStat('전체', meta.totalReports, Colors.blue),
+        _smallStat('좌표화', meta.geocodedReports, serverAcceptColor),
+        _smallStat('미변환', meta.missingReports, serverSupplementColor),
+        _smallStat('지점', meta.addressGroups, Colors.teal),
+      ],
+    );
+  }
+
+  Widget _smallStat(String label, int value, Color color) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 76),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '$value건',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(GeocodeBackfillProgress? progress) {
+    final message = progress != null && progress.running
+        ? '주소 좌표를 채우는 중입니다.\n완료되면 지도가 자동으로 표시됩니다.'
+        : '표시할 지도 데이터가 없습니다.';
+    return Card(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.map_outlined, size: 48, color: Colors.grey.shade500),
+              const SizedBox(height: 12),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 14, height: 1.45),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMap(List<ReportMapPoint> points) {
+    final center = _computeCenter(points);
+    final zoom = _suggestZoom(points);
+    final markerLookup = <Marker, ReportMapPoint>{};
+    final markers = points.map((point) {
+      final marker = Marker(
+        point: LatLng(point.lat, point.lng),
+        width: 94,
+        height: 82,
+        child: _MapPointMarker(point: point),
+      );
+      markerLookup[marker] = point;
+      return marker;
+    }).toList();
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: FlutterMap(
+        key: ValueKey(
+          '${_selectedYear}_${_selectedCategory}_${points.length}_${_progress?.state}',
+        ),
+        options: MapOptions(
+          initialCenter: center,
+          initialZoom: zoom,
+          maxZoom: 18,
+          minZoom: 4,
+        ),
+        children: [
+          TileLayer(
+            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            userAgentPackageName: 'com.fentanest.mysafetyreport',
+          ),
+          MarkerClusterLayerWidget(
+            options: MarkerClusterLayerOptions(
+              markers: markers,
+              maxClusterRadius: 54,
+              size: const Size(92, 82),
+              alignment: Alignment.center,
+              padding: const EdgeInsets.all(48),
+              maxZoom: 17,
+              disableClusteringAtZoom: 16,
+              zoomToBoundsOnClick: true,
+              centerMarkerOnClick: false,
+              showPolygon: false,
+              spiderfyCluster: true,
+              builder: (context, clusterMarkers) => _ClusterMarkerWidget(
+                totalCount: clusterMarkers.fold<int>(
+                  0,
+                  (sum, marker) => sum + (markerLookup[marker]?.total ?? 0),
+                ),
+                regionLabel: _clusterRegionLabel(
+                  clusterMarkers
+                      .map((marker) => markerLookup[marker])
+                      .whereType<ReportMapPoint>()
+                      .toList(),
+                ),
+              ),
+              onMarkerTap: (marker) {
+                final point = markerLookup[marker];
+                if (point != null) {
+                  _showPointBottomSheet(point);
+                }
+              },
+              onClusterTap: (cluster) {
+                _showClusterBottomSheet(
+                  cluster.markers
+                      .map((marker) => markerLookup[marker])
+                      .whereType<ReportMapPoint>()
+                      .toList(),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  LatLng _computeCenter(List<ReportMapPoint> points) {
+    if (points.isEmpty) return const LatLng(36.4, 127.9);
+    final latSum = points.fold<double>(0, (sum, item) => sum + item.lat);
+    final lngSum = points.fold<double>(0, (sum, item) => sum + item.lng);
+    return LatLng(latSum / points.length, lngSum / points.length);
+  }
+
+  double _suggestZoom(List<ReportMapPoint> points) {
+    if (points.length <= 1) return 14;
+    final lats = points.map((point) => point.lat).toList()..sort();
+    final lngs = points.map((point) => point.lng).toList()..sort();
+    final latSpan = (lats.last - lats.first).abs();
+    final lngSpan = (lngs.last - lngs.first).abs();
+    final span = math.max(latSpan, lngSpan);
+    if (span > 3) return 6.5;
+    if (span > 1.5) return 7.5;
+    if (span > 0.6) return 9.2;
+    if (span > 0.2) return 10.5;
+    return 12.5;
+  }
+
+  String _clusterRegionLabel(List<ReportMapPoint> points) {
+    if (points.isEmpty) return '';
+    final counts = <String, int>{};
+    for (final point in points) {
+      final label = point.region.trim().isNotEmpty
+          ? point.region.trim()
+          : point.address.trim();
+      if (label.isEmpty) continue;
+      counts[label] = (counts[label] ?? 0) + point.total;
+    }
+    if (counts.isEmpty) return '';
+    final sorted = counts.entries.toList()
+      ..sort((left, right) => right.value.compareTo(left.value));
+    return sorted.first.key;
+  }
+
+  void _showPointBottomSheet(ReportMapPoint point) {
+    _showDetailBottomSheet(
+      title: point.region.isNotEmpty ? point.region : point.address,
+      subtitle: point.address,
+      total: point.total,
+      addressGroups: 1,
+      regions: point.region.isNotEmpty ? [point.region] : const <String>[],
+      agencies: point.agencyBreakdown,
+      statuses: point.statusBreakdown,
+      dispositions: point.dispositionBreakdown,
+      categories: point.categoryBreakdown,
+    );
+  }
+
+  void _showClusterBottomSheet(List<ReportMapPoint> points) {
+    if (points.isEmpty) return;
+    final total = points.fold<int>(0, (sum, point) => sum + point.total);
+    final regionCounts = <String, int>{};
+    for (final point in points) {
+      final label = point.region.trim().isNotEmpty
+          ? point.region.trim()
+          : point.address.trim();
+      if (label.isEmpty) continue;
+      regionCounts[label] = (regionCounts[label] ?? 0) + point.total;
+    }
+    final sortedRegions = regionCounts.entries.toList()
+      ..sort((left, right) => right.value.compareTo(left.value));
+    _showDetailBottomSheet(
+      title: '묶음 신고 지점',
+      subtitle: '${points.length}개 지점 · $total건',
+      total: total,
+      addressGroups: points.length,
+      regions: sortedRegions
+          .take(5)
+          .map((entry) => '${entry.key} (${entry.value}건)')
+          .toList(),
+      agencies: _aggregateAgencies(points),
+      statuses: _aggregateBreakdown(
+        points.expand((point) => point.statusBreakdown),
+        total: total,
+      ),
+      dispositions: _aggregateBreakdown(
+        points.expand((point) => point.dispositionBreakdown),
+        total: total,
+      ),
+      categories: _aggregateBreakdown(
+        points.expand((point) => point.categoryBreakdown),
+        total: total,
+      ),
+    );
+  }
+
+  List<ReportMapAgencyItem> _aggregateAgencies(List<ReportMapPoint> points) {
+    final counts = <String, int>{};
+    final total = points.fold<int>(0, (sum, point) => sum + point.total);
+    for (final point in points) {
+      for (final agency in point.agencyBreakdown) {
+        counts[agency.name] = (counts[agency.name] ?? 0) + agency.count;
+      }
+    }
+    final items =
+        counts.entries
+            .map(
+              (entry) => ReportMapAgencyItem(
+                name: entry.key,
+                count: entry.value,
+                pct: total > 0 ? (entry.value / total) * 100 : 0,
+              ),
+            )
+            .toList()
+          ..sort((left, right) => right.count.compareTo(left.count));
+    return items;
+  }
+
+  List<ReportMapBreakdownItem> _aggregateBreakdown(
+    Iterable<ReportMapBreakdownItem> items, {
+    required int total,
+  }) {
+    final counts = <String, int>{};
+    for (final item in items) {
+      counts[item.label] = (counts[item.label] ?? 0) + item.count;
+    }
+    final list =
+        counts.entries
+            .map(
+              (entry) => ReportMapBreakdownItem(
+                label: entry.key,
+                count: entry.value,
+                pct: total > 0 ? (entry.value / total) * 100 : 0,
+              ),
+            )
+            .toList()
+          ..sort((left, right) => right.count.compareTo(left.count));
+    return list;
+  }
+
+  void _showDetailBottomSheet({
+    required String title,
+    required String subtitle,
+    required int total,
+    required int addressGroups,
+    required List<String> regions,
+    required List<ReportMapAgencyItem> agencies,
+    required List<ReportMapBreakdownItem> statuses,
+    required List<ReportMapBreakdownItem> dispositions,
+    required List<ReportMapBreakdownItem> categories,
+  }) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                if (subtitle.trim().isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(color: Colors.grey, height: 1.4),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _sheetStat('신고건수', '$total건'),
+                    _sheetStat('지점수', '$addressGroups곳'),
+                    if (agencies.isNotEmpty)
+                      _sheetStat('기관수', '${agencies.length}곳'),
+                  ],
+                ),
+                if (regions.isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  _sheetSection(
+                    '행정구역',
+                    regions.map((item) => _bulletText(item)).toList(),
+                  ),
+                ],
+                if (agencies.isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  _sheetSection(
+                    '담당 기관',
+                    agencies
+                        .take(8)
+                        .map(
+                          (item) => _bulletText(
+                            '${item.name} (${item.count}건, ${item.pct.toStringAsFixed(1)}%)',
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ],
+                if (statuses.isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  _sheetBreakdownSection('처리상태 비중', statuses),
+                ],
+                if (dispositions.isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  _sheetBreakdownSection('처분 현황 비중', dispositions),
+                ],
+                if (categories.isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  _sheetBreakdownSection('신고 종류 비중', categories),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _sheetStat(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sheetSection(String title, List<Widget> children) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        ...children,
+      ],
+    );
+  }
+
+  Widget _sheetBreakdownSection(
+    String title,
+    List<ReportMapBreakdownItem> items,
+  ) {
+    return _sheetSection(
+      title,
+      items
+          .map(
+            (item) => _bulletText(
+              '${item.label}: ${item.count}건 (${item.pct.toStringAsFixed(1)}%)',
+            ),
+          )
+          .toList(),
+    );
+  }
+
+  Widget _bulletText(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 7),
+            child: Icon(Icons.circle, size: 6, color: Colors.blueGrey),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(fontSize: 13, height: 1.45),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MapPointMarker extends StatelessWidget {
+  final ReportMapPoint point;
+
+  const _MapPointMarker({required this.point});
+
+  @override
+  Widget build(BuildContext context) {
+    final total = point.total;
+    final circleSize = total >= 100
+        ? 56.0
+        : total >= 30
+        ? 50.0
+        : total >= 10
+        ? 44.0
+        : 38.0;
+    final label = point.region.trim().isNotEmpty ? point.region : point.address;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: circleSize,
+          height: circleSize,
+          decoration: BoxDecoration(
+            color: const Color(0xFF1565C0),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x33000000),
+                blurRadius: 8,
+                offset: Offset(0, 4),
+              ),
+            ],
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            '$total',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Container(
+          constraints: const BoxConstraints(maxWidth: 88),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.94),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: Colors.black12),
+          ),
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ClusterMarkerWidget extends StatelessWidget {
+  final int totalCount;
+  final String regionLabel;
+
+  const _ClusterMarkerWidget({
+    required this.totalCount,
+    required this.regionLabel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final circleSize = totalCount >= 150
+        ? 62.0
+        : totalCount >= 60
+        ? 56.0
+        : totalCount >= 20
+        ? 48.0
+        : 42.0;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: circleSize,
+          height: circleSize,
+          decoration: BoxDecoration(
+            color: const Color(0xFF0D47A1),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x33000000),
+                blurRadius: 8,
+                offset: Offset(0, 4),
+              ),
+            ],
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            '$totalCount',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        if (regionLabel.trim().isNotEmpty)
+          Container(
+            constraints: const BoxConstraints(maxWidth: 88),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.94),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: Colors.black12),
+            ),
+            child: Text(
+              regionLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700),
+            ),
+          ),
+      ],
+    );
+  }
+}

@@ -6,6 +6,7 @@ import 'package:sqflite/sqflite.dart';
 import '../models/duplicate_group.dart';
 import '../models/report.dart';
 import 'duplicate_projection_service.dart';
+import 'geocode_utils.dart';
 import 'standalone_parser.dart';
 
 /// 서버 _normalize_police_agency 동일: '경찰서' 이후 문자열 제거
@@ -58,33 +59,9 @@ class LocalDbService {
     final dbPath = await getDatabasesPath();
     final database = await openDatabase(
       join(dbPath, 'standalone_reports.db'),
-      version: 9,
+      version: 10,
       onCreate: _create,
-      onUpgrade: (db, oldV, newV) async {
-        if (oldV < 4) {
-          try {
-            await db.execute("ALTER TABLE reports ADD COLUMN 별점 INTEGER");
-            await db.execute(
-              "ALTER TABLE reports ADD COLUMN 별점사유 TEXT DEFAULT ''",
-            );
-          } catch (_) {
-            // 이미 컬럼이 있는 경우 무시
-          }
-        }
-        if (oldV < 5) {
-          await _createRawTable(db);
-          await _migrateRawContentToSidecar(db);
-        }
-        if (oldV < 6) {
-          await DuplicateProjectionService.createSchema(db);
-        }
-        if (oldV < 7) {
-          await DuplicateProjectionService.createSchema(db);
-        }
-        if (oldV < 9) {
-          await _addSupplementColumns(db);
-        }
-      },
+      onUpgrade: _migrateLocalDatabase,
     );
     try {
       await database.execute("""
@@ -148,6 +125,54 @@ class LocalDbService {
     } catch (_) {}
   }
 
+  static Future<void> _addGeoColumns(DatabaseExecutor db) async {
+    for (final col in const [
+      "ALTER TABLE reports ADD COLUMN 주소정규화 TEXT DEFAULT ''",
+      "ALTER TABLE reports ADD COLUMN 행정구역 TEXT DEFAULT ''",
+      "ALTER TABLE reports ADD COLUMN 위도 REAL",
+      "ALTER TABLE reports ADD COLUMN 경도 REAL",
+      "ALTER TABLE reports ADD COLUMN 지오코딩상태 TEXT DEFAULT ''",
+    ]) {
+      try {
+        await db.execute(col);
+      } catch (_) {
+        // 이미 추가된 경우 무시
+      }
+    }
+  }
+
+  static Future<void> _migrateLocalDatabase(
+    Database db,
+    int oldV,
+    int newV,
+  ) async {
+    if (oldV < 4) {
+      try {
+        await db.execute("ALTER TABLE reports ADD COLUMN 별점 INTEGER");
+        await db.execute("ALTER TABLE reports ADD COLUMN 별점사유 TEXT DEFAULT ''");
+      } catch (_) {
+        // 이미 컬럼이 있는 경우 무시
+      }
+    }
+    if (oldV < 5) {
+      await _createRawTable(db);
+      await _migrateRawContentToSidecar(db);
+    }
+    if (oldV < 6) {
+      await DuplicateProjectionService.createSchema(db);
+    }
+    if (oldV < 7) {
+      await DuplicateProjectionService.createSchema(db);
+    }
+    if (oldV < 9) {
+      await _addSupplementColumns(db);
+    }
+    if (oldV < 10) {
+      await _addGeoColumns(db);
+      await _createGeocodeCacheTable(db);
+    }
+  }
+
   static Future<void> _create(Database db, int version) async {
     await db.execute('''
       CREATE TABLE reports (
@@ -171,6 +196,11 @@ class LocalDbService {
         발생일자          TEXT,
         발생시각          TEXT,
         위반장소          TEXT,
+        주소정규화        TEXT DEFAULT '',
+        행정구역          TEXT DEFAULT '',
+        위도             REAL,
+        경도             REAL,
+        지오코딩상태      TEXT DEFAULT '',
         종결여부          TEXT DEFAULT 'N',
         신고내용          TEXT,
         처리내용          TEXT,
@@ -191,6 +221,7 @@ class LocalDbService {
       )
     ''');
     await _createRawTable(db);
+    await _createGeocodeCacheTable(db);
     await DuplicateProjectionService.createSchema(db);
     await db.execute('''
       CREATE TABLE sync_meta (
@@ -207,6 +238,22 @@ class LocalDbService {
         raw_content TEXT NOT NULL DEFAULT '',
         raw_type    TEXT NOT NULL DEFAULT '',
         saved_at    INTEGER
+      )
+    ''');
+  }
+
+  static Future<void> _createGeocodeCacheTable(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS geocode_cache (
+        주소정규화 TEXT PRIMARY KEY,
+        원본주소   TEXT,
+        행정구역   TEXT,
+        위도      REAL,
+        경도      REAL,
+        상태      TEXT NOT NULL DEFAULT '',
+        source    TEXT NOT NULL DEFAULT 'kakao',
+        error_message TEXT DEFAULT '',
+        updated_at INTEGER
       )
     ''');
   }
@@ -285,6 +332,58 @@ class LocalDbService {
     return true;
   }
 
+  static const _kProjectRowsCacheLimit = 16;
+  static final Map<String, List<Map<String, dynamic>>> _projectRowsCache = {};
+  static void _invalidateProjectRowsCache() => _projectRowsCache.clear();
+
+  static String _buildProjectRowsCacheKey(
+    List<Map<String, dynamic>> rows,
+    bool useRepresentativeRecords,
+    int projectionVersion,
+  ) {
+    var signature = rows.length;
+    for (final row in rows) {
+      signature = Object.hash(
+        signature,
+        row['ID']?.toString() ?? '',
+        row['synced_at'],
+        row['신고일']?.toString() ?? '',
+        row['신고번호']?.toString() ?? '',
+        row['감시목록']?.toString() ?? '',
+        row['위반장소']?.toString() ?? '',
+        row['차량번호']?.toString() ?? '',
+        row['처리기관']?.toString() ?? '',
+        row['담당자']?.toString() ?? '',
+        row['위반법규']?.toString() ?? '',
+        row['category']?.toString() ?? '',
+        row['entry_value']?.toString() ?? '',
+        row['범칙금_과태료']?.toString() ?? '',
+      );
+    }
+    return '${useRepresentativeRecords ? 1 : 0}|$projectionVersion|$signature';
+  }
+
+  static Future<int> _currentDuplicateProjectionVersion(
+    DatabaseExecutor db,
+  ) async {
+    var version = 0;
+    try {
+      final rows = await db.rawQuery(
+        'SELECT MAX(IFNULL(updated_at, 0)) AS v FROM ${DuplicateProjectionService.groupTable}',
+      );
+      version = int.tryParse(rows.first['v']?.toString() ?? '') ?? 0;
+    } catch (_) {}
+    try {
+      final rows = await db.rawQuery(
+        'SELECT MAX(IFNULL(updated_at, 0)) AS v FROM ${DuplicateProjectionService.memberTable}',
+      );
+      final memberVersion =
+          int.tryParse(rows.first['v']?.toString() ?? '') ?? 0;
+      if (memberVersion > version) version = memberVersion;
+    } catch (_) {}
+    return version;
+  }
+
   static Future<List<Map<String, dynamic>>> _projectRows(
     DatabaseExecutor db,
     List<Map<String, dynamic>> rows, {
@@ -294,11 +393,34 @@ class LocalDbService {
         .map((row) => Map<String, dynamic>.from(row))
         .toList();
     if (normalized.isEmpty) return normalized;
-    return DuplicateProjectionService.projectReportRows(
+    if (!useRepresentativeRecords) {
+      return normalized;
+    }
+
+    final projectionVersion = await _currentDuplicateProjectionVersion(db);
+    final cacheKey = _buildProjectRowsCacheKey(
+      normalized,
+      useRepresentativeRecords,
+      projectionVersion,
+    );
+    final cached = _projectRowsCache[cacheKey];
+    if (cached != null) {
+      return cached.map((row) => Map<String, dynamic>.from(row)).toList();
+    }
+
+    if (_projectRowsCache.length >= _kProjectRowsCacheLimit) {
+      _projectRowsCache.clear();
+    }
+
+    final projected = await DuplicateProjectionService.projectReportRows(
       db,
       normalized,
       useRepresentativeRecords: useRepresentativeRecords,
     );
+    _projectRowsCache[cacheKey] = projected
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList();
+    return projected.map((row) => Map<String, dynamic>.from(row)).toList();
   }
 
   static const _syncedAtTrackedKeys = <String>[
@@ -341,6 +463,22 @@ class LocalDbService {
     final watchlistNums = await getWatchlistNumbers();
     final d = await db;
     final now = DateTime.now().millisecondsSinceEpoch;
+    Map<String, dynamic>? existingRecord;
+    try {
+      final existingRows = await d.query(
+        'reports',
+        where: 'ID = ?',
+        whereArgs: [r.id],
+        limit: 1,
+      );
+      if (existingRows.isNotEmpty) {
+        existingRecord = Map<String, dynamic>.from(existingRows.first);
+      }
+    } catch (_) {}
+    final geoPayload = prepareGeoPayloadForAddress(
+      r.location,
+      existingRecord: existingRecord,
+    );
     final reportRow = <String, Object?>{
       'ID': r.id,
       '상태': r.result,
@@ -362,6 +500,11 @@ class LocalDbService {
       '발생일자': r.occurrenceDate,
       '발생시각': r.occurrenceTime,
       '위반장소': r.location,
+      '주소정규화': geoPayload['주소정규화'],
+      '행정구역': geoPayload['행정구역'],
+      '위도': geoPayload['위도'],
+      '경도': geoPayload['경도'],
+      '지오코딩상태': geoPayload['지오코딩상태'],
       '종결여부': r.processingFinish,
       '신고내용': r.reportContent,
       '처리내용': r.processContent,
@@ -417,6 +560,7 @@ class LocalDbService {
         savedAt: syncedAt,
       );
     });
+    _invalidateProjectRowsCache();
   }
 
   // ── 신고 조회 ─────────────────────────────────────────────────────────────
@@ -643,8 +787,9 @@ class LocalDbService {
       supplementCount: supplement,
       processingCount: processing,
       completedCount: completed,
-      withdrawCount: effectiveWithdraw,
+      withdrawCount: withdraw,
       withdrawRawCount: withdraw,
+      withdrawGraphCount: effectiveWithdraw,
       tFineCount: tFine,
       tPenaltyCount: tPenalty,
       tRejectCount: tReject,
@@ -707,12 +852,311 @@ class LocalDbService {
       'reports',
       columns: ['신고일', '위반법규', 'category'],
     );
-    allRows = await _projectRows(
+    return _aggregateStats(rows, allRows, normalizePolice);
+  }
+
+  static Future<Map<String, dynamic>> computeReportMapStats({
+    String? year,
+    String category = 'all',
+    bool excludeWithdraw = false,
+    bool normalizePolice = false,
+    bool useRepresentativeRecords = false,
+  }) async {
+    final d = await db;
+    final normalizedCategory = _normalizeMapCategory(category);
+
+    String where = '1=1';
+    final args = <dynamic>[];
+    if (normalizedCategory != 'all') {
+      where += ' AND category = ?';
+      args.add(normalizedCategory);
+    }
+    if (year != null && year != 'all' && year.isNotEmpty) {
+      where += ' AND 신고일 LIKE ?';
+      args.add('$year%');
+    }
+    if (excludeWithdraw) {
+      where += " AND 처리상태 != '취하'";
+    }
+
+    var rows = await d.query(
+      'reports',
+      columns: [
+        'ID',
+        '위반장소',
+        '주소정규화',
+        '행정구역',
+        '위도',
+        '경도',
+        '지오코딩상태',
+        '처리상태',
+        '범칙금_과태료',
+        '처리기관',
+        'category',
+        '신고일',
+      ],
+      where: where,
+      whereArgs: args.isEmpty ? null : args,
+    );
+    rows = await _projectRows(
       d,
-      allRows,
+      rows,
       useRepresentativeRecords: useRepresentativeRecords,
     );
-    return _aggregateStats(rows, allRows, normalizePolice);
+
+    var allYearRows = await d.query('reports', columns: ['신고일']);
+    final availableYears =
+        allYearRows
+            .map((row) => _stringify(row['신고일']))
+            .where((value) => value.length >= 4)
+            .map((value) => value.substring(0, 4))
+            .toSet()
+            .toList()
+          ..sort((a, b) => b.compareTo(a));
+
+    if (rows.isEmpty) {
+      return {
+        'points': const <Map<String, dynamic>>[],
+        'meta': {
+          'available_years': availableYears,
+          'current_year': year ?? 'all',
+          'selected_category': normalizedCategory,
+          'dedupe_mode': useRepresentativeRecords ? 'canonical' : 'raw',
+          'total_reports': 0,
+          'geocoded_reports': 0,
+          'missing_reports': 0,
+          'address_groups': 0,
+        },
+      };
+    }
+
+    final pointsByKey = <String, List<Map<String, dynamic>>>{};
+    var geocodedReports = 0;
+    var missingReports = 0;
+
+    for (final rawRow in rows) {
+      final row = Map<String, dynamic>.from(rawRow);
+      final lat = parseGeoDouble(row['위도']);
+      final lng = parseGeoDouble(row['경도']);
+      final normalizedAddress =
+          normalizeGeocodeAddress(row['주소정규화']?.toString()) == ''
+          ? normalizeGeocodeAddress(row['위반장소']?.toString())
+          : normalizeGeocodeAddress(row['주소정규화']?.toString());
+      final address = _stringify(row['위반장소']).trim();
+      if (lat == null || lng == null || normalizedAddress.isEmpty) {
+        if (address.isNotEmpty) {
+          missingReports++;
+        }
+        continue;
+      }
+      geocodedReports++;
+      if (normalizePolice) {
+        row['처리기관'] = normalizePoliceAgency(_stringify(row['처리기관']));
+      }
+      row['위도'] = lat;
+      row['경도'] = lng;
+      row['주소정규화'] = normalizedAddress;
+      final key = '$lat|$lng|$normalizedAddress';
+      pointsByKey.putIfAbsent(key, () => <Map<String, dynamic>>[]).add(row);
+    }
+
+    final points = <Map<String, dynamic>>[];
+    for (final group in pointsByKey.values) {
+      final first = group.first;
+      final total = group.length;
+      final categoryCounts = <String, int>{};
+      for (final item in group) {
+        final itemCategory = _stringify(item['category']).trim();
+        if (itemCategory.isEmpty) continue;
+        categoryCounts[itemCategory] = (categoryCounts[itemCategory] ?? 0) + 1;
+      }
+
+      points.add({
+        'lat': first['위도'],
+        'lng': first['경도'],
+        'address':
+            _firstNonEmptyMapValue(group, '위반장소') ??
+            _firstNonEmptyMapValue(group, '주소정규화') ??
+            '',
+        'region':
+            _firstNonEmptyMapValue(group, '행정구역') ??
+            _firstNonEmptyMapValue(group, '위반장소') ??
+            '',
+        'total': total,
+        'status_breakdown': _buildMapStatusBreakdown(group),
+        'disposition_breakdown': _buildMapDispositionBreakdown(group),
+        'agency_breakdown': _buildMapAgencyBreakdown(group),
+        'category_breakdown': [
+          _buildMapRatioItem('교통위반', categoryCounts['traffic'] ?? 0, total),
+          _buildMapRatioItem('주정차위반', categoryCounts['parking'] ?? 0, total),
+          _buildMapRatioItem('기타위반', categoryCounts['other'] ?? 0, total),
+        ].where((item) => (item['count'] as int) > 0).toList(),
+      });
+    }
+
+    points.sort(
+      (left, right) => (right['total'] as int).compareTo(left['total'] as int),
+    );
+
+    return {
+      'points': points,
+      'meta': {
+        'available_years': availableYears,
+        'current_year': year ?? 'all',
+        'selected_category': normalizedCategory,
+        'dedupe_mode': useRepresentativeRecords ? 'canonical' : 'raw',
+        'total_reports': rows.length,
+        'geocoded_reports': geocodedReports,
+        'missing_reports': missingReports,
+        'address_groups': points.length,
+      },
+    };
+  }
+
+  static String _normalizeMapCategory(String value) {
+    final normalized = value.trim().toLowerCase();
+    return {'all', 'traffic', 'parking', 'other'}.contains(normalized)
+        ? normalized
+        : 'all';
+  }
+
+  static Map<String, dynamic> _buildMapRatioItem(
+    String label,
+    int count,
+    int total,
+  ) {
+    final safeCount = count < 0 ? 0 : count;
+    final safeTotal = total < 0 ? 0 : total;
+    return {
+      'label': label,
+      'count': safeCount,
+      'pct': safeTotal > 0
+          ? double.parse(((safeCount / safeTotal) * 100).toStringAsFixed(1))
+          : 0.0,
+    };
+  }
+
+  static List<Map<String, dynamic>> _buildMapStatusBreakdown(
+    List<Map<String, dynamic>> group,
+  ) {
+    final statuses = group
+        .map((row) => _stringify(row['처리상태']).trim())
+        .toList();
+    final total = group.length;
+    final processingCount = statuses
+        .where((value) => {'', '진행', '진행중', '검토중', '처리중'}.contains(value))
+        .length;
+    final ordered = [
+      _buildMapRatioItem(
+        '수용',
+        statuses.where((value) => value == '수용').length,
+        total,
+      ),
+      _buildMapRatioItem(
+        '일부수용',
+        statuses.where((value) => value == '일부수용').length,
+        total,
+      ),
+      _buildMapRatioItem(
+        '불수용',
+        statuses.where((value) => value == '불수용').length,
+        total,
+      ),
+      _buildMapRatioItem(
+        '기타',
+        statuses.where((value) => value == '기타').length,
+        total,
+      ),
+      _buildMapRatioItem(
+        '답변완료',
+        statuses.where((value) => value == '답변완료').length,
+        total,
+      ),
+      _buildMapRatioItem(
+        '보완요청',
+        statuses.where((value) => value == '보완요청').length,
+        total,
+      ),
+      _buildMapRatioItem('처리중', processingCount, total),
+      _buildMapRatioItem(
+        '취하',
+        statuses.where((value) => value == '취하').length,
+        total,
+      ),
+      _buildMapRatioItem(
+        '이송',
+        statuses.where((value) => value == '이송').length,
+        total,
+      ),
+    ];
+    return ordered.where((item) => (item['count'] as int) > 0).toList();
+  }
+
+  static List<Map<String, dynamic>> _buildMapDispositionBreakdown(
+    List<Map<String, dynamic>> group,
+  ) {
+    final total = group.length;
+    final fineCount = group
+        .where((row) => _stringify(row['범칙금_과태료']).contains('과태료'))
+        .length;
+    final warningCount = group.where((row) {
+      final text = _stringify(row['범칙금_과태료']);
+      return text.contains('경고') || text.contains('범칙금');
+    }).length;
+    final rejectCount = group.where((row) {
+      final status = _stringify(row['처리상태']);
+      return status == '불수용' || status == '기타';
+    }).length;
+    final pendingCount = total - fineCount - warningCount - rejectCount;
+    final ordered = [
+      _buildMapRatioItem('과태료', fineCount, total),
+      _buildMapRatioItem('경고/범칙금', warningCount, total),
+      _buildMapRatioItem('불수용/기타', rejectCount, total),
+      _buildMapRatioItem('기타/미확인', pendingCount, total),
+    ];
+    return ordered.where((item) => (item['count'] as int) > 0).toList();
+  }
+
+  static List<Map<String, dynamic>> _buildMapAgencyBreakdown(
+    List<Map<String, dynamic>> group,
+  ) {
+    final counts = <String, int>{};
+    for (final row in group) {
+      final name = _stringify(row['처리기관']).trim();
+      if (name.isEmpty) continue;
+      counts[name] = (counts[name] ?? 0) + 1;
+    }
+    final total = group.length;
+    final items =
+        counts.entries
+            .map(
+              (entry) => {
+                'name': entry.key,
+                'count': entry.value,
+                'pct': total > 0
+                    ? double.parse(
+                        ((entry.value / total) * 100).toStringAsFixed(1),
+                      )
+                    : 0.0,
+              },
+            )
+            .toList()
+          ..sort(
+            (left, right) =>
+                (right['count'] as int).compareTo(left['count'] as int),
+          );
+    return items;
+  }
+
+  static String? _firstNonEmptyMapValue(
+    List<Map<String, dynamic>> group,
+    String column,
+  ) {
+    for (final row in group) {
+      final value = _stringify(row[column]).trim();
+      if (value.isNotEmpty) return value;
+    }
+    return null;
   }
 
   static Map<String, dynamic> _aggregateStats(
@@ -948,6 +1392,7 @@ class LocalDbService {
         numbers.toList(),
       );
     }
+    _invalidateProjectRowsCache();
   }
 
   static Future<List<Report>> getWatchlistReports({
@@ -1018,7 +1463,11 @@ class LocalDbService {
 
   static Future<void> clearAll() async {
     final d = await db;
+    _invalidateProjectRowsCache();
     await d.delete('report_raw');
+    try {
+      await d.delete('geocode_cache');
+    } catch (_) {}
     try {
       await d.delete(DuplicateProjectionService.memberTable);
       await d.delete(DuplicateProjectionService.groupTable);
@@ -1030,6 +1479,7 @@ class LocalDbService {
   /// Play Console 심사용 데모 데이터 3건을 로컬 DB에 시드한다.
   /// standalone demo/demo 또는 demo/demo/demo 계정에서 사용.
   static Future<void> seedPlayReviewDemo() async {
+    _invalidateProjectRowsCache();
     await clearAll();
     final d = await db;
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -1286,6 +1736,275 @@ class LocalDbService {
     }
   }
 
+  static Future<void> _commitImportedDatabase(String importedDbPath) async {
+    final dbPath = await getDbPath();
+    final target = File(dbPath);
+    final imported = File(importedDbPath);
+    final stagedCopyPath =
+        '$dbPath.pending.${DateTime.now().millisecondsSinceEpoch}';
+    final stagedCopy = File(stagedCopyPath);
+    if (!imported.existsSync()) {
+      throw Exception('임시 임포트 DB가 존재하지 않습니다.');
+    }
+
+    await closeDb();
+    _invalidateProjectRowsCache();
+    await _deleteDbSidecars(dbPath);
+
+    final hadCurrentDb = await target.exists();
+    String? backupPath;
+    var replacementSucceeded = false;
+    var restoreSucceeded = !hadCurrentDb;
+
+    if (hadCurrentDb) {
+      backupPath = '$dbPath.bak.${DateTime.now().millisecondsSinceEpoch}';
+      await target.copy(backupPath);
+    }
+
+    try {
+      await imported.copy(stagedCopyPath);
+      if (hadCurrentDb && await target.exists()) {
+        await target.delete();
+      }
+      await stagedCopy.rename(dbPath);
+      replacementSucceeded = true;
+    } catch (exc) {
+      Object? restoreError;
+      if (hadCurrentDb) {
+        try {
+          if (await target.exists()) {
+            await target.delete();
+          }
+          if (backupPath != null) {
+            await File(backupPath).copy(dbPath);
+            restoreSucceeded = true;
+          }
+        } catch (restoreExc) {
+          restoreError = restoreExc;
+        }
+      }
+      if (restoreError != null) {
+        throw Exception(
+          '임포트 DB 교체에 실패했고 기존 DB 복구도 실패했습니다. '
+          '백업 파일을 보존했습니다: ${backupPath ?? '없음'}. '
+          '교체 오류: $exc / 복구 오류: $restoreError',
+        );
+      }
+      throw Exception('임포트 DB 교체에 실패했습니다: $exc');
+    } finally {
+      try {
+        await stagedCopy.delete();
+      } catch (_) {}
+      if (backupPath != null && (replacementSucceeded || restoreSucceeded)) {
+        try {
+          await File(backupPath).delete();
+        } catch (_) {}
+      }
+    }
+  }
+
+  static Future<Database> _createImportTargetDb(String path) async {
+    return openDatabase(
+      path,
+      version: 10,
+      onCreate: _create,
+      onUpgrade: _migrateLocalDatabase,
+    );
+  }
+
+  static Future<void> _validateServerDbSchema(Database serverDb) async {
+    final tableRows = await serverDb.rawQuery(
+      'SELECT name FROM sqlite_master WHERE type = \'table\'',
+    );
+    final tableNames = tableRows
+        .map((r) => r['name']?.toString() ?? '')
+        .where((name) => name.isNotEmpty)
+        .toSet();
+
+    if (!tableNames.contains('mysafety') ||
+        !tableNames.contains('mysafetymerge_traffic')) {
+      throw Exception('유효하지 않은 서버 DB 형식입니다: mysafety 계열 테이블이 없습니다.');
+    }
+
+    const requiredColumns = {'ID', '신고번호', '위반장소'};
+    const sourceTables = {
+      'mysafetymerge_traffic',
+      'mysafetymerge_parking',
+      'mysafetymerge_other',
+    };
+
+    var hasAnyReport = false;
+    for (final tableName in sourceTables) {
+      if (!tableNames.contains(tableName)) continue;
+      final countRows = await serverDb.rawQuery(
+        'SELECT COUNT(*) AS cnt FROM $tableName',
+      );
+      final count = int.tryParse(countRows.first['cnt']?.toString() ?? '') ?? 0;
+      if (count > 0) hasAnyReport = true;
+
+      final columns = await serverDb.rawQuery('PRAGMA table_info($tableName)');
+      final columnNames = columns
+          .map((c) => c['name']?.toString() ?? '')
+          .where((name) => name.isNotEmpty)
+          .toSet();
+      if (!columnNames.containsAll(requiredColumns)) {
+        throw Exception('서버 DB 병합 테이블 형식이 올바르지 않습니다: $tableName');
+      }
+    }
+
+    if (!hasAnyReport) {
+      throw Exception('서버 DB에 이식 가능한 신고 데이터가 없습니다.');
+    }
+  }
+
+  static Future<Map<String, String>> _loadServerEntryValues(
+    Database serverDb,
+  ) async {
+    final entryValueById = <String, String>{};
+    try {
+      final rows = await serverDb.query('mysafety_entry_value');
+      for (final row in rows) {
+        final id = row['ID']?.toString() ?? '';
+        if (id.isEmpty) continue;
+        entryValueById[id] = row['entry_value']?.toString() ?? '';
+      }
+    } catch (_) {}
+    return entryValueById;
+  }
+
+  static Future<Map<String, Map<String, Object?>>> _loadServerRawPayload(
+    Database serverDb,
+  ) async {
+    final rawPayloadById = <String, Map<String, Object?>>{};
+    try {
+      final rows = await serverDb.query('mysafety_raw_content');
+      for (final row in rows) {
+        final id = row['ID']?.toString() ?? '';
+        if (id.isEmpty) continue;
+        rawPayloadById[id] = {
+          'raw_content': row['raw_content']?.toString() ?? '',
+          'raw_type': row['raw_type']?.toString() ?? '',
+          'saved_at': _toEpochMillis(row['saved_at']),
+        };
+      }
+    } catch (_) {}
+    return rawPayloadById;
+  }
+
+  static Future<List<Map<String, Object?>>> _loadServerSyncMeta(
+    Database serverDb,
+  ) async {
+    final rows = <Map<String, Object?>>[];
+    try {
+      final sourceRows = await serverDb.query('mysafety_sync_meta');
+      for (final row in sourceRows) {
+        final key = row['key']?.toString() ?? '';
+        if (key.isEmpty) continue;
+        rows.add({'key': key, 'value': row['value']?.toString() ?? ''});
+      }
+    } catch (_) {}
+    return rows;
+  }
+
+  static Future<List<Map<String, Object?>>> _loadServerDuplicateGroups(
+    Database serverDb,
+  ) async {
+    final duplicateGroups = <Map<String, Object?>>[];
+    try {
+      final sourceRows = await serverDb.query('mysafety_duplicate_group');
+      for (final row in sourceRows) {
+        final groupId = row['group_id']?.toString() ?? '';
+        if (groupId.isEmpty) continue;
+        duplicateGroups.add({
+          'group_id': groupId,
+          'fingerprint': row['fingerprint']?.toString() ?? groupId,
+          'match_type': row['match_type']?.toString() ?? 'payload_exact',
+          'status':
+              row['status']?.toString() ?? DuplicateStatuses.confirmedDuplicate,
+          'representative_mode':
+              row['representative_mode']?.toString() ??
+              RepresentativeModes.auto,
+          'representative_id': row['representative_id']?.toString() ?? '',
+          'member_count':
+              int.tryParse(row['member_count']?.toString() ?? '') ?? 0,
+          'apply_globally':
+              int.tryParse(row['apply_globally']?.toString() ?? '') ??
+              ((row['status']?.toString() ?? '') ==
+                      DuplicateStatuses.confirmedDuplicate
+                  ? 1
+                  : 0),
+          'note': row['note']?.toString() ?? '',
+          'created_at': _toEpochMillis(row['created_at']),
+          'updated_at': _toEpochMillis(row['updated_at']),
+        });
+      }
+    } catch (_) {}
+    return duplicateGroups;
+  }
+
+  static Future<List<Map<String, Object?>>> _loadServerDuplicateMembers(
+    Database serverDb,
+  ) async {
+    final duplicateMembers = <Map<String, Object?>>[];
+    try {
+      final sourceRows = await serverDb.query('mysafety_duplicate_member');
+      for (final row in sourceRows) {
+        final groupId = row['group_id']?.toString() ?? '';
+        final reportId = row['report_id']?.toString() ?? '';
+        if (groupId.isEmpty || reportId.isEmpty) continue;
+        duplicateMembers.add({
+          'group_id': groupId,
+          'report_id': reportId,
+          'report_number': row['report_number']?.toString() ?? '',
+          'category': row['category']?.toString() ?? 'other',
+          'is_representative':
+              int.tryParse(row['is_representative']?.toString() ?? '') ?? 0,
+          'priority_score':
+              int.tryParse(row['priority_score']?.toString() ?? '') ?? 0,
+          'raw_match': int.tryParse(row['raw_match']?.toString() ?? '') ?? 0,
+          'field_match':
+              int.tryParse(row['field_match']?.toString() ?? '') ?? 0,
+          'created_at': _toEpochMillis(row['created_at']),
+          'updated_at': _toEpochMillis(row['updated_at']),
+        });
+      }
+    } catch (_) {}
+    return duplicateMembers;
+  }
+
+  static Future<List<Map<String, Object?>>> _loadServerGeocodeCacheRows(
+    Database serverDb,
+    Set<String> localCacheCols,
+    int now,
+  ) async {
+    final rows = <Map<String, Object?>>[];
+    try {
+      final sourceRows = await serverDb.query('mysafety_geocode_cache');
+      for (final row in sourceRows) {
+        final normalized = normalizeGeocodeAddress(row['주소정규화']?.toString());
+        if (normalized.isEmpty) continue;
+
+        final cachedRow = <String, Object?>{};
+        for (final entry in row.entries) {
+          if (localCacheCols.contains(entry.key)) {
+            cachedRow[entry.key] = entry.value;
+          }
+        }
+        cachedRow['주소정규화'] = normalized;
+        cachedRow['원본주소'] = row['원본주소']?.toString() ?? normalized;
+        cachedRow['행정구역'] = row['행정구역']?.toString() ?? '';
+        cachedRow['위도'] = parseGeoDouble(row['위도']);
+        cachedRow['경도'] = parseGeoDouble(row['경도']);
+        cachedRow['상태'] = row['상태']?.toString() ?? '';
+        cachedRow['source'] = row['source']?.toString() ?? 'kakao';
+        cachedRow['error_message'] = row['error_message']?.toString() ?? '';
+        cachedRow['updated_at'] = _toEpochMillis(row['updated_at']) ?? now;
+        rows.add(cachedRow);
+      }
+    } catch (_) {}
+    return rows;
+  }
+
   // ── 서버 DB → 모바일 DB 변환 ────────────────────────────────────────────────
 
   /// 서버 DB (mysafetymerge_traffic / parking / other 3개 테이블 + mysafety_watchlist)
@@ -1293,216 +2012,208 @@ class LocalDbService {
   ///
   /// [serverDbPath] 서버에서 받은 .db 파일의 절대 경로.
   /// 반환: 임포트한 신고 건수.
-  ///
-  /// 기존 reports / sync_meta 데이터는 모두 삭제됨.
   static Future<int> importFromServerDb(String serverDbPath) async {
     final preparedDbPath = await _prepareExternalDbSnapshot(serverDbPath);
     final serverDb = await openDatabase(preparedDbPath, readOnly: true);
+    Directory? stagingDir;
+    Database? localDb;
+
     try {
-      await clearAll();
-      final localDb = await db;
-      int imported = 0;
+      await _validateServerDbSchema(serverDb);
+
+      stagingDir = await Directory.systemTemp.createTemp(
+        'mysafetyreport_import_staged_',
+      );
+      final stagedDbPath = join(
+        stagingDir.path,
+        'standalone_reports_import.db',
+      );
+      localDb = await _createImportTargetDb(stagedDbPath);
+
       final now = DateTime.now().millisecondsSinceEpoch;
+      final localReportCols =
+          (await localDb.rawQuery('PRAGMA table_info(reports)'))
+              .map((row) => row['name']?.toString() ?? '')
+              .where((name) => name.isNotEmpty)
+              .toSet();
+      final localCacheCols =
+          (await localDb.rawQuery('PRAGMA table_info(geocode_cache)'))
+              .map((row) => row['name']?.toString() ?? '')
+              .where((name) => name.isNotEmpty)
+              .toSet();
 
-      final entryValueById = <String, String>{};
-      try {
-        final rows = await serverDb.query('mysafety_entry_value');
-        for (final row in rows) {
-          final id = row['ID']?.toString() ?? '';
-          if (id.isEmpty) continue;
-          entryValueById[id] = row['entry_value']?.toString() ?? '';
-        }
-      } catch (_) {}
+      final entryValueById = await _loadServerEntryValues(serverDb);
+      final rawPayloadById = await _loadServerRawPayload(serverDb);
+      final syncMetaRows = await _loadServerSyncMeta(serverDb);
+      final duplicateGroups = await _loadServerDuplicateGroups(serverDb);
+      final duplicateMembers = await _loadServerDuplicateMembers(serverDb);
+      final geocodeCacheRows = await _loadServerGeocodeCacheRows(
+        serverDb,
+        localCacheCols,
+        now,
+      );
 
-      final rawPayloadById = <String, Map<String, dynamic>>{};
-      try {
-        final rows = await serverDb.query('mysafety_raw_content');
-        for (final row in rows) {
-          final id = row['ID']?.toString() ?? '';
-          if (id.isEmpty) continue;
-          rawPayloadById[id] = {
-            'raw_content': row['raw_content']?.toString() ?? '',
-            'raw_type': row['raw_type']?.toString() ?? '',
-            'saved_at': _toEpochMillis(row['saved_at']),
-          };
-        }
-      } catch (_) {}
-
-      final syncMetaRows = <Map<String, Object?>>[];
-      try {
-        final rows = await serverDb.query('mysafety_sync_meta');
-        for (final row in rows) {
-          final key = row['key']?.toString() ?? '';
-          if (key.isEmpty) continue;
-          syncMetaRows.add({
-            'key': key,
-            'value': row['value']?.toString() ?? '',
-          });
-        }
-      } catch (_) {}
-
-      final duplicateGroups = <Map<String, Object?>>[];
-      try {
-        final rows = await serverDb.query('mysafety_duplicate_group');
-        for (final row in rows) {
-          final groupId = row['group_id']?.toString() ?? '';
-          if (groupId.isEmpty) continue;
-          duplicateGroups.add({
-            'group_id': groupId,
-            'fingerprint': row['fingerprint']?.toString() ?? groupId,
-            'match_type': row['match_type']?.toString() ?? 'payload_exact',
-            'status':
-                row['status']?.toString() ??
-                DuplicateStatuses.confirmedDuplicate,
-            'representative_mode':
-                row['representative_mode']?.toString() ??
-                RepresentativeModes.auto,
-            'representative_id': row['representative_id']?.toString() ?? '',
-            'member_count':
-                int.tryParse(row['member_count']?.toString() ?? '') ?? 0,
-            'apply_globally':
-                int.tryParse(row['apply_globally']?.toString() ?? '') ??
-                ((row['status']?.toString() ?? '') ==
-                        DuplicateStatuses.confirmedDuplicate
-                    ? 1
-                    : 0),
-            'note': row['note']?.toString() ?? '',
-            'created_at': _toEpochMillis(row['created_at']),
-            'updated_at': _toEpochMillis(row['updated_at']),
-          });
-        }
-      } catch (_) {}
-
-      final duplicateMembers = <Map<String, Object?>>[];
-      try {
-        final rows = await serverDb.query('mysafety_duplicate_member');
-        for (final row in rows) {
-          final groupId = row['group_id']?.toString() ?? '';
-          final reportId = row['report_id']?.toString() ?? '';
-          if (groupId.isEmpty || reportId.isEmpty) continue;
-          duplicateMembers.add({
-            'group_id': groupId,
-            'report_id': reportId,
-            'report_number': row['report_number']?.toString() ?? '',
-            'category': row['category']?.toString() ?? 'other',
-            'is_representative':
-                int.tryParse(row['is_representative']?.toString() ?? '') ?? 0,
-            'priority_score':
-                int.tryParse(row['priority_score']?.toString() ?? '') ?? 0,
-            'raw_match': int.tryParse(row['raw_match']?.toString() ?? '') ?? 0,
-            'field_match':
-                int.tryParse(row['field_match']?.toString() ?? '') ?? 0,
-            'created_at': _toEpochMillis(row['created_at']),
-            'updated_at': _toEpochMillis(row['updated_at']),
-          });
-        }
-      } catch (_) {}
-
-      // 서버 DB 의 3개 merge 테이블 → mobile reports + category
-      const tableMap = {
+      const sourceTableMap = {
         'mysafetymerge_traffic': 'traffic',
         'mysafetymerge_parking': 'parking',
         'mysafetymerge_other': 'other',
       };
+      int imported = 0;
 
-      for (final entry in tableMap.entries) {
-        final tableName = entry.key;
-        final category = entry.value;
-        try {
+      await localDb.transaction((txn) async {
+        for (final entry in sourceTableMap.entries) {
+          final tableName = entry.key;
+          final category = entry.value;
           final rows = await serverDb.query(tableName);
-          await localDb.transaction((txn) async {
-            for (final row in rows) {
-              final reportId = row['ID']?.toString() ?? '';
-              final rawPayload = rawPayloadById[reportId];
-              final syncedAt = _toEpochMillis(row['synced_at']) ?? now;
-              await txn.insert('reports', {
-                ...row,
-                'category': category,
-                'entry_value': entryValueById[reportId] ?? '',
-                'raw_content': '',
-                'synced_at': syncedAt,
-              }, conflictAlgorithm: ConflictAlgorithm.replace);
-              await _replaceRawPayload(
-                txn,
-                reportId,
-                rawContent: rawPayload?['raw_content']?.toString() ?? '',
-                rawType: rawPayload?['raw_type']?.toString() ?? '',
-                savedAt: _toEpochMillis(rawPayload?['saved_at']) ?? syncedAt,
-              );
+          if (rows.isEmpty) continue;
+
+          for (final row in rows) {
+            final reportId = row['ID']?.toString() ?? '';
+            if (reportId.isEmpty) continue;
+            final rawPayload = rawPayloadById[reportId];
+            final syncedAt = _toEpochMillis(row['synced_at']) ?? now;
+            final filteredRow = <String, Object?>{};
+            for (final sourceEntry in row.entries) {
+              if (localReportCols.contains(sourceEntry.key)) {
+                filteredRow[sourceEntry.key] = sourceEntry.value;
+              }
             }
-          });
-          imported += rows.length;
-        } catch (_) {
-          // 테이블 없거나 스키마 다름 — 스킵 (서버 버전 차이 대응)
+            if (filteredRow.isEmpty) {
+              continue;
+            }
+
+            final importedRow = <String, Object?>{
+              ...filteredRow,
+              'category': category,
+              'entry_value': entryValueById[reportId] ?? '',
+              'raw_content': '',
+              'synced_at': syncedAt,
+            };
+            final geoPayload =
+                filteredRow.containsKey('위도') ||
+                    filteredRow.containsKey('경도') ||
+                    filteredRow.containsKey('주소정규화') ||
+                    filteredRow.containsKey('행정구역') ||
+                    filteredRow.containsKey('지오코딩상태')
+                ? extractGeoPayload(
+                    importedRow,
+                    fallbackAddress: importedRow['위반장소']?.toString() ?? '',
+                  )
+                : prepareGeoPayloadForAddress(importedRow['위반장소']?.toString());
+            importedRow.addAll(geoPayload);
+            await txn.insert(
+              'reports',
+              importedRow,
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            );
+            await _replaceRawPayload(
+              txn,
+              reportId,
+              rawContent: rawPayload?['raw_content']?.toString() ?? '',
+              rawType: rawPayload?['raw_type']?.toString() ?? '',
+              savedAt: _toEpochMillis(rawPayload?['saved_at']) ?? syncedAt,
+            );
+            imported++;
+          }
         }
+      });
+
+      if (imported <= 0) {
+        throw Exception('임포트할 신고 데이터가 없습니다.');
       }
 
-      if (syncMetaRows.isNotEmpty) {
-        await localDb.transaction((txn) async {
-          for (final row in syncMetaRows) {
-            await txn.insert(
-              'sync_meta',
-              row,
-              conflictAlgorithm: ConflictAlgorithm.replace,
-            );
-          }
-        });
-      }
+      await localDb.transaction((txn) async {
+        for (final row in syncMetaRows) {
+          await txn.insert(
+            'sync_meta',
+            row,
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+        for (final row in geocodeCacheRows) {
+          await txn.insert(
+            'geocode_cache',
+            row,
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+        for (final row in duplicateGroups) {
+          await txn.insert(
+            DuplicateProjectionService.groupTable,
+            row,
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+        for (final row in duplicateMembers) {
+          await txn.insert(
+            DuplicateProjectionService.memberTable,
+            row,
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+      });
 
-      if (duplicateGroups.isNotEmpty) {
-        await localDb.transaction((txn) async {
-          for (final row in duplicateGroups) {
-            await txn.insert(
-              DuplicateProjectionService.groupTable,
-              row,
-              conflictAlgorithm: ConflictAlgorithm.replace,
-            );
-          }
-          for (final row in duplicateMembers) {
-            await txn.insert(
-              DuplicateProjectionService.memberTable,
-              row,
-              conflictAlgorithm: ConflictAlgorithm.replace,
-            );
-          }
-        });
-      }
-
-      // 감시목록: server 의 mysafety_watchlist 테이블 → mobile sync_meta('watchlist') CSV
       try {
         final watchRows = await serverDb.query(
           'mysafety_watchlist',
           columns: ['신고번호'],
         );
-        final nums = watchRows
+        final watchNumbers = watchRows
             .map((r) => r['신고번호']?.toString() ?? '')
             .where((s) => s.isNotEmpty)
             .toSet()
             .toList();
-        if (nums.isNotEmpty) {
-          await setMeta('watchlist', nums.join(','));
-          // reports 테이블의 감시목록 컬럼도 동기화
-          final placeholders = nums.map((_) => '?').join(',');
+        if (watchNumbers.isNotEmpty) {
+          await localDb.insert('sync_meta', {
+            'key': 'watchlist',
+            'value': watchNumbers.join(','),
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+          final placeholders = watchNumbers.map((_) => '?').join(',');
           await localDb.rawUpdate(
             "UPDATE reports SET 감시목록 = 'Y' WHERE 신고번호 IN ($placeholders)",
-            nums,
+            watchNumbers,
           );
         }
       } catch (_) {}
 
-      // 마지막 sync 시각 기록 — 다음 증분 동기화의 기준점
-      if (syncMetaRows.every(
-        (row) => (row['key']?.toString() ?? '') != 'last_sync',
-      )) {
-        await setMeta('last_sync', DateTime.now().toIso8601String());
+      final hasLastSync = syncMetaRows.any(
+        (row) => (row['key']?.toString() ?? '') == 'last_sync',
+      );
+      if (!hasLastSync) {
+        await localDb.insert('sync_meta', {
+          'key': 'last_sync',
+          'value': DateTime.now().toIso8601String(),
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       if (duplicateGroups.isEmpty || duplicateMembers.isEmpty) {
         await DuplicateProjectionService.refreshDuplicateGroups(localDb);
       }
 
+      final reportCountRows = await localDb.rawQuery(
+        'SELECT COUNT(*) AS cnt FROM reports',
+      );
+      if ((int.tryParse(reportCountRows.first['cnt']?.toString() ?? '') ?? 0) <=
+          0) {
+        throw Exception('임포트 결과 reports 데이터가 비어 있습니다.');
+      }
+
+      await localDb.close();
+      localDb = null;
+      await _commitImportedDatabase(stagedDbPath);
+      _invalidateProjectRowsCache();
       return imported;
     } finally {
       await serverDb.close();
+      if (localDb != null) {
+        try {
+          await localDb.close();
+        } catch (_) {}
+      }
+      if (stagingDir != null) {
+        try {
+          await stagingDir.delete(recursive: true);
+        } catch (_) {}
+      }
       await _cleanupPreparedSnapshot(preparedDbPath);
     }
   }
@@ -1511,6 +2222,7 @@ class LocalDbService {
   /// Standalone 백업 → 같은 모바일 스키마 DB 를 그대로 사용.
   /// (서버 DB 는 스키마가 달라서 이 메서드 사용 불가 → importFromServerDb 사용)
   static Future<void> replaceFromBackup(String backupDbPath) async {
+    _invalidateProjectRowsCache();
     final preparedDbPath = await _prepareExternalDbSnapshot(backupDbPath);
     await closeDb();
     final dbPath = await getDbPath();
@@ -1524,6 +2236,7 @@ class LocalDbService {
     await _cleanupPreparedSnapshot(preparedDbPath);
     final reopened = await db;
     await DuplicateProjectionService.refreshDuplicateGroups(reopened);
+    _invalidateProjectRowsCache();
     // 다음 db getter 호출 시 새로 open.
   }
 
@@ -1560,6 +2273,21 @@ class LocalDbService {
       next[entry.key] = entry.value;
     }
 
+    if (values.containsKey('위반장소')) {
+      final previousAddress = normalizeGeocodeAddress(
+        existing['위반장소']?.toString(),
+      );
+      final nextAddress = normalizeGeocodeAddress(next['위반장소']?.toString());
+      if (previousAddress != nextAddress) {
+        next.addAll(
+          prepareGeoPayloadForAddress(
+            next['위반장소']?.toString(),
+            existingRecord: existing,
+          ),
+        );
+      }
+    }
+
     final existingComparable = <String, Object?>{};
     final nextComparable = <String, Object?>{};
     for (final key in _syncedAtTrackedKeys) {
@@ -1580,6 +2308,7 @@ class LocalDbService {
       whereArgs: [reportId],
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+    _invalidateProjectRowsCache();
     await DuplicateProjectionService.refreshDuplicateGroups(d);
     return true;
   }

@@ -16,6 +16,14 @@ import '../services/local_db_service.dart';
 import '../services/local_geocode_service.dart';
 import 'settings_screen.dart';
 
+const double _kMapMarkerWidth = 100;
+const double _kMapMarkerHeight = 98;
+const double _kMapMarkerLabelMaxWidth = 92;
+const EdgeInsets _kMapMarkerLabelPadding = EdgeInsets.symmetric(
+  horizontal: 8,
+  vertical: 3,
+);
+
 class ReportMapScreen extends StatefulWidget {
   final String initialYear;
   final String initialCategory;
@@ -481,8 +489,8 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
     final markers = points.map((point) {
       final marker = Marker(
         point: LatLng(point.lat, point.lng),
-        width: 94,
-        height: 82,
+        width: _kMapMarkerWidth,
+        height: _kMapMarkerHeight,
         child: _MapPointMarker(point: point),
       );
       markerLookup[marker] = point;
@@ -500,6 +508,9 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
           initialZoom: zoom,
           maxZoom: 18,
           minZoom: 4,
+          interactionOptions: const InteractionOptions(
+            flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+          ),
         ),
         children: [
           TileLayer(
@@ -510,7 +521,7 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
             options: MarkerClusterLayerOptions(
               markers: markers,
               maxClusterRadius: 54,
-              size: const Size(92, 82),
+              size: const Size(_kMapMarkerWidth, _kMapMarkerHeight),
               alignment: Alignment.center,
               padding: const EdgeInsets.all(48),
               maxZoom: 17,
@@ -890,22 +901,7 @@ class _MapPointMarker extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 6),
-        Container(
-          constraints: const BoxConstraints(maxWidth: 88),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.94),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: Colors.black12),
-          ),
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700),
-          ),
-        ),
+        _MarkerRegionPill(label: label),
       ],
     );
   }
@@ -958,23 +954,38 @@ class _ClusterMarkerWidget extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         if (regionLabel.trim().isNotEmpty)
-          Container(
-            constraints: const BoxConstraints(maxWidth: 88),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.94),
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: Colors.black12),
-            ),
-            child: Text(
-              regionLabel,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700),
-            ),
-          ),
+          _MarkerRegionPill(label: regionLabel),
       ],
+    );
+  }
+}
+
+class _MarkerRegionPill extends StatelessWidget {
+  final String label;
+
+  const _MarkerRegionPill({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: _kMapMarkerLabelMaxWidth),
+      padding: _kMapMarkerLabelPadding,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.94),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.black12),
+      ),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          height: 1.1,
+        ),
+      ),
     );
   }
 }

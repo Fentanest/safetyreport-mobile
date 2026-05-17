@@ -231,7 +231,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
               context,
               MaterialPageRoute(
                 builder: (_) =>
-                    ReportMapScreen(initialYear: _year, initialCategory: _cat),
+                    ReportMapScreen(initialYear: _year, initialCategory: 'all'),
               ),
             ),
             icon: const Icon(Icons.map_outlined, size: 18, color: Colors.white),

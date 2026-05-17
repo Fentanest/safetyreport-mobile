@@ -442,6 +442,32 @@ class ApiService {
     throw Exception('지도 진행률 로드 실패: ${response.statusCode}');
   }
 
+  Future<ReportMapMissingPayload> getReportMapMissingGroups({
+    String? year,
+    String category = 'all',
+  }) async {
+    final params = <String, String>{};
+    if (year != null && year != 'all') params['year'] = year;
+    if (category != 'all') params['category'] = category;
+    final uri = ServerContract.apiUri(
+      baseUrl,
+      ServerContract.statsMapMissingPath,
+      queryParameters: params.isNotEmpty ? params : null,
+    );
+    final response = await _sendWithRetry(
+      () => http.get(uri, headers: _headers),
+      timeout: const Duration(minutes: 2),
+    );
+    if (response.statusCode == 200) {
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      final data = json['data'] is Map
+          ? Map<String, dynamic>.from(json['data'] as Map)
+          : const <String, dynamic>{};
+      return ReportMapMissingPayload.fromJson(data);
+    }
+    throw Exception('미변환 주소 목록 로드 실패: ${response.statusCode}');
+  }
+
   Future<SunwiPayload> getSunwiPayload() async {
     final response = await _sendWithRetry(
       () => http.get(

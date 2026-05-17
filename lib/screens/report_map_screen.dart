@@ -8,12 +8,15 @@ import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
 import '../models/app_mode.dart';
+import '../models/report.dart';
 import '../models/report_map.dart';
 import '../providers/report_provider.dart';
 import '../server_palette.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
 import '../services/local_geocode_service.dart';
+import '../widgets/report_detail_sheet.dart';
+import '../widgets/report_list_card.dart';
 import 'settings_screen.dart';
 
 const double _kMapMarkerWidth = 100;
@@ -154,12 +157,19 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
     final cs = Theme.of(context).colorScheme;
     final progress = _progress;
     final payload = _payload;
-    final points = payload?.points ?? const <ReportMapPoint>[];
+    final points = (payload?.points ?? const <ReportMapPoint>[])
+        .where((point) => point.hasValidCoordinates)
+        .toList(growable: false);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('신고 지도'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.list_alt_outlined),
+            tooltip: '미변환 주소 보기',
+            onPressed: _showMissingAddressSheet,
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: '새로고침',
@@ -263,6 +273,193 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Future<ReportMapMissingPayload> _loadMissingAddressGroups() async {
+    final provider = context.read<ReportProvider>();
+    if (provider.appMode == AppMode.standalone) {
+      return ReportMapMissingPayload.fromJson(
+        await LocalDbService.computeReportMapMissingGroups(
+          year: _selectedYear == 'all' ? null : _selectedYear,
+          category: _selectedCategory,
+          excludeWithdraw: provider.excludeWithdraw,
+          normalizePolice: provider.normalizePolice,
+          useRepresentativeRecords: provider.useRepresentativeRecords,
+        ),
+      );
+    }
+
+    final api = ApiService(baseUrl: provider.baseUrl, apiKey: provider.apiKey);
+    return api.getReportMapMissingGroups(
+      year: _selectedYear == 'all' ? null : _selectedYear,
+      category: _selectedCategory,
+    );
+  }
+
+  void _showMissingAddressSheet() {
+    final future = _loadMissingAddressGroups();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.84,
+          minChildSize: 0.45,
+          maxChildSize: 0.96,
+          builder: (context, scrollController) =>
+              FutureBuilder<ReportMapMissingPayload>(
+                future: future,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState != ConnectionState.done) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError) {
+                    return ListView(
+                      controller: scrollController,
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                      children: [
+                        const Text(
+                          '미변환 주소 목록',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _buildErrorCard('${snapshot.error}'),
+                      ],
+                    );
+                  }
+
+                  final payload =
+                      snapshot.data ??
+                      const ReportMapMissingPayload(
+                        groups: <ReportMapMissingGroup>[],
+                        groupCount: 0,
+                        reportCount: 0,
+                      );
+
+                  return ListView(
+                    controller: scrollController,
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                    children: [
+                      const Text(
+                        '미변환 주소 목록',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '좌표가 아직 없는 주소 ${payload.groupCount}곳 · 신고 ${payload.reportCount}건',
+                        style: const TextStyle(color: Colors.grey, height: 1.4),
+                      ),
+                      const SizedBox(height: 14),
+                      if (payload.groups.isEmpty)
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Column(
+                              children: [
+                                Icon(
+                                  Icons.task_alt,
+                                  size: 42,
+                                  color: Colors.green.shade600,
+                                ),
+                                const SizedBox(height: 10),
+                                const Text(
+                                  '현재 조건에서 미변환 주소가 없습니다.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      else
+                        ...payload.groups.map(_buildMissingAddressGroupCard),
+                    ],
+                  );
+                },
+              ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMissingAddressGroupCard(ReportMapMissingGroup group) {
+    final title = group.address.trim().isNotEmpty
+        ? group.address.trim()
+        : group.normalizedAddress.trim();
+    final region = group.region.trim();
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: ExpansionTile(
+        tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        title: Text(
+          title.isNotEmpty ? title : '주소 정보 없음',
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+        ),
+        subtitle: region.isNotEmpty ? Text(region) : null,
+        trailing: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: serverSupplementColor.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text(
+            '${group.reportCount}건',
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: serverSupplementColor,
+            ),
+          ),
+        ),
+        children: group.reports
+            .map((report) => _buildMissingReportCard(report))
+            .toList(),
+      ),
+    );
+  }
+
+  Widget _buildMissingReportCard(Report report) {
+    return ReportListCard(
+      report: report,
+      selectionMode: false,
+      isSelected: false,
+      onTap: () => showReportDetailSheet(context, report),
+      onLongPress: () {},
+      metaItems: [
+        ReportCardMetaItem(
+          icon: Icons.calendar_today,
+          text: report.date.isNotEmpty ? '신고: ${report.date}' : '',
+        ),
+        ReportCardMetaItem(
+          icon: Icons.event_available,
+          text: report.responseDate.isNotEmpty
+              ? '답변: ${report.responseDate}'
+              : '',
+        ),
+        ReportCardMetaItem(icon: Icons.business, text: report.agency),
+        ReportCardMetaItem(icon: Icons.person_outline, text: report.manager),
+        ReportCardMetaItem(
+          icon: Icons.location_on_outlined,
+          text: report.location,
+        ),
+        ReportCardMetaItem(
+          icon: Icons.monetization_on_outlined,
+          text: report.fineInfo,
+        ),
+      ],
     );
   }
 

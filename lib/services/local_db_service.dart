@@ -1025,6 +1025,194 @@ class LocalDbService {
     };
   }
 
+  static Future<Map<String, dynamic>> computeReportMapMissingGroups({
+    String? year,
+    String category = 'all',
+    bool excludeWithdraw = false,
+    bool normalizePolice = false,
+    bool useRepresentativeRecords = false,
+  }) async {
+    final d = await db;
+    final normalizedCategory = _normalizeMapCategory(category);
+
+    String where = '1=1';
+    final args = <dynamic>[];
+    if (normalizedCategory != 'all') {
+      where += ' AND category = ?';
+      args.add(normalizedCategory);
+    }
+    if (year != null && year != 'all' && year.isNotEmpty) {
+      where += ' AND 신고일 LIKE ?';
+      args.add('$year%');
+    }
+    if (excludeWithdraw) {
+      where += " AND 처리상태 != '취하'";
+    }
+
+    var rows = await d.query(
+      'reports',
+      columns: [
+        'ID',
+        '신고번호',
+        '신고명',
+        '신고일',
+        '답변일',
+        '처리기관',
+        '담당자',
+        '처리상태',
+        '상태',
+        '범칙금_과태료',
+        '벌점',
+        '차량번호',
+        '위반법규',
+        '위반장소',
+        '발생일자',
+        '발생시각',
+        '신고내용',
+        '처리내용',
+        '첨부사진',
+        '첨부파일',
+        '지도',
+        '만족도조사여부',
+        '종결여부',
+        '별점',
+        '별점사유',
+        'synced_at',
+        '보완횟수',
+        '보완_미응답',
+        '보완_요청자',
+        '보완_요청일시',
+        '보완_완료일시',
+        '보완_요청_내용',
+        '보완_신고자_의견',
+        '주소정규화',
+        '행정구역',
+        '위도',
+        '경도',
+        'category',
+      ],
+      where: where,
+      whereArgs: args.isEmpty ? null : args,
+    );
+    rows = await _projectRows(
+      d,
+      rows,
+      useRepresentativeRecords: useRepresentativeRecords,
+    );
+
+    final groupsByKey = <String, List<Map<String, dynamic>>>{};
+    for (final rawRow in rows) {
+      final row = Map<String, dynamic>.from(rawRow);
+      final lat = parseGeoDouble(row['위도']);
+      final lng = parseGeoDouble(row['경도']);
+      final normalizedAddress =
+          normalizeGeocodeAddress(row['주소정규화']?.toString()) == ''
+          ? normalizeGeocodeAddress(row['위반장소']?.toString())
+          : normalizeGeocodeAddress(row['주소정규화']?.toString());
+      final address = _stringify(row['위반장소']).trim();
+      final addressKey = normalizedAddress.isNotEmpty
+          ? normalizedAddress
+          : address;
+      final hasValidCoordinates = lat != null && lng != null;
+
+      if (addressKey.isEmpty || hasValidCoordinates) {
+        continue;
+      }
+      row['위도'] = lat;
+      row['경도'] = lng;
+      row['주소정규화'] = normalizedAddress;
+      groupsByKey
+          .putIfAbsent(addressKey, () => <Map<String, dynamic>>[])
+          .add(row);
+    }
+
+    final groups = <Map<String, dynamic>>[];
+    for (final entry in groupsByKey.entries) {
+      final groupRows = entry.value;
+      groupRows.sort((left, right) {
+        final leftDate = _stringify(left['신고일']);
+        final rightDate = _stringify(right['신고일']);
+        final dateCompare = rightDate.compareTo(leftDate);
+        if (dateCompare != 0) return dateCompare;
+        return _stringify(left['신고번호']).compareTo(_stringify(right['신고번호']));
+      });
+
+      final first = groupRows.first;
+      final reports = groupRows
+          .map((row) => _rowToReport(row, normalizePolice: normalizePolice))
+          .toList();
+      groups.add({
+        'address': _stringify(first['위반장소']).trim().isNotEmpty
+            ? _stringify(first['위반장소']).trim()
+            : entry.key,
+        'normalized_address': entry.key,
+        'region': _stringify(first['행정구역']).trim(),
+        'report_count': reports.length,
+        'reports': reports
+            .map(
+              (report) => {
+                'ID': report.id,
+                '신고번호': report.reportNumber,
+                '신고명': report.name,
+                '신고일': report.date,
+                '답변일': report.responseDate,
+                '처리기관': report.agency,
+                '담당자': report.manager,
+                '처리상태': report.status,
+                '상태': report.result,
+                '범칙금_과태료': report.fineInfo,
+                '벌점': report.penaltyPoints,
+                '차량번호': report.carNumber,
+                '위반법규': report.law,
+                '위반장소': report.location,
+                '발생일자': report.occurrenceDate,
+                '발생시각': report.occurrenceTime,
+                '신고내용': report.reportContent,
+                '처리내용': report.processContent,
+                '첨부사진': report.attachedPhotos,
+                '첨부파일': report.attachedFiles,
+                '지도': report.mapImage,
+                '만족도조사여부': report.pollStatus,
+                '종결여부': report.processingFinish,
+                '별점': report.rating,
+                '별점사유': report.ratingCause,
+                'category': report.category,
+                'synced_at': report.syncedAt,
+                '보완횟수': report.supplementCount,
+                '보완_미응답': report.supplementOpen ? 'Y' : 'N',
+                '보완_요청자': report.supplementRequester,
+                '보완_요청일시': report.supplementRequestedAt,
+                '보완_완료일시': report.supplementCompletedAt,
+                '보완_요청_내용': report.supplementRequest,
+                '보완_신고자_의견': report.supplementOpinion,
+              },
+            )
+            .toList(),
+      });
+    }
+
+    groups.sort((left, right) {
+      final countCompare = (right['report_count'] as int).compareTo(
+        left['report_count'] as int,
+      );
+      if (countCompare != 0) return countCompare;
+      return _stringify(
+        left['address'],
+      ).compareTo(_stringify(right['address']));
+    });
+
+    return {
+      'groups': groups,
+      'meta': {
+        'group_count': groups.length,
+        'report_count': groups.fold<int>(
+          0,
+          (sum, group) => sum + ((group['report_count'] as int?) ?? 0),
+        ),
+      },
+    };
+  }
+
   static String _normalizeMapCategory(String value) {
     final normalized = value.trim().toLowerCase();
     return {'all', 'traffic', 'parking', 'other'}.contains(normalized)

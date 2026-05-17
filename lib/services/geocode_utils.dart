@@ -1,9 +1,14 @@
 double? parseGeoDouble(dynamic value) {
   if (value == null) return null;
-  if (value is num) return value.toDouble();
+  if (value is num) {
+    final parsed = value.toDouble();
+    return parsed.isFinite ? parsed : null;
+  }
   if (value is String) {
     if (value.trim().isEmpty) return null;
-    return double.tryParse(value);
+    final parsed = double.tryParse(value);
+    if (parsed == null || !parsed.isFinite) return null;
+    return parsed;
   }
   return null;
 }

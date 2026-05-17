@@ -341,5 +341,130 @@ void main() {
         expect(uncachedRow['경도'], isNull);
       },
     );
+
+    test(
+      'map payload ignores NaN coordinates instead of crashing map view',
+      () async {
+        await LocalDbService.upsertReport(
+          _report(
+            id: 'nan-1',
+            reportNumber: 'NAN-1',
+            location: '서울특별시 강서구 마곡동 99',
+          ),
+          'traffic',
+          '자동차·교통위반',
+        );
+
+        final db = await LocalDbService.db;
+        await db.update(
+          'reports',
+          {
+            '주소정규화': '서울특별시 강서구 마곡동 99',
+            '행정구역': '서울특별시 강서구 마곡동',
+            '위도': double.nan,
+            '경도': 126.8301,
+            '지오코딩상태': 'ok',
+          },
+          where: 'ID = ?',
+          whereArgs: ['nan-1'],
+        );
+
+        final localPayload = ReportMapPayload.fromJson(
+          await LocalDbService.computeReportMapStats(),
+        );
+        expect(localPayload.points, isEmpty);
+        expect(localPayload.meta.missingReports, 1);
+
+        final serverPayload = ReportMapPayload.fromJson({
+          'points': [
+            {
+              'lat': double.nan,
+              'lng': 126.8301,
+              'address': '서울특별시 강서구 마곡동 99',
+              'region': '서울특별시 강서구 마곡동',
+              'total': 1,
+              'status_breakdown': const [],
+              'disposition_breakdown': const [],
+              'agency_breakdown': const [],
+              'category_breakdown': const [],
+            },
+          ],
+          'meta': {
+            'available_years': ['2026'],
+            'current_year': 'all',
+            'selected_category': 'all',
+            'dedupe_mode': 'canonical',
+            'total_reports': 1,
+            'geocoded_reports': 1,
+            'missing_reports': 0,
+            'address_groups': 1,
+            'agency_count': 0,
+          },
+        });
+        expect(serverPayload.points, isEmpty);
+      },
+    );
+
+    test(
+      'missing address payload groups reports by unresolved address',
+      () async {
+        final reports = [
+          _report(
+            id: 'missing-a',
+            reportNumber: 'MISS-A',
+            location: '서울특별시 강서구 방화동 101',
+          ),
+          _report(
+            id: 'missing-b',
+            reportNumber: 'MISS-B',
+            location: '서울특별시 강서구 방화동 101',
+          ),
+          _report(
+            id: 'mapped-c',
+            reportNumber: 'MAP-C',
+            location: '서울특별시 강서구 마곡동 55',
+          ),
+        ];
+
+        for (final report in reports) {
+          await LocalDbService.upsertReport(report, 'traffic', '자동차·교통위반');
+        }
+
+        final db = await LocalDbService.db;
+        await db.update(
+          'reports',
+          {
+            '주소정규화': '서울특별시 강서구 방화동 101',
+            '행정구역': '서울특별시 강서구 방화동',
+            '위도': null,
+            '경도': null,
+            '지오코딩상태': 'pending',
+          },
+          where: 'ID IN (?, ?)',
+          whereArgs: ['missing-a', 'missing-b'],
+        );
+        await db.update(
+          'reports',
+          {
+            '주소정규화': '서울특별시 강서구 마곡동 55',
+            '행정구역': '서울특별시 강서구 마곡동',
+            '위도': 37.5601,
+            '경도': 126.8301,
+            '지오코딩상태': 'ok',
+          },
+          where: 'ID = ?',
+          whereArgs: ['mapped-c'],
+        );
+
+        final payload = ReportMapMissingPayload.fromJson(
+          await LocalDbService.computeReportMapMissingGroups(),
+        );
+        expect(payload.groupCount, 1);
+        expect(payload.reportCount, 2);
+        expect(payload.groups, hasLength(1));
+        expect(payload.groups.first.address, '서울특별시 강서구 방화동 101');
+        expect(payload.groups.first.reports, hasLength(2));
+      },
+    );
   });
 }

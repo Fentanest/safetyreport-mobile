@@ -85,6 +85,29 @@
 - `flutter analyze lib/models/report_map.dart lib/screens/report_map_screen.dart lib/services/local_geocode_service.dart test/services/local_db_service_regression_test.dart`
 - `flutter analyze lib/main.dart lib/screens/crawl_screen.dart`
 
+### 신고 지도 미변환 주소 시트 + 지도 안정화 후속 조정
+
+상태: 완료
+
+변경:
+- `lib/screens/statistics_screen.dart`, `lib/screens/report_map_screen.dart`
+  - `통계 -> 지도` 진입 시 기본 카테고리를 `교통`이 아니라 `전체`로 열도록 변경
+  - 신고 지도 상단 `새로고침` 옆에 `미변환 주소 보기` 아이콘 추가
+  - 아이콘 탭 시 주소별 미변환 신고 그룹을 바텀시트로 열고, 내부 신고는 `ReportListCard` 카드 형태로 나열
+- `lib/services/local_db_service.dart`, `lib/services/api_service.dart`, `lib/services/server_contract.dart`, `lib/models/report_map.dart`
+  - standalone 에서 로컬 DB 기준 `미변환 주소 그룹` payload 생성 추가
+  - client 에서 서버 `/api/v1/stats/map/missing` 를 읽어 같은 시트를 구성하도록 연동
+  - 주소 그룹별 `report_count` 와 신고 리스트 모델 추가
+- `lib/services/geocode_utils.dart`, `lib/models/report_map.dart`, `lib/screens/report_map_screen.dart`
+  - `NaN/Infinity` 좌표를 파서/모델/화면에서 모두 걸러 지도 확대 중 `LatLng is not finite` 예외가 나지 않도록 보강
+  - 회전 제스처는 비활성화한 상태를 유지
+- `test/services/local_db_service_regression_test.dart`
+  - `NaN` 좌표가 지도 payload 에서 제외되는지, 미변환 주소가 주소별 그룹으로 묶이는지 회귀 테스트 추가
+
+검증:
+- `flutter test test/services/local_db_service_regression_test.dart`
+- `flutter analyze lib/models/report_map.dart lib/services/api_service.dart lib/services/local_db_service.dart lib/services/server_contract.dart lib/screens/report_map_screen.dart lib/screens/statistics_screen.dart test/services/local_db_service_regression_test.dart`
+
 ## 2026-05-13
 
 ### Android 15 더 넓은 화면 권장조치 1차 대응 + Play Console 잔여 경고 원인 분리

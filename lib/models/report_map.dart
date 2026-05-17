@@ -1,3 +1,5 @@
+import 'report.dart';
+
 int? _toIntOrNull(dynamic value) {
   if (value == null) return null;
   if (value is num) return value.toInt();
@@ -10,12 +12,26 @@ int? _toIntOrNull(dynamic value) {
 
 double? _toDoubleOrNull(dynamic value) {
   if (value == null) return null;
-  if (value is num) return value.toDouble();
+  if (value is num) {
+    final parsed = value.toDouble();
+    return parsed.isFinite ? parsed : null;
+  }
   if (value is String) {
     if (value.trim().isEmpty) return null;
-    return double.tryParse(value);
+    final parsed = double.tryParse(value);
+    if (parsed == null || !parsed.isFinite) return null;
+    return parsed;
   }
   return null;
+}
+
+bool _isValidMapCoordinate(double lat, double lng) {
+  return lat.isFinite &&
+      lng.isFinite &&
+      lat >= -90 &&
+      lat <= 90 &&
+      lng >= -180 &&
+      lng <= 180;
 }
 
 class ReportMapBreakdownItem {
@@ -81,6 +97,8 @@ class ReportMapPoint {
     required this.categoryBreakdown,
   });
 
+  bool get hasValidCoordinates => _isValidMapCoordinate(lat, lng);
+
   factory ReportMapPoint.fromJson(Map<String, dynamic> json) {
     final statusList = json['status_breakdown'] as List? ?? const [];
     final dispositionList = json['disposition_breakdown'] as List? ?? const [];
@@ -88,8 +106,8 @@ class ReportMapPoint {
     final categoryList = json['category_breakdown'] as List? ?? const [];
 
     return ReportMapPoint(
-      lat: _toDoubleOrNull(json['lat']) ?? 0,
-      lng: _toDoubleOrNull(json['lng']) ?? 0,
+      lat: _toDoubleOrNull(json['lat']) ?? double.nan,
+      lng: _toDoubleOrNull(json['lng']) ?? double.nan,
       address: json['address']?.toString() ?? '',
       region: json['region']?.toString() ?? '',
       total: _toIntOrNull(json['total']) ?? 0,
@@ -184,8 +202,72 @@ class ReportMapPayload {
           .map(
             (item) => ReportMapPoint.fromJson(Map<String, dynamic>.from(item)),
           )
+          .where((point) => point.hasValidCoordinates)
           .toList(),
       meta: ReportMapMeta.fromJson(metaJson),
+    );
+  }
+}
+
+class ReportMapMissingGroup {
+  final String address;
+  final String normalizedAddress;
+  final String region;
+  final int reportCount;
+  final List<Report> reports;
+
+  const ReportMapMissingGroup({
+    required this.address,
+    required this.normalizedAddress,
+    required this.region,
+    required this.reportCount,
+    required this.reports,
+  });
+
+  factory ReportMapMissingGroup.fromJson(Map<String, dynamic> json) {
+    final reportList = json['reports'] as List? ?? const [];
+    return ReportMapMissingGroup(
+      address: json['address']?.toString() ?? '',
+      normalizedAddress: json['normalized_address']?.toString() ?? '',
+      region: json['region']?.toString() ?? '',
+      reportCount: _toIntOrNull(json['report_count']) ?? reportList.length,
+      reports: reportList
+          .whereType<Map>()
+          .map((item) => Report.fromJson(Map<String, dynamic>.from(item)))
+          .toList(),
+    );
+  }
+}
+
+class ReportMapMissingPayload {
+  final List<ReportMapMissingGroup> groups;
+  final int groupCount;
+  final int reportCount;
+
+  const ReportMapMissingPayload({
+    required this.groups,
+    required this.groupCount,
+    required this.reportCount,
+  });
+
+  factory ReportMapMissingPayload.fromJson(Map<String, dynamic> json) {
+    final groupList = json['groups'] as List? ?? const [];
+    final metaJson = json['meta'] is Map
+        ? Map<String, dynamic>.from(json['meta'] as Map)
+        : const <String, dynamic>{};
+    final groups = groupList
+        .whereType<Map>()
+        .map(
+          (item) =>
+              ReportMapMissingGroup.fromJson(Map<String, dynamic>.from(item)),
+        )
+        .toList();
+    return ReportMapMissingPayload(
+      groups: groups,
+      groupCount: _toIntOrNull(metaJson['group_count']) ?? groups.length,
+      reportCount:
+          _toIntOrNull(metaJson['report_count']) ??
+          groups.fold<int>(0, (sum, group) => sum + group.reportCount),
     );
   }
 }

@@ -6,7 +6,10 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ShortcutInfo
+import android.content.pm.ShortcutManager
 import android.content.res.Configuration
+import android.graphics.drawable.Icon
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.enableEdgeToEdge
@@ -20,6 +23,15 @@ class MainActivity : FlutterFragmentActivity() {
     private val CHANNEL = "com.fentanest.mysafetyreport/permissions"
     private val notifIdGen = AtomicInteger(3000)
     private val NOTIF_CHANNEL_APP = "app_push_v2"
+    private val PREFS_NAME = "FlutterSharedPreferences"
+    private val PREF_APP_MODE = "flutter.appMode"
+    private val PREF_BASE_URL = "flutter.baseUrl"
+    private val PREF_API_KEY = "flutter.apiKey"
+    private val PREF_STANDALONE_USERNAME = "flutter.standaloneUsername"
+    private val PREF_STANDALONE_DEMO_MODE = "flutter.standaloneDemoMode"
+    private val QUICK_ACTION_ID = "mode_primary_action"
+    private val EVENT_QUICK_SYNC = "quick_sync"
+    private val EVENT_QUICK_CRAWL = "quick_crawl"
     private var methodChannel: MethodChannel? = null
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
@@ -33,8 +45,14 @@ class MainActivity : FlutterFragmentActivity() {
         super.onCreate(savedInstanceState)
         configureSystemBarAppearance()
         createAppNotifChannel()
+        updateAppShortcuts()
         // 앱이 종료 상태에서 알림 탭으로 실행된 경우 처리
         intent?.let { handleNavIntent(it) }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateAppShortcuts()
     }
 
     private fun configureSystemBarAppearance() {
@@ -114,6 +132,82 @@ class MainActivity : FlutterFragmentActivity() {
             }
             nm.createNotificationChannel(ch)
         }
+    }
+
+    private fun updateAppShortcuts() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) return
+        val shortcutManager = getSystemService(ShortcutManager::class.java) ?: return
+        val shortcut = buildPrimaryShortcut()
+        if (shortcut == null) {
+            shortcutManager.removeAllDynamicShortcuts()
+            return
+        }
+        shortcutManager.dynamicShortcuts = listOf(shortcut)
+    }
+
+    private fun buildPrimaryShortcut(): ShortcutInfo? {
+        if (isConfiguredStandalone()) {
+            return buildShortcut(
+                id = QUICK_ACTION_ID,
+                shortLabel = "동기화",
+                longLabel = "데이터 동기화",
+                eventType = EVENT_QUICK_SYNC,
+            )
+        }
+        if (isConfiguredServer()) {
+            return buildShortcut(
+                id = QUICK_ACTION_ID,
+                shortLabel = "크롤링",
+                longLabel = "서버 크롤링 시작",
+                eventType = EVENT_QUICK_CRAWL,
+            )
+        }
+        return null
+    }
+
+    private fun buildShortcut(
+        id: String,
+        shortLabel: String,
+        longLabel: String,
+        eventType: String,
+    ): ShortcutInfo {
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+            action = Intent.ACTION_VIEW
+            putExtra("nav_tab", 6)
+            putExtra("nav_event_type", eventType)
+        } ?: Intent(this, MainActivity::class.java).apply {
+            action = Intent.ACTION_VIEW
+            putExtra("nav_tab", 6)
+            putExtra("nav_event_type", eventType)
+        }
+        return ShortcutInfo.Builder(this, id)
+            .setShortLabel(shortLabel)
+            .setLongLabel(longLabel)
+            .setIcon(Icon.createWithResource(this, R.mipmap.ic_launcher))
+            .setIntent(launchIntent)
+            .build()
+    }
+
+    private fun isConfiguredStandalone(): Boolean {
+        val appMode = flutterStringPref(PREF_APP_MODE)
+        val username = flutterStringPref(PREF_STANDALONE_USERNAME)
+        val isDemoMode = flutterBooleanPref(PREF_STANDALONE_DEMO_MODE)
+        return appMode == "standalone" && username.isNotBlank() && !isDemoMode
+    }
+
+    private fun isConfiguredServer(): Boolean {
+        val appMode = flutterStringPref(PREF_APP_MODE)
+        val baseUrl = flutterStringPref(PREF_BASE_URL)
+        val apiKey = flutterStringPref(PREF_API_KEY)
+        return appMode != "standalone" && baseUrl.isNotBlank() && apiKey.isNotBlank()
+    }
+
+    private fun flutterStringPref(key: String): String {
+        return getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(key, "") ?: ""
+    }
+
+    private fun flutterBooleanPref(key: String): Boolean {
+        return getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(key, false)
     }
 
     private fun showLocalNotification(
@@ -215,6 +309,11 @@ class MainActivity : FlutterFragmentActivity() {
                         val payloadJson = call.argument<String>("payload_json")
                         showLocalNotification(title, body, navTab, navSubTab, eventType, payloadJson)
                         result.success(null)
+                    }
+
+                    "refreshQuickActions" -> {
+                        updateAppShortcuts()
+                        result.success(true)
                     }
 
                     // ── 동기화 Foreground Service 제어 ─────────────────────

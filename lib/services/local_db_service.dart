@@ -904,6 +904,16 @@ class LocalDbService {
       useRepresentativeRecords: useRepresentativeRecords,
     );
 
+    final agencyCount = rows
+        .map((row) {
+          final raw = _stringify(row['처리기관']).trim();
+          if (raw.isEmpty) return '';
+          return normalizePolice ? normalizePoliceAgency(raw) : raw;
+        })
+        .where((name) => name.isNotEmpty)
+        .toSet()
+        .length;
+
     var allYearRows = await d.query('reports', columns: ['신고일']);
     final availableYears =
         allYearRows
@@ -926,6 +936,7 @@ class LocalDbService {
           'geocoded_reports': 0,
           'missing_reports': 0,
           'address_groups': 0,
+          'agency_count': 0,
         },
       };
     }
@@ -1009,6 +1020,7 @@ class LocalDbService {
         'geocoded_reports': geocodedReports,
         'missing_reports': missingReports,
         'address_groups': points.length,
+        'agency_count': agencyCount,
       },
     };
   }
@@ -1112,7 +1124,7 @@ class LocalDbService {
       _buildMapRatioItem('과태료', fineCount, total),
       _buildMapRatioItem('경고/범칙금', warningCount, total),
       _buildMapRatioItem('불수용/기타', rejectCount, total),
-      _buildMapRatioItem('기타/미확인', pendingCount, total),
+      _buildMapRatioItem('미확인', pendingCount, total),
     ];
     return ordered.where((item) => (item['count'] as int) > 0).toList();
   }
@@ -2365,7 +2377,7 @@ class LocalDbService {
 class _AgencyAgg {
   final String name;
   final String person;
-  int total = 0, fines = 0, warn = 0, reject = 0;
+  int total = 0, fines = 0, warn = 0, reject = 0, unconfirmed = 0;
   int totalFine = 0;
   final List<int> responseDays = [];
   final List<int> ratings = []; // 1~5 별점 표본
@@ -2379,6 +2391,13 @@ class _AgencyAgg {
     if (fine.contains('과태료')) fines++;
     if (fine.contains('경고') || fine.contains('범칙금')) warn++;
     if (status == '불수용' || status == '기타') reject++;
+    if (!fine.contains('과태료') &&
+        !fine.contains('경고') &&
+        !fine.contains('범칙금') &&
+        status != '불수용' &&
+        status != '기타') {
+      unconfirmed++;
+    }
     totalFine += extractFineAmount(fine);
 
     final date = r['신고일'] as String? ?? '';
@@ -2416,6 +2435,10 @@ class _AgencyAgg {
       'warnings_pct': double.parse((warn / t * 100).toStringAsFixed(1)),
       'rejects': reject,
       'rejects_pct': double.parse((reject / t * 100).toStringAsFixed(1)),
+      'unconfirmed': unconfirmed,
+      'unconfirmed_pct': double.parse(
+        (unconfirmed / t * 100).toStringAsFixed(1),
+      ),
       'total_fine_amount': totalFine,
       'avg_rating': avgRating,
       'rating_count': ratings.length,

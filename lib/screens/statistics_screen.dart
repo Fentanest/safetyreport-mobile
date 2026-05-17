@@ -833,29 +833,52 @@ class _RowCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 8),
-              Row(
-                children: [
-                  _statBadge(
-                    '과태료',
-                    row.fines,
-                    row.finesPct,
-                    serverTrafficFineColor,
-                  ),
-                  const SizedBox(width: 6),
-                  _statBadge(
-                    '경고/범칙금',
-                    row.warnings,
-                    row.warningsPct,
-                    serverTrafficPenaltyColor,
-                  ),
-                  const SizedBox(width: 6),
-                  _statBadge(
-                    '불수용',
-                    row.rejects,
-                    row.rejectsPct,
-                    serverRejectColor,
-                  ),
-                ],
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final badgeWidth = (constraints.maxWidth - 6) / 2;
+                  return Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      SizedBox(
+                        width: badgeWidth,
+                        child: _statBadge(
+                          '과태료',
+                          row.fines,
+                          row.finesPct,
+                          serverTrafficFineColor,
+                        ),
+                      ),
+                      SizedBox(
+                        width: badgeWidth,
+                        child: _statBadge(
+                          '경고/범칙금',
+                          row.warnings,
+                          row.warningsPct,
+                          serverTrafficPenaltyColor,
+                        ),
+                      ),
+                      SizedBox(
+                        width: badgeWidth,
+                        child: _statBadge(
+                          '불수용/기타',
+                          row.rejects,
+                          row.rejectsPct,
+                          serverRejectColor,
+                        ),
+                      ),
+                      SizedBox(
+                        width: badgeWidth,
+                        child: _statBadge(
+                          '미확인',
+                          row.unconfirmed,
+                          row.unconfirmedPct,
+                          Colors.blueGrey.shade500,
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
               const SizedBox(height: 6),
               if (row.total > 0)
@@ -887,9 +910,21 @@ class _RowCard extends StatelessWidget {
                             color: Colors.grey.shade400,
                           ),
                         ),
+                      if (row.unconfirmed > 0)
+                        Flexible(
+                          flex: row.unconfirmed,
+                          child: Container(
+                            height: 6,
+                            color: Colors.blueGrey.shade300,
+                          ),
+                        ),
                       Flexible(
                         flex:
-                            (row.total - row.fines - row.warnings - row.rejects)
+                            (row.total -
+                                    row.fines -
+                                    row.warnings -
+                                    row.rejects -
+                                    row.unconfirmed)
                                 .clamp(0, row.total),
                         child: Container(
                           height: 6,
@@ -907,31 +942,29 @@ class _RowCard extends StatelessWidget {
   }
 
   Widget _statBadge(String label, int count, double pct, Color color) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.08),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: color.withOpacity(0.2)),
-        ),
-        child: Column(
-          children: [
-            Text(
-              '$count',
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.2)),
+      ),
+      child: Column(
+        children: [
+          Text(
+            '$count',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: color,
             ),
-            Text(
-              '$label (${pct.toStringAsFixed(1)}%)',
-              style: TextStyle(fontSize: 10, color: color.withOpacity(0.8)),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
+          ),
+          Text(
+            '$label (${pct.toStringAsFixed(1)}%)',
+            style: TextStyle(fontSize: 10, color: color.withOpacity(0.8)),
+            textAlign: TextAlign.center,
+          ),
+        ],
       ),
     );
   }

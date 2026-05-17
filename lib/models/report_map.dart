@@ -137,6 +137,7 @@ class ReportMapMeta {
   final int geocodedReports;
   final int missingReports;
   final int addressGroups;
+  final int agencyCount;
 
   const ReportMapMeta({
     required this.availableYears,
@@ -147,6 +148,7 @@ class ReportMapMeta {
     required this.geocodedReports,
     required this.missingReports,
     required this.addressGroups,
+    required this.agencyCount,
   });
 
   factory ReportMapMeta.fromJson(Map<String, dynamic> json) {
@@ -160,6 +162,7 @@ class ReportMapMeta {
       geocodedReports: _toIntOrNull(json['geocoded_reports']) ?? 0,
       missingReports: _toIntOrNull(json['missing_reports']) ?? 0,
       addressGroups: _toIntOrNull(json['address_groups']) ?? 0,
+      agencyCount: _toIntOrNull(json['agency_count']) ?? 0,
     );
   }
 }
@@ -199,6 +202,7 @@ class GeocodeBackfillProgress {
   final String errorMessage;
   final int startedAt;
   final int finishedAt;
+  final bool hasSavedCoordinates;
 
   const GeocodeBackfillProgress({
     required this.state,
@@ -212,10 +216,14 @@ class GeocodeBackfillProgress {
     required this.errorMessage,
     required this.startedAt,
     required this.finishedAt,
+    required this.hasSavedCoordinates,
   });
 
   bool get isCompleted => state == 'completed';
   bool get isError => state == 'error';
+  bool get requiresConfiguration =>
+      state == 'config_required' || state == 'config_warning';
+  bool get isWarning => state == 'config_warning';
 
   factory GeocodeBackfillProgress.fromJson(Map<String, dynamic> json) {
     return GeocodeBackfillProgress(
@@ -230,6 +238,7 @@ class GeocodeBackfillProgress {
       errorMessage: json['error_message']?.toString() ?? '',
       startedAt: _toIntOrNull(json['started_at']) ?? 0,
       finishedAt: _toIntOrNull(json['finished_at']) ?? 0,
+      hasSavedCoordinates: json['has_saved_coordinates'] == true,
     );
   }
 }

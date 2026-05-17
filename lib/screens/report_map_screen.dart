@@ -173,7 +173,9 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
               children: [
                 _buildFilterBar(cs),
                 if (progress != null &&
-                    (progress.running || progress.errorMessage.isNotEmpty))
+                    (progress.running ||
+                        progress.errorMessage.isNotEmpty ||
+                        progress.requiresConfiguration))
                   _buildProgressCard(progress),
                 if (_error != null)
                   Padding(
@@ -271,12 +273,23 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
   Widget _buildProgressCard(GeocodeBackfillProgress progress) {
     final provider = context.watch<ReportProvider>();
     final isStandalone = provider.appMode == AppMode.standalone;
+    final isWarning = progress.isWarning;
+    final isConfigRequired =
+        progress.requiresConfiguration && !progress.isWarning;
+    final accentColor = progress.isError
+        ? Colors.red
+        : isWarning || isConfigRequired
+        ? Colors.orange
+        : Colors.blueGrey;
+    final cardColor = progress.isError
+        ? Colors.red.withOpacity(0.05)
+        : isWarning || isConfigRequired
+        ? Colors.orange.withOpacity(0.08)
+        : Colors.blue.withOpacity(0.05);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
       child: Card(
-        color: progress.isError
-            ? Colors.red.withOpacity(0.05)
-            : Colors.blue.withOpacity(0.05),
+        color: cardColor,
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -285,14 +298,22 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
               Row(
                 children: [
                   Icon(
-                    progress.isError ? Icons.error_outline : Icons.public,
-                    color: progress.isError ? Colors.red : Colors.blueGrey,
+                    progress.isError
+                        ? Icons.error_outline
+                        : isWarning || isConfigRequired
+                        ? Icons.warning_amber_rounded
+                        : Icons.public,
+                    color: accentColor,
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       progress.isError
                           ? '좌표 변환을 마치지 못했습니다'
+                          : isWarning
+                          ? '저장된 좌표로 지도는 계속 표시됩니다'
+                          : isConfigRequired
+                          ? 'REST API 키를 입력하면 좌표 변환을 시작합니다'
                           : progress.running
                           ? '주소 좌표 변환 진행 중'
                           : '주소 좌표 변환 완료',
@@ -309,6 +330,7 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
                 value: progress.running ? progress.progressPct / 100 : 1,
                 minHeight: 8,
                 borderRadius: BorderRadius.circular(999),
+                color: accentColor,
               ),
               const SizedBox(height: 10),
               Text(
@@ -324,13 +346,15 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
                 const SizedBox(height: 10),
                 Text(
                   progress.errorMessage,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
-                    color: Colors.red,
+                    color: progress.isError
+                        ? Colors.red
+                        : Colors.orange.shade800,
                     height: 1.4,
                   ),
                 ),
-                if (progress.isError && isStandalone)
+                if (progress.requiresConfiguration && isStandalone)
                   Padding(
                     padding: const EdgeInsets.only(top: 10),
                     child: OutlinedButton.icon(
@@ -382,7 +406,7 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
         _smallStat('전체', meta.totalReports, Colors.blue),
         _smallStat('좌표화', meta.geocodedReports, serverAcceptColor),
         _smallStat('미변환', meta.missingReports, serverSupplementColor),
-        _smallStat('지점', meta.addressGroups, Colors.teal),
+        _smallStat('처리기관', meta.agencyCount, Colors.teal),
       ],
     );
   }
@@ -424,6 +448,10 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
   Widget _buildEmptyState(GeocodeBackfillProgress? progress) {
     final message = progress != null && progress.running
         ? '주소 좌표를 채우는 중입니다.\n완료되면 지도가 자동으로 표시됩니다.'
+        : progress?.isWarning == true
+        ? '저장된 좌표가 있는 신고는 계속 지도에 표시됩니다.\n다만 DB에 없는 새 주소는 카카오 REST API 키를 다시 입력해야 변환할 수 있습니다.'
+        : progress?.requiresConfiguration == true
+        ? '카카오 REST API 키를 입력하면 지도 좌표 변환을 시작합니다.'
         : '표시할 지도 데이터가 없습니다.';
     return Card(
       child: Center(
@@ -562,11 +590,14 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
   }
 
   void _showPointBottomSheet(ReportMapPoint point) {
+    final title = point.region.isNotEmpty ? point.region : point.address;
+    final subtitle = point.address.trim().isNotEmpty && point.address != title
+        ? point.address
+        : '';
     _showDetailBottomSheet(
-      title: point.region.isNotEmpty ? point.region : point.address,
-      subtitle: point.address,
+      title: title,
+      subtitle: subtitle,
       total: point.total,
-      addressGroups: 1,
       regions: point.region.isNotEmpty ? [point.region] : const <String>[],
       agencies: point.agencyBreakdown,
       statuses: point.statusBreakdown,
@@ -578,6 +609,7 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
   void _showClusterBottomSheet(List<ReportMapPoint> points) {
     if (points.isEmpty) return;
     final total = points.fold<int>(0, (sum, point) => sum + point.total);
+    final agencies = _aggregateAgencies(points);
     final regionCounts = <String, int>{};
     for (final point in points) {
       final label = point.region.trim().isNotEmpty
@@ -590,14 +622,13 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
       ..sort((left, right) => right.value.compareTo(left.value));
     _showDetailBottomSheet(
       title: '묶음 신고 지점',
-      subtitle: '${points.length}개 지점 · $total건',
+      subtitle: '${points.length}개 주소 · ${agencies.length}개 기관',
       total: total,
-      addressGroups: points.length,
       regions: sortedRegions
           .take(5)
           .map((entry) => '${entry.key} (${entry.value}건)')
           .toList(),
-      agencies: _aggregateAgencies(points),
+      agencies: agencies,
       statuses: _aggregateBreakdown(
         points.expand((point) => point.statusBreakdown),
         total: total,
@@ -661,7 +692,6 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
     required String title,
     required String subtitle,
     required int total,
-    required int addressGroups,
     required List<String> regions,
     required List<ReportMapAgencyItem> agencies,
     required List<ReportMapBreakdownItem> statuses,
@@ -679,12 +709,21 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    _countChip('$total건'),
+                  ],
                 ),
                 if (subtitle.trim().isNotEmpty) ...[
                   const SizedBox(height: 6),
@@ -693,17 +732,6 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
                     style: const TextStyle(color: Colors.grey, height: 1.4),
                   ),
                 ],
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _sheetStat('신고건수', '$total건'),
-                    _sheetStat('지점수', '$addressGroups곳'),
-                    if (agencies.isNotEmpty)
-                      _sheetStat('기관수', '${agencies.length}곳'),
-                  ],
-                ),
                 if (regions.isNotEmpty) ...[
                   const SizedBox(height: 18),
                   _sheetSection(
@@ -745,23 +773,21 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
     );
   }
 
-  Widget _sheetStat(String label, String value) {
+  Widget _countChip(String value) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.grey.shade100,
-        borderRadius: BorderRadius.circular(12),
+        color: const Color(0xFFFFF3E0),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFFFCC80)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-          ),
-        ],
+      child: Text(
+        value,
+        style: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w800,
+          color: Color(0xFFE65100),
+        ),
       ),
     );
   }
@@ -843,7 +869,7 @@ class _MapPointMarker extends StatelessWidget {
           width: circleSize,
           height: circleSize,
           decoration: BoxDecoration(
-            color: const Color(0xFF1565C0),
+            color: const Color(0xFFF57C00),
             shape: BoxShape.circle,
             border: Border.all(color: Colors.white, width: 2),
             boxShadow: const [

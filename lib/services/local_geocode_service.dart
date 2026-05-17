@@ -46,6 +46,7 @@ class LocalGeocodeService {
       'error_message': '',
       'started_at': 0,
       'finished_at': 0,
+      'has_saved_coordinates': false,
     };
   }
 
@@ -72,6 +73,52 @@ class LocalGeocodeService {
     return currentProgress();
   }
 
+  static Future<int> countSavedCoordinateRecords() async {
+    final d = await LocalDbService.db;
+    final rows = await d.rawQuery('''
+      SELECT COUNT(*) AS cnt
+      FROM geocode_cache
+      WHERE 상태 = 'ok'
+    ''');
+    if (rows.isEmpty) return 0;
+    return int.tryParse(rows.first['cnt']?.toString() ?? '') ?? 0;
+  }
+
+  static Future<int> countCacheBackfillableReports() async {
+    final d = await LocalDbService.db;
+    final rows = await d.rawQuery('''
+      SELECT COUNT(*) AS cnt
+      FROM reports r
+      INNER JOIN geocode_cache c
+        ON c.주소정규화 = TRIM(COALESCE(NULLIF(r.주소정규화, ''), r.위반장소))
+      WHERE r.위반장소 IS NOT NULL
+        AND TRIM(r.위반장소) != ''
+        AND (r.위도 IS NULL OR r.경도 IS NULL)
+        AND COALESCE(r.지오코딩상태, '') != 'not_found'
+        AND c.상태 IN ('ok', 'not_found')
+    ''');
+    if (rows.isEmpty) return 0;
+    return int.tryParse(rows.first['cnt']?.toString() ?? '') ?? 0;
+  }
+
+  static Future<({String state, String message, bool hasSavedCoordinates})>
+  _missingApiKeyNotice() async {
+    final hasSavedCoordinates = (await countSavedCoordinateRecords()) > 0;
+    if (hasSavedCoordinates) {
+      return (
+        state: 'config_warning',
+        message:
+            '저장된 좌표 데이터는 계속 지도에 반영됩니다. 다만 DB에 없는 새 주소는 카카오 REST API 키가 없으면 변환할 수 없습니다.',
+        hasSavedCoordinates: true,
+      );
+    }
+    return (
+      state: 'config_required',
+      message: '모바일 설정에서 카카오 REST API 키를 확인하세요.',
+      hasSavedCoordinates: false,
+    );
+  }
+
   static Future<GeocodeBackfillProgress> ensureMapBackfillStarted({
     required String apiKey,
     int batchSize = 80,
@@ -79,6 +126,7 @@ class LocalGeocodeService {
     if (_runningTask != null) return currentProgress();
 
     final pending = await countPendingReports();
+    final hasSavedCoordinates = (await countSavedCoordinateRecords()) > 0;
     if (pending <= 0) {
       return _setProgressState({
         'state': 'completed',
@@ -90,21 +138,24 @@ class LocalGeocodeService {
         'remaining_missing': 0,
         'error_message': '',
         'finished_at': DateTime.now().millisecondsSinceEpoch,
+        'has_saved_coordinates': hasSavedCoordinates,
       });
     }
 
     final trimmedKey = apiKey.trim();
-    if (trimmedKey.isEmpty) {
+    if (trimmedKey.isEmpty && (await countCacheBackfillableReports()) <= 0) {
+      final notice = await _missingApiKeyNotice();
       return _setProgressState({
-        'state': 'error',
+        'state': notice.state,
         'running': false,
         'total': pending,
         'processed': 0,
         'updated': 0,
         'not_found': 0,
         'remaining_missing': pending,
-        'error_message': '모바일 설정에서 카카오 REST API 키를 확인하세요.',
+        'error_message': notice.message,
         'finished_at': DateTime.now().millisecondsSinceEpoch,
+        'has_saved_coordinates': notice.hasSavedCoordinates,
       });
     }
 
@@ -119,6 +170,7 @@ class LocalGeocodeService {
       'error_message': '',
       'started_at': DateTime.now().millisecondsSinceEpoch,
       'finished_at': 0,
+      'has_saved_coordinates': hasSavedCoordinates,
     });
 
     _runningTask = _runBackfill(apiKey: trimmedKey, batchSize: batchSize);
@@ -153,23 +205,42 @@ class LocalGeocodeService {
     var notFound = 0;
     var remainingMissing = 0;
     var recountCountdown = 0;
+    final cacheOnlyMode = apiKey.trim().isEmpty;
+    var hasSavedCoordinates = (await countSavedCoordinateRecords()) > 0;
 
     try {
       remainingMissing = await countPendingReports();
       while (true) {
         final d = await LocalDbService.db;
-        final rows = await d.query(
-          'reports',
-          columns: ['ID', '위반장소', '주소정규화', '행정구역', '위도', '경도', '지오코딩상태'],
-          where: '''
-            위반장소 IS NOT NULL
-            AND TRIM(위반장소) != ''
-            AND (위도 IS NULL OR 경도 IS NULL)
-            AND COALESCE(지오코딩상태, '') != 'not_found'
-          ''',
-          orderBy: 'ID DESC',
-          limit: batchSize,
-        );
+        final rows = cacheOnlyMode
+            ? await d.rawQuery(
+                '''
+                SELECT r.ID, r.위반장소, r.주소정규화, r.행정구역, r.위도, r.경도, r.지오코딩상태
+                FROM reports r
+                INNER JOIN geocode_cache c
+                  ON c.주소정규화 = TRIM(COALESCE(NULLIF(r.주소정규화, ''), r.위반장소))
+                WHERE r.위반장소 IS NOT NULL
+                  AND TRIM(r.위반장소) != ''
+                  AND (r.위도 IS NULL OR r.경도 IS NULL)
+                  AND COALESCE(r.지오코딩상태, '') != 'not_found'
+                  AND c.상태 IN ('ok', 'not_found')
+                ORDER BY r.ID DESC
+                LIMIT ?
+                ''',
+                [batchSize],
+              )
+            : await d.query(
+                'reports',
+                columns: ['ID', '위반장소', '주소정규화', '행정구역', '위도', '경도', '지오코딩상태'],
+                where: '''
+                  위반장소 IS NOT NULL
+                  AND TRIM(위반장소) != ''
+                  AND (위도 IS NULL OR 경도 IS NULL)
+                  AND COALESCE(지오코딩상태, '') != 'not_found'
+                ''',
+                orderBy: 'ID DESC',
+                limit: batchSize,
+              );
 
         if (rows.isEmpty) break;
 
@@ -186,25 +257,33 @@ class LocalGeocodeService {
             await _applyGeoPayload(reportId, payload);
             if (nextStatus == 'ok') {
               updated++;
-              remainingMissing = remainingMissing > 0 ? remainingMissing - 1 : 0;
+              remainingMissing = remainingMissing > 0
+                  ? remainingMissing - 1
+                  : 0;
             } else if (nextStatus == 'not_found') {
               notFound++;
-              remainingMissing = remainingMissing > 0 ? remainingMissing - 1 : 0;
+              remainingMissing = remainingMissing > 0
+                  ? remainingMissing - 1
+                  : 0;
             }
           } on GeocodeConfigurationError catch (exc) {
             await _applyGeoPayload(
               reportId,
               buildPendingGeoPayload(address, status: 'error'),
             );
+            final notice = await _missingApiKeyNotice();
             _setProgressState({
-              'state': 'error',
+              'state': notice.state,
               'running': false,
               'processed': processed,
               'updated': updated,
               'not_found': notFound,
               'remaining_missing': remainingMissing,
-              'error_message': exc.message,
+              'error_message': notice.message.isNotEmpty
+                  ? notice.message
+                  : exc.message,
               'finished_at': DateTime.now().millisecondsSinceEpoch,
+              'has_saved_coordinates': notice.hasSavedCoordinates,
             });
             return;
           } on GeocodeProviderError catch (exc) {
@@ -224,10 +303,13 @@ class LocalGeocodeService {
               'remaining_missing': adjustedRemaining,
               'error_message': '카카오 주소 변환 실패: ${exc.message}',
               'finished_at': DateTime.now().millisecondsSinceEpoch,
+              'has_saved_coordinates': hasSavedCoordinates,
             });
             return;
           }
 
+          hasSavedCoordinates =
+              hasSavedCoordinates || (await countSavedCoordinateRecords()) > 0;
           if (recountCountdown >= _remainingCountEveryRows) {
             remainingMissing = await countPendingReports();
             recountCountdown = 0;
@@ -239,10 +321,29 @@ class LocalGeocodeService {
             'updated': updated,
             'not_found': notFound,
             'remaining_missing': remainingMissing,
+            'has_saved_coordinates': hasSavedCoordinates,
           });
         }
 
         await Future<void>.delayed(const Duration(milliseconds: 40));
+      }
+
+      if (cacheOnlyMode &&
+          (await countPendingReports()) > 0 &&
+          (await countCacheBackfillableReports()) <= 0) {
+        final notice = await _missingApiKeyNotice();
+        _setProgressState({
+          'state': notice.state,
+          'running': false,
+          'processed': processed,
+          'updated': updated,
+          'not_found': notFound,
+          'remaining_missing': await countPendingReports(),
+          'error_message': notice.message,
+          'finished_at': DateTime.now().millisecondsSinceEpoch,
+          'has_saved_coordinates': notice.hasSavedCoordinates,
+        });
+        return;
       }
 
       _setProgressState({
@@ -254,6 +355,7 @@ class LocalGeocodeService {
         'remaining_missing': await countPendingReports(),
         'error_message': '',
         'finished_at': DateTime.now().millisecondsSinceEpoch,
+        'has_saved_coordinates': hasSavedCoordinates,
       });
     } catch (exc) {
       _setProgressState({
@@ -265,6 +367,7 @@ class LocalGeocodeService {
         'remaining_missing': await countPendingReports(),
         'error_message': '좌표 백필 중 오류가 발생했습니다: $exc',
         'finished_at': DateTime.now().millisecondsSinceEpoch,
+        'has_saved_coordinates': hasSavedCoordinates,
       });
     }
   }

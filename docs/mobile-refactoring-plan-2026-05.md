@@ -251,6 +251,19 @@
 5. `WatchlistPanel._load`, `DuplicateManagementPanel._load`, `SunwiSection._load` 의 직접 분기 제거
 6. `SettingsScreen` 의 DB 백업/복원/모드 전환 절차를 서비스로 이동
 
+## 최근 반영된 후속 작업
+
+이번 문서의 핵심은 구조 리팩토링이지만, 2026-05-17 후속 작업으로 아래 운영/UI 보강이 먼저 반영됐다.
+
+- 지도 지오코딩 경고 상태를 `config_required` 와 `config_warning` 으로 분리
+  - standalone 에서 API 키가 제거돼도 기존 좌표/캐시로는 계속 지도를 그리고, 새 주소만 변환 불가 경고를 띄운다.
+- 모바일 통계/지도 처분 현황에서 `미확인` 을 `불수용/기타` 와 분리
+  - 서버 지도/통계와 같은 집계 bucket 을 사용한다.
+- Android/iOS 앱 아이콘 퀵 메뉴 추가
+  - standalone 은 `동기화`, client/server 는 `크롤링` 으로 mode-aware shortcut 을 노출한다.
+
+즉, 현재 남은 구조 작업의 초점은 새 기능 추가보다 아래에 계속 적어 둔 중복 제거와 책임 분리에 맞춘다.
+
 ## 이번 차수에서 보류할 것
 
 다음 항목은 지금 문서의 우선순위에서 뒤로 둔다.

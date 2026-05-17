@@ -1,8 +1,11 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:safetyreport/models/agency_stats.dart';
 import 'package:safetyreport/models/report.dart';
+import 'package:safetyreport/models/report_map.dart';
 import 'package:safetyreport/services/local_db_service.dart';
+import 'package:safetyreport/services/local_geocode_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 Report _report({
@@ -11,6 +14,8 @@ Report _report({
   required String location,
   String status = '처리중',
   String result = '처리중',
+  String agency = '서울강서경찰서 교통과',
+  String fineInfo = '과태료',
 }) {
   return Report(
     id: id,
@@ -18,11 +23,11 @@ Report _report({
     name: '테스트 신고',
     date: '2026-05-17',
     responseDate: '2026-05-17',
-    agency: '서울강서경찰서 교통과',
+    agency: agency,
     manager: '담당자',
     status: status,
     result: result,
-    fineInfo: '과태료',
+    fineInfo: fineInfo,
     penaltyPoints: '',
     carNumber: '12가3456',
     law: '도로교통법',
@@ -188,6 +193,152 @@ void main() {
         final rows = await db.query('reports', orderBy: '신고번호 ASC');
         expect(rows, hasLength(1));
         expect(rows.first['신고번호'], 'KEEP-1');
+      },
+    );
+
+    test(
+      'stats and map payload keep reject bucket while separating unconfirmed',
+      () async {
+        final reports = [
+          _report(
+            id: 'fine-1',
+            reportNumber: 'FINE-1',
+            location: '서울특별시 강서구 마곡동 1',
+            status: '수용',
+            result: '수용',
+            fineInfo: '과태료: 40,000원',
+          ),
+          _report(
+            id: 'warn-1',
+            reportNumber: 'WARN-1',
+            location: '서울특별시 강서구 마곡동 1',
+            status: '답변완료',
+            result: '답변완료',
+            fineInfo: '경고',
+          ),
+          _report(
+            id: 'reject-1',
+            reportNumber: 'REJECT-1',
+            location: '서울특별시 강서구 마곡동 1',
+            status: '기타',
+            result: '기타',
+            fineInfo: '',
+          ),
+          _report(
+            id: 'unknown-1',
+            reportNumber: 'UNKNOWN-1',
+            location: '서울특별시 강서구 마곡동 1',
+            status: '처리중',
+            result: '처리중',
+            fineInfo: '미확인',
+          ),
+        ];
+
+        for (final report in reports) {
+          await LocalDbService.upsertReport(report, 'traffic', '자동차·교통위반');
+        }
+
+        final db = await LocalDbService.db;
+        for (final report in reports) {
+          await db.update(
+            'reports',
+            {
+              '주소정규화': '서울특별시 강서구 마곡동 1',
+              '행정구역': '서울특별시 강서구 마곡동',
+              '위도': 37.5601,
+              '경도': 126.8301,
+              '지오코딩상태': 'success',
+            },
+            where: 'ID = ?',
+            whereArgs: [report.id],
+          );
+        }
+
+        final stats = AgencyStats.fromJson(await LocalDbService.computeStats());
+        final row = stats.traffic.byAgency.first;
+        expect(row.fines, 1);
+        expect(row.warnings, 1);
+        expect(row.rejects, 1);
+        expect(row.unconfirmed, 1);
+
+        final payload = ReportMapPayload.fromJson(
+          await LocalDbService.computeReportMapStats(),
+        );
+        expect(payload.meta.agencyCount, 1);
+        expect(payload.points, hasLength(1));
+
+        final dispositionCounts = {
+          for (final item in payload.points.first.dispositionBreakdown)
+            item.label: item.count,
+        };
+        expect(dispositionCounts['과태료'], 1);
+        expect(dispositionCounts['경고/범칙금'], 1);
+        expect(dispositionCounts['불수용/기타'], 1);
+        expect(dispositionCounts['미확인'], 1);
+        expect(dispositionCounts.containsKey('기타/미확인'), isFalse);
+      },
+    );
+
+    test(
+      'missing standalone map key still uses cached coordinates before warning',
+      () async {
+        await LocalDbService.upsertReport(
+          _report(
+            id: 'cache-1',
+            reportNumber: 'CACHE-1',
+            location: '서울특별시 강서구 마곡동 1',
+          ),
+          'traffic',
+          '자동차·교통위반',
+        );
+        await LocalDbService.upsertReport(
+          _report(
+            id: 'uncached-1',
+            reportNumber: 'UNCACHED-1',
+            location: '서울특별시 강서구 방화동 9',
+          ),
+          'traffic',
+          '자동차·교통위반',
+        );
+
+        final db = await LocalDbService.db;
+        await db.insert('geocode_cache', {
+          '주소정규화': '서울특별시 강서구 마곡동 1',
+          '원본주소': '서울특별시 강서구 마곡동 1',
+          '행정구역': '서울특별시 강서구 마곡동',
+          '위도': 37.5601,
+          '경도': 126.8301,
+          '상태': 'ok',
+          'source': 'kakao',
+          'error_message': '',
+          'updated_at': DateTime.now().millisecondsSinceEpoch,
+        });
+
+        await LocalGeocodeService.ensureMapBackfillStarted(apiKey: '');
+
+        GeocodeBackfillProgress progress =
+            LocalGeocodeService.currentProgress();
+        for (var i = 0; i < 30 && progress.running; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          progress = LocalGeocodeService.currentProgress();
+        }
+
+        expect(progress.running, isFalse);
+        expect(progress.state, 'config_warning');
+        expect(progress.updated, 1);
+        expect(progress.remainingMissing, 1);
+        expect(progress.hasSavedCoordinates, isTrue);
+        expect(progress.errorMessage, contains('DB에 없는 새 주소'));
+
+        final rows = await db.query('reports', orderBy: 'ID ASC');
+        final cachedRow = rows.firstWhere((row) => row['ID'] == 'cache-1');
+        final uncachedRow = rows.firstWhere((row) => row['ID'] == 'uncached-1');
+
+        expect(cachedRow['위도'], 37.5601);
+        expect(cachedRow['경도'], 126.8301);
+        expect(cachedRow['지오코딩상태'], 'ok');
+        expect(uncachedRow['위도'], isNull);
+        expect(uncachedRow['경도'], isNull);
       },
     );
   });

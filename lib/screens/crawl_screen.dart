@@ -13,10 +13,10 @@ class CrawlScreen extends StatefulWidget {
   const CrawlScreen({super.key});
 
   @override
-  State<CrawlScreen> createState() => _CrawlScreenState();
+  State<CrawlScreen> createState() => CrawlScreenState();
 }
 
-class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
+class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
   // ── 서버 모드 상태 ──────────────────────────────────────────────────────────
   String _loginMode = 'member';
   String _crawlType = 'api';
@@ -31,6 +31,7 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
     setState(() => _isRunning = val);
     if (mounted) context.read<ReportProvider>().setSyncing(val);
   }
+
   bool _loading = true;
 
   WebSocket? _ws;
@@ -44,6 +45,7 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
   int _syncProgress = 0;
   int _syncTotal = 0;
   StreamSubscription<SyncEvent>? _syncSub;
+  String? _pendingQuickAction;
 
   @override
   void initState() {
@@ -90,6 +92,61 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
       await _checkStatus();
       _startStatusPolling();
     }
+    await _runPendingQuickActionIfNeeded();
+  }
+
+  Future<void> handleQuickAction(String eventType) async {
+    if (!mounted) return;
+    if (eventType != 'quick_sync' && eventType != 'quick_crawl') return;
+    if (_loading) {
+      _pendingQuickAction = eventType;
+      return;
+    }
+    await _executeQuickAction(eventType);
+  }
+
+  Future<void> _runPendingQuickActionIfNeeded() async {
+    final pending = _pendingQuickAction;
+    if (pending == null) return;
+    _pendingQuickAction = null;
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      handleQuickAction(pending);
+    });
+  }
+
+  Future<void> _executeQuickAction(String eventType) async {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    switch (eventType) {
+      case 'quick_sync':
+        if (!_isStandalone) return;
+        if (context.read<ReportProvider>().isStandaloneDemo) {
+          messenger?.showSnackBar(
+            const SnackBar(content: Text('데모 모드에서는 동기화를 실행할 수 없습니다.')),
+          );
+          return;
+        }
+        if (SyncEngine.isRunning || _isRunning) {
+          messenger?.showSnackBar(
+            const SnackBar(content: Text('이미 동기화가 진행 중입니다.')),
+          );
+          return;
+        }
+        await _startSync(fullSync: false);
+        return;
+      case 'quick_crawl':
+        if (_isStandalone) return;
+        if (_isRunning) {
+          messenger?.showSnackBar(
+            const SnackBar(content: Text('이미 크롤링이 진행 중입니다.')),
+          );
+          return;
+        }
+        await _startCrawl();
+        return;
+    }
   }
 
   // ── 스탠드어론 ───────────────────────────────────────────────────────────────
@@ -101,10 +158,12 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
     try {
       // DB 가 다른 작업 (drainIfPending 의 upsert, refreshAll 의 computeSummary 등)
       // 으로 바쁘면 직렬 큐에서 대기. 10초 timeout 으로 spinner 영구 잠금 방지.
-      count = await LocalDbService.getTotalCount()
-          .timeout(const Duration(seconds: 10));
-      syncTime = await SyncEngine.getLastSyncTime()
-          .timeout(const Duration(seconds: 10));
+      count = await LocalDbService.getTotalCount().timeout(
+        const Duration(seconds: 10),
+      );
+      syncTime = await SyncEngine.getLastSyncTime().timeout(
+        const Duration(seconds: 10),
+      );
     } catch (e) {
       loadError = e.toString();
     }
@@ -213,7 +272,10 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
 
   void _startStatusPolling() {
     _statusTimer?.cancel();
-    _statusTimer = Timer.periodic(const Duration(seconds: 5), (_) => _checkStatus());
+    _statusTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _checkStatus(),
+    );
   }
 
   void _connectWs(ApiService api) async {
@@ -262,11 +324,13 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
         builder: (_) => AlertDialog(
           title: const Text('DB 초기화 경고'),
           content: const Text(
-              'DB를 초기화하고 처음부터 새로 크롤링합니다.\n기존 데이터가 모두 삭제됩니다. 계속하시겠습니까?'),
+            'DB를 초기화하고 처음부터 새로 크롤링합니다.\n기존 데이터가 모두 삭제됩니다. 계속하시겠습니까?',
+          ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('취소')),
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('취소'),
+            ),
             FilledButton(
               onPressed: () => Navigator.pop(context, true),
               style: FilledButton.styleFrom(backgroundColor: Colors.red),
@@ -315,8 +379,9 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
         content: const Text('진행 중인 데이터는 저장되지 않습니다.\n정말 중지하시겠습니까?'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('취소')),
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
@@ -347,8 +412,9 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
     try {
       await api.resumeCrawl();
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('재개 신호를 전송했습니다.')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('재개 신호를 전송했습니다.')));
       }
     } catch (_) {}
   }
@@ -374,8 +440,10 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
         actions: [
           IconButton(
             icon: const Icon(Icons.settings_outlined),
-            onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const SettingsScreen())),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const SettingsScreen()),
+            ),
           ),
         ],
       ),
@@ -398,8 +466,7 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
                       _demoInfoCard(),
                     ],
                     const SizedBox(height: 16),
-                    if (_isRunning && _syncTotal > 0)
-                      _progressBar(),
+                    if (_isRunning && _syncTotal > 0) _progressBar(),
                     const SizedBox(height: 16),
                     _syncButtons(),
                   ],
@@ -410,10 +477,7 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
 
           // ── 로그 패널 ──
           const Divider(height: 1),
-          Expanded(
-            flex: _isRunning ? 3 : 2,
-            child: _logPanel(),
-          ),
+          Expanded(flex: _isRunning ? 3 : 2, child: _logPanel()),
         ],
       ),
     );
@@ -433,13 +497,18 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('마지막 동기화',
-                      style: TextStyle(
-                          fontSize: 11, color: Colors.grey.shade600)),
+                  Text(
+                    '마지막 동기화',
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                  ),
                   const SizedBox(height: 4),
-                  Text(displayTime,
-                      style: const TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.w600)),
+                  Text(
+                    displayTime,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -447,15 +516,19 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                Text('저장된 신고',
-                    style: TextStyle(
-                        fontSize: 11, color: Colors.grey.shade600)),
+                Text(
+                  '저장된 신고',
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                ),
                 const SizedBox(height: 4),
-                Text('$_localCount건',
-                    style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).colorScheme.primary)),
+                Text(
+                  '$_localCount건',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
               ],
             ),
           ],
@@ -472,21 +545,20 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('상세 조회 중...',
-                style:
-                    TextStyle(fontSize: 12, color: Colors.grey.shade700)),
-            Text('$_syncProgress / $_syncTotal',
-                style:
-                    TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+            Text(
+              '상세 조회 중...',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+            ),
+            Text(
+              '$_syncProgress / $_syncTotal',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+            ),
           ],
         ),
         const SizedBox(height: 6),
         ClipRRect(
           borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            value: pct,
-            minHeight: 6,
-          ),
+          child: LinearProgressIndicator(value: pct, minHeight: 6),
         ),
       ],
     );
@@ -532,9 +604,7 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
           child: OutlinedButton.icon(
             icon: const Icon(Icons.refresh),
             label: const Text('전체 재동기화'),
-            onPressed: _isRunning || isDemo
-                ? null
-                : () => _confirmFullSync(),
+            onPressed: _isRunning || isDemo ? null : () => _confirmFullSync(),
           ),
         ),
         if (_isRunning) ...[
@@ -555,12 +625,12 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('전체 재동기화'),
-        content: const Text(
-            '로컬 데이터를 모두 삭제하고 처음부터 다시 동기화합니다.\n계속하시겠습니까?'),
+        content: const Text('로컬 데이터를 모두 삭제하고 처음부터 다시 동기화합니다.\n계속하시겠습니까?'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('취소')),
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('취소'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
@@ -597,8 +667,10 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
         actions: [
           IconButton(
             icon: const Icon(Icons.settings_outlined),
-            onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const SettingsScreen())),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const SettingsScreen()),
+            ),
           ),
         ],
       ),
@@ -616,20 +688,26 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.sync_alt,
-                            size: 14, color: Colors.grey.shade600),
+                        Icon(
+                          Icons.sync_alt,
+                          size: 14,
+                          color: Colors.grey.shade600,
+                        ),
                         const SizedBox(width: 6),
-                        Text('크롤링 방식:',
-                            style: TextStyle(
-                                fontSize: 12, color: Colors.grey.shade600)),
+                        Text(
+                          '크롤링 방식:',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
+                        ),
                         const SizedBox(width: 6),
                         Chip(
                           label: Text(
                             _crawlType == 'api' ? 'API 방식' : '웹 크롤링 방식',
                             style: const TextStyle(fontSize: 11),
                           ),
-                          padding:
-                              const EdgeInsets.symmetric(horizontal: 4),
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
                           visualDensity: VisualDensity.compact,
                           side: BorderSide.none,
                           backgroundColor: _crawlType == 'api'
@@ -647,56 +725,81 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
                     const SizedBox(height: 12),
 
                     _sectionTitle('1. 로그인 모드'),
-                    _radioTile('회원 로그인', 'member', _loginMode,
-                        '저장된 ID/PW로 자동 로그인',
-                        onChanged: (v) =>
-                            setState(() => _loginMode = v!)),
-                    _radioTile('비회원(수동) 로그인', 'nonmember', _loginMode,
-                        '브라우저에서 수동 로그인 후 재개 버튼 누르기',
-                        onChanged: (v) =>
-                            setState(() => _loginMode = v!)),
+                    _radioTile(
+                      '회원 로그인',
+                      'member',
+                      _loginMode,
+                      '저장된 ID/PW로 자동 로그인',
+                      onChanged: (v) => setState(() => _loginMode = v!),
+                    ),
+                    _radioTile(
+                      '비회원(수동) 로그인',
+                      'nonmember',
+                      _loginMode,
+                      '브라우저에서 수동 로그인 후 재개 버튼 누르기',
+                      onChanged: (v) => setState(() => _loginMode = v!),
+                    ),
 
                     const SizedBox(height: 12),
 
                     _sectionTitle('2. 크롤링 범위'),
-                    _radioTile('전체 크롤링', 'full', _crawlMode, '',
-                        onChanged: (v) =>
-                            setState(() => _crawlMode = v!)),
-                    _radioTile('최소 크롤링', 'min', _crawlMode,
-                        '변경사항 감지된 곳까지만',
-                        enabled: _crawlType != 'api',
-                        onChanged: _crawlType == 'api'
-                            ? null
-                            : (v) => setState(() => _crawlMode = v!)),
+                    _radioTile(
+                      '전체 크롤링',
+                      'full',
+                      _crawlMode,
+                      '',
+                      onChanged: (v) => setState(() => _crawlMode = v!),
+                    ),
+                    _radioTile(
+                      '최소 크롤링',
+                      'min',
+                      _crawlMode,
+                      '변경사항 감지된 곳까지만',
+                      enabled: _crawlType != 'api',
+                      onChanged: _crawlType == 'api'
+                          ? null
+                          : (v) => setState(() => _crawlMode = v!),
+                    ),
                     if (_crawlType != 'api' && isMin)
                       Padding(
                         padding: const EdgeInsets.only(
-                            left: 32, top: 4, bottom: 4),
-                        child: Row(children: [
-                          const Text('탐색 페이지 한도:',
-                              style: TextStyle(fontSize: 13)),
-                          const SizedBox(width: 8),
-                          SizedBox(
-                            width: 70,
-                            child: TextField(
-                              controller: _maxPagesController,
-                              keyboardType: TextInputType.number,
-                              style: const TextStyle(fontSize: 13),
-                              decoration: const InputDecoration(
-                                  isDense: true,
-                                  contentPadding:
-                                      EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 6)),
+                          left: 32,
+                          top: 4,
+                          bottom: 4,
+                        ),
+                        child: Row(
+                          children: [
+                            const Text(
+                              '탐색 페이지 한도:',
+                              style: TextStyle(fontSize: 13),
                             ),
-                          ),
-                        ]),
+                            const SizedBox(width: 8),
+                            SizedBox(
+                              width: 70,
+                              child: TextField(
+                                controller: _maxPagesController,
+                                keyboardType: TextInputType.number,
+                                style: const TextStyle(fontSize: 13),
+                                decoration: const InputDecoration(
+                                  isDense: true,
+                                  contentPadding: EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 6,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    _radioTile('DB 초기화 후 새로 크롤링', 'reset', _crawlMode,
-                        '',
-                        isRed: true,
-                        onChanged: (v) =>
-                            setState(() => _crawlMode = v!)),
+                    _radioTile(
+                      'DB 초기화 후 새로 크롤링',
+                      'reset',
+                      _crawlMode,
+                      '',
+                      isRed: true,
+                      onChanged: (v) => setState(() => _crawlMode = v!),
+                    ),
 
                     const SizedBox(height: 12),
 
@@ -706,42 +809,47 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
                       maxLines: 3,
                       style: const TextStyle(fontSize: 12),
                       decoration: InputDecoration(
-                        hintText:
-                            'SPP-231120-1234567\nSPP-231121-7654321',
+                        hintText: 'SPP-231120-1234567\nSPP-231121-7654321',
                         hintStyle: TextStyle(
-                            fontSize: 11, color: Colors.grey.shade400),
+                          fontSize: 11,
+                          color: Colors.grey.shade400,
+                        ),
                       ),
                     ),
 
                     const SizedBox(height: 16),
 
-                    Row(children: [
-                      Expanded(
-                        child: FilledButton.icon(
-                          icon: const Icon(Icons.play_arrow),
-                          label: const Text('크롤링 시작'),
-                          onPressed: _isRunning ? null : _startCrawl,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton.icon(
+                            icon: const Icon(Icons.play_arrow),
+                            label: const Text('크롤링 시작'),
+                            onPressed: _isRunning ? null : _startCrawl,
+                          ),
                         ),
-                      ),
-                      if (_loginMode == 'nonmember') ...[
+                        if (_loginMode == 'nonmember') ...[
+                          const SizedBox(width: 8),
+                          FilledButton.icon(
+                            icon: const Icon(Icons.play_circle_outline),
+                            label: const Text('재개'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.orange,
+                            ),
+                            onPressed: _isRunning ? _resumeCrawl : null,
+                          ),
+                        ],
                         const SizedBox(width: 8),
                         FilledButton.icon(
-                          icon: const Icon(Icons.play_circle_outline),
-                          label: const Text('재개'),
+                          icon: const Icon(Icons.stop),
+                          label: const Text('강제 중지'),
                           style: FilledButton.styleFrom(
-                              backgroundColor: Colors.orange),
-                          onPressed: _isRunning ? _resumeCrawl : null,
+                            backgroundColor: Colors.red,
+                          ),
+                          onPressed: _isRunning ? _killCrawl : null,
                         ),
                       ],
-                      const SizedBox(width: 8),
-                      FilledButton.icon(
-                        icon: const Icon(Icons.stop),
-                        label: const Text('강제 중지'),
-                        style: FilledButton.styleFrom(
-                            backgroundColor: Colors.red),
-                        onPressed: _isRunning ? _killCrawl : null,
-                      ),
-                    ]),
+                    ),
                   ],
                 ),
               ),
@@ -749,10 +857,7 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
           ),
 
           const Divider(height: 1),
-          Expanded(
-            flex: _isRunning ? 3 : 2,
-            child: _logPanel(),
-          ),
+          Expanded(flex: _isRunning ? 3 : 2, child: _logPanel()),
         ],
       ),
     );
@@ -768,33 +873,41 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-            child: Row(children: [
-              if (_isRunning) ...[
-                const SizedBox(
-                  width: 12,
-                  height: 12,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, color: Colors.greenAccent),
-                ),
-                const SizedBox(width: 8),
-              ],
-              Text(
-                _isRunning ? '실행 중' : '대기 중',
-                style: TextStyle(
-                    color: _isRunning
-                        ? Colors.greenAccent
-                        : Colors.grey,
+            child: Row(
+              children: [
+                if (_isRunning) ...[
+                  const SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.greenAccent,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                Text(
+                  _isRunning ? '실행 중' : '대기 중',
+                  style: TextStyle(
+                    color: _isRunning ? Colors.greenAccent : Colors.grey,
                     fontSize: 11,
-                    fontWeight: FontWeight.bold),
-              ),
-            ]),
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
           ),
           Expanded(
             child: _logLines.isEmpty
                 ? Center(
-                    child: Text('로그 없음',
-                        style: TextStyle(
-                            color: Colors.grey.shade700, fontSize: 12)))
+                    child: Text(
+                      '로그 없음',
+                      style: TextStyle(
+                        color: Colors.grey.shade700,
+                        fontSize: 12,
+                      ),
+                    ),
+                  )
                 : ListView.builder(
                     controller: _logScroll,
                     padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
@@ -802,10 +915,11 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
                     itemBuilder: (_, i) => Text(
                       _logLines[i],
                       style: const TextStyle(
-                          color: Colors.greenAccent,
-                          fontSize: 10.5,
-                          fontFamily: 'monospace',
-                          height: 1.4),
+                        color: Colors.greenAccent,
+                        fontSize: 10.5,
+                        fontFamily: 'monospace',
+                        height: 1.4,
+                      ),
                     ),
                   ),
           ),
@@ -817,13 +931,16 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
   // ── 헬퍼 위젯 ────────────────────────────────────────────────────────────────
 
   Widget _sectionTitle(String text) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: Text(text,
-            style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
-                color: Theme.of(context).colorScheme.primary)),
-      );
+    padding: const EdgeInsets.only(bottom: 6),
+    child: Text(
+      text,
+      style: TextStyle(
+        fontWeight: FontWeight.bold,
+        fontSize: 13,
+        color: Theme.of(context).colorScheme.primary,
+      ),
+    ),
+  );
 
   Widget _radioTile(
     String title,
@@ -835,18 +952,19 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
     void Function(String?)? onChanged,
   }) {
     return RadioListTile<String>(
-      title: Text(title,
-          style: TextStyle(
-              fontSize: 13,
-              color: isRed
-                  ? Colors.red
-                  : (enabled ? null : Colors.grey),
-              fontWeight:
-                  isRed ? FontWeight.bold : FontWeight.normal)),
+      title: Text(
+        title,
+        style: TextStyle(
+          fontSize: 13,
+          color: isRed ? Colors.red : (enabled ? null : Colors.grey),
+          fontWeight: isRed ? FontWeight.bold : FontWeight.normal,
+        ),
+      ),
       subtitle: subtitle.isNotEmpty
-          ? Text(subtitle,
-              style: TextStyle(
-                  fontSize: 11, color: Colors.grey.shade600))
+          ? Text(
+              subtitle,
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+            )
           : null,
       value: value,
       groupValue: groupValue,

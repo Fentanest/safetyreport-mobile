@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -177,15 +179,18 @@ const _permChannel = MethodChannel('com.fentanest.mysafetyreport/permissions');
 class _MainNavigationScreenState extends State<MainNavigationScreen>
     with WidgetsBindingObserver, TickerProviderStateMixin {
   int _selectedIndex = 0;
+  final GlobalKey<CrawlScreenState> _crawlScreenKey =
+      GlobalKey<CrawlScreenState>();
+  String _lastQuickActionSignature = '';
 
-  final List<Widget> _screens = [
+  late final List<Widget> _screens = [
     const DashboardScreen(),
     const ReportListScreen(),
     const ReportManagementScreen(),
     const StatisticsScreen(),
     const NotificationsScreen(),
     const FileBrowserScreen(),
-    const CrawlScreen(),
+    CrawlScreen(key: _crawlScreenKey),
   ];
 
   late final AnimationController _syncIconController;
@@ -248,10 +253,28 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
           _openNotificationPayloadDetail(payloadJson);
         });
       }
-      // standalone: 알림 탭으로 진입 → 동기화 즉시 트리거
-      if (eventType == 'standalone_sync' && mounted) {
-        await context.read<ReportProvider>().checkAutoSyncOnResume();
+      if (eventType.isNotEmpty && mounted) {
+        await _handleNavigationEvent(eventType);
       }
+    }
+  }
+
+  Future<void> _handleNavigationEvent(String eventType) async {
+    switch (eventType) {
+      case 'standalone_sync':
+        await context.read<ReportProvider>().checkAutoSyncOnResume();
+        return;
+      case 'quick_sync':
+      case 'quick_crawl':
+        for (var attempt = 0; attempt < 5; attempt++) {
+          final crawlState = _crawlScreenKey.currentState;
+          if (crawlState != null) {
+            await crawlState.handleQuickAction(eventType);
+            return;
+          }
+          await Future.delayed(const Duration(milliseconds: 200));
+        }
+        return;
     }
   }
 
@@ -830,6 +853,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   Widget build(BuildContext context) {
     final p = context.watch<ReportProvider>();
     final unread = context.watch<NotificationHistoryProvider>().unreadCount;
+    _refreshNativeQuickActionsIfNeeded(p);
 
     if (p.isSyncing) {
       if (!_syncIconController.isAnimating) _syncIconController.repeat();
@@ -900,5 +924,25 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
         ],
       ),
     );
+  }
+
+  void _refreshNativeQuickActionsIfNeeded(ReportProvider provider) {
+    final signature = [
+      provider.appMode.name,
+      provider.isConfigured ? 'configured' : 'not-configured',
+      provider.isStandaloneDemo ? 'demo' : 'live',
+    ].join('|');
+    if (signature == _lastQuickActionSignature) return;
+    _lastQuickActionSignature = signature;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_refreshNativeQuickActions());
+    });
+  }
+
+  Future<void> _refreshNativeQuickActions() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+    try {
+      await _permChannel.invokeMethod('refreshQuickActions');
+    } catch (_) {}
   }
 }

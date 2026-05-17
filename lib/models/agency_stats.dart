@@ -29,9 +29,11 @@ class AgencyStatRow {
   final double warningsPct;
   final int rejects;
   final double rejectsPct;
+  final int unconfirmed;
+  final double unconfirmedPct;
   final int totalFineAmount;
-  final double? avgRating;     // 별점 평균 (1~5, 표본 없으면 null)
-  final int ratingCount;       // 별점 표본 수
+  final double? avgRating; // 별점 평균 (1~5, 표본 없으면 null)
+  final int ratingCount; // 별점 표본 수
 
   const AgencyStatRow({
     required this.agency,
@@ -44,6 +46,8 @@ class AgencyStatRow {
     required this.warningsPct,
     required this.rejects,
     required this.rejectsPct,
+    required this.unconfirmed,
+    required this.unconfirmedPct,
     this.totalFineAmount = 0,
     this.avgRating,
     this.ratingCount = 0,
@@ -61,6 +65,8 @@ class AgencyStatRow {
       warningsPct: _toDoubleOrNull(json['warnings_pct']) ?? 0.0,
       rejects: _toIntOrNull(json['rejects']) ?? 0,
       rejectsPct: _toDoubleOrNull(json['rejects_pct']) ?? 0.0,
+      unconfirmed: _toIntOrNull(json['unconfirmed']) ?? 0,
+      unconfirmedPct: _toDoubleOrNull(json['unconfirmed_pct']) ?? 0.0,
       totalFineAmount: _toIntOrNull(json['total_fine_amount']) ?? 0,
       avgRating: _toDoubleOrNull(json['avg_rating']),
       ratingCount: _toIntOrNull(json['rating_count']) ?? 0,
@@ -96,12 +102,12 @@ class CategoryStats {
 
   factory CategoryStats.fromJson(Map<String, dynamic> json) {
     return CategoryStats(
-      byAgency:      _parse(json, 'by_agency'),
-      byPerson:      _parse(json, 'by_person'),
+      byAgency: _parse(json, 'by_agency'),
+      byPerson: _parse(json, 'by_person'),
       policeByAgency: _parse(json, 'police_by_agency'),
       policeByPerson: _parse(json, 'police_by_person'),
-      otherByAgency:  _parse(json, 'other_by_agency'),
-      otherByPerson:  _parse(json, 'other_by_person'),
+      otherByAgency: _parse(json, 'other_by_agency'),
+      otherByPerson: _parse(json, 'other_by_person'),
       availableLaws: (json['available_laws'] as List? ?? [])
           .map((e) => e.toString())
           .toList(),
@@ -126,11 +132,14 @@ class AgencyStats {
   factory AgencyStats.fromJson(Map<String, dynamic> json) {
     return AgencyStats(
       traffic: CategoryStats.fromJson(
-          (json['traffic'] as Map<String, dynamic>?) ?? {}),
+        (json['traffic'] as Map<String, dynamic>?) ?? {},
+      ),
       parking: CategoryStats.fromJson(
-          (json['parking'] as Map<String, dynamic>?) ?? {}),
+        (json['parking'] as Map<String, dynamic>?) ?? {},
+      ),
       other: CategoryStats.fromJson(
-          (json['other'] as Map<String, dynamic>?) ?? {}),
+        (json['other'] as Map<String, dynamic>?) ?? {},
+      ),
       availableYears: (json['available_years'] as List? ?? [])
           .map((y) => y.toString())
           .toList(),

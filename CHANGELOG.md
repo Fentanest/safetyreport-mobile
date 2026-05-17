@@ -61,6 +61,30 @@
   - standalone DB 기반 회귀 테스트 추가
   - watchlist cache invalidation, import preserve 시나리오 자동화
 
+### 지도 경고 상태 세분화 + 모드별 앱 아이콘 퀵 메뉴
+
+상태: 완료
+
+변경:
+- `lib/services/local_geocode_service.dart`, `lib/models/report_map.dart`, `lib/screens/report_map_screen.dart`
+  - standalone 지도에서 카카오 REST API 키가 한 번 등록돼 일부 좌표가 저장된 뒤 키가 제거되면, 기존 `reports` 좌표와 `geocode_cache` 로 채울 수 있는 신고는 계속 지도에 표시
+  - DB/캐시에 없는 새 주소만 더 이상 좌표 변환을 못 하는 경우 `config_warning` 상태와 별도 경고 문구를 노출
+  - 처음부터 키가 없어 지도가 비활성화된 `config_required` 와, 저장 좌표는 계속 쓰되 신규 변환만 막히는 `config_warning` 을 분리
+- `lib/models/agency_stats.dart`, `lib/services/local_db_service.dart`, `lib/screens/statistics_screen.dart`, `lib/screens/report_map_screen.dart`
+  - 모바일 통계/지도 처분 현황에서 `불수용/기타` 묶음은 유지하고, `미확인` 을 별도 bucket 으로 분리
+  - 지도 요약 상단의 `지점` 표기를 `처리기관` 으로 교체하고 서버 지도 meta 와 같은 기준을 따르도록 정리
+- `android/app/src/main/kotlin/com/fentanest/mysafetyreport/MainActivity.kt`, `ios/Runner/SceneDelegate.swift`, `lib/main.dart`, `lib/screens/crawl_screen.dart`
+  - 앱 아이콘 꾹 누르기 퀵 메뉴 추가
+  - standalone 구성 완료 시 `동기화`, client/server 구성 완료 시 `크롤링` 단일 shortcut 을 동적으로 노출
+  - shortcut 진입 시 크롤링/동기화 탭으로 이동한 뒤 해당 동작을 즉시 시도
+- `test/services/local_db_service_regression_test.dart`
+  - API 키 제거 후에도 저장 좌표/캐시 기반 지도 표시가 유지되고, 새 주소가 남으면 경고 상태로 전환되는 회귀 테스트 추가
+
+검증:
+- `flutter test`
+- `flutter analyze lib/models/report_map.dart lib/screens/report_map_screen.dart lib/services/local_geocode_service.dart test/services/local_db_service_regression_test.dart`
+- `flutter analyze lib/main.dart lib/screens/crawl_screen.dart`
+
 ## 2026-05-13
 
 ### Android 15 더 넓은 화면 권장조치 1차 대응 + Play Console 잔여 경고 원인 분리

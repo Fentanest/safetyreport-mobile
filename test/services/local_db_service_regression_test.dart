@@ -266,6 +266,7 @@ void main() {
         );
         expect(payload.meta.agencyCount, 1);
         expect(payload.points, hasLength(1));
+        expect(payload.points.first.fineRate, 25.0);
 
         final dispositionCounts = {
           for (final item in payload.points.first.dispositionBreakdown)

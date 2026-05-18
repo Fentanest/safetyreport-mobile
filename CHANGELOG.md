@@ -7,6 +7,24 @@
 
 ---
 
+## 2026-05-18
+
+### 신고 지도 지점 색상 구분 + 주소별 신고 내역 바로가기
+
+상태: 완료
+
+변경:
+- `lib/screens/report_map_screen.dart`, `lib/models/report_map.dart`
+  - 지도 최종 지점 원형 마커 색상을 `과태료` 처분 비중에 따라 구분
+  - 과태료 비중 `60% 이상`은 초록, `50% 이상`은 주황, `50% 미만`은 빨강으로 표시
+  - 지점 상세 바텀시트 아래 `리스트 보기` 버튼을 추가
+  - `리스트 보기`를 누르면 주소 필터가 적용된 `신고 내역` 화면으로 이동하고, 전체 지도에서 들어간 경우 해당 주소의 주된 카테고리 탭으로 먼저 진입
+
+검증:
+- `flutter test test/services/local_db_service_regression_test.dart`
+- `flutter analyze lib/models/report_map.dart lib/screens/report_map_screen.dart`
+  - 새 오류 없음, 기존 `withOpacity` info만 잔존
+
 ## 2026-05-17
 
 ### 신고 지도 화면, 좌표 백필, 서버/Standalone 지도 연동 추가

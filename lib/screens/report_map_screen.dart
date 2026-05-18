@@ -17,6 +17,7 @@ import '../services/local_db_service.dart';
 import '../services/local_geocode_service.dart';
 import '../widgets/report_detail_sheet.dart';
 import '../widgets/report_list_card.dart';
+import 'report_list_screen.dart';
 import 'settings_screen.dart';
 
 const double _kMapMarkerWidth = 100;
@@ -26,6 +27,16 @@ const EdgeInsets _kMapMarkerLabelPadding = EdgeInsets.symmetric(
   horizontal: 8,
   vertical: 3,
 );
+
+Color _mapPointColorForFineRate(double fineRate) {
+  if (fineRate >= 60) {
+    return const Color(0xFF2E7D32);
+  }
+  if (fineRate >= 50) {
+    return const Color(0xFFF57C00);
+  }
+  return const Color(0xFFC62828);
+}
 
 class ReportMapScreen extends StatefulWidget {
   final String initialYear;
@@ -811,6 +822,15 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
       statuses: point.statusBreakdown,
       dispositions: point.dispositionBreakdown,
       categories: point.categoryBreakdown,
+      onViewList: () {
+        final address = _resolvePointAddress(point);
+        final preferredCategory = _preferredCategoryForPoint(point);
+        Navigator.of(context).pop();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _openAddressReportList(address, preferredCategory: preferredCategory);
+        });
+      },
     );
   }
 
@@ -896,6 +916,66 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
     return list;
   }
 
+  String _resolvePointAddress(ReportMapPoint point) {
+    final address = point.address.trim();
+    if (address.isNotEmpty) {
+      return address;
+    }
+    return point.region.trim();
+  }
+
+  String? _preferredCategoryForPoint(ReportMapPoint point) {
+    if (_selectedCategory == 'traffic' ||
+        _selectedCategory == 'parking' ||
+        _selectedCategory == 'other') {
+      return _selectedCategory;
+    }
+
+    final counts = <String, int>{};
+    for (final item in point.categoryBreakdown) {
+      final label = item.label.trim();
+      if (label == '교통위반') {
+        counts['traffic'] = item.count;
+      } else if (label == '주정차위반') {
+        counts['parking'] = item.count;
+      } else if (label == '기타위반') {
+        counts['other'] = item.count;
+      }
+    }
+    if (counts.isEmpty) {
+      return null;
+    }
+    final sorted = counts.entries.toList()
+      ..sort((left, right) {
+        final countCompare = right.value.compareTo(left.value);
+        if (countCompare != 0) {
+          return countCompare;
+        }
+        return left.key.compareTo(right.key);
+      });
+    return sorted.first.value > 0 ? sorted.first.key : null;
+  }
+
+  void _openAddressReportList(String address, {String? preferredCategory}) {
+    final normalizedAddress = address.trim();
+    if (normalizedAddress.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('주소 정보가 없어 리스트를 열 수 없습니다.')));
+      return;
+    }
+
+    final provider = context.read<ReportProvider>();
+    provider.setFilter(ReportFilter(location: normalizedAddress));
+    final tabIndex = provider.categoryToTabIndex(preferredCategory);
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ReportListScreen(initialTabIndex: tabIndex),
+      ),
+    );
+  }
+
   void _showDetailBottomSheet({
     required String title,
     required String subtitle,
@@ -905,6 +985,7 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
     required List<ReportMapBreakdownItem> statuses,
     required List<ReportMapBreakdownItem> dispositions,
     required List<ReportMapBreakdownItem> categories,
+    VoidCallback? onViewList,
   }) {
     showModalBottomSheet<void>(
       context: context,
@@ -972,6 +1053,17 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
                 if (categories.isNotEmpty) ...[
                   const SizedBox(height: 18),
                   _sheetBreakdownSection('신고 종류 비중', categories),
+                ],
+                if (onViewList != null) ...[
+                  const SizedBox(height: 18),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: onViewList,
+                      icon: const Icon(Icons.list_alt_outlined, size: 18),
+                      label: const Text('리스트 보기'),
+                    ),
+                  ),
                 ],
               ],
             ),
@@ -1069,6 +1161,7 @@ class _MapPointMarker extends StatelessWidget {
         ? 44.0
         : 38.0;
     final label = point.region.trim().isNotEmpty ? point.region : point.address;
+    final markerColor = _mapPointColorForFineRate(point.fineRate);
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -1077,12 +1170,12 @@ class _MapPointMarker extends StatelessWidget {
           width: circleSize,
           height: circleSize,
           decoration: BoxDecoration(
-            color: const Color(0xFFF57C00),
+            color: markerColor,
             shape: BoxShape.circle,
             border: Border.all(color: Colors.white, width: 2),
-            boxShadow: const [
+            boxShadow: [
               BoxShadow(
-                color: Color(0x33000000),
+                color: markerColor.withValues(alpha: 0.28),
                 blurRadius: 8,
                 offset: Offset(0, 4),
               ),

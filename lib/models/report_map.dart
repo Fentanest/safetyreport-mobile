@@ -99,6 +99,15 @@ class ReportMapPoint {
 
   bool get hasValidCoordinates => _isValidMapCoordinate(lat, lng);
 
+  double get fineRate {
+    for (final item in dispositionBreakdown) {
+      if (item.label.trim() == '과태료' && item.pct.isFinite) {
+        return item.pct;
+      }
+    }
+    return 0;
+  }
+
   factory ReportMapPoint.fromJson(Map<String, dynamic> json) {
     final statusList = json['status_breakdown'] as List? ?? const [];
     final dispositionList = json['disposition_breakdown'] as List? ?? const [];

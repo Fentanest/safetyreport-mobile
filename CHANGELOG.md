@@ -9,6 +9,19 @@
 
 ## 2026-05-20
 
+### 신고 내역 탭 현재 건수 / 검색 결과 건수 표시
+
+상태: 완료
+
+변경:
+- `lib/screens/report_list_screen.dart`
+  - 신고 내역 AppBar 우측 검색/필터 아이콘 옆에 현재 탭에서 실제로 보이는 리스트 건수를 표시
+  - 검색/필터가 없을 때는 `12건`, 검색/필터가 적용된 상태에서는 `검색 12건` 형식으로 표시
+  - 교통/주정차/기타/중복차량 탭 전환 시 현재 탭 기준 건수가 즉시 갱신되도록 `TabController` 변경도 화면에 반영
+
+검증:
+- `flutter analyze lib/screens/report_list_screen.dart`
+
 ### Standalone 지오코딩 queued 대기 + 다음 실행 자동 재시도
 
 상태: 완료

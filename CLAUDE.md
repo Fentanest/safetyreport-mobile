@@ -117,7 +117,7 @@ lib/
     report_management_screen.dart    ── 하단 `신고관리` 탭 셸 (감시 목록 / 중복 신고 / 데이터 수정 서브탭)
     data_editor_screen.dart          ── 모바일 데이터 수정 패널 + 수정 바텀시트
     duplicate_management_screen.dart ── Client/Standalone 겸용 중복 신고 관리 패널
-    report_list_screen.dart          ── 4탭 (교통/주정차/기타/중복차량) + 통계/검색에서 넘어온 활성 필터 Chip 표시
+    report_list_screen.dart          ── 4탭 (교통/주정차/기타/중복차량) + 통계/검색에서 넘어온 활성 필터 Chip 표시 + 현재 탭 건수/검색 결과 건수 배지
     report_map_screen.dart           ── Client/Standalone 공통 신고 지도 + 백필 진행률 카드 + 미변환 주소 시트
     statistics_screen.dart           ── 연도×카테고리×유형 통계, 위반법규 필터, 행 탭 시 신고리스트 상세검색 기반 drilldown
     sunwi_screen.dart                ── 신고현황 화면 + 재사용 가능한 `SunwiSection`

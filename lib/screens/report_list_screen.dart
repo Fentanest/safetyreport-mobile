@@ -34,6 +34,7 @@ class _ReportListScreenState extends State<ReportListScreen>
           ? 3
           : widget.initialTabIndex,
     );
+    _tabController.addListener(_handleTabChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<ReportProvider>().fetchTrafficReports();
       context.read<ReportProvider>().fetchParkingReports();
@@ -44,8 +45,14 @@ class _ReportListScreenState extends State<ReportListScreen>
 
   @override
   void dispose() {
+    _tabController.removeListener(_handleTabChanged);
     _tabController.dispose();
     super.dispose();
+  }
+
+  void _handleTabChanged() {
+    if (!mounted || _tabController.indexIsChanging) return;
+    setState(() {});
   }
 
   void _toggleSelect(String reportNumber) {
@@ -59,6 +66,19 @@ class _ReportListScreenState extends State<ReportListScreen>
   }
 
   void _clearSelection() => setState(() => _selected.clear());
+
+  List<Report> _currentReports(ReportProvider provider) {
+    switch (_tabController.index) {
+      case 0:
+        return provider.filteredTrafficReports;
+      case 1:
+        return provider.filteredParkingReports;
+      case 2:
+        return provider.filteredOtherReports;
+      default:
+        return provider.filteredDuplicateReports;
+    }
+  }
 
   void _selectAllCurrentTab() {
     final provider = context.read<ReportProvider>();
@@ -88,6 +108,7 @@ class _ReportListScreenState extends State<ReportListScreen>
   Widget build(BuildContext context) {
     final provider = context.watch<ReportProvider>();
     final activeLabels = provider.filter.activeLabels;
+    final currentCount = _currentReports(provider).length;
 
     final allReports = [
       ...provider.filteredTrafficReports,
@@ -123,6 +144,37 @@ class _ReportListScreenState extends State<ReportListScreen>
           : AppBar(
               title: const Text('신고 내역'),
               actions: [
+                Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: provider.hasFilter
+                            ? Theme.of(context).colorScheme.primaryContainer
+                            : Theme.of(
+                                context,
+                              ).colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        provider.hasFilter
+                            ? '검색 $currentCount건'
+                            : '$currentCount건',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: provider.hasFilter
+                              ? Theme.of(context).colorScheme.onPrimaryContainer
+                              : Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
                 IconButton(
                   icon: Badge(
                     isLabelVisible: provider.hasFilter,

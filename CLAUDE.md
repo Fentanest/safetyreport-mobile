@@ -202,6 +202,9 @@ Client 모드 서버 경로와 이벤트 문자열은 Flutter/Dart 와 Android/K
   - `WindowCompat.setDecorFitsSystemWindows(window, false)` 를 `super.onCreate()` 전에 호출해 edge-to-edge 인셋만 연다.
   - 그 이후에는 `WindowInsetsControllerCompat` 로 status/navigation icon appearance 만 조정한다.
   - Android 15+ 대응이라고 해서 `setStatusBarColor()`, `setNavigationBarColor()` 같은 직접 호출을 앱 코드에 다시 추가하지 않는다.
+- `android/app/proguard-rules.pro`
+  - release 에서는 `Window.setStatusBarColor()`, `setNavigationBarColor()`, `setNavigationBarDividerColor()` 호출을 R8 에서 제거한다.
+  - Flutter embedding / 라이브러리 정적 참조 때문에 Play Console wider-screen 권장사항 2번이 재발하지 않도록 유지하는 규칙이다.
 - `lib/main.dart`
   - 앱 시작 시 `SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge)` 를 적용한다.
   - `AppBarTheme.systemOverlayStyle` 는 아이콘 밝기 위주로만 주고 `statusBarColor` 는 실어 보내지 않는 쪽을 유지한다.
@@ -209,13 +212,14 @@ Client 모드 서버 경로와 이벤트 문자열은 Flutter/Dart 와 Android/K
   - 앱 리소스/테마 쪽 `windowLayoutInDisplayCutoutMode` 문자열은 남지 않았다.
   - `enableEdgeToEdge()` 제거 후 AndroidX `EdgeToEdgeApi23/26/29` 경로의
     `setStatusBarColor`, `setNavigationBarColor` 참조는 release `classes.dex` 에서 빠졌다.
-  - 반면 Flutter embedding / platform overlay bridge 쪽 정적 참조로
-    `setStatusBarColor`, `setNavigationBarColor`, `setNavigationBarDividerColor`,
-    그리고 `SystemUiMode.immersiveSticky` enum 문자열은 여전히 남는다.
+  - release R8 규칙까지 적용한 뒤에는 `setStatusBarColor`, `setNavigationBarColor`,
+    `setNavigationBarDividerColor`, `SHORT_EDGES` 가 raw dex 문자열과 `dexdump` 기준 모두 매치되지 않았다.
+  - Flutter engine enum 문자열로 `SystemUiMode.immersiveSticky` 는 남을 수 있지만,
+    현재 Play Console 이 지목한 deprecated API / cutout 파라미터 목록에는 포함되지 않는다.
 - 해석:
   - 앱 코드에서 줄일 수 있는 Android 15 edge-to-edge / wider-screen 대응은 먼저 정리한다.
-  - 그 뒤에도 Play Console 권장조치 2번이 남으면, 바로 앱 코드 회귀를 의심하지 말고
-    Flutter embedding / AndroidX upstream 이슈를 먼저 확인한다.
+  - 그 뒤에도 Play Console 권장조치 2번이 남으면, 먼저 실제 업로드 AAB 기준으로
+    `dexdump` / raw strings / manifest 를 재점검하고 나서 upstream 이슈를 본다.
   - 특히 `FlutterFragmentActivity` 와 Flutter platform overlay bridge 가 release 산출물에 어떤 심볼을 남기는지
     AAB/APK 빌드 후 `dexdump` 로 확인하는 편이 빠르다.
 

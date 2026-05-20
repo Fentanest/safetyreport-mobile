@@ -32,6 +32,10 @@
   - `enableEdgeToEdge()` 대신 `WindowCompat.setDecorFitsSystemWindows(window, false)` 를 `super.onCreate()` 전에 적용
   - AndroidX edge-to-edge 백포트가 release AAB 에 남기던 `setStatusBarColor` / `setNavigationBarColor` 계열 deprecated 경로를 앱 코드에서 더 줄이고,
     이후 시스템 바 아이콘 대비는 기존처럼 `WindowInsetsControllerCompat` 로만 조정
+- `android/app/build.gradle.kts`, `android/app/proguard-rules.pro`
+  - release R8 단계에서 Android 15 deprecated system bar color API 호출을 no-op 처리하는 규칙 추가
+  - Flutter embedding / 라이브러리가 남기던 `setStatusBarColor` / `setNavigationBarColor` / `setNavigationBarDividerColor` 참조까지
+    release 산출물에서 제거되도록 보강
 
 검증:
 - `flutter test`
@@ -43,7 +47,8 @@
   - release AAB 생성 확인
 - release AAB `classes.dex` 재점검
   - AndroidX `EdgeToEdgeApi23/26/29` 쪽 deprecated 호출은 더 이상 보이지 않음
-  - 남은 `setStatusBarColor` / `setNavigationBarColor` / `setNavigationBarDividerColor` 참조는 Flutter embedding / platform overlay bridge 경로로 한정
+  - `setStatusBarColor` / `setNavigationBarColor` / `setNavigationBarDividerColor` / `SHORT_EDGES` 는 raw dex 문자열과 `dexdump` 기준 모두 매치 없음
+  - AAB manifest 쪽 `windowLayoutInDisplayCutoutMode` / `cutout` / `SHORT_EDGES` 도 매치 없음
 
 ### 신고 내역 탭 현재 건수 / 검색 결과 건수 표시
 

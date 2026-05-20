@@ -691,7 +691,9 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    // Android 15+ 에서는 immersive 계열이 display cutout deprecated 경고를
+    // 유발할 수 있어 edge-to-edge 유지 상태에서 전체화면을 구성한다.
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _scheduleHide();
   }
 

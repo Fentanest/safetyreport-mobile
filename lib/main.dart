@@ -13,6 +13,7 @@ import 'screens/file_browser_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/crawl_screen.dart';
 import 'models/app_mode.dart';
+import 'models/app_theme_mode.dart';
 import 'models/duplicate_group.dart';
 import 'models/report.dart';
 import 'providers/report_provider.dart';
@@ -47,6 +48,10 @@ class SafetyReportApp extends StatelessWidget {
   static const _serverIndicator = Color(0xFFE3EEFF);
   static const _standalonePrimary = Color(0xFF1B873B);
   static const _standaloneIndicator = Color(0xFFDFF1E3);
+  static const _darkSurface = Color(0xFF09131A);
+  static const _darkSurfaceLow = Color(0xFF101D26);
+  static const _darkSurfaceMid = Color(0xFF172733);
+  static const _darkSurfaceHigh = Color(0xFF213545);
 
   @override
   Widget build(BuildContext context) {
@@ -61,93 +66,17 @@ class SafetyReportApp extends StatelessWidget {
         return MaterialApp(
           title: '나만의 안전신문고',
           debugShowCheckedModeBanner: false,
-          theme: ThemeData(
-            useMaterial3: true,
-            // 초록 시드는 surface 에 노란기가 도는 톤을 만들어냄 → 흰색으로 강제.
-            // 카드/시트 등 모든 surface 계열을 중립 흰색 으로 통일.
-            colorScheme:
-                ColorScheme.fromSeed(
-                  seedColor: primary,
-                  brightness: Brightness.light,
-                ).copyWith(
-                  surface: Colors.white,
-                  surfaceContainerLowest: Colors.white,
-                  surfaceContainerLow: const Color(0xFFFAFAFA),
-                  surfaceContainer: const Color(0xFFF5F5F5),
-                  surfaceContainerHigh: const Color(0xFFEEEEEE),
-                  surfaceContainerHighest: const Color(0xFFE0E0E0),
-                ),
-            scaffoldBackgroundColor: Colors.white,
-            canvasColor: Colors.white,
-            appBarTheme: AppBarTheme(
-              centerTitle: false,
-              backgroundColor: primary,
-              foregroundColor: Colors.white,
-              elevation: 0,
-              systemOverlayStyle: const SystemUiOverlayStyle(
-                statusBarBrightness: Brightness.dark,
-                statusBarIconBrightness: Brightness.light,
-              ),
-              titleTextStyle: const TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            cardTheme: const CardThemeData(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.all(Radius.circular(14)),
-                side: BorderSide(color: Color(0xFFE8EAED)),
-              ),
-            ),
-            inputDecorationTheme: const InputDecorationTheme(
-              contentPadding: EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 12,
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.all(Radius.circular(10)),
-              ),
-            ),
-            navigationBarTheme: NavigationBarThemeData(
-              backgroundColor: Colors.white,
-              elevation: 8,
-              shadowColor: Colors.black12,
-              indicatorColor: indicator,
-              labelTextStyle: const WidgetStatePropertyAll(
-                TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
-              ),
-            ),
+          theme: _buildTheme(
+            brightness: Brightness.light,
+            primary: primary,
+            indicator: indicator,
           ),
-          darkTheme: ThemeData(
-            useMaterial3: true,
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: primary,
-              brightness: Brightness.dark,
-            ),
-            appBarTheme: const AppBarTheme(
-              centerTitle: false,
-              backgroundColor: Color(0xFF1E1E2E),
-              foregroundColor: Colors.white,
-              elevation: 0,
-              systemOverlayStyle: SystemUiOverlayStyle(
-                statusBarBrightness: Brightness.dark,
-                statusBarIconBrightness: Brightness.light,
-              ),
-              titleTextStyle: TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            cardTheme: const CardThemeData(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.all(Radius.circular(14)),
-              ),
-            ),
+          darkTheme: _buildTheme(
+            brightness: Brightness.dark,
+            primary: primary,
+            indicator: indicator,
           ),
+          themeMode: provider.themeMode.themeMode,
           home: Builder(
             builder: (_) {
               if (!provider.isInitialized) {
@@ -163,6 +92,171 @@ class SafetyReportApp extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+
+  ThemeData _buildTheme({
+    required Brightness brightness,
+    required Color primary,
+    required Color indicator,
+  }) {
+    final isDark = brightness == Brightness.dark;
+    final baseScheme = ColorScheme.fromSeed(
+      seedColor: primary,
+      brightness: brightness,
+    );
+    final surface = isDark ? _darkSurface : Colors.white;
+    final surfaceLow = isDark ? _darkSurfaceLow : const Color(0xFFFAFAFA);
+    final surfaceMid = isDark ? _darkSurfaceMid : const Color(0xFFF5F5F5);
+    final surfaceHigh = isDark ? _darkSurfaceHigh : const Color(0xFFE0E0E0);
+    final appBarColor = isDark
+        ? Color.alphaBlend(primary.withValues(alpha: 0.20), _darkSurfaceMid)
+        : primary;
+    final appBarForeground = isDark ? baseScheme.onSurface : Colors.white;
+    final outline = isDark ? const Color(0xFF2C4151) : const Color(0xFFE8EAED);
+    final scheme = baseScheme.copyWith(
+      primary: primary,
+      surface: surface,
+      surfaceContainerLowest: isDark ? const Color(0xFF060D13) : Colors.white,
+      surfaceContainerLow: surfaceLow,
+      surfaceContainer: surfaceMid,
+      surfaceContainerHigh: isDark ? _darkSurfaceHigh : const Color(0xFFEEEEEE),
+      surfaceContainerHighest: surfaceHigh,
+      outlineVariant: outline,
+    );
+    final overlayStyle = SystemUiOverlayStyle(
+      statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
+      statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+      systemNavigationBarIconBrightness: isDark
+          ? Brightness.light
+          : Brightness.dark,
+      systemNavigationBarContrastEnforced: false,
+      systemStatusBarContrastEnforced: false,
+    );
+    final inputBorder = OutlineInputBorder(
+      borderRadius: const BorderRadius.all(Radius.circular(10)),
+      borderSide: BorderSide(color: scheme.outlineVariant),
+    );
+
+    return ThemeData(
+      useMaterial3: true,
+      colorScheme: scheme,
+      scaffoldBackgroundColor: surface,
+      canvasColor: surface,
+      dividerColor: scheme.outlineVariant,
+      progressIndicatorTheme: ProgressIndicatorThemeData(color: primary),
+      appBarTheme: AppBarTheme(
+        centerTitle: false,
+        backgroundColor: appBarColor,
+        foregroundColor: appBarForeground,
+        elevation: 0,
+        surfaceTintColor: Colors.transparent,
+        systemOverlayStyle: overlayStyle,
+        titleTextStyle: TextStyle(
+          color: appBarForeground,
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      cardTheme: CardThemeData(
+        color: scheme.surfaceContainerLow,
+        elevation: 0,
+        margin: EdgeInsets.zero,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: const BorderRadius.all(Radius.circular(14)),
+          side: BorderSide(color: scheme.outlineVariant),
+        ),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: scheme.surfaceContainerLow,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: scheme.surface,
+        modalBackgroundColor: scheme.surface,
+        surfaceTintColor: Colors.transparent,
+        showDragHandle: true,
+        dragHandleColor: scheme.onSurfaceVariant.withValues(alpha: 0.55),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: isDark
+            ? scheme.surfaceContainerHigh.withValues(alpha: 0.82)
+            : scheme.surfaceContainerLowest,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
+        ),
+        labelStyle: TextStyle(color: scheme.onSurfaceVariant),
+        hintStyle: TextStyle(
+          color: scheme.onSurfaceVariant.withValues(
+            alpha: isDark ? 0.82 : 0.88,
+          ),
+        ),
+        prefixIconColor: scheme.onSurfaceVariant,
+        suffixIconColor: scheme.onSurfaceVariant,
+        border: inputBorder,
+        enabledBorder: inputBorder,
+        disabledBorder: inputBorder.copyWith(
+          borderSide: BorderSide(
+            color: scheme.outlineVariant.withValues(alpha: 0.65),
+          ),
+        ),
+        focusedBorder: inputBorder.copyWith(
+          borderSide: BorderSide(color: primary, width: 1.4),
+        ),
+      ),
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: isDark
+            ? scheme.surfaceContainerLow.withValues(alpha: 0.96)
+            : Colors.white.withValues(alpha: 0.98),
+        elevation: 8,
+        shadowColor: isDark ? Colors.black45 : Colors.black12,
+        indicatorColor: isDark
+            ? primary.withValues(alpha: 0.22)
+            : indicator,
+        labelTextStyle: const WidgetStatePropertyAll(
+          TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+        ),
+      ),
+      listTileTheme: ListTileThemeData(
+        iconColor: scheme.primary,
+        textColor: scheme.onSurface,
+      ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: isDark ? scheme.surfaceContainerHigh : null,
+        contentTextStyle: TextStyle(color: scheme.onInverseSurface),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          side: BorderSide(color: scheme.outlineVariant),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
+      switchTheme: SwitchThemeData(
+        trackOutlineColor: WidgetStatePropertyAll(scheme.outlineVariant),
+      ),
     );
   }
 }
@@ -350,7 +444,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     try {
       final decoded = jsonDecode(payloadJson);
       if (decoded is! Map) return;
-      final data = Map<String, dynamic>.from(decoded as Map);
+      final data = Map<String, dynamic>.from(decoded);
       final kind = data['notification_kind']?.toString() ?? 'report';
       if (kind == 'duplicate') {
         showDuplicateGroupDetailSheet(context, DuplicateGroup.fromJson(data));

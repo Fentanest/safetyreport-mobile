@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import '../models/app_mode.dart';
+import '../models/app_theme_mode.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
 import '../services/app_storage_paths.dart';
@@ -885,11 +886,44 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  String _themeModeDescription(AppThemeMode mode) {
+    switch (mode) {
+      case AppThemeMode.system:
+        return '기기의 라이트/다크 설정을 따라갑니다.';
+      case AppThemeMode.light:
+        return '항상 밝은 테마로 표시합니다.';
+      case AppThemeMode.dark:
+        return '야간 환경에서 읽기 쉬운 다크 테마를 사용합니다.';
+    }
+  }
+
+  Color _toneFill(
+    BuildContext context,
+    Color color, {
+    double lightOpacity = 0.10,
+    double darkOpacity = 0.20,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return color.withValues(alpha: isDark ? darkOpacity : lightOpacity);
+  }
+
+  Color _toneBorder(
+    BuildContext context,
+    Color color, {
+    double lightOpacity = 0.22,
+    double darkOpacity = 0.38,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return color.withValues(alpha: isDark ? darkOpacity : lightOpacity);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
     final provider = context.watch<ReportProvider>();
     final isStandalone = provider.appMode == AppMode.standalone;
+    final mutedColor = cs.onSurfaceVariant;
 
     return Scaffold(
       appBar: AppBar(title: const Text('앱 설정')),
@@ -911,9 +945,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       isStandalone
                           ? Icons.phone_android_rounded
                           : Icons.dns_rounded,
-                      color: isStandalone
-                          ? const Color(0xFF0F9D58)
-                          : cs.primary,
+                      color: cs.primary,
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -933,9 +965,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 : provider.baseUrl.isEmpty
                                 ? '미설정'
                                 : provider.baseUrl,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 12,
-                              color: Colors.grey,
+                              color: mutedColor,
                             ),
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -945,6 +977,113 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     TextButton(
                       onPressed: _confirmModeReset,
                       child: const Text('변경'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.dark_mode_outlined, color: cs.primary),
+                        const SizedBox(width: 8),
+                        Text(
+                          '화면 테마',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: cs.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '설정 화면을 포함한 앱 전체 테마를 직접 선택합니다.',
+                      style: TextStyle(color: mutedColor, fontSize: 12),
+                    ),
+                    const SizedBox(height: 12),
+                    RadioGroup<AppThemeMode>(
+                      groupValue: provider.themeMode,
+                      onChanged: (value) {
+                        if (value != null) {
+                          context.read<ReportProvider>().setThemeMode(value);
+                        }
+                      },
+                      child: Column(
+                        children: [
+                          RadioListTile<AppThemeMode>(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text(
+                              '시스템 설정 사용',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            subtitle: Text(
+                              '기기 설정을 그대로 따라갑니다.',
+                              style: TextStyle(fontSize: 12, color: mutedColor),
+                            ),
+                            value: AppThemeMode.system,
+                          ),
+                          RadioListTile<AppThemeMode>(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text(
+                              '라이트 모드',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            subtitle: Text(
+                              '항상 밝은 테마로 고정합니다.',
+                              style: TextStyle(fontSize: 12, color: mutedColor),
+                            ),
+                            value: AppThemeMode.light,
+                          ),
+                          RadioListTile<AppThemeMode>(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text(
+                              '다크 모드',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            subtitle: Text(
+                              '어두운 배경과 높은 대비로 가독성을 높입니다.',
+                              style: TextStyle(fontSize: 12, color: mutedColor),
+                            ),
+                            value: AppThemeMode.dark,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: cs.surfaceContainer,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: cs.outlineVariant),
+                      ),
+                      child: Text(
+                        '현재 선택: ${provider.themeMode.label}\n${_themeModeDescription(provider.themeMode)}',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: mutedColor,
+                          height: 1.45,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -962,17 +1101,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       Row(
                         children: [
-                          const Icon(
-                            Icons.account_circle_outlined,
-                            color: Color(0xFF0F9D58),
-                          ),
+                          Icon(Icons.account_circle_outlined, color: cs.primary),
                           const SizedBox(width: 8),
-                          const Text(
+                          Text(
                             '안전신문고 계정',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
-                              color: Color(0xFF0F9D58),
+                              color: cs.primary,
                             ),
                           ),
                         ],
@@ -1010,25 +1146,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       Row(
                         children: [
-                          const Icon(
-                            Icons.map_outlined,
-                            color: Color(0xFF0F9D58),
-                          ),
+                          Icon(Icons.map_outlined, color: cs.primary),
                           const SizedBox(width: 8),
-                          const Text(
+                          Text(
                             '지도 지오코딩',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
-                              color: Color(0xFF0F9D58),
+                              color: cs.primary,
                             ),
                           ),
                         ],
                       ),
                       const SizedBox(height: 4),
-                      const Text(
+                      Text(
                         'Standalone 지도 통계에서 주소를 위도/경도로 변환할 때 사용합니다.',
-                        style: TextStyle(color: Colors.grey, fontSize: 12),
+                        style: TextStyle(color: mutedColor, fontSize: 12),
                       ),
                       const SizedBox(height: 14),
                       TextField(
@@ -1084,19 +1217,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: _serverVersionLoading
-                            ? const Text(
+                            ? Text(
                                 '서버 버전 확인 중...',
                                 style: TextStyle(
                                   fontSize: 13,
-                                  color: Colors.grey,
+                                  color: mutedColor,
                                 ),
                               )
                             : _serverVersion == null
-                            ? const Text(
+                            ? Text(
                                 '서버 버전 정보 없음',
                                 style: TextStyle(
                                   fontSize: 13,
-                                  color: Colors.grey,
+                                  color: mutedColor,
                                 ),
                               )
                             : Column(
@@ -1127,7 +1260,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                               : _serverVersionStatus ==
                                                     'outdated'
                                               ? Colors.orange
-                                              : Colors.grey,
+                                              : mutedColor,
                                         ),
                                       ),
                                     ),
@@ -1174,9 +1307,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ],
                       ),
                       const SizedBox(height: 4),
-                      const Text(
+                      Text(
                         'Cloudflare Tunnel 또는 서버 주소를 입력하세요.',
-                        style: TextStyle(color: Colors.grey, fontSize: 13),
+                        style: TextStyle(color: mutedColor, fontSize: 13),
                       ),
                       const SizedBox(height: 16),
                       TextField(
@@ -1303,9 +1436,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ],
                       ),
                       const SizedBox(height: 4),
-                      const Text(
+                      Text(
                         '크롤링 완료 후 자동으로 내보내기를 실행합니다.',
-                        style: TextStyle(color: Colors.grey, fontSize: 12),
+                        style: TextStyle(color: mutedColor, fontSize: 12),
                       ),
                       const SizedBox(height: 12),
                       SwitchListTile(
@@ -1384,7 +1517,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       isStandalone
                           ? '변경 시 데이터가 즉시 갱신됩니다.'
                           : '웹앱 설정과 동기화됩니다. 변경 시 데이터가 즉시 갱신됩니다.',
-                      style: const TextStyle(color: Colors.grey, fontSize: 12),
+                      style: TextStyle(color: mutedColor, fontSize: 12),
                     ),
                     const SizedBox(height: 12),
                     SwitchListTile(
@@ -1469,11 +1602,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    const Text(
+                    Text(
                       '현재 기기(또는 서버)의 데이터를 파일로 백업합니다.\n저장 경로: Documents/mysafetyreport/',
                       style: TextStyle(
                         fontSize: 12,
-                        color: Colors.grey,
+                        color: mutedColor,
                         height: 1.5,
                       ),
                     ),
@@ -1548,9 +1681,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const _InfoRow(label: '플랫폼', value: 'Android / iOS'),
                     const _InfoRow(label: '공식 출처', value: '안전신문고'),
                     const SizedBox(height: 6),
-                    const SelectableText(
+                    SelectableText(
                       _officialSafetyReportUrl,
-                      style: TextStyle(fontSize: 12.5, height: 1.4),
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        height: 1.4,
+                        color: cs.onSurface,
+                      ),
                     ),
                     const SizedBox(height: 10),
                     SizedBox(
@@ -1566,26 +1703,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.blueGrey.shade50,
+                        color: cs.secondaryContainer.withValues(alpha: 0.35),
                         borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: Colors.blueGrey.shade100),
+                        border: Border.all(
+                          color: cs.secondary.withValues(alpha: 0.22),
+                        ),
                       ),
-                      child: const Column(
+                      child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             '이 앱은 안전신문고의 공식 앱이 아니며 행정안전부 또는 정부기관을 대표하지 않습니다.',
-                            style: TextStyle(fontSize: 12.5, height: 1.45),
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              height: 1.45,
+                              color: cs.onSurface,
+                            ),
                           ),
-                          SizedBox(height: 4),
+                          const SizedBox(height: 4),
                           Text(
                             '안전신문고 데이터를 사용자의 편의를 위해 조회·정리해 보여주는 비공식 도구입니다.',
-                            style: TextStyle(fontSize: 12.5, height: 1.45),
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              height: 1.45,
+                              color: cs.onSurface,
+                            ),
                           ),
-                          SizedBox(height: 4),
+                          const SizedBox(height: 4),
                           Text(
                             '원문 확인과 실제 민원 처리는 안전신문고 공식 서비스에서 진행해 주세요.',
-                            style: TextStyle(fontSize: 12.5, height: 1.45),
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              height: 1.45,
+                              color: cs.onSurface,
+                            ),
                           ),
                         ],
                       ),
@@ -1600,9 +1751,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
+                    Text(
                       '※ 인터넷 권한(INTERNET)은 Android 일반 권한으로 설치 시 별도 요청 없이 자동 부여됩니다.',
-                      style: TextStyle(fontSize: 11, color: Colors.grey),
+                      style: TextStyle(fontSize: 11, color: mutedColor),
                     ),
                   ],
                 ),
@@ -1621,7 +1772,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         children: [
                           Icon(
                             Icons.wifi_tethering,
-                            color: _wsRunning ? Colors.green : Colors.grey,
+                            color: _wsRunning ? Colors.green : mutedColor,
                           ),
                           const SizedBox(width: 8),
                           const Expanded(
@@ -1640,13 +1791,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                             decoration: BoxDecoration(
                               color: _wsRunning
-                                  ? Colors.green.shade50
-                                  : Colors.red.shade50,
+                                  ? _toneFill(context, Colors.green)
+                                  : _toneFill(context, Colors.red),
                               borderRadius: BorderRadius.circular(20),
                               border: Border.all(
                                 color: _wsRunning
-                                    ? Colors.green.shade300
-                                    : Colors.red.shade200,
+                                    ? _toneBorder(context, Colors.green)
+                                    : _toneBorder(context, Colors.red),
                               ),
                             ),
                             child: Text(
@@ -1655,18 +1806,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 fontSize: 12,
                                 fontWeight: FontWeight.bold,
                                 color: _wsRunning
-                                    ? Colors.green.shade700
-                                    : Colors.red.shade700,
+                                    ? Colors.green
+                                    : Colors.red,
                               ),
                             ),
                           ),
                         ],
                       ),
                       const SizedBox(height: 6),
-                      const Text(
+                      Text(
                         '앱 종료 후에도 크롤링 시작·완료 이벤트를 실시간으로 알림으로 받습니다.\n상단 상태바에 지속 알림이 표시됩니다.',
                         style: TextStyle(
-                          color: Colors.grey,
+                          color: mutedColor,
                           fontSize: 12,
                           height: 1.5,
                         ),
@@ -1737,17 +1888,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                             ),
                             const SizedBox(height: 2),
-                            const Text(
+                            Text(
                               '알림 접근, 배터리 최적화 제외, 백그라운드 서비스 등 권한을 관리합니다.',
                               style: TextStyle(
-                                color: Colors.grey,
+                                color: mutedColor,
                                 fontSize: 13,
                               ),
                             ),
                           ],
                         ),
                       ),
-                      const Icon(Icons.chevron_right, color: Colors.grey),
+                      Icon(Icons.chevron_right, color: mutedColor),
                     ],
                   ),
                 ),
@@ -1775,22 +1926,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildTestResult(_TestResult result) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     Color bg, fg;
     IconData icon;
     switch (result.type) {
       case _ResultType.success:
-        bg = Colors.green.shade50;
-        fg = Colors.green.shade800;
+        fg = isDark ? const Color(0xFF4ADE80) : const Color(0xFF166534);
+        bg = fg.withValues(alpha: isDark ? 0.18 : 0.10);
         icon = Icons.check_circle;
         break;
       case _ResultType.warn:
-        bg = Colors.orange.shade50;
-        fg = Colors.orange.shade800;
+        fg = isDark ? const Color(0xFFFBBF24) : const Color(0xFFB45309);
+        bg = fg.withValues(alpha: isDark ? 0.18 : 0.10);
         icon = Icons.warning;
         break;
       case _ResultType.error:
-        bg = Colors.red.shade50;
-        fg = Colors.red.shade800;
+        fg = isDark ? const Color(0xFFF87171) : const Color(0xFFB91C1C);
+        bg = fg.withValues(alpha: isDark ? 0.18 : 0.10);
         icon = Icons.error;
         break;
     }
@@ -1800,7 +1952,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: fg.withOpacity(0.3)),
+        border: Border.all(color: fg.withValues(alpha: 0.3)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1844,7 +1996,10 @@ class _InfoRow extends StatelessWidget {
             width: 80,
             child: Text(
               label,
-              style: const TextStyle(color: Colors.grey, fontSize: 13),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 13,
+              ),
             ),
           ),
           Text(
@@ -1879,9 +2034,9 @@ class _ChoiceTile extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          border: Border.all(color: cs.primary.withOpacity(0.4)),
+          border: Border.all(color: cs.primary.withValues(alpha: 0.4)),
           borderRadius: BorderRadius.circular(10),
-          color: cs.primary.withOpacity(0.04),
+          color: cs.primary.withValues(alpha: 0.04),
         ),
         child: Row(
           children: [
@@ -1900,7 +2055,7 @@ class _ChoiceTile extends StatelessWidget {
                     subtitle,
                     style: TextStyle(
                       fontSize: 11,
-                      color: Colors.grey.shade700,
+                      color: cs.onSurfaceVariant,
                       height: 1.3,
                     ),
                   ),

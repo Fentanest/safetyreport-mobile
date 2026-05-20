@@ -9,6 +9,35 @@
 
 ## 2026-05-20
 
+### 설정 화면 앱 테마 추가 + Android 15 edge-to-edge / cutout 후속 정리
+
+상태: 완료
+
+변경:
+- `lib/models/app_theme_mode.dart`, `lib/services/app_prefs_keys.dart`, `lib/providers/report_provider.dart`
+  - 앱 전역 테마 설정용 `system / light / dark` 모드를 추가하고 `SharedPreferences` 에 영속화
+  - 앱 재실행 후에도 사용자가 직접 고른 테마가 유지되도록 `ReportProvider.init()` 경로에 로드/저장 연결
+- `lib/main.dart`
+  - light/dark `ThemeData` 를 정식으로 분리 재구성
+  - dark surface / card / dialog / input / navigation bar / bottom sheet / button 스타일을 한 번에 맞추고 `MaterialApp.themeMode` 에 사용자 설정을 연결
+  - 앱 시작 시 `SystemUiMode.edgeToEdge` 를 유지하면서 상태바/내비게이션바 아이콘 대비만 조정
+- `lib/screens/settings_screen.dart`
+  - 설정 상단에 `화면 테마` 카드 추가
+  - `시스템 설정 사용 / 라이트 모드 / 다크 모드` 를 앱 내에서 직접 선택 가능
+  - 설정 화면의 안내 문구, 정보 박스, 상태 배지, 결과 박스 색상을 테마 기반으로 바꿔 다크 모드 가독성을 정리
+- `lib/widgets/report_detail_sheet.dart`
+  - 전체화면 동영상 페이지에서 `SystemUiMode.immersiveSticky` 사용을 제거하고 `edgeToEdge` 로 통일
+  - Android 15+ 의 `LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES` 관련 Play Console deprecated 경고를 유발할 가능성이 큰 경로를 앱 코드에서 제거
+
+검증:
+- `flutter test`
+- `flutter analyze lib/main.dart lib/screens/settings_screen.dart lib/widgets/report_detail_sheet.dart lib/providers/report_provider.dart lib/models/app_theme_mode.dart --no-fatal-infos`
+  - 새 error / warning 없음, 기존 info 레벨 lint 만 잔존
+- `JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 ./gradlew :app:stripReleaseDebugSymbols --stacktrace --info`
+  - 성공
+- `JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 ./gradlew :app:bundleRelease -q`
+  - release AAB 생성 확인
+
 ### 신고 내역 탭 현재 건수 / 검색 결과 건수 표시
 
 상태: 완료

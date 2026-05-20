@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/app_mode.dart';
+import '../models/app_theme_mode.dart';
 import '../models/rating_batch_result.dart';
 import '../models/report.dart';
 import '../services/api_service.dart';
@@ -170,6 +171,7 @@ class ReportFilter {
 
 class ReportProvider with ChangeNotifier {
   AppMode _appMode = AppMode.server;
+  AppThemeMode _themeMode = AppThemeMode.system;
   String _standaloneUsername = '';
   String _standalonePhoneNumber = '';
   bool _isStandaloneDemo = false;
@@ -225,6 +227,7 @@ class ReportProvider with ChangeNotifier {
   StreamSubscription<void>? _changesEmittedSub;
 
   AppMode get appMode => _appMode;
+  AppThemeMode get themeMode => _themeMode;
   String get standaloneUsername => _standaloneUsername;
   String get standalonePhoneNumber => _standalonePhoneNumber;
   bool get isStandaloneDemo => _isStandaloneDemo;
@@ -578,6 +581,9 @@ class ReportProvider with ChangeNotifier {
         const Duration(seconds: 5),
       );
       _appMode = AppModeX.fromString(prefs.getString(AppPrefsKeys.appMode));
+      _themeMode = AppThemeModeX.fromString(
+        prefs.getString(AppPrefsKeys.themeMode),
+      );
       _standaloneUsername =
           prefs.getString(AppPrefsKeys.standaloneUsername) ?? '';
       _standalonePhoneNumber =
@@ -705,6 +711,14 @@ class ReportProvider with ChangeNotifier {
       AppPrefsKeys.standaloneKakaoRestApiKey,
       _standaloneKakaoRestApiKey,
     );
+    notifyListeners();
+  }
+
+  Future<void> setThemeMode(AppThemeMode value) async {
+    if (_themeMode == value) return;
+    _themeMode = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(AppPrefsKeys.themeMode, value.name);
     notifyListeners();
   }
 

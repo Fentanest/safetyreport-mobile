@@ -8,6 +8,7 @@ class AppPrefsKeys {
 
   // 모드 / 자격증명
   static const appMode = 'appMode';
+  static const themeMode = 'themeMode';
   static const baseUrl = 'baseUrl';
   static const apiKey = 'apiKey';
   static const standaloneUsername = 'standaloneUsername';

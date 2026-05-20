@@ -312,6 +312,7 @@ class GeocodeBackfillProgress {
 
   bool get isCompleted => state == 'completed';
   bool get isError => state == 'error';
+  bool get isQueued => state == 'queued';
   bool get requiresConfiguration =>
       state == 'config_required' || state == 'config_warning';
   bool get isWarning => state == 'config_warning';

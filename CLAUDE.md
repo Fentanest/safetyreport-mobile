@@ -84,18 +84,21 @@ lib/
     duplicate_group.dart             ── 중복 신고 그룹/멤버 모델 + 상태/대표건 모드 라벨
     editor_schema.dart               ── 모바일/서버 공용 데이터 수정 필드 순서/예시 문구 모델
     report.dart                      ── Report 데이터 모델 (서버 컬럼명 한국어 그대로)
+    report_map.dart                  ── 신고 지도 payload / missing address / 백필 진행률 모델
     file_item.dart                   ── 파일 브라우저 항목
     notification_item.dart           ── 알림 히스토리 항목
     rating_batch_result.dart         ── 별점 배치 결과 / 개별 신고 결과 모델
     agency_stats.dart                ── 통계 데이터 모델
     sunwi.dart                       ── 신고현황 payload / 대분류 / 소분류 / 순위 항목 모델
   providers/
-    report_provider.dart             ── 신고/요약/필터 (`&`/`,` 검색, 상태/별점 다중선택, 위반법규 단일선택 + `없음` sentinel), recentAnswerReports 재계산, 자동 sync 트리거 (init/resume), 데모 모드 상태
+    report_provider.dart             ── 신고/요약/필터 (`&`/`,` 검색, 상태/별점 다중선택, 위반법규 단일선택 + `없음` sentinel), recentAnswerReports 재계산, 자동 sync/지오코딩 재시도 트리거 (init/resume/refresh), 데모 모드 상태
     notification_history_provider.dart ── 알림 히스토리 + 알림 탭 서브탭 인덱스 상태
   services/
     api_service.dart                 ── Client 모드 HTTP 클라이언트 (ServerContract 기반 URI/헤더 생성)
     duplicate_projection_service.dart ── Standalone 중복군 계산/대표건 projection/중복 상태 갱신
+    geocode_utils.dart               ── 주소 정규화 + geocode payload 헬퍼 (로컬 저장/백필 공용)
     local_db_service.dart            ── Standalone SQLite (서버와 동일 한국어 컬럼, Play review demo seed 포함)
+    local_geocode_service.dart       ── Standalone 지도 좌표 백필 + queued 상태/자동 재개
     network_retry_config.dart        ── 모바일 공용 재시도 횟수/기본 대기 상수 (`5회`)
     rating_service.dart              ── Client/Standalone 공통 별점 배치 처리 서비스
     server_contract.dart             ── Client 모드 서버 API/WS 경로, 헤더, URI 빌더 단일 소스
@@ -115,6 +118,7 @@ lib/
     data_editor_screen.dart          ── 모바일 데이터 수정 패널 + 수정 바텀시트
     duplicate_management_screen.dart ── Client/Standalone 겸용 중복 신고 관리 패널
     report_list_screen.dart          ── 4탭 (교통/주정차/기타/중복차량) + 통계/검색에서 넘어온 활성 필터 Chip 표시
+    report_map_screen.dart           ── Client/Standalone 공통 신고 지도 + 백필 진행률 카드 + 미변환 주소 시트
     statistics_screen.dart           ── 연도×카테고리×유형 통계, 위반법규 필터, 행 탭 시 신고리스트 상세검색 기반 drilldown
     sunwi_screen.dart                ── 신고현황 화면 + 재사용 가능한 `SunwiSection`
                                        (Client 서버 payload / Standalone 직접 수집, 3시간 TTL,
@@ -496,6 +500,11 @@ CREATE TABLE sync_meta (key TEXT PRIMARY KEY, value TEXT);
   - 서버 `synced_at` 가 있으면 그대로 복원하고, 없을 때만 import 시점 `now` 를 fallback 사용
   - 서버 duplicate group/member 테이블이 이미 있으면 import 직후 재계산으로 덮어쓰지 않고 exact copy 를 유지한다
   - 서버 `last_sync`, `watchlist`, 기타 sync meta key/value 도 함께 복원한다
+  - 단, `map_backfill_state` 같은 서버측 지도 백필 런타임 상태는 그대로 들고 오지 않는다. standalone 에서는 import/restore 뒤 `refreshAll()` → `LocalGeocodeService.ensureMapBackfillStartedFromStoredKey()` 흐름으로 다시 계산한다.
+- `LocalGeocodeService`
+  - 진행률 상태는 `config_required/config_warning/queued/running/error/completed`
+  - `SyncEngine.isRunning` 또는 `StandaloneAutoSyncService.isRunning` 이면 백필을 즉시 돌리지 않고 `queued` 로 남긴다. standalone 은 서버와 달리 self-lock보다는 sqflite 단일 큐 포화가 주요 리스크다.
+  - queued/pending/error 상태의 재시도는 지도 첫 진입뿐 아니라 `ReportProvider.refreshAll()`, setup import 적용 직후, standalone sync 완료 직후에도 자동으로 다시 건다.
 
 ### 주요 쿼리 함수
 - `computeSummary(excludeWithdraw, normalizePolice)` — 대시보드 요약

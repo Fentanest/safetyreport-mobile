@@ -7,6 +7,7 @@ import '../models/report.dart';
 import '../services/api_service.dart';
 import '../services/app_prefs_keys.dart';
 import '../services/local_db_service.dart';
+import '../services/local_geocode_service.dart';
 import '../services/permission_service.dart';
 import '../services/rating_service.dart';
 import '../services/standalone_auth_service.dart';
@@ -994,6 +995,7 @@ class ReportProvider with ChangeNotifier {
       }
       await fetchDuplicateReports();
       await fetchWatchlistNumbers();
+      await LocalGeocodeService.ensureMapBackfillStartedFromStoredKey();
     } else {
       await Future.wait([
         fetchSummary(),

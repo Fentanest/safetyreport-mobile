@@ -4,8 +4,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/models/agency_stats.dart';
 import 'package:safetyreport/models/report.dart';
 import 'package:safetyreport/models/report_map.dart';
+import 'package:safetyreport/services/app_prefs_keys.dart';
 import 'package:safetyreport/services/local_db_service.dart';
 import 'package:safetyreport/services/local_geocode_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 Report _report({
@@ -68,6 +70,85 @@ Future<String> _createInvalidServerDb() async {
   return path;
 }
 
+Future<String> _createServerDbWithSyncMeta() async {
+  final path =
+      '${Directory.systemTemp.path}/server_sync_meta_${DateTime.now().millisecondsSinceEpoch}.db';
+  final db = await openDatabase(
+    path,
+    version: 1,
+    onCreate: (txn, _) async {
+      await txn.execute(
+        'CREATE TABLE mysafety (ID TEXT PRIMARY KEY, value TEXT)',
+      );
+      await txn.execute('''
+        CREATE TABLE mysafetymerge_traffic (
+          ID TEXT PRIMARY KEY,
+          신고번호 TEXT,
+          위반장소 TEXT
+        )
+      ''');
+      await txn.execute('''
+        CREATE TABLE mysafetymerge_parking (
+          ID TEXT PRIMARY KEY,
+          신고번호 TEXT,
+          위반장소 TEXT
+        )
+      ''');
+      await txn.execute('''
+        CREATE TABLE mysafetymerge_other (
+          ID TEXT PRIMARY KEY,
+          신고번호 TEXT,
+          위반장소 TEXT
+        )
+      ''');
+      await txn.execute(
+        'CREATE TABLE mysafety_sync_meta (key TEXT PRIMARY KEY, value TEXT)',
+      );
+      await txn.insert('mysafety', {'ID': 'row-1', 'value': 'ok'});
+      await txn.insert('mysafetymerge_traffic', {
+        'ID': 'traffic-1',
+        '신고번호': 'TRAFFIC-1',
+        '위반장소': '서울특별시 강서구 마곡동 1',
+      });
+      await txn.insert('mysafety_sync_meta', {
+        'key': 'map_backfill_state',
+        'value': 'queued',
+      });
+      await txn.insert('mysafety_sync_meta', {
+        'key': 'preserve_me',
+        'value': 'ok',
+      });
+    },
+  );
+  await db.close();
+  return path;
+}
+
+Future<String> _createMobileBackupWithStaleMapState() async {
+  await LocalDbService.upsertReport(
+    _report(
+      id: 'backup-1',
+      reportNumber: 'BACKUP-1',
+      location: '서울특별시 강서구 마곡동 9',
+    ),
+    'traffic',
+    '자동차·교통위반',
+  );
+  final db = await LocalDbService.db;
+  await db.insert('sync_meta', {
+    'key': 'map_backfill_state',
+    'value': 'queued',
+  });
+  await db.insert('sync_meta', {'key': 'preserve_me', 'value': 'ok'});
+  await LocalDbService.closeDb();
+
+  final sourcePath = await LocalDbService.getDbPath();
+  final backupPath =
+      '${Directory.systemTemp.path}/mobile_backup_${DateTime.now().millisecondsSinceEpoch}.db';
+  await File(sourcePath).copy(backupPath);
+  return backupPath;
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -77,6 +158,7 @@ void main() {
   });
 
   setUp(() async {
+    SharedPreferences.setMockInitialValues({});
     await _resetStandaloneDb();
   });
 
@@ -193,6 +275,51 @@ void main() {
         final rows = await db.query('reports', orderBy: '신고번호 ASC');
         expect(rows, hasLength(1));
         expect(rows.first['신고번호'], 'KEEP-1');
+      },
+    );
+
+    test('server db import drops stale map backfill sync state', () async {
+      final serverDbPath = await _createServerDbWithSyncMeta();
+      addTearDown(() async {
+        await deleteDatabase(serverDbPath);
+      });
+
+      final imported = await LocalDbService.importFromServerDb(serverDbPath);
+      expect(imported, 1);
+
+      final db = await LocalDbService.db;
+      final rows = await db.query('sync_meta', orderBy: 'key ASC');
+      final keys = rows
+          .map((row) => row['key']?.toString() ?? '')
+          .where((key) => key.isNotEmpty)
+          .toSet();
+
+      expect(keys.contains('map_backfill_state'), isFalse);
+      expect(keys.contains('preserve_me'), isTrue);
+    });
+
+    test(
+      'replacing mobile backup clears stale map backfill sync state',
+      () async {
+        final backupPath = await _createMobileBackupWithStaleMapState();
+        addTearDown(() async {
+          final file = File(backupPath);
+          if (file.existsSync()) {
+            await file.delete();
+          }
+        });
+
+        await LocalDbService.replaceFromBackup(backupPath);
+
+        final db = await LocalDbService.db;
+        final rows = await db.query('sync_meta', orderBy: 'key ASC');
+        final keys = rows
+            .map((row) => row['key']?.toString() ?? '')
+            .where((key) => key.isNotEmpty)
+            .toSet();
+
+        expect(keys.contains('map_backfill_state'), isFalse);
+        expect(keys.contains('preserve_me'), isTrue);
       },
     );
 
@@ -334,6 +461,82 @@ void main() {
         final rows = await db.query('reports', orderBy: 'ID ASC');
         final cachedRow = rows.firstWhere((row) => row['ID'] == 'cache-1');
         final uncachedRow = rows.firstWhere((row) => row['ID'] == 'uncached-1');
+
+        expect(cachedRow['위도'], 37.5601);
+        expect(cachedRow['경도'], 126.8301);
+        expect(cachedRow['지오코딩상태'], 'ok');
+        expect(uncachedRow['위도'], isNull);
+        expect(uncachedRow['경도'], isNull);
+      },
+    );
+
+    test(
+      'stored key retry helper replays cached geocoding work on next app run',
+      () async {
+        await LocalDbService.upsertReport(
+          _report(
+            id: 'startup-cache-1',
+            reportNumber: 'STARTUP-CACHE-1',
+            location: '서울특별시 강서구 마곡동 1',
+          ),
+          'traffic',
+          '자동차·교통위반',
+        );
+        await LocalDbService.upsertReport(
+          _report(
+            id: 'startup-uncached-1',
+            reportNumber: 'STARTUP-UNCACHED-1',
+            location: '서울특별시 강서구 방화동 9',
+          ),
+          'traffic',
+          '자동차·교통위반',
+        );
+
+        final db = await LocalDbService.db;
+        await db.insert('geocode_cache', {
+          '주소정규화': '서울특별시 강서구 마곡동 1',
+          '원본주소': '서울특별시 강서구 마곡동 1',
+          '행정구역': '서울특별시 강서구 마곡동',
+          '위도': 37.5601,
+          '경도': 126.8301,
+          '상태': 'ok',
+          'source': 'kakao',
+          'error_message': '',
+          'updated_at': DateTime.now().millisecondsSinceEpoch,
+        });
+
+        SharedPreferences.setMockInitialValues({
+          AppPrefsKeys.appMode: 'standalone',
+          AppPrefsKeys.standaloneUsername: 'tester',
+          AppPrefsKeys.standalonePhoneNumber: '01012341234',
+          AppPrefsKeys.standaloneDemoMode: true,
+          AppPrefsKeys.standaloneKakaoRestApiKey: '',
+        });
+
+        await LocalGeocodeService.ensureMapBackfillStartedFromStoredKey();
+
+        GeocodeBackfillProgress progress =
+            LocalGeocodeService.currentProgress();
+        for (
+          var i = 0;
+          i < 40 && (progress.running || progress.state == 'queued');
+          i++
+        ) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          progress = LocalGeocodeService.currentProgress();
+        }
+
+        expect(progress.state, 'config_warning');
+        expect(progress.updated, 1);
+        expect(progress.remainingMissing, 1);
+
+        final rows = await db.query('reports', orderBy: 'ID ASC');
+        final cachedRow = rows.firstWhere(
+          (row) => row['ID'] == 'startup-cache-1',
+        );
+        final uncachedRow = rows.firstWhere(
+          (row) => row['ID'] == 'startup-uncached-1',
+        );
 
         expect(cachedRow['위도'], 37.5601);
         expect(cachedRow['경도'], 126.8301);

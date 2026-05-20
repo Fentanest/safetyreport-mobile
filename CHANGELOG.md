@@ -7,6 +7,30 @@
 
 ---
 
+## 2026-05-20
+
+### Standalone 지오코딩 queued 대기 + 다음 실행 자동 재시도
+
+상태: 완료
+
+변경:
+- `lib/services/local_geocode_service.dart`, `lib/providers/report_provider.dart`
+  - Standalone 지도 백필 진행률에 `queued` 상태를 추가
+  - `SyncEngine` 또는 `StandaloneAutoSyncService` 가 동작 중이면 지오코딩 백필을 즉시 돌리지 않고 대기 상태로 전환
+  - `refreshAll()` 끝에서 저장된 카카오 REST API 키 기준으로 queued/pending/error 지오코딩을 자동 재시도하도록 연결
+- `lib/screens/report_map_screen.dart`, `lib/models/report_map.dart`
+  - Client/Standalone 공통 지도 UI가 `queued` 상태를 인식하고 진행 카드/빈 상태 문구/polling 을 계속 유지하도록 수정
+  - 서버가 `queued` 진행률을 내려주는 경우에도 모바일 Client 화면이 정상적으로 대기 상태를 표시
+- `lib/services/local_db_service.dart`, `lib/screens/setup_screen.dart`, `lib/screens/crawl_screen.dart`
+  - 서버 DB import 와 모바일 백업 복원 시 stale `map_backfill_state` 를 버리고, 모드 전환 import 직후와 standalone sync 완료 직후 `refreshAll()` 을 다시 태워 백필을 재개
+- `test/services/local_db_service_regression_test.dart`
+  - stale `map_backfill_state` 제거, stored key 기반 다음 실행 재시도, queued 흐름 회귀 테스트 추가
+
+검증:
+- `flutter test test/services/local_db_service_regression_test.dart test/services/pending_db_import_action_test.dart`
+- `flutter analyze lib/services/local_geocode_service.dart lib/models/report_map.dart lib/providers/report_provider.dart lib/services/local_db_service.dart lib/screens/report_map_screen.dart lib/screens/setup_screen.dart lib/screens/crawl_screen.dart`
+  - 새 오류 없음, 기존 deprecation/unused 경고만 잔존
+
 ## 2026-05-18
 
 ### 신고 지도 지점 색상 구분 + 주소별 신고 내역 바로가기

@@ -202,6 +202,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
             _syncProgress = event.current;
             _syncTotal = event.total;
             _loadStandaloneInfo();
+            unawaited(context.read<ReportProvider>().refreshAll());
           case SyncEventType.error:
             _setRunning(false);
             _logLines.add('[오류] ${event.message}');

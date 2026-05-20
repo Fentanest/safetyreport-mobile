@@ -132,7 +132,7 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
 
   void _syncProgressPolling(GeocodeBackfillProgress progress) {
     _progressTimer?.cancel();
-    if (!progress.running) return;
+    if (!progress.running && !progress.isQueued) return;
     _progressTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
       final provider = context.read<ReportProvider>();
       try {
@@ -148,7 +148,7 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
 
         if (!mounted) return;
         setState(() => _progress = next);
-        if (!next.running) {
+        if (!next.running && !next.isQueued) {
           _progressTimer?.cancel();
           await _loadMap(silent: true);
         }
@@ -203,6 +203,7 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
                 _buildFilterBar(cs),
                 if (progress != null &&
                     (progress.running ||
+                        progress.isQueued ||
                         progress.errorMessage.isNotEmpty ||
                         progress.requiresConfiguration))
                   _buildProgressCard(progress),
@@ -489,19 +490,29 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
   Widget _buildProgressCard(GeocodeBackfillProgress progress) {
     final provider = context.watch<ReportProvider>();
     final isStandalone = provider.appMode == AppMode.standalone;
+    final isQueued = progress.isQueued;
     final isWarning = progress.isWarning;
     final isConfigRequired =
         progress.requiresConfiguration && !progress.isWarning;
     final accentColor = progress.isError
         ? Colors.red
+        : isQueued
+        ? Colors.indigo
         : isWarning || isConfigRequired
         ? Colors.orange
         : Colors.blueGrey;
     final cardColor = progress.isError
         ? Colors.red.withOpacity(0.05)
+        : isQueued
+        ? Colors.indigo.withOpacity(0.06)
         : isWarning || isConfigRequired
         ? Colors.orange.withOpacity(0.08)
         : Colors.blue.withOpacity(0.05);
+    final double? progressValue = isQueued
+        ? null
+        : progress.running
+        ? progress.progressPct / 100
+        : 1;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
       child: Card(
@@ -516,6 +527,8 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
                   Icon(
                     progress.isError
                         ? Icons.error_outline
+                        : isQueued
+                        ? Icons.hourglass_top_rounded
                         : isWarning || isConfigRequired
                         ? Icons.warning_amber_rounded
                         : Icons.public,
@@ -530,6 +543,8 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
                           ? '저장된 좌표로 지도는 계속 표시됩니다'
                           : isConfigRequired
                           ? 'REST API 키를 입력하면 좌표 변환을 시작합니다'
+                          : isQueued
+                          ? '주소 좌표 변환 대기 중'
                           : progress.running
                           ? '주소 좌표 변환 진행 중'
                           : '주소 좌표 변환 완료',
@@ -543,7 +558,7 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
               ),
               const SizedBox(height: 10),
               LinearProgressIndicator(
-                value: progress.running ? progress.progressPct / 100 : 1,
+                value: progressValue,
                 minHeight: 8,
                 borderRadius: BorderRadius.circular(999),
                 color: accentColor,
@@ -566,6 +581,8 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
                     fontSize: 12,
                     color: progress.isError
                         ? Colors.red
+                        : isQueued
+                        ? Colors.indigo.shade700
                         : Colors.orange.shade800,
                     height: 1.4,
                   ),
@@ -664,6 +681,8 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
   Widget _buildEmptyState(GeocodeBackfillProgress? progress) {
     final message = progress != null && progress.running
         ? '주소 좌표를 채우는 중입니다.\n완료되면 지도가 자동으로 표시됩니다.'
+        : progress?.isQueued == true
+        ? '다른 동기화 또는 DB 가져오기가 끝나면\n주소 좌표 변환을 자동으로 다시 시작합니다.'
         : progress?.isWarning == true
         ? '저장된 좌표가 있는 신고는 계속 지도에 표시됩니다.\n다만 DB에 없는 새 주소는 카카오 REST API 키를 다시 입력해야 변환할 수 있습니다.'
         : progress?.requiresConfiguration == true

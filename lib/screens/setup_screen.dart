@@ -77,9 +77,7 @@ class _SetupScreenState extends State<SetupScreen> {
         apiKey: key,
       );
       if (!result.isOk) {
-        setState(
-          () => _errorMessage = result.message ?? '서버에 연결할 수 없습니다.',
-        );
+        setState(() => _errorMessage = result.message ?? '서버에 연결할 수 없습니다.');
         return;
       }
       if (!mounted) return;
@@ -175,6 +173,9 @@ class _SetupScreenState extends State<SetupScreen> {
     if (action == null) return;
     try {
       final message = await action.apply();
+      if (mounted) {
+        await context.read<ReportProvider>().refreshAll();
+      }
       if (message != null && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

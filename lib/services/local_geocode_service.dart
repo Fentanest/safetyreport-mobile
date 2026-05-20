@@ -2,11 +2,15 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../models/report_map.dart';
+import 'app_prefs_keys.dart';
 import 'geocode_utils.dart';
 import 'local_db_service.dart';
+import 'standalone_auto_sync_service.dart';
+import 'sync_engine.dart';
 
 const _kakaoAddressUrl = 'https://dapi.kakao.com/v2/local/search/address.json';
 
@@ -32,6 +36,7 @@ class LocalGeocodeService {
   static Future<void>? _runningTask;
   static Map<String, dynamic> _progressState = _initialProgressState();
   static const _remainingCountEveryRows = 40;
+  static const _queuedMessage = '동기화 또는 DB 가져오기가 끝나면 주소 좌표 변환을 자동으로 다시 시작합니다.';
 
   static Map<String, dynamic> _initialProgressState() {
     return {
@@ -53,6 +58,19 @@ class LocalGeocodeService {
   static GeocodeBackfillProgress currentProgress() =>
       GeocodeBackfillProgress.fromJson(_progressState);
 
+  static bool _shouldQueueForSync() =>
+      SyncEngine.isRunning || StandaloneAutoSyncService.isRunning;
+
+  static Future<GeocodeBackfillProgress> ensureMapBackfillStartedFromStoredKey({
+    int batchSize = 80,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    return ensureMapBackfillStarted(
+      apiKey: prefs.getString(AppPrefsKeys.standaloneKakaoRestApiKey) ?? '',
+      batchSize: batchSize,
+    );
+  }
+
   static GeocodeBackfillProgress _setProgressState(
     Map<String, dynamic> updates,
   ) {
@@ -71,6 +89,30 @@ class LocalGeocodeService {
       _progressState['progress_pct'] = 0.0;
     }
     return currentProgress();
+  }
+
+  static GeocodeBackfillProgress _queueBackfill({
+    required int total,
+    required int processed,
+    required int updated,
+    required int notFound,
+    required int remainingMissing,
+    required bool hasSavedCoordinates,
+    int? startedAt,
+  }) {
+    return _setProgressState({
+      'state': 'queued',
+      'running': false,
+      'total': total,
+      'processed': processed,
+      'updated': updated,
+      'not_found': notFound,
+      'remaining_missing': remainingMissing,
+      'error_message': _queuedMessage,
+      'finished_at': DateTime.now().millisecondsSinceEpoch,
+      'has_saved_coordinates': hasSavedCoordinates,
+      if (startedAt != null) 'started_at': startedAt,
+    });
   }
 
   static Future<int> countSavedCoordinateRecords() async {
@@ -159,6 +201,18 @@ class LocalGeocodeService {
       });
     }
 
+    if (_shouldQueueForSync()) {
+      return _queueBackfill(
+        total: pending,
+        processed: 0,
+        updated: 0,
+        notFound: 0,
+        remainingMissing: pending,
+        hasSavedCoordinates: hasSavedCoordinates,
+        startedAt: 0,
+      );
+    }
+
     _setProgressState({
       'state': 'running',
       'running': true,
@@ -211,6 +265,19 @@ class LocalGeocodeService {
     try {
       remainingMissing = await countPendingReports();
       while (true) {
+        if (_shouldQueueForSync()) {
+          _queueBackfill(
+            total:
+                (_progressState['total'] as num?)?.toInt() ?? remainingMissing,
+            processed: processed,
+            updated: updated,
+            notFound: notFound,
+            remainingMissing: remainingMissing,
+            hasSavedCoordinates: hasSavedCoordinates,
+          );
+          return;
+        }
+
         final d = await LocalDbService.db;
         final rows = cacheOnlyMode
             ? await d.rawQuery(
@@ -245,6 +312,20 @@ class LocalGeocodeService {
         if (rows.isEmpty) break;
 
         for (final row in rows) {
+          if (_shouldQueueForSync()) {
+            _queueBackfill(
+              total:
+                  (_progressState['total'] as num?)?.toInt() ??
+                  (processed + remainingMissing),
+              processed: processed,
+              updated: updated,
+              notFound: notFound,
+              remainingMissing: remainingMissing,
+              hasSavedCoordinates: hasSavedCoordinates,
+            );
+            return;
+          }
+
           final normalizedRow = Map<String, dynamic>.from(row);
           final reportId = normalizedRow['ID']?.toString() ?? '';
           final address = normalizedRow['위반장소']?.toString() ?? '';

@@ -2099,7 +2099,7 @@ class LocalDbService {
       final sourceRows = await serverDb.query('mysafety_sync_meta');
       for (final row in sourceRows) {
         final key = row['key']?.toString() ?? '';
-        if (key.isEmpty) continue;
+        if (key.isEmpty || key == 'map_backfill_state') continue;
         rows.add({'key': key, 'value': row['value']?.toString() ?? ''});
       }
     } catch (_) {}
@@ -2435,6 +2435,11 @@ class LocalDbService {
     await src.copy(dbPath);
     await _cleanupPreparedSnapshot(preparedDbPath);
     final reopened = await db;
+    await reopened.delete(
+      'sync_meta',
+      where: 'key = ?',
+      whereArgs: ['map_backfill_state'],
+    );
     await DuplicateProjectionService.refreshDuplicateGroups(reopened);
     _invalidateProjectRowsCache();
     // 다음 db getter 호출 시 새로 open.

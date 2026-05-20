@@ -28,6 +28,10 @@
 - `lib/widgets/report_detail_sheet.dart`
   - 전체화면 동영상 페이지에서 `SystemUiMode.immersiveSticky` 사용을 제거하고 `edgeToEdge` 로 통일
   - Android 15+ 의 `LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES` 관련 Play Console deprecated 경고를 유발할 가능성이 큰 경로를 앱 코드에서 제거
+- `android/app/src/main/kotlin/com/fentanest/mysafetyreport/MainActivity.kt`
+  - `enableEdgeToEdge()` 대신 `WindowCompat.setDecorFitsSystemWindows(window, false)` 를 `super.onCreate()` 전에 적용
+  - AndroidX edge-to-edge 백포트가 release AAB 에 남기던 `setStatusBarColor` / `setNavigationBarColor` 계열 deprecated 경로를 앱 코드에서 더 줄이고,
+    이후 시스템 바 아이콘 대비는 기존처럼 `WindowInsetsControllerCompat` 로만 조정
 
 검증:
 - `flutter test`
@@ -37,6 +41,9 @@
   - 성공
 - `JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64 ./gradlew :app:bundleRelease -q`
   - release AAB 생성 확인
+- release AAB `classes.dex` 재점검
+  - AndroidX `EdgeToEdgeApi23/26/29` 쪽 deprecated 호출은 더 이상 보이지 않음
+  - 남은 `setStatusBarColor` / `setNavigationBarColor` / `setNavigationBarDividerColor` 참조는 Flutter embedding / platform overlay bridge 경로로 한정
 
 ### 신고 내역 탭 현재 건수 / 검색 결과 건수 표시
 

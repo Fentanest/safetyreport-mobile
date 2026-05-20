@@ -199,23 +199,25 @@ Client 모드 서버 경로와 이벤트 문자열은 Flutter/Dart 와 Android/K
 ## Android 15 / Play Console wider-screen 메모
 
 - `android/app/src/main/kotlin/com/fentanest/mysafetyreport/MainActivity.kt`
-  - `enableEdgeToEdge()` 는 `super.onCreate()` 전에 호출한다.
+  - `WindowCompat.setDecorFitsSystemWindows(window, false)` 를 `super.onCreate()` 전에 호출해 edge-to-edge 인셋만 연다.
   - 그 이후에는 `WindowInsetsControllerCompat` 로 status/navigation icon appearance 만 조정한다.
   - Android 15+ 대응이라고 해서 `setStatusBarColor()`, `setNavigationBarColor()` 같은 직접 호출을 앱 코드에 다시 추가하지 않는다.
 - `lib/main.dart`
   - 앱 시작 시 `SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge)` 를 적용한다.
   - `AppBarTheme.systemOverlayStyle` 는 아이콘 밝기 위주로만 주고 `statusBarColor` 는 실어 보내지 않는 쪽을 유지한다.
-- 2026-05-13 release APK 점검 결과:
+- 2026-05-20 release AAB 재점검 결과:
   - 앱 리소스/테마 쪽 `windowLayoutInDisplayCutoutMode` 문자열은 남지 않았다.
-  - 반면 release `classes.dex` 에는 Flutter embedding / AndroidX activity 구현의 정적 참조로
+  - `enableEdgeToEdge()` 제거 후 AndroidX `EdgeToEdgeApi23/26/29` 경로의
+    `setStatusBarColor`, `setNavigationBarColor` 참조는 release `classes.dex` 에서 빠졌다.
+  - 반면 Flutter embedding / platform overlay bridge 쪽 정적 참조로
     `setStatusBarColor`, `setNavigationBarColor`, `setNavigationBarDividerColor`,
-    그리고 cutout mode helper 가 여전히 포함됐다.
-  - Play Console 이 지목한 `A1.o.o`, `A1.o.p`, `X0.k.a`, `b.n.y`, `b.o.y`, `b.q.y` 도 APK 내부에서 확인됐다.
+    그리고 `SystemUiMode.immersiveSticky` enum 문자열은 여전히 남는다.
 - 해석:
   - 앱 코드에서 줄일 수 있는 Android 15 edge-to-edge / wider-screen 대응은 먼저 정리한다.
   - 그 뒤에도 Play Console 권장조치 2번이 남으면, 바로 앱 코드 회귀를 의심하지 말고
-    Flutter embedding / AndroidX `activity` 버전과 upstream 이슈를 먼저 확인한다.
-  - 특히 `FlutterFragmentActivity` 와 Flutter platform overlay bridge 가 release 산출물에 어떤 심볼을 남기는지 `flutter build apk --release` 후 `dexdump` 로 확인하는 편이 빠르다.
+    Flutter embedding / AndroidX upstream 이슈를 먼저 확인한다.
+  - 특히 `FlutterFragmentActivity` 와 Flutter platform overlay bridge 가 release 산출물에 어떤 심볼을 남기는지
+    AAB/APK 빌드 후 `dexdump` 로 확인하는 편이 빠르다.
 
 ## 재사용 패널 구조
 

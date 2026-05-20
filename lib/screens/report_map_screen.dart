@@ -632,48 +632,76 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
   }
 
   Widget _buildMetaSummary(ReportMapMeta meta) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        _smallStat('전체', meta.totalReports, Colors.blue),
-        _smallStat('좌표화', meta.geocodedReports, serverAcceptColor),
-        _smallStat('미변환', meta.missingReports, serverSupplementColor),
-        _smallStat('처리기관', meta.agencyCount, Colors.teal),
-      ],
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          _summaryCell('전체', meta.totalReports, Colors.blue),
+          _summaryDivider(theme.colorScheme.outlineVariant),
+          _summaryCell('좌표화', meta.geocodedReports, serverAcceptColor),
+          _summaryDivider(theme.colorScheme.outlineVariant),
+          _summaryCell('미변환', meta.missingReports, serverSupplementColor),
+          _summaryDivider(theme.colorScheme.outlineVariant),
+          _summaryCell('처리기관', meta.agencyCount, Colors.teal, suffix: '곳'),
+        ],
+      ),
     );
   }
 
-  Widget _smallStat(String label, int value, Color color) {
+  Widget _summaryDivider(Color color) {
     return Container(
-      constraints: const BoxConstraints(minWidth: 76),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.18)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: color,
+      width: 1,
+      height: 34,
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      color: color.withValues(alpha: 0.7),
+    );
+  }
+
+  Widget _summaryCell(
+    String label,
+    int value,
+    Color color, {
+    String suffix = '건',
+  }) {
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                maxLines: 1,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '$value건',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: color,
+            const SizedBox(height: 4),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                '$value$suffix',
+                maxLines: 1,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

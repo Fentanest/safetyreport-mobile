@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import '../models/report.dart';
+import '../providers/notification_history_provider.dart';
 import '../providers/report_provider.dart';
 import '../server_palette.dart';
 import '../screens/report_list_screen.dart';
@@ -17,6 +18,17 @@ import '../services/standalone_auth_service.dart';
 const _officialSafetyReportUrl = 'https://www.safetyreport.go.kr/';
 
 void showReportDetailSheet(BuildContext context, Report report) {
+  final reportNumber = report.reportNumber.trim();
+  if (reportNumber.isNotEmpty) {
+    try {
+      unawaited(
+        context.read<NotificationHistoryProvider>().markReportRead(
+          reportNumber,
+        ),
+      );
+    } catch (_) {}
+  }
+  ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,

@@ -9,6 +9,24 @@
 
 ## 2026-05-20
 
+### 신고 결과 알림 읽음 상태 통합 + 지도 상단 요약 1줄 정리
+
+상태: 완료
+
+변경:
+- `lib/providers/notification_history_provider.dart`, `lib/main.dart`, `lib/widgets/report_detail_sheet.dart`
+  - 일반 신고 결과 알림의 읽음 상태를 알림 `id` 가 아니라 정규화된 `신고번호` 기준으로 묶음
+  - 푸시 알림, 앱 하단 검은 SnackBar 알림, `신고 결과` 탭 목록이 모두 같은 `report_detail` 진입 시 같은 읽음 상태를 공유하도록 정리
+  - 이미 읽은 신고번호는 foreground SnackBar 와 `pending_crawl_changes` 카드 시트에서 다시 띄우지 않도록 중복 노출 억제
+- `lib/screens/report_map_screen.dart`
+  - 지도 상단 `전체 / 좌표화 / 미변환 / 처리기관` 요약을 개별 박스 `Wrap` 대신 단일 요약 패널로 재구성
+  - 좁은 해상도에서도 두 줄로 내려가지 않도록 `Row + FittedBox` 기반으로 정리
+
+검증:
+- `dart format lib/providers/notification_history_provider.dart lib/widgets/report_detail_sheet.dart lib/main.dart lib/screens/report_map_screen.dart`
+- `flutter analyze lib/providers/notification_history_provider.dart lib/widgets/report_detail_sheet.dart lib/main.dart lib/screens/report_map_screen.dart --no-fatal-infos`
+  - 새 error / warning 없음, 기존 info 레벨 lint 만 잔존
+
 ### 설정 화면 앱 테마 추가 + Android 15 edge-to-edge / cutout 후속 정리
 
 상태: 완료

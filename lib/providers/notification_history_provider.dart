@@ -11,6 +11,7 @@ class NotificationHistoryProvider with ChangeNotifier {
 
   List<NotificationItem> _items = [];
   int _preferredTabIndex = 0;
+  bool _loaded = false;
 
   List<NotificationItem> get items => List.unmodifiable(_items);
   int get unreadCount => _items.where((i) => !i.isRead).length;
@@ -22,7 +23,26 @@ class NotificationHistoryProvider with ChangeNotifier {
     if (notify) notifyListeners();
   }
 
-  Future<void> load() async {
+  static String normalizeReportNumber(String? value) {
+    return value?.trim().toUpperCase() ?? '';
+  }
+
+  static String extractReportNumberFromPayload(Map<String, dynamic>? payload) {
+    if (payload == null) return '';
+    return normalizeReportNumber(
+      payload['신고번호']?.toString() ??
+          payload['reportNumber']?.toString() ??
+          payload['representative_report_number']?.toString(),
+    );
+  }
+
+  String _reportNumberForItem(NotificationItem item) {
+    final reportNumber = normalizeReportNumber(item.reportNumber);
+    if (reportNumber.isNotEmpty) return reportNumber;
+    return extractReportNumberFromPayload(item.extraData);
+  }
+
+  Future<void> load({bool notify = true}) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.reload(); // WsService가 직접 쓴 내용 반영
     final raw = prefs.getString(_key);
@@ -35,11 +55,20 @@ class NotificationHistoryProvider with ChangeNotifier {
       } catch (_) {
         _items = [];
       }
+    } else {
+      _items = [];
     }
-    notifyListeners();
+    _loaded = true;
+    if (notify) notifyListeners();
+  }
+
+  Future<void> ensureLoaded() async {
+    if (_loaded) return;
+    await load(notify: false);
   }
 
   Future<void> markRead(String id) async {
+    await ensureLoaded();
     final idx = _items.indexWhere((i) => i.id == id);
     if (idx >= 0 && !_items[idx].isRead) {
       _items[idx] = _items[idx].copyWith(isRead: true);
@@ -48,7 +77,53 @@ class NotificationHistoryProvider with ChangeNotifier {
     }
   }
 
+  bool isReportRead(String reportNumber) {
+    final normalized = normalizeReportNumber(reportNumber);
+    if (normalized.isEmpty) return false;
+    final matches = _items
+        .where((item) => _reportNumberForItem(item) == normalized)
+        .toList();
+    if (matches.isEmpty) return false;
+    return matches.every((item) => item.isRead);
+  }
+
+  bool isPayloadRead(Map<String, dynamic>? payload) {
+    if ((payload?['notification_kind']?.toString() ?? '') == 'duplicate') {
+      return false;
+    }
+    final reportNumber = extractReportNumberFromPayload(payload);
+    if (reportNumber.isEmpty) return false;
+    return isReportRead(reportNumber);
+  }
+
+  Future<void> markReportRead(String reportNumber) async {
+    await ensureLoaded();
+    final normalized = normalizeReportNumber(reportNumber);
+    if (normalized.isEmpty) return;
+    var changed = false;
+    _items = _items.map((item) {
+      if (_reportNumberForItem(item) == normalized && !item.isRead) {
+        changed = true;
+        return item.copyWith(isRead: true);
+      }
+      return item;
+    }).toList();
+    if (!changed) return;
+    await _save();
+    notifyListeners();
+  }
+
+  Future<void> markPayloadRead(Map<String, dynamic>? payload) async {
+    if ((payload?['notification_kind']?.toString() ?? '') == 'duplicate') {
+      return;
+    }
+    final reportNumber = extractReportNumberFromPayload(payload);
+    if (reportNumber.isEmpty) return;
+    await markReportRead(reportNumber);
+  }
+
   Future<void> markAllRead() async {
+    await ensureLoaded();
     _items = _items.map((i) => i.copyWith(isRead: true)).toList();
     await _save();
     notifyListeners();
@@ -56,6 +131,7 @@ class NotificationHistoryProvider with ChangeNotifier {
 
   Future<void> clearAll() async {
     _items = [];
+    _loaded = true;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_key);
     notifyListeners();
@@ -65,6 +141,7 @@ class NotificationHistoryProvider with ChangeNotifier {
     List<Map<String, dynamic>> serverData, {
     bool isMobileTriggered = false,
   }) async {
+    await ensureLoaded();
     final now = DateTime.now();
     final ts =
         '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
@@ -83,21 +160,18 @@ class NotificationHistoryProvider with ChangeNotifier {
         ),
       );
     } else {
-      final existingKeys = _items
-          .map((item) {
-            final extra = item.extraData ?? const <String, dynamic>{};
-            if (item.kind == NotificationItemKind.duplicate) {
-              final groupId = extra['group_id']?.toString() ?? '';
-              final changeType =
-                  extra['duplicate_change_type']?.toString() ?? '';
-              return 'duplicate:$groupId:$changeType';
-            }
-            if (item.reportNumber.isNotEmpty) {
-              return 'report:${item.reportNumber}';
-            }
-            return 'generic:${item.id}';
-          })
-          .toSet();
+      final existingKeys = _items.map((item) {
+        final extra = item.extraData ?? const <String, dynamic>{};
+        if (item.kind == NotificationItemKind.duplicate) {
+          final groupId = extra['group_id']?.toString() ?? '';
+          final changeType = extra['duplicate_change_type']?.toString() ?? '';
+          return 'duplicate:$groupId:$changeType';
+        }
+        if (item.reportNumber.isNotEmpty) {
+          return 'report:${item.reportNumber}';
+        }
+        return 'generic:${item.id}';
+      }).toSet();
 
       for (final r in serverData) {
         final notificationKind = r['notification_kind']?.toString() ?? 'report';
@@ -114,7 +188,8 @@ class NotificationHistoryProvider with ChangeNotifier {
               [
                 if ((r['status_label']?.toString() ?? '').isNotEmpty)
                   '상태: ${r['status_label']}',
-                if ((r['representative_report_number']?.toString() ?? '').isNotEmpty)
+                if ((r['representative_report_number']?.toString() ?? '')
+                    .isNotEmpty)
                   '대표 신고번호: ${r['representative_report_number']}',
                 if ((r['member_count']?.toString() ?? '').isNotEmpty)
                   '멤버 수: ${r['member_count']}건',
@@ -122,8 +197,7 @@ class NotificationHistoryProvider with ChangeNotifier {
 
           newItems.add(
             NotificationItem(
-              id:
-                  '${now.millisecondsSinceEpoch}_${groupId.isEmpty ? 'duplicate' : groupId}',
+              id: '${now.millisecondsSinceEpoch}_${groupId.isEmpty ? 'duplicate' : groupId}',
               kind: NotificationItemKind.duplicate,
               title: title,
               body: body,
@@ -183,6 +257,7 @@ class NotificationHistoryProvider with ChangeNotifier {
   }
 
   Future<void> addRatingBatchResult(RatingBatchResult result) async {
+    await ensureLoaded();
     _items.insert(
       0,
       NotificationItem(

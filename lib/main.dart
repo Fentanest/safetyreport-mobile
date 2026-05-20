@@ -214,9 +214,7 @@ class SafetyReportApp extends StatelessWidget {
             : Colors.white.withValues(alpha: 0.98),
         elevation: 8,
         shadowColor: isDark ? Colors.black45 : Colors.black12,
-        indicatorColor: isDark
-            ? primary.withValues(alpha: 0.22)
-            : indicator,
+        indicatorColor: isDark ? primary.withValues(alpha: 0.22) : indicator,
         labelTextStyle: const WidgetStatePropertyAll(
           TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
         ),
@@ -415,6 +413,15 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     final body = event['body']?.toString() ?? '';
     final payloadJson = event['payload_json']?.toString() ?? '';
     if (title.isEmpty) return;
+    if (payloadJson.isNotEmpty) {
+      final payload = _decodeNotificationPayload(payloadJson);
+      if (payload != null) {
+        final history = context.read<NotificationHistoryProvider>();
+        await history.ensureLoaded();
+        if (!mounted) return;
+        if (history.isPayloadRead(payload)) return;
+      }
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Column(
@@ -440,32 +447,47 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     );
   }
 
-  void _openNotificationPayloadDetail(String payloadJson) {
+  Map<String, dynamic>? _decodeNotificationPayload(String payloadJson) {
     try {
       final decoded = jsonDecode(payloadJson);
-      if (decoded is! Map) return;
-      final data = Map<String, dynamic>.from(decoded);
-      final kind = data['notification_kind']?.toString() ?? 'report';
-      if (kind == 'duplicate') {
-        showDuplicateGroupDetailSheet(context, DuplicateGroup.fromJson(data));
-      } else {
-        showReportDetailSheet(context, Report.fromJson(data));
-      }
-    } catch (_) {}
+      if (decoded is! Map) return null;
+      return Map<String, dynamic>.from(decoded);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void _openNotificationPayloadDetail(String payloadJson) {
+    final data = _decodeNotificationPayload(payloadJson);
+    if (data == null) return;
+    unawaited(
+      context.read<NotificationHistoryProvider>().markPayloadRead(data),
+    );
+    final kind = data['notification_kind']?.toString() ?? 'report';
+    if (kind == 'duplicate') {
+      showDuplicateGroupDetailSheet(context, DuplicateGroup.fromJson(data));
+    } else {
+      showReportDetailSheet(context, Report.fromJson(data));
+    }
   }
 
   Future<void> _checkPendingChanges() async {
     final changes = await PendingChangesStore.readAndClear();
     if (changes.isEmpty || !mounted) return;
+    final history = context.read<NotificationHistoryProvider>();
+    await history.ensureLoaded();
+    if (!mounted) return;
+    final unreadChanges = changes.where((change) {
+      final kind = change['notification_kind']?.toString() ?? 'report';
+      if (kind == 'duplicate') return true;
+      return !history.isPayloadRead(change);
+    }).toList();
+    if (unreadChanges.isEmpty) return;
 
     // 알림 히스토리에 extraData 포함해서 저장 (신고 결과 탭에서 상세 조회 가능하도록)
-    context.read<NotificationHistoryProvider>().setPreferredTabIndex(
-      1,
-      notify: false,
-    );
-    await context.read<NotificationHistoryProvider>().addFromServerResults(
-      changes,
-    );
+    history.setPreferredTabIndex(1, notify: false);
+    await history.addFromServerResults(unreadChanges);
+    if (!mounted) return;
 
     // 알림 탭으로 이동
     setState(() => _selectedIndex = 4);
@@ -473,7 +495,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     // 변경 신고건 카드 뷰 표시
     await Future.delayed(const Duration(milliseconds: 200));
     if (!mounted) return;
-    _showChangesBottomSheet(changes);
+    _showChangesBottomSheet(unreadChanges);
   }
 
   void _showChangesBottomSheet(List<Map<String, dynamic>> changes) {

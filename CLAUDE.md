@@ -262,6 +262,11 @@ Client 모드 서버 경로와 이벤트 문자열은 Flutter/Dart 와 Android/K
   - `duplicate_group_detail_sheet.dart` 로 바로 상세를 연다.
 - 일반 신고 변경과 중복군 변경은 같은 신고 결과 탭을 공유하지만,
   `NotificationItemKind.duplicate` 로 구분해 아이콘/상세 시트를 다르게 처리한다.
+- 일반 신고 결과(`notification_kind != duplicate`) 읽음 상태 규칙:
+  - `NotificationHistoryProvider` 는 `신고번호`를 trim + upper-case 한 값으로 읽음 상태를 공유한다.
+  - 푸시 알림, foreground SnackBar, `pending_crawl_changes` 카드 시트, `신고 결과` 탭이
+    같은 `report_detail` 을 열면 같은 신고번호의 일반 알림은 모두 읽음 처리한다.
+  - 중복군 알림은 `duplicate_group_detail_sheet` 를 쓰므로 이 신고번호 공유 읽음 규칙에 포함하지 않는다.
 
 ## Client 중복 신고 API 호환성
 

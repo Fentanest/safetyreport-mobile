@@ -77,6 +77,9 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
     final reports = provider.filteredRatingEligibleReports;
     final activeLabels = effectiveFilter.activeLabels;
     final hasApplicableFilter = !effectiveFilter.isEmpty;
+    final canSelectAllReports = reports.any(
+      (report) => !_selected.contains(report.reportNumber),
+    );
     final selectedReports = provider.ratingEligibleReports
         .where((report) => _selected.contains(report.reportNumber))
         .toList(growable: false);
@@ -157,6 +160,13 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
                           ],
                         ),
                       ),
+                      if (_selectionMode)
+                        TextButton(
+                          onPressed: canSelectAllReports
+                              ? () => _selectAllCurrentList(reports)
+                              : null,
+                          child: const Text('일괄 선택'),
+                        ),
                       IconButton(
                         icon: Badge(
                           isLabelVisible: hasApplicableFilter,
@@ -176,10 +186,6 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
                           style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
                         const Spacer(),
-                        TextButton(
-                          onPressed: () => _selectAllCurrentList(reports),
-                          child: const Text('전체 선택'),
-                        ),
                         TextButton(
                           onPressed: _clearSelection,
                           child: const Text('선택 해제'),

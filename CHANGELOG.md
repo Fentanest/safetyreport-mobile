@@ -9,6 +9,22 @@
 
 ## 2026-05-23
 
+### 다크 모드 상세 가독성 + 선택 모드 일괄 선택 정리
+
+상태: 완료
+
+변경:
+- `lib/widgets/report_detail_sheet.dart`
+  - 다크 모드에서 `신고내용`, `처리내용` 같은 멀티라인 텍스트 박스가 밝은 배경과 옅은 글자로 보여 가독성이 떨어지던 문제 수정
+  - 상세 시트의 본문 박스, 안내 박스, 드래그 핸들을 테마 기반 색상(`surfaceContainerLow`, `onSurface`, `outlineVariant`)으로 전환
+- `lib/screens/report_list_screen.dart`, `lib/screens/rating_management_panel.dart`
+  - 선택 모드 진입 시 우측 상단에 `일괄 선택` 버튼 추가
+  - 이미 전부 선택된 경우 버튼을 비활성화해 중복 액션을 줄이고, `신고 내역`과 `신고관리 > 별점` 화면의 선택 동작 위치/문구를 통일
+
+검증:
+- `dart analyze lib/widgets/report_detail_sheet.dart lib/screens/report_list_screen.dart lib/screens/rating_management_panel.dart`
+  - 새 error / warning 없음, 기존 info 레벨 lint 만 잔존
+
 ### 신고관리 별점 탭 추가 + 서버 기준 별점 대상 정렬
 
 상태: 완료

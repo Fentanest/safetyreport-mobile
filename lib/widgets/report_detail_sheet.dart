@@ -142,6 +142,7 @@ class ReportDetailSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = _statusColor(report.status);
+    final scheme = Theme.of(context).colorScheme;
     final photos = _splitUrls(report.attachedPhotos);
     final files = _splitUrls(report.attachedFiles);
     final mapUrls = _splitUrls(report.mapImage);
@@ -163,10 +164,11 @@ class ReportDetailSheet extends StatelessWidget {
     }
     // 파일 중 이미지/동영상/기타 분류
     for (final u in files) {
-      if (_isImage(u) && !imageUrls.contains(u))
+      if (_isImage(u) && !imageUrls.contains(u)) {
         imageUrls.add(u);
-      else if (_isVideo(u) && !videoUrls.contains(u))
+      } else if (_isVideo(u) && !videoUrls.contains(u)) {
         videoUrls.add(u);
+      }
     }
     final otherFiles = files
         .where((u) => !_isImage(u) && !_isVideo(u))
@@ -189,7 +191,7 @@ class ReportDetailSheet extends StatelessWidget {
                 height: 4,
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
+                  color: scheme.onSurfaceVariant.withValues(alpha: 0.35),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -215,9 +217,9 @@ class ReportDetailSheet extends StatelessWidget {
                       vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: color.withOpacity(0.1),
+                      color: color.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: color.withOpacity(0.4)),
+                      border: Border.all(color: color.withValues(alpha: 0.4)),
                     ),
                     child: Text(
                       report.status,
@@ -298,7 +300,7 @@ class ReportDetailSheet extends StatelessWidget {
               _field(Icons.comment_outlined, '별점사유', report.ratingCause),
             if (report.reportContent.isNotEmpty) ...[
               const Divider(height: 20),
-              _textBlock('신고내용', report.reportContent),
+              _textBlock(context, '신고내용', report.reportContent),
             ],
             if (report.supplementCount > 0 ||
                 report.supplementRequester.isNotEmpty ||
@@ -311,7 +313,7 @@ class ReportDetailSheet extends StatelessWidget {
             ],
             if (report.processContent.isNotEmpty) ...[
               const SizedBox(height: 8),
-              _textBlock('처리내용', report.processContent),
+              _textBlock(context, '처리내용', report.processContent),
               Builder(
                 builder: (ctx) {
                   final phone = _extractPhone(report.processContent);
@@ -335,7 +337,7 @@ class ReportDetailSheet extends StatelessWidget {
             // 인라인 이미지
             if (imageUrls.isNotEmpty) ...[
               const SizedBox(height: 12),
-              _sectionLabel('첨부 사진'),
+              _sectionLabel(context, '첨부 사진'),
               const SizedBox(height: 8),
               ...imageUrls.map(
                 (url) => Padding(
@@ -368,7 +370,7 @@ class ReportDetailSheet extends StatelessWidget {
             // 인라인 동영상
             if (videoUrls.isNotEmpty) ...[
               const SizedBox(height: 12),
-              _sectionLabel('첨부 동영상'),
+              _sectionLabel(context, '첨부 동영상'),
               const SizedBox(height: 8),
               ...videoUrls.map(
                 (url) => Padding(
@@ -401,7 +403,7 @@ class ReportDetailSheet extends StatelessWidget {
             // 기타 첨부파일 — 인라인 동영상 재생 시도
             if (otherFiles.isNotEmpty) ...[
               const SizedBox(height: 12),
-              _sectionLabel('첨부파일'),
+              _sectionLabel(context, '첨부파일'),
               const SizedBox(height: 4),
               ...otherFiles.asMap().entries.map((e) {
                 final url = e.value;
@@ -428,16 +430,16 @@ class ReportDetailSheet extends StatelessWidget {
             Text(
               '안전신문고 앱이 설치되어 있고 로그인된 상태여야 합니다.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+              style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
             ),
             const SizedBox(height: 12),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.blueGrey.shade50,
+                color: scheme.surfaceContainerLow,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.blueGrey.shade100),
+                border: Border.all(color: scheme.outlineVariant),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -532,16 +534,17 @@ class ReportDetailSheet extends StatelessWidget {
     }
   }
 
-  Widget _sectionLabel(String text) => Text(
+  Widget _sectionLabel(BuildContext context, String text) => Text(
     text,
     style: TextStyle(
       fontSize: 13,
       fontWeight: FontWeight.bold,
-      color: Colors.grey.shade700,
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
     ),
   );
 
-  Widget _textBlock(String label, String value) {
+  Widget _textBlock(BuildContext context, String label, String value) {
+    final scheme = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -550,7 +553,7 @@ class ReportDetailSheet extends StatelessWidget {
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.bold,
-            color: Colors.grey.shade600,
+            color: scheme.onSurfaceVariant,
           ),
         ),
         const SizedBox(height: 6),
@@ -558,13 +561,17 @@ class ReportDetailSheet extends StatelessWidget {
           width: double.infinity,
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: Colors.grey.shade50,
+            color: scheme.surfaceContainerLow,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.grey.shade200),
+            border: Border.all(color: scheme.outlineVariant),
           ),
           child: SelectableText(
             value,
-            style: const TextStyle(fontSize: 13, height: 1.6),
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.6,
+              color: scheme.onSurface,
+            ),
           ),
         ),
       ],
@@ -634,14 +641,14 @@ class ReportDetailSheet extends StatelessWidget {
                     fontWeight: FontWeight.w500,
                     color: color,
                     decoration: TextDecoration.underline,
-                    decorationColor: color.withOpacity(0.5),
+                    decorationColor: color.withValues(alpha: 0.5),
                   ),
                 ),
               ),
               Icon(
                 Icons.chevron_right,
                 size: 16,
-                color: color.withOpacity(0.6),
+                color: color.withValues(alpha: 0.6),
               ),
             ],
           ),
@@ -1139,13 +1146,14 @@ class _VideoPlayerState extends State<_VideoPlayer> {
             TextButton(
               style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
               onPressed: () {
-                if (mounted)
+                if (mounted) {
                   setState(() {
                     _error = false;
                     _initialized = false;
                     _seeking = false;
                     _seekPosition = Duration.zero;
                   });
+                }
                 _ctrl.dispose();
                 _initController();
               },

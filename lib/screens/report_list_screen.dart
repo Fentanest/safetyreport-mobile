@@ -67,6 +67,13 @@ class _ReportListScreenState extends State<ReportListScreen>
 
   void _clearSelection() => setState(() => _selected.clear());
 
+  bool _canSelectAllCurrentTab(ReportProvider provider) {
+    if (_tabController.index == 3) return false;
+    return _currentReports(
+      provider,
+    ).any((report) => !_selected.contains(report.reportNumber));
+  }
+
   List<Report> _currentReports(ReportProvider provider) {
     switch (_tabController.index) {
       case 0:
@@ -109,6 +116,7 @@ class _ReportListScreenState extends State<ReportListScreen>
     final provider = context.watch<ReportProvider>();
     final activeLabels = provider.filter.activeLabels;
     final currentCount = _currentReports(provider).length;
+    final canSelectAllCurrentTab = _canSelectAllCurrentTab(provider);
 
     final allReports = [
       ...provider.filteredTrafficReports,
@@ -131,13 +139,15 @@ class _ReportListScreenState extends State<ReportListScreen>
               foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
               actions: [
                 TextButton(
-                  onPressed: _selectAllCurrentTab,
-                  child: Text(
-                    '전체 선택',
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onPrimaryContainer,
-                    ),
+                  onPressed: canSelectAllCurrentTab
+                      ? _selectAllCurrentTab
+                      : null,
+                  style: TextButton.styleFrom(
+                    foregroundColor: Theme.of(
+                      context,
+                    ).colorScheme.onPrimaryContainer,
                   ),
+                  child: const Text('일괄 선택'),
                 ),
               ],
             )

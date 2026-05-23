@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -23,10 +25,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       final provider = context.read<ReportProvider>();
-      provider.fetchSummary();
-      provider.ensureCategoryReportsLoaded();
+      await provider.fetchSummary();
+      if (!mounted) return;
+      unawaited(provider.ensureCategoryReportsLoaded());
     });
   }
 

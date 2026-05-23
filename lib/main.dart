@@ -274,16 +274,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   final GlobalKey<CrawlScreenState> _crawlScreenKey =
       GlobalKey<CrawlScreenState>();
   String _lastQuickActionSignature = '';
-
-  late final List<Widget> _screens = [
-    const DashboardScreen(),
-    const ReportListScreen(),
-    const ReportManagementScreen(),
-    const StatisticsScreen(),
-    const NotificationsScreen(),
-    const FileBrowserScreen(),
-    CrawlScreen(key: _crawlScreenKey),
-  ];
+  late final List<Widget?> _screenCache = List<Widget?>.filled(7, null);
 
   late final AnimationController _syncIconController;
 
@@ -965,6 +956,23 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
 
   int _lastPendingChangesNonce = 0;
 
+  Widget _buildScreen(int index) {
+    final cached = _screenCache[index];
+    if (cached != null) return cached;
+    final screen = switch (index) {
+      0 => const DashboardScreen(),
+      1 => const ReportListScreen(),
+      2 => const ReportManagementScreen(),
+      3 => const StatisticsScreen(),
+      4 => const NotificationsScreen(),
+      5 => const FileBrowserScreen(),
+      6 => CrawlScreen(key: _crawlScreenKey),
+      _ => const SizedBox.shrink(),
+    };
+    _screenCache[index] = screen;
+    return screen;
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = context.watch<ReportProvider>();
@@ -986,7 +994,16 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     }
 
     return Scaffold(
-      body: IndexedStack(index: _selectedIndex, children: _screens),
+      body: IndexedStack(
+        index: _selectedIndex,
+        children: List<Widget>.generate(7, (index) {
+          final cached = _screenCache[index];
+          if (cached != null || index == _selectedIndex) {
+            return _buildScreen(index);
+          }
+          return const SizedBox.shrink();
+        }),
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
         onDestinationSelected: (index) {

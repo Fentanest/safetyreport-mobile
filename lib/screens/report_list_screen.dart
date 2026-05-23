@@ -36,10 +36,11 @@ class _ReportListScreenState extends State<ReportListScreen>
     );
     _tabController.addListener(_handleTabChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ReportProvider>().fetchTrafficReports();
-      context.read<ReportProvider>().fetchParkingReports();
-      context.read<ReportProvider>().fetchOtherReports();
-      context.read<ReportProvider>().fetchDuplicateReports();
+      final provider = context.read<ReportProvider>();
+      provider.ensureCategoryReportsLoaded();
+      if (provider.duplicateReports.isEmpty) {
+        provider.fetchDuplicateReports();
+      }
     });
   }
 

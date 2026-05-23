@@ -251,6 +251,12 @@ class ReportProvider with ChangeNotifier {
   /// 카테고리별로 한 번이라도 fetch 했는지 여부. `ensureCategoryReportsLoaded`
   /// 가 캐시 hit/miss 판정에 사용한다.
   final Set<String> _loadedCategories = <String>{};
+  Future<void>? _summaryLoadFuture;
+  final Map<String, Future<void>> _categoryLoadFutures =
+      <String, Future<void>>{};
+  Future<void>? _duplicateLoadFuture;
+  Future<void>? _watchlistLoadFuture;
+  Future<void>? _appConfigLoadFuture;
 
   ReportFilter _filter = const ReportFilter();
   bool _excludeWithdraw = true;
@@ -616,8 +622,20 @@ class ReportProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> fetchAppConfig() async {
-    if (!isConfigured) return;
+  Future<void> fetchAppConfig() {
+    if (!isConfigured) return Future.value();
+    final inFlight = _appConfigLoadFuture;
+    if (inFlight != null) return inFlight;
+    final future = _fetchAppConfigImpl();
+    _appConfigLoadFuture = future;
+    return future.whenComplete(() {
+      if (identical(_appConfigLoadFuture, future)) {
+        _appConfigLoadFuture = null;
+      }
+    });
+  }
+
+  Future<void> _fetchAppConfigImpl() async {
     if (_appMode == AppMode.standalone) {
       final prefs = await SharedPreferences.getInstance();
       _excludeWithdraw = prefs.getBool('standaloneExcludeWithdraw') ?? true;
@@ -856,8 +874,20 @@ class ReportProvider with ChangeNotifier {
     );
   }
 
-  Future<void> fetchSummary() async {
-    if (!isConfigured) return;
+  Future<void> fetchSummary() {
+    if (!isConfigured) return Future.value();
+    final inFlight = _summaryLoadFuture;
+    if (inFlight != null) return inFlight;
+    final future = _fetchSummaryImpl();
+    _summaryLoadFuture = future;
+    return future.whenComplete(() {
+      if (identical(_summaryLoadFuture, future)) {
+        _summaryLoadFuture = null;
+      }
+    });
+  }
+
+  Future<void> _fetchSummaryImpl() async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
@@ -898,9 +928,22 @@ class ReportProvider with ChangeNotifier {
 
   /// 카테고리 별 fetch 공통 경로 — 모드 분기와 결과 저장만 다르고 형태는 동일.
   /// `traffic` / `parking` / `other` 만 정식 카테고리. 알 수 없는 값은 무시.
-  Future<void> fetchCategoryReports(String category) async {
-    if (!isConfigured) return;
-    if (!_kCoreCategories.contains(category)) return;
+  Future<void> fetchCategoryReports(String category) {
+    if (!isConfigured || !_kCoreCategories.contains(category)) {
+      return Future.value();
+    }
+    final inFlight = _categoryLoadFutures[category];
+    if (inFlight != null) return inFlight;
+    final future = _fetchCategoryReportsImpl(category);
+    _categoryLoadFutures[category] = future;
+    return future.whenComplete(() {
+      if (identical(_categoryLoadFutures[category], future)) {
+        _categoryLoadFutures.remove(category);
+      }
+    });
+  }
+
+  Future<void> _fetchCategoryReportsImpl(String category) async {
     _isLoading = true;
     notifyListeners();
     try {
@@ -950,8 +993,20 @@ class ReportProvider with ChangeNotifier {
   Future<void> fetchParkingReports() => fetchCategoryReports('parking');
   Future<void> fetchOtherReports() => fetchCategoryReports('other');
 
-  Future<void> fetchDuplicateReports() async {
-    if (!isConfigured) return;
+  Future<void> fetchDuplicateReports() {
+    if (!isConfigured) return Future.value();
+    final inFlight = _duplicateLoadFuture;
+    if (inFlight != null) return inFlight;
+    final future = _fetchDuplicateReportsImpl();
+    _duplicateLoadFuture = future;
+    return future.whenComplete(() {
+      if (identical(_duplicateLoadFuture, future)) {
+        _duplicateLoadFuture = null;
+      }
+    });
+  }
+
+  Future<void> _fetchDuplicateReportsImpl() async {
     _isLoading = true;
     notifyListeners();
     try {
@@ -971,8 +1026,20 @@ class ReportProvider with ChangeNotifier {
     }
   }
 
-  Future<void> fetchWatchlistNumbers() async {
-    if (!isConfigured) return;
+  Future<void> fetchWatchlistNumbers() {
+    if (!isConfigured) return Future.value();
+    final inFlight = _watchlistLoadFuture;
+    if (inFlight != null) return inFlight;
+    final future = _fetchWatchlistNumbersImpl();
+    _watchlistLoadFuture = future;
+    return future.whenComplete(() {
+      if (identical(_watchlistLoadFuture, future)) {
+        _watchlistLoadFuture = null;
+      }
+    });
+  }
+
+  Future<void> _fetchWatchlistNumbersImpl() async {
     try {
       if (_appMode == AppMode.standalone) {
         _watchlistNumbers = await LocalDbService.getWatchlistNumbers();

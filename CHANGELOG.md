@@ -9,6 +9,32 @@
 
 ## 2026-05-23
 
+### Client 첫 실행 서버 응답 지연 완화
+
+상태: 완료
+
+변경:
+- `lib/main.dart`
+  - 메인 하단 탭을 eager build 하던 `IndexedStack` 구조를 lazy build 캐시 방식으로 변경
+  - 첫 실행에 보이지 않는 탭까지 동시에 네트워크를 시작하던 패턴을 줄임
+- `lib/screens/dashboard_screen.dart`
+  - 대시보드 첫 진입 시 `summary`를 먼저 로드하고, 카테고리 preload는 이후 백그라운드로 넘기도록 순서 조정
+- `lib/screens/report_list_screen.dart`
+  - 첫 빌드에서 교통/주정차/기타/중복 목록을 무조건 재요청하던 흐름을 `ensureCategoryReportsLoaded()` 중심으로 완화
+- `lib/providers/report_provider.dart`
+  - summary / 카테고리 목록 / 중복 목록 / 감시목록 / 앱 설정 로드에 in-flight dedupe 추가
+  - 같은 요청이 이미 진행 중이면 기존 Future를 재사용해 중복 API 호출을 막도록 정리
+- `docs/reviews/2026-05-23-client-startup-timeout-analysis.md`
+  - 서버 레포와 대조한 원인 분석 및 수정 근거 문서 추가
+
+분석:
+- 서버 `../safetyreport/web/routers/api_route.py` 의 `/api/v1/summary`, `/api/v1/reports/{category}` 는 얇은 래퍼이며 첫 호출 전용 지연 로직은 없음
+- 이번 증상은 서버 단일 API 오류보다 모바일 Client 의 초기 요청 폭주와 중복 호출 구조에 더 가깝다고 판단
+
+검증:
+- `dart analyze lib/providers/report_provider.dart lib/main.dart lib/screens/dashboard_screen.dart lib/screens/report_list_screen.dart`
+  - 새 error / warning 없음, 기존 info 레벨 lint 만 잔존
+
 ### 다크 모드 상세 가독성 + 선택 모드 일괄 선택 정리
 
 상태: 완료

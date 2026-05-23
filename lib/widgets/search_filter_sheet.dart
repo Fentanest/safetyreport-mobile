@@ -5,7 +5,12 @@ import '../providers/report_provider.dart';
 /// 신고 리스트 / 검색탭 공용 상세검색 팝업
 class SearchFilterSheet extends StatefulWidget {
   final ReportProvider provider;
-  const SearchFilterSheet({super.key, required this.provider});
+  final bool ratingManagementMode;
+  const SearchFilterSheet({
+    super.key,
+    required this.provider,
+    this.ratingManagementMode = false,
+  });
 
   @override
   State<SearchFilterSheet> createState() => _SearchFilterSheetState();
@@ -78,7 +83,9 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     final f = widget.provider.filter;
     _nameCtrl = TextEditingController(text: f.name);
     _numCtrl = TextEditingController(text: f.reportNumber);
-    _ratingCauseCtrl = TextEditingController(text: f.ratingCause);
+    _ratingCauseCtrl = TextEditingController(
+      text: widget.ratingManagementMode ? '' : f.ratingCause,
+    );
     _agencyCtrl = TextEditingController(text: f.agency);
     _managerCtrl = TextEditingController(text: f.manager);
     _carCtrl = TextEditingController(text: f.carNumber);
@@ -94,7 +101,9 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
         .where((v) => v.isNotEmpty)
         .toSet()
         .toList();
-    _selectedRatings = List<String>.from(f.ratings);
+    _selectedRatings = widget.ratingManagementMode
+        ? <String>[]
+        : List<String>.from(f.ratings);
     _reportDateStart = f.reportDateStart;
     _reportDateEnd = f.reportDateEnd;
     _occurDateStart = f.occurDateStart;
@@ -104,7 +113,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     _excludePolice = f.excludePolice;
     _onlyPolice = f.onlyPolice;
     _selectedLaw = f.law;
-    _pollStatus = f.pollStatus;
+    _pollStatus = widget.ratingManagementMode ? '' : f.pollStatus;
   }
 
   @override
@@ -148,8 +157,12 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
       ReportFilter(
         name: _nameCtrl.text.trim(),
         reportNumber: _numCtrl.text.trim(),
-        ratings: List<String>.from(_selectedRatings),
-        ratingCause: _ratingCauseCtrl.text.trim(),
+        ratings: widget.ratingManagementMode
+            ? const <String>[]
+            : List<String>.from(_selectedRatings),
+        ratingCause: widget.ratingManagementMode
+            ? ''
+            : _ratingCauseCtrl.text.trim(),
         agency: _agencyCtrl.text.trim(),
         manager: _managerCtrl.text.trim(),
         carNumber: _carCtrl.text.trim(),
@@ -170,7 +183,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
         occurTimeEnd: _occurTimeEndCtrl.text.trim(),
         excludePolice: _excludePolice,
         onlyPolice: _onlyPolice,
-        pollStatus: _pollStatus,
+        pollStatus: widget.ratingManagementMode ? '' : _pollStatus,
       ),
     );
     Navigator.pop(context);
@@ -300,32 +313,34 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
             const SizedBox(height: 8),
             _input(_numCtrl, '신고번호', Icons.tag),
             const SizedBox(height: 8),
-            _multiSelectDropdown(
-              label: '별점',
-              icon: Icons.star_outline,
-              options: _ratingOptions,
-              selectedValues: _selectedRatings,
-              expanded: _ratingExpanded,
-              onToggleExpanded: () => setState(() {
-                _ratingExpanded = !_ratingExpanded;
-                if (_ratingExpanded) _statusExpanded = false;
-              }),
-              onToggleValue: (value) => setState(() {
-                _toggleSelection(_selectedRatings, value, _ratingOptions);
-              }),
-              onClear: () => setState(() => _selectedRatings.clear()),
-            ),
-            const SizedBox(height: 8),
-            _input(_ratingCauseCtrl, '별점사유', Icons.comment_outlined),
-            const SizedBox(height: 8),
-            _singleSelectDropdown(
-              label: '만족도 조사 여부',
-              icon: Icons.poll_outlined,
-              options: _pollStatusOptions,
-              currentValue: _pollStatus,
-              onChanged: (v) => setState(() => _pollStatus = v),
-            ),
-            const SizedBox(height: 8),
+            if (!widget.ratingManagementMode) ...[
+              _multiSelectDropdown(
+                label: '별점',
+                icon: Icons.star_outline,
+                options: _ratingOptions,
+                selectedValues: _selectedRatings,
+                expanded: _ratingExpanded,
+                onToggleExpanded: () => setState(() {
+                  _ratingExpanded = !_ratingExpanded;
+                  if (_ratingExpanded) _statusExpanded = false;
+                }),
+                onToggleValue: (value) => setState(() {
+                  _toggleSelection(_selectedRatings, value, _ratingOptions);
+                }),
+                onClear: () => setState(() => _selectedRatings.clear()),
+              ),
+              const SizedBox(height: 8),
+              _input(_ratingCauseCtrl, '별점사유', Icons.comment_outlined),
+              const SizedBox(height: 8),
+              _singleSelectDropdown(
+                label: '만족도 조사 여부',
+                icon: Icons.poll_outlined,
+                options: _pollStatusOptions,
+                currentValue: _pollStatus,
+                onChanged: (v) => setState(() => _pollStatus = v),
+              ),
+              const SizedBox(height: 8),
+            ],
             _input(_carCtrl, '차량번호', Icons.directions_car_outlined),
             const SizedBox(height: 8),
             _input(_locationCtrl, '위반장소', Icons.location_on_outlined),

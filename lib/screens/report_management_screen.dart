@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'data_editor_screen.dart';
 import 'duplicate_management_screen.dart';
+import 'rating_management_panel.dart';
 import 'watchlist_screen.dart';
 
 class ReportManagementScreen extends StatefulWidget {
@@ -21,9 +22,9 @@ class _ReportManagementScreenState extends State<ReportManagementScreen>
   void initState() {
     super.initState();
     _tabController = TabController(
-      length: 3,
+      length: 4,
       vsync: this,
-      initialIndex: widget.initialTabIndex.clamp(0, 2),
+      initialIndex: widget.initialTabIndex.clamp(0, 3),
     );
   }
 
@@ -41,6 +42,7 @@ class _ReportManagementScreenState extends State<ReportManagementScreen>
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
+            Tab(text: '별점'),
             Tab(text: '감시 목록'),
             Tab(text: '중복 신고'),
             Tab(text: '데이터 수정'),
@@ -50,6 +52,7 @@ class _ReportManagementScreenState extends State<ReportManagementScreen>
       body: TabBarView(
         controller: _tabController,
         children: const [
+          RatingManagementPanel(),
           WatchlistPanel(),
           DuplicateManagementPanel(),
           DataEditorPanel(),

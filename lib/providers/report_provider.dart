@@ -95,6 +95,66 @@ class ReportFilter {
     this.pollStatus = '',
   });
 
+  ReportFilter copyWith({
+    String? name,
+    String? reportNumber,
+    List<String>? ratings,
+    String? ratingCause,
+    String? agency,
+    String? manager,
+    String? carNumber,
+    String? law,
+    String? location,
+    String? fine,
+    String? supplementCount,
+    String? reportContent,
+    String? processContent,
+    List<String>? statuses,
+    String? reportDateStart,
+    String? reportDateEnd,
+    String? occurDateStart,
+    String? occurDateEnd,
+    String? responseDateStart,
+    String? responseDateEnd,
+    String? occurTimeStart,
+    String? occurTimeEnd,
+    bool? excludePolice,
+    bool? onlyPolice,
+    String? pollStatus,
+  }) {
+    return ReportFilter(
+      name: name ?? this.name,
+      reportNumber: reportNumber ?? this.reportNumber,
+      ratings: ratings ?? this.ratings,
+      ratingCause: ratingCause ?? this.ratingCause,
+      agency: agency ?? this.agency,
+      manager: manager ?? this.manager,
+      carNumber: carNumber ?? this.carNumber,
+      law: law ?? this.law,
+      location: location ?? this.location,
+      fine: fine ?? this.fine,
+      supplementCount: supplementCount ?? this.supplementCount,
+      reportContent: reportContent ?? this.reportContent,
+      processContent: processContent ?? this.processContent,
+      statuses: statuses ?? this.statuses,
+      reportDateStart: reportDateStart ?? this.reportDateStart,
+      reportDateEnd: reportDateEnd ?? this.reportDateEnd,
+      occurDateStart: occurDateStart ?? this.occurDateStart,
+      occurDateEnd: occurDateEnd ?? this.occurDateEnd,
+      responseDateStart: responseDateStart ?? this.responseDateStart,
+      responseDateEnd: responseDateEnd ?? this.responseDateEnd,
+      occurTimeStart: occurTimeStart ?? this.occurTimeStart,
+      occurTimeEnd: occurTimeEnd ?? this.occurTimeEnd,
+      excludePolice: excludePolice ?? this.excludePolice,
+      onlyPolice: onlyPolice ?? this.onlyPolice,
+      pollStatus: pollStatus ?? this.pollStatus,
+    );
+  }
+
+  ReportFilter withoutRatingStateFilters() {
+    return copyWith(ratings: const [], ratingCause: '', pollStatus: '');
+  }
+
   bool get isEmpty =>
       name.isEmpty &&
       reportNumber.isEmpty &&
@@ -339,6 +399,19 @@ class ReportProvider with ChangeNotifier {
   List<Report> get filteredTrafficReports => _applyFilter(_trafficReports);
   List<Report> get filteredParkingReports => _applyFilter(_parkingReports);
   List<Report> get filteredOtherReports => _applyFilter(_otherReports);
+  List<Report> get ratingEligibleReports => _sortRatingReports(
+    [
+      ..._trafficReports,
+      ..._parkingReports,
+      ..._otherReports,
+    ].where(RatingService.isListEligible),
+  );
+  List<Report> get filteredRatingEligibleReports => _sortRatingReports(
+    _applyFilter(
+      ratingEligibleReports,
+      filter: _filter.withoutRatingStateFilters(),
+    ),
+  );
   // 중복차량은 서버에서 이미 그룹/정렬되므로 필터 미적용
   List<Report> get filteredDuplicateReports => _duplicateReports;
 
@@ -470,8 +543,23 @@ class ReportProvider with ChangeNotifier {
   bool _dateLte(String value, String bound) =>
       bound.isEmpty || value.isEmpty || value.compareTo(bound) <= 0;
 
-  List<Report> _applyFilter(List<Report> reports) {
-    final f = _filter;
+  List<Report> _sortRatingReports(Iterable<Report> reports) {
+    final items = reports.toList(growable: false);
+    items.sort((left, right) {
+      final reportNumberComp = right.reportNumber.compareTo(left.reportNumber);
+      if (reportNumberComp != 0) return reportNumberComp;
+      final syncedLeft = left.syncedAt ?? -1;
+      final syncedRight = right.syncedAt ?? -1;
+      if (syncedLeft != syncedRight) {
+        return syncedRight.compareTo(syncedLeft);
+      }
+      return right.date.compareTo(left.date);
+    });
+    return items;
+  }
+
+  List<Report> _applyFilter(List<Report> reports, {ReportFilter? filter}) {
+    final f = filter ?? _filter;
     return reports.where((r) {
       if (!_contains(r.name, f.name)) return false;
       if (!_contains(r.reportNumber, f.reportNumber)) return false;

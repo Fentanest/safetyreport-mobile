@@ -7,6 +7,37 @@
 
 ---
 
+## 2026-05-23
+
+### 신고관리 별점 탭 추가 + 서버 기준 별점 대상 정렬
+
+상태: 완료
+
+변경:
+- `VERSION`
+  - 앱 버전을 `1.3.2+27` 로 갱신
+- `lib/screens/report_management_screen.dart`, `lib/screens/rating_management_panel.dart`, `lib/screens/dashboard_screen.dart`
+  - 신고관리 첫 탭에 `별점` 패널 추가
+  - 교통/주정차/기타 전체 카테고리에서 별점 대상 신고를 한 화면에 모아 보고, 기존 카드/상세시트/다중선택 액션 바로 별점 주기를 실행할 수 있게 연결
+  - 감시 목록 섹션의 `관리` / `더 보기` 진입 인덱스를 새 탭 순서에 맞게 보정
+- `lib/services/rating_service.dart`, `lib/providers/report_provider.dart`
+  - 모바일 별점 대상 목록 기준을 서버 `get_unrated_records` 와 맞추도록 조정
+  - `만족도조사여부` 가 `참여 완료/참여 불가` 가 아닌 신고 중, `취하/답변 대기/처리중(진행/진행중/검토중 포함)` 만 제외하도록 정리
+  - 별점 탭 전용 집계/정렬 경로 추가
+- `lib/widgets/search_filter_sheet.dart`
+  - 별점 탭에서 결과를 구조적으로 0건으로 만드는 `별점/별점사유/만족도 조사 여부` 필터를 숨기고, 기존 전역 필터에 남아 있어도 별점 탭 결과에는 영향이 없도록 분리
+- `lib/screens/rating_management_panel.dart`
+  - 새로고침/동기화 후 목록에서 빠진 신고가 기존 선택 집합에 남아 있을 때 자동으로 정리되도록 stale selection 보정 추가
+- `test/services/rating_service_test.dart`
+  - 서버 parity 기준 회귀 테스트 추가
+  - `pollStatus == ''` 허용, `참여 완료` 제외, `검토중` 제외, `답변 대기 + 답변완료` 허용 시나리오 확인
+- `docs/reviews/2026-05-23-rating-management-review.md`
+  - 별점 관리 탭 1차 리뷰 및 후속 정리 근거 문서 추가
+
+검증:
+- `dart analyze lib/services/rating_service.dart lib/providers/report_provider.dart lib/widgets/search_filter_sheet.dart lib/screens/rating_management_panel.dart test/services/rating_service_test.dart`
+- `flutter test test/services/rating_service_test.dart`
+
 ## 2026-05-20
 
 ### 신고 결과 알림 읽음 상태 통합 + 지도 상단 요약 1줄 정리

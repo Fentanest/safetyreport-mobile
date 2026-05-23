@@ -10,7 +10,7 @@ import 'standalone_api_service.dart';
 import 'sync_engine.dart';
 
 class RatingService {
-  static const _terminalStatuses = {'취하', '답변 대기', '처리중', '진행', '진행중', '검토중'};
+  static const _blockedStatuses = {'취하', '답변 대기', '처리중'};
 
   static Future<RatingBatchResult> submit({
     required AppMode appMode,
@@ -78,15 +78,21 @@ class RatingService {
 
   static String? ineligibleReason(Report report) {
     final pollStatus = report.pollStatus.trim();
-    final status = report.status.trim();
+    final status = _canonicalStatus(report.status);
 
     if (pollStatus == '참여 완료') return '이미 만족도 조사에 참여한 신고입니다.';
     if (pollStatus == '참여 불가') return '만족도 조사가 불가능한 신고입니다.';
-    if (pollStatus == '답변 대기') return '답변 대기 상태라 아직 만족도 조사를 할 수 없습니다.';
-    if (_terminalStatuses.contains(status)) {
+    if (_blockedStatuses.contains(status)) {
       return '$status 상태에서는 만족도 조사를 진행할 수 없습니다.';
     }
     return null;
+  }
+
+  static bool isListEligible(Report report) {
+    final pollStatus = report.pollStatus.trim();
+    if (pollStatus == '참여 완료' || pollStatus == '참여 불가') return false;
+    final status = _canonicalStatus(report.status);
+    return !_blockedStatuses.contains(status);
   }
 
   static Future<List<RatingBatchItem>> _submitStandalone(
@@ -336,6 +342,17 @@ class RatingService {
     String two(int value) => value.toString().padLeft(2, '0');
     return '${now.year}-${two(now.month)}-${two(now.day)} '
         '${two(now.hour)}:${two(now.minute)}:${two(now.second)}';
+  }
+
+  static String _canonicalStatus(String status) {
+    final trimmed = status.trim();
+    if (trimmed == '진행' ||
+        trimmed == '진행중' ||
+        trimmed == '검토중' ||
+        trimmed == '처리중') {
+      return '처리중';
+    }
+    return trimmed;
   }
 }
 

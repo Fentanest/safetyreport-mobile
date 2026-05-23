@@ -557,7 +557,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 context,
                 MaterialPageRoute(
                   builder: (_) =>
-                      const ReportManagementScreen(initialTabIndex: 0),
+                      const ReportManagementScreen(initialTabIndex: 1),
                 ),
               ),
             ),
@@ -597,7 +597,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 context,
                 MaterialPageRoute(
                   builder: (_) =>
-                      const ReportManagementScreen(initialTabIndex: 0),
+                      const ReportManagementScreen(initialTabIndex: 1),
                 ),
               ),
               child: Text('+ ${items.length - 5}건 더 보기'),

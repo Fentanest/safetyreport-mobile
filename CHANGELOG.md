@@ -9,6 +9,31 @@
 
 ## 2026-07-01
 
+### Standalone 대량 신고 로드 OOM(sqflite DirectByteBuffer) 수정
+
+상태: 완료
+
+배경:
+- 신고가 수천~수만 건 쌓인 기기에서 `java.lang.OutOfMemoryError`
+  (`ByteBuffer.allocateDirect` → `StandardMethodCodec.encodeSuccessEnvelope`) 크래시 보고
+- 원인: sqflite 가 쿼리 결과 전체를 **하나의 연속 DirectByteBuffer** 로 직렬화해
+  MethodChannel 로 넘기는데, 리스트/요약 쿼리가 `reports` 테이블을 all-columns·무제한으로
+  통짜 로드 → 단일 버퍼 할당 실패
+- 실측(traffic 2,735건): `처리내용` 평균 508자로 압도적 1위지만 `신고내용`·`처리내용`은
+  클라이언트 상세검색 대상이라 컬럼 제외는 불가 → 버퍼 분할이 정답
+
+변경:
+- `lib/services/local_db_service.dart`
+  - `_queryReportsChunked()` 추가: `reports` 를 ID(PK) 기준 keyset 페이지네이션(1000건 단위)으로
+    나눠 읽어 Dart 리스트로 누적 → per-query 버퍼를 작게 유지
+  - `computeSummary`, `getReportsByCategory`, `getAllReports` 를 청크 로드로 전환
+  - `getDuplicateVehicleReports` 는 `신고번호 DESC` 유니크 정렬을 유지하며 `LIMIT/OFFSET` 청크로 전환
+  - 컬럼/검색/UI/상세 시트는 그대로 (동작 불변, 단일 대형 버퍼만 제거)
+
+검증:
+- keyset 페이지네이션이 전체 조회와 동일 집합 반환(4,321행, 필터별 무중복·무누락) 실측
+- `dart analyze lib/services/local_db_service.dart` → No issues found
+
 ### 신고 지도 현재 위치(GPS) 표시
 
 상태: 완료

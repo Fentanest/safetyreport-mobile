@@ -565,6 +565,50 @@ class LocalDbService {
 
   // ── 신고 조회 ─────────────────────────────────────────────────────────────
 
+  /// 리스트 로드용 청크 조회.
+  ///
+  /// sqflite 는 쿼리 결과 전체를 하나의 연속 DirectByteBuffer 로 직렬화해
+  /// MethodChannel 로 넘긴다. 신고가 수천~수만 건 쌓이면 이 단일 버퍼가 커져
+  /// `OutOfMemoryError`(ByteBuffer.allocateDirect) 로 죽는다.
+  /// ID(PRIMARY KEY) 기준 keyset 페이지네이션으로 나눠 읽어 Dart 리스트에 누적하면
+  /// per-query 버퍼가 작게 유지된다. 최종 정렬/집계는 호출부에서 다시 하므로
+  /// 여기서는 조회 순서(ID)만 유지해도 결과가 동일하다.
+  static const int _kListChunkSize = 1000;
+
+  static Future<List<Map<String, dynamic>>> _queryReportsChunked(
+    DatabaseExecutor d, {
+    String? where,
+    List<dynamic>? whereArgs,
+  }) async {
+    final all = <Map<String, dynamic>>[];
+    String? lastId;
+    while (true) {
+      final clauses = <String>[];
+      final args = <dynamic>[];
+      if (where != null && where.trim().isNotEmpty) {
+        clauses.add('($where)');
+        if (whereArgs != null) args.addAll(whereArgs);
+      }
+      if (lastId != null) {
+        clauses.add('ID > ?');
+        args.add(lastId);
+      }
+      final rows = await d.query(
+        'reports',
+        where: clauses.isEmpty ? null : clauses.join(' AND '),
+        whereArgs: args.isEmpty ? null : args,
+        orderBy: 'ID',
+        limit: _kListChunkSize,
+      );
+      all.addAll(rows);
+      if (rows.length < _kListChunkSize) break;
+      final next = rows.last['ID'];
+      if (next is! String || next.isEmpty) break;
+      lastId = next;
+    }
+    return all;
+  }
+
   static Future<List<Report>> getReportsByCategory(
     String category, {
     bool excludeWithdraw = false,
@@ -577,12 +621,7 @@ class LocalDbService {
     if (excludeWithdraw) {
       where += " AND 처리상태 != '취하'";
     }
-    final rows = await d.query(
-      'reports',
-      where: where,
-      whereArgs: args,
-      orderBy: '신고일 DESC',
-    );
+    final rows = await _queryReportsChunked(d, where: where, whereArgs: args);
     final projected = await _projectRows(
       d,
       rows,
@@ -603,10 +642,9 @@ class LocalDbService {
     bool useRepresentativeRecords = false,
   }) async {
     final d = await db;
-    final rows = await d.query(
-      'reports',
+    final rows = await _queryReportsChunked(
+      d,
       where: excludeWithdraw ? "처리상태 != '취하'" : null,
-      orderBy: '신고일 DESC',
     );
     final projected = await _projectRows(
       d,
@@ -690,7 +728,7 @@ class LocalDbService {
     final d = await db;
     final rows = await _projectRows(
       d,
-      await d.query('reports'),
+      await _queryReportsChunked(d),
       useRepresentativeRecords: useRepresentativeRecords,
     );
 
@@ -1502,25 +1540,35 @@ class LocalDbService {
   }) async {
     final d = await db;
     final withdrawFilter = excludeWithdraw ? "AND 처리상태 != '취하'" : '';
-    final rows = await d.rawQuery('''
-      WITH dup_vehicles AS (
-        SELECT 차량번호,
-               COUNT(*)                                                 AS total_count,
-               SUM(CASE WHEN 처리상태 != '취하' THEN 1 ELSE 0 END)        AS valid_count,
-               MAX(신고번호)                                              AS max_report_no
-        FROM reports
-        WHERE 차량번호 != '' $withdrawFilter
-        GROUP BY 차량번호
-        HAVING COUNT(*) >= 2
-      )
-      SELECT r.*,
-             dv.total_count,
-             dv.valid_count
-      FROM reports r
-      INNER JOIN dup_vehicles dv ON r.차량번호 = dv.차량번호
-      WHERE r.차량번호 != '' $withdrawFilter
-      ORDER BY dv.max_report_no DESC, r.차량번호 ASC, r.신고번호 DESC
-    ''');
+    // 신고번호 DESC 가 유니크 tiebreaker 라 LIMIT/OFFSET 페이지 경계에서
+    // 누락/중복 없이 전체 정렬 순서를 그대로 유지한다.
+    final rows = <Map<String, dynamic>>[];
+    var offset = 0;
+    while (true) {
+      final page = await d.rawQuery('''
+        WITH dup_vehicles AS (
+          SELECT 차량번호,
+                 COUNT(*)                                                 AS total_count,
+                 SUM(CASE WHEN 처리상태 != '취하' THEN 1 ELSE 0 END)        AS valid_count,
+                 MAX(신고번호)                                              AS max_report_no
+          FROM reports
+          WHERE 차량번호 != '' $withdrawFilter
+          GROUP BY 차량번호
+          HAVING COUNT(*) >= 2
+        )
+        SELECT r.*,
+               dv.total_count,
+               dv.valid_count
+        FROM reports r
+        INNER JOIN dup_vehicles dv ON r.차량번호 = dv.차량번호
+        WHERE r.차량번호 != '' $withdrawFilter
+        ORDER BY dv.max_report_no DESC, r.차량번호 ASC, r.신고번호 DESC
+        LIMIT ? OFFSET ?
+      ''', [_kListChunkSize, offset]);
+      rows.addAll(page);
+      if (page.length < _kListChunkSize) break;
+      offset += _kListChunkSize;
+    }
     return rows
         .map((r) => _rowToReportWithCounts(r, normalizePolice: normalizePolice))
         .toList();

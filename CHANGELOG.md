@@ -7,6 +7,33 @@
 
 ---
 
+## 2026-07-01
+
+### 신고 지도 현재 위치(GPS) 표시
+
+상태: 완료
+
+변경:
+- `lib/screens/report_map_screen.dart`
+  - `geolocator` 로 현재 위치를 조회해 신고 지도에 현재 위치 마커 표시
+  - 지도 진입 시 현재 위치로 카메라 이동, 우측 하단 현재 위치 버튼(`FloatingActionButton`)으로 재요청/재중심
+  - 위치 서비스 꺼짐 / 권한 영구 거부 / 12초 타임아웃 시 `getLastKnownPosition` fallback + 안내 SnackBar
+  - 신고 포인트가 없어도 현재 위치만으로 지도를 그리도록 빈 마커일 때 클러스터 레이어 가드
+- `lib/services/permission_service.dart`
+  - 위치 권한 확인/요청/설정 이동을 `geolocator` 스택으로 통일 (permission_handler 이중 요청 제거)
+- `lib/screens/permission_screen.dart`
+  - 위치를 선택 권한으로 분리해 `_allGranted`(필수 판정)과 일괄 허용에서 제외
+  - 위치는 지도 진입/현재 위치 버튼에서 실사용 맥락으로만 요청 (온보딩 이중 프롬프트 제거)
+- `android/app/src/main/AndroidManifest.xml`, `ios/Runner/Info.plist`
+  - `ACCESS_FINE/COARSE_LOCATION`, `NSLocationWhenInUseUsageDescription` 추가
+- `pubspec.yaml` / `pubspec.lock`, macos/windows 플러그인 등록부
+  - `geolocator ^14.0.2` 의존성 추가 및 자동 생성 등록부 반영
+
+검증:
+- 변경 파일 참조 정리: `report_map_screen.dart`에 `permission_handler`/`PermissionStatus` 잔여 참조 없음, `permission_service.dart`는 알림/배터리 권한에만 `permission_handler` 유지
+- geolocator API 심볼 존재 확인 (`geolocator_platform_interface 4.2.8`): `LocationPermission.{always,whileInUse,deniedForever}`, `checkPermission/requestPermission/openAppSettings/getCurrentPosition/getLastKnownPosition/isLocationServiceEnabled`
+- (로컬 `dart analyze`는 이 환경에서 응답 지연으로 완료하지 못함)
+
 ## 2026-05-23
 
 ### Client 첫 실행 서버 응답 지연 완화

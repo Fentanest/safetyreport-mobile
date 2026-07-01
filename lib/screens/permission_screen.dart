@@ -21,6 +21,7 @@ class _PermissionScreenState extends State<PermissionScreen>
   bool _listenerEnabled = false;
   bool _batteryIgnored = false;
   bool _notifGranted = false;
+  bool _locationGranted = false;
   bool _wsRunning = false;
   bool _loading = true;
 
@@ -51,6 +52,7 @@ class _PermissionScreenState extends State<PermissionScreen>
       PermissionService.isNotificationListenerEnabled(),
       PermissionService.isBatteryOptimizationIgnored(),
       PermissionService.isNotificationPermissionGranted(),
+      PermissionService.isLocationPermissionGranted(),
       PermissionService.isWsServiceRunning(),
     ]);
     if (mounted) {
@@ -58,23 +60,32 @@ class _PermissionScreenState extends State<PermissionScreen>
         _listenerEnabled = results[0];
         _batteryIgnored = results[1];
         _notifGranted = results[2];
-        _wsRunning = results[3];
+        _locationGranted = results[3];
+        _wsRunning = results[4];
         _loading = false;
       });
     }
   }
 
   bool get _allGranted {
-    final isStandalone = context.read<ReportProvider>().appMode == AppMode.standalone;
-    return _listenerEnabled && _batteryIgnored && _notifGranted && (isStandalone || _wsRunning);
+    final isStandalone =
+        context.read<ReportProvider>().appMode == AppMode.standalone;
+    // 위치는 신고 지도 현재 위치 표시용 선택 권한이므로 필수 판정에서 제외한다.
+    return _listenerEnabled &&
+        _batteryIgnored &&
+        _notifGranted &&
+        (isStandalone || _wsRunning);
   }
 
   Future<void> _grantAll() async {
-    final isStandalone = context.read<ReportProvider>().appMode == AppMode.standalone;
+    final isStandalone =
+        context.read<ReportProvider>().appMode == AppMode.standalone;
     if (!_notifGranted) {
       await PermissionService.requestNotificationPermission();
       await _checkAll();
     }
+    // 위치(선택)는 일괄 허용에 넣지 않는다. 지도 진입/현재 위치 버튼에서
+    // 실제 사용 맥락에 맞춰 요청하므로 여기서 중복으로 묻지 않는다.
     if (!_batteryIgnored) {
       await PermissionService.requestIgnoreBatteryOptimizations();
       await _checkAll();
@@ -102,8 +113,9 @@ class _PermissionScreenState extends State<PermissionScreen>
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
-    
-    final isStandalone = context.watch<ReportProvider>().appMode == AppMode.standalone;
+
+    final isStandalone =
+        context.watch<ReportProvider>().appMode == AppMode.standalone;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
@@ -179,11 +191,28 @@ class _PermissionScreenState extends State<PermissionScreen>
           ),
           const SizedBox(height: 12),
 
+          _PermCard(
+            icon: Icons.my_location,
+            title: '위치 권한 (선택)',
+            desc:
+                '신고 지도에서 GPS로 현재 위치를 표시하는 선택 권한입니다.\n허용하지 않아도 나머지 기능은 정상 동작하며, 지도의 현재 위치 버튼을 누를 때 다시 요청합니다.',
+            granted: _locationGranted,
+            grantedLabel: '허용됨',
+            deniedLabel: '미허용',
+            onGrant: () async {
+              await PermissionService.requestLocationPermission();
+              await _checkAll();
+            },
+            buttonLabel: '위치 권한 요청',
+          ),
+          const SizedBox(height: 12),
+
           if (!isStandalone) ...[
             _PermCard(
               icon: Icons.wifi_tethering,
               title: '백그라운드 서버 연결 (WebSocket)',
-              desc: '앱을 종료해도 서버의 크롤링 이벤트를 실시간으로 받으려면\n백그라운드 서비스를 시작해야 합니다.\n상단 상태바에 지속 알림이 표시됩니다.',
+              desc:
+                  '앱을 종료해도 서버의 크롤링 이벤트를 실시간으로 받으려면\n백그라운드 서비스를 시작해야 합니다.\n상단 상태바에 지속 알림이 표시됩니다.',
               granted: _wsRunning,
               grantedLabel: '실행 중',
               deniedLabel: '중지됨',
@@ -204,13 +233,18 @@ class _PermissionScreenState extends State<PermissionScreen>
             FilledButton.icon(
               icon: _loading
                   ? const SizedBox(
-                      width: 16, height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
                     )
                   : const Icon(Icons.shield_outlined, size: 18),
               label: const Text('모든 권한 한 번에 허용하기'),
               style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14)),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
               onPressed: _loading ? null : _grantAll,
             ),
             const SizedBox(height: 16),
@@ -221,9 +255,7 @@ class _PermissionScreenState extends State<PermissionScreen>
             duration: const Duration(milliseconds: 300),
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: _allGranted
-                  ? Colors.green.shade50
-                  : Colors.orange.shade50,
+              color: _allGranted ? Colors.green.shade50 : Colors.orange.shade50,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: _allGranted
@@ -243,7 +275,7 @@ class _PermissionScreenState extends State<PermissionScreen>
                 Expanded(
                   child: Text(
                     _allGranted
-                        ? '모든 권한이 허용되었습니다. 알림 자동 처리가 활성화됩니다.'
+                        ? '필수 권한이 모두 허용되었습니다. 알림 자동 처리가 활성화됩니다.'
                         : '일부 권한이 허용되지 않아 자동 알림 기능이 제한될 수 있습니다.',
                     style: TextStyle(
                       fontSize: 13,
@@ -266,13 +298,15 @@ class _PermissionScreenState extends State<PermissionScreen>
                 } else {
                   Navigator.of(context).pushAndRemoveUntil(
                     MaterialPageRoute(
-                        builder: (_) => const MainNavigationScreen()),
+                      builder: (_) => const MainNavigationScreen(),
+                    ),
                     (_) => false,
                   );
                 }
               },
               style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14)),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
               child: Text(_allGranted ? '완료' : '나중에 설정하기'),
             ),
           ],
@@ -323,36 +357,47 @@ class _PermCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(icon,
-                    color: Theme.of(context).colorScheme.primary, size: 22),
+                Icon(
+                  icon,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 22,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(title,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 15)),
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
                 ),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
                   decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
+                    color: color.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: color.withOpacity(0.4)),
+                    border: Border.all(color: color.withValues(alpha: 0.4)),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(
-                          granted ? Icons.check_circle : Icons.cancel,
-                          size: 12,
-                          color: color),
+                        granted ? Icons.check_circle : Icons.cancel,
+                        size: 12,
+                        color: color,
+                      ),
                       const SizedBox(width: 4),
                       Text(
                         granted ? grantedLabel : deniedLabel,
                         style: TextStyle(
-                            fontSize: 11,
-                            color: color,
-                            fontWeight: FontWeight.bold),
+                          fontSize: 11,
+                          color: color,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ],
                   ),
@@ -360,17 +405,24 @@ class _PermCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            Text(desc,
-                style:
-                    const TextStyle(color: Colors.grey, fontSize: 12, height: 1.5)),
+            Text(
+              desc,
+              style: const TextStyle(
+                color: Colors.grey,
+                fontSize: 12,
+                height: 1.5,
+              ),
+            ),
             if (!granted) ...[
               const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
                   icon: const Icon(Icons.open_in_new, size: 16),
-                  label: Text(buttonLabel,
-                      style: const TextStyle(fontSize: 13)),
+                  label: Text(
+                    buttonLabel,
+                    style: const TextStyle(fontSize: 13),
+                  ),
                   onPressed: onGrant,
                 ),
               ),

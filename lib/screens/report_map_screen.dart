@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
@@ -15,6 +16,7 @@ import '../server_palette.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
 import '../services/local_geocode_service.dart';
+import '../services/permission_service.dart';
 import '../widgets/report_detail_sheet.dart';
 import '../widgets/report_list_card.dart';
 import 'report_list_screen.dart';
@@ -52,11 +54,16 @@ class ReportMapScreen extends StatefulWidget {
   State<ReportMapScreen> createState() => _ReportMapScreenState();
 }
 
-class _ReportMapScreenState extends State<ReportMapScreen> {
+class _ReportMapScreenState extends State<ReportMapScreen>
+    with WidgetsBindingObserver {
+  final MapController _mapController = MapController();
   ReportMapPayload? _payload;
   GeocodeBackfillProgress? _progress;
   bool _loading = true;
+  bool _locating = false;
   String? _error;
+  String? _locationError;
+  LatLng? _currentLocation;
   Timer? _progressTimer;
   String _selectedYear = 'all';
   String _selectedCategory = 'all';
@@ -64,15 +71,28 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _selectedYear = widget.initialYear;
     _selectedCategory = widget.initialCategory;
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadMap());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadMap();
+      _loadCurrentLocation(requestPermission: true, moveCamera: true);
+    });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _progressTimer?.cancel();
+    _mapController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _currentLocation == null) {
+      _loadCurrentLocation(requestPermission: false);
+    }
   }
 
   Future<void> _loadMap({bool silent = false}) async {
@@ -158,6 +178,138 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
     });
   }
 
+  Future<void> _loadCurrentLocation({
+    required bool requestPermission,
+    bool moveCamera = false,
+    bool showMessages = false,
+  }) async {
+    if (_locating) return;
+    setState(() {
+      _locating = true;
+      _locationError = null;
+    });
+
+    try {
+      final hasPermission = await _ensureLocationPermission(
+        requestPermission: requestPermission,
+        showMessages: showMessages,
+      );
+      if (!hasPermission) return;
+
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        _setLocationError('기기 위치 서비스가 꺼져 있어 현재 위치를 표시할 수 없습니다.');
+        if (showMessages) {
+          _showLocationSnackBar(
+            '기기 위치 서비스가 꺼져 있습니다.',
+            action: SnackBarAction(
+              label: '설정',
+              onPressed: Geolocator.openLocationSettings,
+            ),
+          );
+        }
+        return;
+      }
+
+      final position = await _resolveCurrentPosition();
+      if (!mounted) return;
+      final nextLocation = LatLng(position.latitude, position.longitude);
+      setState(() {
+        _currentLocation = nextLocation;
+        _locationError = null;
+      });
+      if (moveCamera) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _moveMapToCurrentLocation();
+        });
+      }
+    } on TimeoutException {
+      _setLocationError('현재 위치를 가져오는 데 시간이 오래 걸립니다.');
+      if (showMessages) {
+        _showLocationSnackBar('현재 위치를 가져오지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      }
+    } catch (_) {
+      _setLocationError('현재 위치를 가져오지 못했습니다.');
+      if (showMessages) {
+        _showLocationSnackBar('현재 위치를 가져오지 못했습니다.');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _locating = false);
+      }
+    }
+  }
+
+  Future<bool> _ensureLocationPermission({
+    required bool requestPermission,
+    required bool showMessages,
+  }) async {
+    if (await PermissionService.isLocationPermissionGranted()) return true;
+    if (!requestPermission) {
+      _setLocationError('위치 권한이 없어 현재 위치를 표시할 수 없습니다.');
+      return false;
+    }
+
+    final permission = await PermissionService.requestLocationPermission();
+    if (permission == LocationPermission.always ||
+        permission == LocationPermission.whileInUse) {
+      return true;
+    }
+
+    final permanentlyDenied = permission == LocationPermission.deniedForever;
+    _setLocationError('위치 권한이 없어 현재 위치를 표시할 수 없습니다.');
+    if (showMessages || permanentlyDenied) {
+      _showLocationSnackBar(
+        permanentlyDenied ? '위치 권한이 차단되어 있습니다.' : '위치 권한이 허용되지 않았습니다.',
+        action: permanentlyDenied
+            ? SnackBarAction(
+                label: '설정',
+                onPressed: PermissionService.openAppPermissionSettings,
+              )
+            : null,
+      );
+    }
+    return false;
+  }
+
+  Future<Position> _resolveCurrentPosition() async {
+    try {
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 12),
+        ),
+      );
+    } catch (_) {
+      final lastKnown = await Geolocator.getLastKnownPosition();
+      if (lastKnown != null) return lastKnown;
+      rethrow;
+    }
+  }
+
+  void _setLocationError(String message) {
+    if (!mounted) return;
+    setState(() => _locationError = message);
+  }
+
+  void _showLocationSnackBar(String message, {SnackBarAction? action}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message), action: action));
+  }
+
+  void _moveMapToCurrentLocation() {
+    final location = _currentLocation;
+    if (location == null) return;
+    try {
+      final currentZoom = _mapController.camera.zoom;
+      _mapController.move(location, math.max(currentZoom, 15));
+    } catch (_) {
+      // MapController may not be attached yet during the first frame.
+    }
+  }
+
   List<String> get _availableYears {
     final years = _payload?.meta.availableYears ?? const <String>[];
     return ['all', ...years.where((year) => year != 'all')];
@@ -220,7 +372,7 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
-                    child: points.isEmpty
+                    child: points.isEmpty && _currentLocation == null
                         ? _buildEmptyState(progress)
                         : _buildMap(points),
                   ),
@@ -236,7 +388,7 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
       decoration: BoxDecoration(
         color: cs.surface,
         border: Border(
-          bottom: BorderSide(color: cs.outlineVariant.withOpacity(0.35)),
+          bottom: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.35)),
         ),
       ),
       child: Column(
@@ -502,12 +654,12 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
         ? Colors.orange
         : Colors.blueGrey;
     final cardColor = progress.isError
-        ? Colors.red.withOpacity(0.05)
+        ? Colors.red.withValues(alpha: 0.05)
         : isQueued
-        ? Colors.indigo.withOpacity(0.06)
+        ? Colors.indigo.withValues(alpha: 0.06)
         : isWarning || isConfigRequired
-        ? Colors.orange.withOpacity(0.08)
-        : Colors.blue.withOpacity(0.05);
+        ? Colors.orange.withValues(alpha: 0.08)
+        : Colors.blue.withValues(alpha: 0.05);
     final double? progressValue = isQueued
         ? null
         : progress.running
@@ -611,7 +763,7 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
 
   Widget _buildErrorCard(String message) {
     return Card(
-      color: Colors.red.withOpacity(0.05),
+      color: Colors.red.withValues(alpha: 0.05),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Row(
@@ -738,8 +890,9 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
   }
 
   Widget _buildMap(List<ReportMapPoint> points) {
-    final center = _computeCenter(points);
-    final zoom = _suggestZoom(points);
+    final currentLocation = _currentLocation;
+    final center = currentLocation ?? _computeCenter(points);
+    final zoom = currentLocation != null ? 15.0 : _suggestZoom(points);
     final markerLookup = <Marker, ReportMapPoint>{};
     final markers = points.map((point) {
       final marker = Marker(
@@ -754,67 +907,115 @@ class _ReportMapScreenState extends State<ReportMapScreen> {
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
-      child: FlutterMap(
-        key: ValueKey(
-          '${_selectedYear}_${_selectedCategory}_${points.length}_${_progress?.state}',
-        ),
-        options: MapOptions(
-          initialCenter: center,
-          initialZoom: zoom,
-          maxZoom: 18,
-          minZoom: 4,
-          interactionOptions: const InteractionOptions(
-            flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
-          ),
-        ),
+      child: Stack(
         children: [
-          TileLayer(
-            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-            userAgentPackageName: 'com.fentanest.mysafetyreport',
-          ),
-          MarkerClusterLayerWidget(
-            options: MarkerClusterLayerOptions(
-              markers: markers,
-              maxClusterRadius: 54,
-              size: const Size(_kMapMarkerWidth, _kMapMarkerHeight),
-              alignment: Alignment.center,
-              padding: const EdgeInsets.all(48),
-              maxZoom: 17,
-              disableClusteringAtZoom: 16,
-              zoomToBoundsOnClick: true,
-              centerMarkerOnClick: false,
-              showPolygon: false,
-              spiderfyCluster: true,
-              builder: (context, clusterMarkers) => _ClusterMarkerWidget(
-                totalCount: clusterMarkers.fold<int>(
-                  0,
-                  (sum, marker) => sum + (markerLookup[marker]?.total ?? 0),
-                ),
-                regionLabel: _clusterRegionLabel(
-                  clusterMarkers
-                      .map((marker) => markerLookup[marker])
-                      .whereType<ReportMapPoint>()
-                      .toList(),
-                ),
-              ),
-              onMarkerTap: (marker) {
-                final point = markerLookup[marker];
-                if (point != null) {
-                  _showPointBottomSheet(point);
-                }
-              },
-              onClusterTap: (cluster) {
-                _showClusterBottomSheet(
-                  cluster.markers
-                      .map((marker) => markerLookup[marker])
-                      .whereType<ReportMapPoint>()
-                      .toList(),
-                );
-              },
+          FlutterMap(
+            key: ValueKey(
+              '${_selectedYear}_${_selectedCategory}_${points.length}_${_progress?.state}',
             ),
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: center,
+              initialZoom: zoom,
+              maxZoom: 18,
+              minZoom: 4,
+              interactionOptions: const InteractionOptions(
+                flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+              ),
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.fentanest.mysafetyreport',
+              ),
+              if (markers.isNotEmpty)
+                MarkerClusterLayerWidget(
+                  options: MarkerClusterLayerOptions(
+                    markers: markers,
+                    maxClusterRadius: 54,
+                    size: const Size(_kMapMarkerWidth, _kMapMarkerHeight),
+                    alignment: Alignment.center,
+                    padding: const EdgeInsets.all(48),
+                    maxZoom: 17,
+                    disableClusteringAtZoom: 16,
+                    zoomToBoundsOnClick: true,
+                    centerMarkerOnClick: false,
+                    showPolygon: false,
+                    spiderfyCluster: true,
+                    builder: (context, clusterMarkers) => _ClusterMarkerWidget(
+                      totalCount: clusterMarkers.fold<int>(
+                        0,
+                        (sum, marker) =>
+                            sum + (markerLookup[marker]?.total ?? 0),
+                      ),
+                      regionLabel: _clusterRegionLabel(
+                        clusterMarkers
+                            .map((marker) => markerLookup[marker])
+                            .whereType<ReportMapPoint>()
+                            .toList(),
+                      ),
+                    ),
+                    onMarkerTap: (marker) {
+                      final point = markerLookup[marker];
+                      if (point != null) {
+                        _showPointBottomSheet(point);
+                      }
+                    },
+                    onClusterTap: (cluster) {
+                      _showClusterBottomSheet(
+                        cluster.markers
+                            .map((marker) => markerLookup[marker])
+                            .whereType<ReportMapPoint>()
+                            .toList(),
+                      );
+                    },
+                  ),
+                ),
+              if (currentLocation != null)
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: currentLocation,
+                      width: 56,
+                      height: 56,
+                      child: const _CurrentLocationMarker(),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+          Positioned(
+            right: 12,
+            bottom: 12,
+            child: _buildCurrentLocationButton(),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildCurrentLocationButton() {
+    final locationError = _locationError;
+    final icon = _locating
+        ? const SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+        : Icon(
+            locationError != null ? Icons.location_disabled : Icons.my_location,
+          );
+    return FloatingActionButton.small(
+      heroTag: 'reportMapCurrentLocation',
+      tooltip: locationError ?? '현재 위치',
+      onPressed: _locating
+          ? null
+          : () => _loadCurrentLocation(
+              requestPermission: true,
+              moveCamera: true,
+              showMessages: true,
+            ),
+      child: icon,
     );
   }
 
@@ -1240,6 +1441,38 @@ class _MapPointMarker extends StatelessWidget {
         const SizedBox(height: 6),
         _MarkerRegionPill(label: label),
       ],
+    );
+  }
+}
+
+class _CurrentLocationMarker extends StatelessWidget {
+  const _CurrentLocationMarker();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Center(
+      child: Container(
+        width: 34,
+        height: 34,
+        decoration: BoxDecoration(
+          color: cs.primary,
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 3),
+          boxShadow: [
+            BoxShadow(
+              color: cs.primary.withValues(alpha: 0.35),
+              blurRadius: 12,
+              spreadRadius: 5,
+            ),
+          ],
+        ),
+        child: const Icon(
+          Icons.person_pin_circle,
+          color: Colors.white,
+          size: 20,
+        ),
+      ),
     );
   }
 }

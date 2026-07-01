@@ -1,14 +1,19 @@
 import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 class PermissionService {
-  static const _channel =
-      MethodChannel('com.fentanest.mysafetyreport/permissions');
+  static const _channel = MethodChannel(
+    'com.fentanest.mysafetyreport/permissions',
+  );
 
   // ── 알림 리스너 권한 ──────────────────────────────────────────────────────
   static Future<bool> isNotificationListenerEnabled() async {
     try {
-      return await _channel.invokeMethod<bool>('isNotificationListenerEnabled') ?? false;
+      return await _channel.invokeMethod<bool>(
+            'isNotificationListenerEnabled',
+          ) ??
+          false;
     } on PlatformException {
       return false;
     }
@@ -34,6 +39,23 @@ class PermissionService {
 
   static Future<void> requestNotificationPermission() async {
     await Permission.notification.request();
+  }
+
+  // ── 위치 권한 (신고 지도 현재 위치 표시) ─────────────────────────────────────
+  // 위치는 geolocator 스택 하나로 통일한다. permission_handler 와 이중으로
+  // 권한을 물어보지 않도록 확인/요청/설정 이동 모두 geolocator 경유로 처리한다.
+  static Future<bool> isLocationPermissionGranted() async {
+    final permission = await Geolocator.checkPermission();
+    return permission == LocationPermission.always ||
+        permission == LocationPermission.whileInUse;
+  }
+
+  static Future<LocationPermission> requestLocationPermission() async {
+    return Geolocator.requestPermission();
+  }
+
+  static Future<bool> openAppPermissionSettings() {
+    return Geolocator.openAppSettings();
   }
 
   // ── WsService 제어 ────────────────────────────────────────────────────────

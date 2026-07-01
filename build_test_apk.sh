@@ -31,6 +31,7 @@ for arg in "$@"; do
 done
 
 ensure_flutter_available "$FLUTTER_BIN"
+ensure_java_available
 
 # VERSION 읽기
 VERSION="$(tr -d '[:space:]' < "$SCRIPT_DIR/VERSION")"

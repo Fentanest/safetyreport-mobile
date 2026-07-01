@@ -34,6 +34,25 @@
 - geolocator API 심볼 존재 확인 (`geolocator_platform_interface 4.2.8`): `LocationPermission.{always,whileInUse,deniedForever}`, `checkPermission/requestPermission/openAppSettings/getCurrentPosition/getLastKnownPosition/isLocationServiceEnabled`
 - (로컬 `dart analyze`는 이 환경에서 응답 지연으로 완료하지 못함)
 
+### 빌드 스크립트 JAVA_HOME 자동 설정 (self-hosted CI Java 미탐색 수정)
+
+상태: 완료
+
+배경:
+- self-hosted GitHub Actions 러너는 대화형 셸 PATH 를 물려받지 못해 `flutter build apk`
+  단계에서 `JAVA_HOME is not set and no 'java' command could be found` 로 gradle 실패
+
+변경:
+- `build_android_common.sh`
+  - `ensure_java_available()` 추가: 유효한 `JAVA_HOME` 이 있으면 존중, 없으면 Android Studio
+    번들 JBR → 시스템 JDK 17 → 21 순으로 탐색해 `JAVA_HOME`/`PATH` 설정
+- `build_android_release.sh`, `build_test_apk.sh`
+  - `ensure_flutter_available` 직후 `ensure_java_available` 호출
+
+검증:
+- `bash -n` 구문 검사 통과
+- 최소 PATH(`env -i PATH=/usr/bin:/bin`) 환경에서 `JAVA_HOME` 이 JBR(JDK 21)로 설정됨 확인
+
 ## 2026-05-23
 
 ### Client 첫 실행 서버 응답 지연 완화

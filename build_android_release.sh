@@ -52,6 +52,7 @@ for arg in "$@"; do
 done
 
 ensure_flutter_available "$FLUTTER_BIN"
+ensure_java_available
 
 if [[ ! -f "$SCRIPT_DIR/VERSION" ]]; then
   echo "❌ VERSION 파일이 없습니다: $SCRIPT_DIR/VERSION" >&2

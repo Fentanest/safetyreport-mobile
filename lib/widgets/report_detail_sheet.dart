@@ -17,6 +17,19 @@ import '../services/standalone_auth_service.dart';
 
 const _officialSafetyReportUrl = 'https://www.safetyreport.go.kr/';
 
+Uri buildSafetyReportAppUri(String reportId) {
+  return Uri(
+    scheme: 'appsafetyreport',
+    host: 'view',
+    queryParameters: {
+      'openpage': 'true',
+      'c_no': reportId,
+      'ext_path': 'M_MY_01_S0002.html',
+      'mem_yn': 'Y',
+    },
+  );
+}
+
 void showReportDetailSheet(BuildContext context, Report report) {
   final reportNumber = report.reportNumber.trim();
   if (reportNumber.isNotEmpty) {
@@ -80,9 +93,7 @@ class ReportDetailSheet extends StatelessWidget {
       ).showSnackBar(const SnackBar(content: Text('신고 ID 정보가 없습니다.')));
       return;
     }
-    final uri = Uri.parse(
-      'appsafetyreport://view?c_no=${report.id}&ext_path=M_MY_01_S0002.html&mem_yn=Y',
-    );
+    final uri = buildSafetyReportAppUri(report.id);
     try {
       final launched = await launchUrl(
         uri,
@@ -663,12 +674,8 @@ class ReportDetailSheet extends StatelessWidget {
   ) async {
     final navigator = Navigator.of(context);
     final provider = context.read<ReportProvider>();
-    var category = provider.findCategory(report);
-    if (category == null) {
-      await provider.ensureCategoryReportsLoaded();
-      if (!context.mounted) return;
-      category = provider.findCategory(report);
-    }
+    final category = await provider.refreshCategoryForReport(report);
+    if (!context.mounted) return;
     if (category == null) {
       ScaffoldMessenger.of(
         context,

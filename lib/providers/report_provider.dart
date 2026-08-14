@@ -380,6 +380,21 @@ class ReportProvider with ChangeNotifier {
     return null;
   }
 
+  /// 알림 상세처럼 목록보다 최신인 [report]를 기준으로 검색 화면에
+  /// 진입할 때, 해당 카테고리의 캐시를 먼저 새로 고친다.
+  ///
+  /// 카테고리 정보가 없으면 최신 목록 전체에서 한 번 더 찾는다.
+  Future<String?> refreshCategoryForReport(Report report) async {
+    final category = findCategory(report);
+    if (category != null) {
+      await fetchCategoryReports(category);
+      return category;
+    }
+
+    await ensureCategoryReportsLoaded(forceRefresh: true);
+    return findCategory(report);
+  }
+
   int categoryToTabIndex(String? category) {
     switch (category) {
       case 'parking':

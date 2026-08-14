@@ -41,6 +41,10 @@ class _ReportManagementScreenState extends State<ReportManagementScreen>
         title: const Text('신고관리'),
         bottom: TabBar(
           controller: _tabController,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          indicatorColor: Colors.white,
+          indicatorWeight: 3,
           tabs: const [
             Tab(text: '별점'),
             Tab(text: '감시 목록'),

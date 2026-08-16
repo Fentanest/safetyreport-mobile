@@ -7,6 +7,35 @@
 
 ---
 
+## 2026-08-16 (1.3.5+30)
+
+### 신고 상세 시트 동영상 스크롤 재다운로드 수정
+
+상태: 완료
+
+배경:
+- 신고 상세 시트에서 맨 아래 동영상까지 내려 재생 → 위로 올려 본문을 읽다가
+  다시 내려오면 동영상이 처음부터 다시 버퍼링(재다운로드)된다는 보고
+- 원인: 상세 시트 본문이 `ListView` 라서 뷰포트 + cacheExtent 밖으로 나간 자식의
+  Element 가 파기됨 → `_VideoPlayerState.dispose()` 가 `VideoPlayerController` 를 dispose,
+  다시 진입할 때 `initState → _initController()` 로 새 컨트롤러를 만들어 재버퍼링
+- `ListView` 의 `addAutomaticKeepAlives` 기본값은 true 지만,
+  `_VideoPlayerState` 가 `AutomaticKeepAliveClientMixin` 을 쓰지 않아 keep-alive 통지가 없었음
+
+변경:
+- `lib/widgets/report_detail_sheet.dart`
+  - `_VideoPlayerState` 에 `AutomaticKeepAliveClientMixin` 적용 (`wantKeepAlive => true`,
+    `build()` 최상단 `super.build(context)`)
+  - `_VideoPlayer` 에 `super.key` 추가 + 호출부 두 곳(`첨부 동영상`, `첨부파일`)에
+    URL 기반 `ValueKey` 부여 → 목록 순서가 바뀌어도 State 가 URL 에 고정
+- 부수 효과: 동영상이 아닌 첨부파일(`otherFiles`)도 인라인 재생을 시도하므로
+  스크롤할 때마다 반복되던 헛다운로드/실패 재시도가 함께 사라짐
+- 시트를 닫으면 라우트가 사라지면서 기존대로 정상 dispose
+
+검증:
+- `flutter analyze lib/widgets/report_detail_sheet.dart` → 기존 `unnecessary_underscores`
+  info 4건 외 신규 이슈 없음
+
 ## 2026-07-01
 
 ### Standalone 대량 신고 로드 OOM(sqflite DirectByteBuffer) 수정

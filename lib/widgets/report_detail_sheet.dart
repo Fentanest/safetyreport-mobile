@@ -389,7 +389,7 @@ class ReportDetailSheet extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      _VideoPlayer(url: url),
+                      _VideoPlayer(key: ValueKey('video:$url'), url: url),
                       const SizedBox(height: 4),
                       OutlinedButton.icon(
                         icon: const Icon(Icons.open_in_new, size: 14),
@@ -426,7 +426,11 @@ class ReportDetailSheet extends StatelessWidget {
                     '첨부파일 $idx';
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 8),
-                  child: _VideoPlayer(url: url, label: fileName),
+                  child: _VideoPlayer(
+                    key: ValueKey('file:$url'),
+                    url: url,
+                    label: fileName,
+                  ),
                 );
               }),
             ],
@@ -1063,13 +1067,20 @@ class _RetryableImageState extends State<_RetryableImage> {
 class _VideoPlayer extends StatefulWidget {
   final String url;
   final String? label; // 파일명 표시용 (otherFiles에서 사용)
-  const _VideoPlayer({required this.url, this.label});
+  const _VideoPlayer({super.key, required this.url, this.label});
 
   @override
   State<_VideoPlayer> createState() => _VideoPlayerState();
 }
 
-class _VideoPlayerState extends State<_VideoPlayer> {
+class _VideoPlayerState extends State<_VideoPlayer>
+    with AutomaticKeepAliveClientMixin {
+  // 상세 시트는 ListView 라서 화면 밖으로 나간 자식 Element 가 파기된다.
+  // keep-alive 를 걸지 않으면 스크롤을 올렸다 내릴 때마다 컨트롤러가 dispose 되고
+  // 다시 처음부터 버퍼링(재다운로드)한다. 시트가 닫힐 때는 정상적으로 dispose 된다.
+  @override
+  bool get wantKeepAlive => true;
+
   late VideoPlayerController _ctrl;
   bool _initialized = false;
   bool _error = false;
@@ -1127,6 +1138,7 @@ class _VideoPlayerState extends State<_VideoPlayer> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // AutomaticKeepAliveClientMixin 필수 호출
     if (_error) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),

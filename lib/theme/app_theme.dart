@@ -33,6 +33,19 @@ class AppTheme {
           : const Color(0xFF0B3C8C),
       secondary: isDark ? const Color(0xFF22D3EE) : const Color(0xFF0E7490),
       onSecondary: isDark ? t.background : Colors.white,
+      // FilledButton.tonal 등이 쓰는 컨테이너. 지정하지 않으면 secondary 원색으로 칠해져 튄다.
+      secondaryContainer: t.brandSoft,
+      onSecondaryContainer: isDark
+          ? const Color(0xFFDBEAFE)
+          : const Color(0xFF0B3C8C),
+      tertiaryContainer: t.surfaceAlt,
+      onTertiaryContainer: t.textPrimary,
+      errorContainer: isDark
+          ? const Color(0xFF450A0A)
+          : const Color(0xFFFEE2E2),
+      onErrorContainer: isDark
+          ? const Color(0xFFFECACA)
+          : const Color(0xFF991B1B),
       error: isDark ? const Color(0xFFF87171) : const Color(0xFFDC2626),
       onError: isDark ? t.background : Colors.white,
       surface: t.surface,

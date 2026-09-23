@@ -138,6 +138,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     summary: _overview?.forCategory(_cat),
     categoryLabel: _catLabels[_cat] ?? '',
     yearBasis: _overview?.yearBasis ?? '',
+    excludeWithdraw: _overview?.excludeWithdraw ?? false,
     notice: _overviewNotice ?? (_overview == null ? '요약을 불러오는 중입니다…' : null),
   );
 

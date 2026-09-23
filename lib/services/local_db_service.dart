@@ -895,6 +895,7 @@ class LocalDbService {
       'parking': summarizeOverviewRows(byCategory('parking')),
       'other': summarizeOverviewRows(byCategory('other')),
       'year_basis': '답변일',
+      'exclude_withdraw': excludeWithdraw,
     };
   }
 

@@ -796,7 +796,7 @@ class _NotifTile extends StatelessWidget {
                           item.reportNumber,
                           style: TextStyle(
                             fontSize: 11,
-                            color: context.sr.textDisabled,
+                            color: context.sr.textSecondary,
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -811,7 +811,7 @@ class _NotifTile extends StatelessWidget {
                         item.timestamp,
                         style: TextStyle(
                           fontSize: 11,
-                          color: context.sr.textDisabled,
+                          color: context.sr.textSecondary,
                         ),
                       ),
                     ],
@@ -934,7 +934,7 @@ class _RatingBatchTile extends StatelessWidget {
                           item.timestamp,
                           style: TextStyle(
                             fontSize: 12,
-                            color: context.sr.textDisabled,
+                            color: context.sr.textSecondary,
                           ),
                         ),
                       ],
@@ -1161,7 +1161,7 @@ class _RatingReportCard extends StatelessWidget {
                   '탭해서 신고 상세 보기',
                   style: TextStyle(
                     fontSize: 11,
-                    color: context.sr.textDisabled,
+                    color: context.sr.textSecondary,
                   ),
                 ),
               ],

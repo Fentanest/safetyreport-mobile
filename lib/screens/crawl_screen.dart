@@ -867,7 +867,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
                         hintText: 'SPP-231120-1234567\nSPP-231121-7654321',
                         hintStyle: TextStyle(
                           fontSize: 11,
-                          color: context.sr.textDisabled,
+                          color: context.sr.textSecondary,
                         ),
                       ),
                     ),

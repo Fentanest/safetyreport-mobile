@@ -19,12 +19,16 @@ class StatsOverviewSection extends StatelessWidget {
   /// 요약을 표시할 수 없을 때 안내 문구(구서버 미지원 등). null 이면 정상.
   final String? notice;
 
+  /// 취하 데이터 숨기기 설정이 적용됐는지(각주 표시용).
+  final bool excludeWithdraw;
+
   const StatsOverviewSection({
     super.key,
     required this.summary,
     required this.categoryLabel,
     required this.yearBasis,
     this.notice,
+    this.excludeWithdraw = false,
   });
 
   @override
@@ -76,7 +80,11 @@ class StatsOverviewSection extends StatelessWidget {
           const SizedBox(height: 12),
           _MonthlyChartCard(summary: s),
           const SizedBox(height: 6),
-          _Footnotes(summary: s, yearBasis: yearBasis),
+          _Footnotes(
+            summary: s,
+            yearBasis: yearBasis,
+            excludeWithdraw: excludeWithdraw,
+          ),
         ],
       ),
     );
@@ -525,13 +533,20 @@ class _LegendLinePainter extends CustomPainter {
 class _Footnotes extends StatelessWidget {
   final OverviewSummary summary;
   final String yearBasis;
+  final bool excludeWithdraw;
 
-  const _Footnotes({required this.summary, required this.yearBasis});
+  const _Footnotes({
+    required this.summary,
+    required this.yearBasis,
+    required this.excludeWithdraw,
+  });
 
   @override
   Widget build(BuildContext context) {
     final notes = <String>[
       if (yearBasis.isNotEmpty) '연도 필터는 $yearBasis 기준입니다.',
+      if (excludeWithdraw)
+        '취하 데이터 숨기기 설정에 따라 취하 건은 제외했습니다(대시보드 \'전체\'는 취하 포함).',
       '평균 처리기간은 신고일·답변일이 모두 있는 신고만으로 계산합니다(표본 ${summary.avgDaysCount}건).',
       if (summary.reversedDateCount > 0)
         '답변일이 신고일보다 앞선 ${summary.reversedDateCount}건은 평균에서 제외했습니다.',

@@ -45,6 +45,29 @@ void main() {
         }
       });
 
+      test('컨테이너 색(토널 버튼·오류 박스) 글자 AA', () {
+        for (final pair in [
+          (scheme.onPrimaryContainer, scheme.primaryContainer),
+          (scheme.onSecondaryContainer, scheme.secondaryContainer),
+          (scheme.onErrorContainer, scheme.errorContainer),
+          (scheme.onError, scheme.error),
+          (scheme.onInverseSurface, scheme.inverseSurface),
+        ]) {
+          expect(contrastRatio(pair.$1, pair.$2), greaterThanOrEqualTo(4.5));
+        }
+      });
+
+      test('SnackBar 성공/실패 배경 위 흰 글자 AA', () {
+        expect(
+          contrastRatio(Colors.white, srSnackSuccess),
+          greaterThanOrEqualTo(4.5),
+        );
+        expect(
+          contrastRatio(Colors.white, srSnackError),
+          greaterThanOrEqualTo(4.5),
+        );
+      });
+
       test('primary 글자·채움 버튼 대비', () {
         expect(
           contrastRatio(scheme.onPrimary, scheme.primary),

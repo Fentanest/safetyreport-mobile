@@ -125,8 +125,11 @@ class StatsOverview {
   final OverviewSummary parking;
   final OverviewSummary other;
 
-  /// 연도 필터 기준 컬럼. Client 서버 `/stats` 는 '답변일', Standalone 은 '신고일' (statistics-spec S-08).
+  /// 연도 필터 기준 컬럼. S-08 결정으로 두 모드 모두 '답변일'.
   final String yearBasis;
+
+  /// 취하 데이터 숨기기 설정 적용 여부(대시보드 '전체'는 취하 포함이라 통계 총계와 다를 수 있음).
+  final bool excludeWithdraw;
 
   const StatsOverview({
     required this.all,
@@ -134,6 +137,7 @@ class StatsOverview {
     required this.parking,
     required this.other,
     required this.yearBasis,
+    this.excludeWithdraw = false,
   });
 
   OverviewSummary forCategory(String category) {
@@ -161,6 +165,7 @@ class StatsOverview {
       parking: OverviewSummary.fromJson(section('parking')),
       other: OverviewSummary.fromJson(section('other')),
       yearBasis: json['year_basis']?.toString() ?? '',
+      excludeWithdraw: json['exclude_withdraw'] == true,
     );
   }
 }

@@ -416,7 +416,7 @@ class _ActionBtn extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: onTap == null ? context.sr.textDisabled : c,
+                    color: onTap == null ? context.sr.textSecondary : c,
                   ),
                 ),
               ],

@@ -321,4 +321,7 @@ fire-and-forget 으로 시작한다. 사용자는 즉시 선택 모드에서 빠
 - **상태 배지**: `lib/widgets/status_badge.dart`. 기준색은 `server_palette.dart`(D-02: 모바일 먼저 토큰 상태색, 서버 웹은 별도 추종), 글자/배경은 `StatusTone` 이 AA(4.5:1) 보정.
 - **신고 카드**: `report_list_card.dart` 가 긴 신고명·차량번호에서 넘치지 않도록 재배치(표시 필드·콜백 동일).
 - **통계 요약**: `lib/widgets/stats_overview_section.dart` + `lib/models/stats_overview.dart`. 데이터는 `LocalDbService.computeStatsOverview`(Standalone) / `ApiService.getStatsOverview`(Client). 정의: `docs/design/statistics-spec.md` §4·§6-1.
-- 아직 토큰으로 옮기지 않은 화면(설정·파일·크롤링·지도·별점 패널·알림 목록 등)은 기존 하드코딩 색이 남아 있다. 화면 그룹 작업 때 교체한다.
+- **하단 탭 5개(D-06)**: 0 대시보드, 1 신고내역, 2 신고관리, 3 통계, 4 알림. 동기화/크롤링·파일은 `lib/navigation/app_routes.dart` 로 연다.
+  위 원문 "하단 탭 구조"(7개)는 **구버전**이다. 네이티브는 여전히 nav_tab 5/6 을 보낼 수 있고 Flutter 가 화면으로 변환한다.
+  동기화 화면은 GlobalKey 를 쓰므로 반드시 `AppRoutes.openCrawl` 로만 연다(동기 open 플래그로 중복 push 방지).
+- 전 화면 토큰 통일 완료(2026-09-24). 남긴 색 목록은 CHANGELOG 같은 날짜 항목 참조. SnackBar 성공/실패는 `srSnackSuccess`/`srSnackError`.

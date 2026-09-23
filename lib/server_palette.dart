@@ -16,6 +16,12 @@ const serverTrafficFineColor = Color(0xFFEC4899);
 const serverTrafficPenaltyColor = Color(0xFF8B5CF6);
 const serverUnconfirmedColor = Color(0xFF6B7280);
 
+// 변경 알림(카드 시트·알림 기록) 종류 색. 배지 글자는 StatusTone 으로 AA 보정해서 쓴다.
+const changeNewColor = Color(0xFF14B8A6); // 신규
+const changeStatusColor = Color(0xFFF59E0B); // 처리변경
+const changeConfirmColor = Color(0xFF64748B); // 개별 확인
+const changeDuplicateColor = Color(0xFF6366F1); // 중복 변경
+
 Color serverStatusColor(String status) {
   final value = status.trim();
   if (value == '보완요청') return serverSupplementColor;

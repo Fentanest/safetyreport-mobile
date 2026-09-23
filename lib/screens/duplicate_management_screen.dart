@@ -6,14 +6,18 @@ import '../models/duplicate_group.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
 import '../services/repositories/duplicate_repository.dart';
+import '../theme/app_theme.dart';
+import '../theme/sr_colors.dart';
 import '../widgets/duplicate_group_detail_sheet.dart';
 import '../widgets/report_detail_sheet.dart';
+import '../widgets/status_badge.dart';
 
 class DuplicateManagementPanel extends StatefulWidget {
   const DuplicateManagementPanel({super.key});
 
   @override
-  State<DuplicateManagementPanel> createState() => _DuplicateManagementPanelState();
+  State<DuplicateManagementPanel> createState() =>
+      _DuplicateManagementPanelState();
 }
 
 class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
@@ -97,10 +101,9 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
     final noteCtrl = TextEditingController(text: group.note);
     var duplicateStatus = group.status;
     var representativeMode = group.representativeMode;
-    var representativeId =
-        group.representativeId.isNotEmpty
-            ? group.representativeId
-            : (group.representative?.reportId ?? '');
+    var representativeId = group.representativeId.isNotEmpty
+        ? group.representativeId
+        : (group.representative?.reportId ?? '');
     var saving = false;
 
     await showModalBottomSheet(
@@ -125,14 +128,17 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
                   height: 4,
                   margin: const EdgeInsets.only(bottom: 18),
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
+                    color: context.sr.border,
                     borderRadius: BorderRadius.circular(999),
                   ),
                 ),
               ),
               Row(
                 children: [
-                  const Icon(Icons.content_copy, color: Colors.indigo),
+                  Icon(
+                    Icons.content_copy,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -146,7 +152,8 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
                     ),
                   ),
                   TextButton(
-                    onPressed: () => showDuplicateGroupDetailSheet(sheetCtx, group),
+                    onPressed: () =>
+                        showDuplicateGroupDetailSheet(sheetCtx, group),
                     child: const Text('상세 보기'),
                   ),
                 ],
@@ -255,7 +262,8 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
                     secondary: IconButton(
                       icon: const Icon(Icons.open_in_new),
                       tooltip: '상세 보기',
-                      onPressed: () => showReportDetailSheet(context, member.report),
+                      onPressed: () =>
+                          showReportDetailSheet(context, member.report),
                     ),
                   ),
                 ),
@@ -277,9 +285,9 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
                           if (sheetCtx.mounted) Navigator.pop(sheetCtx);
                         } catch (e) {
                           if (!sheetCtx.mounted) return;
-                          ScaffoldMessenger.of(sheetCtx).showSnackBar(
-                            SnackBar(content: Text('저장 실패: $e')),
-                          );
+                          ScaffoldMessenger.of(
+                            sheetCtx,
+                          ).showSnackBar(SnackBar(content: Text('저장 실패: $e')));
                         } finally {
                           if (sheetCtx.mounted) {
                             setSheetState(() => saving = false);
@@ -287,12 +295,12 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
                         }
                       },
                 icon: saving
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 16,
                         height: 16,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: Colors.white,
+                          color: Theme.of(context).colorScheme.onPrimary,
                         ),
                       )
                     : const Icon(Icons.save_outlined),
@@ -315,7 +323,11 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.error_outline, size: 48, color: Colors.red),
+            Icon(
+              Icons.error_outline,
+              size: 48,
+              color: Theme.of(context).colorScheme.error,
+            ),
             const SizedBox(height: 12),
             Text(_error!, textAlign: TextAlign.center),
             const SizedBox(height: 16),
@@ -369,7 +381,8 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
                 child: _StatusCard(
                   label: '중복 확정',
                   count: _countByStatus(DuplicateStatuses.confirmedDuplicate),
-                  selected: _statusFilter == DuplicateStatuses.confirmedDuplicate,
+                  selected:
+                      _statusFilter == DuplicateStatuses.confirmedDuplicate,
                   onTap: () => setState(
                     () => _statusFilter = DuplicateStatuses.confirmedDuplicate,
                   ),
@@ -396,7 +409,7 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
                 child: Text(
                   _infoMessage ?? '현재 조건에 맞는 중복 신고 그룹이 없습니다.',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.grey),
+                  style: TextStyle(color: context.sr.textSecondary),
                 ),
               ),
             )
@@ -438,11 +451,17 @@ class _StatusCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+              Text(
+                label,
+                style: TextStyle(fontSize: 12, color: context.sr.textSecondary),
+              ),
               const SizedBox(height: 8),
               Text(
                 '$count건',
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ],
           ),
@@ -508,21 +527,9 @@ class _DuplicateGroupCard extends StatelessWidget {
             ],
           ),
         ),
-        trailing: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: _statusColor(group.status).withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: _statusColor(group.status).withValues(alpha: 0.4)),
-          ),
-          child: Text(
-            group.statusLabel,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: _statusColor(group.status),
-            ),
-          ),
+        trailing: StatusBadge(
+          label: group.statusLabel,
+          color: _statusColor(group.status),
         ),
         onTap: onTap,
       ),

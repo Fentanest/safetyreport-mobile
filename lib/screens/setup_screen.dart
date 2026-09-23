@@ -9,6 +9,7 @@ import '../services/pending_db_import_action.dart';
 import '../services/server_connection_service.dart';
 import '../services/standalone_auth_service.dart';
 import 'permission_screen.dart';
+import '../theme/sr_colors.dart';
 
 enum _Step { selectMode, serverConfig, standaloneConfig }
 
@@ -180,7 +181,11 @@ class _SetupScreenState extends State<SetupScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(message),
-            backgroundColor: Colors.green,
+            backgroundColor: StatusTone.of(
+              Colors.green,
+              brightness: Theme.of(context).brightness,
+              surface: context.sr.surface,
+            ).foreground,
             duration: const Duration(seconds: 4),
           ),
         );
@@ -190,7 +195,11 @@ class _SetupScreenState extends State<SetupScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('DB 가져오기 실패 (빈 DB 로 시작): $e'),
-            backgroundColor: Colors.orange,
+            backgroundColor: StatusTone.of(
+              Colors.orange,
+              brightness: Theme.of(context).brightness,
+              surface: context.sr.surface,
+            ).foreground,
             duration: const Duration(seconds: 5),
           ),
         );
@@ -224,7 +233,11 @@ class _SetupScreenState extends State<SetupScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const SizedBox(height: 24),
-          const Icon(Icons.shield_outlined, size: 60, color: Color(0xFF1A73E8)),
+          Icon(
+            Icons.shield_outlined,
+            size: 60,
+            color: Theme.of(context).colorScheme.primary,
+          ),
           const SizedBox(height: 20),
           const Text(
             '나만의 안전신문고',
@@ -232,15 +245,15 @@ class _SetupScreenState extends State<SetupScreen> {
             style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             '연결 방식을 선택해주세요',
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 15, color: Colors.grey),
+            style: TextStyle(fontSize: 15, color: context.sr.textSecondary),
           ),
           const SizedBox(height: 40),
           _ModeCard(
             icon: Icons.dns_rounded,
-            color: const Color(0xFF1A73E8),
+            color: Theme.of(context).colorScheme.primary,
             title: 'Client 모드',
             description:
                 '직접 구축한 크롤링 서버와 연결합니다.\n자동 크롤링, 통계, 파일 관리 등 모든 기능을 사용할 수 있습니다.',
@@ -249,7 +262,11 @@ class _SetupScreenState extends State<SetupScreen> {
           const SizedBox(height: 16),
           _ModeCard(
             icon: Icons.phone_android_rounded,
-            color: const Color(0xFF0F9D58),
+            color: StatusTone.of(
+              Colors.green,
+              brightness: Theme.of(context).brightness,
+              surface: context.sr.surface,
+            ).foreground,
             title: 'Standalone 모드',
             description: '안전신문고 계정으로 앱에서 직접 접근합니다.\n서버 없이 신고 현황을 조회할 수 있습니다.',
             onTap: () => _goToStep(_Step.standaloneConfig),
@@ -272,7 +289,7 @@ class _SetupScreenState extends State<SetupScreen> {
           Row(
             children: [
               IconButton(
-                icon: const Icon(Icons.arrow_back),
+                icon: Icon(Icons.arrow_back),
                 onPressed: () => _goToStep(_Step.selectMode),
               ),
               const SizedBox(width: 4),
@@ -287,12 +304,16 @@ class _SetupScreenState extends State<SetupScreen> {
             ],
           ),
           const SizedBox(height: 24),
-          const Icon(Icons.dns_rounded, size: 52, color: Color(0xFF1A73E8)),
+          Icon(
+            Icons.dns_rounded,
+            size: 52,
+            color: Theme.of(context).colorScheme.primary,
+          ),
           const SizedBox(height: 16),
-          const Text(
+          Text(
             '서버 URL과 API Key를 입력해주세요.',
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey),
+            style: TextStyle(color: context.sr.textSecondary),
           ),
           const SizedBox(height: 28),
           TextField(
@@ -323,15 +344,15 @@ class _SetupScreenState extends State<SetupScreen> {
           const SizedBox(height: 24),
           FilledButton.icon(
             icon: _loading
-                ? const SizedBox(
+                ? SizedBox(
                     width: 18,
                     height: 18,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: Colors.white,
+                      color: Theme.of(context).colorScheme.onPrimary,
                     ),
                   )
-                : const Icon(Icons.wifi_find, size: 18),
+                : Icon(Icons.wifi_find, size: 18),
             label: Text(_loading ? '연결 확인 중...' : '연결 확인 후 시작하기'),
             style: FilledButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 16),
@@ -354,31 +375,39 @@ class _SetupScreenState extends State<SetupScreen> {
           Row(
             children: [
               IconButton(
-                icon: const Icon(Icons.arrow_back),
+                icon: Icon(Icons.arrow_back),
                 onPressed: () => _goToStep(_Step.selectMode),
               ),
               const SizedBox(width: 4),
-              const Text(
+              Text(
                 '안전신문고 로그인',
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF0F9D58),
+                  color: StatusTone.of(
+                    Colors.green,
+                    brightness: Theme.of(context).brightness,
+                    surface: context.sr.surface,
+                  ).foreground,
                 ),
               ),
             ],
           ),
           const SizedBox(height: 24),
-          const Icon(
+          Icon(
             Icons.lock_open_rounded,
             size: 52,
-            color: Color(0xFF0F9D58),
+            color: StatusTone.of(
+              Colors.green,
+              brightness: Theme.of(context).brightness,
+              surface: context.sr.surface,
+            ).foreground,
           ),
           const SizedBox(height: 16),
-          const Text(
+          Text(
             '안전신문고 아이디와 비밀번호를 입력하세요.\n서버 없이 앱에서 직접 신고 현황을 조회합니다.',
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey, height: 1.5),
+            style: TextStyle(color: context.sr.textSecondary, height: 1.5),
           ),
           const SizedBox(height: 28),
           TextField(
@@ -398,7 +427,7 @@ class _SetupScreenState extends State<SetupScreen> {
             decoration: InputDecoration(
               labelText: '비밀번호',
               border: const OutlineInputBorder(),
-              prefixIcon: const Icon(Icons.lock_outline),
+              prefixIcon: Icon(Icons.lock_outline),
               suffixIcon: IconButton(
                 icon: Icon(
                   _obscurePw ? Icons.visibility_off : Icons.visibility,
@@ -431,18 +460,22 @@ class _SetupScreenState extends State<SetupScreen> {
           const SizedBox(height: 24),
           FilledButton.icon(
             icon: _loading
-                ? const SizedBox(
+                ? SizedBox(
                     width: 18,
                     height: 18,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: Colors.white,
+                      color: Theme.of(context).colorScheme.onPrimary,
                     ),
                   )
-                : const Icon(Icons.login, size: 18),
+                : Icon(Icons.login, size: 18),
             label: Text(_loading ? '로그인 중...' : '로그인'),
             style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF0F9D58),
+              backgroundColor: StatusTone.of(
+                Colors.green,
+                brightness: Theme.of(context).brightness,
+                surface: context.sr.surface,
+              ).foreground,
               padding: const EdgeInsets.symmetric(vertical: 16),
             ),
             onPressed: _loading ? null : _loginStandalone,
@@ -451,21 +484,25 @@ class _SetupScreenState extends State<SetupScreen> {
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: Colors.grey.shade50,
+              color: context.sr.surfaceAlt,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.grey.shade200),
+              border: Border.all(color: context.sr.border),
             ),
-            child: const Row(
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.info_outline, size: 16, color: Colors.grey),
+                Icon(
+                  Icons.info_outline,
+                  size: 16,
+                  color: context.sr.textSecondary,
+                ),
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     '비밀번호는 RSA 암호화 후 안전신문고 서버에 전송됩니다. 자동 재로그인을 위해 기기의 보안 저장소(암호화)에 저장됩니다.',
                     style: TextStyle(
                       fontSize: 12,
-                      color: Colors.grey,
+                      color: context.sr.textSecondary,
                       height: 1.5,
                     ),
                   ),
@@ -485,20 +522,34 @@ class _SetupScreenState extends State<SetupScreen> {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: Colors.red.shade50,
+          color: StatusTone.of(
+            Theme.of(context).colorScheme.error,
+            brightness: Theme.of(context).brightness,
+            surface: context.sr.surface,
+          ).background,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.red.shade200),
+          border: Border.all(
+            color: StatusTone.of(
+              Theme.of(context).colorScheme.error,
+              brightness: Theme.of(context).brightness,
+              surface: context.sr.surface,
+            ).border,
+          ),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(Icons.error_outline, color: Colors.red.shade700, size: 18),
+            Icon(
+              Icons.error_outline,
+              color: Theme.of(context).colorScheme.error,
+              size: 18,
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
                 _errorMessage!,
                 style: TextStyle(
-                  color: Colors.red.shade800,
+                  color: Theme.of(context).colorScheme.error,
                   fontSize: 13,
                   height: 1.5,
                 ),
@@ -542,9 +593,9 @@ class _ModeCard extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            border: Border.all(color: color.withOpacity(0.3)),
+            border: Border.all(color: color.withValues(alpha: 0.3)),
             borderRadius: BorderRadius.circular(16),
-            color: color.withOpacity(0.04),
+            color: color.withValues(alpha: 0.04),
           ),
           child: Row(
             children: [
@@ -552,7 +603,7 @@ class _ModeCard extends StatelessWidget {
                 width: 52,
                 height: 52,
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.12),
+                  color: color.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Icon(icon, color: color, size: 28),
@@ -583,9 +634,11 @@ class _ModeCard extends StatelessWidget {
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: bc.withOpacity(0.12),
+                              color: bc.withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: bc.withOpacity(0.4)),
+                              border: Border.all(
+                                color: bc.withValues(alpha: 0.4),
+                              ),
                             ),
                             child: Text(
                               badge!,
@@ -602,16 +655,16 @@ class _ModeCard extends StatelessWidget {
                     const SizedBox(height: 6),
                     Text(
                       description,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 13,
-                        color: Colors.grey,
+                        color: context.sr.textSecondary,
                         height: 1.4,
                       ),
                     ),
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right, color: color.withOpacity(0.5)),
+              Icon(Icons.chevron_right, color: color.withValues(alpha: 0.5)),
             ],
           ),
         ),

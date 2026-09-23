@@ -3,7 +3,10 @@ import 'package:provider/provider.dart';
 import '../models/report.dart';
 import '../providers/report_provider.dart';
 import '../server_palette.dart';
+import '../theme/app_theme.dart';
+import '../theme/sr_colors.dart';
 import '../widgets/report_detail_sheet.dart';
+import '../widgets/status_badge.dart';
 
 /// 대시보드의 "최근 답변 완료 (3일)" 더보기 화면.
 /// 실제 카테고리 목록을 기준으로 최근 답변을 재구성해 모두 보여준다.
@@ -43,12 +46,15 @@ class _RecentAnswersScreenState extends State<RecentAnswersScreen> {
                   Icon(
                     Icons.notifications_off_outlined,
                     size: 64,
-                    color: Colors.grey.shade300,
+                    color: context.sr.textDisabled,
                   ),
                   const SizedBox(height: 16),
-                  const Text(
+                  Text(
                     '3일 내 답변 완료된 신고가 없습니다.',
-                    style: TextStyle(color: Colors.grey, fontSize: 15),
+                    style: TextStyle(
+                      color: context.sr.textSecondary,
+                      fontSize: 15,
+                    ),
                   ),
                 ],
               ),
@@ -105,46 +111,39 @@ class _RecentCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: color.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: color.withOpacity(0.4)),
-                    ),
-                    child: Text(
-                      report.status,
-                      style: TextStyle(
-                        color: color,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
+                  StatusBadge(label: report.status, color: color),
                 ],
               ),
               const SizedBox(height: 8),
               if (report.reportNumber.isNotEmpty)
-                _row(Icons.tag, '신고번호', report.reportNumber),
+                _row(context, Icons.tag, '신고번호', report.reportNumber),
               if (report.date.isNotEmpty)
-                _row(Icons.calendar_today, '신고일', report.date),
+                _row(context, Icons.calendar_today, '신고일', report.date),
               if (report.responseDate.isNotEmpty)
-                _row(Icons.check_circle_outline, '답변일', report.responseDate),
+                _row(
+                  context,
+                  Icons.check_circle_outline,
+                  '답변일',
+                  report.responseDate,
+                ),
               if (report.agency.isNotEmpty)
-                _row(Icons.business, '처리기관', report.agency),
+                _row(context, Icons.business, '처리기관', report.agency),
               if (report.manager.isNotEmpty)
-                _row(Icons.person_outline, '담당자', report.manager),
+                _row(context, Icons.person_outline, '담당자', report.manager),
               if (report.fineInfo.isNotEmpty)
                 _row(
+                  context,
                   Icons.monetization_on_outlined,
                   '과태료/범칙금',
                   report.fineInfo,
                 ),
               if (report.carNumber.isNotEmpty)
-                _row(Icons.directions_car_outlined, '차량번호', report.carNumber),
+                _row(
+                  context,
+                  Icons.directions_car_outlined,
+                  '차량번호',
+                  report.carNumber,
+                ),
             ],
           ),
         ),
@@ -152,15 +151,20 @@ class _RecentCard extends StatelessWidget {
     );
   }
 
-  Widget _row(IconData icon, String label, String value) => Padding(
+  Widget _row(
+    BuildContext context,
+    IconData icon,
+    String label,
+    String value,
+  ) => Padding(
     padding: const EdgeInsets.only(top: 3),
     child: Row(
       children: [
-        Icon(icon, size: 12, color: Colors.grey),
+        Icon(icon, size: 12, color: context.sr.textSecondary),
         const SizedBox(width: 4),
         Text(
           '$label ',
-          style: const TextStyle(fontSize: 11, color: Colors.grey),
+          style: TextStyle(fontSize: 11, color: context.sr.textSecondary),
         ),
         Expanded(
           child: Text(

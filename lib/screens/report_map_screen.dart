@@ -21,6 +21,7 @@ import '../widgets/report_detail_sheet.dart';
 import '../widgets/report_list_card.dart';
 import 'report_list_screen.dart';
 import 'settings_screen.dart';
+import '../theme/sr_colors.dart';
 
 const double _kMapMarkerWidth = 100;
 const double _kMapMarkerHeight = 98;
@@ -520,7 +521,10 @@ class _ReportMapScreenState extends State<ReportMapScreen>
                       const SizedBox(height: 6),
                       Text(
                         '좌표가 아직 없는 주소 ${payload.groupCount}곳 · 신고 ${payload.reportCount}건',
-                        style: const TextStyle(color: Colors.grey, height: 1.4),
+                        style: TextStyle(
+                          color: context.sr.textSecondary,
+                          height: 1.4,
+                        ),
                       ),
                       const SizedBox(height: 14),
                       if (payload.groups.isEmpty)
@@ -532,7 +536,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
                                 Icon(
                                   Icons.task_alt,
                                   size: 42,
-                                  color: Colors.green.shade600,
+                                  color: _tone(serverAcceptColor).foreground,
                                 ),
                                 const SizedBox(height: 10),
                                 const Text(
@@ -646,20 +650,17 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     final isWarning = progress.isWarning;
     final isConfigRequired =
         progress.requiresConfiguration && !progress.isWarning;
-    final accentColor = progress.isError
-        ? Colors.red
-        : isQueued
-        ? Colors.indigo
-        : isWarning || isConfigRequired
-        ? Colors.orange
-        : Colors.blueGrey;
-    final cardColor = progress.isError
-        ? Colors.red.withValues(alpha: 0.05)
-        : isQueued
-        ? Colors.indigo.withValues(alpha: 0.06)
-        : isWarning || isConfigRequired
-        ? Colors.orange.withValues(alpha: 0.08)
-        : Colors.blue.withValues(alpha: 0.05);
+    final progressTone = _tone(
+      progress.isError
+          ? serverRejectColor
+          : isQueued
+          ? changeDuplicateColor
+          : isWarning || isConfigRequired
+          ? serverSupplementColor
+          : serverProcessingColor,
+    );
+    final accentColor = progressTone.foreground;
+    final cardColor = progressTone.background;
     final double? progressValue = isQueued
         ? null
         : progress.running
@@ -723,7 +724,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
               const SizedBox(height: 6),
               Text(
                 '성공 ${progress.updated}건 · 주소 미발견 ${progress.notFound}건 · 남은 대상 ${progress.remainingMissing}건',
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                style: TextStyle(fontSize: 12, color: context.sr.textSecondary),
               ),
               if (progress.errorMessage.isNotEmpty) ...[
                 const SizedBox(height: 10),
@@ -731,11 +732,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
                   progress.errorMessage,
                   style: TextStyle(
                     fontSize: 12,
-                    color: progress.isError
-                        ? Colors.red
-                        : isQueued
-                        ? Colors.indigo.shade700
-                        : Colors.orange.shade800,
+                    color: accentColor,
                     height: 1.4,
                   ),
                 ),
@@ -761,15 +758,27 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     );
   }
 
+  StatusTone _tone(Color base) {
+    final theme = Theme.of(context);
+    return StatusTone.of(
+      base,
+      brightness: theme.brightness,
+      surface: theme.colorScheme.surface,
+    );
+  }
+
   Widget _buildErrorCard(String message) {
     return Card(
-      color: Colors.red.withValues(alpha: 0.05),
+      color: _tone(serverRejectColor).background,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Icon(Icons.warning_amber_rounded, color: Colors.red),
+            Icon(
+              Icons.warning_amber_rounded,
+              color: _tone(serverRejectColor).foreground,
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
@@ -794,13 +803,13 @@ class _ReportMapScreenState extends State<ReportMapScreen>
       ),
       child: Row(
         children: [
-          _summaryCell('전체', meta.totalReports, Colors.blue),
+          _summaryCell('전체', meta.totalReports, serverProcessingColor),
           _summaryDivider(theme.colorScheme.outlineVariant),
           _summaryCell('좌표화', meta.geocodedReports, serverAcceptColor),
           _summaryDivider(theme.colorScheme.outlineVariant),
           _summaryCell('미변환', meta.missingReports, serverSupplementColor),
           _summaryDivider(theme.colorScheme.outlineVariant),
-          _summaryCell('처리기관', meta.agencyCount, Colors.teal, suffix: '곳'),
+          _summaryCell('처리기관', meta.agencyCount, changeNewColor, suffix: '곳'),
         ],
       ),
     );
@@ -835,7 +844,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
                 style: TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
-                  color: color,
+                  color: _tone(color).foreground,
                 ),
               ),
             ),
@@ -848,7 +857,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
                 style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.bold,
-                  color: color,
+                  color: _tone(color).foreground,
                 ),
               ),
             ),
@@ -875,7 +884,11 @@ class _ReportMapScreenState extends State<ReportMapScreen>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.map_outlined, size: 48, color: Colors.grey.shade500),
+              Icon(
+                Icons.map_outlined,
+                size: 48,
+                color: context.sr.textDisabled,
+              ),
               const SizedBox(height: 12),
               Text(
                 message,
@@ -1266,7 +1279,10 @@ class _ReportMapScreenState extends State<ReportMapScreen>
                   const SizedBox(height: 6),
                   Text(
                     subtitle,
-                    style: const TextStyle(color: Colors.grey, height: 1.4),
+                    style: TextStyle(
+                      color: context.sr.textSecondary,
+                      height: 1.4,
+                    ),
                   ),
                 ],
                 if (regions.isNotEmpty) ...[
@@ -1325,16 +1341,16 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF3E0),
+        color: _tone(serverSupplementColor).background,
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: const Color(0xFFFFCC80)),
+        border: Border.all(color: _tone(serverSupplementColor).border),
       ),
       child: Text(
         value,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 13,
           fontWeight: FontWeight.w800,
-          color: Color(0xFFE65100),
+          color: _tone(serverSupplementColor).foreground,
         ),
       ),
     );

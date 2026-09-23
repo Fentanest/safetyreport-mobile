@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/report_provider.dart';
 import '../models/report.dart';
+import '../theme/app_theme.dart';
+import '../theme/sr_colors.dart';
 import '../widgets/report_detail_sheet.dart';
 import '../widgets/report_list_card.dart';
 import '../widgets/selection_action_bar.dart';
@@ -102,10 +104,10 @@ class _FilteredListScreenState extends State<FilteredListScreen> {
           provider.isLoading && reports.isEmpty
               ? const Center(child: CircularProgressIndicator())
               : reports.isEmpty
-              ? const Center(
+              ? Center(
                   child: Text(
                     '해당하는 신고가 없습니다.',
-                    style: TextStyle(color: Colors.grey),
+                    style: TextStyle(color: context.sr.textSecondary),
                   ),
                 )
               : ListView.builder(

@@ -1,0 +1,3 @@
+[작업 G2] 워크스페이스: /home/better0101/projects/safetyreport-mobile-g2
+담당 파일(이것만 수정): lib/screens/data_editor_screen.dart, lib/screens/duplicate_management_screen.dart, lib/screens/watchlist_screen.dart, lib/screens/rating_management_panel.dart, lib/screens/recent_answers_screen.dart, lib/screens/filtered_list_screen.dart, lib/widgets/report_detail_sheet.dart, lib/widgets/search_filter_sheet.dart, lib/widgets/selection_action_bar.dart, lib/widgets/duplicate_group_detail_sheet.dart
+추가: rating_management_panel.dart:138 부근 '검색 $reports.length건' 문자열 보간 버그(건수 대신 목록이 찍힘)를 '검색 ${reports.length}건' 으로 고친다(사용자에게 보고된 기존 버그).

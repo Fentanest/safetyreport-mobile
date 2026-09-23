@@ -11,6 +11,8 @@ import 'package:video_player/video_player.dart';
 import '../models/report.dart';
 import '../providers/notification_history_provider.dart';
 import '../providers/report_provider.dart';
+
+import '../theme/sr_colors.dart';
 import '../server_palette.dart';
 import '../screens/report_list_screen.dart';
 import '../services/standalone_auth_service.dart';
@@ -202,7 +204,7 @@ class ReportDetailSheet extends StatelessWidget {
                 height: 4,
                 margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(
-                  color: scheme.onSurfaceVariant.withValues(alpha: 0.35),
+                  color: context.sr.textSecondary.withValues(alpha: 0.35),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -247,15 +249,20 @@ class ReportDetailSheet extends StatelessWidget {
             const Divider(height: 24),
             // 상세 필드
             if (report.reportNumber.isNotEmpty)
-              _field(Icons.tag, '신고번호', report.reportNumber),
+              _field(context, Icons.tag, '신고번호', report.reportNumber),
             if (report.id.isNotEmpty)
-              _field(Icons.fingerprint, '내부 ID', report.id),
+              _field(context, Icons.fingerprint, '내부 ID', report.id),
             if (report.date.isNotEmpty)
-              _field(Icons.calendar_today, '신고일', report.date),
+              _field(context, Icons.calendar_today, '신고일', report.date),
             if (report.responseDate.isNotEmpty)
-              _field(Icons.check_circle_outline, '답변일', report.responseDate),
+              _field(
+                context,
+                Icons.check_circle_outline,
+                '답변일',
+                report.responseDate,
+              ),
             if (report.agency.isNotEmpty)
-              _field(Icons.business, '처리기관', report.agency),
+              _field(context, Icons.business, '처리기관', report.agency),
             if (report.manager.isNotEmpty)
               _linkField(
                 context,
@@ -266,12 +273,18 @@ class ReportDetailSheet extends StatelessWidget {
               ),
             if (report.fineInfo.isNotEmpty)
               _field(
+                context,
                 Icons.monetization_on_outlined,
                 '과태료/범칙금',
                 report.fineInfo,
               ),
             if (report.penaltyPoints.isNotEmpty)
-              _field(Icons.warning_amber_outlined, '벌점', report.penaltyPoints),
+              _field(
+                context,
+                Icons.warning_amber_outlined,
+                '벌점',
+                report.penaltyPoints,
+              ),
             if (report.carNumber.isNotEmpty)
               _linkField(
                 context,
@@ -298,6 +311,7 @@ class ReportDetailSheet extends StatelessWidget {
               ),
             if (report.occurrenceDate.isNotEmpty)
               _field(
+                context,
                 Icons.event_outlined,
                 '발생일자',
                 report.occurrenceDate +
@@ -306,9 +320,14 @@ class ReportDetailSheet extends StatelessWidget {
                         : ''),
               ),
             if (_ratingLabel().isNotEmpty)
-              _field(Icons.star_outline, '별점', _ratingLabel()),
+              _field(context, Icons.star_outline, '별점', _ratingLabel()),
             if (report.ratingCause.isNotEmpty)
-              _field(Icons.comment_outlined, '별점사유', report.ratingCause),
+              _field(
+                context,
+                Icons.comment_outlined,
+                '별점사유',
+                report.ratingCause,
+              ),
             if (report.reportContent.isNotEmpty) ...[
               const Divider(height: 20),
               _textBlock(context, '신고내용', report.reportContent),
@@ -332,7 +351,7 @@ class ReportDetailSheet extends StatelessWidget {
                   return Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: OutlinedButton.icon(
-                      icon: const Icon(Icons.phone, size: 16),
+                      icon: Icon(Icons.phone, size: 16),
                       label: Text('전화걸기  $phone'),
                       onPressed: () async {
                         final uri = Uri.parse('tel:$phone');
@@ -359,7 +378,7 @@ class ReportDetailSheet extends StatelessWidget {
                       _RetryableImage(url: url),
                       const SizedBox(height: 4),
                       OutlinedButton.icon(
-                        icon: const Icon(Icons.open_in_new, size: 14),
+                        icon: Icon(Icons.open_in_new, size: 14),
                         label: const Text(
                           '다른 앱으로 열기',
                           style: TextStyle(fontSize: 12),
@@ -392,7 +411,7 @@ class ReportDetailSheet extends StatelessWidget {
                       _VideoPlayer(key: ValueKey('video:$url'), url: url),
                       const SizedBox(height: 4),
                       OutlinedButton.icon(
-                        icon: const Icon(Icons.open_in_new, size: 14),
+                        icon: Icon(Icons.open_in_new, size: 14),
                         label: const Text(
                           '다른 앱으로 열기',
                           style: TextStyle(fontSize: 12),
@@ -437,7 +456,7 @@ class ReportDetailSheet extends StatelessWidget {
             const SizedBox(height: 20),
             // 안전신문고 앱으로 이동
             FilledButton.icon(
-              icon: const Icon(Icons.open_in_new, size: 18),
+              icon: Icon(Icons.open_in_new, size: 18),
               label: const Text('안전신문고 앱에서 보기'),
               onPressed: () => _openInSafetyApp(context),
             ),
@@ -445,16 +464,16 @@ class ReportDetailSheet extends StatelessWidget {
             Text(
               '안전신문고 앱이 설치되어 있고 로그인된 상태여야 합니다.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+              style: TextStyle(fontSize: 11, color: context.sr.textSecondary),
             ),
             const SizedBox(height: 12),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: scheme.surfaceContainerLow,
+                color: context.sr.surfaceAlt,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: scheme.outlineVariant),
+                border: Border.all(color: context.sr.border),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -472,7 +491,7 @@ class ReportDetailSheet extends StatelessWidget {
                   Align(
                     alignment: Alignment.centerLeft,
                     child: OutlinedButton.icon(
-                      icon: const Icon(Icons.open_in_browser, size: 16),
+                      icon: Icon(Icons.open_in_browser, size: 16),
                       label: const Text('안전신문고 공식 사이트 열기'),
                       onPressed: () => _openOfficialSource(context),
                     ),
@@ -568,7 +587,7 @@ class ReportDetailSheet extends StatelessWidget {
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.bold,
-            color: scheme.onSurfaceVariant,
+            color: context.sr.textSecondary,
           ),
         ),
         const SizedBox(height: 6),
@@ -576,9 +595,9 @@ class ReportDetailSheet extends StatelessWidget {
           width: double.infinity,
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: scheme.surfaceContainerLow,
+            color: context.sr.surfaceAlt,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: scheme.outlineVariant),
+            border: Border.all(color: context.sr.border),
           ),
           child: SelectableText(
             value,
@@ -593,19 +612,24 @@ class ReportDetailSheet extends StatelessWidget {
     );
   }
 
-  Widget _field(IconData icon, String label, String value) {
+  Widget _field(
+    BuildContext context,
+    IconData icon,
+    String label,
+    String value,
+  ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 16, color: Colors.grey.shade600),
+          Icon(icon, size: 16, color: context.sr.textSecondary),
           const SizedBox(width: 8),
           SizedBox(
             width: 82,
             child: Text(
               label,
-              style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+              style: TextStyle(fontSize: 13, color: context.sr.textSecondary),
             ),
           ),
           Expanded(
@@ -639,13 +663,16 @@ class ReportDetailSheet extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(icon, size: 16, color: Colors.grey.shade600),
+              Icon(icon, size: 16, color: context.sr.textSecondary),
               const SizedBox(width: 8),
               SizedBox(
                 width: 82,
                 child: Text(
                   label,
-                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: context.sr.textSecondary,
+                  ),
                 ),
               ),
               Expanded(
@@ -904,7 +931,7 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
                               minWidth: 36,
                               minHeight: 36,
                             ),
-                            icon: const Icon(
+                            icon: Icon(
                               Icons.fullscreen_exit,
                               color: Colors.white,
                               size: 22,
@@ -998,14 +1025,17 @@ class _RetryableImageState extends State<_RetryableImage> {
       return Container(
         height: 80,
         decoration: BoxDecoration(
-          color: Colors.grey.shade100,
+          color: context.sr.surfaceAlt,
           borderRadius: BorderRadius.circular(8),
         ),
         child: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.broken_image_outlined, color: Colors.grey),
+              Icon(
+                Icons.broken_image_outlined,
+                color: context.sr.textSecondary,
+              ),
               TextButton(
                 onPressed: _manualRetry,
                 child: const Text('다시 시도', style: TextStyle(fontSize: 12)),
@@ -1028,7 +1058,7 @@ class _RetryableImageState extends State<_RetryableImage> {
           if (_retrying) {
             return Container(
               height: 160,
-              color: Colors.grey.shade100,
+              color: context.sr.surfaceAlt,
               child: const Center(
                 child: CircularProgressIndicator(strokeWidth: 2),
               ),
@@ -1036,7 +1066,7 @@ class _RetryableImageState extends State<_RetryableImage> {
           }
           return Container(
             height: 160,
-            color: Colors.grey.shade100,
+            color: context.sr.surfaceAlt,
             child: Center(
               child: CircularProgressIndicator(
                 value: progress.expectedTotalBytes != null
@@ -1052,7 +1082,7 @@ class _RetryableImageState extends State<_RetryableImage> {
           WidgetsBinding.instance.addPostFrameCallback((_) => _onError());
           return Container(
             height: 80,
-            color: Colors.grey.shade100,
+            color: context.sr.surfaceAlt,
             child: const Center(
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
@@ -1143,21 +1173,21 @@ class _VideoPlayerState extends State<_VideoPlayer>
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: Colors.grey.shade100,
+          color: context.sr.surfaceAlt,
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
           children: [
-            const Icon(
+            Icon(
               Icons.videocam_off_outlined,
-              color: Colors.grey,
+              color: context.sr.textSecondary,
               size: 20,
             ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
                 widget.label ?? '동영상',
-                style: const TextStyle(fontSize: 13, color: Colors.grey),
+                style: TextStyle(fontSize: 13, color: context.sr.textSecondary),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -1330,7 +1360,7 @@ class _VideoPlayerState extends State<_VideoPlayer>
                             minWidth: 36,
                             minHeight: 36,
                           ),
-                          icon: const Icon(
+                          icon: Icon(
                             Icons.fullscreen,
                             color: Colors.white,
                             size: 22,
@@ -1374,25 +1404,30 @@ class _SupplementSection extends StatelessWidget {
     final completedAt = report.supplementCompletedAt.trim();
     final request = report.supplementRequest.trim();
     final opinion = report.supplementOpinion.trim();
-    final accent = open ? serverSupplementColor : Colors.grey.shade600;
+    final tone = StatusTone.of(
+      serverSupplementColor,
+      brightness: Theme.of(context).brightness,
+      surface: Theme.of(context).colorScheme.surface,
+    );
+    final accent = open ? serverSupplementColor : context.sr.textSecondary;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
           children: [
-            const Icon(
+            Icon(
               Icons.history_edu,
               size: 16,
-              color: serverSupplementColor,
+              color: open ? tone.foreground : context.sr.textSecondary,
             ),
             const SizedBox(width: 6),
-            const Text(
+            Text(
               '보완 요청',
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.bold,
-                color: serverSupplementColor,
+                color: open ? tone.foreground : context.sr.textSecondary,
               ),
             ),
             if (count > 0) ...[
@@ -1400,13 +1435,13 @@ class _SupplementSection extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: serverSupplementColor,
+                  color: open ? tone.foreground : context.sr.textSecondary,
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
                   '$count회',
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.surface,
                     fontSize: 10,
                     fontWeight: FontWeight.w600,
                   ),
@@ -1417,12 +1452,17 @@ class _SupplementSection extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
               decoration: BoxDecoration(
-                color: open ? Colors.red : Colors.grey,
+                color: open
+                    ? Theme.of(context).colorScheme.error
+                    : context.sr.textSecondary,
                 borderRadius: BorderRadius.circular(3),
               ),
               child: Text(
                 open ? '미응답' : '응답 완료',
-                style: const TextStyle(color: Colors.white, fontSize: 10),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onError,
+                  fontSize: 10,
+                ),
               ),
             ),
           ],
@@ -1431,11 +1471,9 @@ class _SupplementSection extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
-            color: open
-                ? serverSupplementColor.withValues(alpha: 0.08)
-                : Colors.grey.shade100,
+            color: open ? tone.background : context.sr.surfaceAlt,
             borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: accent.withValues(alpha: 0.4)),
+            border: Border.all(color: open ? tone.border : context.sr.border),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1459,11 +1497,11 @@ class _SupplementSection extends StatelessWidget {
               ),
               if (opinion.isNotEmpty) ...[
                 const SizedBox(height: 8),
-                const Text(
+                Text(
                   '신고자 의견',
                   style: TextStyle(
                     fontSize: 11,
-                    color: Colors.grey,
+                    color: context.sr.textSecondary,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -1498,13 +1536,13 @@ class _SupplementMetaRow extends StatelessWidget {
             TextSpan(
               text: '$label ',
               style: TextStyle(
-                color: Colors.grey.shade600,
+                color: context.sr.textSecondary,
                 fontWeight: FontWeight.w600,
               ),
             ),
             TextSpan(
               text: value,
-              style: const TextStyle(color: Colors.black87),
+              style: TextStyle(color: context.sr.textPrimary),
             ),
           ],
         ),

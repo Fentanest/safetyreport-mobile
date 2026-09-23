@@ -15,6 +15,8 @@ import '../providers/report_provider.dart';
 import '../services/api_service.dart';
 import '../services/app_storage_paths.dart';
 import '../services/local_db_service.dart';
+import '../theme/sr_colors.dart';
+import '../server_palette.dart';
 
 /// 확장자 → MIME type 매핑 (top-level — 모든 State 에서 공유).
 /// open_filex 가 자동 추론에 실패하는 경우(특히 Android에서 xlsx)가 있어 명시적으로 전달.
@@ -314,7 +316,10 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('내보내기 실패: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('내보내기 실패: $e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
         );
       }
     } finally {
@@ -600,7 +605,9 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
             child: const Text('삭제'),
           ),
         ],
@@ -627,7 +634,9 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
             child: const Text('삭제'),
           ),
         ],
@@ -670,7 +679,9 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
             child: const Text('삭제'),
           ),
         ],
@@ -728,7 +739,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
                 width: 36,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
+                  color: context.sr.border,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -738,17 +749,14 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
               children: [
                 Icon(
                   fileIconForName(item.name),
-                  color: Colors.blueGrey,
+                  color: context.sr.textDisabled,
                   size: 24,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     item.name,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
@@ -764,7 +772,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                icon: const Icon(Icons.download),
+                icon: Icon(Icons.download),
                 label: const Text('다운로드'),
                 onPressed: () {
                   Navigator.pop(ctx);
@@ -787,10 +795,10 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
           width: 56,
           child: Text(
             label,
-            style: const TextStyle(color: Colors.grey, fontSize: 13),
+            style: TextStyle(color: context.sr.textSecondary, fontSize: 13),
           ),
         ),
-        Expanded(child: Text(value, style: const TextStyle(fontSize: 13))),
+        Expanded(child: Text(value, style: TextStyle(fontSize: 13))),
       ],
     ),
   );
@@ -819,7 +827,10 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
                     child: Text(
                       emptyMessage,
                       textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.grey, fontSize: 14),
+                      style: TextStyle(
+                        color: context.sr.textSecondary,
+                        fontSize: 14,
+                      ),
                     ),
                   ),
                 ),
@@ -845,7 +856,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
       child: Column(
         children: [
           ListTile(
-            leading: const Icon(Icons.folder_open),
+            leading: Icon(Icons.folder_open),
             title: const Text(
               '현재 위치',
               style: TextStyle(fontWeight: FontWeight.w600),
@@ -855,7 +866,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
           if (hasParent) const Divider(height: 1),
           if (hasParent)
             ListTile(
-              leading: const Icon(Icons.arrow_upward_rounded),
+              leading: Icon(Icons.arrow_upward_rounded),
               title: const Text('상위 폴더로 이동'),
               subtitle: Text(_localDisplayPath(_parentLocalPath!)),
               onTap: _selectionMode
@@ -878,13 +889,20 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
 
     if (isDirectory) {
       return ListTile(
-        leading: const Icon(Icons.folder_rounded, color: Colors.amber),
-        title: Text(name, style: const TextStyle(fontSize: 13)),
+        leading: Icon(
+          Icons.folder_rounded,
+          color: StatusTone.of(
+            Colors.amber,
+            brightness: Theme.of(context).brightness,
+            surface: context.sr.surface,
+          ).foreground,
+        ),
+        title: Text(name, style: TextStyle(fontSize: 13)),
         subtitle: Text(
           '폴더  ·  $modified',
-          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+          style: TextStyle(fontSize: 11, color: context.sr.textSecondary),
         ),
-        trailing: const Icon(Icons.chevron_right),
+        trailing: Icon(Icons.chevron_right),
         onTap: _selectionMode ? null : () => _loadLocalFiles(entity.path),
       );
     }
@@ -900,30 +918,37 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
             : fileIconForName(name),
         color: _selectionMode && isSelected
             ? Theme.of(context).colorScheme.primary
-            : Colors.green,
+            : StatusTone.of(
+                Colors.green,
+                brightness: Theme.of(context).brightness,
+                surface: context.sr.surface,
+              ).foreground,
       ),
-      title: Text(name, style: const TextStyle(fontSize: 13)),
+      title: Text(name, style: TextStyle(fontSize: 13)),
       subtitle: Text(
         '$sizeStr  ·  $modified  ·  길게 눌러 선택',
-        style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+        style: TextStyle(fontSize: 11, color: context.sr.textSecondary),
       ),
       trailing: _selectionMode
           ? Icon(
               isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
               color: isSelected
                   ? Theme.of(context).colorScheme.primary
-                  : Colors.grey.shade400,
+                  : context.sr.textDisabled,
             )
           : Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 IconButton(
-                  icon: const Icon(Icons.share_outlined, size: 22),
+                  icon: Icon(Icons.share_outlined, size: 22),
                   tooltip: '다른 앱으로 열기 / 공유',
                   onPressed: () => _shareLocalFile(entity),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  icon: Icon(
+                    Icons.delete_outline,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
                   onPressed: () => _deleteLocalFile(entity),
                 ),
               ],
@@ -940,7 +965,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
       return AppBar(
         leading: IconButton(
           onPressed: _clearSelection,
-          icon: const Icon(Icons.close),
+          icon: Icon(Icons.close),
           tooltip: '선택 해제',
         ),
         title: Text('$_selectedCount개 선택됨'),
@@ -948,12 +973,12 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
           IconButton(
             onPressed: _shareSelectedLocalFiles,
             tooltip: '공유',
-            icon: const Icon(Icons.share_outlined),
+            icon: Icon(Icons.share_outlined),
           ),
           IconButton(
             onPressed: _deleteSelectedLocalFiles,
             tooltip: '삭제',
-            icon: const Icon(Icons.delete_outline),
+            icon: Icon(Icons.delete_outline),
           ),
         ],
       );
@@ -969,15 +994,15 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
           : FloatingActionButton.extended(
               onPressed: _exporting ? null : _exportExcel,
               icon: _exporting
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: Colors.white,
+                        color: Theme.of(context).colorScheme.onPrimary,
                       ),
                     )
-                  : const Icon(Icons.file_download),
+                  : Icon(Icons.file_download),
               label: Text(_exporting ? '내보내는 중...' : 'Excel 내보내기'),
             ),
       body: _loading
@@ -1026,16 +1051,20 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.error_outline, size: 48, color: Colors.red),
+          Icon(
+            Icons.error_outline,
+            size: 48,
+            color: Theme.of(context).colorScheme.error,
+          ),
           const SizedBox(height: 12),
           Text(
             _error!,
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 13),
+            style: TextStyle(fontSize: 13),
           ),
           const SizedBox(height: 16),
           FilledButton.icon(
-            icon: const Icon(Icons.refresh),
+            icon: Icon(Icons.refresh),
             label: const Text('다시 시도'),
             onPressed: onRetry,
           ),
@@ -1053,7 +1082,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
           ? AppBar(
               leading: IconButton(
                 onPressed: _clearSelection,
-                icon: const Icon(Icons.close),
+                icon: Icon(Icons.close),
                 tooltip: '선택 해제',
               ),
               title: Text('$_selectedCount개 선택됨'),
@@ -1061,12 +1090,12 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
                 IconButton(
                   onPressed: _downloadSelectedServerFiles,
                   tooltip: '다운로드',
-                  icon: const Icon(Icons.download_outlined),
+                  icon: Icon(Icons.download_outlined),
                 ),
                 IconButton(
                   onPressed: _deleteSelectedServerFiles,
                   tooltip: '삭제',
-                  icon: const Icon(Icons.delete_outline),
+                  icon: Icon(Icons.delete_outline),
                 ),
               ],
             )
@@ -1187,7 +1216,7 @@ class _TreeNodeState extends State<_TreeNode> {
                   Icon(
                     Icons.subdirectory_arrow_right,
                     size: 14,
-                    color: Colors.grey.shade400,
+                    color: context.sr.textDisabled,
                   ),
                   const SizedBox(width: 4),
                 ],
@@ -1205,10 +1234,14 @@ class _TreeNodeState extends State<_TreeNode> {
                             ? Icons.check_circle
                             : fileIconForName(item.name),
                         color: item.isDir
-                            ? Colors.amber.shade700
+                            ? StatusTone.of(
+                                serverPartialAcceptColor,
+                                brightness: Theme.of(context).brightness,
+                                surface: context.sr.surface,
+                              ).foreground
                             : widget.selectionMode && isSelected
                             ? Theme.of(context).colorScheme.primary
-                            : Colors.blueGrey,
+                            : context.sr.textDisabled,
                         size: 20,
                       ),
                 const SizedBox(width: 8),
@@ -1226,14 +1259,20 @@ class _TreeNodeState extends State<_TreeNode> {
                 if (!item.isDir && item.size != null)
                   Text(
                     formatFileSize(item.size!),
-                    style: const TextStyle(fontSize: 11, color: Colors.grey),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: context.sr.textSecondary,
+                    ),
                   ),
                 if (!item.isDir)
                   Padding(
                     padding: const EdgeInsets.only(left: 8),
                     child: Text(
                       item.modified,
-                      style: const TextStyle(fontSize: 10, color: Colors.grey),
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: context.sr.textSecondary,
+                      ),
                     ),
                   ),
                 if (!item.isDir && widget.selectionMode)
@@ -1246,14 +1285,14 @@ class _TreeNodeState extends State<_TreeNode> {
                       size: 18,
                       color: isSelected
                           ? Theme.of(context).colorScheme.primary
-                          : Colors.grey.shade400,
+                          : context.sr.textDisabled,
                     ),
                   ),
                 if (item.isDir)
                   Icon(
                     _expanded ? Icons.expand_less : Icons.expand_more,
                     size: 18,
-                    color: Colors.grey,
+                    color: context.sr.textSecondary,
                   ),
               ],
             ),
@@ -1271,7 +1310,7 @@ class _TreeNodeState extends State<_TreeNode> {
               onFileLongPress: widget.onFileLongPress,
             ),
           ),
-        Divider(height: 1, indent: 16 + indent, color: Colors.grey.shade100),
+        Divider(height: 1, indent: 16 + indent, color: context.sr.border),
       ],
     );
   }

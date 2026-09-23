@@ -115,6 +115,10 @@ class SrColors extends ThemeExtension<SrColors> {
   }
 }
 
+/// 성공/실패 SnackBar 배경. 흰 글자 대비 5.0:1 / 6.5:1 (Material green/red 기본색은 AA 미달).
+const srSnackSuccess = Color(0xFF15803D);
+const srSnackError = Color(0xFFB91C1C);
+
 extension SrColorsContext on BuildContext {
   SrColors get sr {
     final theme = Theme.of(this);

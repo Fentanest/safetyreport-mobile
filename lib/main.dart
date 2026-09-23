@@ -9,10 +9,7 @@ import 'screens/report_list_screen.dart';
 import 'screens/report_management_screen.dart';
 import 'screens/statistics_screen.dart';
 import 'screens/setup_screen.dart';
-import 'screens/file_browser_screen.dart';
 import 'screens/notifications_screen.dart';
-import 'screens/crawl_screen.dart';
-import 'models/app_mode.dart';
 import 'models/app_theme_mode.dart';
 import 'models/duplicate_group.dart';
 import 'models/report.dart';
@@ -21,7 +18,10 @@ import 'providers/notification_history_provider.dart';
 import 'services/pending_changes_store.dart';
 import 'services/sync_engine.dart' show ChangeType;
 import 'server_palette.dart';
+import 'navigation/app_routes.dart';
 import 'theme/app_theme.dart';
+import 'theme/sr_colors.dart';
+import 'widgets/status_badge.dart';
 import 'widgets/duplicate_group_detail_sheet.dart';
 import 'widgets/report_detail_sheet.dart';
 
@@ -84,22 +84,17 @@ class MainNavigationScreen extends StatefulWidget {
 const _permChannel = MethodChannel('com.fentanest.mysafetyreport/permissions');
 
 class _MainNavigationScreenState extends State<MainNavigationScreen>
-    with WidgetsBindingObserver, TickerProviderStateMixin {
+    with WidgetsBindingObserver {
   int _selectedIndex = 0;
-  final GlobalKey<CrawlScreenState> _crawlScreenKey =
-      GlobalKey<CrawlScreenState>();
   String _lastQuickActionSignature = '';
-  late final List<Widget?> _screenCache = List<Widget?>.filled(7, null);
+  late final List<Widget?> _screenCache = List<Widget?>.filled(_tabCount, null);
 
-  late final AnimationController _syncIconController;
+  /// 하단 탭 수(D-06: 7 → 5). 동기화/크롤링·파일은 [AppRoutes] 로 연다.
+  static const _tabCount = 5;
 
   @override
   void initState() {
     super.initState();
-    _syncIconController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    );
     WidgetsBinding.instance.addObserver(this);
     // Native에서 navigateToTab 호출 수신
     _permChannel.setMethodCallHandler(_handleNativeCall);
@@ -111,7 +106,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
 
   @override
   void dispose() {
-    _syncIconController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -142,8 +136,19 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
         );
       }
       if (mounted) {
-        setState(() => _selectedIndex = tab);
-        _refreshOnTab(tab);
+        // 옛 하단 탭 인덱스 5(파일)·6(동기화/크롤링)은 화면을 따로 연다(Kotlin 은 그대로 6 을 보냄).
+        if (tab == 5) {
+          AppRoutes.openFiles(context);
+        } else if (tab == 6) {
+          // 런처 바로가기(quick_*)는 아래 _handleNavigationEvent 가 화면을 연 뒤 명령까지 전달한다.
+          if (eventType != 'quick_sync' && eventType != 'quick_crawl') {
+            AppRoutes.openCrawl(context);
+          }
+        } else {
+          final index = tab.clamp(0, _tabCount - 1);
+          setState(() => _selectedIndex = index);
+          _refreshOnTab(index);
+        }
       }
       if (payloadJson.isNotEmpty && mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -164,20 +169,13 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
         return;
       case 'quick_sync':
       case 'quick_crawl':
-        for (var attempt = 0; attempt < 5; attempt++) {
-          final crawlState = _crawlScreenKey.currentState;
-          if (crawlState != null) {
-            await crawlState.handleQuickAction(eventType);
-            return;
-          }
-          await Future.delayed(const Duration(milliseconds: 200));
-        }
+        await AppRoutes.runQuickAction(context, eventType);
         return;
     }
   }
 
   /// 탭 변경 시 해당 화면 새로고침.
-  /// 0 대시보드, 1 신고내역, 2 신고관리, 3 통계, 4 알림, 5 파일, 6 동기화/크롤링
+  /// 0 대시보드, 1 신고내역, 2 신고관리, 3 통계, 4 알림 (파일·동기화/크롤링은 [AppRoutes])
   void _refreshOnTab(int index) {
     if (!mounted) return;
     final p = context.read<ReportProvider>();
@@ -202,12 +200,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
         break;
       case 4:
         context.read<NotificationHistoryProvider>().load();
-        break;
-      case 5:
-        p.bumpFilesRefresh();
-        break;
-      case 6:
-        // 동기화/크롤링 탭은 사용자 액션 기반이므로 자동 새로고침 없음
         break;
     }
   }
@@ -346,7 +338,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                       width: 36,
                       height: 4,
                       decoration: BoxDecoration(
-                        color: Colors.grey.shade300,
+                        color: context.sr.border,
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
@@ -354,9 +346,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.sync_alt,
-                          color: Colors.blue,
+                          color: Theme.of(context).colorScheme.primary,
                           size: 20,
                         ),
                         const SizedBox(width: 8),
@@ -376,13 +368,21 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                       runSpacing: 4,
                       children: [
                         if (newCount > 0)
-                          _changeBadge('신규', newCount, Colors.teal),
+                          _changeBadge('신규', newCount, changeNewColor),
                         if (changedCount > 0)
-                          _changeBadge('처리변경', changedCount, Colors.orange),
+                          _changeBadge('처리변경', changedCount, changeStatusColor),
                         if (confirmCount > 0)
-                          _changeBadge('개별 확인', confirmCount, Colors.blueGrey),
+                          _changeBadge(
+                            '개별 확인',
+                            confirmCount,
+                            changeConfirmColor,
+                          ),
                         if (duplicateCount > 0)
-                          _changeBadge('중복 변경', duplicateCount, Colors.indigo),
+                          _changeBadge(
+                            '중복 변경',
+                            duplicateCount,
+                            changeDuplicateColor,
+                          ),
                       ],
                     ),
                   ],
@@ -426,30 +426,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                               children: [
                                 Row(
                                   children: [
-                                    Container(
-                                      margin: const EdgeInsets.only(right: 6),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 6,
-                                        vertical: 2,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.indigo.withValues(
-                                          alpha: 0.12,
-                                        ),
-                                        borderRadius: BorderRadius.circular(4),
-                                        border: Border.all(
-                                          color: Colors.indigo.withValues(
-                                            alpha: 0.5,
-                                          ),
-                                        ),
-                                      ),
-                                      child: const Text(
-                                        '중복 변경',
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.indigo,
-                                        ),
+                                    const Padding(
+                                      padding: EdgeInsets.only(right: 6),
+                                      child: StatusBadge(
+                                        label: '중복 변경',
+                                        color: changeDuplicateColor,
+                                        fontSize: 10,
                                       ),
                                     ),
                                     Expanded(
@@ -461,36 +443,21 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                                         ),
                                       ),
                                     ),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 3,
+                                    ConstrainedBox(
+                                      constraints: const BoxConstraints(
+                                        maxWidth: 120,
                                       ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.indigo.withValues(
-                                          alpha: 0.12,
-                                        ),
-                                        borderRadius: BorderRadius.circular(20),
-                                        border: Border.all(
-                                          color: Colors.indigo.withValues(
-                                            alpha: 0.4,
-                                          ),
-                                        ),
-                                      ),
-                                      child: Text(
-                                        statusLabel,
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.indigo,
-                                          fontWeight: FontWeight.w600,
-                                        ),
+                                      child: StatusBadge(
+                                        label: statusLabel,
+                                        color: changeDuplicateColor,
+                                        fontSize: 12,
                                       ),
                                     ),
                                     const SizedBox(width: 4),
                                     Icon(
                                       Icons.chevron_right,
                                       size: 16,
-                                      color: Colors.grey.shade400,
+                                      color: context.sr.textDisabled,
                                     ),
                                   ],
                                 ),
@@ -502,7 +469,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
                                       fontSize: 12,
-                                      color: Colors.grey.shade700,
+                                      color: context.sr.textSecondary,
                                       height: 1.45,
                                     ),
                                   ),
@@ -517,7 +484,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                                         '대표 신고번호: $representativeReportNumber',
                                         style: TextStyle(
                                           fontSize: 11,
-                                          color: Colors.grey.shade600,
+                                          color: context.sr.textSecondary,
                                         ),
                                       ),
                                     if (memberCount.isNotEmpty)
@@ -525,7 +492,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                                         '멤버 수: ${memberCount}건',
                                         style: TextStyle(
                                           fontSize: 11,
-                                          color: Colors.grey.shade600,
+                                          color: context.sr.textSecondary,
                                         ),
                                       ),
                                   ],
@@ -541,10 +508,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                     final isConfirm =
                         changeType == ChangeType.individualConfirm;
                     final badgeColor = isNew
-                        ? Colors.teal
+                        ? changeNewColor
                         : isConfirm
-                        ? Colors.blueGrey
-                        : Colors.orange;
+                        ? changeConfirmColor
+                        : changeStatusColor;
                     final badgeLabel = isNew
                         ? '신규'
                         : isConfirm
@@ -561,7 +528,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                     // 과태료/범칙금/경고/미확인 결과 라벨용 색상
                     Color? fineColor;
                     if (fine == '미확인') {
-                      fineColor = Colors.grey;
+                      fineColor = serverUnconfirmedColor;
                     } else if (fine.isNotEmpty) {
                       fineColor = serverFineColor(fine);
                     }
@@ -580,26 +547,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                             children: [
                               Row(
                                 children: [
-                                  Container(
-                                    margin: const EdgeInsets.only(right: 6),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 6,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: badgeColor.withOpacity(0.12),
-                                      borderRadius: BorderRadius.circular(4),
-                                      border: Border.all(
-                                        color: badgeColor.withOpacity(0.5),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      badgeLabel,
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
-                                        color: badgeColor,
-                                      ),
+                                  Padding(
+                                    padding: const EdgeInsets.only(right: 6),
+                                    child: StatusBadge(
+                                      label: badgeLabel,
+                                      color: badgeColor,
+                                      fontSize: 10,
                                     ),
                                   ),
                                   Expanded(
@@ -611,49 +564,27 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                                       ),
                                     ),
                                   ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 3,
+                                  ConstrainedBox(
+                                    constraints: const BoxConstraints(
+                                      maxWidth: 110,
                                     ),
-                                    decoration: BoxDecoration(
-                                      color: statusColor.withOpacity(0.12),
-                                      borderRadius: BorderRadius.circular(20),
-                                      border: Border.all(
-                                        color: statusColor.withOpacity(0.4),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      status.isEmpty ? '처리 중' : status,
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: statusColor,
-                                        fontWeight: FontWeight.w600,
-                                      ),
+                                    child: StatusBadge(
+                                      label: status.isEmpty ? '처리 중' : status,
+                                      color: statusColor,
+                                      fontSize: 12,
                                     ),
                                   ),
                                   if (fineColor != null) ...[
                                     const SizedBox(width: 4),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 3,
+                                    ConstrainedBox(
+                                      constraints: const BoxConstraints(
+                                        maxWidth: 90,
                                       ),
-                                      decoration: BoxDecoration(
-                                        color: fineColor.withOpacity(0.12),
-                                        borderRadius: BorderRadius.circular(20),
-                                        border: Border.all(
-                                          color: fineColor.withOpacity(0.4),
-                                        ),
-                                      ),
-                                      child: Text(
-                                        // 금액 있는 과태료/범칙금은 라벨만 굵게, 외(경고/미확인)는 그대로
-                                        fine.split(':').first.trim(),
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: fineColor,
-                                          fontWeight: FontWeight.w600,
-                                        ),
+                                      // 금액 있는 과태료/범칙금은 라벨만, 외(경고/미확인)는 그대로
+                                      child: StatusBadge(
+                                        label: fine.split(':').first.trim(),
+                                        color: fineColor,
+                                        fontSize: 12,
                                       ),
                                     ),
                                   ],
@@ -661,7 +592,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                                   Icon(
                                     Icons.chevron_right,
                                     size: 16,
-                                    color: Colors.grey.shade400,
+                                    color: context.sr.textDisabled,
                                   ),
                                 ],
                               ),
@@ -672,14 +603,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                                     Icon(
                                       Icons.tag,
                                       size: 13,
-                                      color: Colors.grey.shade500,
+                                      color: context.sr.textSecondary,
                                     ),
                                     const SizedBox(width: 4),
                                     Text(
                                       reportNo,
                                       style: TextStyle(
                                         fontSize: 12,
-                                        color: Colors.grey.shade600,
+                                        color: context.sr.textSecondary,
                                       ),
                                     ),
                                   ],
@@ -692,14 +623,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                                     Icon(
                                       Icons.business,
                                       size: 13,
-                                      color: Colors.grey.shade500,
+                                      color: context.sr.textSecondary,
                                     ),
                                     const SizedBox(width: 4),
                                     Text(
                                       agency,
                                       style: TextStyle(
                                         fontSize: 12,
-                                        color: Colors.grey.shade600,
+                                        color: context.sr.textSecondary,
                                       ),
                                     ),
                                   ],
@@ -712,14 +643,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                                     Icon(
                                       Icons.receipt_long,
                                       size: 13,
-                                      color: Colors.grey.shade500,
+                                      color: context.sr.textSecondary,
                                     ),
                                     const SizedBox(width: 4),
                                     Text(
                                       fine,
                                       style: TextStyle(
                                         fontSize: 12,
-                                        color: Colors.grey.shade600,
+                                        color: context.sr.textSecondary,
                                       ),
                                     ),
                                   ],
@@ -741,32 +672,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   }
 
   Widget _changeBadge(String label, int count, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.4)),
-      ),
-      child: Text(
-        '$label $count건',
-        style: TextStyle(
-          fontSize: 12,
-          color: color,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSyncIcon({required bool isSelected}) {
-    final icon = isSelected
-        ? const Icon(Icons.sync)
-        : const Icon(Icons.sync_outlined);
-    return RotationTransition(
-      turns: Tween<double>(begin: 0, end: -1).animate(_syncIconController),
-      child: icon,
-    );
+    return StatusBadge(label: '$label $count건', color: color, fontSize: 12);
   }
 
   int _lastPendingChangesNonce = 0;
@@ -780,8 +686,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
       2 => const ReportManagementScreen(),
       3 => const StatisticsScreen(),
       4 => const NotificationsScreen(),
-      5 => const FileBrowserScreen(),
-      6 => CrawlScreen(key: _crawlScreenKey),
       _ => const SizedBox.shrink(),
     };
     _screenCache[index] = screen;
@@ -794,12 +698,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     final unread = context.watch<NotificationHistoryProvider>().unreadCount;
     _refreshNativeQuickActionsIfNeeded(p);
 
-    if (p.isSyncing) {
-      if (!_syncIconController.isAnimating) _syncIconController.repeat();
-    } else {
-      if (_syncIconController.isAnimating) _syncIconController.stop();
-    }
-
     // standalone drain 이 변경을 기록하면 카드 시트 표시 (Client 모드 _checkPendingChanges 와 동일 흐름)
     if (p.pendingChangesNonce != _lastPendingChangesNonce) {
       _lastPendingChangesNonce = p.pendingChangesNonce;
@@ -811,7 +709,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     return Scaffold(
       body: IndexedStack(
         index: _selectedIndex,
-        children: List<Widget>.generate(7, (index) {
+        children: List<Widget>.generate(_tabCount, (index) {
           final cached = _screenCache[index];
           if (cached != null || index == _selectedIndex) {
             return _buildScreen(index);
@@ -858,16 +756,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
               child: const Icon(Icons.notifications),
             ),
             label: '알림',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.folder_outlined),
-            selectedIcon: Icon(Icons.folder),
-            label: '파일',
-          ),
-          NavigationDestination(
-            icon: _buildSyncIcon(isSelected: false),
-            selectedIcon: _buildSyncIcon(isSelected: true),
-            label: p.appMode == AppMode.standalone ? '동기화' : '크롤링',
           ),
         ],
       ),

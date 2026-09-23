@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../providers/report_provider.dart';
 
+import '../theme/sr_colors.dart';
+
 /// 신고 리스트 / 검색탭 공용 상세검색 팝업
 class SearchFilterSheet extends StatefulWidget {
   final ReportProvider provider;
@@ -277,7 +279,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
                 height: 4,
                 margin: const EdgeInsets.only(bottom: 12),
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
+                  color: context.sr.border,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -296,9 +298,9 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
-                color: Colors.blueGrey.shade50,
+                color: Theme.of(context).colorScheme.surfaceContainer,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.blueGrey.shade100),
+                border: Border.all(color: context.sr.border),
               ),
               child: const Text(
                 "안내: '&'는 AND, ','는 OR 조건입니다.",
@@ -308,13 +310,14 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
             const SizedBox(height: 12),
 
             // ── 신고 기본 정보 ──────────────────────────
-            _sectionLabel('신고 기본 정보'),
+            _sectionLabel(context, '신고 기본 정보'),
             _input(_nameCtrl, '신고명', Icons.description_outlined),
             const SizedBox(height: 8),
             _input(_numCtrl, '신고번호', Icons.tag),
             const SizedBox(height: 8),
             if (!widget.ratingManagementMode) ...[
               _multiSelectDropdown(
+                context: context,
                 label: '별점',
                 icon: Icons.star_outline,
                 options: _ratingOptions,
@@ -333,6 +336,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
               _input(_ratingCauseCtrl, '별점사유', Icons.comment_outlined),
               const SizedBox(height: 8),
               _singleSelectDropdown(
+                context: context,
                 label: '만족도 조사 여부',
                 icon: Icons.poll_outlined,
                 options: _pollStatusOptions,
@@ -346,6 +350,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
             _input(_locationCtrl, '위반장소', Icons.location_on_outlined),
             const SizedBox(height: 8),
             _singleSelectDropdown(
+              context: context,
               label: '위반법규',
               icon: Icons.gavel_outlined,
               options: lawOptions,
@@ -358,7 +363,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
             const SizedBox(height: 16),
 
             // ── 처리 정보 ───────────────────────────────
-            _sectionLabel('처리 정보'),
+            _sectionLabel(context, '처리 정보'),
             _input(_agencyCtrl, '처리기관', Icons.business_outlined),
             const SizedBox(height: 8),
             _input(_managerCtrl, '담당자', Icons.person_outline),
@@ -370,6 +375,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
             _input(_processContentCtrl, '처리내용', Icons.task_alt_outlined),
             const SizedBox(height: 8),
             _multiSelectDropdown(
+              context: context,
               label: '처리상태',
               icon: Icons.checklist_outlined,
               options: statusOptions,
@@ -390,6 +396,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
               children: [
                 Expanded(
                   child: _toggleChip(
+                    context,
                     '경찰기관 제외',
                     _excludePolice,
                     () => setState(() {
@@ -401,6 +408,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: _toggleChip(
+                    context,
                     '경찰기관만',
                     _onlyPolice,
                     () => setState(() {
@@ -415,30 +423,33 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
             const SizedBox(height: 16),
 
             // ── 날짜/시각 범위 ───────────────────────────
-            _sectionLabel('날짜 / 시각 범위'),
+            _sectionLabel(context, '날짜 / 시각 범위'),
             _dateRange(
+              context,
               '신고일',
               _reportDateStart,
               _reportDateEnd,
-              Colors.blue,
+              Theme.of(context).colorScheme.primary,
               (d) => setState(() => _reportDateStart = d),
               (d) => setState(() => _reportDateEnd = d),
             ),
             const SizedBox(height: 8),
             _dateRange(
+              context,
               '발생일',
               _occurDateStart,
               _occurDateEnd,
-              Colors.green,
+              Theme.of(context).colorScheme.secondary,
               (d) => setState(() => _occurDateStart = d),
               (d) => setState(() => _occurDateEnd = d),
             ),
             const SizedBox(height: 8),
             _dateRange(
+              context,
               '답변일',
               _responseDateStart,
               _responseDateEnd,
-              Colors.orange,
+              Theme.of(context).colorScheme.tertiary,
               (d) => setState(() => _responseDateStart = d),
               (d) => setState(() => _responseDateEnd = d),
             ),
@@ -453,7 +464,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
                     '발생시각',
                     style: TextStyle(
                       fontSize: 12,
-                      color: Colors.grey.shade600,
+                      color: context.sr.textSecondary,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -512,7 +523,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     );
   }
 
-  Widget _sectionLabel(String label) {
+  Widget _sectionLabel(BuildContext context, String label) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Text(
@@ -520,7 +531,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
         style: TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.bold,
-          color: Colors.grey.shade600,
+          color: context.sr.textSecondary,
           letterSpacing: 0.5,
         ),
       ),
@@ -548,6 +559,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   }
 
   Widget _multiSelectDropdown({
+    required BuildContext context,
     required String label,
     required IconData icon,
     required List<MapEntry<String, String>> options,
@@ -576,7 +588,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
             child: Text(
               _selectionSummary(options, selectedValues),
               style: TextStyle(
-                color: selectedValues.isEmpty ? Colors.grey.shade600 : null,
+                color: selectedValues.isEmpty ? context.sr.textSecondary : null,
               ),
             ),
           ),
@@ -586,20 +598,22 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
           Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade300),
-              color: Colors.white,
+              border: Border.all(color: context.sr.border),
+              color: Theme.of(context).colorScheme.surface,
             ),
             child: Column(
               children: [
                 _multiSelectOption(
+                  context: context,
                   label: '전체',
                   selected: selectedValues.isEmpty,
                   onTap: onClear,
                   onSubmit: _apply,
                 ),
-                Divider(height: 1, color: Colors.grey.shade200),
+                Divider(height: 1, color: context.sr.border),
                 ...options.map(
                   (option) => _multiSelectOption(
+                    context: context,
                     label: option.value,
                     selected: selectedValues.contains(option.key),
                     onTap: () => onToggleValue(option.key),
@@ -615,6 +629,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   }
 
   Widget _singleSelectDropdown({
+    required BuildContext context,
     required String label,
     required IconData icon,
     required List<String> options,
@@ -633,7 +648,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
           value: currentValue.isEmpty ? null : currentValue,
           hint: Text(
             '전체',
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+            style: TextStyle(color: context.sr.textSecondary, fontSize: 14),
           ),
           isExpanded: true,
           isDense: true,
@@ -653,6 +668,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   }
 
   Widget _multiSelectOption({
+    required BuildContext context,
     required String label,
     required bool selected,
     required VoidCallback onTap,
@@ -694,8 +710,8 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
                 child: Text(
                   selected ? 'v' : '',
                   textAlign: TextAlign.right,
-                  style: const TextStyle(
-                    color: Colors.green,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
                   ),
@@ -708,17 +724,26 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     );
   }
 
-  Widget _toggleChip(String label, bool active, VoidCallback onTap) {
+  Widget _toggleChip(
+    BuildContext context,
+    String label,
+    bool active,
+    VoidCallback onTap,
+  ) {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(vertical: 10),
         decoration: BoxDecoration(
-          color: active ? Colors.blue.shade50 : Colors.grey.shade100,
+          color: active
+              ? Theme.of(context).colorScheme.primaryContainer
+              : context.sr.surfaceAlt,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: active ? Colors.blue : Colors.grey.shade300,
+            color: active
+                ? Theme.of(context).colorScheme.primary
+                : context.sr.border,
             width: 1.5,
           ),
         ),
@@ -728,7 +753,9 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: active ? Colors.blue : Colors.grey.shade600,
+              color: active
+                  ? Theme.of(context).colorScheme.onPrimaryContainer
+                  : context.sr.textSecondary,
             ),
           ),
         ),
@@ -737,6 +764,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   }
 
   Widget _dateRange(
+    BuildContext context,
     String label,
     String start,
     String end,
@@ -760,6 +788,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
         ),
         Expanded(
           child: _dateTap(
+            context,
             start.isEmpty ? '시작일' : start,
             color,
             () async {
@@ -774,16 +803,23 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
           child: Text('~'),
         ),
         Expanded(
-          child: _dateTap(end.isEmpty ? '종료일' : end, color, () async {
-            final d = await _pickDate(end);
-            if (d != null) onEnd(d);
-          }, end.isNotEmpty ? () => onEnd('') : null),
+          child: _dateTap(
+            context,
+            end.isEmpty ? '종료일' : end,
+            color,
+            () async {
+              final d = await _pickDate(end);
+              if (d != null) onEnd(d);
+            },
+            end.isNotEmpty ? () => onEnd('') : null,
+          ),
         ),
       ],
     );
   }
 
   Widget _dateTap(
+    BuildContext context,
     String label,
     Color color,
     VoidCallback onTap,
@@ -793,8 +829,8 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     return OutlinedButton(
       style: OutlinedButton.styleFrom(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-        side: BorderSide(color: hasValue ? color : Colors.grey.shade300),
-        foregroundColor: hasValue ? color : Colors.grey,
+        side: BorderSide(color: hasValue ? color : context.sr.border),
+        foregroundColor: hasValue ? color : context.sr.textSecondary,
       ),
       onPressed: onTap,
       child: Row(

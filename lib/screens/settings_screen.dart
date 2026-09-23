@@ -22,6 +22,11 @@ import 'permission_screen.dart';
 import 'setup_screen.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:file_picker/file_picker.dart';
+import '../navigation/app_routes.dart';
+import '../widgets/mode_badge.dart';
+import '../server_palette.dart';
+import '../widgets/status_badge.dart';
+import '../theme/sr_colors.dart';
 
 const _officialSafetyReportUrl = 'https://www.safetyreport.go.kr/';
 
@@ -271,7 +276,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('설정이 저장되었습니다. 데이터를 불러오는 중...'),
-          backgroundColor: Colors.green,
+          backgroundColor: srSnackSuccess,
         ),
       );
     }
@@ -286,7 +291,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('카카오 REST API 키가 저장되었습니다.'),
-        backgroundColor: Colors.green,
+        backgroundColor: srSnackSuccess,
       ),
     );
   }
@@ -356,7 +361,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 10),
                 Text(
                   err!,
-                  style: const TextStyle(color: Colors.red, fontSize: 13),
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.error,
+                    fontSize: 13,
+                  ),
                 ),
               ],
             ],
@@ -414,7 +422,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               content: Text(
                                 isDemoLogin ? '데모 모드 전환 완료' : '재로그인 완료',
                               ),
-                              backgroundColor: Colors.green,
+                              backgroundColor: srSnackSuccess,
                             ),
                           );
                         }
@@ -426,12 +434,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       }
                     },
               child: loggingIn
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 16,
                       height: 16,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: Colors.white,
+                        color: Theme.of(ctx).colorScheme.onPrimary,
                       ),
                     )
                   : const Text('로그인'),
@@ -475,14 +483,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('DB 백업 완료: ${targetFile.path}'),
-            backgroundColor: Colors.green,
+            backgroundColor: srSnackSuccess,
           ),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('DB 백업 실패: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('DB 백업 실패: $e'),
+            backgroundColor: srSnackError,
+          ),
         );
       }
     } finally {
@@ -568,7 +579,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+              foregroundColor: Theme.of(ctx).colorScheme.onError,
+            ),
             child: const Text('복원 시작'),
           ),
         ],
@@ -604,7 +618,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ? '서버 DB 변환 복원이 완료되었습니다.'
                     : '모바일 백업 복원이 완료되었습니다.',
               ),
-              backgroundColor: Colors.green,
+              backgroundColor: srSnackSuccess,
             ),
           );
         }
@@ -620,7 +634,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               content: Text(
                 '서버 DB 복원 완료 (${kind == 'mobile' ? '모바일→서버 변환' : '서버 형식'}, $imported건)',
               ),
-              backgroundColor: Colors.green,
+              backgroundColor: srSnackSuccess,
             ),
           );
         }
@@ -629,7 +643,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('DB 복원 실패: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('DB 복원 실패: $e'),
+            backgroundColor: srSnackError,
+          ),
         );
       }
     } finally {
@@ -710,7 +727,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('백업 완료: $backupPath'),
-            backgroundColor: Colors.green,
+            backgroundColor: srSnackSuccess,
             duration: const Duration(seconds: 4),
           ),
         );
@@ -821,7 +838,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('서버 DB 다운로드 실패: $e'),
-              backgroundColor: Colors.red,
+              backgroundColor: srSnackError,
             ),
           );
         }
@@ -842,7 +859,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('백업 파일 선택 실패: $e'),
-              backgroundColor: Colors.red,
+              backgroundColor: srSnackError,
             ),
           );
         }
@@ -897,24 +914,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Color _toneFill(
-    BuildContext context,
-    Color color, {
-    double lightOpacity = 0.10,
-    double darkOpacity = 0.20,
-  }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return color.withValues(alpha: isDark ? darkOpacity : lightOpacity);
-  }
-
-  Color _toneBorder(
-    BuildContext context,
-    Color color, {
-    double lightOpacity = 0.22,
-    double darkOpacity = 0.38,
-  }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return color.withValues(alpha: isDark ? darkOpacity : lightOpacity);
+  /// 기준색을 카드 표면 위 AA 글자색으로.
+  Color _fg(BuildContext context, Color base) {
+    final theme = Theme.of(context);
+    return StatusTone.of(
+      base,
+      brightness: theme.brightness,
+      surface: theme.colorScheme.surface,
+    ).foreground;
   }
 
   @override
@@ -952,12 +959,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            isStandalone ? '직접 연결 (스탠드어론)' : 'Client 모드',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                            ),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 4,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              Text(
+                                isStandalone ? '직접 연결 (스탠드어론)' : 'Client 모드',
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              ModeBadge(
+                                mode: provider.appMode,
+                                isDemo: provider.isStandaloneDemo,
+                              ),
+                            ],
                           ),
                           Text(
                             isStandalone
@@ -965,10 +983,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 : provider.baseUrl.isEmpty
                                 ? '미설정'
                                 : provider.baseUrl,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: mutedColor,
-                            ),
+                            style: TextStyle(fontSize: 12, color: mutedColor),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ],
@@ -1101,7 +1116,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.account_circle_outlined, color: cs.primary),
+                          Icon(
+                            Icons.account_circle_outlined,
+                            color: cs.primary,
+                          ),
                           const SizedBox(width: 8),
                           Text(
                             '안전신문고 계정',
@@ -1256,10 +1274,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                           color:
                                               _serverVersionStatus ==
                                                   'up_to_date'
-                                              ? Colors.green
+                                              ? _fg(context, serverAcceptColor)
                                               : _serverVersionStatus ==
                                                     'outdated'
-                                              ? Colors.orange
+                                              ? _fg(
+                                                  context,
+                                                  serverPartialAcceptColor,
+                                                )
                                               : mutedColor,
                                         ),
                                       ),
@@ -1592,7 +1613,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Icon(Icons.storage, color: cs.secondary),
                         const SizedBox(width: 8),
                         Text(
-                          '데이터베이스 관리',
+                          '데이터 관리',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
@@ -1602,6 +1623,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ],
                     ),
                     const SizedBox(height: 12),
+                    // D-06: 하단 '파일' 탭이 이곳으로 이동했다(기능·화면은 그대로).
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.tonalIcon(
+                        icon: const Icon(Icons.folder_open, size: 18),
+                        label: Text(
+                          provider.appMode == AppMode.standalone
+                              ? '파일 관리 (내보낸 파일 · Excel)'
+                              : '파일 관리 (서버 파일)',
+                        ),
+                        onPressed: () => AppRoutes.openFiles(context),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
                     Text(
                       '현재 기기(또는 서버)의 데이터를 파일로 백업합니다.\n저장 경로: Documents/mysafetyreport/',
                       style: TextStyle(
@@ -1772,7 +1807,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         children: [
                           Icon(
                             Icons.wifi_tethering,
-                            color: _wsRunning ? Colors.green : mutedColor,
+                            color: _wsRunning
+                                ? _fg(context, serverAcceptColor)
+                                : mutedColor,
                           ),
                           const SizedBox(width: 8),
                           const Expanded(
@@ -1784,32 +1821,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                             ),
                           ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: _wsRunning
-                                  ? _toneFill(context, Colors.green)
-                                  : _toneFill(context, Colors.red),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: _wsRunning
-                                    ? _toneBorder(context, Colors.green)
-                                    : _toneBorder(context, Colors.red),
-                              ),
-                            ),
-                            child: Text(
-                              _wsRunning ? '● 실행 중' : '○ 중지됨',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: _wsRunning
-                                    ? Colors.green
-                                    : Colors.red,
-                              ),
-                            ),
+                          StatusBadge(
+                            label: _wsRunning ? '● 실행 중' : '○ 중지됨',
+                            color: _wsRunning
+                                ? serverAcceptColor
+                                : serverRejectColor,
+                            fontSize: 12,
                           ),
                         ],
                       ),
@@ -1843,13 +1860,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 ),
                                 label: Text(_wsRunning ? '서비스 중지' : '서비스 시작'),
                                 style: OutlinedButton.styleFrom(
-                                  foregroundColor: _wsRunning
-                                      ? Colors.red
-                                      : Colors.green,
+                                  foregroundColor: _fg(
+                                    context,
+                                    _wsRunning
+                                        ? serverRejectColor
+                                        : serverAcceptColor,
+                                  ),
                                   side: BorderSide(
-                                    color: _wsRunning
-                                        ? Colors.red
-                                        : Colors.green,
+                                    color: _fg(
+                                      context,
+                                      _wsRunning
+                                          ? serverRejectColor
+                                          : serverAcceptColor,
+                                    ),
                                   ),
                                 ),
                                 onPressed: _toggleWsService,
@@ -1890,10 +1913,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             const SizedBox(height: 2),
                             Text(
                               '알림 접근, 배터리 최적화 제외, 백그라운드 서비스 등 권한을 관리합니다.',
-                              style: TextStyle(
-                                color: mutedColor,
-                                fontSize: 13,
-                              ),
+                              style: TextStyle(color: mutedColor, fontSize: 13),
                             ),
                           ],
                         ),

@@ -3,6 +3,9 @@ import 'package:provider/provider.dart';
 
 import '../models/report.dart';
 import '../providers/report_provider.dart';
+import '../theme/app_theme.dart';
+import '../theme/sr_colors.dart';
+import '../theme/sr_colors.dart';
 import '../widgets/report_detail_sheet.dart';
 import '../widgets/report_list_card.dart';
 import '../widgets/search_filter_sheet.dart';
@@ -105,6 +108,13 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
       });
     }
 
+    final theme = Theme.of(context);
+    final primaryTone = StatusTone.of(
+      theme.colorScheme.primary,
+      brightness: theme.brightness,
+      surface: theme.colorScheme.surface,
+    );
+
     return Stack(
       children: [
         Column(
@@ -113,8 +123,8 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
               width: double.infinity,
               padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
               decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+                color: theme.colorScheme.surface,
+                border: Border(bottom: BorderSide(color: context.sr.border)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -135,16 +145,14 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
                             const SizedBox(height: 4),
                             Text(
                               hasApplicableFilter
-                                  ? '검색 $reports.length건'
+                                  ? '검색 ${reports.length}건'
                                   : '${reports.length}건',
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w700,
                                 color: hasApplicableFilter
-                                    ? Theme.of(context).colorScheme.primary
-                                    : Theme.of(
-                                        context,
-                                      ).colorScheme.onSurfaceVariant,
+                                    ? theme.colorScheme.primary
+                                    : theme.colorScheme.onSurfaceVariant,
                               ),
                             ),
                             const SizedBox(height: 2),
@@ -152,9 +160,7 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
                               '참여 가능 상태의 신고건만 표시됩니다.',
                               style: TextStyle(
                                 fontSize: 12,
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
+                                color: theme.colorScheme.onSurfaceVariant,
                               ),
                             ),
                           ],
@@ -199,7 +205,7 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
             if (hasApplicableFilter && activeLabels.isNotEmpty)
               Container(
                 width: double.infinity,
-                color: Colors.blue.shade50,
+                color: primaryTone.background,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
                   vertical: 6,
@@ -214,9 +220,13 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
                             child: Chip(
                               label: Text(
                                 label,
-                                style: const TextStyle(fontSize: 11),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: primaryTone.foreground,
+                                ),
                               ),
-                              backgroundColor: Colors.blue.shade100,
+                              backgroundColor: theme.colorScheme.surface,
+                              side: BorderSide(color: primaryTone.border),
                               padding: EdgeInsets.zero,
                               materialTapTargetSize:
                                   MaterialTapTargetSize.shrinkWrap,
@@ -246,6 +256,7 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
   }
 
   Widget _buildBody(ReportProvider provider, List<Report> reports) {
+    final theme = Theme.of(context);
     final hasApplicableFilter = !provider.filter
         .withoutRatingStateFilters()
         .isEmpty;
@@ -268,22 +279,25 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
                       Icon(
                         Icons.cloud_off_rounded,
                         size: 56,
-                        color: Colors.grey.shade400,
+                        color: context.sr.textDisabled,
                       ),
                       const SizedBox(height: 12),
-                      const Text(
+                      Text(
                         '데이터를 불러오지 못했습니다.',
                         style: TextStyle(
-                          color: Colors.grey,
+                          color: context.sr.textSecondary,
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
                       const SizedBox(height: 6),
-                      const Text(
+                      Text(
                         '아래로 당겨 다시 시도하거나\n서버/동기화 상태를 확인하세요.',
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.grey, fontSize: 13),
+                        style: TextStyle(
+                          color: context.sr.textSecondary,
+                          fontSize: 13,
+                        ),
                       ),
                       const SizedBox(height: 16),
                       FilledButton.icon(
@@ -295,15 +309,15 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
                       Icon(
                         Icons.star_outline_rounded,
                         size: 56,
-                        color: Colors.grey.shade400,
+                        color: context.sr.textDisabled,
                       ),
                       const SizedBox(height: 12),
                       Text(
                         hasApplicableFilter
                             ? '검색 결과가 없습니다.'
                             : '별점 가능한 신고가 없습니다.',
-                        style: const TextStyle(
-                          color: Colors.grey,
+                        style: TextStyle(
+                          color: context.sr.textSecondary,
                           fontSize: 15,
                         ),
                       ),
@@ -344,7 +358,7 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
           setState(() => _selected.add(report.reportNumber));
         }
       },
-      headerSuffix: _buildCategoryChip(category),
+      headerSuffix: _buildCategoryChip(context, category),
       metaItems: [
         ReportCardMetaItem(
           icon: Icons.calendar_today,
@@ -374,7 +388,7 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
     );
   }
 
-  Widget? _buildCategoryChip(String category) {
+  Widget? _buildCategoryChip(BuildContext context, String category) {
     final label = switch (category) {
       'traffic' => '교통',
       'parking' => '주정차',
@@ -383,24 +397,31 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
     };
     if (label.isEmpty) return null;
 
-    final color = switch (category) {
+    final baseColor = switch (category) {
       'traffic' => Colors.blue,
       'parking' => Colors.teal,
       'other' => Colors.deepPurple,
       _ => Colors.grey,
     };
 
+    final theme = Theme.of(context);
+    final tone = StatusTone.of(
+      baseColor,
+      brightness: theme.brightness,
+      surface: theme.colorScheme.surface,
+    );
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        border: Border.all(color: color.withValues(alpha: 0.28)),
+        color: tone.background,
+        border: Border.all(color: tone.border),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
         label,
         style: TextStyle(
-          color: color.shade700,
+          color: tone.foreground,
           fontSize: 11,
           fontWeight: FontWeight.bold,
         ),

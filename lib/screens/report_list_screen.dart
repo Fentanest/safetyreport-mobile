@@ -8,6 +8,9 @@ import '../widgets/search_filter_sheet.dart';
 import '../widgets/selection_action_bar.dart';
 import 'settings_screen.dart';
 import '../widgets/sr_tab_bar.dart';
+import '../widgets/status_badge.dart';
+import '../theme/sr_colors.dart';
+import '../server_palette.dart';
 
 class ReportListScreen extends StatefulWidget {
   final int initialTabIndex;
@@ -221,7 +224,7 @@ class _ReportListScreenState extends State<ReportListScreen>
               if (provider.hasFilter && activeLabels.isNotEmpty)
                 Container(
                   width: double.infinity,
-                  color: Colors.blue.shade50,
+                  color: context.sr.brandSoft,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 12,
                     vertical: 6,
@@ -238,7 +241,12 @@ class _ReportListScreenState extends State<ReportListScreen>
                                   label,
                                   style: const TextStyle(fontSize: 11),
                                 ),
-                                backgroundColor: Colors.blue.shade100,
+                                backgroundColor: Theme.of(
+                                  context,
+                                ).colorScheme.surface,
+                                side: BorderSide(
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
                                 padding: EdgeInsets.zero,
                                 materialTapTargetSize:
                                     MaterialTapTargetSize.shrinkWrap,
@@ -314,22 +322,25 @@ class _ReportListScreenState extends State<ReportListScreen>
                       Icon(
                         Icons.cloud_off_rounded,
                         size: 56,
-                        color: Colors.grey.shade400,
+                        color: context.sr.textDisabled,
                       ),
                       const SizedBox(height: 12),
-                      const Text(
+                      Text(
                         '데이터를 불러오지 못했습니다.',
                         style: TextStyle(
-                          color: Colors.grey,
+                          color: context.sr.textSecondary,
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
                       const SizedBox(height: 6),
-                      const Text(
+                      Text(
                         '아래로 당겨 다시 시도하거나\n설정에서 서버 상태를 확인하세요.',
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.grey, fontSize: 13),
+                        style: TextStyle(
+                          color: context.sr.textSecondary,
+                          fontSize: 13,
+                        ),
                       ),
                       const SizedBox(height: 16),
                       FilledButton.icon(
@@ -341,13 +352,13 @@ class _ReportListScreenState extends State<ReportListScreen>
                       Icon(
                         Icons.inbox_rounded,
                         size: 56,
-                        color: Colors.grey.shade400,
+                        color: context.sr.textDisabled,
                       ),
                       const SizedBox(height: 12),
                       Text(
                         provider.hasFilter ? '검색 결과가 없습니다.' : '신고 내역이 없습니다.',
-                        style: const TextStyle(
-                          color: Colors.grey,
+                        style: TextStyle(
+                          color: context.sr.textSecondary,
                           fontSize: 15,
                         ),
                       ),
@@ -383,15 +394,22 @@ class _ReportListScreenState extends State<ReportListScreen>
             physics: const AlwaysScrollableScrollPhysics(),
             child: ConstrainedBox(
               constraints: BoxConstraints(minHeight: constraints.maxHeight),
-              child: const Center(
+              child: Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.content_copy, size: 56, color: Colors.grey),
-                    SizedBox(height: 12),
+                    Icon(
+                      Icons.content_copy,
+                      size: 56,
+                      color: context.sr.textDisabled,
+                    ),
+                    const SizedBox(height: 12),
                     Text(
                       '중복 신고 차량이 없습니다.',
-                      style: TextStyle(color: Colors.grey, fontSize: 15),
+                      style: TextStyle(
+                        color: context.sr.textSecondary,
+                        fontSize: 15,
+                      ),
                     ),
                   ],
                 ),
@@ -433,23 +451,11 @@ class _ReportListScreenState extends State<ReportListScreen>
         }
       },
       headerSuffix: totalCount > 0
-          ? Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-              decoration: BoxDecoration(
-                color: Colors.deepOrange.shade50,
-                border: Border.all(color: Colors.deepOrange.shade200),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                excludeWithdraw && validCount != totalCount
-                    ? '$validCount/$totalCount회'
-                    : '$totalCount회',
-                style: TextStyle(
-                  color: Colors.deepOrange.shade700,
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
+          ? StatusBadge(
+              label: excludeWithdraw && validCount != totalCount
+                  ? '$validCount/$totalCount회'
+                  : '$totalCount회',
+              color: serverSupplementColor,
             )
           : null,
       metaItems: _buildMetaItems(report, includeLocation: true),

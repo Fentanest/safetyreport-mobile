@@ -10,6 +10,7 @@ import '../services/local_db_service.dart';
 import 'report_map_screen.dart';
 import 'report_list_screen.dart';
 import 'settings_screen.dart';
+import '../theme/sr_colors.dart';
 import '../widgets/stats_overview_section.dart';
 
 class StatisticsScreen extends StatefulWidget {
@@ -206,7 +207,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
               width: 36,
               height: 4,
               decoration: BoxDecoration(
-                color: Colors.grey.shade300,
+                color: context.sr.border,
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
@@ -350,7 +351,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                   width: 8,
                   height: 8,
                   decoration: const BoxDecoration(
-                    color: Colors.orange,
+                    color: serverSupplementColor,
                     shape: BoxShape.circle,
                   ),
                 ),
@@ -368,7 +369,11 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.error_outline, size: 48, color: Colors.red),
+            Icon(
+              Icons.error_outline,
+              size: 48,
+              color: Theme.of(context).colorScheme.error,
+            ),
             const SizedBox(height: 12),
             Text(
               _error!,
@@ -409,9 +414,9 @@ class _LawChip extends StatelessWidget {
         margin: const EdgeInsets.symmetric(vertical: 3),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: selected ? color.withOpacity(0.12) : Colors.transparent,
+          color: selected ? context.sr.brandSoft : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: selected ? color : Colors.grey.shade300),
+          border: Border.all(color: selected ? color : context.sr.border),
         ),
         child: Row(
           children: [
@@ -468,16 +473,15 @@ class _NavBar extends StatelessWidget {
     ('other-person', '비경찰 담당자'),
   ];
 
+  // 카테고리 식별색(교통 파랑 / 주정차 주황 / 기타 초록). 글자·테두리는 StatusTone 으로 AA 보정.
   Color _catColor(String c) => switch (c) {
-    'traffic' => Colors.blue,
-    'parking' => Colors.orange,
-    _ => Colors.green,
+    'traffic' => const Color(0xFF0D6EFD),
+    'parking' => serverPartialAcceptColor,
+    _ => serverAcceptColor,
   };
 
   @override
   Widget build(BuildContext context) {
-    final catColor = _catColor(cat);
-
     return Container(
       color: Theme.of(context).colorScheme.surface,
       child: Column(
@@ -486,7 +490,7 @@ class _NavBar extends StatelessWidget {
           // 0행: 연도별 (가로 스크롤)
           if (yearOptions.length > 1)
             SizedBox(
-              height: 36,
+              height: 40,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(
@@ -494,41 +498,14 @@ class _NavBar extends StatelessWidget {
                   vertical: 4,
                 ),
                 itemCount: yearOptions.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 6),
+                separatorBuilder: (_, _) => const SizedBox(width: 6),
                 itemBuilder: (_, i) {
                   final y = yearOptions[i];
-                  final label = y == 'all' ? '전체' : y;
-                  final selected = year == y;
-                  return GestureDetector(
+                  return _PillChip(
+                    label: y == 'all' ? '전체' : y,
+                    selected: year == y,
                     onTap: () => onYearChanged(y),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 150),
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      decoration: BoxDecoration(
-                        color: selected
-                            ? Colors.blueGrey.shade700
-                            : Colors.blueGrey.withOpacity(0.08),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: selected
-                              ? Colors.blueGrey.shade700
-                              : Colors.blueGrey.withOpacity(0.3),
-                        ),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        label,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: selected
-                              ? FontWeight.bold
-                              : FontWeight.normal,
-                          color: selected
-                              ? Colors.white
-                              : Colors.blueGrey.shade700,
-                        ),
-                      ),
-                    ),
+                    compact: true,
                   );
                 },
               ),
@@ -538,33 +515,14 @@ class _NavBar extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
             child: Row(
               children: _cats.map((e) {
-                final selected = cat == e.$1;
-                final color = _catColor(e.$1);
                 return Expanded(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 3),
-                    child: GestureDetector(
+                    child: _CategoryChip(
+                      label: e.$2,
+                      color: _catColor(e.$1),
+                      selected: cat == e.$1,
                       onTap: () => onCatChanged(e.$1),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 150),
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        decoration: BoxDecoration(
-                          color: selected ? color : color.withOpacity(0.08),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: selected ? color : color.withOpacity(0.3),
-                          ),
-                        ),
-                        child: Text(
-                          e.$2,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: selected ? Colors.white : color,
-                          ),
-                        ),
-                      ),
                     ),
                   ),
                 );
@@ -573,39 +531,18 @@ class _NavBar extends StatelessWidget {
           ),
           // 2행: 유형 (가로 스크롤)
           SizedBox(
-            height: 38,
+            height: 40,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
               itemCount: _types.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 6),
+              separatorBuilder: (_, _) => const SizedBox(width: 6),
               itemBuilder: (_, i) {
                 final e = _types[i];
-                final selected = type == e.$1;
-                return GestureDetector(
+                return _PillChip(
+                  label: e.$2,
+                  selected: type == e.$1,
                   onTap: () => onTypeChanged(e.$1),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                    decoration: BoxDecoration(
-                      color: selected ? catColor : catColor.withOpacity(0.07),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: selected ? catColor : catColor.withOpacity(0.3),
-                      ),
-                    ),
-                    alignment: Alignment.center,
-                    child: Text(
-                      e.$2,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: selected
-                            ? FontWeight.bold
-                            : FontWeight.normal,
-                        color: selected ? Colors.white : catColor,
-                      ),
-                    ),
-                  ),
                 );
               },
             ),
@@ -613,6 +550,110 @@ class _NavBar extends StatelessWidget {
           const SizedBox(height: 8),
           const Divider(height: 1),
         ],
+      ),
+    );
+  }
+}
+
+/// 선택형 알약 칩: 선택 = primary 채움(onPrimary 글자), 미선택 = 테두리만.
+class _PillChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final bool compact;
+
+  const _PillChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.compact = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final sr = context.sr;
+    return Semantics(
+      selected: selected,
+      button: true,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 14),
+          decoration: BoxDecoration(
+            color: selected ? scheme.primary : scheme.surface,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: selected ? scheme.primary : sr.border),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: compact ? 12 : 13,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              color: selected ? scheme.onPrimary : sr.textSecondary,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 카테고리 칩: 선택 시 식별색 틴트 + 굵은 테두리, 미선택은 표면색.
+class _CategoryChip extends StatelessWidget {
+  final String label;
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _CategoryChip({
+    required this.label,
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final sr = context.sr;
+    final tone = StatusTone.of(
+      color,
+      brightness: theme.brightness,
+      surface: theme.colorScheme.surface,
+    );
+    return Semantics(
+      selected: selected,
+      button: true,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(vertical: 9),
+          decoration: BoxDecoration(
+            color: selected ? tone.background : theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: selected ? tone.foreground : sr.border,
+              width: selected ? 1.6 : 1,
+            ),
+          ),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+              color: selected ? tone.foreground : sr.textSecondary,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -720,7 +761,15 @@ class _RowCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final sr = context.sr;
+    // 기준색을 카드 표면 위 AA 글자색으로 바꾼다.
+    Color fg(Color c) => StatusTone.of(
+      c,
+      brightness: theme.brightness,
+      surface: scheme.surface,
+    ).foreground;
     final fineStr = _formatFine(row.totalFineAmount);
 
     return Card(
@@ -770,40 +819,40 @@ class _RowCard extends StatelessWidget {
                   child: Row(
                     children: [
                       if (row.avgRating != null) ...[
-                        const Icon(Icons.star, size: 12, color: Colors.amber),
+                        Icon(Icons.star, size: 12, color: fg(_ratingColor)),
                         const SizedBox(width: 2),
                         Text(
                           '${row.avgRating!.toStringAsFixed(2)} (${row.ratingCount})',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
-                            color: Colors.amber,
+                            color: fg(_ratingColor),
                           ),
                         ),
                         const SizedBox(width: 10),
                       ],
                       if (row.avgResponseDays != null) ...[
-                        const Icon(
+                        Icon(
                           Icons.schedule,
                           size: 11,
-                          color: Colors.teal,
+                          color: fg(serverCompletedColor),
                         ),
                         const SizedBox(width: 2),
                         Text(
                           '${row.avgResponseDays!.toStringAsFixed(1)}일',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
-                            color: Colors.teal,
+                            color: fg(serverCompletedColor),
                           ),
                         ),
                         const SizedBox(width: 10),
                       ],
                       if (fineStr.isNotEmpty) ...[
-                        const Icon(
+                        Icon(
                           Icons.payments_outlined,
                           size: 11,
-                          color: serverTrafficFineColor,
+                          color: fg(serverTrafficFineColor),
                         ),
                         const SizedBox(width: 2),
                         Flexible(
@@ -812,10 +861,10 @@ class _RowCard extends StatelessWidget {
                                 ? '$fineStr · 금액 미확인 ${row.fineAmountUnknown}건'
                                 : fineStr,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
-                              color: serverTrafficFineColor,
+                              color: fg(serverTrafficFineColor),
                             ),
                           ),
                         ),
@@ -826,29 +875,36 @@ class _RowCard extends StatelessWidget {
               // ── 이름 + 우측 '총 처리 N건' ──
               Row(
                 children: [
-                  Container(
-                    width: 22,
-                    height: 22,
-                    decoration: BoxDecoration(
-                      color: rank <= 3
-                          ? [
-                              Colors.amber,
-                              Colors.grey.shade400,
-                              Colors.brown.shade300,
-                            ][rank - 1]
-                          : scheme.surfaceContainerHighest,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Center(
-                      child: Text(
-                        '$rank',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          color: rank <= 3 ? Colors.white : scheme.onSurface,
+                  Builder(
+                    builder: (context) {
+                      // 1~3위 금·은·동은 틴트 원 + AA 글자(흰 글자 채움은 대비 미달).
+                      final medal = rank <= 3
+                          ? StatusTone.of(
+                              _medalColors[rank - 1],
+                              brightness: theme.brightness,
+                              surface: scheme.surface,
+                            )
+                          : null;
+                      return Container(
+                        width: 24,
+                        height: 24,
+                        decoration: BoxDecoration(
+                          color: medal?.background ?? sr.surfaceAlt,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: medal?.border ?? sr.border),
                         ),
-                      ),
-                    ),
+                        child: Center(
+                          child: Text(
+                            '$rank',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w800,
+                              color: medal?.foreground ?? sr.textSecondary,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
                   ),
                   const SizedBox(width: 8),
                   Expanded(
@@ -868,7 +924,7 @@ class _RowCard extends StatelessWidget {
                             row.person,
                             style: TextStyle(
                               fontSize: 11.5,
-                              color: Colors.grey.shade600,
+                              color: sr.textSecondary,
                             ),
                             softWrap: true,
                           ),
@@ -881,9 +937,12 @@ class _RowCard extends StatelessWidget {
                       text: TextSpan(
                         style: TextStyle(color: scheme.primary),
                         children: [
-                          const TextSpan(
+                          TextSpan(
                             text: '총 처리 ',
-                            style: TextStyle(fontSize: 11, color: Colors.grey),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: sr.textSecondary,
+                            ),
                           ),
                           TextSpan(
                             text: '${row.total}',
@@ -893,9 +952,12 @@ class _RowCard extends StatelessWidget {
                               color: scheme.primary,
                             ),
                           ),
-                          const TextSpan(
+                          TextSpan(
                             text: '건',
-                            style: TextStyle(fontSize: 11, color: Colors.grey),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: sr.textSecondary,
+                            ),
                           ),
                         ],
                       ),
@@ -945,7 +1007,7 @@ class _RowCard extends StatelessWidget {
                           '기타·미분류',
                           row.unconfirmed,
                           row.unconfirmedPct,
-                          Colors.blueGrey.shade500,
+                          serverUnconfirmedColor,
                         ),
                       ),
                     ],
@@ -963,7 +1025,7 @@ class _RowCard extends StatelessWidget {
                           flex: row.fines,
                           child: Container(
                             height: 6,
-                            color: Colors.red.shade400,
+                            color: serverTrafficFineColor,
                           ),
                         ),
                       if (row.warnings > 0)
@@ -971,23 +1033,20 @@ class _RowCard extends StatelessWidget {
                           flex: row.warnings,
                           child: Container(
                             height: 6,
-                            color: Colors.orange.shade400,
+                            color: serverTrafficPenaltyColor,
                           ),
                         ),
                       if (row.rejects > 0)
                         Flexible(
                           flex: row.rejects,
-                          child: Container(
-                            height: 6,
-                            color: Colors.grey.shade400,
-                          ),
+                          child: Container(height: 6, color: serverRejectColor),
                         ),
                       if (row.unconfirmed > 0)
                         Flexible(
                           flex: row.unconfirmed,
                           child: Container(
                             height: 6,
-                            color: Colors.blueGrey.shade300,
+                            color: serverUnconfirmedColor,
                           ),
                         ),
                       Flexible(
@@ -998,10 +1057,7 @@ class _RowCard extends StatelessWidget {
                                     row.rejects -
                                     row.unconfirmed)
                                 .clamp(0, row.total),
-                        child: Container(
-                          height: 6,
-                          color: Colors.blue.shade100,
-                        ),
+                        child: Container(height: 6, color: sr.border),
                       ),
                     ],
                   ),
@@ -1013,31 +1069,50 @@ class _RowCard extends StatelessWidget {
     );
   }
 
+  static const _ratingColor = Color(0xFFF59E0B);
+  static const _medalColors = [
+    Color(0xFFF59E0B), // 금
+    Color(0xFF94A3B8), // 은
+    Color(0xFFB45309), // 동
+  ];
+
   Widget _statBadge(String label, int count, double pct, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.2)),
-      ),
-      child: Column(
-        children: [
-          Text(
-            '$count',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
+    return Builder(
+      builder: (context) {
+        final theme = Theme.of(context);
+        final tone = StatusTone.of(
+          color,
+          brightness: theme.brightness,
+          surface: theme.colorScheme.surface,
+        );
+        return Container(
+          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+          decoration: BoxDecoration(
+            color: tone.background,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: tone.border),
           ),
-          Text(
-            '$label (${pct.toStringAsFixed(1)}%)',
-            style: TextStyle(fontSize: 10, color: color.withOpacity(0.8)),
-            textAlign: TextAlign.center,
+          child: Column(
+            children: [
+              Text(
+                '$count',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: tone.foreground,
+                ),
+              ),
+              Text(
+                '$label (${pct.toStringAsFixed(1)}%)',
+                style: TextStyle(fontSize: 10, color: tone.foreground),
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

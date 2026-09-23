@@ -16,6 +16,7 @@ import '../services/api_service.dart';
 import '../widgets/duplicate_group_detail_sheet.dart';
 import '../widgets/report_detail_sheet.dart';
 import '../widgets/sr_tab_bar.dart';
+import '../theme/sr_colors.dart';
 
 const _permChannel = MethodChannel('com.fentanest.mysafetyreport/permissions');
 
@@ -126,7 +127,9 @@ class _NotificationsScreenState extends State<NotificationsScreen>
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                style: FilledButton.styleFrom(backgroundColor: Colors.red),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.error,
+                ),
                 child: const Text('삭제'),
               ),
             ],
@@ -186,28 +189,28 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                 height: 4,
                 margin: const EdgeInsets.only(bottom: 20),
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
+                  color: context.sr.border,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
             ),
             Row(
               children: [
-                const Icon(Icons.notifications_active, color: Colors.blue),
+                Icon(
+                  Icons.notifications_active,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     item.title,
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
             ),
             const Divider(height: 24),
-            Text(item.body, style: const TextStyle(fontSize: 14, height: 1.6)),
+            Text(item.body, style: TextStyle(fontSize: 14, height: 1.6)),
             const SizedBox(height: 20),
             if (item.reportNumber.isNotEmpty)
               _detailRow('신고번호', item.reportNumber),
@@ -215,7 +218,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
             if (hasChanges) ...[
               const SizedBox(height: 16),
               FilledButton.icon(
-                icon: const Icon(Icons.assignment_outlined),
+                icon: Icon(Icons.assignment_outlined),
                 label: const Text('신고 결과 보기'),
                 onPressed: () {
                   Navigator.pop(sheetCtx);
@@ -254,22 +257,26 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                 height: 4,
                 margin: const EdgeInsets.only(bottom: 20),
                 decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
+                  color: context.sr.border,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
             ),
             Row(
               children: [
-                const Icon(Icons.star_rate_rounded, color: Colors.amber),
+                Icon(
+                  Icons.star_rate_rounded,
+                  color: StatusTone.of(
+                    Colors.amber,
+                    brightness: Theme.of(context).brightness,
+                    surface: context.sr.surface,
+                  ).foreground,
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     result.title,
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
@@ -281,17 +288,25 @@ class _NotificationsScreenState extends State<NotificationsScreen>
               children: [
                 _countChip(
                   '성공 ${result.successCount}',
-                  Colors.green,
+                  StatusTone.of(
+                    Colors.green,
+                    brightness: Theme.of(context).brightness,
+                    surface: context.sr.surface,
+                  ).foreground,
                   Icons.check_circle_outline,
                 ),
                 _countChip(
                   '스킵 ${result.skipCount}',
-                  Colors.orange,
+                  StatusTone.of(
+                    Colors.orange,
+                    brightness: Theme.of(context).brightness,
+                    surface: context.sr.surface,
+                  ).foreground,
                   Icons.fast_forward_outlined,
                 ),
                 _countChip(
                   '실패 ${result.failureCount}',
-                  Colors.red,
+                  Theme.of(context).colorScheme.error,
                   Icons.error_outline,
                 ),
               ],
@@ -311,7 +326,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                 '실패 신고번호',
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
-                  color: Colors.red.shade700,
+                  color: Theme.of(context).colorScheme.error,
                 ),
               ),
               const SizedBox(height: 6),
@@ -319,7 +334,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                 result.failedReportNumbers.join(', '),
                 style: TextStyle(
                   fontSize: 13,
-                  color: Colors.red.shade700,
+                  color: Theme.of(context).colorScheme.error,
                   height: 1.5,
                 ),
               ),
@@ -362,10 +377,10 @@ class _NotificationsScreenState extends State<NotificationsScreen>
           width: 72,
           child: Text(
             label,
-            style: const TextStyle(color: Colors.grey, fontSize: 13),
+            style: TextStyle(color: context.sr.textSecondary, fontSize: 13),
           ),
         ),
-        Expanded(child: Text(value, style: const TextStyle(fontSize: 13))),
+        Expanded(child: Text(value, style: TextStyle(fontSize: 13))),
       ],
     ),
   );
@@ -432,13 +447,13 @@ class _NotificationsScreenState extends State<NotificationsScreen>
         actions: [
           if (allItems.isNotEmpty && provider.unreadCount > 0)
             TextButton.icon(
-              icon: const Icon(Icons.done_all, size: 18),
+              icon: Icon(Icons.done_all, size: 18),
               label: const Text('모두 읽음'),
               onPressed: provider.markAllRead,
             ),
           if (allItems.isNotEmpty)
             IconButton(
-              icon: const Icon(Icons.delete_sweep_outlined),
+              icon: Icon(Icons.delete_sweep_outlined),
               tooltip: '모두 비우기',
               onPressed: () async {
                 if (await _confirmClear(context) && context.mounted) {
@@ -491,14 +506,14 @@ class _NotificationsScreenState extends State<NotificationsScreen>
   Widget _unreadBadge(int count) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
     decoration: BoxDecoration(
-      color: Colors.red,
+      color: Theme.of(context).colorScheme.error,
       borderRadius: BorderRadius.circular(10),
     ),
     child: Text(
       '$count',
-      style: const TextStyle(
+      style: TextStyle(
         fontSize: 11,
-        color: Colors.white,
+        color: Theme.of(context).colorScheme.onError,
         fontWeight: FontWeight.bold,
       ),
     ),
@@ -582,19 +597,22 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                   Icon(
                     Icons.notifications_none,
                     size: 72,
-                    color: Colors.grey.shade300,
+                    color: context.sr.border,
                   ),
                   const SizedBox(height: 16),
                   Text(
                     emptyMessage,
-                    style: const TextStyle(color: Colors.grey, fontSize: 15),
+                    style: TextStyle(
+                      color: context.sr.textSecondary,
+                      fontSize: 15,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     emptySubMessage,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.grey,
+                    style: TextStyle(
+                      color: context.sr.textSecondary,
                       fontSize: 12,
                       height: 1.5,
                     ),
@@ -645,7 +663,9 @@ class _NotifTile extends StatelessWidget {
                 height: 8,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: unread ? Colors.blue : Colors.transparent,
+                  color: unread
+                      ? Theme.of(context).colorScheme.primary
+                      : Colors.transparent,
                 ),
               ),
             ),
@@ -654,10 +674,30 @@ class _NotifTile extends StatelessWidget {
               height: 40,
               decoration: BoxDecoration(
                 color: isDuplicate
-                    ? Colors.indigo.shade50
+                    ? StatusTone.of(
+                        StatusTone.of(
+                          Colors.indigo,
+                          brightness: Theme.of(context).brightness,
+                          surface: context.sr.surface,
+                        ).foreground,
+                        brightness: Theme.of(context).brightness,
+                        surface: context.sr.surface,
+                      ).background
                     : hasDetail
-                    ? Colors.orange.shade50
-                    : Colors.blue.shade50,
+                    ? StatusTone.of(
+                        StatusTone.of(
+                          Colors.orange,
+                          brightness: Theme.of(context).brightness,
+                          surface: context.sr.surface,
+                        ).foreground,
+                        brightness: Theme.of(context).brightness,
+                        surface: context.sr.surface,
+                      ).background
+                    : StatusTone.of(
+                        Theme.of(context).colorScheme.primary,
+                        brightness: Theme.of(context).brightness,
+                        surface: context.sr.surface,
+                      ).background,
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(
@@ -667,10 +707,30 @@ class _NotifTile extends StatelessWidget {
                     ? Icons.assignment_outlined
                     : Icons.notifications_active,
                 color: isDuplicate
-                    ? Colors.indigo.shade700
+                    ? StatusTone.of(
+                        StatusTone.of(
+                          Colors.indigo,
+                          brightness: Theme.of(context).brightness,
+                          surface: context.sr.surface,
+                        ).foreground,
+                        brightness: Theme.of(context).brightness,
+                        surface: context.sr.surface,
+                      ).foreground
                     : hasDetail
-                    ? Colors.orange.shade700
-                    : Colors.blue.shade700,
+                    ? StatusTone.of(
+                        StatusTone.of(
+                          Colors.orange,
+                          brightness: Theme.of(context).brightness,
+                          surface: context.sr.surface,
+                        ).foreground,
+                        brightness: Theme.of(context).brightness,
+                        surface: context.sr.surface,
+                      ).foreground
+                    : StatusTone.of(
+                        Theme.of(context).colorScheme.primary,
+                        brightness: Theme.of(context).brightness,
+                        surface: context.sr.surface,
+                      ).foreground,
                 size: 20,
               ),
             ),
@@ -693,7 +753,7 @@ class _NotifTile extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontSize: 12,
-                      color: Colors.grey.shade600,
+                      color: context.sr.textSecondary,
                       height: 1.4,
                     ),
                   ),
@@ -706,12 +766,18 @@ class _NotifTile extends StatelessWidget {
                         if (status.isNotEmpty)
                           _miniChip(
                             status,
-                            isDuplicate ? Colors.indigo : _statusColor(status),
+                            isDuplicate
+                                ? StatusTone.of(
+                                    Colors.indigo,
+                                    brightness: Theme.of(context).brightness,
+                                    surface: context.sr.surface,
+                                  ).foreground
+                                : _statusColor(status),
                           ),
                         if (fine.isNotEmpty && fine != 'null')
                           _miniChip(
                             fine.split(':').first.trim(),
-                            _fineColor(fine),
+                            _fineColor(context, fine),
                           ),
                       ],
                     ),
@@ -720,13 +786,17 @@ class _NotifTile extends StatelessWidget {
                   Row(
                     children: [
                       if (item.reportNumber.isNotEmpty) ...[
-                        Icon(Icons.tag, size: 11, color: Colors.grey.shade400),
+                        Icon(
+                          Icons.tag,
+                          size: 11,
+                          color: context.sr.textDisabled,
+                        ),
                         const SizedBox(width: 2),
                         Text(
                           item.reportNumber,
                           style: TextStyle(
                             fontSize: 11,
-                            color: Colors.grey.shade400,
+                            color: context.sr.textDisabled,
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -734,14 +804,14 @@ class _NotifTile extends StatelessWidget {
                       Icon(
                         Icons.access_time,
                         size: 11,
-                        color: Colors.grey.shade400,
+                        color: context.sr.textDisabled,
                       ),
                       const SizedBox(width: 2),
                       Text(
                         item.timestamp,
                         style: TextStyle(
                           fontSize: 11,
-                          color: Colors.grey.shade400,
+                          color: context.sr.textDisabled,
                         ),
                       ),
                     ],
@@ -749,7 +819,7 @@ class _NotifTile extends StatelessWidget {
                 ],
               ),
             ),
-            Icon(Icons.chevron_right, size: 16, color: Colors.grey.shade400),
+            Icon(Icons.chevron_right, size: 16, color: context.sr.textDisabled),
           ],
         ),
       ),
@@ -773,8 +843,8 @@ class _NotifTile extends StatelessWidget {
     return serverStatusColor(status);
   }
 
-  Color _fineColor(String fine) {
-    if (fine == '미확인') return Colors.grey;
+  Color _fineColor(BuildContext context, String fine) {
+    if (fine == '미확인') return context.sr.textSecondary;
     return serverFineColor(fine);
   }
 }
@@ -804,7 +874,7 @@ class _RatingBatchTile extends StatelessWidget {
         side: BorderSide(
           color: unread
               ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.25)
-              : Colors.grey.shade200,
+              : context.sr.border,
         ),
       ),
       child: InkWell(
@@ -821,12 +891,28 @@ class _RatingBatchTile extends StatelessWidget {
                     width: 42,
                     height: 42,
                     decoration: BoxDecoration(
-                      color: Colors.amber.shade50,
+                      color: StatusTone.of(
+                        StatusTone.of(
+                          Colors.amber,
+                          brightness: Theme.of(context).brightness,
+                          surface: context.sr.surface,
+                        ).foreground,
+                        brightness: Theme.of(context).brightness,
+                        surface: context.sr.surface,
+                      ).background,
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(
                       Icons.star_rate_rounded,
-                      color: Colors.amber.shade800,
+                      color: StatusTone.of(
+                        StatusTone.of(
+                          Colors.amber,
+                          brightness: Theme.of(context).brightness,
+                          surface: context.sr.surface,
+                        ).foreground,
+                        brightness: Theme.of(context).brightness,
+                        surface: context.sr.surface,
+                      ).foreground,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -848,7 +934,7 @@ class _RatingBatchTile extends StatelessWidget {
                           item.timestamp,
                           style: TextStyle(
                             fontSize: 12,
-                            color: Colors.grey.shade500,
+                            color: context.sr.textDisabled,
                           ),
                         ),
                       ],
@@ -858,8 +944,8 @@ class _RatingBatchTile extends StatelessWidget {
                     Container(
                       width: 8,
                       height: 8,
-                      decoration: const BoxDecoration(
-                        color: Colors.blue,
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primary,
                         shape: BoxShape.circle,
                       ),
                     ),
@@ -870,7 +956,7 @@ class _RatingBatchTile extends StatelessWidget {
                 item.body,
                 style: TextStyle(
                   fontSize: 13,
-                  color: Colors.grey.shade700,
+                  color: context.sr.textSecondary,
                   height: 1.4,
                 ),
               ),
@@ -879,11 +965,39 @@ class _RatingBatchTile extends StatelessWidget {
                 spacing: 6,
                 runSpacing: 6,
                 children: [
-                  _summaryChip('성공 $successCount', Colors.green),
-                  _summaryChip('스킵 $skipCount', Colors.orange),
-                  _summaryChip('실패 $failureCount', Colors.red),
+                  _summaryChip(
+                    '성공 $successCount',
+                    StatusTone.of(
+                      Colors.green,
+                      brightness: Theme.of(context).brightness,
+                      surface: context.sr.surface,
+                    ).foreground,
+                  ),
+                  _summaryChip(
+                    '스킵 $skipCount',
+                    StatusTone.of(
+                      Colors.orange,
+                      brightness: Theme.of(context).brightness,
+                      surface: context.sr.surface,
+                    ).foreground,
+                  ),
+                  _summaryChip(
+                    '실패 $failureCount',
+                    Theme.of(context).colorScheme.error,
+                  ),
                   if (result != null)
-                    _summaryChip('목표 ${result!.score}점', Colors.amber.shade800),
+                    _summaryChip(
+                      '목표 ${result!.score}점',
+                      StatusTone.of(
+                        StatusTone.of(
+                          Colors.amber,
+                          brightness: Theme.of(context).brightness,
+                          surface: context.sr.surface,
+                        ).foreground,
+                        brightness: Theme.of(context).brightness,
+                        surface: context.sr.surface,
+                      ).foreground,
+                    ),
                 ],
               ),
               if (result != null && result!.failedReportNumbers.isNotEmpty) ...[
@@ -892,7 +1006,7 @@ class _RatingBatchTile extends StatelessWidget {
                   '실패 신고번호: ${result!.failedReportNumbers.join(', ')}',
                   style: TextStyle(
                     fontSize: 12,
-                    color: Colors.red.shade700,
+                    color: Theme.of(context).colorScheme.error,
                     fontWeight: FontWeight.w600,
                     height: 1.4,
                   ),
@@ -931,9 +1045,17 @@ class _RatingReportCard extends StatelessWidget {
         ? Report.fromJson(item.reportData!)
         : null;
     final badgeColor = switch (item.status) {
-      RatingBatchItemStatus.success => Colors.green,
-      RatingBatchItemStatus.skip => Colors.orange,
-      RatingBatchItemStatus.failure => Colors.red,
+      RatingBatchItemStatus.success => StatusTone.of(
+        Colors.green,
+        brightness: Theme.of(context).brightness,
+        surface: context.sr.surface,
+      ).foreground,
+      RatingBatchItemStatus.skip => StatusTone.of(
+        Colors.orange,
+        brightness: Theme.of(context).brightness,
+        surface: context.sr.surface,
+      ).foreground,
+      RatingBatchItemStatus.failure => Theme.of(context).colorScheme.error,
     };
 
     return Card(
@@ -941,7 +1063,7 @@ class _RatingReportCard extends StatelessWidget {
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: Colors.grey.shade200),
+        side: BorderSide(color: context.sr.border),
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
@@ -958,7 +1080,7 @@ class _RatingReportCard extends StatelessWidget {
                       report?.name.isNotEmpty == true
                           ? report!.name
                           : (item.name.isNotEmpty ? item.name : '신고 상세'),
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.bold,
                       ),
@@ -991,14 +1113,17 @@ class _RatingReportCard extends StatelessWidget {
               const SizedBox(height: 8),
               Row(
                 children: [
-                  const Icon(Icons.tag, size: 13, color: Colors.grey),
+                  Icon(Icons.tag, size: 13, color: context.sr.textSecondary),
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
                       item.reportNumber.isNotEmpty
                           ? item.reportNumber
                           : (report?.reportNumber ?? ''),
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.sr.textSecondary,
+                      ),
                     ),
                   ),
                 ],
@@ -1006,11 +1131,19 @@ class _RatingReportCard extends StatelessWidget {
               if (report != null) ...[
                 const SizedBox(height: 6),
                 if (report.agency.isNotEmpty)
-                  _metaRow(Icons.business, report.agency),
+                  _metaRow(context, Icons.business, report.agency),
                 if (report.status.isNotEmpty)
-                  _metaRow(Icons.assignment_turned_in_outlined, report.status),
+                  _metaRow(
+                    context,
+                    Icons.assignment_turned_in_outlined,
+                    report.status,
+                  ),
                 if (report.pollStatus.isNotEmpty)
-                  _metaRow(Icons.star_border_rounded, report.pollStatus),
+                  _metaRow(
+                    context,
+                    Icons.star_border_rounded,
+                    report.pollStatus,
+                  ),
               ],
               const SizedBox(height: 8),
               Text(
@@ -1026,7 +1159,10 @@ class _RatingReportCard extends StatelessWidget {
                 const SizedBox(height: 10),
                 Text(
                   '탭해서 신고 상세 보기',
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: context.sr.textDisabled,
+                  ),
                 ),
               ],
             ],
@@ -1036,17 +1172,17 @@ class _RatingReportCard extends StatelessWidget {
     );
   }
 
-  Widget _metaRow(IconData icon, String text) {
+  Widget _metaRow(BuildContext context, IconData icon, String text) {
     return Padding(
       padding: const EdgeInsets.only(top: 4),
       child: Row(
         children: [
-          Icon(icon, size: 12, color: Colors.grey),
+          Icon(icon, size: 12, color: context.sr.textSecondary),
           const SizedBox(width: 4),
           Expanded(
             child: Text(
               text,
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
+              style: TextStyle(fontSize: 12, color: context.sr.textSecondary),
             ),
           ),
         ],

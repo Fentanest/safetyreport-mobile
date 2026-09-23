@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/app_mode.dart';
 import '../providers/report_provider.dart';
 import '../main.dart';
+import '../theme/sr_colors.dart';
 
 class PermissionScreen extends StatefulWidget {
   /// true면 초기 설정 단계(완료 버튼으로 대시보드 이동), false면 설정 화면 내 탭
@@ -126,13 +127,30 @@ class _PermissionScreenState extends State<PermissionScreen>
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: Colors.blue.shade50,
+              color: StatusTone.of(
+                Theme.of(context).colorScheme.primary,
+                brightness: Theme.of(context).brightness,
+                surface: context.sr.surface,
+              ).background,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.blue.shade200),
+              border: Border.all(
+                color: StatusTone.of(
+                  Theme.of(context).colorScheme.primary,
+                  brightness: Theme.of(context).brightness,
+                  surface: context.sr.surface,
+                ).border,
+              ),
             ),
             child: Row(
               children: [
-                Icon(Icons.info_outline, color: Colors.blue.shade700),
+                Icon(
+                  Icons.info_outline,
+                  color: StatusTone.of(
+                    Theme.of(context).colorScheme.primary,
+                    brightness: Theme.of(context).brightness,
+                    surface: context.sr.surface,
+                  ).foreground,
+                ),
                 const SizedBox(width: 10),
                 const Expanded(
                   child: Text(
@@ -232,15 +250,15 @@ class _PermissionScreenState extends State<PermissionScreen>
           if (!_allGranted) ...[
             FilledButton.icon(
               icon: _loading
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 16,
                       height: 16,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: Colors.white,
+                        color: Theme.of(context).colorScheme.onPrimary,
                       ),
                     )
-                  : const Icon(Icons.shield_outlined, size: 18),
+                  : Icon(Icons.shield_outlined, size: 18),
               label: const Text('모든 권한 한 번에 허용하기'),
               style: FilledButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 14),
@@ -255,12 +273,46 @@ class _PermissionScreenState extends State<PermissionScreen>
             duration: const Duration(milliseconds: 300),
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: _allGranted ? Colors.green.shade50 : Colors.orange.shade50,
+              color: _allGranted
+                  ? StatusTone.of(
+                      StatusTone.of(
+                        Colors.green,
+                        brightness: Theme.of(context).brightness,
+                        surface: context.sr.surface,
+                      ).foreground,
+                      brightness: Theme.of(context).brightness,
+                      surface: context.sr.surface,
+                    ).background
+                  : StatusTone.of(
+                      StatusTone.of(
+                        Colors.orange,
+                        brightness: Theme.of(context).brightness,
+                        surface: context.sr.surface,
+                      ).foreground,
+                      brightness: Theme.of(context).brightness,
+                      surface: context.sr.surface,
+                    ).background,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
                 color: _allGranted
-                    ? Colors.green.shade300
-                    : Colors.orange.shade300,
+                    ? StatusTone.of(
+                        StatusTone.of(
+                          Colors.green,
+                          brightness: Theme.of(context).brightness,
+                          surface: context.sr.surface,
+                        ).foreground,
+                        brightness: Theme.of(context).brightness,
+                        surface: context.sr.surface,
+                      ).border
+                    : StatusTone.of(
+                        StatusTone.of(
+                          Colors.orange,
+                          brightness: Theme.of(context).brightness,
+                          surface: context.sr.surface,
+                        ).foreground,
+                        brightness: Theme.of(context).brightness,
+                        surface: context.sr.surface,
+                      ).border,
               ),
             ),
             child: Row(
@@ -268,8 +320,24 @@ class _PermissionScreenState extends State<PermissionScreen>
                 Icon(
                   _allGranted ? Icons.check_circle : Icons.warning_amber,
                   color: _allGranted
-                      ? Colors.green.shade700
-                      : Colors.orange.shade700,
+                      ? StatusTone.of(
+                          StatusTone.of(
+                            Colors.green,
+                            brightness: Theme.of(context).brightness,
+                            surface: context.sr.surface,
+                          ).foreground,
+                          brightness: Theme.of(context).brightness,
+                          surface: context.sr.surface,
+                        ).foreground
+                      : StatusTone.of(
+                          StatusTone.of(
+                            Colors.orange,
+                            brightness: Theme.of(context).brightness,
+                            surface: context.sr.surface,
+                          ).foreground,
+                          brightness: Theme.of(context).brightness,
+                          surface: context.sr.surface,
+                        ).foreground,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -280,8 +348,24 @@ class _PermissionScreenState extends State<PermissionScreen>
                     style: TextStyle(
                       fontSize: 13,
                       color: _allGranted
-                          ? Colors.green.shade800
-                          : Colors.orange.shade800,
+                          ? StatusTone.of(
+                              StatusTone.of(
+                                Colors.green,
+                                brightness: Theme.of(context).brightness,
+                                surface: context.sr.surface,
+                              ).foreground,
+                              brightness: Theme.of(context).brightness,
+                              surface: context.sr.surface,
+                            ).foreground
+                          : StatusTone.of(
+                              StatusTone.of(
+                                Colors.orange,
+                                brightness: Theme.of(context).brightness,
+                                surface: context.sr.surface,
+                              ).foreground,
+                              brightness: Theme.of(context).brightness,
+                              surface: context.sr.surface,
+                            ).foreground,
                     ),
                   ),
                 ),
@@ -313,7 +397,7 @@ class _PermissionScreenState extends State<PermissionScreen>
           const SizedBox(height: 12),
           Center(
             child: TextButton.icon(
-              icon: const Icon(Icons.refresh, size: 16),
+              icon: Icon(Icons.refresh, size: 16),
               label: const Text('권한 상태 새로고침'),
               onPressed: _checkAll,
             ),
@@ -347,7 +431,13 @@ class _PermCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = granted ? Colors.green : Colors.red;
+    final color = granted
+        ? StatusTone.of(
+            Colors.green,
+            brightness: Theme.of(context).brightness,
+            surface: context.sr.surface,
+          ).foreground
+        : Theme.of(context).colorScheme.error;
 
     return Card(
       child: Padding(
@@ -366,10 +456,7 @@ class _PermCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     title,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
-                    ),
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                   ),
                 ),
                 Container(
@@ -407,8 +494,8 @@ class _PermCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               desc,
-              style: const TextStyle(
-                color: Colors.grey,
+              style: TextStyle(
+                color: context.sr.textSecondary,
                 fontSize: 12,
                 height: 1.5,
               ),
@@ -418,11 +505,8 @@ class _PermCard extends StatelessWidget {
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  icon: const Icon(Icons.open_in_new, size: 16),
-                  label: Text(
-                    buttonLabel,
-                    style: const TextStyle(fontSize: 13),
-                  ),
+                  icon: Icon(Icons.open_in_new, size: 16),
+                  label: Text(buttonLabel, style: TextStyle(fontSize: 13)),
                   onPressed: onGrant,
                 ),
               ),

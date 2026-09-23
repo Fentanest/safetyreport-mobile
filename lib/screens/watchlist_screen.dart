@@ -4,7 +4,10 @@ import '../models/report.dart';
 import '../providers/report_provider.dart';
 import '../server_palette.dart';
 import '../services/repositories/watchlist_repository.dart';
+
+import '../theme/sr_colors.dart';
 import '../widgets/report_detail_sheet.dart';
+import '../widgets/status_badge.dart';
 
 class WatchlistScreen extends StatelessWidget {
   const WatchlistScreen({super.key});
@@ -12,7 +15,7 @@ class WatchlistScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('감시 목록')),
+      appBar: AppBar(title: const Text('감시 목록')),
       body: const WatchlistPanel(),
     );
   }
@@ -76,7 +79,9 @@ class _WatchlistPanelState extends State<WatchlistPanel> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
             child: const Text('제거'),
           ),
         ],
@@ -117,7 +122,9 @@ class _WatchlistPanelState extends State<WatchlistPanel> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
             child: const Text('전체 해제'),
           ),
         ],
@@ -176,10 +183,10 @@ class _WatchlistPanelState extends State<WatchlistPanel> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.error_outline,
                         size: 48,
-                        color: Colors.red,
+                        color: Theme.of(context).colorScheme.error,
                       ),
                       const SizedBox(height: 12),
                       Text(_error!, textAlign: TextAlign.center),
@@ -200,19 +207,22 @@ class _WatchlistPanelState extends State<WatchlistPanel> {
                       Icon(
                         Icons.bookmark_border,
                         size: 64,
-                        color: Colors.grey.shade300,
+                        color: context.sr.textDisabled,
                       ),
                       const SizedBox(height: 16),
-                      const Text(
+                      Text(
                         '감시 목록이 비어 있습니다.',
-                        style: TextStyle(color: Colors.grey, fontSize: 15),
+                        style: TextStyle(
+                          color: context.sr.textSecondary,
+                          fontSize: 15,
+                        ),
                       ),
                       const SizedBox(height: 8),
-                      const Text(
+                      Text(
                         '서버에서 감시 목록에 추가하거나\n신고리스트 다중 선택 모드에서 바로 추가할 수 있습니다.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          color: Colors.grey,
+                          color: context.sr.textSecondary,
                           fontSize: 12,
                           height: 1.5,
                         ),
@@ -267,7 +277,11 @@ class _WatchCard extends StatelessWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.bookmark, size: 16, color: Colors.blue),
+                  Icon(
+                    Icons.bookmark,
+                    size: 16,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
@@ -281,40 +295,33 @@ class _WatchCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: color.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: color.withValues(alpha: 0.4)),
-                    ),
-                    child: Text(
-                      report.status,
-                      style: TextStyle(
-                        color: color,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
+                  StatusBadge(label: report.status, color: color),
                 ],
               ),
               const SizedBox(height: 8),
               if (report.carNumber.isNotEmpty)
-                _row(Icons.directions_car_outlined, '차량번호', report.carNumber),
+                _row(
+                  context,
+                  Icons.directions_car_outlined,
+                  '차량번호',
+                  report.carNumber,
+                ),
               if (report.reportNumber.isNotEmpty)
-                _row(Icons.tag, '신고번호', report.reportNumber),
+                _row(context, Icons.tag, '신고번호', report.reportNumber),
               if (report.date.isNotEmpty)
-                _row(Icons.calendar_today, '신고일', report.date),
+                _row(context, Icons.calendar_today, '신고일', report.date),
               if (report.responseDate.isNotEmpty)
-                _row(Icons.check_circle_outline, '답변일', report.responseDate),
+                _row(
+                  context,
+                  Icons.check_circle_outline,
+                  '답변일',
+                  report.responseDate,
+                ),
               if (report.agency.isNotEmpty)
-                _row(Icons.business, '처리기관', report.agency),
+                _row(context, Icons.business, '처리기관', report.agency),
               if (report.fineInfo.isNotEmpty)
                 _row(
+                  context,
                   Icons.monetization_on_outlined,
                   '과태료/범칙금',
                   report.fineInfo,
@@ -326,7 +333,7 @@ class _WatchCard extends StatelessWidget {
                   icon: const Icon(Icons.bookmark_remove, size: 16),
                   label: const Text('감시 해제'),
                   style: TextButton.styleFrom(
-                    foregroundColor: Colors.red,
+                    foregroundColor: Theme.of(context).colorScheme.error,
                     padding: EdgeInsets.zero,
                     minimumSize: const Size(0, 32),
                   ),
@@ -340,15 +347,20 @@ class _WatchCard extends StatelessWidget {
     );
   }
 
-  Widget _row(IconData icon, String label, String value) => Padding(
+  Widget _row(
+    BuildContext context,
+    IconData icon,
+    String label,
+    String value,
+  ) => Padding(
     padding: const EdgeInsets.only(top: 3),
     child: Row(
       children: [
-        Icon(icon, size: 12, color: Colors.grey),
+        Icon(icon, size: 12, color: context.sr.textSecondary),
         const SizedBox(width: 4),
         Text(
           '$label ',
-          style: const TextStyle(fontSize: 11, color: Colors.grey),
+          style: TextStyle(fontSize: 11, color: context.sr.textSecondary),
         ),
         Expanded(
           child: Text(

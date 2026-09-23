@@ -12,6 +12,8 @@ import '../services/rating_service.dart';
 import '../services/standalone_auto_sync_service.dart';
 import '../services/standalone_pending_queue_store.dart';
 
+import '../theme/sr_colors.dart';
+
 const _permChannel = MethodChannel('com.fentanest.mysafetyreport/permissions');
 
 /// 신고 카드 선택 모드에서 하단에 표시되는 액션 바
@@ -123,6 +125,7 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
     // 완료 시 알림/히스토리/SnackBar(가능하면) 로 결과만 통지.
     final reportsCopy = List<Report>.unmodifiable(reports);
     final messenger = ScaffoldMessenger.of(context);
+    final errorColor = Theme.of(context).colorScheme.error;
     _snack(
       '별점 $pickedScore점 처리 시작: ${reportsCopy.length}건. 완료 시 알림으로 결과를 알려드립니다.',
       icon: Icons.star_outline,
@@ -144,8 +147,7 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
               content: Text(
                 '별점 ${result.score}점 처리 완료: 성공 ${result.successCount}, 스킵 ${result.skipCount}, 실패 ${result.failureCount}',
               ),
-              backgroundColor:
-                  result.failureCount > 0 ? Colors.red.shade700 : null,
+              backgroundColor: result.failureCount > 0 ? errorColor : null,
               behavior: SnackBarBehavior.floating,
             ),
           );
@@ -155,7 +157,7 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
           messenger.showSnackBar(
             SnackBar(
               content: Text('별점 주기 실패: $e'),
-              backgroundColor: Colors.red.shade700,
+              backgroundColor: errorColor,
               behavior: SnackBarBehavior.floating,
             ),
           );
@@ -184,7 +186,7 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
               const SizedBox(height: 8),
               Text(
                 '진행 가능 $eligibleCount건, 자동 스킵 $skippedCount건',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                style: TextStyle(fontSize: 12, color: ctx.sr.textSecondary),
               ),
               const SizedBox(height: 16),
               Wrap(
@@ -199,7 +201,9 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
                     avatar: Icon(
                       Icons.star,
                       size: 18,
-                      color: selected ? Colors.amber.shade700 : Colors.grey,
+                      color: selected
+                          ? Theme.of(ctx).colorScheme.primary
+                          : ctx.sr.textDisabled,
                     ),
                     onSelected: (_) => setStateDialog(() {
                       selectedScore = score;
@@ -240,18 +244,24 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
   }
 
   void _snack(String msg, {IconData? icon, bool error = false}) {
+    // 기본 SnackBar 는 inverseSurface 배경(다크에서는 밝은 색)이라 글자·아이콘을 onInverseSurface 로 맞춘다.
+    final fg = error
+        ? Colors.white
+        : Theme.of(context).colorScheme.onInverseSurface;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
           children: [
             if (icon != null) ...[
-              Icon(icon, size: 16, color: Colors.white),
+              Icon(icon, size: 16, color: fg),
               const SizedBox(width: 8),
             ],
-            Text(msg),
+            Flexible(
+              child: Text(msg, style: TextStyle(color: fg)),
+            ),
           ],
         ),
-        backgroundColor: error ? Colors.red.shade700 : null,
+        backgroundColor: error ? srSnackError : null,
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -321,7 +331,7 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
                       icon: Icons.refresh,
                       label: '크롤링',
                       onTap: _busy ? null : _crawl,
-                      color: Colors.blue,
+                      color: cs.primary,
                     ),
                   ],
                   if (isStandalone) ...[
@@ -330,7 +340,7 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
                       icon: Icons.sync,
                       label: '동기화',
                       onTap: _busy ? null : _sync,
-                      color: Colors.blue,
+                      color: cs.primary,
                     ),
                   ],
                   const SizedBox(width: 8),
@@ -338,7 +348,7 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
                     icon: Icons.star_rate_rounded,
                     label: '별점 주기',
                     onTap: _busy ? null : _rate,
-                    color: Colors.amber.shade800,
+                    color: cs.secondary,
                   ),
                   const SizedBox(width: 8),
                   if (!allInWatchlist)
@@ -346,7 +356,7 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
                       icon: Icons.bookmark_add_outlined,
                       label: '감시 추가',
                       onTap: _busy ? null : () => _watchlistAction(true),
-                      color: Colors.green,
+                      color: cs.tertiary,
                     ),
                   if (!allInWatchlist && !noneInWatchlist)
                     const SizedBox(width: 8),
@@ -355,7 +365,7 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
                       icon: Icons.bookmark_remove_outlined,
                       label: '감시 해제',
                       onTap: _busy ? null : () => _watchlistAction(false),
-                      color: Colors.red,
+                      color: cs.error,
                     ),
                 ],
               ),
@@ -385,7 +395,7 @@ class _ActionBtn extends StatelessWidget {
     final c = color ?? Theme.of(context).colorScheme.onSurface;
     return Expanded(
       child: Material(
-        color: (color ?? Colors.grey).withOpacity(0.08),
+        color: (color ?? context.sr.textSecondary).withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(10),
         child: InkWell(
           borderRadius: BorderRadius.circular(10),
@@ -395,14 +405,18 @@ class _ActionBtn extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(icon, size: 20, color: onTap == null ? Colors.grey : c),
+                Icon(
+                  icon,
+                  size: 20,
+                  color: onTap == null ? context.sr.textDisabled : c,
+                ),
                 const SizedBox(height: 3),
                 Text(
                   label,
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: onTap == null ? Colors.grey : c,
+                    color: onTap == null ? context.sr.textDisabled : c,
                   ),
                 ),
               ],

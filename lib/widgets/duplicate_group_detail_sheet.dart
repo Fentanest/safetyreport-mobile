@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../models/duplicate_group.dart';
 import '../widgets/report_detail_sheet.dart';
+import '../widgets/status_badge.dart';
 
-void showDuplicateGroupDetailSheet(
-  BuildContext context,
-  DuplicateGroup group,
-) {
+import '../theme/sr_colors.dart';
+
+void showDuplicateGroupDetailSheet(BuildContext context, DuplicateGroup group) {
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
@@ -22,12 +22,12 @@ class _DuplicateGroupDetailSheet extends StatelessWidget {
 
   const _DuplicateGroupDetailSheet({required this.group});
 
-  Color _statusColor(String value) {
+  Color _statusColor(BuildContext context, String value) {
     switch (value) {
       case DuplicateStatuses.confirmedDuplicate:
         return Colors.green;
       case DuplicateStatuses.notDuplicate:
-        return Colors.grey;
+        return context.sr.textSecondary;
       default:
         return Colors.orange;
     }
@@ -36,7 +36,9 @@ class _DuplicateGroupDetailSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final representative = group.representative;
-    final statusColor = _statusColor(group.status);
+    final statusColor = _statusColor(context, group.status);
+    final cs = Theme.of(context).colorScheme;
+
     return DraggableScrollableSheet(
       expand: false,
       initialChildSize: 0.72,
@@ -52,14 +54,14 @@ class _DuplicateGroupDetailSheet extends StatelessWidget {
               height: 4,
               margin: const EdgeInsets.only(bottom: 18),
               decoration: BoxDecoration(
-                color: Colors.grey.shade300,
+                color: context.sr.border,
                 borderRadius: BorderRadius.circular(999),
               ),
             ),
           ),
           Row(
             children: [
-              const Icon(Icons.content_copy, color: Colors.indigo),
+              Icon(Icons.content_copy, color: cs.primary),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -84,20 +86,20 @@ class _DuplicateGroupDetailSheet extends StatelessWidget {
                 '대표건',
                 group.representativeModeLabel,
                 group.representativeMode == RepresentativeModes.manual
-                    ? Colors.blueGrey
-                    : Colors.blue,
+                    ? context.sr.textSecondary
+                    : cs.primary,
               ),
-              _metaChip('멤버', '${group.memberCount}건', Colors.deepOrange),
+              _metaChip('멤버', '${group.memberCount}건', cs.tertiary),
             ],
           ),
           const SizedBox(height: 14),
           if (representative != null) ...[
             _sectionTitle('대표 신고'),
-            _detailRow('ID', representative.reportId),
-            _detailRow('신고번호', representative.report.reportNumber),
-            _detailRow('신고명', representative.report.name),
-            _detailRow('처리상태', representative.report.statusWithFine),
-            _detailRow('처리기관', representative.report.agency),
+            _detailRow(context, 'ID', representative.reportId),
+            _detailRow(context, '신고번호', representative.report.reportNumber),
+            _detailRow(context, '신고명', representative.report.name),
+            _detailRow(context, '처리상태', representative.report.statusWithFine),
+            _detailRow(context, '처리기관', representative.report.agency),
             const SizedBox(height: 10),
           ],
           _sectionTitle('멤버 목록'),
@@ -113,14 +115,14 @@ class _DuplicateGroupDetailSheet extends StatelessWidget {
                 leading: CircleAvatar(
                   radius: 15,
                   backgroundColor: member.isRepresentative
-                      ? Colors.indigo.shade100
-                      : Colors.grey.shade200,
+                      ? cs.primaryContainer
+                      : context.sr.surfaceAlt,
                   child: Icon(
                     member.isRepresentative ? Icons.star : Icons.copy,
                     size: 16,
                     color: member.isRepresentative
-                        ? Colors.indigo
-                        : Colors.grey.shade700,
+                        ? cs.onPrimaryContainer
+                        : context.sr.textSecondary,
                   ),
                 ),
                 title: Text(
@@ -157,7 +159,10 @@ class _DuplicateGroupDetailSheet extends StatelessWidget {
                     ],
                   ),
                 ),
-                trailing: const Icon(Icons.chevron_right),
+                trailing: Icon(
+                  Icons.chevron_right,
+                  color: context.sr.textSecondary,
+                ),
                 onTap: () => showReportDetailSheet(context, member.report),
               ),
             ),
@@ -175,7 +180,7 @@ class _DuplicateGroupDetailSheet extends StatelessWidget {
     ),
   );
 
-  Widget _detailRow(String label, String value) {
+  Widget _detailRow(BuildContext context, String label, String value) {
     if (value.trim().isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
@@ -186,7 +191,7 @@ class _DuplicateGroupDetailSheet extends StatelessWidget {
             width: 72,
             child: Text(
               label,
-              style: const TextStyle(fontSize: 12, color: Colors.grey),
+              style: TextStyle(fontSize: 12, color: context.sr.textSecondary),
             ),
           ),
           Expanded(child: Text(value, style: const TextStyle(fontSize: 12))),
@@ -195,20 +200,6 @@ class _DuplicateGroupDetailSheet extends StatelessWidget {
     );
   }
 
-  Widget _metaChip(String label, String value, Color color) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: 0.1),
-      borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: color.withValues(alpha: 0.4)),
-    ),
-    child: Text(
-      '$label · $value',
-      style: TextStyle(
-        fontSize: 12,
-        fontWeight: FontWeight.w700,
-        color: color,
-      ),
-    ),
-  );
+  Widget _metaChip(String label, String value, Color color) =>
+      StatusBadge(label: '$label · $value', color: color);
 }

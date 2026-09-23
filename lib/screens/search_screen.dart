@@ -6,6 +6,7 @@ import '../widgets/report_detail_sheet.dart';
 import '../widgets/report_list_card.dart';
 import '../widgets/search_filter_sheet.dart';
 import '../widgets/selection_action_bar.dart';
+import '../theme/sr_colors.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -107,7 +108,7 @@ class _SearchScreenState extends State<SearchScreen> {
               // 활성 필터 요약 바
               if (hasFilter && labels.isNotEmpty)
                 Container(
-                  color: Colors.blue.shade50,
+                  color: context.sr.brandSoft,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 12,
                     vertical: 6,
@@ -124,7 +125,12 @@ class _SearchScreenState extends State<SearchScreen> {
                                   l,
                                   style: const TextStyle(fontSize: 11),
                                 ),
-                                backgroundColor: Colors.blue.shade100,
+                                backgroundColor: Theme.of(
+                                  context,
+                                ).colorScheme.surface,
+                                side: BorderSide(
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
                                 padding: EdgeInsets.zero,
                                 materialTapTargetSize:
                                     MaterialTapTargetSize.shrinkWrap,
@@ -165,13 +171,13 @@ class _SearchScreenState extends State<SearchScreen> {
                             Icon(
                               Icons.search,
                               size: 72,
-                              color: Colors.grey.shade300,
+                              color: context.sr.textDisabled,
                             ),
                             const SizedBox(height: 16),
-                            const Text(
+                            Text(
                               '검색 조건을 설정하세요.',
                               style: TextStyle(
-                                color: Colors.grey,
+                                color: context.sr.textSecondary,
                                 fontSize: 15,
                               ),
                             ),

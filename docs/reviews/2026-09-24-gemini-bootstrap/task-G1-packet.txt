@@ -1,0 +1,2 @@
+[작업 G1] 워크스페이스: /home/better0101/projects/safetyreport-mobile-g1
+담당 파일(이것만 수정): lib/screens/notifications_screen.dart, lib/screens/file_browser_screen.dart, lib/screens/crawl_screen.dart, lib/screens/report_map_screen.dart(주변 UI만), lib/screens/permission_screen.dart, lib/screens/setup_screen.dart, lib/screens/sunwi_screen.dart

@@ -16,6 +16,7 @@ import 'sunwi_screen.dart';
 import '../theme/sr_colors.dart';
 import '../widgets/mode_badge.dart';
 import '../widgets/status_badge.dart';
+import '../widgets/sync_status_card.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -56,6 +57,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
         ),
         actions: [
+          const SyncActionButton(),
           IconButton(
             icon: const Icon(Icons.settings),
             tooltip: '설정',
@@ -179,6 +181,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildSummaryGrid(stats),
+          const SizedBox(height: 12),
+          const SyncStatusCard(),
           const SizedBox(height: 16),
           if (trafficTotal > 0) ...[
             _buildTrafficCard(stats),

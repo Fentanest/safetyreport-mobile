@@ -7,7 +7,10 @@ import '../providers/report_provider.dart';
 import '../server_palette.dart';
 import '../services/api_service.dart';
 import '../services/repositories/editor_repository.dart';
+import '../theme/app_theme.dart';
+import '../theme/sr_colors.dart';
 import '../widgets/search_filter_sheet.dart';
+import '../widgets/status_badge.dart';
 
 class DataEditorPanel extends StatefulWidget {
   const DataEditorPanel({super.key});
@@ -117,7 +120,11 @@ class _DataEditorPanelState extends State<DataEditorPanel> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.error_outline, size: 48, color: Colors.red),
+            Icon(
+              Icons.error_outline,
+              size: 48,
+              color: Theme.of(context).colorScheme.error,
+            ),
             const SizedBox(height: 12),
             Text(_loadError!, textAlign: TextAlign.center),
             const SizedBox(height: 16),
@@ -138,21 +145,24 @@ class _DataEditorPanelState extends State<DataEditorPanel> {
         children: [
           Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    const Text(
                       '데이터 수정',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    SizedBox(height: 4),
+                    const SizedBox(height: 4),
                     Text(
                       '신고번호 역순으로 정렬되며, 신고내역과 같은 상세검색을 그대로 사용할 수 있습니다.',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.sr.textSecondary,
+                      ),
                     ),
                   ],
                 ),
@@ -221,7 +231,7 @@ class _DataEditorPanelState extends State<DataEditorPanel> {
                       ? '현재 검색 조건에 맞는 신고가 없습니다.'
                       : '수정 가능한 신고가 없습니다.',
                   textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.grey),
+                  style: TextStyle(color: context.sr.textSecondary),
                 ),
               ),
             )
@@ -281,26 +291,9 @@ class _EditableReportCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: statusColor.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: statusColor.withValues(alpha: 0.35),
-                      ),
-                    ),
-                    child: Text(
-                      report.status.isEmpty ? '처리상태 없음' : report.status,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: statusColor,
-                      ),
-                    ),
+                  StatusBadge(
+                    label: report.status.isEmpty ? '처리상태 없음' : report.status,
+                    color: statusColor,
                   ),
                 ],
               ),
@@ -329,7 +322,10 @@ class _EditableReportCard extends StatelessWidget {
                     '처리기관: ${report.agency}',
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12, color: Colors.black87),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: context.sr.textPrimary,
+                    ),
                   ),
                 ),
               if (report.manager.isNotEmpty)
@@ -337,7 +333,10 @@ class _EditableReportCard extends StatelessWidget {
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
                     '담당자: ${report.manager}',
-                    style: const TextStyle(fontSize: 12, color: Colors.black87),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: context.sr.textPrimary,
+                    ),
                   ),
                 ),
             ],
@@ -506,7 +505,7 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerLowest,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE6E9EF)),
+        border: Border.all(color: context.sr.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -606,10 +605,10 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.error_outline,
                         size: 48,
-                        color: Colors.red,
+                        color: Theme.of(context).colorScheme.error,
                       ),
                       const SizedBox(height: 12),
                       Text(_error!, textAlign: TextAlign.center),
@@ -639,7 +638,7 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
                       '서버 페이지와 같은 순서로 수정 항목을 보여줍니다. 저장 시 즉시 DB에 반영됩니다.',
                       style: TextStyle(
                         fontSize: 12,
-                        color: Colors.grey.shade700,
+                        color: context.sr.textSecondary,
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -661,12 +660,12 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
                     FilledButton.icon(
                       onPressed: _saving ? null : _save,
                       icon: _saving
-                          ? const SizedBox(
+                          ? SizedBox(
                               width: 16,
                               height: 16,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                color: Colors.white,
+                                color: Theme.of(context).colorScheme.onPrimary,
                               ),
                             )
                           : const Icon(Icons.save_outlined),

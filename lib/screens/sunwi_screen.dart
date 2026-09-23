@@ -7,6 +7,8 @@ import '../models/app_mode.dart';
 import '../models/sunwi.dart';
 import '../providers/report_provider.dart';
 import '../services/repositories/sunwi_repository.dart';
+import '../theme/sr_colors.dart';
+import '../server_palette.dart';
 
 class SunwiScreen extends StatelessWidget {
   const SunwiScreen({super.key});
@@ -281,7 +283,15 @@ class _SunwiSectionState extends State<SunwiSection> {
       if (widget.embedded)
         Row(
           children: [
-            const Icon(Icons.map_outlined, size: 18, color: Colors.indigo),
+            Icon(
+              Icons.map_outlined,
+              size: 18,
+              color: StatusTone.of(
+                changeDuplicateColor,
+                brightness: Theme.of(context).brightness,
+                surface: context.sr.surface,
+              ).foreground,
+            ),
             const SizedBox(width: 6),
             const Expanded(
               child: Text(
@@ -292,7 +302,7 @@ class _SunwiSectionState extends State<SunwiSection> {
             IconButton(
               onPressed: _loading ? null : () => _load(force: true),
               tooltip: '새로고침',
-              icon: const Icon(Icons.refresh),
+              icon: Icon(Icons.refresh),
             ),
           ],
         ),
@@ -325,7 +335,7 @@ class _SunwiSectionState extends State<SunwiSection> {
             Text(
               _statusMessage.isEmpty ? '신고현황을 불러오는 중입니다.' : _statusMessage,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 13, height: 1.5),
+              style: TextStyle(fontSize: 13, height: 1.5),
             ),
           ],
         ),
@@ -343,7 +353,7 @@ class _SunwiSectionState extends State<SunwiSection> {
             Icon(
               _error == null ? Icons.inbox_outlined : Icons.error_outline,
               size: 54,
-              color: Colors.grey.shade500,
+              color: context.sr.textDisabled,
             ),
             const SizedBox(height: 16),
             Text(
@@ -352,13 +362,15 @@ class _SunwiSectionState extends State<SunwiSection> {
               style: TextStyle(
                 fontSize: 13,
                 height: 1.6,
-                color: _error == null ? Colors.black87 : Colors.red.shade700,
+                color: _error == null
+                    ? context.sr.textPrimary
+                    : Theme.of(context).colorScheme.error,
               ),
             ),
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: () => _load(force: true),
-              icon: const Icon(Icons.refresh),
+              icon: Icon(Icons.refresh),
               label: const Text('다시 시도'),
             ),
           ],
@@ -432,7 +444,10 @@ class _SunwiSectionState extends State<SunwiSection> {
               const SizedBox(height: 12),
               Text(
                 payload.error,
-                style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                  fontSize: 12,
+                ),
               ),
             ],
           ],
@@ -452,7 +467,11 @@ class _SunwiSectionState extends State<SunwiSection> {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
           child: Column(
             children: [
-              Icon(Icons.map_outlined, size: 54, color: Colors.grey.shade500),
+              Icon(
+                Icons.map_outlined,
+                size: 54,
+                color: context.sr.textDisabled,
+              ),
               const SizedBox(height: 12),
               const Text('표시 가능한 신고현황 데이터가 없습니다.', textAlign: TextAlign.center),
             ],
@@ -487,12 +506,12 @@ class _SunwiSectionState extends State<SunwiSection> {
             const SizedBox(height: 14),
             Text(
               '대분류와 소분류는 5초마다 자동으로 전환됩니다.',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+              style: TextStyle(fontSize: 12, color: context.sr.textSecondary),
             ),
             const SizedBox(height: 10),
             Text(
               child.fullName,
-              style: const TextStyle(fontSize: 13, color: Colors.black54),
+              style: TextStyle(fontSize: 13, color: context.sr.textSecondary),
             ),
             const SizedBox(height: 14),
             if (child.items.isEmpty)
@@ -514,14 +533,14 @@ class _SunwiSectionState extends State<SunwiSection> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7F8FA),
+        color: context.sr.surfaceAlt,
         borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
         children: [
           IconButton(
             onPressed: onPrev,
-            icon: const Icon(Icons.chevron_left),
+            icon: Icon(Icons.chevron_left),
             tooltip: '이전',
           ),
           Expanded(
@@ -529,9 +548,9 @@ class _SunwiSectionState extends State<SunwiSection> {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
-                    color: Colors.black54,
+                    color: context.sr.textSecondary,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -539,17 +558,14 @@ class _SunwiSectionState extends State<SunwiSection> {
                 Text(
                   value,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
           ),
           IconButton(
             onPressed: onNext,
-            icon: const Icon(Icons.chevron_right),
+            icon: Icon(Icons.chevron_right),
             tooltip: '다음',
           ),
         ],
@@ -562,35 +578,40 @@ class _SunwiSectionState extends State<SunwiSection> {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8F9FB),
+        color: context.sr.surfaceAlt,
         borderRadius: BorderRadius.circular(14),
       ),
-      child: const Text(
+      child: Text(
         '이번 기간 데이터가 없습니다.',
         textAlign: TextAlign.center,
-        style: TextStyle(color: Colors.black54),
+        style: TextStyle(color: context.sr.textSecondary),
       ),
     );
   }
 
   Widget _buildRankItem(SunwiItem item) {
-    final colors = [
-      const Color(0xFF1A73E8),
-      const Color(0xFF198754),
-      const Color(0xFFFD7E14),
-      const Color(0xFF6F42C1),
-      const Color(0xFFDC3545),
+    // 순위 배지: 기준색 틴트 + AA 글자(흰 글자 채움은 다크에서 대비가 무너진다).
+    const rankBases = [
+      Color(0xFF0D6EFD),
+      serverAcceptColor,
+      serverSupplementColor,
+      Color(0xFF8B5CF6),
+      serverRejectColor,
     ];
-    final badgeColor =
-        colors[(item.rank - 1).clamp(0, colors.length - 1).toInt()];
+    final theme = Theme.of(context);
+    final badgeTone = StatusTone.of(
+      rankBases[(item.rank - 1).clamp(0, rankBases.length - 1).toInt()],
+      brightness: theme.brightness,
+      surface: context.sr.surface,
+    );
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE6EAF0)),
-        gradient: const LinearGradient(
-          colors: [Color(0xFFFFFFFF), Color(0xFFF7FAFF)],
+        border: Border.all(color: context.sr.border),
+        gradient: LinearGradient(
+          colors: [context.sr.surface, context.sr.surfaceAlt],
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
         ),
@@ -600,13 +621,14 @@ class _SunwiSectionState extends State<SunwiSection> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
-              color: badgeColor,
+              color: badgeTone.background,
               borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: badgeTone.border),
             ),
             child: Text(
               '${item.rank}위',
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: badgeTone.foreground,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -615,7 +637,7 @@ class _SunwiSectionState extends State<SunwiSection> {
           Expanded(
             child: Text(
               item.region,
-              style: const TextStyle(fontWeight: FontWeight.bold, height: 1.35),
+              style: TextStyle(fontWeight: FontWeight.bold, height: 1.35),
             ),
           ),
           const SizedBox(width: 12),
@@ -653,19 +675,19 @@ class _MetaChip extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFFF7F8FA),
+        color: context.sr.surfaceAlt,
         borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
         children: [
-          Icon(icon, size: 15, color: Colors.black54),
+          Icon(icon, size: 15, color: context.sr.textSecondary),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
               label,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12, height: 1.25),
+              style: TextStyle(fontSize: 12, height: 1.25),
             ),
           ),
         ],

@@ -3,8 +3,6 @@ import 'package:provider/provider.dart';
 
 import '../models/report.dart';
 import '../providers/report_provider.dart';
-import '../theme/app_theme.dart';
-import '../theme/sr_colors.dart';
 import '../theme/sr_colors.dart';
 import '../widgets/report_detail_sheet.dart';
 import '../widgets/report_list_card.dart';
@@ -256,7 +254,6 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
   }
 
   Widget _buildBody(ReportProvider provider, List<Report> reports) {
-    final theme = Theme.of(context);
     final hasApplicableFilter = !provider.filter
         .withoutRatingStateFilters()
         .isEmpty;

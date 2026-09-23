@@ -155,7 +155,6 @@ class ReportDetailSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = _statusColor(report.status);
-    final scheme = Theme.of(context).colorScheme;
     final photos = _splitUrls(report.attachedPhotos);
     final files = _splitUrls(report.attachedFiles);
     final mapUrls = _splitUrls(report.mapImage);
@@ -1409,7 +1408,6 @@ class _SupplementSection extends StatelessWidget {
       brightness: Theme.of(context).brightness,
       surface: Theme.of(context).colorScheme.surface,
     );
-    final accent = open ? serverSupplementColor : context.sr.textSecondary;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

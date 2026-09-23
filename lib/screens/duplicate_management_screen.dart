@@ -6,7 +6,6 @@ import '../models/duplicate_group.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
 import '../services/repositories/duplicate_repository.dart';
-import '../theme/app_theme.dart';
 import '../theme/sr_colors.dart';
 import '../widgets/duplicate_group_detail_sheet.dart';
 import '../widgets/report_detail_sheet.dart';

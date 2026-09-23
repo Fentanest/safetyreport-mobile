@@ -1,0 +1,11 @@
+[작업서 R2 — UI 리뉴얼 최종 독립 검수 / Opus 5.5 발행 / 상향 권한(사용자 승인)]
+워크스페이스: /home/better0101/projects/safetyreport-mobile-gemini-final (base 119647fae17cbe72389b0c1936a518b91c6cef72, 폐기용 사본). 검수 대상: base c64be69a 이후 전체 변경(git log c64be69a..HEAD, git diff c64be69a..HEAD -- lib test).
+허용: 셸(grep, git log/diff, flutter analyze, flutter test), test/_review/ 아래 검수용 테스트 작성. 금지: 워크스페이스 밖 쓰기, git commit/push/stash, **dart format 등 파일 일괄 재작성**, 전역 설치, 에뮬레이터/adb, 네트워크 API, --update-goldens.
+먼저 읽기: AGENTS.md, PROJECT_RULES.md, docs/design/ui-renewal-spec.md(결정 D-01~D-09), docs/design/statistics-spec.md(S-01~S-10), docs/design/feature-matrix.csv, docs/testing/ui-test-plan.md, CHANGELOG.md 2026-09-24 항목.
+실제 렌더: .review-inputs/screens/{light,dark}_*.png — 에뮬레이터(Android 15, 1080x2400) Standalone **데모 데이터(3건)** 전 화면. 시안: .review-inputs/design/*.png. 승인된 골든: test/golden/goldens/*.png.
+검수 항목(각 발견에 심각도·위치(파일:줄 또는 스크린샷 파일명+영역)·증거·권고):
+1. 기능 보존: feature-matrix 의 existing 행 중 이번 변경으로 표시 필드·콜백·내비게이션·모드 분기가 사라지거나 바뀐 것. 하단 탭 5개 결정(D-06)에 따른 동기화/파일 진입점·딥링크(nav_tab 5/6)·런처 바로가기 변환 로직(lib/navigation/app_routes.dart, lib/main.dart)의 결함.
+2. 시각·접근성: 스크린샷에서 대비 부족, 잘림/겹침, 라이트/다크 불일치, 남은 하드코딩 색으로 보이는 부분, 시안 방향과 크게 어긋난 부분. 코드로 확인되는 대비 문제(AA 4.5:1)도.
+3. 통계 의미: S-01~S-09 구현이 statistics-spec 과 일치하는지(모바일 lib/services/local_db_service.dart, lib/screens/statistics_screen.dart). 서버 코드는 이 워크스페이스에 없으니 모바일 측만.
+4. 테스트: flutter analyze / flutter test 결과, 회귀를 실제로 잡는지, 빠진 중요 테스트.
+반환: "## 치명/중요/경미 발견"(없으면 없다고), "## 확인했지만 문제 없음"(무엇을 어떻게 확인했는지), "## 실행 증거"(명령+종료코드+마지막 줄, git status --short). 실제로 하지 않은 확인을 했다고 쓰지 말 것.

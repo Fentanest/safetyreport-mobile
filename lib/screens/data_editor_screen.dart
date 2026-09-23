@@ -7,7 +7,6 @@ import '../providers/report_provider.dart';
 import '../server_palette.dart';
 import '../services/api_service.dart';
 import '../services/repositories/editor_repository.dart';
-import '../theme/app_theme.dart';
 import '../theme/sr_colors.dart';
 import '../widgets/search_filter_sheet.dart';
 import '../widgets/status_badge.dart';

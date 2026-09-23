@@ -10,6 +10,15 @@
 
 ## 2026-09-24 (버전 변경 없음, 브랜치 `docs/ui-renewal-bootstrap`)
 
+### Gemini 최종 검수(R2) 반영 — 분석기 경고 정리
+
+상태: 완료
+
+- Gemini R2(데모 데이터 전 화면 라이트/다크 38장 + c64be69a 이후 전체 diff): 신규 치명/중요 결함 없음, S-10(기존 발견) 재확인.
+- R2 가 지적한 "analyze warning 11건"은 **사실**이었다. Opus 가 이전 항목에 "warning 0"으로 잘못 적었다(검사 명령 오류).
+  G2 반영분의 unused import 5·duplicate import 1·unused local 3 을 제거 → error 0 / **warning 2(기존 setup_screen 그대로)** / info 36.
+- `flutter test` 95 passed.
+
 ### 실데이터(Client) 검증에서 나온 보정
 
 상태: 완료
@@ -45,7 +54,7 @@
 - 에뮬레이터 E2E: 하단 탭 5개, 동기화 카드/앱바 → 동기화 화면, 딥링크 nav_tab 6/5/4, 런처 바로가기 quick_sync(데모 차단 안내),
   설정 > 파일 관리, 각 경로 뒤로가기 → 대시보드 — 전부 통과
   - 이 과정에서 바로가기가 동기화 화면을 두 번 쌓아 뒤로가기 1회에 빈 화면이 되던 문제를 발견·수정(동기 open 플래그)
-- `flutter analyze` error 0 / warning 0 / info 47, `flutter test` 91 passed
+- `flutter analyze` ~~error 0 / warning 0 / info 47~~ → **정정: 실제로는 warning 11 / info 36** (Opus 의 grep 필터가 줄 형식과 맞지 않아 경고를 놓쳤다. Gemini R2 가 지적, 아래 항목에서 수정), `flutter test` 91 passed
 
 ### 통계 의미 정정 S-01·S-03·S-04·S-05·S-08·S-09 (사용자 결정: 권고대로, S-08 은 답변일)
 

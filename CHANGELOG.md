@@ -10,6 +10,24 @@
 
 ## 2026-09-24 (버전 변경 없음, 브랜치 `docs/ui-renewal-bootstrap`)
 
+### 통계 의미 정정 S-01·S-03·S-04·S-05·S-08·S-09 (사용자 결정: 권고대로, S-08 은 답변일)
+
+상태: 완료
+
+변경:
+- `local_db_service.dart`
+  - S-01: 기관표 평균 처리일에서 날짜 역전(음수) 제외, 소수 1자리(서버와 동일)
+  - S-03: 취하 제외 SQL 9곳 `IFNULL(처리상태,'') != '취하'` — 처리상태 NULL 행이 같이 사라지던 버그 수정(목록·요약·통계·지도·중복차량)
+  - S-05: 행별 `fine_amount_unknown`(과태료인데 금액 미확인, 0원과 구분)
+  - S-08: 통계·지도 연도 필터와 연도 목록을 답변일 기준으로(서버와 동일). 요약 `year_basis` = 답변일
+- `statistics_screen.dart`: 행 drilldown 을 답변일 범위로(S-08, Client 기존 불일치 해소), 과태료 합계 옆 "금액 미확인 N건", 배지 "기타·미분류"(S-04)
+- `dashboard_screen.dart`: 교통 처리 현황 "처분 미확인"(S-04)
+- `models/agency_stats.dart`: `fineAmountUnknown`(구서버 응답은 0)
+- 서버(`feature/stats-overview-api`): `/stats` 행에 `fine_amount_unknown`, 법규 필터 완전 일치(S-09)
+
+검증: `test/services/stats_overview_test.dart` 에 기관표 정정 테스트 추가, 요약 연도 테스트를 답변일 기준으로 갱신 → 전체 통과. 서버 테스트 통과.
+신규 발견 S-10(기관표 행 포함 규칙의 모드 차이)은 미변경 — statistics-spec 참조.
+
 ### UI 리뉴얼 시범 구현: 테마·신고 카드·대시보드·상단 탭·통계 요약
 
 상태: 시범 범위 구현·테스트·에뮬레이터 실렌더 완료 / 커밋·배포 안 함 / 골든은 사용자 승인 대기 후보

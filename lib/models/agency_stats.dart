@@ -32,6 +32,9 @@ class AgencyStatRow {
   final int unconfirmed;
   final double unconfirmedPct;
   final int totalFineAmount;
+
+  /// 과태료 처분인데 금액을 읽지 못한 건수(S-05). 구서버 응답에는 없어서 0.
+  final int fineAmountUnknown;
   final double? avgRating; // 별점 평균 (1~5, 표본 없으면 null)
   final int ratingCount; // 별점 표본 수
 
@@ -49,6 +52,7 @@ class AgencyStatRow {
     required this.unconfirmed,
     required this.unconfirmedPct,
     this.totalFineAmount = 0,
+    this.fineAmountUnknown = 0,
     this.avgRating,
     this.ratingCount = 0,
   });
@@ -68,6 +72,7 @@ class AgencyStatRow {
       unconfirmed: _toIntOrNull(json['unconfirmed']) ?? 0,
       unconfirmedPct: _toDoubleOrNull(json['unconfirmed_pct']) ?? 0.0,
       totalFineAmount: _toIntOrNull(json['total_fine_amount']) ?? 0,
+      fineAmountUnknown: _toIntOrNull(json['fine_amount_unknown']) ?? 0,
       avgRating: _toDoubleOrNull(json['avg_rating']),
       ratingCount: _toIntOrNull(json['rating_count']) ?? 0,
     );

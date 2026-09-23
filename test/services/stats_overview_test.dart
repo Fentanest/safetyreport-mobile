@@ -25,6 +25,7 @@ Report _report({
   required String date,
   required String responseDate,
   String agency = '서울강서경찰서',
+  String fine = '',
 }) {
   return Report(
     id: id,
@@ -36,7 +37,7 @@ Report _report({
     manager: '',
     status: status,
     result: status,
-    fineInfo: '',
+    fineInfo: fine,
     penaltyPoints: '',
     carNumber: '',
     law: '도로교통법',
@@ -135,7 +136,52 @@ void main() {
 
     tearDown(_resetDb);
 
-    test('카테고리별 합이 전체와 같고, 취하 제외·연도(신고일) 필터를 따른다', () async {
+    test(
+      '기관표: S-01 음수 제외·소수 1자리, S-03 처리상태 NULL 유지, S-05 금액 미확인, S-08 답변일 연도',
+      () async {
+        Future<void> add(
+          String id,
+          String status,
+          String date,
+          String resp, {
+          String fine = '',
+        }) async {
+          await LocalDbService.upsertReport(
+            _report(
+              id: id,
+              status: status,
+              date: date,
+              responseDate: resp,
+              fine: fine,
+            ),
+            'traffic',
+            '자동차·교통위반',
+          );
+        }
+
+        await add('a', '수용', '2026-01-01', '2026-01-02', fine: '과태료: 40,000원');
+        await add('b', '수용', '2026-01-01', '2026-01-03', fine: '과태료');
+        await add('c', '수용', '2026-01-10', '2026-01-05'); // 날짜 역전
+        await add('d', '취하', '2026-01-01', '2026-01-02');
+        final db = await LocalDbService.db;
+        await db.update(
+          'reports',
+          {'처리상태': null},
+          where: 'ID = ?',
+          whereArgs: ['c'],
+        );
+
+        final raw = await LocalDbService.computeStats(excludeWithdraw: true);
+        final row = (raw['traffic']['by_agency'] as List).single as Map;
+        expect(row['total'], 3); // d(취하) 제외, c(처리상태 NULL) 유지
+        expect(row['avg_days'], 1.5); // 1일, 2일 — 역전 c 제외
+        expect(row['total_fine_amount'], 40000);
+        expect(row['fine_amount_unknown'], 1);
+        expect(raw['available_years'], ['2026']);
+      },
+    );
+
+    test('카테고리별 합이 전체와 같고, 취하 제외·연도(답변일, S-08) 필터를 따른다', () async {
       await LocalDbService.upsertReport(
         _report(
           id: 't1',
@@ -181,7 +227,7 @@ void main() {
       final all = StatsOverview.fromJson(
         await LocalDbService.computeStatsOverview(excludeWithdraw: true),
       );
-      expect(all.yearBasis, '신고일');
+      expect(all.yearBasis, '답변일');
       expect(all.all.total, 3); // 취하 1건 제외
       expect(
         all.traffic.total + all.parking.total + all.other.total,
@@ -199,13 +245,19 @@ void main() {
       expect(withWithdraw.all.total, 4);
       expect(withWithdraw.parking.withdraw, 1);
 
+      // S-08: 연도는 답변일 기준 — 2025-12-30 에 신고해 2026-01-05 에 답변된 o1 은 2026 에 속한다.
       final y2025 = StatsOverview.fromJson(
         await LocalDbService.computeStatsOverview(year: '2025'),
       );
-      expect(y2025.all.total, 1);
-      expect(y2025.other.total, 1);
-      // 2025년 신고의 답변은 2026-01 로 집계된다(월별 답변은 답변일 기준).
-      expect(y2025.all.monthlyAnswered.single.month, '2026-01');
+      expect(y2025.all.total, 0);
+
+      final y2026 = StatsOverview.fromJson(
+        await LocalDbService.computeStatsOverview(year: '2026'),
+      );
+      expect(y2026.all.total, 3); // t1, p1, o1 (미답변 t2 제외)
+      expect(y2026.other.total, 1);
+      // 월별 신고는 신고일 기준이라 o1 은 2025-12 에 찍힌다.
+      expect(y2026.all.monthlyReported.first.month, '2025-12');
     });
   });
 }

@@ -731,15 +731,16 @@ class _RowCard extends StatelessWidget {
           final agency = row.agency;
           final person = showPerson ? row.person : '';
           final provider = context.read<ReportProvider>();
-          final reportDateStart = year == 'all' ? '' : '$year-01-01';
-          final reportDateEnd = year == 'all' ? '' : '$year-12-31';
+          // S-08: 통계 연도는 답변일 기준이므로 drilldown 도 답변일 범위로 좁힌다.
+          final responseDateStart = year == 'all' ? '' : '$year-01-01';
+          final responseDateEnd = year == 'all' ? '' : '$year-12-31';
           provider.setFilter(
             ReportFilter(
               agency: agency,
               manager: person,
               law: law ?? '',
-              reportDateStart: reportDateStart,
-              reportDateEnd: reportDateEnd,
+              responseDateStart: responseDateStart,
+              responseDateEnd: responseDateEnd,
             ),
           );
           Navigator.push(
@@ -805,12 +806,17 @@ class _RowCard extends StatelessWidget {
                           color: serverTrafficFineColor,
                         ),
                         const SizedBox(width: 2),
-                        Text(
-                          fineStr,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: serverTrafficFineColor,
+                        Flexible(
+                          child: Text(
+                            row.fineAmountUnknown > 0
+                                ? '$fineStr · 금액 미확인 ${row.fineAmountUnknown}건'
+                                : fineStr,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: serverTrafficFineColor,
+                            ),
                           ),
                         ),
                       ],
@@ -934,8 +940,9 @@ class _RowCard extends StatelessWidget {
                       ),
                       SizedBox(
                         width: badgeWidth,
+                        // S-04: 대시보드 '처분 미확인'(교통, 처분이 '미확인')과 뜻이 달라 이름을 나눈다.
                         child: _statBadge(
-                          '미확인',
+                          '기타·미분류',
                           row.unconfirmed,
                           row.unconfirmedPct,
                           Colors.blueGrey.shade500,

@@ -620,7 +620,7 @@ class LocalDbService {
     var where = 'category = ?';
     final args = <dynamic>[category];
     if (excludeWithdraw) {
-      where += " AND 처리상태 != '취하'";
+      where += " AND IFNULL(처리상태, '') != '취하'";
     }
     final rows = await _queryReportsChunked(d, where: where, whereArgs: args);
     final projected = await _projectRows(
@@ -645,7 +645,7 @@ class LocalDbService {
     final d = await db;
     final rows = await _queryReportsChunked(
       d,
-      where: excludeWithdraw ? "처리상태 != '취하'" : null,
+      where: excludeWithdraw ? "IFNULL(처리상태, '') != '취하'" : null,
     );
     final projected = await _projectRows(
       d,
@@ -866,7 +866,7 @@ class LocalDbService {
     // (취하 제외는 available_years/laws에는 영향 안 줌 — 서버도 동일)
     var allRows = await d.query(
       'reports',
-      columns: ['신고일', '위반법규', 'category'],
+      columns: ['답변일', '위반법규', 'category'],
     );
     return _aggregateStats(rows, allRows, normalizePolice);
   }
@@ -894,7 +894,7 @@ class LocalDbService {
       'traffic': summarizeOverviewRows(byCategory('traffic')),
       'parking': summarizeOverviewRows(byCategory('parking')),
       'other': summarizeOverviewRows(byCategory('other')),
-      'year_basis': '신고일',
+      'year_basis': '답변일',
     };
   }
 
@@ -909,7 +909,8 @@ class LocalDbService {
     final args = <dynamic>[];
 
     if (year != null) {
-      where += ' AND 신고일 LIKE ?';
+      // S-08: 연도는 답변일 기준(서버 /stats 와 동일).
+      where += ' AND 답변일 LIKE ?';
       args.add('$year%');
     }
     if (law != null) {
@@ -921,7 +922,7 @@ class LocalDbService {
       }
     }
     if (excludeWithdraw) {
-      where += " AND 처리상태 != '취하'";
+      where += " AND IFNULL(처리상태, '') != '취하'";
     }
 
     final rows = await d.query(
@@ -1045,11 +1046,12 @@ class LocalDbService {
       args.add(normalizedCategory);
     }
     if (year != null && year != 'all' && year.isNotEmpty) {
-      where += ' AND 신고일 LIKE ?';
+      // S-08: 서버 지도 통계와 같은 답변일 기준.
+      where += ' AND 답변일 LIKE ?';
       args.add('$year%');
     }
     if (excludeWithdraw) {
-      where += " AND 처리상태 != '취하'";
+      where += " AND IFNULL(처리상태, '') != '취하'";
     }
 
     var rows = await d.query(
@@ -1087,10 +1089,10 @@ class LocalDbService {
         .toSet()
         .length;
 
-    var allYearRows = await d.query('reports', columns: ['신고일']);
+    var allYearRows = await d.query('reports', columns: ['답변일']);
     final availableYears =
         allYearRows
-            .map((row) => _stringify(row['신고일']))
+            .map((row) => _stringify(row['답변일']))
             .where((value) => value.length >= 4)
             .map((value) => value.substring(0, 4))
             .toSet()
@@ -1215,11 +1217,12 @@ class LocalDbService {
       args.add(normalizedCategory);
     }
     if (year != null && year != 'all' && year.isNotEmpty) {
-      where += ' AND 신고일 LIKE ?';
+      // S-08: 서버 지도 통계와 같은 답변일 기준.
+      where += ' AND 답변일 LIKE ?';
       args.add('$year%');
     }
     if (excludeWithdraw) {
-      where += " AND 처리상태 != '취하'";
+      where += " AND IFNULL(처리상태, '') != '취하'";
     }
 
     var rows = await d.query(
@@ -1541,14 +1544,15 @@ class LocalDbService {
     final parking = rows.where((r) => r['category'] == 'parking').toList();
     final other = rows.where((r) => r['category'] == 'other').toList();
 
-    // 연도 목록은 항상 전체에서 추출 (필터 변경 시 다른 연도 선택지 유지)
+    // 연도 목록은 항상 전체에서 추출 (필터 변경 시 다른 연도 선택지 유지). S-08: 답변일 기준.
     final years =
         allRows
             .map(
-              (r) => (r['신고일'] as String? ?? '').length >= 4
-                  ? (r['신고일'] as String).substring(0, 4)
+              (r) => (r['답변일'] as String? ?? '').length >= 4
+                  ? (r['답변일'] as String).substring(0, 4)
                   : '',
             )
+            .where((y) => RegExp(r'^\d{4}$').hasMatch(y))
             .where((y) => y.isNotEmpty)
             .toSet()
             .toList()
@@ -1674,7 +1678,7 @@ class LocalDbService {
     bool normalizePolice = false,
   }) async {
     final d = await db;
-    final withdrawFilter = excludeWithdraw ? "AND 처리상태 != '취하'" : '';
+    final withdrawFilter = excludeWithdraw ? "AND IFNULL(처리상태, '') != '취하'" : '';
     // 신고번호 DESC 가 유니크 tiebreaker 라 LIMIT/OFFSET 페이지 경계에서
     // 누락/중복 없이 전체 정렬 순서를 그대로 유지한다.
     final rows = <Map<String, dynamic>>[];
@@ -1684,7 +1688,7 @@ class LocalDbService {
         WITH dup_vehicles AS (
           SELECT 차량번호,
                  COUNT(*)                                                 AS total_count,
-                 SUM(CASE WHEN 처리상태 != '취하' THEN 1 ELSE 0 END)        AS valid_count,
+                 SUM(CASE WHEN IFNULL(처리상태, '') != '취하' THEN 1 ELSE 0 END)        AS valid_count,
                  MAX(신고번호)                                              AS max_report_no
           FROM reports
           WHERE 차량번호 != '' $withdrawFilter
@@ -1787,7 +1791,7 @@ class LocalDbService {
     if (numbers.isEmpty) return [];
     final d = await db;
     final placeholders = numbers.map((_) => '?').join(',');
-    final withdrawFilter = excludeWithdraw ? " AND 처리상태 != '취하'" : '';
+    final withdrawFilter = excludeWithdraw ? " AND IFNULL(처리상태, '') != '취하'" : '';
     final rows = await d.rawQuery(
       'SELECT * FROM reports WHERE 신고번호 IN ($placeholders)$withdrawFilter ORDER BY 신고일 DESC',
       numbers.toList(),
@@ -1820,7 +1824,7 @@ class LocalDbService {
         '(신고명 LIKE ? OR 신고번호 LIKE ? OR 차량번호 LIKE ? OR 처리기관 LIKE ? OR 위반법규 LIKE ?)';
     final args = <dynamic>[q, q, q, q, q];
     if (excludeWithdraw) {
-      where += " AND 처리상태 != '취하'";
+      where += " AND IFNULL(처리상태, '') != '취하'";
     }
     final rows = await d.query(
       'reports',
@@ -2755,6 +2759,7 @@ class _AgencyAgg {
   final String person;
   int total = 0, fines = 0, warn = 0, reject = 0, unconfirmed = 0;
   int totalFine = 0;
+  int fineAmountUnknown = 0; // S-05: 과태료인데 금액을 읽지 못한 건(0원과 구분)
   final List<int> responseDays = [];
   final List<int> ratings = []; // 1~5 별점 표본
 
@@ -2774,7 +2779,9 @@ class _AgencyAgg {
         status != '기타') {
       unconfirmed++;
     }
-    totalFine += extractFineAmount(fine);
+    final fineAmount = extractFineAmount(fine);
+    totalFine += fineAmount;
+    if (fine.contains('과태료') && fineAmount == 0) fineAmountUnknown++;
 
     final date = r['신고일'] as String? ?? '';
     final resp = r['답변일'] as String? ?? '';
@@ -2782,7 +2789,9 @@ class _AgencyAgg {
       try {
         final d = DateTime.parse(date.substring(0, 10));
         final rd = DateTime.parse(resp.substring(0, 10));
-        responseDays.add(rd.difference(d).inDays);
+        final days = rd.difference(d).inDays;
+        // S-01: 서버와 같이 날짜가 뒤바뀐(음수) 건은 평균에서 제외.
+        if (days >= 0) responseDays.add(days);
       } catch (_) {}
     }
 
@@ -2816,11 +2825,16 @@ class _AgencyAgg {
         (unconfirmed / t * 100).toStringAsFixed(1),
       ),
       'total_fine_amount': totalFine,
+      'fine_amount_unknown': fineAmountUnknown,
       'avg_rating': avgRating,
       'rating_count': ratings.length,
+      // S-01: 서버 _calc_avg_days 와 같이 소수 1자리.
       'avg_days': responseDays.isEmpty
           ? null
-          : responseDays.reduce((a, b) => a + b) / responseDays.length,
+          : double.parse(
+              (responseDays.reduce((a, b) => a + b) / responseDays.length)
+                  .toStringAsFixed(1),
+            ),
     };
   }
 }

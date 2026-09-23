@@ -398,7 +398,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   filter: (r) => r.status.contains('불수용') || r.status == '기타',
                 ),
                 _miniStat(
-                  '미확인',
+                  '처분 미확인',
                   stats.tUnconfirmedCount,
                   serverUnconfirmedColor,
                   filter: (r) =>

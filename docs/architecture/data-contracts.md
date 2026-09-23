@@ -311,4 +311,7 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
   서버 구현: `services/report_stats_service.py::get_stats_overview` (서버 레포 브랜치 `feature/stats-overview-api`). 구서버 404 → `ApiFeatureUnavailableException` → 화면에 미지원 안내, 기관표는 유지.
   Kotlin `ServerContract.kt` 는 이 경로를 쓰지 않으므로 변경 없음.
 - **Standalone** `LocalDbService.computeStatsOverview` / `summarizeOverviewRows` 가 같은 정의로 로컬 계산. `computeStats` 와 같은 행을 쓰도록 행 조회를 `_queryStatsRows` 로 분리(동작 동일).
-- 연도 필터 기준 컬럼이 모드마다 다르다(서버 답변일 / Standalone 신고일, statistics-spec S-08). 요약 화면 각주에 `year_basis` 로 표시한다.
+- ~~연도 필터 기준 컬럼이 모드마다 다르다~~ → S-08 결정으로 두 모드 모두 **답변일**. 요약 화면 각주에 `year_basis` 로 표시한다.
+- **기관/담당자 통계 행 규칙(S-10)**: 표 포함은 처리기관·담당자 값으로 정한다(처리상태로 빼지 않음). 배정된 처리중은 `in_progress` 로 따로 센다. 평균 처리일은 완료 신고만.
+  서버 `report_stats_service._build_stats_tables` ↔ Standalone `LocalDbService.buildStatsCategory` 가 같은 정의 — 한쪽을 바꾸면 양쪽 테스트(`tests/test_report_stats_service.py`, `test/services/stats_tables_test.dart`)를 함께 고친다.
+  서버 반올림은 `_round_half_up`(Dart `toStringAsFixed` 와 같음), 과태료 금액은 `40.000원` 점 구분자도 읽는다(`extractFineAmount` 와 같음).

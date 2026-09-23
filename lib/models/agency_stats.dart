@@ -31,6 +31,10 @@ class AgencyStatRow {
   final double rejectsPct;
   final int unconfirmed;
   final double unconfirmedPct;
+
+  /// 배정된 처리중 신고 수(S-10). 구서버 응답에는 없어서 null — 이때는 처리중이 unconfirmed 에 섞여 있다.
+  final int? inProgress;
+  final double? inProgressPct;
   final int totalFineAmount;
 
   /// 과태료 처분인데 금액을 읽지 못한 건수(S-05). 구서버 응답에는 없어서 0.
@@ -51,6 +55,8 @@ class AgencyStatRow {
     required this.rejectsPct,
     required this.unconfirmed,
     required this.unconfirmedPct,
+    this.inProgress,
+    this.inProgressPct,
     this.totalFineAmount = 0,
     this.fineAmountUnknown = 0,
     this.avgRating,
@@ -71,6 +77,8 @@ class AgencyStatRow {
       rejectsPct: _toDoubleOrNull(json['rejects_pct']) ?? 0.0,
       unconfirmed: _toIntOrNull(json['unconfirmed']) ?? 0,
       unconfirmedPct: _toDoubleOrNull(json['unconfirmed_pct']) ?? 0.0,
+      inProgress: _toIntOrNull(json['in_progress']),
+      inProgressPct: _toDoubleOrNull(json['in_progress_pct']),
       totalFineAmount: _toIntOrNull(json['total_fine_amount']) ?? 0,
       fineAmountUnknown: _toIntOrNull(json['fine_amount_unknown']) ?? 0,
       avgRating: _toDoubleOrNull(json['avg_rating']),

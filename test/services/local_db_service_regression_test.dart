@@ -391,7 +391,10 @@ void main() {
         expect(row.fines, 1);
         expect(row.warnings, 1);
         expect(row.rejects, 1);
-        expect(row.unconfirmed, 1);
+        // S-10(2026-09-24 사용자 결정): 기관표에서 처리중은 '기타·미분류'가 아니라 처리중으로 따로 센다.
+        // 지도 처분 분포(아래 '미확인')는 서버 `_build_disposition_breakdown` 과 같이 그대로다.
+        expect(row.unconfirmed, 0);
+        expect(row.inProgress, 1);
 
         final payload = ReportMapPayload.fromJson(
           await LocalDbService.computeReportMapStats(),

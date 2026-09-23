@@ -10,6 +10,22 @@
 
 ## 2026-09-24 (버전 변경 없음, 브랜치 `docs/ui-renewal-bootstrap`)
 
+### 통계 기관/담당자 표 규칙 정리 (S-10) + 서버와 금액·반올림 일치 (S-11·S-12)
+
+상태: 완료. 서버 레포 `feature/stats-overview-api` 커밋 `fef44d8` 과 짝
+
+- 사용자 결정: 나중에 처리기관도 붙이고 이송 시 담당자가 나오므로, 표 포함은 처리상태가 아니라 처리기관·담당자 값으로 정한다. 배정된 처리중도 들어가고 따로 센다. 행 탭 drilldown 은 그대로.
+- `LocalDbService.buildStatsCategory`(옛 `_buildCategory`, 테스트용 공개): 담당자표의 "담당자 없음 + 처리중/취하" 규칙 → "처리기관·담당자가 있어야 함(`미지정` 제외)".
+  `_AgencyAgg` 에 `in_progress`(완료도 취하도 아닌 상태) 추가, `unconfirmed` 에서 뺌. 평균 처리일은 완료 신고만(요약 `summarizeOverviewRows` 도 동일).
+- `AgencyStatRow.inProgress/inProgressPct`(구서버 null). 통계 행 카드에 '처리중' 배지·막대, '총 처리 N건' → '총 N건'.
+- 서버도 같은 규칙으로 수정(`in_progress` 필드 추가, '알수없음' 행 폐지, 웹 표 처리중 컬럼). 대조 중 서버만 다른 두 가지도 서버를 모바일 쪽으로 맞춤:
+  `과태료: 40.000원` 금액 읽기(S-11), 반올림 x.x5 올림(S-12).
+- 검증:
+  - `test/services/stats_tables_test.dart` 3건(서버와 같은 입력·기대값, 구서버 null 처리).
+  - `local_db_service_regression_test` 의 "처리중 = 기타·미분류" 단언을 결정에 맞게 `unconfirmed 0 / inProgress 1` 로 바꿈(목적인 불수용 버킷 분리는 유지, 지도 분포는 그대로).
+  - 5월 서버 DB 사본을 서버 새 코드와 Standalone import 양쪽에 넣어 기관·담당자 표 16개 필드·요약 평균 처리일 대조 → 전부 일치(임시 테스트·사본은 삭제).
+  - `flutter analyze` error 0 / warning 2(기존) / info 36, `flutter test` 102 passed, 골든 4 통과. 에뮬레이터 확인 NOT_RUN.
+
 ### 다중 선택 중 뒤로가기 = 선택 취소
 
 상태: 완료 (위젯 테스트), 에뮬레이터 확인 NOT_RUN

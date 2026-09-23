@@ -959,7 +959,7 @@ class LocalDbService {
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}';
 
   /// 서버 `_summarize_overview_frame` 과 같은 정의. 평균 처리일은 기관 평균을 합치지 않고
-  /// 두 날짜가 모두 유효하고 차이 >= 0 인 신고만으로 직접 계산하며 표본 수를 함께 돌려준다.
+  /// 완료 상태이면서 두 날짜가 모두 유효하고 차이 >= 0 인 신고만으로 직접 계산하며 표본 수를 함께 돌려준다.
   @visibleForTesting
   static Map<String, dynamic> summarizeOverviewRows(
     List<Map<String, dynamic>> rows,
@@ -992,7 +992,10 @@ class LocalDbService {
         final key = _monthKey(answered);
         answeredByMonth[key] = (answeredByMonth[key] ?? 0) + 1;
       }
-      if (reported != null && answered != null) {
+      // S-10: 평균 처리기간은 완료 신고만(기관표와 같은 기준).
+      if (_overviewCompletedStatuses.contains(status) &&
+          reported != null &&
+          answered != null) {
         final days = answered.difference(reported).inDays;
         if (days < 0) {
           reversed++;
@@ -1560,17 +1563,17 @@ class LocalDbService {
           ..sort((a, b) => b.compareTo(a));
 
     return {
-      'traffic': _buildCategory(
+      'traffic': buildStatsCategory(
         traffic,
         allRows.where((r) => r['category'] == 'traffic').toList(),
         normalizePolice,
       ),
-      'parking': _buildCategory(
+      'parking': buildStatsCategory(
         parking,
         allRows.where((r) => r['category'] == 'parking').toList(),
         normalizePolice,
       ),
-      'other': _buildCategory(
+      'other': buildStatsCategory(
         other,
         allRows.where((r) => r['category'] == 'other').toList(),
         normalizePolice,
@@ -1579,7 +1582,11 @@ class LocalDbService {
     };
   }
 
-  static Map<String, dynamic> _buildCategory(
+  static const _unassignedPersonValues = {'', '미지정'};
+
+  /// 한 카테고리의 기관별/담당자별 표. 서버 `_build_stats_tables` 와 같은 규칙(S-10).
+  @visibleForTesting
+  static Map<String, dynamic> buildStatsCategory(
     List<Map<String, dynamic>> rows,
     List<Map<String, dynamic>> allCatRows,
     bool normalizePolice,
@@ -1591,6 +1598,8 @@ class LocalDbService {
       return normalizePoliceAgency(t);
     }
 
+    // S-10: 표 포함 여부는 처리상태가 아니라 기관·담당자 값으로 정한다(서버 `_build_stats_tables` 와 동일).
+    // 배정된 처리중 신고도 들어가고 `in_progress` 로 따로 센다. 기관이 비면 어느 표에도 넣지 않는다.
     final agencyAgg = <String, _AgencyAgg>{};
     for (final r in rows) {
       final key = agencyKey((r['처리기관'] as String? ?? ''));
@@ -1606,16 +1615,7 @@ class LocalDbService {
     for (final r in rows) {
       final agency = agencyKey((r['처리기관'] as String? ?? ''));
       final manager = (r['담당자'] as String? ?? '').trim();
-      final status = (r['처리상태'] as String? ?? '');
-      if ((manager.isEmpty) &&
-          (status == '처리중' ||
-              status == '진행' ||
-              status == '진행중' ||
-              status == '검토중' ||
-              status == '취하')) {
-        continue;
-      }
-      if (agency.isEmpty) continue;
+      if (agency.isEmpty || _unassignedPersonValues.contains(manager)) continue;
       final key = '$agency\t$manager';
       personAgg.putIfAbsent(key, () => _AgencyAgg(agency, manager));
       personAgg[key]!.add(r);
@@ -2759,6 +2759,9 @@ class _AgencyAgg {
   final String name;
   final String person;
   int total = 0, fines = 0, warn = 0, reject = 0, unconfirmed = 0;
+
+  /// S-10: 완료도 취하도 아닌 상태(처리중·진행·검토중·보완요청·이송·빈 값 등). 미분류와 따로 센다.
+  int inProgress = 0;
   int totalFine = 0;
   int fineAmountUnknown = 0; // S-05: 과태료인데 금액을 읽지 못한 건(0원과 구분)
   final List<int> responseDays = [];
@@ -2768,17 +2771,24 @@ class _AgencyAgg {
 
   void add(Map<String, dynamic> r) {
     total++;
-    final status = (r['처리상태'] as String? ?? '');
+    final status = (r['처리상태'] as String? ?? '').trim();
     final fine = (r['범칙금_과태료'] as String? ?? '');
     if (fine.contains('과태료')) fines++;
     if (fine.contains('경고') || fine.contains('범칙금')) warn++;
     if (status == '불수용' || status == '기타') reject++;
+    final completed = LocalDbService._overviewCompletedStatuses.contains(
+      status,
+    );
     if (!fine.contains('과태료') &&
         !fine.contains('경고') &&
         !fine.contains('범칙금') &&
         status != '불수용' &&
         status != '기타') {
-      unconfirmed++;
+      if (!completed && status != '취하') {
+        inProgress++;
+      } else {
+        unconfirmed++;
+      }
     }
     final fineAmount = extractFineAmount(fine);
     totalFine += fineAmount;
@@ -2786,7 +2796,8 @@ class _AgencyAgg {
 
     final date = r['신고일'] as String? ?? '';
     final resp = r['답변일'] as String? ?? '';
-    if (date.length >= 10 && resp.length >= 10) {
+    // S-10: 처리기간은 완료 신고만(이송 답변일이 붙은 처리중·취하 제외).
+    if (completed && date.length >= 10 && resp.length >= 10) {
       try {
         final d = DateTime.parse(date.substring(0, 10));
         final rd = DateTime.parse(resp.substring(0, 10));
@@ -2824,6 +2835,10 @@ class _AgencyAgg {
       'unconfirmed': unconfirmed,
       'unconfirmed_pct': double.parse(
         (unconfirmed / t * 100).toStringAsFixed(1),
+      ),
+      'in_progress': inProgress,
+      'in_progress_pct': double.parse(
+        (inProgress / t * 100).toStringAsFixed(1),
       ),
       'total_fine_amount': totalFine,
       'fine_amount_unknown': fineAmountUnknown,

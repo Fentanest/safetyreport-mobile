@@ -873,7 +873,7 @@ class _RowCard extends StatelessWidget {
                     ],
                   ),
                 ),
-              // ── 이름 + 우측 '총 처리 N건' ──
+              // ── 이름 + 우측 '총 N건' ──
               Row(
                 children: [
                   Builder(
@@ -939,7 +939,7 @@ class _RowCard extends StatelessWidget {
                         style: TextStyle(color: scheme.primary),
                         children: [
                           TextSpan(
-                            text: '총 처리 ',
+                            text: '총 ',
                             style: TextStyle(
                               fontSize: 11,
                               color: sr.textSecondary,
@@ -1011,6 +1011,17 @@ class _RowCard extends StatelessWidget {
                           serverUnconfirmedColor,
                         ),
                       ),
+                      // S-10: 배정된 처리중 신고. 구서버(null)·0건이면 숨긴다.
+                      if ((row.inProgress ?? 0) > 0)
+                        SizedBox(
+                          width: badgeWidth,
+                          child: _statBadge(
+                            '처리중',
+                            row.inProgress!,
+                            row.inProgressPct ?? 0,
+                            serverProcessingColor,
+                          ),
+                        ),
                     ],
                   );
                 },
@@ -1050,13 +1061,22 @@ class _RowCard extends StatelessWidget {
                             color: serverUnconfirmedColor,
                           ),
                         ),
+                      if ((row.inProgress ?? 0) > 0)
+                        Flexible(
+                          flex: row.inProgress!,
+                          child: Container(
+                            height: 6,
+                            color: serverProcessingColor,
+                          ),
+                        ),
                       Flexible(
                         flex:
                             (row.total -
                                     row.fines -
                                     row.warnings -
                                     row.rejects -
-                                    row.unconfirmed)
+                                    row.unconfirmed -
+                                    (row.inProgress ?? 0))
                                 .clamp(0, row.total),
                         child: Container(height: 6, color: sr.border),
                       ),

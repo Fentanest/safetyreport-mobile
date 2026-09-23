@@ -1,0 +1,6 @@
+[작업 C2 — 테스트 기반 실행 검증 (Opus 프로브 독립 재현)]
+.review-inputs/ui-test-plan.md 를 먼저 읽는다. Opus 가 보고한 프로브 결과(§4)를 독립적으로 재현·반박하는 것이 목적이다.
+P1) lib/widgets/report_list_card.dart 의 ReportListCard 를 fake Report(긴 한글 신고명, 긴 기관명, 비정상적으로 긴 차량번호, 결측 필드)로 라이트/다크 × 논리 360x800 × textScaler 1.0/1.3/2.0 에서 pumpWidget 하고 overflow 예외 수와 크기, androidTapTargetGuideline/labeledTapTargetGuideline/textContrastGuideline 결과를 표로 보고. overflow 원인 위젯(파일:줄)을 특정.
+P2) 한글 폰트와 MaterialIcons 를 FontLoader 로 로드한 골든 1장을 test/_tooling_probe/goldens/ 에 생성(--update-goldens 는 이 신규 파일 생성에만 허용). 폰트 파일 경로(호스트) 와 아이콘 폰트 경로(Flutter SDK 캐시)를 적고, 두 번째 실행(갱신 없이)에서 골든 비교가 통과하는지 확인.
+P3) test/report_navigation_regression_test.dart 의 TabBar 고정색 단언(:116-119)을 "선택/미선택 색 구분 + 배경 대비 4.5:1 + indicator 가시성" 단언으로 바꾼 초안을 test/_tooling_probe/ 에 작성해 현행 코드에서 통과하는지 실행.
+반환: "## P1 결과", "## P2 결과", "## P3 결과"(작성한 테스트 파일 경로와 핵심 단언), "## Opus 보고와 차이", "## 실행 증거".

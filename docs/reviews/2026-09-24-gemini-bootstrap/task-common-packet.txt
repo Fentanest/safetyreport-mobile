@@ -1,0 +1,9 @@
+[작업서 공통 — Opus 5.5 총괄이 발행]
+- 레포: safetyreport-mobile (Flutter + Provider UI, Kotlin 서비스, Client/Standalone 두 모드의 안전신문고 신고 "조회·관리" Android 앱. 신고 접수 기능 없음)
+- base SHA: c64be69a91999c703bc173fe87aa855fc249e930 (워크스페이스 = 이 SHA의 읽기 전용 detached worktree)
+- 권한: 읽기 전용. 파일 쓰기/수정 금지(쓰기 시도는 OS에서 거부됨). 셸은 sandbox 오류로 사용 불가 — 파일 보기/디렉터리 목록 도구만 사용. 네트워크 조회 금지.
+- 보조 입력: .review-inputs/file_index.tsv (추적 파일 목록+줄수), .review-inputs/env.txt, .review-inputs/analyze.log, .review-inputs/test.log, .review-inputs/design/*.png
+- 금지: 추정으로 사실 주장. 모든 주장에 근거(파일경로:줄번호 또는 이미지 파일명+위치)를 붙이고, 직접 확인하지 못한 것은 "미확인"으로 표시.
+- CLAUDE.md는 참고용이며 코드와 다를 수 있다. 코드와 다르면 코드를 따르고 차이를 기록.
+- 원문 코드를 길게 복사하지 말고 경로:줄 + 한 줄 요약으로 반환.
+- 응답은 한국어. 마지막에 "## 실행 증거" 절에 실제로 열어본 파일/이미지 목록과 확인하지 못한 항목을 적는다.

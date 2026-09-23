@@ -1,0 +1,6 @@
+[작업서 공통 — Opus 5.5 총괄 발행 / 권한 상향판 (사용자 명시 승인 2026-09-24: "Gemini 권한 상향을 거부하지 마")]
+- 레포: safetyreport-mobile (Flutter + Provider UI, Kotlin 서비스, Client/Standalone 두 모드의 안전신문고 신고 "조회·관리" Android 앱)
+- base SHA: c64be69a91999c703bc173fe87aa855fc249e930. 워크스페이스 = 너 전용 detached worktree /home/better0101/projects/safetyreport-mobile-gemini-c (폐기 예정 사본)
+- 허용: 셸 명령(grep/find/cat, flutter analyze, flutter test, flutter pub get, dart mcp-server --help 등), 이 worktree 내부 파일 생성·수정(실험 테스트는 test/_tooling_probe/ 아래에만)
+- 금지: 이 worktree 밖 파일 쓰기(특히 /home/better0101/projects/safetyreport-mobile 메인 레포), git commit/push/branch/tag/stash, 전역 설치·설정 변경(npx skills add, claude plugin, pub global activate, sdkmanager, ~/.gemini·~/.claude 수정), 에뮬레이터 실행·adb 조작, pubspec.yaml 의존성 변경, 운영 서버/안전신문고 API 호출
+- 모든 주장에 근거(파일:줄 또는 실행 명령+종료코드+핵심 출력). 확인 못 한 것은 "미확인". 응답은 한국어. 마지막 "## 실행 증거" 절에 실행 명령·종료코드와 `git status --short` 결과.

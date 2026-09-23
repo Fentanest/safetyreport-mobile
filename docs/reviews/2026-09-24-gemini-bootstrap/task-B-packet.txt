@@ -1,0 +1,11 @@
+[작업 B — 디자인 시안 vs 실제 기능 대조]
+입력 이미지: .review-inputs/design/ 의 14개 PNG (mobile dark.png, mobile white.png, board.png, guide.png, design tokens.png, UI COMPONENT KIT.png, badge.png, icons.png, LOGO.png, favicon.png, dark banner.png, white banner.png, sync.png, data분석일러스트.png). 이미지는 AI 생성 시각 참고자료이며 기능 명세가 아니다. 사용자가 고른 시각 방향은 짙은 네이비·블루 다크 + 대응 화이트.
+목표: 각 이미지의 UI 요소를 실제 코드(lib/)와 대조해 분류한다.
+분류값: existing(코드에 있음) / presentation-change(기존 기능의 표현만 변경) / approved-enhancement(통계 정보구조·시각화·월별 신고현황 개선에 해당) / unsupported(코드 근거 없음, 구현 금지 후보) / needs-decision(사용자 결정 필요) / pc-only(PC 관리자 웹 전용 구성)
+특히 찾을 것: (a) 앱에 없는 기능(신고하기, 일반 파일 업로드, 신고 레코드 삭제, 시스템 공지, 알림/크롤링 탭 분리 등), (b) 시안 수치/집계 오류(예: 합계 불일치, 중복차량을 네 번째 카테고리로 합산, 전기 대비 증감률, 평균 처리기간, 과태료 월별 합계의 날짜 근거), (c) 이미지 간 충돌(하단 탭 개수, 폰트 Noto Sans KR vs Pretendard, 상태색 hex, 로고 형태, 앱 이름), (d) PC 전용 구성(사이드바, 표 컬럼, 페이지네이션 등), (e) 에셋 품질(알파/여백/글자 포함 여부/작은 크기 가독성)과 런타임 에셋으로 쓸 수 있는지.
+반환 형식:
+1) "## 요소 분류" 표: 이미지 | 요소 | 분류 | 근거(코드 경로:줄 또는 '코드 근거 없음') | 비고
+2) "## 집계/수치 오류" 목록
+3) "## 이미지 간 충돌" 표: 항목 | 이미지별 값 | 권고(결정 필요 여부)
+4) "## 에셋 판정" 표: 파일 | 용도 후보 | 런타임 사용 가능성(가능/정제 필요/불가) | 이유
+5) "## 실행 증거" (실제로 열어본 이미지 목록 포함. 이미지를 열지 못했다면 명시)

@@ -1,0 +1,9 @@
+[작업 A — 기능 보존표(feature-matrix) 초안]
+목표: 실제 코드에서 사용자에게 보이는 화면/탭/하위탭/카드/시트/다이얼로그/선택 액션/설정 항목과 그 동작, 그리고 Client(server)·Standalone 모드별 차이를 찾아 기능 보존표 초안을 만든다.
+필수 확인: lib/main.dart 하단 네비게이션(개수·순서·라벨·모드별 라벨 차이), 신고내역 분류 탭, 신고관리 하위 탭, 알림 하위 탭, 대시보드 섹션, 통계 화면 필터/표/차트, 설정 화면 카드, setup/permission/search/map/file/crawl 화면, widgets/*의 액션(복사/크롤링/감시/별점 등), 외부 앱 링크, 알림 deep link(payload_json, nav_tab).
+반환 형식:
+1) ```csv 블록: 헤더는 정확히 feature_id,screen,subtab,mode,displayed_fields,action,code_path,symbol,classification,approval_basis,test_ids,status,notes
+   - mode: client|standalone|both, classification은 모두 existing, status는 code-verified(직접 코드 확인) 또는 unverified, code_path는 lib/...:줄번호, test_ids는 test/에 해당 회귀 테스트가 있으면 그 파일명 없으면 빈칸. 필드에 쉼표가 있으면 큰따옴표로 감싼다. 60~120행 목표.
+2) "## 모드별 차이" 표 (항목 | client | standalone | 근거)
+3) "## CLAUDE.md와 코드 불일치" 목록 (CLAUDE.md 기술 | 실제 코드 | 근거)
+4) "## 실행 증거"

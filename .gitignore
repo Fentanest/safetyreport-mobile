@@ -46,3 +46,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# UI renewal: design reference boards (visual reference only, ~20MB; tracked by sha256 in docs/design/asset-manifest.csv)
+docs/design/reference/*.png
+# agent run logs/screenshots
+.agent-runs/

@@ -1,0 +1,17 @@
+[작업서 R1 — UI 리뉴얼 시범 구현 독립 검수 / Opus 5.5 발행 / 상향 권한(사용자 승인)]
+워크스페이스:
+- 모바일: /home/better0101/projects/safetyreport-mobile-gemini-pilot (base c64be69a + Opus 미커밋 변경을 복사한 폐기용 사본. `git diff` + untracked 가 검수 대상)
+- 서버: /home/better0101/projects/safetyreport-gemini-pilot (base 17df6cb + 변경 복사본. tests/test_report_stats_service.py 는 .gitignore 대상이라 untracked 아님 — 직접 열어 볼 것)
+허용: 셸(grep, git diff, flutter analyze, flutter test, 서버는 `PYTHONPATH=. /home/better0101/projects/safetyreport/venv/bin/python -m unittest tests/test_report_stats_service.py`), 두 사본 내부 파일 생성(검수용 테스트는 test/_review/ 아래만).
+금지: 두 사본 밖 쓰기(특히 원본 레포 /home/better0101/projects/safetyreport-mobile, /home/better0101/projects/safetyreport), git commit/push/stash, 전역 설치·설정, 에뮬레이터/adb, 골든 갱신(--update-goldens), 운영 API 호출.
+
+먼저 읽을 것: AGENTS.md, PROJECT_RULES.md, docs/design/ui-renewal-spec.md, docs/design/statistics-spec.md, docs/design/feature-matrix.csv, docs/testing/ui-test-plan.md
+사용자 결정(2026-09-24): D-01 다크=슬레이트(토큰 보드 값), D-02 상태색 모바일 먼저 변경(웹은 나중), D-03 primary 통합+모드 별도 표시, D-04 기기 기본 글꼴, S-02 평균 처리일 계산 기능(Standalone 직접, Client 서버 API), Client 월별 추이 = 서버 신규 API, 과태료 월별 차트 만들지 않음.
+실제 렌더 증거: .review-inputs/screens/{light,dark}_0*.png (에뮬레이터 sr_uitest_api35, Standalone 데모 모드, 1080x2400). 시안: .review-inputs/design/*.png. 골든 후보: test/golden/goldens/*.png
+
+검수 항목(각 항목에 근거 파일:줄 또는 스크린샷 파일명+위치, 실행 명령+종료코드):
+1. 기능 보존: 변경된 파일(lib/main.dart, dashboard_screen, report_list_screen, report_management_screen, notifications_screen, statistics_screen, search_screen, report_list_card, server_palette)에서 feature-matrix 의 기존 필드·콜백·내비게이션·모드 분기·drilldown 이 빠지거나 바뀐 곳이 있는지.
+2. 통계 의미: 모바일 LocalDbService.summarizeOverviewRows/computeStatsOverview 와 서버 _summarize_overview_frame/get_stats_overview 의 정의가 같은지(상태 분류, 날짜 파싱, 음수/결측 처리, 월 키, 반올림). 서버 refactor(_load_stats_frames, _apply_stats_row_filters, _apply_stats_law_filter)가 get_agency_stats 동작을 바꿨는지. 차이가 있으면 입력 예시로 보여라(검수 테스트 작성 허용).
+3. 시각·접근성: 스크린샷에서 대비 부족, 잘림, 겹침, 다크/라이트 불일치, 시안(mobile dark/white) 대비 크게 어긋난 점. 이번 시범 범위(테마·신고 카드·대시보드·탭·통계 요약)와 범위 밖(기존 화면 잔여 하드코딩 색)을 구분해 보고.
+4. 테스트: flutter analyze / flutter test 실행 결과, 새 테스트가 실제로 회귀를 잡는지(예: 대비 테스트의 alpha 합성), 빠진 테스트.
+반환: "## 치명/중요/경미 발견"(각 항목: 심각도, 위치, 증거, 권고), "## 범위 밖 관찰", "## 실행 증거"(명령+종료코드, 두 사본 git status --short).

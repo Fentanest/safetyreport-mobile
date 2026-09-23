@@ -10,6 +10,19 @@
 
 ## 2026-09-24 (버전 변경 없음, 브랜치 `docs/ui-renewal-bootstrap`)
 
+### 다중 선택 중 뒤로가기 = 선택 취소
+
+상태: 완료 (위젯 테스트), 에뮬레이터 확인 NOT_RUN
+
+- 사용자 결정: 다중 선택 모드에서 안드로이드 뒤로가기는 선택을 취소해야 한다. 이전에는 `PopScope` 가 없어 앱이 나갔다(기존 동작).
+- `lib/widgets/selection_back_scope.dart` 신설 → 신고내역(`report_list_screen.dart`)·별점 패널(`rating_management_panel.dart`)에 적용.
+  선택이 없으면 원래대로(루트면 앱 종료, push 된 화면이면 닫기).
+- 하단 탭은 `IndexedStack` 으로 살아 있어 숨은 탭의 선택이 다른 탭의 뒤로가기를 가로챌 수 있다 →
+  `main.dart` 가 비활성 탭을 `TickerMode(enabled: false)` 로 감싸고, scope 는 활성 탭에서만 가로챈다(숨은 탭 애니메이션도 멈춘다).
+- 신고내역 선택 AppBar X 버튼에 tooltip `선택 취소` 추가(액션 바와 같은 문구).
+- 테스트: `test/widgets/selection_back_scope_test.dart` 4건(루트/ push / 숨은 탭 / 실제 ReportListScreen 길게 눌러 선택 → 뒤로가기).
+- `flutter analyze` error 0 / warning 2(기존) / info 36, `flutter test` 99 passed, 골든 4 통과.
+
 ### Gemini 최종 검수(R2) 반영 — 분석기 경고 정리
 
 상태: 완료

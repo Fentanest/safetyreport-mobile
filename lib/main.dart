@@ -712,7 +712,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
         children: List<Widget>.generate(_tabCount, (index) {
           final cached = _screenCache[index];
           if (cached != null || index == _selectedIndex) {
-            return _buildScreen(index);
+            // 숨은 탭은 TickerMode false — 애니메이션 정지 + SelectionBackScope 가 뒤로가기를 가로채지 않게 한다.
+            return TickerMode(
+              enabled: index == _selectedIndex,
+              child: _buildScreen(index),
+            );
           }
           return const SizedBox.shrink();
         }),

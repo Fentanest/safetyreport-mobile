@@ -6,6 +6,7 @@ import '../widgets/report_detail_sheet.dart';
 import '../widgets/report_list_card.dart';
 import '../widgets/search_filter_sheet.dart';
 import '../widgets/selection_action_bar.dart';
+import '../widgets/selection_back_scope.dart';
 import 'settings_screen.dart';
 import '../widgets/sr_tab_bar.dart';
 import '../widgets/status_badge.dart';
@@ -132,168 +133,181 @@ class _ReportListScreenState extends State<ReportListScreen>
         .where((r) => _selected.contains(r.reportNumber))
         .toList();
 
-    return Scaffold(
-      appBar: _selectionMode
-          ? AppBar(
-              leading: IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: _clearSelection,
-              ),
-              title: Text('${_selected.length}개 선택됨'),
-              backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-              foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
-              actions: [
-                TextButton(
-                  onPressed: canSelectAllCurrentTab
-                      ? _selectAllCurrentTab
-                      : null,
-                  style: TextButton.styleFrom(
-                    foregroundColor: Theme.of(
-                      context,
-                    ).colorScheme.onPrimaryContainer,
-                  ),
-                  child: const Text('일괄 선택'),
+    return SelectionBackScope(
+      selectionMode: _selectionMode,
+      onCancel: _clearSelection,
+      child: Scaffold(
+        appBar: _selectionMode
+            ? AppBar(
+                leading: IconButton(
+                  icon: const Icon(Icons.close),
+                  tooltip: '선택 취소',
+                  onPressed: _clearSelection,
                 ),
-              ],
-            )
-          : AppBar(
-              title: const Text('신고 내역'),
-              actions: [
-                Padding(
-                  padding: const EdgeInsets.only(right: 4),
-                  child: Center(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: provider.hasFilter
-                            ? Theme.of(context).colorScheme.primaryContainer
-                            : Theme.of(
-                                context,
-                              ).colorScheme.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                      child: Text(
-                        provider.hasFilter
-                            ? '검색 $currentCount건'
-                            : '$currentCount건',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
+                title: Text('${_selected.length}개 선택됨'),
+                backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                foregroundColor: Theme.of(
+                  context,
+                ).colorScheme.onPrimaryContainer,
+                actions: [
+                  TextButton(
+                    onPressed: canSelectAllCurrentTab
+                        ? _selectAllCurrentTab
+                        : null,
+                    style: TextButton.styleFrom(
+                      foregroundColor: Theme.of(
+                        context,
+                      ).colorScheme.onPrimaryContainer,
+                    ),
+                    child: const Text('일괄 선택'),
+                  ),
+                ],
+              )
+            : AppBar(
+                title: const Text('신고 내역'),
+                actions: [
+                  Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
                           color: provider.hasFilter
-                              ? Theme.of(context).colorScheme.onPrimaryContainer
-                              : Theme.of(context).colorScheme.onSurfaceVariant,
+                              ? Theme.of(context).colorScheme.primaryContainer
+                              : Theme.of(
+                                  context,
+                                ).colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          provider.hasFilter
+                              ? '검색 $currentCount건'
+                              : '$currentCount건',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: provider.hasFilter
+                                ? Theme.of(
+                                    context,
+                                  ).colorScheme.onPrimaryContainer
+                                : Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-                IconButton(
-                  icon: Badge(
-                    isLabelVisible: provider.hasFilter,
-                    child: const Icon(Icons.filter_list),
+                  IconButton(
+                    icon: Badge(
+                      isLabelVisible: provider.hasFilter,
+                      child: const Icon(Icons.filter_list),
+                    ),
+                    tooltip: '검색/필터',
+                    onPressed: () => _showSearchPopup(context),
                   ),
-                  tooltip: '검색/필터',
-                  onPressed: () => _showSearchPopup(context),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.settings),
-                  tooltip: '설정',
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                  IconButton(
+                    icon: const Icon(Icons.settings),
+                    tooltip: '설정',
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                    ),
                   ),
-                ),
-              ],
-              bottom: SrTabBar(
-                controller: _tabController,
-                tabs: const [
-                  Tab(text: '교통위반'),
-                  Tab(text: '주정차'),
-                  Tab(text: '기타위반'),
-                  Tab(text: '중복차량'),
                 ],
-              ),
-            ),
-      body: Stack(
-        children: [
-          Column(
-            children: [
-              if (provider.hasFilter && activeLabels.isNotEmpty)
-                Container(
-                  width: double.infinity,
-                  color: context.sr.brandSoft,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: activeLabels
-                          .map(
-                            (label) => Padding(
-                              padding: const EdgeInsets.only(right: 6),
-                              child: Chip(
-                                label: Text(
-                                  label,
-                                  style: const TextStyle(fontSize: 11),
-                                ),
-                                backgroundColor: Theme.of(
-                                  context,
-                                ).colorScheme.surface,
-                                side: BorderSide(
-                                  color: Theme.of(context).colorScheme.primary,
-                                ),
-                                padding: EdgeInsets.zero,
-                                materialTapTargetSize:
-                                    MaterialTapTargetSize.shrinkWrap,
-                              ),
-                            ),
-                          )
-                          .toList(),
-                    ),
-                  ),
-                ),
-              Expanded(
-                child: TabBarView(
+                bottom: SrTabBar(
                   controller: _tabController,
-                  children: [
-                    _buildTab(
-                      provider,
-                      provider.filteredTrafficReports,
-                      provider.fetchTrafficReports,
-                    ),
-                    _buildTab(
-                      provider,
-                      provider.filteredParkingReports,
-                      provider.fetchParkingReports,
-                    ),
-                    _buildTab(
-                      provider,
-                      provider.filteredOtherReports,
-                      provider.fetchOtherReports,
-                    ),
-                    _buildDuplicateTab(provider),
+                  tabs: const [
+                    Tab(text: '교통위반'),
+                    Tab(text: '주정차'),
+                    Tab(text: '기타위반'),
+                    Tab(text: '중복차량'),
                   ],
                 ),
               ),
-            ],
-          ),
-          if (_selectionMode)
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: SelectionActionBar(
-                selectedReports: selectedReports,
-                onCancel: _clearSelection,
-                onActionDone: _clearSelection,
-              ),
+        body: Stack(
+          children: [
+            Column(
+              children: [
+                if (provider.hasFilter && activeLabels.isNotEmpty)
+                  Container(
+                    width: double.infinity,
+                    color: context.sr.brandSoft,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: activeLabels
+                            .map(
+                              (label) => Padding(
+                                padding: const EdgeInsets.only(right: 6),
+                                child: Chip(
+                                  label: Text(
+                                    label,
+                                    style: const TextStyle(fontSize: 11),
+                                  ),
+                                  backgroundColor: Theme.of(
+                                    context,
+                                  ).colorScheme.surface,
+                                  side: BorderSide(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                  ),
+                                  padding: EdgeInsets.zero,
+                                  materialTapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    ),
+                  ),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _buildTab(
+                        provider,
+                        provider.filteredTrafficReports,
+                        provider.fetchTrafficReports,
+                      ),
+                      _buildTab(
+                        provider,
+                        provider.filteredParkingReports,
+                        provider.fetchParkingReports,
+                      ),
+                      _buildTab(
+                        provider,
+                        provider.filteredOtherReports,
+                        provider.fetchOtherReports,
+                      ),
+                      _buildDuplicateTab(provider),
+                    ],
+                  ),
+                ),
+              ],
             ),
-        ],
+            if (_selectionMode)
+              Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                child: SelectionActionBar(
+                  selectedReports: selectedReports,
+                  onCancel: _clearSelection,
+                  onActionDone: _clearSelection,
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

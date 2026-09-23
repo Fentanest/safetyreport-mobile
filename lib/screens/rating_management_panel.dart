@@ -8,6 +8,7 @@ import '../widgets/report_detail_sheet.dart';
 import '../widgets/report_list_card.dart';
 import '../widgets/search_filter_sheet.dart';
 import '../widgets/selection_action_bar.dart';
+import '../widgets/selection_back_scope.dart';
 
 class RatingManagementPanel extends StatefulWidget {
   const RatingManagementPanel({super.key});
@@ -113,143 +114,147 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
       surface: theme.colorScheme.surface,
     );
 
-    return Stack(
-      children: [
-        Column(
-          children: [
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surface,
-                border: Border(bottom: BorderSide(color: context.sr.border)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              '별점 가능 신고',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              hasApplicableFilter
-                                  ? '검색 ${reports.length}건'
-                                  : '${reports.length}건',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: hasApplicableFilter
-                                    ? theme.colorScheme.primary
-                                    : theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '참여 가능 상태의 신고건만 표시됩니다.',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (_selectionMode)
-                        TextButton(
-                          onPressed: canSelectAllReports
-                              ? () => _selectAllCurrentList(reports)
-                              : null,
-                          child: const Text('일괄 선택'),
-                        ),
-                      IconButton(
-                        icon: Badge(
-                          isLabelVisible: hasApplicableFilter,
-                          child: const Icon(Icons.filter_list),
-                        ),
-                        tooltip: '검색/필터',
-                        onPressed: () => _showSearchPopup(context),
-                      ),
-                    ],
-                  ),
-                  if (_selectionMode) ...[
-                    const SizedBox(height: 8),
+    return SelectionBackScope(
+      selectionMode: _selectionMode,
+      onCancel: _clearSelection,
+      child: Stack(
+        children: [
+          Column(
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface,
+                  border: Border(bottom: BorderSide(color: context.sr.border)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Row(
                       children: [
-                        Text(
-                          '${selectedReports.length}건 선택됨',
-                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                '별점 가능 신고',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                hasApplicableFilter
+                                    ? '검색 ${reports.length}건'
+                                    : '${reports.length}건',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: hasApplicableFilter
+                                      ? theme.colorScheme.primary
+                                      : theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '참여 가능 상태의 신고건만 표시됩니다.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                        const Spacer(),
-                        TextButton(
-                          onPressed: _clearSelection,
-                          child: const Text('선택 해제'),
+                        if (_selectionMode)
+                          TextButton(
+                            onPressed: canSelectAllReports
+                                ? () => _selectAllCurrentList(reports)
+                                : null,
+                            child: const Text('일괄 선택'),
+                          ),
+                        IconButton(
+                          icon: Badge(
+                            isLabelVisible: hasApplicableFilter,
+                            child: const Icon(Icons.filter_list),
+                          ),
+                          tooltip: '검색/필터',
+                          onPressed: () => _showSearchPopup(context),
                         ),
                       ],
                     ),
-                  ],
-                ],
-              ),
-            ),
-            if (hasApplicableFilter && activeLabels.isNotEmpty)
-              Container(
-                width: double.infinity,
-                color: primaryTone.background,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: activeLabels
-                        .map(
-                          (label) => Padding(
-                            padding: const EdgeInsets.only(right: 6),
-                            child: Chip(
-                              label: Text(
-                                label,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: primaryTone.foreground,
-                                ),
-                              ),
-                              backgroundColor: theme.colorScheme.surface,
-                              side: BorderSide(color: primaryTone.border),
-                              padding: EdgeInsets.zero,
-                              materialTapTargetSize:
-                                  MaterialTapTargetSize.shrinkWrap,
-                            ),
+                    if (_selectionMode) ...[
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Text(
+                            '${selectedReports.length}건 선택됨',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
-                        )
-                        .toList(growable: false),
+                          const Spacer(),
+                          TextButton(
+                            onPressed: _clearSelection,
+                            child: const Text('선택 해제'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (hasApplicableFilter && activeLabels.isNotEmpty)
+                Container(
+                  width: double.infinity,
+                  color: primaryTone.background,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: activeLabels
+                          .map(
+                            (label) => Padding(
+                              padding: const EdgeInsets.only(right: 6),
+                              child: Chip(
+                                label: Text(
+                                  label,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: primaryTone.foreground,
+                                  ),
+                                ),
+                                backgroundColor: theme.colorScheme.surface,
+                                side: BorderSide(color: primaryTone.border),
+                                padding: EdgeInsets.zero,
+                                materialTapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ),
+                          )
+                          .toList(growable: false),
+                    ),
                   ),
                 ),
-              ),
-            Expanded(child: _buildBody(provider, reports)),
-          ],
-        ),
-        if (_selectionMode)
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: SelectionActionBar(
-              selectedReports: selectedReports,
-              onCancel: _clearSelection,
-              onActionDone: _clearSelection,
-            ),
+              Expanded(child: _buildBody(provider, reports)),
+            ],
           ),
-      ],
+          if (_selectionMode)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: SelectionActionBar(
+                selectedReports: selectedReports,
+                onCancel: _clearSelection,
+                onActionDone: _clearSelection,
+              ),
+            ),
+        ],
+      ),
     );
   }
 

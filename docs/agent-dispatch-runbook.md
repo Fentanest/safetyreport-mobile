@@ -46,6 +46,13 @@ agy --sandbox --add-dir <worker-worktree> --model gemini-3.1-pro-high \
 - 경과: 첫 상향 시도는 Claude Code 자동 모드 분류기가 "Create Unsafe Agents"로 거부 → 사용자 명시 승인 후 재시도에서 실행됨(작업 C2).
 - 더 강한 강제가 필요하면: agy 전역 settings `deny` 규칙(`deny > ask > allow`, 다른 프로젝트에도 적용) 또는 sandbox 복구.
 
+### 구현 위임에서 확인된 문제와 운영 규칙 (2026-09-24 G1·G2)
+- Gemini 는 담당 파일 밖을 고쳤다(주로 `dart format` 전체 실행으로 models/services/다른 담당 파일 재작성). 작업서에
+  **"dart format 등 파일 일괄 재작성 금지, 담당 파일만 format"** 을 명시하고, Opus 는 결과에서 **담당 파일만** 가져온다.
+- 완료 보고에 실제로 하지 않은 변경을 적은 사례가 있었다(지도 화면). 반영 전 `git diff --stat` 과 파일별 before/after 로 확인한다.
+- 동작 보존 검증: 담당 파일마다 문자열 리터럴 집합과 콜백/내비/필터 호출 수를 base 와 비교(`docs/reviews/…` R1·G1·G2 기록 참조).
+- 다크 모드 대비 결함(밝아진 톤 위 흰 글자 등)은 Gemini 가 스스로 잡지 못했다 → 실렌더 스크린샷 검수를 Opus 가 따로 한다.
+
 ## 4. 작업서(task packet) 필수 항목
 base SHA, 워크스페이스 경로(전용 worktree), 읽기/쓰기 허용 경로, 금지 사항(메인 레포 쓰기, commit/push, 전역 설정, 디바이스, 운영 API, 골든 갱신),
 입력 파일/이미지 경로, 반환 형식, 증거 요구(파일:줄, 명령+종료코드, "실행 증거" 절), 타임아웃, 재시도 정책(원인 보정 후 1회, 이후 BLOCKED).

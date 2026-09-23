@@ -11,6 +11,7 @@ import '../models/agency_stats.dart';
 import '../models/sunwi.dart';
 import 'network_retry_config.dart';
 import 'server_contract.dart';
+import '../models/stats_overview.dart';
 
 class ApiFeatureUnavailableException implements Exception {
   final String message;
@@ -379,6 +380,31 @@ class ApiService {
       deletedCount: (json['deleted_count'] as num?)?.toInt() ?? 0,
       errors: rawErrors.map((error) => error.toString()).toList(),
     );
+  }
+
+  /// 통계 요약 + 월별 추이. 구서버(엔드포인트 없음)는 [ApiFeatureUnavailableException].
+  Future<StatsOverview> getStatsOverview({String? year, String? law}) async {
+    final params = <String, String>{};
+    if (year != null && year != 'all') params['year'] = year;
+    if (law != null) params['law'] = law;
+    final uri = ServerContract.apiUri(
+      baseUrl,
+      ServerContract.statsOverviewPath,
+      queryParameters: params.isNotEmpty ? params : null,
+    );
+    final response = await _sendWithRetry(
+      () => http.get(uri, headers: _headers),
+    );
+    if (response.statusCode == 404) {
+      throw const ApiFeatureUnavailableException(
+        '서버가 통계 요약 API를 아직 지원하지 않습니다. 서버를 업데이트하면 요약과 월별 추이가 표시됩니다.',
+      );
+    }
+    if (response.statusCode == 200) {
+      final json = jsonDecode(response.body);
+      return StatsOverview.fromJson(json['data'] as Map<String, dynamic>);
+    }
+    throw Exception('통계 요약 로드 실패: ${response.statusCode}');
   }
 
   Future<AgencyStats> getStats({String? year, String? law}) async {

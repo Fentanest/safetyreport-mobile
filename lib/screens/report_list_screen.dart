@@ -7,6 +7,7 @@ import '../widgets/report_list_card.dart';
 import '../widgets/search_filter_sheet.dart';
 import '../widgets/selection_action_bar.dart';
 import 'settings_screen.dart';
+import '../widgets/sr_tab_bar.dart';
 
 class ReportListScreen extends StatefulWidget {
   final int initialTabIndex;
@@ -203,12 +204,8 @@ class _ReportListScreenState extends State<ReportListScreen>
                   ),
                 ),
               ],
-              bottom: TabBar(
+              bottom: SrTabBar(
                 controller: _tabController,
-                labelColor: Colors.white,
-                unselectedLabelColor: Colors.white70,
-                indicatorColor: Colors.white,
-                indicatorWeight: 3,
                 tabs: const [
                   Tab(text: '교통위반'),
                   Tab(text: '주정차'),

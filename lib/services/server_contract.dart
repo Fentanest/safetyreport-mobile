@@ -7,6 +7,7 @@ class ServerContract {
   static const summaryPath = '$apiPrefix/summary';
   static const filesPath = '$apiPrefix/files';
   static const statsPath = '$apiPrefix/stats';
+  static const statsOverviewPath = '$apiPrefix/stats/overview';
   static const statsMapPath = '$apiPrefix/stats/map';
   static const statsMapMissingPath = '$apiPrefix/stats/map/missing';
   static const statsMapProgressPath = '$apiPrefix/stats/map/progress';

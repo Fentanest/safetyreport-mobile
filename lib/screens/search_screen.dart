@@ -88,10 +88,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 if (hasFilter)
                   TextButton(
                     onPressed: provider.clearFilter,
-                    child: const Text(
-                      '초기화',
-                      style: TextStyle(color: Colors.white),
-                    ),
+                    child: const Text('초기화'),
                   ),
                 IconButton(
                   icon: Badge(

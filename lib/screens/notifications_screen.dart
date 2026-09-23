@@ -15,6 +15,7 @@ import '../server_palette.dart';
 import '../services/api_service.dart';
 import '../widgets/duplicate_group_detail_sheet.dart';
 import '../widgets/report_detail_sheet.dart';
+import '../widgets/sr_tab_bar.dart';
 
 const _permChannel = MethodChannel('com.fentanest.mysafetyreport/permissions');
 
@@ -433,7 +434,6 @@ class _NotificationsScreenState extends State<NotificationsScreen>
             TextButton.icon(
               icon: const Icon(Icons.done_all, size: 18),
               label: const Text('모두 읽음'),
-              style: TextButton.styleFrom(foregroundColor: Colors.white),
               onPressed: provider.markAllRead,
             ),
           if (allItems.isNotEmpty)
@@ -447,12 +447,8 @@ class _NotificationsScreenState extends State<NotificationsScreen>
               },
             ),
         ],
-        bottom: TabBar(
+        bottom: SrTabBar(
           controller: _tabController,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
-          indicatorColor: Colors.white,
-          indicatorWeight: 3,
           tabs: [
             _tabWithBadge('크롤링 현황', crawlUnread),
             _tabWithBadge('신고 결과', reportUnread),

@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:safetyreport/models/report.dart';
 import 'package:safetyreport/providers/report_provider.dart';
 import 'package:safetyreport/screens/report_management_screen.dart';
+import 'package:safetyreport/theme/app_theme.dart';
+import 'package:safetyreport/theme/sr_colors.dart';
 import 'package:safetyreport/widgets/report_detail_sheet.dart';
 
 Report _report({String category = 'traffic'}) {
@@ -100,22 +103,66 @@ void main() {
     expect(provider.forceRefreshValue, isTrue);
   });
 
-  testWidgets('신고관리 상단 탭은 선택/미선택 글자와 표시선이 밝게 보인다', (tester) async {
-    final provider = ReportProvider();
-    addTearDown(provider.dispose);
+  // 원래 목적(선택/미선택 구분, 글자 가독성, 표시선 가시성)을 유지하면서 고정 색 대신
+  // 실제 렌더된 색과 배경의 대비를 라이트/다크 모두 검사한다(docs/testing/ui-test-plan.md §3).
+  for (final brightness in Brightness.values) {
+    testWidgets('신고관리 상단 탭은 선택/미선택이 구분되고 대비 기준을 만족한다 (${brightness.name})', (
+      tester,
+    ) async {
+      final provider = ReportProvider();
+      addTearDown(provider.dispose);
 
-    await tester.pumpWidget(
-      ChangeNotifierProvider<ReportProvider>.value(
-        value: provider,
-        child: const MaterialApp(home: ReportManagementScreen()),
-      ),
-    );
-    await tester.pump();
+      await tester.pumpWidget(
+        ChangeNotifierProvider<ReportProvider>.value(
+          value: provider,
+          child: MaterialApp(
+            theme: AppTheme.build(brightness),
+            home: const ReportManagementScreen(),
+          ),
+        ),
+      );
+      await tester.pump();
 
-    final tabBar = tester.widget<TabBar>(find.byType(TabBar));
-    expect(tabBar.labelColor, Colors.white);
-    expect(tabBar.unselectedLabelColor, Colors.white70);
-    expect(tabBar.indicatorColor, Colors.white);
-    expect(tabBar.indicatorWeight, 3);
-  });
+      Color textColor(String label) => tester
+          .renderObject<RenderParagraph>(find.text(label))
+          .text
+          .style!
+          .color!;
+
+      final theme = Theme.of(tester.element(find.byType(TabBar)));
+      final appBarBackground = tester
+          .widget<Material>(
+            find
+                .descendant(
+                  of: find.byType(AppBar),
+                  matching: find.byType(Material),
+                )
+                .first,
+          )
+          .color!;
+      final indicator = theme.tabBarTheme.indicator as BoxDecoration;
+      final pill = Color.alphaBlend(indicator.color!, appBarBackground);
+
+      final selected = textColor('별점');
+      final unselected = textColor('감시 목록');
+
+      expect(selected, isNot(equals(unselected)));
+      expect(contrastRatio(selected, pill), greaterThanOrEqualTo(4.5));
+      expect(
+        contrastRatio(unselected, appBarBackground),
+        greaterThanOrEqualTo(4.5),
+      );
+      // 선택 표시(알약)는 배경과 구분돼야 한다(비텍스트 3:1).
+      expect(contrastRatio(pill, appBarBackground), greaterThanOrEqualTo(3.0));
+
+      // 탭 이동: 누른 탭이 선택 색으로 바뀐다.
+      await tester.tap(find.text('중복 신고'));
+      // 탭 전환 애니메이션은 여러 프레임에 걸쳐 진행된다.
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      expect(textColor('중복 신고'), selected);
+      expect(textColor('별점'), unselected);
+    });
+  }
 }

@@ -1,15 +1,20 @@
 import 'package:flutter/material.dart';
 
-const serverSupplementColor = Color(0xFFFD7E14);
-const serverProcessingColor = Color(0xFF6C757D);
-const serverCompletedColor = Color(0xFF0DCAF0);
-const serverRejectColor = Color(0xFFDC3545);
-const serverAcceptColor = Color(0xFF198754);
-const serverPartialAcceptColor = Color(0xFFFFC107);
-const serverWithdrawColor = Color(0xFF6C757D);
+// 상태·처분 기준색.
+// 2026-09-24 UI 리뉴얼(D-02 선택지 c): 모바일이 디자인 토큰 상태색으로 먼저 바뀌었다.
+// 서버 웹은 별도 작업으로 추종 예정이므로 그 전까지 웹과 모바일 배지 색이 다르다.
+// 배지 글자/배경은 이 기준색을 `StatusTone`(lib/theme/sr_colors.dart)으로 변환해 AA 대비를 맞춘다.
+const serverSupplementColor = Color(0xFFF97316);
+const serverProcessingColor = Color(0xFF3B82F6);
+const serverCompletedColor = Color(0xFF06B6D4);
+const serverRejectColor = Color(0xFFEF4444);
+const serverAcceptColor = Color(0xFF22C55E);
+const serverPartialAcceptColor = Color(0xFFF59E0B);
+const serverWithdrawColor = Color(0xFF94A3B8);
 
-const serverTrafficFineColor = Color(0xFFE83E8C);
-const serverTrafficPenaltyColor = Color(0xFF6C757D);
+const serverTrafficFineColor = Color(0xFFEC4899);
+const serverTrafficPenaltyColor = Color(0xFF8B5CF6);
+const serverUnconfirmedColor = Color(0xFF6B7280);
 
 Color serverStatusColor(String status) {
   final value = status.trim();
@@ -22,7 +27,7 @@ Color serverStatusColor(String status) {
   if (value.contains('처리') || value.contains('진행') || value.contains('검토')) {
     return serverProcessingColor;
   }
-  return Colors.grey;
+  return serverUnconfirmedColor;
 }
 
 Color serverFineColor(String fine) {
@@ -31,5 +36,5 @@ Color serverFineColor(String fine) {
   if (value.contains('경고') || value.contains('범칙금')) {
     return serverTrafficPenaltyColor;
   }
-  return Colors.grey;
+  return serverUnconfirmedColor;
 }

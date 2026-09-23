@@ -51,3 +51,6 @@ app.*.map.json
 docs/design/reference/*.png
 # agent run logs/screenshots
 .agent-runs/
+
+# golden 비교 실패 산출물
+test/**/failures/

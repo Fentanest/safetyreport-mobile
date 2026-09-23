@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/agency_stats.dart';
 import '../models/app_mode.dart';
+import '../models/stats_overview.dart';
 import '../providers/report_provider.dart';
 import '../server_palette.dart';
 import '../services/api_service.dart';
@@ -9,6 +10,7 @@ import '../services/local_db_service.dart';
 import 'report_map_screen.dart';
 import 'report_list_screen.dart';
 import 'settings_screen.dart';
+import '../widgets/stats_overview_section.dart';
 
 class StatisticsScreen extends StatefulWidget {
   const StatisticsScreen({super.key});
@@ -21,6 +23,10 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   AgencyStats? _stats;
   bool _loading = true;
   String? _error;
+
+  /// 요약 카드 + 월별 추이. 기관표와 독립적으로 불러와서 실패해도 표는 그대로 보인다.
+  StatsOverview? _overview;
+  String? _overviewNotice;
 
   String _year = 'all'; // 'all' | '2026' | '2025' | ...
   String _cat = 'traffic'; // traffic | parking | other
@@ -56,12 +62,13 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       _loading = true;
       _error = null;
     });
+    final p = context.read<ReportProvider>();
+    final year = _year == 'all' ? null : _year;
     try {
-      final p = context.read<ReportProvider>();
       AgencyStats stats;
       if (p.appMode == AppMode.standalone) {
         final raw = await LocalDbService.computeStats(
-          year: _year == 'all' ? null : _year,
+          year: year,
           law: _law,
           excludeWithdraw: p.excludeWithdraw,
           normalizePolice: p.normalizePolice,
@@ -70,24 +77,68 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         stats = AgencyStats.fromJson(raw);
       } else {
         final api = ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
-        stats = await api.getStats(
-          year: _year == 'all' ? null : _year,
-          law: _law,
-        );
+        stats = await api.getStats(year: year, law: _law);
       }
-      if (mounted)
+      if (mounted) {
         setState(() {
           _stats = stats;
           _loading = false;
         });
+      }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _error = e.toString();
           _loading = false;
         });
+      }
+      return;
     }
+    await _loadOverview(p, year);
   }
+
+  Future<void> _loadOverview(ReportProvider p, String? year) async {
+    StatsOverview? overview;
+    String? notice;
+    try {
+      if (p.appMode == AppMode.standalone) {
+        // sqflite 단일 연결: 기관표 집계가 끝난 뒤 순차 실행한다.
+        overview = StatsOverview.fromJson(
+          await LocalDbService.computeStatsOverview(
+            year: year,
+            law: _law,
+            excludeWithdraw: p.excludeWithdraw,
+            useRepresentativeRecords: p.useRepresentativeRecords,
+          ),
+        );
+      } else {
+        final api = ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
+        overview = await api.getStatsOverview(year: year, law: _law);
+      }
+    } on ApiFeatureUnavailableException catch (e) {
+      notice = e.message;
+    } catch (e) {
+      notice = '요약을 불러오지 못했습니다: $e';
+    }
+    if (!mounted) return;
+    setState(() {
+      _overview = overview;
+      _overviewNotice = notice;
+    });
+  }
+
+  static const _catLabels = {
+    'traffic': '교통위반',
+    'parking': '주정차위반',
+    'other': '기타위반',
+  };
+
+  Widget get _overviewHeader => StatsOverviewSection(
+    summary: _overview?.forCategory(_cat),
+    categoryLabel: _catLabels[_cat] ?? '',
+    yearBasis: _overview?.yearBasis ?? '',
+    notice: _overviewNotice ?? (_overview == null ? '요약을 불러오는 중입니다…' : null),
+  );
 
   List<AgencyStatRow> get _currentRows {
     if (_stats == null) return [];
@@ -234,8 +285,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                     ReportMapScreen(initialYear: _year, initialCategory: 'all'),
               ),
             ),
-            icon: const Icon(Icons.map_outlined, size: 18, color: Colors.white),
-            label: const Text('지도', style: TextStyle(color: Colors.white)),
+            icon: const Icon(Icons.map_outlined, size: 18),
+            label: const Text('지도'),
           ),
           IconButton(
             icon: const Icon(Icons.settings),
@@ -267,6 +318,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                 : _error != null
                 ? _buildError()
                 : _StatsTable(
+                    header: _overviewHeader,
                     rows: _currentRows,
                     showPerson: _showPerson,
                     category: _cat,
@@ -568,6 +620,7 @@ class _NavBar extends StatelessWidget {
 
 // ── 통계 목록 ────────────────────────────────────────────────────
 class _StatsTable extends StatelessWidget {
+  final Widget? header;
   final List<AgencyStatRow> rows;
   final bool showPerson;
   final String category;
@@ -576,6 +629,7 @@ class _StatsTable extends StatelessWidget {
   final Future<void> Function() onRefresh;
 
   const _StatsTable({
+    this.header,
     required this.rows,
     required this.showPerson,
     required this.category,
@@ -590,10 +644,17 @@ class _StatsTable extends StatelessWidget {
       return RefreshIndicator(
         onRefresh: onRefresh,
         child: ListView(
-          children: const [
-            SizedBox(height: 120),
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 80),
+          children: [
+            ?header,
+            const SizedBox(height: 60),
             Center(
-              child: Text('데이터가 없습니다.', style: TextStyle(color: Colors.grey)),
+              child: Text(
+                '데이터가 없습니다.',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
             ),
           ],
         ),
@@ -604,15 +665,19 @@ class _StatsTable extends StatelessWidget {
       onRefresh: onRefresh,
       child: ListView.builder(
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 80),
-        itemCount: rows.length,
-        itemBuilder: (context, i) => _RowCard(
-          row: rows[i],
-          showPerson: showPerson,
-          rank: i + 1,
-          category: category,
-          year: year,
-          law: law,
-        ),
+        itemCount: rows.length + (header == null ? 0 : 1),
+        itemBuilder: (context, index) {
+          final i = header == null ? index : index - 1;
+          if (i < 0) return header!;
+          return _RowCard(
+            row: rows[i],
+            showPerson: showPerson,
+            rank: i + 1,
+            category: category,
+            year: year,
+            law: law,
+          );
+        },
       ),
     );
   }

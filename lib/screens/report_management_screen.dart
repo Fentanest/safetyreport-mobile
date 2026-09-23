@@ -4,6 +4,7 @@ import 'data_editor_screen.dart';
 import 'duplicate_management_screen.dart';
 import 'rating_management_panel.dart';
 import 'watchlist_screen.dart';
+import '../widgets/sr_tab_bar.dart';
 
 class ReportManagementScreen extends StatefulWidget {
   final int initialTabIndex;
@@ -39,12 +40,8 @@ class _ReportManagementScreenState extends State<ReportManagementScreen>
     return Scaffold(
       appBar: AppBar(
         title: const Text('신고관리'),
-        bottom: TabBar(
+        bottom: SrTabBar(
           controller: _tabController,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
-          indicatorColor: Colors.white,
-          indicatorWeight: 3,
           tabs: const [
             Tab(text: '별점'),
             Tab(text: '감시 목록'),

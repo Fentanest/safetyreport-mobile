@@ -1,0 +1,4 @@
+tags:
+  # 골든 테스트: 호스트 한글 폰트(Noto CJK)와 Flutter SDK MaterialIcons 가 있을 때만 비교한다.
+  # 기준 이미지는 이 저장소의 Linux 개발 호스트 렌더. 다른 환경에서는 자동으로 skip 된다.
+  golden:

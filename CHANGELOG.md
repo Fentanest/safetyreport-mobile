@@ -4,8 +4,75 @@
 
 - 구조/운영 컨텍스트는 `CLAUDE.md`에 유지
 - 2026-05-01에 `CLAUDE.md`의 작업 이력 섹션과 최근 검색 기능 변경을 이 파일로 이관 시작
+- 2026-09-24부터 구조/운영 컨텍스트는 `docs/architecture/`로 옮겼다(루트 `CLAUDE.md`는 공통 문서 import + 역할만)
 
 ---
+
+## 2026-09-24 (버전 변경 없음, 브랜치 `docs/ui-renewal-bootstrap`)
+
+### UI 리뉴얼 시범 구현: 테마·신고 카드·대시보드·상단 탭·통계 요약
+
+상태: 시범 범위 구현·테스트·에뮬레이터 실렌더 완료 / 커밋·배포 안 함 / 골든은 사용자 승인 대기 후보
+
+사용자 결정: D-01 다크=슬레이트, D-02 상태색 모바일 먼저(웹은 별도), D-03 primary 통합+모드 별도 표시, D-04 기기 기본 글꼴,
+S-02 평균 처리일 직접 계산(Standalone 로컬, Client 서버 API), Client 월별 추이=서버 신규 API, 과태료 월별 차트 없음.
+
+변경:
+- 테마: `lib/theme/sr_colors.dart`(토큰·`contrastRatio`·`StatusTone`), `lib/theme/app_theme.dart`. `main.dart` 는 공통 테마 사용(모드별 파랑/초록 primary 폐지). 앱바는 배경색
+- `lib/server_palette.dart`: 토큰 상태색으로 교체. 흰 글자 채움은 8/10 상태가 AA 미달이라 배지·카드는 `StatusTone` 틴트로 그림
+- 신규 위젯: `StatusBadge`, `ModeBadge`(대시보드 앱바), `SrTabBar`(신고내역·신고관리·알림 상단 탭), `StatsOverviewSection`
+- `report_list_card.dart`: 긴 신고명·차량번호 overflow 수정(차량번호 칩 40% 상한+말줄임, 신고명 2줄). 표시 필드·콜백 동일
+- `dashboard_screen.dart`: 토큰/틴트 색, 도넛 조각 흰 % 제거 → 범례에 비율, 중앙 총 N건. 하드코딩 색 0개
+- 통계: `LocalDbService.computeStatsOverview`/`summarizeOverviewRows`(행 조회는 `_queryStatsRows` 로 분리, `computeStats` 동작 동일),
+  `ApiService.getStatsOverview`(구서버 404 → 미지원 안내), `ServerContract.statsOverviewPath`, `models/stats_overview.dart`,
+  통계 화면 기관표 위에 요약 카드+월별 추이(신고일/답변일 기준 분리)+기준 각주
+- 앱바 안 `Colors.white` 제거: 통계 '지도' 버튼, 알림 '모두 읽음', 검색 '초기화'
+- README 배지 색·통계 설명 갱신, 설계·통계·보존표·아키텍처 문서 갱신
+
+테스트:
+- `test/report_navigation_regression_test.dart`: 탭 고정 색 단언 → 실제 렌더 색의 AA 대비·선택 구분·표시선·탭 이동을 라이트/다크 검사
+- 신규: `test/theme/theme_contrast_test.dart`, `test/widgets/report_list_card_test.dart`(360dp × 1.0/1.3/2.0 × 라이트/다크 overflow 0 + Guideline 3종),
+  `test/widgets/stats_overview_section_test.dart`, `test/services/stats_overview_test.dart`(서버 테스트와 같은 입력·기대값),
+  `test/golden/renewal_golden_test.dart`(`golden` 태그, 폰트 없으면 skip, `dart_test.yaml`), 공용 `test/support/ui_harness.dart`
+- 옛 카드 코드로 돌려 overflow 테스트가 실제로 실패(79/109px)하는 것 확인 후 복구
+- DB 테스트 두 파일이 병렬 실행 시 같은 sqflite 경로를 공유해 간헐 실패(Gemini R1 지적, 재현) → 파일별 임시 DB 경로로 수정, 전체 6회 연속 통과
+
+검증:
+- `flutter analyze`: error 0 / warning 2(기존 setup_screen) / info 65 (시작 baseline info 73)
+- `flutter test`: 90 passed (6회 연속)
+- 에뮬레이터 `sr_uitest_api35`(Android 15) debug APK, Standalone 데모 모드 라이트/다크 실렌더 → `docs/testing/renders/2026-09-24/`. 실렌더에서 통계 차트 y축 라벨 중복 발견·수정
+- Gemini(agy) 독립 검수 R1: `docs/reviews/2026-09-24-gemini-bootstrap-review.md`
+
+남은 것: Client 모드 실렌더(가짜 서버 fixture 필요), 범위 밖 화면 잔여 하드코딩 색, S-01·S-03~S-06·S-08·S-09 결정, 골든 기준 승인
+
+### UI 리뉴얼 준비 1단계: 문서 체계화·도구 연결·기능/에셋 대조
+
+상태: 문서·도구 연결 완료 / 앱 코드 무변경 / 시범 구현 미착수
+
+변경:
+- 루트 문서: `AGENTS.md`, `PROJECT_RULES.md`, `GEMINI.md` 추가. `CLAUDE.md` 를 `@AGENTS.md` `@PROJECT_RULES.md` import + Opus 역할로 교체
+- 기존 `CLAUDE.md` 원문을 `docs/architecture/legacy-claude-reference.md` 에 바이트 동일 보관,
+  본문을 `overview.md` / `android-runtime.md` / `data-contracts.md` 로 분할(원문 10~823행 누락 0줄 검사), 제목별 대응표 `docs/architecture/README.md`
+- 코드 대조로 원문 정정 사항 기록(원문은 수정하지 않음): 신고관리 하위 탭 4개, SQLite version 10·보완 컬럼 7개,
+  재시도 5회, 부팅 흐름 edge-to-edge 방식, 누락 파일 목록, 다크 테마 존재
+- `docs/design/`: `ui-renewal-spec.md`(시각 정본·토큰 제안·결정 필요 D-01~09), `feature-matrix.csv`(기존 기능 158행 + 개선/제외/결정 14행),
+  `asset-manifest.csv`(시안 14장 sha256·알파·사용 제한), `statistics-spec.md`(지표 정의·발견 이슈 S-01~07)
+- `docs/testing/ui-test-plan.md`(환경 실측·baseline·fixture·디바이스 규칙), `docs/agent-dispatch-runbook.md`(agy 호출·권한 실측)
+- `docs/reviews/2026-09-24-gemini-bootstrap-review.md` + 원문 응답/작업서 보관
+- 프로젝트 스킬 3종 `.agents/skills/` 원문 + `.claude/skills/` 심볼릭 링크, agy 용 Dart MCP `.agents/mcp_config.json`
+- `.gitignore`: `docs/design/reference/*.png`(시안 원본 ~20MB, 해시로 추적), `.agent-runs/`
+- 로컬 전용(커밋 대상 아님): Flutter 공식 Claude 플러그인 `dart-flutter@dart-flutter` 1.0.5 를 local scope 로 설치,
+  Android cmdline-tools 23.0 설치, SDK 라이선스 수락 실행, 테스트 전용 AVD `sr_uitest_api35` 생성·부팅 확인
+
+발견(코드 미수정):
+- `ReportListCard` 360dp·긴 차량번호에서 RenderFlex overflow(1.0배 48px, 2.0배 334px)
+- `rating_management_panel.dart:138` `'검색 $reports.length건'` 문자열 보간 오류
+- 중복차량 탭 선택 목록 구성 누락 가능성(`report_list_screen.dart:122-129`, 미검증)
+- 통계: 평균 처리일 모드 간 계산 차이, 표본수 미노출, 취하 제외 SQL 의 NULL 처리, '미확인' 이중 정의, Client 통계 `dedupe` 미전달
+
+검증:
+- `flutter analyze` baseline: error 0 / warning 2 / info 73 (종료코드 1), `flutter test` 34 passed — 이번 변경은 앱 코드를 건드리지 않음
+- Gemini(agy `gemini-3.1-pro-high`) 독립 검토 3건 실행, 수용/반박 기록
 
 ## 2026-08-16 (1.3.5+30)
 

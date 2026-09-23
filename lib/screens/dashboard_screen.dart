@@ -13,6 +13,9 @@ import 'report_management_screen.dart';
 import 'settings_screen.dart';
 import 'filtered_list_screen.dart';
 import 'sunwi_screen.dart';
+import '../theme/sr_colors.dart';
+import '../widgets/mode_badge.dart';
+import '../widgets/status_badge.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -40,7 +43,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('대시보드'),
+        title: Row(
+          children: [
+            const Flexible(
+              child: Text('대시보드', overflow: TextOverflow.ellipsis),
+            ),
+            const SizedBox(width: 8),
+            ModeBadge(
+              mode: provider.appMode,
+              isDemo: provider.isStandaloneDemo,
+            ),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
@@ -83,7 +97,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(icon, size: 72, color: Colors.grey.shade400),
+                  Icon(icon, size: 72, color: context.sr.textDisabled),
                   const SizedBox(height: 20),
                   Text(
                     title,
@@ -95,7 +109,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   const SizedBox(height: 8),
                   Text(
                     subtitle,
-                    style: const TextStyle(color: Colors.grey, fontSize: 13),
+                    style: TextStyle(
+                      color: context.sr.textSecondary,
+                      fontSize: 13,
+                    ),
                   ),
                   if (error != null) ...[
                     const SizedBox(height: 16),
@@ -103,15 +120,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: Colors.red.shade50,
+                        color: _tone(serverRejectColor).background,
                         borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: Colors.red.shade200),
+                        border: Border.all(
+                          color: _tone(serverRejectColor).border,
+                        ),
                       ),
                       child: SelectableText(
                         error,
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.red.shade800,
+                          color: _tone(serverRejectColor).foreground,
                           height: 1.6,
                           fontFamily: 'monospace',
                         ),
@@ -190,7 +209,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _buildStatCard(
           '전체',
           stats.total,
-          Colors.blue,
+          context.sr.brand,
           Icons.assignment_rounded,
           filter: (r) => true,
         ),
@@ -251,13 +270,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     IconData icon, {
     required bool Function(Report) filter,
   }) {
+    final tone = _tone(color);
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: color.withOpacity(0.2)),
+        side: BorderSide(color: tone.border),
       ),
-      color: color.withOpacity(0.06),
+      color: tone.background,
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
         onTap: value > 0
@@ -279,36 +299,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: color,
+                  Expanded(
+                    child: Text(
+                      label,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: tone.foreground,
+                      ),
                     ),
                   ),
-                  Icon(icon, color: color.withOpacity(0.7), size: 20),
+                  Icon(icon, color: tone.foreground, size: 20),
                 ],
               ),
               Row(
                 children: [
-                  Text(
-                    '$value건',
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                      color: color,
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '$value건',
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w800,
+                          color: tone.foreground,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
                     ),
                   ),
                   if (value > 0) ...[
                     const Spacer(),
-                    Icon(
-                      Icons.chevron_right,
-                      size: 16,
-                      color: color.withOpacity(0.5),
-                    ),
+                    Icon(Icons.chevron_right, size: 18, color: tone.foreground),
                   ],
                 ],
               ),
@@ -316,6 +341,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  StatusTone _tone(Color base) {
+    final theme = Theme.of(context);
+    return StatusTone.of(
+      base,
+      brightness: theme.brightness,
+      surface: theme.colorScheme.surface,
     );
   }
 
@@ -329,10 +363,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           children: [
             Row(
               children: [
-                const Icon(
+                Icon(
                   Icons.directions_car,
                   size: 18,
-                  color: Colors.blueGrey,
+                  color: context.sr.textSecondary,
                 ),
                 const SizedBox(width: 6),
                 const Text(
@@ -366,7 +400,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 _miniStat(
                   '미확인',
                   stats.tUnconfirmedCount,
-                  Colors.blueGrey,
+                  serverUnconfirmedColor,
                   filter: (r) =>
                       r.fineInfo == '미확인' &&
                       !r.status.contains('불수용') &&
@@ -410,13 +444,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
-                  color: color,
+                  color: _tone(color).foreground,
                 ),
               ),
               const SizedBox(height: 2),
               Text(
                 label,
-                style: const TextStyle(fontSize: 11, color: Colors.grey),
+                style: TextStyle(fontSize: 11, color: context.sr.textSecondary),
                 textAlign: TextAlign.center,
               ),
             ],
@@ -446,7 +480,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           children: [
             Row(
               children: [
-                const Icon(Icons.pie_chart, size: 18, color: Colors.blueGrey),
+                Icon(
+                  Icons.pie_chart,
+                  size: 18,
+                  color: context.sr.textSecondary,
+                ),
                 const SizedBox(width: 6),
                 const Text(
                   '처리 현황',
@@ -455,7 +493,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 const Spacer(),
                 Text(
                   '총 $total건',
-                  style: const TextStyle(color: Colors.grey, fontSize: 13),
+                  style: TextStyle(
+                    color: context.sr.textSecondary,
+                    fontSize: 13,
+                  ),
                 ),
               ],
             ),
@@ -463,29 +504,49 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Row(
               children: [
                 SizedBox(
-                  height: 160,
-                  width: 160,
-                  child: PieChart(
-                    PieChartData(
-                      sections: sections
-                          .map(
-                            (e) => PieChartSectionData(
-                              value: e.$1.toDouble(),
-                              color: e.$2,
-                              title:
-                                  '${(e.$1 / total * 100).toStringAsFixed(0)}%',
-                              radius: 48,
-                              titleStyle: const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
+                  height: 150,
+                  width: 150,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      PieChart(
+                        PieChartData(
+                          // 조각 안 흰 글자는 노랑·하늘색 위 대비가 부족해 범례에 비율을 둔다.
+                          sections: sections
+                              .map(
+                                (e) => PieChartSectionData(
+                                  value: e.$1.toDouble(),
+                                  color: e.$2,
+                                  showTitle: false,
+                                  radius: 22,
+                                ),
+                              )
+                              .toList(),
+                          centerSpaceRadius: 50,
+                          sectionsSpace: 2,
+                        ),
+                      ),
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '총',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: context.sr.textSecondary,
                             ),
-                          )
-                          .toList(),
-                      centerSpaceRadius: 32,
-                      sectionsSpace: 2,
-                    ),
+                          ),
+                          Text(
+                            '$total건',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: context.sr.textPrimary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -507,16 +568,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   ),
                                 ),
                                 const SizedBox(width: 6),
-                                Text(
-                                  e.$3,
-                                  style: const TextStyle(fontSize: 12),
+                                Expanded(
+                                  child: Text(
+                                    e.$3,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
                                 ),
-                                const Spacer(),
                                 Text(
                                   '${e.$1}건',
                                   style: const TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                SizedBox(
+                                  width: 40,
+                                  child: Text(
+                                    '${(e.$1 / total * 100).toStringAsFixed(1)}%',
+                                    textAlign: TextAlign.right,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: context.sr.textSecondary,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -541,7 +616,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       children: [
         Row(
           children: [
-            const Icon(Icons.bookmark, size: 18, color: Colors.blue),
+            Icon(
+              Icons.bookmark,
+              size: 18,
+              color: Theme.of(context).colorScheme.primary,
+            ),
             const SizedBox(width: 6),
             const Expanded(
               child: Text(
@@ -572,21 +651,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 16),
             decoration: BoxDecoration(
-              color: Colors.grey.shade50,
+              color: context.sr.surfaceAlt,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade200),
+              border: Border.all(color: context.sr.border),
             ),
             child: Column(
               children: [
                 Icon(
                   Icons.bookmark_border,
                   size: 32,
-                  color: Colors.grey.shade300,
+                  color: context.sr.textDisabled,
                 ),
                 const SizedBox(height: 6),
-                const Text(
+                Text(
                   '감시 중인 신고가 없습니다.',
-                  style: TextStyle(color: Colors.grey, fontSize: 12),
+                  style: TextStyle(
+                    color: context.sr.textSecondary,
+                    fontSize: 12,
+                  ),
                 ),
               ],
             ),
@@ -624,7 +706,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.bookmark, color: Colors.blue, size: 16),
+                  Icon(
+                    Icons.bookmark,
+                    color: Theme.of(context).colorScheme.primary,
+                    size: 16,
+                  ),
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
@@ -671,10 +757,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       children: [
         Row(
           children: [
-            const Icon(
+            Icon(
               Icons.notifications_active,
               size: 18,
-              color: Colors.green,
+              color: _tone(serverAcceptColor).foreground,
             ),
             const SizedBox(width: 6),
             const Expanded(
@@ -702,12 +788,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
         const SizedBox(height: 8),
         if (reports.isEmpty)
-          const Padding(
-            padding: EdgeInsets.all(24),
+          Padding(
+            padding: const EdgeInsets.all(24),
             child: Center(
               child: Text(
                 '3일 내 답변 완료된 신고가 없습니다.',
-                style: TextStyle(color: Colors.grey),
+                style: TextStyle(color: context.sr.textSecondary),
               ),
             ),
           )
@@ -790,11 +876,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       padding: const EdgeInsets.only(top: 3),
       child: Row(
         children: [
-          Icon(icon, size: 12, color: Colors.grey),
+          Icon(icon, size: 12, color: context.sr.textSecondary),
           const SizedBox(width: 4),
           Text(
             '$label ',
-            style: const TextStyle(fontSize: 11, color: Colors.grey),
+            style: TextStyle(fontSize: 11, color: context.sr.textSecondary),
           ),
           Expanded(
             child: Text(
@@ -809,26 +895,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _statusChip(String status) {
-    final color = _statusColor(status);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.4)),
-      ),
-      child: Text(
-        status,
-        style: TextStyle(
-          color: color,
-          fontSize: 11,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 110),
+      child: StatusBadge.status(status),
     );
-  }
-
-  Color _statusColor(String status) {
-    return serverStatusColor(status);
   }
 }

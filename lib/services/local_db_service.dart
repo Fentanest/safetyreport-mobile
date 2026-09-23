@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -853,7 +854,57 @@ class LocalDbService {
     bool useRepresentativeRecords = false,
   }) async {
     final d = await db;
+    final rows = await _queryStatsRows(
+      d,
+      year: year,
+      law: law,
+      excludeWithdraw: excludeWithdraw,
+      useRepresentativeRecords: useRepresentativeRecords,
+    );
 
+    // 필터와 무관하게 전체에서 available_years/laws 추출
+    // (취하 제외는 available_years/laws에는 영향 안 줌 — 서버도 동일)
+    var allRows = await d.query(
+      'reports',
+      columns: ['신고일', '위반법규', 'category'],
+    );
+    return _aggregateStats(rows, allRows, normalizePolice);
+  }
+
+  /// 통계 요약 카드 + 월별 추이 (서버 `get_stats_overview` 와 같은 정의).
+  /// [computeStats] 와 같은 행(연도·법규·취하 제외·대표건)을 사용한다.
+  static Future<Map<String, dynamic>> computeStatsOverview({
+    String? year,
+    String? law,
+    bool excludeWithdraw = false,
+    bool useRepresentativeRecords = false,
+  }) async {
+    final d = await db;
+    final rows = await _queryStatsRows(
+      d,
+      year: year,
+      law: law,
+      excludeWithdraw: excludeWithdraw,
+      useRepresentativeRecords: useRepresentativeRecords,
+    );
+    List<Map<String, dynamic>> byCategory(String category) =>
+        rows.where((r) => r['category'] == category).toList(growable: false);
+    return {
+      'all': summarizeOverviewRows(rows),
+      'traffic': summarizeOverviewRows(byCategory('traffic')),
+      'parking': summarizeOverviewRows(byCategory('parking')),
+      'other': summarizeOverviewRows(byCategory('other')),
+      'year_basis': '신고일',
+    };
+  }
+
+  static Future<List<Map<String, dynamic>>> _queryStatsRows(
+    Database d, {
+    String? year,
+    String? law,
+    required bool excludeWithdraw,
+    required bool useRepresentativeRecords,
+  }) async {
     String where = '1=1';
     final args = <dynamic>[];
 
@@ -873,24 +924,108 @@ class LocalDbService {
       where += " AND 처리상태 != '취하'";
     }
 
-    var rows = await d.query(
+    final rows = await d.query(
       'reports',
       where: where,
       whereArgs: args.isEmpty ? null : args,
     );
-    rows = await _projectRows(
+    return _projectRows(
       d,
       rows,
       useRepresentativeRecords: useRepresentativeRecords,
     );
+  }
 
-    // 필터와 무관하게 전체에서 available_years/laws 추출
-    // (취하 제외는 available_years/laws에는 영향 안 줌 — 서버도 동일)
-    var allRows = await d.query(
-      'reports',
-      columns: ['신고일', '위반법규', 'category'],
-    );
-    return _aggregateStats(rows, allRows, normalizePolice);
+  static const _overviewCompletedStatuses = {'수용', '불수용', '일부수용', '기타', '답변완료'};
+  static const _overviewProcessingStatuses = {'처리중', '진행', '진행중', '검토중'};
+
+  static DateTime? _parseOverviewDate(Object? value) {
+    final text = (value?.toString() ?? '').trim();
+    if (text.length < 10) return null;
+    final m = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(text.substring(0, 10));
+    if (m == null) return null;
+    final y = int.parse(m.group(1)!);
+    final mo = int.parse(m.group(2)!);
+    final da = int.parse(m.group(3)!);
+    final date = DateTime.utc(y, mo, da);
+    // 2026-02-30 같은 값은 DateTime 이 넘겨 버리므로 거꾸로 확인한다.
+    if (date.year != y || date.month != mo || date.day != da) return null;
+    return date;
+  }
+
+  static String _monthKey(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}';
+
+  /// 서버 `_summarize_overview_frame` 과 같은 정의. 평균 처리일은 기관 평균을 합치지 않고
+  /// 두 날짜가 모두 유효하고 차이 >= 0 인 신고만으로 직접 계산하며 표본 수를 함께 돌려준다.
+  @visibleForTesting
+  static Map<String, dynamic> summarizeOverviewRows(
+    List<Map<String, dynamic>> rows,
+  ) {
+    var completed = 0, accept = 0, partial = 0, reject = 0;
+    var supplement = 0, processing = 0, withdraw = 0;
+    var reversed = 0, undated = 0, daySum = 0, dayCount = 0;
+    final reportedByMonth = <String, int>{};
+    final answeredByMonth = <String, int>{};
+
+    for (final r in rows) {
+      final status = (r['처리상태']?.toString() ?? '').trim();
+      if (_overviewCompletedStatuses.contains(status)) completed++;
+      if (status == '수용') accept++;
+      if (status == '일부수용') partial++;
+      if (status == '불수용' || status == '기타') reject++;
+      if (status == '보완요청') supplement++;
+      if (_overviewProcessingStatuses.contains(status)) processing++;
+      if (status == '취하') withdraw++;
+
+      final reported = _parseOverviewDate(r['신고일']);
+      final answered = _parseOverviewDate(r['답변일']);
+      if (reported == null) {
+        undated++;
+      } else {
+        final key = _monthKey(reported);
+        reportedByMonth[key] = (reportedByMonth[key] ?? 0) + 1;
+      }
+      if (answered != null) {
+        final key = _monthKey(answered);
+        answeredByMonth[key] = (answeredByMonth[key] ?? 0) + 1;
+      }
+      if (reported != null && answered != null) {
+        final days = answered.difference(reported).inDays;
+        if (days < 0) {
+          reversed++;
+        } else {
+          daySum += days;
+          dayCount++;
+        }
+      }
+    }
+
+    List<Map<String, dynamic>> series(Map<String, int> source) {
+      final keys = source.keys.toList()..sort();
+      return [
+        for (final k in keys) {'month': k, 'count': source[k]},
+      ];
+    }
+
+    return {
+      'total': rows.length,
+      'completed': completed,
+      'accept': accept,
+      'partial': partial,
+      'reject': reject,
+      'supplement': supplement,
+      'processing': processing,
+      'withdraw': withdraw,
+      'avg_days': dayCount == 0
+          ? null
+          : double.parse((daySum / dayCount).toStringAsFixed(1)),
+      'avg_days_count': dayCount,
+      'reversed_date_count': reversed,
+      'undated_report_count': undated,
+      'monthly_reported': series(reportedByMonth),
+      'monthly_answered': series(answeredByMonth),
+    };
   }
 
   static Future<Map<String, dynamic>> computeReportMapStats({

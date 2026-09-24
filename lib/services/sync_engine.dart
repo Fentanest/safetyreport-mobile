@@ -47,7 +47,14 @@ class SyncEvent {
 /// 안전신문고 목록 API → 상세 API → 파싱 → 로컬 DB 저장
 class SyncEngine {
   static bool _running = false;
+
+  /// 끝날 때까지 true — [stop] 은 멈춤을 요청할 뿐이라 루프가 실제로 빠져나가야 false 가 된다(M-21: 예전엔 바로
+  /// false 로 바꿔 돌던 작업 위에 새 동기화가 겹쳐 시작될 수 있었다).
   static bool get isRunning => _running;
+  static bool _stopRequested = false;
+
+  /// 사용자 중지 또는 DB 연결 닫기 요청(백업·복원·로그아웃 — M-25).
+  static bool get _stopping => _stopRequested || LocalDbService.closeRequested;
 
   static final _controller = StreamController<SyncEvent>.broadcast();
   static Stream<SyncEvent> get events => _controller.stream;
@@ -113,10 +120,11 @@ class SyncEngine {
   static Future<void> start({bool fullSync = false}) async {
     if (_running) return;
     _running = true;
+    _stopRequested = false;
     _lastChanges = [];
     await acquireFgs(fullSync ? '전체 재동기화 진행 중...' : '증분 동기화 진행 중...');
     try {
-      await _run(fullSync: fullSync);
+      await LocalDbService.runBackgroundWork(() => _run(fullSync: fullSync));
     } catch (e) {
       _emit(SyncEvent(type: SyncEventType.error, message: e.toString()));
     } finally {
@@ -173,6 +181,11 @@ class SyncEngine {
     const pageSize = 200;
 
     while (start <= totalCount) {
+      if (_stopping) {
+        listPageErrors++; // 목록을 다 받지 못함 → 정리·동기화 시각 기록 안 함
+        _log('중지 요청 — 목록 조회를 멈춤');
+        break;
+      }
       final end = (start + pageSize - 1).clamp(1, totalCount);
       _log('목록 $start~$end건 조회 중...');
       try {
@@ -210,6 +223,10 @@ class SyncEngine {
     int errors = 0;
 
     for (final item in toSync) {
+      if (_stopping) {
+        _log('중지 요청 — 상세 조회를 멈춤 ($done/${toSync.length}건 저장됨)');
+        break;
+      }
       final cNo = item['C_NO']?.toString() ?? '';
       if (cNo.isEmpty) continue;
 
@@ -304,7 +321,7 @@ class SyncEngine {
     }
 
     // 사이트 목록에서 사라진 신고 정리는 전체 재동기화이고 목록을 빠짐없이 받았을 때만(M-1, M-20).
-    if (fullSync && listPageErrors == 0 && allItems.isNotEmpty) {
+    if (fullSync && !_stopping && listPageErrors == 0 && allItems.isNotEmpty) {
       final removed = await LocalDbService.removeReportsNotIn(
         allItems
             .map((i) => i['C_NO']?.toString() ?? '')
@@ -314,7 +331,9 @@ class SyncEngine {
       if (removed > 0) _log('사이트 목록에 없는 신고 $removed건 정리');
     }
     // 목록 페이지가 하나라도 실패하면 마지막 동기화 시각을 성공으로 남기지 않는다(M-20).
-    if (listPageErrors == 0) {
+    if (_stopping) {
+      _log('[주의] 중지됨 — 마지막 동기화 시각을 갱신하지 않음');
+    } else if (listPageErrors == 0) {
       await _saveSyncTime();
     } else {
       _log('[주의] 목록 $listPageErrors페이지 실패 — 마지막 동기화 시각을 갱신하지 않음');
@@ -324,7 +343,8 @@ class SyncEngine {
       await emitChanges(_lastChanges);
     }
 
-    final msg = '동기화 완료: $done건 저장${errors > 0 ? ', $errors건 오류' : ''}';
+    final msg =
+        '${_stopping ? '동기화 중지' : '동기화 완료'}: $done건 저장${errors > 0 ? ', $errors건 오류' : ''}';
     _log(msg);
     _emit(
       SyncEvent(
@@ -478,17 +498,16 @@ class SyncEngine {
   }
 
   static Future<void> _saveSyncTime() async {
-    final now = DateTime.now().toIso8601String();
-    await LocalDbService.setMeta('last_sync', now);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(AppPrefsKeys.standaloneSyncTime, now);
+    // 원천은 DB 의 last_sync 하나(M-19: 아무도 안 읽던 설정 사본은 없앰).
+    await LocalDbService.setMeta('last_sync', DateTime.now().toIso8601String());
   }
 
   static Future<String?> getLastSyncTime() async {
     return LocalDbService.getMeta('last_sync');
   }
 
+  /// 멈춤을 요청한다. 진행 중인 요청 하나가 끝나면 루프가 빠져나가고, 그때 [isRunning] 이 false 가 된다.
   static void stop() {
-    _running = false;
+    if (_running) _stopRequested = true;
   }
 }

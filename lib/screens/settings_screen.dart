@@ -709,6 +709,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final target = File('${dir.path}/$fileName');
       final srcPath = await LocalDbService.getDbPath();
       if (File(srcPath).existsSync()) {
+        // 모드 전환은 사용자가 명시 요청 — 진행 중인 동기화·좌표 변환이 멈출 때까지 기다린 뒤 백업(M-25).
+        await LocalDbService.closeDb();
         await LocalDbService.exportBackup(target.path);
         backupPath = target.path;
       }
@@ -2125,7 +2127,6 @@ class _ChoiceTile extends StatelessWidget {
     );
   }
 }
-
 
 /// 설정 맨 위 도움·문의 카드. 버그 제보를 가장 눈에 띄게 둔다.
 class _SupportCard extends StatelessWidget {

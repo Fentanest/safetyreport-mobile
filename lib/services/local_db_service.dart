@@ -2,6 +2,7 @@ import 'app_prefs_keys.dart';
 import '../models/editor_schema.dart';
 import '../models/rating_lookup.dart';
 import '../storage/schema_utils.dart';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
@@ -24,6 +25,15 @@ String normalizePoliceAgency(String agency) {
 /// 서버 DB 컬럼명(한국어)과 동일한 스키마 사용.
 /// mobile-only 추가 컬럼: category, entry_value, synced_at
 /// raw payload 는 report_raw 사이드카 테이블에 저장한다.
+/// 동기화·지도 좌표 변환 중이라 백업·복원을 거절할 때. 메시지는 그대로 화면에 보인다.
+class DbBusyException implements Exception {
+  DbBusyException(this.message);
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 class LocalDbService {
   static Database? _db;
   static Future<Database>? _initFuture;
@@ -63,11 +73,58 @@ class LocalDbService {
     );
   }
 
+  // ── 공유 연결과 백그라운드 작업 (M-25) ──────────────────────────────────
+  // 동기화·자동 동기화·지오코딩 백필은 공유 연결로 오래 쓴다. 예전엔 백업·복원·데모 전환·로그아웃이
+  // 그 사이 연결을 닫아 진행 중인 쓰기가 "database is closed" 로 깨졌다.
+  static int _backgroundWork = 0;
+  static Completer<void>? _backgroundIdle;
+  static bool _closeRequested = false;
+  static const _backgroundZoneKey = #srLocalDbBackgroundWork;
+
+  /// 공유 연결을 오래 쓰는 작업을 감싼다. [closeDb] 는 이 작업들이 끝날 때까지 기다린다.
+  static Future<T> runBackgroundWork<T>(Future<T> Function() body) async {
+    _backgroundWork++;
+    try {
+      return await runZoned(body, zoneValues: {_backgroundZoneKey: true});
+    } finally {
+      _backgroundWork--;
+      if (_backgroundWork == 0) {
+        _backgroundIdle?.complete();
+        _backgroundIdle = null;
+      }
+    }
+  }
+
+  static bool get hasBackgroundWork => _backgroundWork > 0;
+
+  /// 연결을 닫으려고 기다리는 중. 백그라운드 작업은 다음 확인 지점에서 멈춘다(지오코딩은 대기 상태로 넘김).
+  static bool get closeRequested => _closeRequested;
+
+  /// 사용자가 누른 파일 교체(백업·복원·서버 DB 가져오기)는 작업 중이면 거절한다 — 서버 복원의 409 와 같음.
+  static void _refuseDuringBackgroundWork(String action) {
+    if (_backgroundWork > 0) {
+      throw DbBusyException(
+        '동기화 또는 지도 좌표 변환이 진행 중이라 $action 할 수 없습니다. 끝난 뒤 다시 시도하세요.',
+      );
+    }
+  }
+
   static Future<void> closeDb() async {
-    if (_db != null) {
-      await _db!.close();
+    if (Zone.current[_backgroundZoneKey] == true) {
+      throw StateError('백그라운드 작업 안에서는 DB 연결을 닫을 수 없습니다.');
+    }
+    _closeRequested = true;
+    try {
+      while (_backgroundWork > 0) {
+        await (_backgroundIdle ??= Completer<void>()).future;
+      }
+      final pending = _initFuture;
+      final open = _db ?? (pending == null ? null : await pending);
       _db = null;
       _initFuture = null;
+      await open?.close();
+    } finally {
+      _closeRequested = false;
     }
   }
 
@@ -2232,6 +2289,7 @@ class LocalDbService {
   /// sqflite가 WAL을 사용할 수 있어 main .db만 그대로 복사하면 최신 변경이 누락될 수 있으므로
   /// 먼저 DB를 닫아 체크포인트/flush를 유도한 뒤 복사한다.
   static Future<void> exportBackup(String targetPath) async {
+    _refuseDuringBackgroundWork('백업');
     await closeDb();
     final dbPath = await getDbPath();
     final src = File(dbPath);
@@ -2496,6 +2554,7 @@ class LocalDbService {
   /// [serverDbPath] 서버에서 받은 .db 파일의 절대 경로.
   /// 반환: 임포트한 신고 건수.
   static Future<int> importFromServerDb(String serverDbPath) async {
+    _refuseDuringBackgroundWork('서버 DB 가져오기를');
     final preparedDbPath = await _prepareExternalDbSnapshot(serverDbPath);
     final serverDb = await openDatabase(preparedDbPath, readOnly: true);
     Directory? stagingDir;
@@ -2558,6 +2617,25 @@ class LocalDbService {
       int imported = 0;
 
       await localDb.transaction((txn) async {
+        // 행마다 insert 를 기다리면 Android 에서 행마다 플랫폼 채널 왕복이 생긴다 → 500개씩 묶어 보낸다(M-27).
+        var batch = txn.batch();
+        var queued = 0;
+        Future<void> flush() async {
+          if (queued == 0) return;
+          await batch.commit(noResult: true);
+          batch = txn.batch();
+          queued = 0;
+        }
+
+        Future<void> put(String table, Map<String, Object?> row) async {
+          batch.insert(
+            table,
+            row,
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+          if (++queued >= 500) await flush();
+        }
+
         for (final entry in sourceTableMap.entries) {
           final rows = await _readServerReportRows(
             serverDb,
@@ -2586,36 +2664,28 @@ class LocalDbService {
             importedRow['감시목록'] = watchNumbers.contains(importedRow['신고번호'])
                 ? 'Y'
                 : 'N';
-            await txn.insert(
-              'reports',
-              importedRow,
-              conflictAlgorithm: ConflictAlgorithm.replace,
-            );
+            await put('reports', importedRow);
             final raw = rawPayloadById[reportId];
             if (raw != null) {
-              await txn.insert('report_raw', {
+              await put('report_raw', {
                 'ID': reportId,
                 'raw_content': raw['raw_content'],
                 'raw_type': raw['raw_type'],
                 'saved_at': raw['saved_at'],
-              }, conflictAlgorithm: ConflictAlgorithm.replace);
+              });
             }
             imported++;
           }
         }
 
         for (final row in syncMetaRows) {
-          await txn.insert(
-            'sync_meta',
-            row,
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
+          await put('sync_meta', row);
         }
         // 감시목록은 비어 있어도 기록한다(키가 없으면 앱이 예전 값을 남길 수 있음 — M-8).
-        await txn.insert('sync_meta', {
+        await put('sync_meta', {
           'key': 'watchlist',
           'value': watchNumbers.join(','),
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
+        });
 
         const copied = {
           'mysafety_geocode_cache': 'geocode_cache',
@@ -2631,13 +2701,14 @@ class LocalDbService {
             serverTables,
             pair.key,
           )) {
-            await txn.insert(pair.value, {
+            await put(pair.value, {
               for (final e in row.entries)
                 if (types.containsKey(e.key))
                   e.key: _coerceForColumn(e.value, types[e.key]),
-            }, conflictAlgorithm: ConflictAlgorithm.replace);
+            });
           }
         }
+        await flush();
       });
 
       if (imported <= 0) {
@@ -2697,6 +2768,7 @@ class LocalDbService {
   /// 임시 사본에서 종류·버전 확인 → 마이그레이션 → 무결성 검사를 마친 뒤 `_commitImportedDatabase` 로 교체한다
   /// (기존 DB 는 .bak 으로 남기고 실패하면 되돌린다). 서버 DB 는 importFromServerDb 를 쓴다.
   static Future<void> replaceFromBackup(String backupDbPath) async {
+    _refuseDuringBackgroundWork('백업 복원을');
     _invalidateProjectRowsCache();
     if (!File(backupDbPath).existsSync()) {
       throw Exception('백업 파일이 존재하지 않습니다: $backupDbPath');

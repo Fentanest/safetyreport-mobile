@@ -59,7 +59,9 @@ class LocalGeocodeService {
       GeocodeBackfillProgress.fromJson(_progressState);
 
   static bool _shouldQueueForSync() =>
-      SyncEngine.isRunning || StandaloneAutoSyncService.isRunning;
+      SyncEngine.isRunning ||
+      StandaloneAutoSyncService.isRunning ||
+      LocalDbService.closeRequested; // 연결을 닫으려는 중이면 대기로 넘기고 나중에 이어 감(M-25)
 
   static Future<GeocodeBackfillProgress> ensureMapBackfillStartedFromStoredKey({
     int batchSize = 80,
@@ -227,7 +229,9 @@ class LocalGeocodeService {
       'has_saved_coordinates': hasSavedCoordinates,
     });
 
-    _runningTask = _runBackfill(apiKey: trimmedKey, batchSize: batchSize);
+    _runningTask = LocalDbService.runBackgroundWork(
+      () => _runBackfill(apiKey: trimmedKey, batchSize: batchSize),
+    );
     unawaited(
       _runningTask!.whenComplete(() {
         _runningTask = null;

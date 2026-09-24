@@ -54,7 +54,11 @@ class StandaloneAutoSyncService {
   /// (SyncEngine.start() 의 자체 _lastChanges 는 자동 emit 됨.)
   static List<Map<String, dynamic>> _singleFetchChanges = [];
 
-  static Future<void> drainIfPending() async {
+  /// 공유 DB 연결을 쓰는 백그라운드 작업으로 등록한다 — 백업·복원이 도중에 연결을 닫지 않게(M-25).
+  static Future<void> drainIfPending() =>
+      LocalDbService.runBackgroundWork(_drainIfPending);
+
+  static Future<void> _drainIfPending() async {
     if (_running) return;
     _running = true;
     _singleFetchChanges = [];
@@ -65,6 +69,7 @@ class StandaloneAutoSyncService {
       final prefs = await SharedPreferences.getInstance();
 
       while (true) {
+        if (LocalDbService.closeRequested) break; // 큐는 그대로 — 다음 drain 에서 이어 감
         await prefs.reload();
         final queue = StandalonePendingQueueStore.read(prefs);
         if (queue.isEmpty) break;

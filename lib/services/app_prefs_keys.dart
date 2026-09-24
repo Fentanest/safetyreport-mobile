@@ -20,7 +20,6 @@ class AppPrefsKeys {
   static const standaloneKakaoRestApiKey = 'standaloneKakaoRestApiKey';
   static const standaloneToken = 'standaloneToken';
   static const standaloneTokenExpiresAt = 'standaloneTokenExpiresAt';
-  static const standaloneSyncTime = 'standaloneSyncTime';
 
   /// FlutterSecureStorage (Keystore) 에 저장하는 비밀번호 키.
   static const standalonePassword = 'standalone_password';

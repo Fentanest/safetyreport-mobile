@@ -39,12 +39,6 @@ class WsService : Service() {
     companion object {
         const val TAG = "WsService"
 
-        // Flutter 와 같은 설정 키를 읽고-고쳐-쓰면 서로의 쓰기를 덮는다(M-29/M-31). 서비스는 항목마다 새 키에만 쓰고,
-        // 합치기·지우기는 Flutter 가 한다(lib/services/prefs_inbox.dart). 키 이름은 Flutter 쪽과 같아야 한다.
-        const val INBOX_HISTORY = "flutter.inbox.history."
-        const val INBOX_PENDING = "flutter.inbox.pending."
-        private const val INBOX_MAX_KEYS = 200
-        private val inboxSeq = AtomicInteger(0)
         const val NOTIF_CHANNEL_WS   = "ws_service"       // 서비스 지속 알림 채널
         const val NOTIF_CHANNEL_PUSH = "ws_push_v2"       // 이벤트 알림 채널 (heads-up)
         const val FOREGROUND_NOTIF_ID = 1001              // 지속 알림 ID (고정)
@@ -278,7 +272,7 @@ class WsService : Service() {
 
         // Flutter가 앱 포어그라운드 복귀 시 카드 뷰로 표시할 수 있도록 저장
         val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
-        putInbox(prefs, INBOX_PENDING, changes.toString())
+        PrefsInbox.put(prefs, PrefsInbox.PENDING, changes.toString())
 
         // 알림 히스토리에도 extraData 포함해서 저장 (신고 결과 탭 표시용)
         saveCrawlChangesToHistory(changes, prefs)
@@ -337,15 +331,6 @@ class WsService : Service() {
                 payloadJson = record.toString()
             )
         }
-    }
-
-    /** [prefix] 아래 고유한 새 키에 JSON 배열 하나를 쓴다. 앱이 오래 안 열리면 오래된 것부터 [INBOX_MAX_KEYS] 개로 자른다. */
-    private fun putInbox(prefs: android.content.SharedPreferences, prefix: String, jsonArray: String) {
-        val key = "$prefix${System.currentTimeMillis().toString().padStart(15, '0')}_${inboxSeq.incrementAndGet().toString().padStart(6, '0')}"
-        val editor = prefs.edit().putString(key, jsonArray)
-        val keys = prefs.all.keys.filter { it.startsWith(prefix) }.sorted()
-        if (keys.size >= INBOX_MAX_KEYS) keys.take(keys.size - INBOX_MAX_KEYS + 1).forEach { editor.remove(it) }
-        editor.apply()
     }
 
     private fun saveCrawlChangesToHistory(changes: org.json.JSONArray, prefs: android.content.SharedPreferences) {
@@ -414,7 +399,7 @@ class WsService : Service() {
                 newArr.put(item)
             }
             // 기존 기록과 합치기·200개 자르기는 Flutter(NotificationHistoryProvider)가 한다.
-            putInbox(prefs, INBOX_HISTORY, newArr.toString())
+            PrefsInbox.put(prefs, PrefsInbox.HISTORY, newArr.toString())
         } catch (e: Exception) {
             Log.e(TAG, "crawl_changes 히스토리 저장 오류: ${e.message}")
         }
@@ -498,7 +483,7 @@ class WsService : Service() {
                 ).format(java.util.Date()))
                 put("isRead", false)
             }
-            putInbox(prefs, INBOX_HISTORY, org.json.JSONArray().put(item).toString())
+            PrefsInbox.put(prefs, PrefsInbox.HISTORY, org.json.JSONArray().put(item).toString())
         } catch (e: Exception) {
             Log.e(TAG, "히스토리 저장 오류: ${e.message}")
         }

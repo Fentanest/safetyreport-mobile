@@ -13,6 +13,7 @@ class PrefsInbox {
 
   static const history = 'inbox.history.';
   static const pending = 'inbox.pending.';
+  static const queue = 'inbox.queue.';
   static int _seq = 0;
 
   /// [prefix] 아래 키를 오래된 순으로 읽는다. 각 값은 JSON 배열(깨진 값은 빈 배열).
@@ -40,12 +41,25 @@ class PrefsInbox {
     String prefix,
     List<Map<String, dynamic>> items,
   ) async {
+    await prefs.setString(_newKey(prefix), jsonEncode(items));
+  }
+
+  /// 값 하나(문자열)를 새 키에 넣는다. Standalone 감지 큐용.
+  static Future<void> putString(
+    SharedPreferences prefs,
+    String prefix,
+    String value,
+  ) async {
+    await prefs.setString(_newKey(prefix), value);
+  }
+
+  static String _newKey(String prefix) {
     final ms = DateTime.now().millisecondsSinceEpoch.toString().padLeft(
       15,
       '0',
     );
     final seq = (++_seq).toString().padLeft(6, '0');
-    await prefs.setString('$prefix${ms}_d$seq', jsonEncode(items));
+    return '$prefix${ms}_d$seq';
   }
 
   static List<Map<String, dynamic>> _decode(Object? raw) {

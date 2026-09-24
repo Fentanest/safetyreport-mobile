@@ -103,7 +103,8 @@ SyncEngine.emitChanges(List<Map>)
 | `flutter.standalonePhoneNumber` | String | Standalone 휴대폰번호 (또는 demo) |
 | `flutter.standaloneDemoMode` | bool | Play review 데모 모드 여부 |
 | `flutter.standaloneToken` / `flutter.standaloneTokenExpiresAt` | String / int | OAuth 토큰 |
-| `flutter.standalone_pending_reports` | **String (CSV)** | Standalone 큐 (아래 함정 주의) |
+| `flutter.inbox.queue.<ms>_<순번>` | String (신고번호 하나) | Standalone 감지 큐. Kotlin·Dart 모두 새 키에만 쓰고 `StandalonePendingQueueStore` 가 읽을 때 중복 제거, 처리한 값의 키만 지움 (G11-5) |
+| `flutter.standalone_pending_reports` | **String (CSV)** | (G11-5 이전 큐) 남은 값만 읽고 지움 (아래 함정 주의) |
 | `flutter.standalone_last_detected_at` | long | 디버그용 |
 | `flutter.foreground_event` | String | WsService → 포그라운드 복귀 SnackBar |
 | `flutter.inbox.pending.<ms>_<순번>` | String (JSON 배열) | 카드 시트 표시 대기. Kotlin·Dart 모두 **새 키에만** 쓰고 `PendingChangesStore.readAndClear` 가 합친 키만 지움 |

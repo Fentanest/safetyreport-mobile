@@ -52,6 +52,7 @@ class LocalDbService {
   }
 
   static Future<Database> get db async {
+    if (_fileOp != null) await _waitForFileOp();
     if (_db != null) return _db!;
     _initFuture ??= _open();
     _db = await _initFuture;
@@ -83,6 +84,9 @@ class LocalDbService {
 
   /// 공유 연결을 오래 쓰는 작업을 감싼다. [closeDb] 는 이 작업들이 끝날 때까지 기다린다.
   static Future<T> runBackgroundWork<T>(Future<T> Function() body) async {
+    // 파일 교체 중에는 시작하지 않는다. 잠금이 없으면 기다리지 않고 바로 센다 —
+    // 여기서 한 번이라도 넘기면 그 틈에 closeDb 가 "작업 없음"으로 보고 닫는다.
+    if (_fileOp != null) await _waitForFileOp();
     _backgroundWork++;
     try {
       return await runZoned(body, zoneValues: {_backgroundZoneKey: true});
@@ -109,7 +113,40 @@ class LocalDbService {
     }
   }
 
-  static Future<void> closeDb() async {
+  // ── DB 파일 복사·교체 중 잠금 (G11-4) ─────────────────────────────────
+  // 백업·복원이 파일을 복사·교체하는 동안 화면·스케줄러가 [db] 로 연결을 다시 열면 교체되는 파일 위에 연결이 생긴다.
+  // 그 사이 [db]·[runBackgroundWork] 는 끝날 때까지 기다린다. 파일 작업 자신(zone)은 통과.
+  static Completer<void>? _fileOp;
+  static const _fileOpZoneKey = #srLocalDbFileOp;
+
+  static Future<void> _waitForFileOp() async {
+    while (_fileOp != null && Zone.current[_fileOpZoneKey] != true) {
+      await _fileOp!.future;
+    }
+  }
+
+  static Future<T> _withFileExclusive<T>(Future<T> Function() body) async {
+    while (_fileOp != null) {
+      await _fileOp!.future;
+    }
+    final op = Completer<void>();
+    try {
+      await _closeDb(hold: op);
+      return await runZoned(body, zoneValues: {_fileOpZoneKey: true});
+    } finally {
+      if (identical(_fileOp, op)) _fileOp = null;
+      op.complete();
+    }
+  }
+
+  @visibleForTesting
+  static Future<T> withFileExclusiveForTest<T>(Future<T> Function() body) =>
+      _withFileExclusive(body);
+
+  static Future<void> closeDb() => _closeDb();
+
+  /// [hold] 가 있으면 백그라운드 작업이 모두 빠진 직후(같은 동기 구간) 파일 잠금을 건다 — 그 틈에 다시 열리지 않게.
+  static Future<void> _closeDb({Completer<void>? hold}) async {
     if (Zone.current[_backgroundZoneKey] == true) {
       throw StateError('백그라운드 작업 안에서는 DB 연결을 닫을 수 없습니다.');
     }
@@ -118,6 +155,7 @@ class LocalDbService {
       while (_backgroundWork > 0) {
         await (_backgroundIdle ??= Completer<void>()).future;
       }
+      if (hold != null) _fileOp = hold;
       final pending = _initFuture;
       final open = _db ?? (pending == null ? null : await pending);
       _db = null;
@@ -2315,7 +2353,10 @@ class LocalDbService {
   /// 먼저 DB를 닫아 체크포인트/flush를 유도한 뒤 복사한다.
   static Future<void> exportBackup(String targetPath) async {
     _refuseDuringBackgroundWork('백업');
-    await closeDb();
+    await _withFileExclusive(() => _exportBackupLocked(targetPath));
+  }
+
+  static Future<void> _exportBackupLocked(String targetPath) async {
     final dbPath = await getDbPath();
     final src = File(dbPath);
     if (!src.existsSync()) {
@@ -2385,7 +2426,12 @@ class LocalDbService {
     }
   }
 
-  static Future<void> _commitImportedDatabase(String importedDbPath) async {
+  static Future<void> _commitImportedDatabase(String importedDbPath) =>
+      _withFileExclusive(() => _commitImportedDatabaseLocked(importedDbPath));
+
+  static Future<void> _commitImportedDatabaseLocked(
+    String importedDbPath,
+  ) async {
     final dbPath = await getDbPath();
     final target = File(dbPath);
     final imported = File(importedDbPath);

@@ -75,4 +75,26 @@ void main() {
       expect(LocalDbService.hasBackgroundWork, isFalse);
     },
   );
+
+  test(
+    'while the DB file is being copied or replaced, other callers wait instead of reopening it (G11-4)',
+    () async {
+      await LocalDbService.setMeta('before', '1');
+      var opened = false;
+      var startedWork = false;
+      await LocalDbService.withFileExclusiveForTest(() async {
+        // 파일 작업 밖(다른 화면·스케줄러)에서 들어온 호출
+        Zone.root.run(() {
+          LocalDbService.db.then((_) => opened = true);
+          LocalDbService.runBackgroundWork(() async => startedWork = true);
+        });
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        expect((opened, startedWork), (false, false));
+        await LocalDbService.getMeta('before'); // 파일 작업 자신은 통과
+      });
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect((opened, startedWork), (true, true));
+      expect(await LocalDbService.getMeta('before'), '1');
+    },
+  );
 }

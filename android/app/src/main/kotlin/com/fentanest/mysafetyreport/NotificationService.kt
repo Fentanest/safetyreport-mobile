@@ -15,7 +15,7 @@ import java.util.regex.Pattern
  *
  * 안전신문고/카카오톡 알림에서 신고번호를 추출해:
  *   - 서버 모드: /crawl/enqueue 로 POST
- *   - standalone 모드: 큐 (flutter.standalone_pending_reports) 에 신고번호 append.
+ *   - standalone 모드: 큐 수신함 (flutter.inbox.queue.*) 에 신고번호를 새 키로 넣음.
  *                     Flutter 가 앱 실행/foreground 복귀 시 큐 비어있지 않으면 drain 트리거.
  *
  * 크롤링 결과 알림은 WsService(WebSocket)가 담당하므로 여기서는 생성하지 않음.
@@ -31,7 +31,6 @@ class NotificationService : NotificationListenerService() {
         const val NOTIF_CHANNEL_ENQUEUE = "enqueue_progress"
         // v2: 이전 채널(DEFAULT)이 이미 생성된 기기에서 HIGH 로 변경이 안 먹혀 새 ID 사용
         const val NOTIF_CHANNEL_DETECTED = "standalone_detected_v2"
-        const val PREFS_PENDING_QUEUE = "flutter.standalone_pending_reports"
     }
 
     override fun onCreate() {
@@ -142,10 +141,8 @@ class NotificationService : NotificationListenerService() {
      * 인식해 디코딩 시도하지 않음. 신고번호는 SPP-NNNN-NNNNNNN 형식이라 콤마 없음.
      */
     private fun appendPendingReport(prefs: android.content.SharedPreferences, reportNumber: String) {
-        val raw = prefs.getString(PREFS_PENDING_QUEUE, "") ?: ""
-        val current = raw.split(",").filter { it.isNotEmpty() }.toMutableList()
-        if (!current.contains(reportNumber)) current.add(reportNumber)
-        prefs.edit().putString(PREFS_PENDING_QUEUE, current.joinToString(",")).apply()
+        // 공유 CSV 를 읽고-고쳐-쓰지 않고 새 키에 넣는다(앱이 같은 키를 쓰는 순간 유실 — G11-5). 중복 제거는 앱이 읽을 때.
+        PrefsInbox.put(prefs, PrefsInbox.QUEUE, reportNumber)
     }
 
     private fun showDetectedNotif(id: Int, reportNumber: String) {

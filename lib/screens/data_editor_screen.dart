@@ -379,6 +379,7 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
   late final EditorRepository _repository;
   EditorSchema _schema = EditorSchema.fallback();
   Map<String, dynamic>? _record;
+  Map<String, String?> _siteValues = const {};
   bool _loading = true;
   bool _saving = false;
   String? _error;
@@ -428,6 +429,10 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
       if (record == null) {
         throw Exception('수정할 신고 데이터를 찾을 수 없습니다.');
       }
+      final siteValues = await _repository.getSiteValuesOfEditedFields(
+        widget.category,
+        widget.report.id,
+      );
       for (final controller in _controllers.values) {
         controller.dispose();
       }
@@ -441,6 +446,7 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
       setState(() {
         _schema = schema;
         _record = record;
+        _siteValues = siteValues;
         _loading = false;
       });
     } catch (e) {
@@ -550,15 +556,64 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
       maxLines: isMultiline ? 5 : 1,
       keyboardType: keyboardType,
       decoration: InputDecoration(
-        labelText: field,
-        helperText: field == '범칙금_과태료' ? _schema.fineInfoExample : null,
+        label: _fieldLabel(field),
+        helperText:
+            _originalHint(field) ??
+            (field == '범칙금_과태료' ? _schema.fineInfoExample : null),
+        helperMaxLines: 3,
         suffixIcon: isDate
             ? IconButton(
                 icon: const Icon(Icons.calendar_today_outlined, size: 18),
                 onPressed: () => _pickDate(field),
               )
-            : null,
+            : _revertButton(field),
       ),
+    );
+  }
+
+  bool _isEdited(String field) => _siteValues.containsKey(field);
+
+  /// 고친 필드는 이름 옆에 "수정됨"(다시 동기화해도 유지되는 사용자 수정값 — 결정 D-1).
+  Widget _fieldLabel(String field) {
+    if (!_isEdited(field)) return Text(field);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(field),
+        const SizedBox(width: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.tertiaryContainer,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            '수정됨',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: Theme.of(context).colorScheme.onTertiaryContainer,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String? _originalHint(String field) {
+    if (!_isEdited(field)) return null;
+    final original = _siteValues[field];
+    return '원본(안전신문고): ${original == null || original.isEmpty ? '(비어 있음)' : original}';
+  }
+
+  Widget? _revertButton(String field) {
+    if (!_isEdited(field)) return null;
+    return IconButton(
+      tooltip: '원본으로 되돌리기 (저장하면 적용)',
+      icon: const Icon(Icons.undo, size: 18),
+      onPressed: () => setState(() {
+        _controllers[field]?.text = _siteValues[field] ?? '';
+      }),
     );
   }
 
@@ -569,8 +624,14 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
   ) {
     final current = options.contains(controller.text) ? controller.text : '';
     return DropdownButtonFormField<String>(
+      key: ValueKey('$field:$current'), // 되돌리기로 값이 바뀌면 다시 그린다
       initialValue: current,
-      decoration: InputDecoration(labelText: field),
+      decoration: InputDecoration(
+        label: _fieldLabel(field),
+        helperText: _originalHint(field),
+        helperMaxLines: 3,
+        suffixIcon: _revertButton(field),
+      ),
       items: options
           .map(
             (option) => DropdownMenuItem<String>(

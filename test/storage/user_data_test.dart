@@ -118,4 +118,27 @@ void main() {
       expect(row['감시목록'], 'N');
     },
   );
+
+  test(
+    'R4: edited fields report their site originals for the editor',
+    () async {
+      await LocalDbService.upsertReport(
+        _report('e1', 'SPP-E'),
+        'traffic',
+        '자동차·교통위반-신호위반',
+      );
+      expect(await LocalDbService.getSiteValuesOfEditedFields('e1'), isEmpty);
+      await LocalDbService.updateEditableRecord('e1', {
+        '처리내용': '고친 값',
+        '담당자': '담당',
+      });
+      expect(await LocalDbService.getSiteValuesOfEditedFields('e1'), {
+        '처리내용': '처리',
+      });
+      await LocalDbService.updateEditableRecord('e1', {
+        '처리내용': '처리',
+      }); // 원본으로 되돌리기
+      expect(await LocalDbService.getSiteValuesOfEditedFields('e1'), isEmpty);
+    },
+  );
 }

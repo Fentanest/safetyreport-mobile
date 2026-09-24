@@ -2779,6 +2779,32 @@ class LocalDbService {
     return Map<String, dynamic>.from(rows.first);
   }
 
+  /// 사용자가 고친 필드 → 안전신문고 원본 값(편집 화면의 "수정됨"·원본 보기·되돌리기용, R4).
+  static Future<Map<String, String?>> getSiteValuesOfEditedFields(
+    String reportId,
+  ) async {
+    final d = await db;
+    final edited = await d.query(
+      'report_override',
+      columns: ['column_name'],
+      where: 'ID = ?',
+      whereArgs: [reportId],
+    );
+    if (edited.isEmpty) return const {};
+    final site = await d.query(
+      'reports',
+      where: 'ID = ?',
+      whereArgs: [reportId],
+      limit: 1,
+    );
+    if (site.isEmpty) return const {};
+    return {
+      for (final row in edited)
+        row['column_name'] as String: site.first[row['column_name']]
+            ?.toString(),
+    };
+  }
+
   static Future<bool> updateEditableRecord(
     String reportId,
     Map<String, dynamic> values,

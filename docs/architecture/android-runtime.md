@@ -112,6 +112,9 @@ SyncEngine.emitChanges(List<Map>)
 | `flutter.notifications_history` | String (JSON) | 알림 히스토리 (최대 200개). **Dart 만 씀** |
 | `flutter.pending_crawl_changes` | String (JSON) | (R6 이전 값) 남아 있으면 한 번 읽고 지움 |
 | `flutter.auto_enqueue_count` / `flutter.auto_enqueue_last_at` | int / long | Client 자동 enqueue 푸시 억제 |
+| `flutter.standalone_auth_last_at` / `_outcome` / `_message` | long / String / String | 마지막 자동·수동 로그인 결과 (2026-09-24) |
+| `flutter.standalone_auth_alert` | String | 백그라운드 로그인 점검 → Kotlin 알림 트리거 (`<epoch ms>|메시지`) |
+| `flutter.review_*` | int / String | 스토어 별점 요청 조건(설치 시각·사용한 날·요청 횟수·마지막 요청) |
 
 ### 같은 키를 두 쪽이 쓰지 않는다 (R6, M-29/M-31)
 앱과 WsService 는 같은 프로세스의 같은 SharedPreferences 를 쓴다. 한 키를 둘 다 읽고-고쳐-쓰면 거의 동시에 쓸 때 한쪽이 사라진다.
@@ -155,7 +158,21 @@ SyncEngine.emitChanges(List<Map>)
 | `enqueue_progress` | LOW | "📡 개별 크롤링 지시 중" 임시 |
 | `standalone_detected_v2` | HIGH | "📬 신규 신고 감지" heads-up (탭 시 sync 트리거) |
 | `sync_fgs` | LOW | "🔄 동기화 진행 중" Standalone FGS |
-| `app_push_v2` | HIGH | Standalone 변경 알림 (Flutter → MethodChannel showNotification) |
+| `app_push_v2` | HIGH | Standalone 변경 알림 (Flutter → MethodChannel showNotification), 하루 1회 로그인 점검의 "🔐 재로그인 필요" 알림(id 7301) |
+
+### 앱 아이콘 / 알림 아이콘 (2026-09-24)
+- 앱 아이콘은 서버와 같은 카메라 아이콘. 원본 `assets/branding/app_icon.png`, Android 8+ 는 적응형 아이콘
+  (`mipmap-anydpi-v26/ic_launcher.xml`, 전경 `drawable-*/ic_launcher_foreground.png`, 배경 `@color/ic_launcher_background` #0035B9).
+  모두 `flutter_launcher_icons.yaml` 로 생성하므로 손으로 고치지 말고 원본을 바꾼 뒤 `dart run flutter_launcher_icons`.
+- 알림 표시줄 아이콘 `R.drawable.ic_stat_logo` 는 흰 카메라 실루엣 **벡터**(`drawable/ic_stat_logo.xml`). 같은 이름의 PNG 를 다시 넣으면 리소스가 충돌한다.
+
+### `SafetyReportApplication` (2026-09-24)
+- 매니페스트 `android:name` 을 Flutter 기본(`${applicationName}`)에서 `.SafetyReportApplication` 으로 바꿨다.
+- WorkManager 백그라운드 Flutter 엔진(`workmanager` 플러그인)에는 MainActivity 의 MethodChannel 이 없어 Dart 가 직접 알림을 못 띄운다.
+  그래서 Dart `BackgroundLoginCheck` 가 `flutter.standalone_auth_alert`(`<epoch ms>|메시지`) 를 쓰면,
+  같은 프로세스의 `OnSharedPreferenceChangeListener`(Application.onCreate 에서 등록, 필드로 강한 참조 유지)가 알림을 띄운다.
+- 에뮬레이터 확인(2026-09-24): 키 쓰기 → 알림 표시, 일회성 작업 강제 실행 → 백그라운드 엔진에서 Dart 작업 실행·`SUCCESS`(데모라 로그인은 건너뜀).
+  주기 작업은 WorkManager 가 예정 시각 전 강제 실행을 막으므로 `cmd jobscheduler run` 으로는 확인되지 않는다.
 
 ## 자동 enqueue 알림 억제 로직 (Client 전용)
 

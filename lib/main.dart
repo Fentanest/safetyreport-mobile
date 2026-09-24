@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:workmanager/workmanager.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/report_list_screen.dart';
 import 'screens/report_management_screen.dart';
@@ -15,7 +16,9 @@ import 'models/duplicate_group.dart';
 import 'models/report.dart';
 import 'providers/report_provider.dart';
 import 'providers/notification_history_provider.dart';
+import 'services/background_login_check.dart';
 import 'services/pending_changes_store.dart';
+import 'services/review_prompt_service.dart';
 import 'services/sync_engine.dart' show ChangeType;
 import 'server_palette.dart';
 import 'navigation/app_routes.dart';
@@ -25,9 +28,13 @@ import 'widgets/status_badge.dart';
 import 'widgets/duplicate_group_detail_sheet.dart';
 import 'widgets/report_detail_sheet.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  // Standalone 하루 1회 로그인 점검(BackgroundLoginCheck). 등록/해제는 ReportProvider 가 모드에 따라 한다.
+  try {
+    await Workmanager().initialize(backgroundTaskDispatcher);
+  } catch (_) {}
   runApp(
     MultiProvider(
       providers: [
@@ -102,6 +109,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
       context.read<NotificationHistoryProvider>().load();
       _checkPendingChanges();
     });
+    unawaited(ReviewPromptService.recordAppOpen());
   }
 
   @override
@@ -113,6 +121,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      unawaited(ReviewPromptService.recordAppOpen());
       _checkPendingChanges();
       _checkForegroundEvent();
       // standalone: Kotlin NotificationService 가 설정한 sync pending 플래그 확인

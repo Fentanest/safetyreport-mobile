@@ -130,10 +130,25 @@ Client 모드 서버 경로와 이벤트 문자열은 Flutter/Dart 와 Android/K
 
 ### 토큰 만료 + 자동 재로그인
 
-- 만료 5분 전부터 무효 판단 → `tryAutoRelogin()` 호출
+- 만료 5분 전부터 무효 판단 → `StandaloneAuthService.relogin()` 호출
 - `flutter_secure_storage` (Android Keystore 기반) 에 비밀번호 저장
 - `StandaloneApiService._getWithRetry()`: 401 → 자동 재로그인 후 1회 재시도
-- 실패 시 `TokenExpiredException` → UI 가 수동 재로그인 다이얼로그
+- **2026-09-24 변경 (제보: 동기화 중 '토큰 만료')**
+  - `relogin()` 은 한 번에 하나만 돈다(single-flight). `refreshSessionIfNeeded()` 도 진행 중인 재로그인을 기다린다.
+    예전에는 진행 중이면 바로 돌아와 뒤따르는 동기화가 만료 토큰으로 시작하고 로그인이 겹쳤다.
+  - 실패를 셋으로 나눈다: `noCredentials`(저장된 비밀번호 없음·보안 저장소 읽기 실패), `rejected`(HTTP 400/401 — RSA 세션 오류 제외),
+    `transient`(네트워크·점검·5xx·비정상 응답, 1회 더 시도). 예전에는 모두 '토큰 만료'로 알렸다.
+  - 예외: `rejected`/`noCredentials` → `TokenExpiredException`(재로그인 안내), `transient` → `AuthTemporarilyUnavailableException`(잠시 후 재시도).
+    `login()` 자체는 `LoginRejectedException` / `AuthTemporarilyUnavailableException` 을 던진다.
+  - 결과는 `standalone_auth_last_*` 키와 `StandaloneAuthService.status`(ValueNotifier)에 기록 → 대시보드·동기화 화면 '재로그인 필요' 경고(재로그인 필요할 때만),
+    설정 계정 카드 '마지막 로그인' 줄. 백그라운드 isolate 결과는 앱 시작·복귀 때 `reloadStatus()` 로 반영.
+  - `StandaloneAutoSyncService` drain 은 인증 실패 시 큐를 **보존**하고 멈춘다(예전엔 otherError 로 큐에서 지워 신고를 놓칠 수 있었다).
+  - 테스트: `test/services/standalone_auth_relogin_test.dart`(실제 로그인 호출 없음, `loginOverride`).
+- **하루 1회 백그라운드 로그인 점검** (`lib/services/background_login_check.dart`, `workmanager`)
+  - 토큰은 1시간짜리라 주기 갱신은 의미가 없다. 대신 앱이 닫혀 있는 동안 비밀번호 변경·계정 잠김을 미리 알아채 알린다.
+  - Standalone(데모 제외) 에서 등록, Client 전환·데모·초기화 때 해제. 24시간 주기, 첫 실행 6시간 뒤, 네트워크 연결·배터리 부족 아님 조건.
+  - 살아 있는 토큰이 있으면 로그인하지 않는다. `rejected`/`noCredentials` 일 때만 `standalone_auth_alert` 키를 쓰고(72시간에 한 번),
+    Kotlin `SafetyReportApplication` 이 알림을 띄운다(`docs/architecture/android-runtime.md`). 일시 오류는 조용히 다음 날.
 
 ### 자격증명 저장
 

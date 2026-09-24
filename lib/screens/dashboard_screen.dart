@@ -7,6 +7,7 @@ import '../models/app_mode.dart';
 import '../providers/report_provider.dart';
 import '../models/report.dart';
 import '../server_palette.dart';
+import '../widgets/auth_status_notice.dart';
 import '../widgets/report_detail_sheet.dart';
 import 'recent_answers_screen.dart';
 import 'report_management_screen.dart';
@@ -180,6 +181,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          const ReloginRequiredBanner(),
           _buildSummaryGrid(stats),
           const SizedBox(height: 12),
           const SyncStatusCard(),

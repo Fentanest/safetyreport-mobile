@@ -160,10 +160,13 @@ class StandaloneApiService {
       throw Exception('네트워크 오류 (${mobileMaxRetryAttempts}회 재시도 실패): $lastError');
     }
 
-    // 401이면 토큰 만료 — 자동 재로그인 후 1회 재시도
+    // 401이면 토큰 만료 — 자동 재로그인 후 1회 재시도.
+    // 재로그인이 안 되면 원인에 맞는 예외(재로그인 필요 / 일시 오류)를 던진다.
     if (res.statusCode == 401) {
-      final newToken = await StandaloneAuthService.tryAutoRelogin();
-      if (newToken != null) {
+      final newToken = StandaloneAuthService.tokenFromRelogin(
+        await StandaloneAuthService.relogin(),
+      );
+      {
         headers = {
           ..._commonHeaders,
           'Authorization': 'BEARER $newToken',

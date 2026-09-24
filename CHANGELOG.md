@@ -71,6 +71,77 @@
 
 ## 2026-09-24 (버전 변경 없음, 브랜치 `docs/ui-renewal-bootstrap`)
 
+### 앱 아이콘·로고를 서버와 같은 새 디자인으로
+
+상태: 완료 (에뮬레이터 확인)
+
+- 서버가 사용자 제공 파일로 파비콘·앱 아이콘(카메라)과 로고(방패+글자, 라이트/다크)를 바꾼 것에 맞췄다(서버 커밋 `cea0752`, `f442759`).
+- 앱 아이콘: `assets/branding/app_icon.png`(서버 원본에서 투명 여백 제거) → `flutter_launcher_icons` 로 Android·iOS·웹·Windows·macOS 아이콘 재생성.
+  Android 8+ 적응형 아이콘 추가(전경은 72dp 안전 영역, 배경 #0035B9) — 예전엔 적응형이 없어 흰 원 안에 작게 들어갔다. 설정 파일 키도 `flutter_launcher_icons:` 로 갱신, 원본 경로를 저장소 안으로.
+- 알림 표시줄 아이콘 `ic_stat_logo`: 알아보기 어려운 PNG → 흰 카메라 실루엣 벡터.
+- 첫 연결 화면(연결 방식 선택): 방패 아이콘+제목 글자 → 서버 로그인 화면과 같은 로고 이미지(테마에 따라 라이트/다크).
+- README 맨 위 로고(`mysafetyreport-mobile.png`)도 새 아이콘으로(1.5MB → 314KB).
+- 확인: 에뮬레이터에서 홈 화면 아이콘(원형 마스크), Android 12+ 시작 화면 아이콘, 첫 연결 화면 로고 라이트/다크.
+  알림 표시줄 아이콘은 빌드(리소스 컴파일)만 확인 — 실제 알림 표시는 NOT_RUN. `flutter test` 121 passed, 골든 4 통과, analyze 기준선 유지.
+
+### README 사용자용으로 새로 쓰기 + 실제 화면 예시 이미지
+
+상태: 완료
+
+- README 를 엔드유저 눈높이로 다시 썼다: 할 수 있는 것, 두 가지 사용 방식, 시작하기, 로그인 안내(재로그인 필요 vs 연결 실패), 화면 둘러보기, 방식별 기능 비교, 자주 묻는 질문, 버그 제보 위치(설정 맨 위 도움·문의).
+  내부 용어(EncryptedSharedPreferences, canonical/raw 등)는 빼고 개발 문서는 AGENTS.md·docs/ 로 연결.
+- 예시 이미지를 사용자 실데이터(사용자 허락, 가림 없음)로 새로 만들었다: `example.png`(라이트)·`example-dark.png`(다크, `<picture>` 로 GitHub 테마에 맞춰 표시),
+  `docs/images/readme/screen-*.png` 6장(화면 둘러보기 표).
+  - 촬영: 테스트 에뮬레이터 `sr_uitest_api35`, Client 모드, 로컬에서만 띄운 서버(`fef44d8` 코드, api/ws 라우터만, 실데이터 DB 사본, 테스트 API 키) — 실서버·운영 로그인 사용 안 함.
+    상태표시줄은 데모 모드(9:41), 전국 신고현황은 공개 통계 API 로 1회 수집.
+  - 합성: 둥근 모서리·얇은 테두리·그림자, 계단식 겹침, 투명 배경, 256색 팔레트 압축(합계 약 1.1MB, 기존 example.png 6MB).
+  - 사용자 요청으로 대표 이미지 2·3번째(신고내역·신고 상세)와 갤러리의 같은 화면을 2026년 6월 신고(수용·과태료, 답변 완료)로 다시 찍었다.
+    9월 신고는 대부분 처리중이라 결과가 보이지 않았다.
+  - 원본 캡처와 촬영·합성 스크립트(`shoot_readme.py`, `compose_readme.py`, `ui.py`)는 `docs/images/readme/raw/` 에 두고 git 에서 제외(`.gitignore`) — 실데이터라 로컬 보관만.
+    몇 장만 바꿀 때는 그 장만 다시 찍고 `python3 compose_readme.py ../../../..` 로 다시 합성하면 된다.
+
+### 신고 상세 첨부 동영상: 탭해서 불러오기 → 자동으로 하나씩 불러오기
+
+상태: 완료 (위젯 테스트 + 에뮬레이터 실데이터 확인)
+
+- 사용자 피드백: 동영상은 알아서 불러와야 한다. 앞선 수정(`bff762f8`)은 스크롤 멈춤을 막으려고 탭해야 불러오게 했었다.
+- 멈춤 원인 셋을 각각 막으면서 자동으로 불러오도록 바꿨다(`_VideoPlayer`):
+  - 화면에 보이고 **스크롤이 멈췄을 때만** 시작(`isScrollingNotifier` + 뷰포트 겹침 확인). 스크롤 중엔 시작하지 않는다.
+  - **한 번에 하나씩** 불러온다(`_VideoLoadQueue`, 응답 없는 동영상이 뒤를 막지 않게 30초 타임아웃).
+  - 자리표시·로딩·오류·재생 모두 **같은 16:9 칸** — 로딩이 끝나도 높이가 바뀌지 않는다(세로 동영상은 좌우 여백). 자리표시를 누르면 즉시 불러온다.
+- 테스트: `test/widgets/report_detail_video_test.dart` 를 새 동작으로 교체(가짜 컨트롤러로 스크롤 중 미시작·순차 로딩·높이 불변 확인).
+- 에뮬레이터(실데이터 Client, 동영상 2개 신고): 동영상 위치에서 멈추면 자동 로드·재생 컨트롤 표시, 로딩 중 위로 스크롤 후 대기 → 스크롤 정상.
+- `flutter analyze` error 0 / warning 2(기존) / info 36, `flutter test` 121 passed, 골든 4 통과.
+
+### Standalone 자동 재로그인 정리 + 하루 1회 로그인 점검 + 스토어 별점 요청
+
+상태: 완료 (단위·위젯 테스트, 에뮬레이터로 알림·백그라운드 실행 확인). 실제 안전신문고 로그인·Play 리뷰 창은 NOT_RUN
+
+배경:
+- 제보: Standalone 에서 동기화하려는데 "토큰 만료"가 떴다.
+- 원인(코드): 자동 재로그인의 모든 실패(네트워크 끊김·점검·5xx 포함)를 "토큰 만료, 재로그인하세요"로 알렸다.
+  또 앱 복귀 때 재로그인이 진행 중이면 `refreshSessionIfNeeded()` 가 기다리지 않고 돌아와, 뒤따르는 drain/동기화가 만료 토큰으로 시작해 로그인이 겹쳤다.
+  (`allowBackup=false` 라 백업 복원으로 비밀번호가 깨지는 경우는 아님. 토큰은 1시간짜리라 하루 1회 미리 갱신은 의미 없음 — 사용자와 합의)
+- 추가 발견: drain 중 인증 실패는 otherError 로 처리돼 **큐에서 지워졌다** → 그 신고를 영영 놓칠 수 있었다.
+
+변경:
+- `StandaloneAuthService`: `relogin()` single-flight, 결과 `success/noCredentials/rejected/transient`, 일시 오류 1회 재시도, 결과 기록(`standalone_auth_last_*`, `status` ValueNotifier).
+  `login()` 은 `LoginRejectedException`(400/401, RSA 세션 오류 제외) / `AuthTemporarilyUnavailableException`(네트워크·점검·5xx·비정상 응답)을 던진다.
+  `ensureValidToken()`·API 401 경로: 재로그인 필요 → `TokenExpiredException`, 일시 오류 → `AuthTemporarilyUnavailableException`.
+- `SyncEngine`: 인증 예외는 메시지 그대로 올려 동기화를 멈춘다(상세 조회 루프의 중복 재로그인 제거). `StandaloneAutoSyncService`: 인증 실패 시 큐 보존.
+- UI: 대시보드·동기화 화면 맨 위 '재로그인 필요' 경고(재로그인 필요할 때만, `재로그인` → 설정 재로그인 창 바로 열림), 설정 계정 카드 '마지막 로그인' 줄.
+- 하루 1회 백그라운드 로그인 점검(`workmanager` 추가, `BackgroundLoginCheck`): 비밀번호 거부·로그인 정보 없음일 때만 알림(72시간에 1회), 일시 오류는 조용히.
+  백그라운드 엔진엔 MainActivity 채널이 없어 Kotlin `SafetyReportApplication`(신규, 매니페스트 `android:name` 변경)이 `standalone_auth_alert` 키 변경을 듣고 알림.
+- 스토어 별점(`in_app_review` 추가, `ReviewPromptService`): 구글 API 는 별점 여부를 알려 주지 않으므로 요청 횟수로 조절.
+  최근 3일 안에 받은 수용·과태료·범칙금 결과 상세를 닫은 뒤, 설치 7일·사용한 날 5일 이상, 90일 간격, 평생 3회, 이번 실행 오류 없음, 데모 제외.
+  만족도를 먼저 묻는 방식(구글 정책 위반)은 쓰지 않는다. 설정 도움·문의 카드에 'Play 스토어에서 평가하기'(조건 없음) 추가.
+
+검증:
+- 테스트 추가: `standalone_auth_relogin_test`(5), `background_login_check_test`(4), `review_prompt_service_test`(5), `auth_status_notice_test`(2). 실제 로그인 호출 없음(`loginOverride`).
+- 에뮬레이터(`sr_uitest_api35`, 데모, 임시 검증 코드는 커밋 안 함): 알림 키 쓰기 → '🔐 안전신문고 재로그인 필요' 알림 표시, 주기 작업 등록(네트워크·배터리 조건, 6시간 지연) 확인,
+  일회성 작업 강제 실행 → 백그라운드 엔진에서 점검 실행·`SUCCESS`(데모라 로그인 건너뜀). 설정 화면 평가 버튼 렌더 확인.
+- `flutter analyze` error 0 / warning 2(기존) / info 36, `flutter test` 121 passed, 골든 4 통과.
+
 ### 설정: 버그 제보를 맨 위 '도움·문의' 카드로
 
 상태: 완료 (에뮬레이터 화면 확인, 링크 열기는 실행 안 함)

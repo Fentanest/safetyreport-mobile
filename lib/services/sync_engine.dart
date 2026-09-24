@@ -10,6 +10,7 @@ import 'duplicate_projection_service.dart';
 import 'local_db_service.dart';
 import 'pending_changes_store.dart';
 import 'standalone_api_service.dart';
+import 'review_prompt_service.dart';
 import 'standalone_auth_service.dart';
 import 'standalone_parser.dart';
 
@@ -126,6 +127,7 @@ class SyncEngine {
     try {
       await LocalDbService.runBackgroundWork(() => _run(fullSync: fullSync));
     } catch (e) {
+      ReviewPromptService.markSessionError();
       _emit(SyncEvent(type: SyncEventType.error, message: e.toString()));
     } finally {
       _running = false;
@@ -141,6 +143,10 @@ class SyncEngine {
     int totalCount;
     try {
       totalCount = await StandaloneApiService.fetchTotalCount();
+    } on TokenExpiredException {
+      rethrow; // 메시지가 그대로 사용자에게 가야 한다(재로그인 안내)
+    } on AuthTemporarilyUnavailableException {
+      rethrow; // 네트워크·점검 — '토큰 만료'로 보이지 않게 그대로 전달
     } catch (e) {
       throw Exception('목록 조회 실패: $e');
     }
@@ -196,6 +202,10 @@ class SyncEngine {
         final list = (data['result'] as List? ?? [])
             .cast<Map<String, dynamic>>();
         allItems.addAll(list);
+      } on TokenExpiredException {
+        rethrow;
+      } on AuthTemporarilyUnavailableException {
+        rethrow;
       } catch (e) {
         listPageErrors++;
         _log('[오류] 목록 조회 실패: $e');
@@ -266,36 +276,11 @@ class SyncEngine {
           _log('$done/${toSync.length}건 완료');
         }
       } on TokenExpiredException {
-        // 토큰 만료 → 자동 재로그인 시도
-        _log('토큰 만료 감지, 자동 재로그인 시도 중...');
-        final newToken = await StandaloneAuthService.tryAutoRelogin();
-        if (newToken == null) {
-          throw Exception('토큰 만료. 설정 > 재로그인 후 다시 시도해주세요.');
-        }
-        _log('자동 재로그인 성공, 상세 조회 재시도 중...');
-        // 재시도 1회
-        try {
-          final detail = await StandaloneApiService.fetchReportDetail(cNo);
-          var report = parseJsonToReport(item, detail);
-          final ev = entryValueFromDetail(item, detail);
-          final cat = categoryFromEntryValue(ev);
-          final raw = (detail['C_A_CONTENTS'] ?? detail['C_A_BODY'] ?? '')
-              .toString();
-          final augmented = await _augmentRatingCause(report);
-          report = augmented.report;
-          await LocalDbService.upsertReport(
-            report,
-            cat,
-            ev,
-            rawContent: raw,
-            ratingLookup: augmented.lookup,
-          );
-          if (!fullSync) _trackChange(existingStatus[cNo], report);
-          done++;
-        } catch (retryErr) {
-          errors++;
-          _log('[오류] $cNo 재시도 실패: $retryErr');
-        }
+        // API 계층이 이미 자동 재로그인을 해 봤고 실패했다(비밀번호 거부·로그인 정보 없음) — 동기화를 멈추고 안내.
+        rethrow;
+      } on AuthTemporarilyUnavailableException {
+        // 네트워크·점검 — 남은 건도 같은 이유로 실패하므로 멈춘다. '토큰 만료'로 안내하지 않는다.
+        rethrow;
       } catch (e) {
         errors++;
         _log('[오류] $cNo: $e');

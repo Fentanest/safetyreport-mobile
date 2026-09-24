@@ -7,6 +7,7 @@ import '../providers/report_provider.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
 import '../services/sync_engine.dart';
+import '../widgets/auth_status_notice.dart';
 import 'settings_screen.dart';
 import '../theme/sr_colors.dart';
 
@@ -468,6 +469,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    const ReloginRequiredBanner(),
                     _infoCard(),
                     if (isDemo) ...[SizedBox(height: 12), _demoInfoCard()],
                     SizedBox(height: 16),

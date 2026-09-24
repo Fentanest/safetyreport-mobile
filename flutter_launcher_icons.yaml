@@ -1,17 +1,24 @@
-flutter_icons:
+# 앱 아이콘 원본: 서버와 같은 카메라 앱 아이콘(2026-09-24).
+# assets/branding/app_icon.png          — 투명 여백을 잘라낸 1024px (Android 7 이하·iOS·웹·데스크톱)
+# assets/branding/app_icon_adaptive_fg.png — Android 8+ 적응형 전경(108dp 중 72dp 안전 영역에 맞춤)
+# 다시 만들기: dart run flutter_launcher_icons
+flutter_launcher_icons:
   android: "ic_launcher"
   ios: true
-  image_path: "../safetyreport.png"
+  remove_alpha_ios: true
+  image_path: "assets/branding/app_icon.png"
+  adaptive_icon_background: "#0035B9"
+  adaptive_icon_foreground: "assets/branding/app_icon_adaptive_fg.png"
   min_sdk_android: 21
   web:
     generate: true
-    image_path: "../safetyreport.png"
+    image_path: "assets/branding/app_icon.png"
     background_color: "#FFFFFF"
-    theme_color: "#1A73E8"
+    theme_color: "#0B5ED7"
   windows:
     generate: true
-    image_path: "../safetyreport.png"
+    image_path: "assets/branding/app_icon.png"
     icon_size: 48
   macos:
     generate: true
-    image_path: "../safetyreport.png"
+    image_path: "assets/branding/app_icon.png"

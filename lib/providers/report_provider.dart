@@ -11,6 +11,8 @@ import '../services/local_db_service.dart';
 import '../services/local_geocode_service.dart';
 import '../services/permission_service.dart';
 import '../services/rating_service.dart';
+import '../services/background_login_check.dart';
+import '../services/review_prompt_service.dart';
 import '../services/standalone_auth_service.dart';
 import '../services/standalone_auto_sync_service.dart';
 import '../services/sync_engine.dart';
@@ -728,7 +730,10 @@ class ReportProvider with ChangeNotifier {
         if (_appMode == AppMode.standalone) {
           () async {
             if (!_isStandaloneDemo) {
+              await StandaloneAuthService.reloadStatus();
               StandaloneAuthService.startKeepAlive();
+              // 기존 설치 사용자도 앱을 한 번 열면 하루 1회 로그인 점검이 등록된다(이미 있으면 유지).
+              unawaited(BackgroundLoginCheck.schedule());
             }
             // 먼저 현재 DB 데이터로 대시보드 즉시 구성 (drain 이 오래 걸려도 빈 화면 없음)
             await refreshAll();
@@ -741,6 +746,7 @@ class ReportProvider with ChangeNotifier {
       }
     } catch (e) {
       _errorMessage = '초기화 실패: $e';
+      ReviewPromptService.markSessionError();
     } finally {
       _isInitialized = true;
       notifyListeners();
@@ -761,6 +767,8 @@ class ReportProvider with ChangeNotifier {
       await refreshAll();
       return;
     }
+    // 백그라운드 로그인 점검(다른 isolate)이 남긴 결과를 화면에 반영한다.
+    await StandaloneAuthService.reloadStatus();
     StandaloneAuthService.startKeepAlive();
     await StandaloneAuthService.refreshSessionIfNeeded();
     await _drainAndRefresh();
@@ -775,6 +783,7 @@ class ReportProvider with ChangeNotifier {
 
   Future<void> setConfig(String url, String key) async {
     StandaloneAuthService.stopKeepAlive();
+    unawaited(BackgroundLoginCheck.cancel());
     final cleanUrl = url.endsWith('/') ? url.substring(0, url.length - 1) : url;
     _appMode = AppMode.server;
     _isStandaloneDemo = false;
@@ -802,8 +811,10 @@ class ReportProvider with ChangeNotifier {
     if (isDemoMode) {
       StandaloneAuthService.stopKeepAlive();
       await StandaloneAuthService.clearToken();
+      unawaited(BackgroundLoginCheck.cancel());
     } else {
       StandaloneAuthService.startKeepAlive();
+      unawaited(BackgroundLoginCheck.schedule());
     }
     _appMode = AppMode.standalone;
     _standaloneUsername = username;
@@ -851,6 +862,7 @@ class ReportProvider with ChangeNotifier {
   Future<void> resetConfig() async {
     await PermissionService.stopWsService();
     StandaloneAuthService.stopKeepAlive();
+    unawaited(BackgroundLoginCheck.cancel());
     _appMode = AppMode.server;
     _baseUrl = '';
     _apiKey = '';
@@ -990,6 +1002,7 @@ class ReportProvider with ChangeNotifier {
       _loadedCategories.add(category);
     } catch (e) {
       _errorMessage = '${_categoryLabel(category)} 내역 로드 실패: $e';
+      ReviewPromptService.markSessionError();
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -1041,6 +1054,7 @@ class ReportProvider with ChangeNotifier {
       }
     } catch (e) {
       _errorMessage = '중복차량 내역 로드 실패: $e';
+      ReviewPromptService.markSessionError();
     } finally {
       _isLoading = false;
       notifyListeners();

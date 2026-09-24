@@ -233,18 +233,20 @@ class _SetupScreenState extends State<SetupScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const SizedBox(height: 24),
-          Icon(
-            Icons.shield_outlined,
-            size: 60,
-            color: Theme.of(context).colorScheme.primary,
+          // 서버 웹 로그인 화면과 같은 로고(2026-09-24). 라이트/다크 두 벌을 테마로 고른다.
+          Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 300),
+              child: Image.asset(
+                Theme.of(context).brightness == Brightness.dark
+                    ? 'assets/branding/logo_lockup_dark.png'
+                    : 'assets/branding/logo_lockup_light.png',
+                semanticLabel: '나만의 안전신문고',
+                fit: BoxFit.contain,
+              ),
+            ),
           ),
-          const SizedBox(height: 20),
-          const Text(
-            '나만의 안전신문고',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 16),
           Text(
             '연결 방식을 선택해주세요',
             textAlign: TextAlign.center,

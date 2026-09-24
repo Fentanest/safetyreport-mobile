@@ -18,12 +18,14 @@ import '../services/permission_service.dart';
 import '../services/server_connection_service.dart';
 import '../services/server_contract.dart';
 import '../services/standalone_auth_service.dart';
+import '../services/review_prompt_service.dart';
 import '../services/support_links.dart';
 import 'permission_screen.dart';
 import 'setup_screen.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:file_picker/file_picker.dart';
 import '../navigation/app_routes.dart';
+import '../widgets/auth_status_notice.dart';
 import '../widgets/mode_badge.dart';
 import '../server_palette.dart';
 import '../widgets/status_badge.dart';
@@ -32,7 +34,10 @@ import '../theme/sr_colors.dart';
 const _officialSafetyReportUrl = 'https://www.safetyreport.go.kr/';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  /// 대시보드 '재로그인 필요' 경고에서 열 때 true — 화면이 뜨면 바로 재로그인 창을 연다(Standalone).
+  final bool openReloginOnStart;
+
+  const SettingsScreen({super.key, this.openReloginOnStart = false});
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -81,6 +86,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     PackageInfo.fromPlatform().then((info) {
       if (mounted) setState(() => _appVersion = info.version);
     });
+    if (widget.openReloginOnStart &&
+        provider.appMode == AppMode.standalone) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showReloginDialog();
+      });
+    }
   }
 
   Future<void> _loadServerVersion() async {
@@ -1028,6 +1039,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               onGuide: () =>
                   _openSupportLink(Uri.parse(SupportLinks.userGuide)),
+              onRateApp: () async {
+                final messenger = ScaffoldMessenger.of(context);
+                try {
+                  await ReviewPromptService.openStoreListing();
+                } catch (_) {
+                  messenger.showSnackBar(
+                    const SnackBar(content: Text('Play 스토어를 열 수 없습니다.')),
+                  );
+                }
+              },
             ),
             const SizedBox(height: 16),
 
@@ -1174,6 +1195,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ? '미설정'
                             : provider.standalonePhoneNumber,
                       ),
+                      if (!provider.isStandaloneDemo) ...[
+                        const SizedBox(height: 6),
+                        const AuthStatusLine(),
+                      ],
                       const SizedBox(height: 16),
                       SizedBox(
                         width: double.infinity,
@@ -2133,11 +2158,13 @@ class _SupportCard extends StatelessWidget {
   final VoidCallback onBugReport;
   final VoidCallback onFeatureRequest;
   final VoidCallback onGuide;
+  final VoidCallback onRateApp;
 
   const _SupportCard({
     required this.onBugReport,
     required this.onFeatureRequest,
     required this.onGuide,
+    required this.onRateApp,
   });
 
   @override
@@ -2202,6 +2229,12 @@ class _SupportCard extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.star_outline, size: 18),
+              label: const Text('Play 스토어에서 평가하기'),
+              onPressed: onRateApp,
             ),
           ],
         ),

@@ -106,7 +106,7 @@
 
 | 항목 | 결과 |
 |---|---|
-| `flutter test` | 102 passed (단위·위젯·접근성·골든 4장, DB 테스트 파일별 임시 경로) |
+| `flutter test` | 121 passed (단위·위젯·접근성·골든 4장, DB 테스트 파일별 임시 경로) |
 | `flutter analyze` | error 0 / warning 2(시작 때부터 있던 setup_screen 2건) / info 36 (시작 baseline: warning 2, info 73). ※ 한때 "warning 0"으로 잘못 기록 — 검사 명령 정정: `flutter analyze \| awk -F' • ' '/ • /{print $1}' \| sort \| uniq -c` |
 | 에뮬레이터 내비게이션 E2E (`sr_uitest_api35`, Standalone 데모) | 하단 5탭, 동기화 카드/앱바 → 동기화, 딥링크 nav_tab 6/5/4, 런처 바로가기 quick_sync(데모 차단 안내), 설정 > 파일 관리, 뒤로가기 복귀 — 전부 PASS. 바로가기 이중 push 결함 발견·수정 |
 | 실데이터 Client 렌더 | 실서버 DB 사본 + 로컬 최소 API(새 서버 코드) + 에뮬레이터 Client 모드, 라이트/다크 16화면씩. 캡처는 세션 임시 폴더에만(레포·Gemini 제외) |

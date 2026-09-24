@@ -106,7 +106,7 @@
   <tr>
     <td align="center" width="33%"><img src="docs/images/readme/screen-dashboard.png" alt="대시보드" width="240" /><br><b>대시보드</b><br><sub>처리 결과를 색깔 카드로 한눈에</sub></td>
     <td align="center" width="33%"><img src="docs/images/readme/screen-list.png" alt="신고내역" width="240" /><br><b>신고내역</b><br><sub>교통·주정차·기타, 차량번호와 처리상태까지</sub></td>
-    <td align="center" width="33%"><img src="docs/images/readme/screen-detail.png" alt="신고 상세" width="240" /><br><b>신고 상세</b><br><sub>신고 내용, 첨부 사진·동영상, 답변</sub></td>
+    <td align="center" width="33%"><img src="docs/images/readme/screen-detail.png" alt="신고 상세" width="240" /><br><b>신고 상세</b><br><sub>처리 결과·과태료·담당 기관과 답변 내용까지</sub></td>
   </tr>
   <tr>
     <td align="center"><img src="docs/images/readme/screen-stats.png" alt="통계" width="240" /><br><b>통계</b><br><sub>총 신고·답변 완료·평균 처리기간, 월별 추이</sub></td>

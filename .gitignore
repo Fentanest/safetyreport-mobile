@@ -54,3 +54,6 @@ docs/design/reference/*.png
 
 # golden 비교 실패 산출물
 test/**/failures/
+
+# README 예시 이미지 원본 캡처·합성 스크립트(실데이터, 로컬 보관만)
+docs/images/readme/raw/

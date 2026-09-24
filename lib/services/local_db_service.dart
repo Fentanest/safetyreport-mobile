@@ -2324,6 +2324,33 @@ class LocalDbService {
     return serverDb.query(table);
   }
 
+  /// 서버 신고 행을 **원본**(목록 mysafety + 상세 mysafetydetail_*)에서 읽는다.
+  /// 서버 화면용 표(merge)에는 사용자 수정값과 "6개월 초과" 첨부 가림이 덮여 있어서, 그걸 앱 원본으로 저장하면
+  /// 다시 서버로 복원할 때 사이트 원본이 사라진다(저장 계층 재설계 R2). 수정값은 report_override 로 따로 온다.
+  /// 원본 표가 없는 옛 서버 DB 만 merge 를 읽는다.
+  static Future<List<Map<String, Object?>>> _readServerReportRows(
+    Database serverDb,
+    Set<String> serverTables, {
+    required String mergeTable,
+    required String category,
+  }) async {
+    final detailTable = 'mysafetydetail_$category';
+    if (!serverTables.contains('mysafety') ||
+        !serverTables.contains(detailTable)) {
+      return _readServerTable(serverDb, serverTables, mergeTable);
+    }
+    final titleColumns =
+        (await serverDb.rawQuery('PRAGMA table_info("mysafety")'))
+            .map((r) => r['name'] as String)
+            .where((name) => name != 'ID')
+            .map((name) => 't."$name" AS "$name"')
+            .join(', ');
+    return serverDb.rawQuery(
+      'SELECT d.*, $titleColumns FROM "$detailTable" d '
+      'JOIN "mysafety" t ON t.ID = d.ID',
+    );
+  }
+
   /// 계약 타입(integer/real)에 맞춘다. 숫자 문자열은 숫자로, 빈 문자열은 NULL 로(숫자 열에 '' 는 잘못된 값).
   static Object? _coerceForColumn(Object? value, String? declaredType) {
     if (value is! String) return value;
@@ -2420,10 +2447,11 @@ class LocalDbService {
 
       await localDb.transaction((txn) async {
         for (final entry in sourceTableMap.entries) {
-          final rows = await _readServerTable(
+          final rows = await _readServerReportRows(
             serverDb,
             serverTables,
-            entry.key,
+            mergeTable: entry.key,
+            category: entry.value,
           );
           for (final row in rows) {
             final reportId = row['ID']?.toString() ?? '';

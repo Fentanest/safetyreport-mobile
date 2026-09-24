@@ -1,3 +1,4 @@
+import '../services/attachment_policy.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -155,9 +156,10 @@ class ReportDetailSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = _statusColor(report.status);
-    final photos = _splitUrls(report.attachedPhotos);
-    final files = _splitUrls(report.attachedFiles);
-    final mapUrls = _splitUrls(report.mapImage);
+    final expired = attachmentsExpired(report.date);
+    final photos = expired ? <String>[] : _splitUrls(report.attachedPhotos);
+    final files = expired ? <String>[] : _splitUrls(report.attachedFiles);
+    final mapUrls = expired ? <String>[] : _splitUrls(report.mapImage);
 
     // 지도 이미지 → imageUrls 맨 앞에 추가
     final imageUrls = <String>[];

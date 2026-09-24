@@ -61,7 +61,7 @@ class LocalDbService {
     final dbPath = await getDatabasesPath();
     final database = await openDatabase(
       join(dbPath, 'standalone_reports.db'),
-      version: 10,
+      version: 11,
       onCreate: _create,
       onUpgrade: _migrateLocalDatabase,
     );
@@ -173,6 +173,27 @@ class LocalDbService {
       await _addGeoColumns(db);
       await _createGeocodeCacheTable(db);
     }
+    if (oldV < 11) {
+      await _addPhotoCaptureColumns(db);
+    }
+  }
+
+  /// 주정차 사진 EXIF 촬영 시각(서버 `services/photo_capture_time.py` 가 채움). 서버 detail/merge 와 같은 이름·형식.
+  /// NULL = 아직 시도 안 함, 사진_촬영수 0 = 촬영 정보 없음. 서버↔모바일 교환 대상(PROJECT_RULES §3-1).
+  static const photoCaptureColumns = ['사진_첫촬영', '사진_끝촬영', '사진_촬영수'];
+
+  static Future<void> _addPhotoCaptureColumns(DatabaseExecutor db) async {
+    for (final col in const [
+      'ALTER TABLE reports ADD COLUMN 사진_첫촬영 TEXT',
+      'ALTER TABLE reports ADD COLUMN 사진_끝촬영 TEXT',
+      'ALTER TABLE reports ADD COLUMN 사진_촬영수 INTEGER',
+    ]) {
+      try {
+        await db.execute(col);
+      } catch (_) {
+        // 이미 추가된 경우 무시
+      }
+    }
   }
 
   static Future<void> _create(Database db, int version) async {
@@ -219,7 +240,10 @@ class LocalDbService {
         보완_요청일시    TEXT DEFAULT '',
         보완_완료일시    TEXT DEFAULT '',
         보완_요청_내용   TEXT DEFAULT '',
-        보완_신고자_의견 TEXT DEFAULT ''
+        보완_신고자_의견 TEXT DEFAULT '',
+        사진_첫촬영       TEXT,
+        사진_끝촬영       TEXT,
+        사진_촬영수       INTEGER
       )
     ''');
     await _createRawTable(db);
@@ -535,8 +559,13 @@ class LocalDbService {
       final existingRaw = await _getRawPayload(txn, r.id);
 
       int syncedAt = now;
+      // 모델(Report)에 없는 교환 컬럼은 REPLACE 로 지워지지 않게 기존 값을 이어받는다(서버에서 가져온 사진 촬영 시각 등).
+      final carried = <String, Object?>{};
       if (existingRows.isNotEmpty) {
         final existing = Map<String, Object?>.from(existingRows.first);
+        for (final col in photoCaptureColumns) {
+          carried[col] = existing[col];
+        }
         final existingComparable = <String, Object?>{};
         final reportComparable = <String, Object?>{};
         for (final key in _syncedAtTrackedKeys) {
@@ -553,6 +582,7 @@ class LocalDbService {
 
       await txn.insert('reports', {
         ...reportRow,
+        ...carried,
         'synced_at': syncedAt,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
       await _replaceRawPayload(
@@ -2223,7 +2253,7 @@ class LocalDbService {
   static Future<Database> _createImportTargetDb(String path) async {
     return openDatabase(
       path,
-      version: 10,
+      version: 11,
       onCreate: _create,
       onUpgrade: _migrateLocalDatabase,
     );

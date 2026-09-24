@@ -8,6 +8,21 @@
 
 ---
 
+## 2026-09-24 (버전 변경 없음, 브랜치 `feature/stats-estimate-photo`)
+
+### DB v11: 주정차 사진 촬영 시각 3컬럼, 서버↔모바일 왕복 검사
+
+상태: 완료(테스트). 에뮬레이터 확인 없음(화면 변화 없음).
+
+- 서버가 추가한 `사진_첫촬영`·`사진_끝촬영`·`사진_촬영수` 를 `reports` 에 추가(v10→v11 마이그레이션, 새 DB 생성, 서버 DB 가져오기 대상 DB 모두 v11).
+- `upsertReport` 가 REPLACE 로 행을 다시 쓰면서 모델에 없는 이 컬럼들을 지우던 문제를 막으려 기존 값을 이어받는다.
+- 서버 레포 `scripts/dev/db_roundtrip_check.py` 용 하네스 `test/tool/db_roundtrip_harness_test.dart`(평소 skip). 양방향 차이 0, 일부러 넣은 손상 5종 모두 감지.
+- 테스트: `test/services/photo_capture_columns_test.dart` 3건(재저장 보존 — 보존 코드를 빼면 실패 확인, 새 신고 NULL, v10→v11). 전체 flutter test 통과.
+
+### 통계: 처분 미확인·처분 대상 아님·기타·미분류 분리, 추정 과태료 따로 표시
+
+- 커밋 `4f714249`. 서버와 같은 `fine_estimate` 규칙·검사 벡터, 통계 화면에 확정/추정 금액과 분리 배지(구서버 응답이면 기존 표시).
+
 ## 2026-09-24 (버전 변경 없음, 브랜치 `docs/ui-renewal-bootstrap`)
 
 ### 설정: 버그 제보를 맨 위 '도움·문의' 카드로

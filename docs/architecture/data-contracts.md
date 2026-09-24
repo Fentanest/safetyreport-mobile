@@ -315,3 +315,10 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
 - **기관/담당자 통계 행 규칙(S-10)**: 표 포함은 처리기관·담당자 값으로 정한다(처리상태로 빼지 않음). 배정된 처리중은 `in_progress` 로 따로 센다. 평균 처리일은 완료 신고만.
   서버 `report_stats_service._build_stats_tables` ↔ Standalone `LocalDbService.buildStatsCategory` 가 같은 정의 — 한쪽을 바꾸면 양쪽 테스트(`tests/test_report_stats_service.py`, `test/services/stats_tables_test.dart`)를 함께 고친다.
   서버 반올림은 `_round_half_up`(Dart `toStringAsFixed` 와 같음), 과태료 금액은 `40.000원` 점 구분자도 읽는다(`extractFineAmount` 와 같음).
+- **DB v11 사진 촬영 시각** `reports.사진_첫촬영`(TEXT `YYYY-MM-DD HH:MM:SS`)·`사진_끝촬영`(TEXT)·`사진_촬영수`(INTEGER). 서버 detail/merge 와 같은 이름·형식, 서버 크롤러가 주정차 사진 EXIF 로 채운다.
+  NULL = 아직 시도 안 함, `사진_촬영수 = 0` = 촬영 정보 없음. `Report` 모델에는 없으므로 `upsertReport`(REPLACE)가 기존 값을 이어받는다 — 모델에 없는 교환 컬럼을 추가할 때 같은 처리를 해야 한다.
+  Standalone 은 아직 채우지 않는다(서버에서 가져온 값만 보존). 테스트 `test/services/photo_capture_columns_test.dart`.
+- **서버↔모바일 DB 왕복 검사**(PROJECT_RULES §3-1): 서버 레포 `scripts/dev/db_roundtrip_check.py --mobile-repo <이 작업트리>` 가
+  `test/tool/db_roundtrip_harness_test.dart`(환경변수 `SR_RT_MODE=import` 일 때만 실행, 평소 skip)로 이 레포의 `importFromServerDb` 를 호출한다.
+  서버→모바일→서버, 모바일→서버→모바일 모두 원시 값 비교 차이 0(2026-09-24). 가져오기·내보내기 코드나 `reports` 컬럼을 바꾸면 돌린다.
+  알려진 정규화(실제 데이터에는 나타나지 않음): 가져오기가 NULL→''(주소정규화·행정구역·지오코딩상태·캐시 error_message), NULL `synced_at`→가져온 시각. 저장 로직 리팩터링 때 NULL 보존으로 정리.

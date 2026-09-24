@@ -322,3 +322,9 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
   `test/tool/db_roundtrip_harness_test.dart`(환경변수 `SR_RT_MODE=import` 일 때만 실행, 평소 skip)로 이 레포의 `importFromServerDb` 를 호출한다.
   서버→모바일→서버, 모바일→서버→모바일 모두 원시 값 비교 차이 0(2026-09-24). 가져오기·내보내기 코드나 `reports` 컬럼을 바꾸면 돌린다.
   알려진 정규화(실제 데이터에는 나타나지 않음): 가져오기가 NULL→''(주소정규화·행정구역·지오코딩상태·캐시 error_message), NULL `synced_at`→가져온 시각. 저장 로직 리팩터링 때 NULL 보존으로 정리.
+- **저장 계층 재설계 R0·R1(2026-09-24)** — 정본 계획은 서버 레포 `docs/plans/storage-refactor-plan.md`.
+  - 계약 `contracts/storage-contract.json`(서버와 바이트 동일). `test/storage/storage_contract_test.dart` 가 스키마·버전 일치를 검사.
+  - DB v12: `report_override`(사용자 수정값), `duplicate_decision`(중복 판단) 표 추가. 버전 상수는 `LocalDbService.dbVersion` 하나. 열 추가는 `lib/storage/schema_utils.dart addColumnIfMissing`(이미 있는 경우만 건너뜀).
+  - 서버 DB 가져오기: 값 그대로(NULL 유지), 숫자 열 형 맞춤, `감시목록` 은 서버 `mysafety_watchlist` 로 전부 다시 계산하고 sync_meta 'watchlist' 를 항상 기록(서버 sync_meta 의 옛 사본은 무시), 새 표 복사, 표 읽기 오류는 가져오기 실패로(임시 DB 라 기존 데이터 보존).
+  - 앱 백업 복원(`replaceFromBackup`): 종류(모바일)·버전(0 < v ≤ dbVersion) 확인 → 임시 사본 마이그레이션·무결성 검사 → `.bak` 롤백 교체.
+  - 알려진 결함 고정 테스트 `test/storage/known_defects_test.dart`(M-1·2/3·12·24 — R3 에서 고치면 기대값을 뒤집는다).

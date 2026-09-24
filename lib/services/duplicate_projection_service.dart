@@ -193,17 +193,32 @@ class DuplicateProjectionService {
       }
     }
 
+    // 사용자 판단(duplicate_decision)이 기존 그룹 행보다 우선한다 — 그룹이 사라졌다 다시 생겨도 유지(결정 D-6, M-18).
+    for (final decision in await db.query('duplicate_decision')) {
+      final groupId = decision['group_id']?.toString() ?? '';
+      if (groupId.isEmpty) continue;
+      existingGroups[groupId] = {
+        ...?existingGroups[groupId],
+        for (final key in const [
+          'status',
+          'representative_mode',
+          'representative_id',
+          'note',
+        ])
+          key: decision[key],
+      };
+    }
+
     final existingMembersByGroup = <String, Set<String>>{};
-    if (trackChanges && existingGroups.isNotEmpty) {
-      final rows = await db.query(memberTable);
-      for (final row in rows) {
-        final groupId = row['group_id']?.toString() ?? '';
-        final reportId = row['report_id']?.toString() ?? '';
-        if (groupId.isEmpty || reportId.isEmpty) continue;
-        existingMembersByGroup
-            .putIfAbsent(groupId, () => <String>{})
-            .add(reportId);
-      }
+    final memberCreatedAt = <String, Object?>{};
+    for (final row in await db.query(memberTable)) {
+      final groupId = row['group_id']?.toString() ?? '';
+      final reportId = row['report_id']?.toString() ?? '';
+      if (groupId.isEmpty || reportId.isEmpty) continue;
+      existingMembersByGroup
+          .putIfAbsent(groupId, () => <String>{})
+          .add(reportId);
+      memberCreatedAt['$groupId|$reportId'] = row['created_at'];
     }
 
     final duplicateCandidates = inventory
@@ -335,7 +350,9 @@ class DuplicateProjectionService {
           'field_match': _fieldFingerprint(record) == majorityFingerprint
               ? 1
               : 0,
-          'created_at': currentTs,
+          'created_at':
+              memberCreatedAt['$groupId|${_text(record['ID'])}'] ??
+              currentTs, // 처음 묶인 시각 유지
           'updated_at': currentTs,
         };
         members.add(payload);
@@ -530,6 +547,32 @@ class DuplicateProjectionService {
     return groups;
   }
 
+  /// 사용자 판단을 duplicate_decision 에 남긴다(서버 _record_decisions 와 같음). 그룹 재생성에도 보존된다.
+  static Future<void> _recordDecisions(
+    DatabaseExecutor db,
+    List<String> groupIds,
+  ) async {
+    for (final groupId in groupIds) {
+      final rows = await db.query(
+        groupTable,
+        where: 'group_id = ?',
+        whereArgs: [groupId],
+        limit: 1,
+      );
+      if (rows.isEmpty) continue;
+      final g = rows.first;
+      await db.insert('duplicate_decision', {
+        'group_id': groupId,
+        'status': g['status'],
+        'representative_mode': g['representative_mode'],
+        'representative_id': g['representative_id'],
+        'apply_globally': g['apply_globally'],
+        'note': g['note'],
+        'updated_at': g['updated_at'] ?? _nowMs(),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+  }
+
   static Future<bool> updateDuplicateGroup(
     Database db,
     String groupId, {
@@ -638,6 +681,7 @@ class DuplicateProjectionService {
         where: 'group_id = ? AND report_id = ?',
         whereArgs: [normalizedGroupId, resolvedRepresentativeId],
       );
+      await _recordDecisions(txn, [normalizedGroupId]);
     });
     return true;
   }
@@ -661,7 +705,7 @@ class DuplicateProjectionService {
       return 0;
     }
     final placeholders = List.filled(normalizedIds.length, '?').join(',');
-    return await db.rawUpdate(
+    final changed = await db.rawUpdate(
       '''
       UPDATE $groupTable
       SET status = ?, apply_globally = ?, updated_at = ?
@@ -674,6 +718,8 @@ class DuplicateProjectionService {
         ...normalizedIds,
       ],
     );
+    await _recordDecisions(db, normalizedIds);
+    return changed;
   }
 
   static Future<List<Map<String, dynamic>>> projectReportRows(

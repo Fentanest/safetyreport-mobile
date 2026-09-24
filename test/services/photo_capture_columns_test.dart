@@ -115,31 +115,5 @@ void main() {
     }
   });
 
-  test('v10 database upgrades with photo capture columns', () async {
-    final path = await LocalDbService.getDbPath();
-    final old = await openDatabase(
-      path,
-      version: 10,
-      onCreate: (db, _) async {
-        await db.execute(
-          'CREATE TABLE reports (ID TEXT PRIMARY KEY, 신고번호 TEXT)',
-        );
-        await db.insert('reports', {'ID': 'old-1', '신고번호': 'SPP-2601-0000001'});
-      },
-    );
-    await old.close();
-
-    final d = await LocalDbService.db;
-    expect(await d.getVersion(), LocalDbService.dbVersion);
-    final cols = (await d.rawQuery(
-      'PRAGMA table_info(reports)',
-    )).map((r) => r['name']).toSet();
-    expect(cols, containsAll(LocalDbService.photoCaptureColumns));
-    final row = (await d.query(
-      'reports',
-      where: 'ID = ?',
-      whereArgs: ['old-1'],
-    )).single;
-    expect(row['사진_촬영수'], isNull);
-  });
+  // v10 → 현재 업그레이드는 test/storage/migration_test.dart 가 실제 v10 구조로 검사한다(사진 3열 포함).
 }

@@ -788,6 +788,7 @@ class ReportProvider with ChangeNotifier {
     await prefs.setString(AppPrefsKeys.baseUrl, _baseUrl);
     await prefs.setString(AppPrefsKeys.apiKey, _apiKey);
     await prefs.remove(AppPrefsKeys.standaloneDemoMode);
+    await LocalDbService.closeDb();
 
     notifyListeners();
   }
@@ -820,7 +821,11 @@ class ReportProvider with ChangeNotifier {
       AppPrefsKeys.standalonePhoneNumber,
       _standalonePhoneNumber,
     );
+    final wasDemo = prefs.getBool(AppPrefsKeys.standaloneDemoMode) ?? false;
     await prefs.setBool(AppPrefsKeys.standaloneDemoMode, isDemoMode);
+    if (wasDemo != isDemoMode) {
+      await LocalDbService.closeDb(); // 데모 ↔ 실제 DB 파일 전환(M-24)
+    }
 
     notifyListeners();
   }
@@ -871,6 +876,7 @@ class ReportProvider with ChangeNotifier {
     await prefs.remove(AppPrefsKeys.standalonePhoneNumber);
     await prefs.remove(AppPrefsKeys.standaloneDemoMode);
     await StandaloneAuthService.clearToken();
+    await LocalDbService.closeDb();
 
     notifyListeners();
   }
@@ -1068,8 +1074,9 @@ class ReportProvider with ChangeNotifier {
 
   Future<void> addToWatchlist(List<String> reportNumbers) async {
     if (_appMode == AppMode.standalone) {
-      _watchlistNumbers.addAll(reportNumbers);
-      await LocalDbService.setWatchlistNumbers(_watchlistNumbers);
+      _watchlistNumbers = await LocalDbService.changeWatchlist(
+        add: reportNumbers,
+      );
     } else {
       await _api.updateWatchlist(reportNumbers, add: true);
       _watchlistNumbers.addAll(reportNumbers);
@@ -1079,8 +1086,9 @@ class ReportProvider with ChangeNotifier {
 
   Future<void> removeFromWatchlist(List<String> reportNumbers) async {
     if (_appMode == AppMode.standalone) {
-      _watchlistNumbers.removeAll(reportNumbers);
-      await LocalDbService.setWatchlistNumbers(_watchlistNumbers);
+      _watchlistNumbers = await LocalDbService.changeWatchlist(
+        remove: reportNumbers,
+      );
     } else {
       await _api.updateWatchlist(reportNumbers, add: false);
       _watchlistNumbers.removeAll(reportNumbers);

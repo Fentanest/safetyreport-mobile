@@ -162,12 +162,13 @@ class SyncEngine {
       }
       _log('기존 저장 ${existingStatus.length}건, 신규/변경 확인 시작');
     } else {
-      _log('전체 재동기화 모드');
-      await LocalDbService.clearAll();
+      // 먼저 지우지 않는다(M-1): 모든 신고를 다시 받아 제자리 갱신하고, 사용자 데이터(수정값·감시목록·중복 판단·지오코딩 캐시)는 둔다.
+      _log('전체 재동기화 모드 (모든 신고를 다시 받음, 사용자 데이터 유지)');
     }
 
     // 목록 페이지 순회 (200건씩)
     final allItems = <Map<String, dynamic>>[];
+    var listPageErrors = 0;
     int start = 1;
     const pageSize = 200;
 
@@ -183,6 +184,7 @@ class SyncEngine {
             .cast<Map<String, dynamic>>();
         allItems.addAll(list);
       } catch (e) {
+        listPageErrors++;
         _log('[오류] 목록 조회 실패: $e');
       }
       start += pageSize;
@@ -301,7 +303,22 @@ class SyncEngine {
       }
     }
 
-    await _saveSyncTime();
+    // 사이트 목록에서 사라진 신고 정리는 전체 재동기화이고 목록을 빠짐없이 받았을 때만(M-1, M-20).
+    if (fullSync && listPageErrors == 0 && allItems.isNotEmpty) {
+      final removed = await LocalDbService.removeReportsNotIn(
+        allItems
+            .map((i) => i['C_NO']?.toString() ?? '')
+            .where((id) => id.isNotEmpty)
+            .toSet(),
+      );
+      if (removed > 0) _log('사이트 목록에 없는 신고 $removed건 정리');
+    }
+    // 목록 페이지가 하나라도 실패하면 마지막 동기화 시각을 성공으로 남기지 않는다(M-20).
+    if (listPageErrors == 0) {
+      await _saveSyncTime();
+    } else {
+      _log('[주의] 목록 $listPageErrors페이지 실패 — 마지막 동기화 시각을 갱신하지 않음');
+    }
 
     if (_lastChanges.isNotEmpty) {
       await emitChanges(_lastChanges);

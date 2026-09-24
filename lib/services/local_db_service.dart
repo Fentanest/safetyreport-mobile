@@ -1,3 +1,4 @@
+import 'app_prefs_keys.dart';
 import '../models/editor_schema.dart';
 import '../models/rating_lookup.dart';
 import '../storage/schema_utils.dart';
@@ -6,6 +7,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart';
 import 'package:safetyreport/services/fine_estimate.dart' as fine_estimate;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../models/report.dart';
@@ -46,9 +48,19 @@ class LocalDbService {
     return _db!;
   }
 
+  /// 데모 계정(심사용)은 별도 파일을 쓴다(결정 D-7, M-24). 원천은 설정 키 standaloneDemoMode.
+  /// 모드를 바꾸는 쪽은 [closeDb] 를 불러 다음 접근 때 맞는 파일이 열리게 한다.
+  /// 다른 서비스가 reports 를 직접 고친 뒤 부른다(화면 캐시 비우기 — M-5).
+  static void invalidateCaches() => _invalidateProjectRowsCache();
+
   static Future<String> getDbPath() async {
     final dbPath = await getDatabasesPath();
-    return join(dbPath, 'standalone_reports.db');
+    final prefs = await SharedPreferences.getInstance();
+    final demo = prefs.getBool(AppPrefsKeys.standaloneDemoMode) ?? false;
+    return join(
+      dbPath,
+      demo ? 'standalone_reports_demo.db' : 'standalone_reports.db',
+    );
   }
 
   static Future<void> closeDb() async {
@@ -60,53 +72,16 @@ class LocalDbService {
   }
 
   /// 앱 DB 스키마 버전. contracts/storage-contract.json 의 schema_version.mobile 과 같아야 한다(테스트가 확인).
-  static const dbVersion = 12;
+  static const dbVersion = 13;
 
   static Future<Database> _open() async {
-    final dbPath = await getDatabasesPath();
     final database = await openDatabase(
-      join(dbPath, 'standalone_reports.db'),
+      await getDbPath(),
       version: dbVersion,
       onCreate: _create,
       onUpgrade: _migrateLocalDatabase,
     );
     await _ensureEffectiveView(database);
-    try {
-      await database.execute("""
-        UPDATE reports
-        SET 처리상태 = 상태,
-            종결여부 = 'Y',
-            보완_미응답 = 'N'
-        WHERE 상태 IN ('수용', '일부수용', '불수용', '기타', '답변완료', '취하', '이송')
-          AND (처리상태 IS NULL OR 처리상태 IN ('', '진행', '진행중', '처리중', '검토중') OR 보완_미응답 = 'Y')
-      """);
-      await database.execute("""
-        UPDATE reports
-        SET 처리상태 = '보완요청',
-            종결여부 = 'N',
-            보완_미응답 = 'Y'
-        WHERE 상태 = '보완요청'
-          AND (처리상태 IS NULL OR 처리상태 IN ('', '진행', '진행중', '처리중', '검토중', '보완요청'))
-      """);
-      await database.execute("""
-        UPDATE reports
-        SET 처리상태 = '보완요청',
-            종결여부 = 'N'
-        WHERE 보완_미응답 = 'Y'
-          AND 상태 NOT IN ('수용', '일부수용', '불수용', '기타', '답변완료', '취하', '이송')
-          AND 처리상태 != '보완요청'
-      """);
-      await database.execute("""
-        UPDATE reports
-        SET 처리상태 = '처리중',
-            종결여부 = 'N'
-        WHERE 상태 NOT IN ('수용', '일부수용', '불수용', '기타', '답변완료', '취하', '이송', '보완요청')
-          AND 보완_미응답 != 'Y'
-          AND (처리상태 IS NULL OR 처리상태 IN ('', '진행', '진행중', '처리중', '검토중'))
-      """);
-    } catch (_) {
-      // best-effort normalization for legacy standalone DBs
-    }
     return database;
   }
 
@@ -187,6 +162,45 @@ class LocalDbService {
     ''');
   }
 
+  /// v13(저장 계층 재설계 R3, M-14): 옛 DB 의 처리상태·종결여부·보완_미응답 정규화를 한 번만 한다.
+  /// 예전엔 DB 를 열 때마다 전 행에 돌고 오류를 삼켰다.
+  static Future<void> _normalizeLegacyProcessingStates(
+    DatabaseExecutor database,
+  ) async {
+    await database.execute("""
+        UPDATE reports
+        SET 처리상태 = 상태,
+            종결여부 = 'Y',
+            보완_미응답 = 'N'
+        WHERE 상태 IN ('수용', '일부수용', '불수용', '기타', '답변완료', '취하', '이송')
+          AND (처리상태 IS NULL OR 처리상태 IN ('', '진행', '진행중', '처리중', '검토중') OR 보완_미응답 = 'Y')
+      """);
+    await database.execute("""
+        UPDATE reports
+        SET 처리상태 = '보완요청',
+            종결여부 = 'N',
+            보완_미응답 = 'Y'
+        WHERE 상태 = '보완요청'
+          AND (처리상태 IS NULL OR 처리상태 IN ('', '진행', '진행중', '처리중', '검토중', '보완요청'))
+      """);
+    await database.execute("""
+        UPDATE reports
+        SET 처리상태 = '보완요청',
+            종결여부 = 'N'
+        WHERE 보완_미응답 = 'Y'
+          AND 상태 NOT IN ('수용', '일부수용', '불수용', '기타', '답변완료', '취하', '이송')
+          AND 처리상태 != '보완요청'
+      """);
+    await database.execute("""
+        UPDATE reports
+        SET 처리상태 = '처리중',
+            종결여부 = 'N'
+        WHERE 상태 NOT IN ('수용', '일부수용', '불수용', '기타', '답변완료', '취하', '이송', '보완요청')
+          AND 보완_미응답 != 'Y'
+          AND (처리상태 IS NULL OR 처리상태 IN ('', '진행', '진행중', '처리중', '검토중'))
+      """);
+  }
+
   static Future<void> _migrateLocalDatabase(
     Database db,
     int oldV,
@@ -218,6 +232,9 @@ class LocalDbService {
     }
     if (oldV < 12) {
       await _createStorageTables(db);
+    }
+    if (oldV < 13) {
+      await _normalizeLegacyProcessingStates(db);
     }
   }
 
@@ -806,6 +823,7 @@ class LocalDbService {
       where: '신고번호 = ?',
       whereArgs: [reportNumber],
     );
+    _invalidateProjectRowsCache(); // 별점은 대표건 선정에 쓰인다(M-4)
   }
 
   static Future<int> getTotalCount() async {
@@ -1855,45 +1873,10 @@ class LocalDbService {
     Map<String, dynamic> r, {
     bool normalizePolice = false,
   }) {
-    var agency = r['처리기관'] as String? ?? '';
-    if (normalizePolice) agency = normalizePoliceAgency(agency);
-    return Report(
-      id: r['ID'] as String? ?? '',
-      reportNumber: r['신고번호'] as String? ?? '',
-      name: r['신고명'] as String? ?? '',
-      date: r['신고일'] as String? ?? '',
-      responseDate: r['답변일'] as String? ?? '',
-      agency: agency,
-      manager: r['담당자'] as String? ?? '',
-      status: r['처리상태'] as String? ?? '',
-      result: r['상태'] as String? ?? '',
-      fineInfo: r['범칙금_과태료'] as String? ?? '',
-      penaltyPoints: r['벌점'] as String? ?? '',
-      carNumber: r['차량번호'] as String? ?? '',
-      law: r['위반법규'] as String? ?? '',
-      location: r['위반장소'] as String? ?? '',
-      occurrenceDate: r['발생일자'] as String? ?? '',
-      occurrenceTime: r['발생시각'] as String? ?? '',
-      reportContent: r['신고내용'] as String? ?? '',
-      processContent: r['처리내용'] as String? ?? '',
-      attachedPhotos: r['첨부사진'] as String? ?? '',
-      attachedFiles: r['첨부파일'] as String? ?? '',
-      mapImage: r['지도'] as String? ?? '',
-      pollStatus: r['만족도조사여부'] as String? ?? '답변 대기',
-      processingFinish: r['종결여부'] as String? ?? 'N',
-      rating: (r['별점'] as num?)?.toInt(),
-      ratingCause: r['별점사유'] as String? ?? '',
+    // 같은 변환 두 벌을 하나로(M-30): 기본 변환 + 중복 건수만 덧붙인다.
+    return _rowToReport(r, normalizePolice: normalizePolice).copyWith(
       totalCount: (r['total_count'] as num?)?.toInt() ?? 0,
       validCount: (r['valid_count'] as num?)?.toInt() ?? 0,
-      category: r['category'] as String? ?? '',
-      syncedAt: _toEpochMillis(r['synced_at']),
-      supplementCount: (r['보완횟수'] as num?)?.toInt() ?? 0,
-      supplementOpen: (r['보완_미응답'] as String? ?? 'N') == 'Y',
-      supplementRequester: r['보완_요청자'] as String? ?? '',
-      supplementRequestedAt: r['보완_요청일시'] as String? ?? '',
-      supplementCompletedAt: r['보완_완료일시'] as String? ?? '',
-      supplementRequest: r['보완_요청_내용'] as String? ?? '',
-      supplementOpinion: r['보완_신고자_의견'] as String? ?? '',
     );
   }
 
@@ -1906,18 +1889,47 @@ class LocalDbService {
   }
 
   static Future<void> setWatchlistNumbers(Set<String> numbers) async {
-    await setMeta('watchlist', numbers.join(','));
-    // 감시목록 컬럼 동기화
     final d = await db;
-    await d.rawUpdate("UPDATE reports SET 감시목록 = 'N'");
-    if (numbers.isNotEmpty) {
-      final placeholders = numbers.map((_) => '?').join(',');
-      await d.rawUpdate(
-        "UPDATE reports SET 감시목록 = 'Y' WHERE 신고번호 IN ($placeholders)",
-        numbers.toList(),
+    await d.transaction((txn) => _writeWatchlist(txn, numbers));
+    _invalidateProjectRowsCache();
+  }
+
+  /// DB 에 있는 현재 목록을 읽어 더하거나 뺀다(화면 메모리의 옛 목록으로 덮지 않음 — M-7). 결과 목록을 돌려준다.
+  static Future<Set<String>> changeWatchlist({
+    Iterable<String> add = const [],
+    Iterable<String> remove = const [],
+  }) async {
+    final d = await db;
+    late Set<String> next;
+    await d.transaction((txn) async {
+      next = {...await _readWatchlist(txn), ...add}..removeAll(remove);
+      await _writeWatchlist(txn, next);
+    });
+    _invalidateProjectRowsCache();
+    return next;
+  }
+
+  /// 감시목록의 원천은 sync_meta 'watchlist'. reports.감시목록 은 거기서 계산한 표시값이다. 한 트랜잭션으로 쓴다(M-6).
+  static Future<void> _writeWatchlist(
+    Transaction txn,
+    Set<String> numbers,
+  ) async {
+    await txn.insert('sync_meta', {
+      'key': 'watchlist',
+      'value': numbers.join(','),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await txn.rawUpdate(
+      "UPDATE reports SET 감시목록 = 'N' WHERE 감시목록 != 'N' OR 감시목록 IS NULL",
+    );
+    final list = numbers.toList();
+    for (var i = 0; i < list.length; i += 500) {
+      final chunk = list.sublist(i, (i + 500).clamp(0, list.length));
+      final marks = List.filled(chunk.length, '?').join(',');
+      await txn.rawUpdate(
+        "UPDATE reports SET 감시목록 = 'Y' WHERE 신고번호 IN ($marks)",
+        chunk,
       );
     }
-    _invalidateProjectRowsCache();
   }
 
   static Future<List<Report>> getWatchlistReports({
@@ -1986,6 +1998,29 @@ class LocalDbService {
         .toList();
   }
 
+  /// 전체 재동기화에서 사이트 목록에 없는 신고를 정리한다. 수정값도 함께 지운다(신고가 사라졌으므로).
+  static Future<int> removeReportsNotIn(Set<String> keepIds) async {
+    if (keepIds.isEmpty) return 0;
+    final d = await db;
+    final existing = (await d.query(
+      'reports',
+      columns: ['ID'],
+    )).map((r) => r['ID'] as String).toList();
+    final stale = existing.where((id) => !keepIds.contains(id)).toList();
+    if (stale.isEmpty) return 0;
+    await d.transaction((txn) async {
+      for (var i = 0; i < stale.length; i += 500) {
+        final chunk = stale.sublist(i, (i + 500).clamp(0, stale.length));
+        final marks = List.filled(chunk.length, '?').join(',');
+        for (final table in ['reports', 'report_raw', 'report_override']) {
+          await txn.delete(table, where: 'ID IN ($marks)', whereArgs: chunk);
+        }
+      }
+    });
+    _invalidateProjectRowsCache();
+    return stale.length;
+  }
+
   // ── 전체 삭제 ─────────────────────────────────────────────────────────────
 
   static Future<void> clearAll() async {
@@ -2006,6 +2041,10 @@ class LocalDbService {
   /// Play Console 심사용 데모 데이터 3건을 로컬 DB에 시드한다.
   /// standalone demo/demo 또는 demo/demo/demo 계정에서 사용.
   static Future<void> seedPlayReviewDemo() async {
+    // 실제 데이터 DB 는 건드리지 않고 데모 전용 파일로 바꿔서 채운다(M-24).
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(AppPrefsKeys.standaloneDemoMode, true);
+    await closeDb();
     _invalidateProjectRowsCache();
     await clearAll();
     final d = await db;

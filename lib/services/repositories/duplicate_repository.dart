@@ -1,3 +1,4 @@
+import 'package:sqflite/sqflite.dart';
 import '../../models/app_mode.dart';
 import '../../models/duplicate_group.dart';
 import '../../providers/report_provider.dart';
@@ -33,8 +34,18 @@ class _StandaloneDuplicateRepository implements DuplicateRepository {
   @override
   Future<List<DuplicateGroup>> getGroups() async {
     final db = await LocalDbService.db;
-    await DuplicateProjectionService.createSchema(db);
-    await DuplicateProjectionService.refreshDuplicateGroups(db);
+    // 화면을 열 때마다 전체 재생성하지 않는다(M-18). 그룹은 동기화·가져오기·복원 뒤에 다시 계산된다.
+    // 아직 한 번도 계산하지 않은 DB(그룹 표가 비었을 때)만 여기서 계산한다.
+    final existing =
+        Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COUNT(*) FROM ${DuplicateProjectionService.groupTable}',
+          ),
+        ) ??
+        0;
+    if (existing == 0) {
+      await DuplicateProjectionService.refreshDuplicateGroups(db);
+    }
     return DuplicateProjectionService.getDuplicateGroups(db);
   }
 
@@ -77,12 +88,11 @@ class _ServerDuplicateRepository implements DuplicateRepository {
     required String representativeMode,
     required String representativeId,
     required String note,
-  }) =>
-      _api.updateDuplicateGroup(
-        groupId,
-        duplicateStatus: duplicateStatus,
-        representativeMode: representativeMode,
-        representativeId: representativeId,
-        note: note,
-      );
+  }) => _api.updateDuplicateGroup(
+    groupId,
+    duplicateStatus: duplicateStatus,
+    representativeMode: representativeMode,
+    representativeId: representativeId,
+    note: note,
+  );
 }

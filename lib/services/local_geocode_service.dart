@@ -461,15 +461,16 @@ class LocalGeocodeService {
     await d.update(
       'reports',
       {
-        '주소정규화': payload['주소정규화'] ?? '',
-        '행정구역': payload['행정구역'] ?? '',
+        '주소정규화': payload['주소정규화'],
+        '행정구역': payload['행정구역'],
         '위도': payload['위도'],
         '경도': payload['경도'],
-        '지오코딩상태': payload['지오코딩상태'] ?? '',
+        '지오코딩상태': payload['지오코딩상태'],
       },
       where: 'ID = ?',
       whereArgs: [reportId],
     );
+    LocalDbService.invalidateCaches(); // 지도 통계가 캐시된 좌표를 보지 않게(M-5)
   }
 
   static Future<Map<String, Object?>> resolveAddress(

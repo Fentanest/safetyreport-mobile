@@ -184,10 +184,16 @@ void main() {
   );
 
   test(
-    'M-1 (R3, 결정 D-6): currently clearAll (used by full resync) drops watchlist and geocode cache',
+    'M-1 fixed (R3, 결정 D-6): full resync cleanup keeps user data and removes only reports gone from the site',
     () async {
       await LocalDbService.upsertReport(_report(), 'traffic', entry);
+      await LocalDbService.upsertReport(
+        _report(id: 'gone', reportNumber: 'SPP-2609-0000999'),
+        'traffic',
+        entry,
+      );
       await LocalDbService.setWatchlistNumbers({'SPP-2609-0000100'});
+      await LocalDbService.updateEditableRecord('k-1', {'처리내용': '내 수정'});
       final d = await LocalDbService.db;
       await d.insert('geocode_cache', {
         '주소정규화': '서울특별시 강서구 마곡동 1',
@@ -196,23 +202,40 @@ void main() {
         '위도': 37.5,
         '경도': 126.8,
       });
-      await LocalDbService.clearAll();
-      expect(await LocalDbService.getWatchlistNumbers(), isEmpty);
-      expect(await (await LocalDbService.db).query('geocode_cache'), isEmpty);
+
+      final removed = await LocalDbService.removeReportsNotIn({'k-1'});
+      expect(removed, 1);
+      final ids = (await d.query(
+        'reports',
+        columns: ['ID'],
+      )).map((r) => r['ID']).toSet();
+      expect(ids, {'k-1'});
+      expect(await LocalDbService.getWatchlistNumbers(), {'SPP-2609-0000100'});
+      expect(await d.query('geocode_cache'), hasLength(1));
+      expect(await d.query('report_override'), hasLength(1));
     },
   );
 
   test(
-    'M-24 (R3, 결정 D-7): currently the demo seed replaces the real reports',
+    'M-24 fixed (R3, 결정 D-7): the demo seed uses its own DB file and leaves real reports alone',
     () async {
       await LocalDbService.upsertReport(_report(), 'traffic', entry);
       await LocalDbService.seedPlayReviewDemo();
-      final ids = (await (await LocalDbService.db).query(
+      final demoIds = (await (await LocalDbService.db).query(
         'reports',
         columns: ['ID'],
       )).map((r) => r['ID']).toSet();
-      expect(ids.contains('k-1'), isFalse);
-      expect(ids, isNotEmpty);
+      expect(demoIds.contains('k-1'), isFalse);
+      expect(demoIds, isNotEmpty);
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('standaloneDemoMode', false);
+      await LocalDbService.closeDb();
+      final realIds = (await (await LocalDbService.db).query(
+        'reports',
+        columns: ['ID'],
+      )).map((r) => r['ID']).toSet();
+      expect(realIds, {'k-1'});
     },
   );
 }

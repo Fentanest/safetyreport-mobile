@@ -150,15 +150,15 @@ class SyncEngine {
     //   신규 OR (종결여부='N' AND title.상태 ≠ detail.처리상태)
     final existingStatus = <String, Map<String, String>>{};
     if (!fullSync) {
-      final reports = await LocalDbService.getAllReports();
-      for (final r in reports) {
-        if (r.id.isNotEmpty) {
-          existingStatus[r.id] = {
-            '처리상태': r.status,
-            '종결여부': r.processingFinish,
-            '보완_미응답': r.supplementOpen ? 'Y' : 'N',
-          };
-        }
+      // 사이트 원본 상태만(사용자 수정값 제외) — 사용자가 종결여부를 고쳐도 재조회는 사이트 기준으로 계속된다.
+      final states = await LocalDbService.getSyncStates();
+      for (final entry in states.entries) {
+        if (entry.key.isEmpty) continue;
+        existingStatus[entry.key] = {
+          '처리상태': entry.value.status,
+          '종결여부': entry.value.finished,
+          '보완_미응답': entry.value.supplementOpen == 'Y' ? 'Y' : 'N',
+        };
       }
       _log('기존 저장 ${existingStatus.length}건, 신규/변경 확인 시작');
     } else {

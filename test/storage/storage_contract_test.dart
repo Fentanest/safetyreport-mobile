@@ -11,13 +11,15 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 const _sqlTypes = {'TEXT': 'text', 'INTEGER': 'integer', 'REAL': 'real'};
 
 Map<String, dynamic> _contract() =>
-    jsonDecode(File('contracts/storage-contract.json').readAsStringSync()) as Map<String, dynamic>;
+    jsonDecode(File('contracts/storage-contract.json').readAsStringSync())
+        as Map<String, dynamic>;
 
 Future<Map<String, String>> _columns(Database db, String table) async {
   final rows = await db.rawQuery('PRAGMA table_info("$table")');
   return {
     for (final r in rows)
-      r['name'] as String: '${_sqlTypes[(r['type'] as String).toUpperCase()]}|${(r['pk'] as int) > 0}',
+      r['name'] as String:
+          '${_sqlTypes[(r['type'] as String).toUpperCase()]}|${(r['pk'] as int) > 0}',
   };
 }
 
@@ -41,14 +43,21 @@ void main() {
   test('every mobile table matches the storage contract', () async {
     final db = await LocalDbService.db;
     final contract = _contract();
-    for (final entity in (contract['entities'] as List).cast<Map<String, dynamic>>()) {
+    for (final entity
+        in (contract['entities'] as List).cast<Map<String, dynamic>>()) {
       final table = entity['mobile_table'] as String?;
       if (table == null) continue;
       final expected = <String, String>{
-        for (final c in (entity['columns'] as List).cast<Map<String, dynamic>>())
-          if (c['mobile'] == true) c['name'] as String: '${c['type']}|${c['pk'] == true}',
+        for (final c
+            in (entity['columns'] as List).cast<Map<String, dynamic>>())
+          if (c['mobile'] == true)
+            c['name'] as String: '${c['type']}|${c['pk'] == true}',
       };
-      expect(await _columns(db, table), expected, reason: 'entity ${entity['entity']} → $table');
+      expect(
+        await _columns(db, table),
+        expected,
+        reason: 'entity ${entity['entity']} → $table',
+      );
     }
   });
 
@@ -56,9 +65,7 @@ void main() {
     final db = await LocalDbService.db;
     final tables = (await db.rawQuery(
       "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != 'android_metadata'",
-    ))
-        .map((r) => r['name'] as String)
-        .toSet();
+    )).map((r) => r['name'] as String).toSet();
     final covered = (_contract()['entities'] as List)
         .cast<Map<String, dynamic>>()
         .map((e) => e['mobile_table'] as String?)
@@ -69,6 +76,9 @@ void main() {
 
   test('schema version in contract matches the app', () async {
     final db = await LocalDbService.db;
-    expect(await db.getVersion(), (_contract()['schema_version'] as Map)['mobile']);
+    expect(
+      await db.getVersion(),
+      (_contract()['schema_version'] as Map)['mobile'],
+    );
   });
 }

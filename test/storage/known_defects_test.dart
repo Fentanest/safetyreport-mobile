@@ -153,13 +153,33 @@ void main() {
   );
 
   test(
-    'M-12 (R3, 결정 D-1): currently a refetch reverts a manual edit',
+    'M-12 fixed (R3, 결정 D-1): a manual edit survives a refetch and the site original is kept',
     () async {
       await LocalDbService.upsertReport(_report(), 'traffic', entry);
-      await LocalDbService.updateEditableRecord('k-1', {'처리내용': '내가 고친 처리내용'});
-      expect((await _row('k-1'))['처리내용'], '내가 고친 처리내용');
+      await LocalDbService.updateEditableRecord('k-1', {
+        '처리내용': '내가 고친 처리내용',
+        '처리기관': '서울특별시 강서경찰서 교통과',
+      });
+      Future<Map<String, Object?>> shown() async =>
+          (await (await LocalDbService.db).query(
+            LocalDbService.effectiveReportsView,
+            where: 'ID = ?',
+            whereArgs: ['k-1'],
+          )).single;
+      expect((await shown())['처리내용'], '내가 고친 처리내용');
       await LocalDbService.upsertReport(_report(), 'traffic', entry);
-      expect((await _row('k-1'))['처리내용'], '사이트 처리내용');
+      expect((await shown())['처리내용'], '내가 고친 처리내용');
+      expect((await _row('k-1'))['처리내용'], '사이트 처리내용'); // 원본은 원본대로
+      final overrides = await (await LocalDbService.db).query(
+        'report_override',
+      );
+      expect(overrides.map((r) => r['column_name']), [
+        '처리내용',
+      ]); // 원본과 같은 값은 수정값을 만들지 않음
+      expect(
+        (await LocalDbService.getReport('k-1'))!.processContent,
+        '내가 고친 처리내용',
+      );
     },
   );
 

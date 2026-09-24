@@ -1,3 +1,4 @@
+import '../models/editor_schema.dart';
 import '../models/rating_lookup.dart';
 import '../storage/schema_utils.dart';
 import 'dart:io';
@@ -69,6 +70,7 @@ class LocalDbService {
       onCreate: _create,
       onUpgrade: _migrateLocalDatabase,
     );
+    await _ensureEffectiveView(database);
     try {
       await database.execute("""
         UPDATE reports
@@ -135,6 +137,30 @@ class LocalDbService {
     ]) {
       await addColumnIfMissing(db, 'reports', col, type);
     }
+  }
+
+  /// 화면용 보기: 사이트 원본(reports) 위에 사용자 수정값(report_override)을 덮는다(결정 D-1, 저장 계층 재설계 R3).
+  /// reports 는 원본을 담아 서버와 교환하고, 화면·통계는 이 보기를 읽는다(서버 merge 와 같은 뜻).
+  /// 열이 추가될 수 있어 DB 를 열 때마다 다시 만든다. 주의: 이 보기가 참조하는 열은 DROP/RENAME 이 막히므로,
+  /// 그런 마이그레이션은 먼저 `DROP VIEW IF EXISTS reports_effective` 를 해야 한다.
+  static const effectiveReportsView = 'reports_effective';
+
+  static Future<void> _ensureEffectiveView(DatabaseExecutor db) async {
+    final columns = (await db.rawQuery(
+      'PRAGMA table_info("reports")',
+    )).map((r) => r['name'] as String).toList();
+    final editable = EditorSchema.defaultDetailFields.toSet();
+    final select = columns
+        .map(
+          (c) => editable.contains(c)
+              ? 'COALESCE((SELECT o.value FROM report_override o WHERE o.ID = r.ID AND o.column_name = \'$c\'), r."$c") AS "$c"'
+              : 'r."$c" AS "$c"',
+        )
+        .join(', ');
+    await db.execute('DROP VIEW IF EXISTS $effectiveReportsView');
+    await db.execute(
+      'CREATE VIEW $effectiveReportsView AS SELECT $select FROM reports r',
+    );
   }
 
   /// v12(저장 계층 재설계 R1): 사용자 수정값·중복 판단 표. 서버 mysafety_report_override / mysafety_duplicate_decision 과 같은 구조.
@@ -353,19 +379,6 @@ class LocalDbService {
       'raw_type': rawType,
       'saved_at': savedAt,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
-  }
-
-  static bool _rowsEqual(
-    Map<String, Object?> left,
-    Map<String, Object?> right,
-  ) {
-    if (left.length != right.length) return false;
-    for (final key in left.keys) {
-      if (_stringify(left[key]) != _stringify(right[key])) {
-        return false;
-      }
-    }
-    return true;
   }
 
   static const _kProjectRowsCacheLimit = 16;
@@ -669,7 +682,7 @@ class LocalDbService {
         args.add(lastId);
       }
       final rows = await d.query(
-        'reports',
+        effectiveReportsView,
         where: clauses.isEmpty ? null : clauses.join(' AND '),
         whereArgs: args.isEmpty ? null : args,
         orderBy: 'ID',
@@ -735,9 +748,33 @@ class LocalDbService {
         .toList();
   }
 
+  /// 동기화 엔진이 다시 받을 신고를 고를 때 쓰는 사이트 원본 상태(수정값 제외, 필요한 열만 — M-17).
+  static Future<
+    Map<String, ({String status, String finished, String supplementOpen})>
+  >
+  getSyncStates() async {
+    final d = await db;
+    final rows = await d.query(
+      'reports',
+      columns: ['ID', '처리상태', '종결여부', '보완_미응답'],
+    );
+    return {
+      for (final r in rows)
+        r['ID'] as String: (
+          status: _stringify(r['처리상태']),
+          finished: _stringify(r['종결여부']),
+          supplementOpen: _stringify(r['보완_미응답']),
+        ),
+    };
+  }
+
   static Future<Report?> getReport(String cNo) async {
     final d = await db;
-    final rows = await d.query('reports', where: 'ID = ?', whereArgs: [cNo]);
+    final rows = await d.query(
+      effectiveReportsView,
+      where: 'ID = ?',
+      whereArgs: [cNo],
+    );
     return rows.isEmpty ? null : _rowToReport(rows.first);
   }
 
@@ -745,7 +782,7 @@ class LocalDbService {
   static Future<Report?> getReportByNumber(String reportNumber) async {
     final d = await db;
     final rows = await d.query(
-      'reports',
+      effectiveReportsView,
       where: '신고번호 = ?',
       whereArgs: [reportNumber],
       limit: 1,
@@ -939,7 +976,7 @@ class LocalDbService {
     // 필터와 무관하게 전체에서 available_years/laws 추출
     // (취하 제외는 available_years/laws에는 영향 안 줌 — 서버도 동일)
     var allRows = await d.query(
-      'reports',
+      effectiveReportsView,
       columns: ['답변일', '위반법규', 'category'],
     );
     return _aggregateStats(rows, allRows, normalizePolice);
@@ -1001,7 +1038,7 @@ class LocalDbService {
     }
 
     final rows = await d.query(
-      'reports',
+      effectiveReportsView,
       where: where,
       whereArgs: args.isEmpty ? null : args,
     );
@@ -1135,7 +1172,7 @@ class LocalDbService {
     }
 
     var rows = await d.query(
-      'reports',
+      effectiveReportsView,
       columns: [
         'ID',
         '위반장소',
@@ -1169,7 +1206,7 @@ class LocalDbService {
         .toSet()
         .length;
 
-    var allYearRows = await d.query('reports', columns: ['답변일']);
+    var allYearRows = await d.query(effectiveReportsView, columns: ['답변일']);
     final availableYears =
         allYearRows
             .map((row) => _stringify(row['답변일']))
@@ -1306,7 +1343,7 @@ class LocalDbService {
     }
 
     var rows = await d.query(
-      'reports',
+      effectiveReportsView,
       columns: [
         'ID',
         '신고번호',
@@ -1789,7 +1826,7 @@ class LocalDbService {
                  COUNT(*)                                                 AS total_count,
                  SUM(CASE WHEN IFNULL(처리상태, '') != '취하' THEN 1 ELSE 0 END)        AS valid_count,
                  MAX(신고번호)                                              AS max_report_no
-          FROM reports
+          FROM $effectiveReportsView
           WHERE 차량번호 != '' $withdrawFilter
           GROUP BY 차량번호
           HAVING COUNT(*) >= 2
@@ -1797,7 +1834,7 @@ class LocalDbService {
         SELECT r.*,
                dv.total_count,
                dv.valid_count
-        FROM reports r
+        FROM $effectiveReportsView r
         INNER JOIN dup_vehicles dv ON r.차량번호 = dv.차량번호
         WHERE r.차량번호 != '' $withdrawFilter
         ORDER BY dv.max_report_no DESC, r.차량번호 ASC, r.신고번호 DESC
@@ -1896,7 +1933,7 @@ class LocalDbService {
         ? " AND IFNULL(처리상태, '') != '취하'"
         : '';
     final rows = await d.rawQuery(
-      'SELECT * FROM reports WHERE 신고번호 IN ($placeholders)$withdrawFilter ORDER BY 신고일 DESC',
+      'SELECT * FROM $effectiveReportsView WHERE 신고번호 IN ($placeholders)$withdrawFilter ORDER BY 신고일 DESC',
       numbers.toList(),
     );
     final projected = await _projectRows(
@@ -1930,7 +1967,7 @@ class LocalDbService {
       where += " AND IFNULL(처리상태, '') != '취하'";
     }
     final rows = await d.query(
-      'reports',
+      effectiveReportsView,
       where: where,
       whereArgs: args,
       orderBy: '신고일 DESC',
@@ -2294,12 +2331,14 @@ class LocalDbService {
   }
 
   static Future<Database> _createImportTargetDb(String path) async {
-    return openDatabase(
+    final database = await openDatabase(
       path,
       version: dbVersion,
       onCreate: _create,
       onUpgrade: _migrateLocalDatabase,
     );
+    await _ensureEffectiveView(database);
+    return database;
   }
 
   static Future<void> _validateServerDbSchema(Database serverDb) async {
@@ -2692,7 +2731,7 @@ class LocalDbService {
   ) async {
     final d = await db;
     final rows = await d.query(
-      'reports',
+      effectiveReportsView,
       where: 'ID = ?',
       whereArgs: [reportId],
       limit: 1,
@@ -2705,58 +2744,42 @@ class LocalDbService {
     String reportId,
     Map<String, dynamic> values,
   ) async {
+    // 편집값은 사용자 수정값 표에 저장한다(결정 D-1, M-12). 사이트 원본(reports)은 그대로라 재조회가 편집을 되돌리지 않는다.
+    // 보낸 필드만 다루고, 원본과 같아지면(앞뒤 공백 무시) 수정값을 지워 원본으로 되돌린다(M-13).
     final d = await db;
-    final existingRows = await d.query(
+    final siteRows = await d.query(
       'reports',
       where: 'ID = ?',
       whereArgs: [reportId],
       limit: 1,
     );
-    if (existingRows.isEmpty) return false;
-
-    final existing = Map<String, dynamic>.from(existingRows.first);
-    final next = Map<String, dynamic>.from(existing);
-    for (final entry in values.entries) {
-      next[entry.key] = entry.value;
-    }
-
-    if (values.containsKey('위반장소')) {
-      final previousAddress = normalizeGeocodeAddress(
-        existing['위반장소']?.toString(),
-      );
-      final nextAddress = normalizeGeocodeAddress(next['위반장소']?.toString());
-      if (previousAddress != nextAddress) {
-        next.addAll(
-          prepareGeoPayloadForAddress(
-            next['위반장소']?.toString(),
-            existingRecord: existing,
-          ),
+    if (siteRows.isEmpty) return false;
+    final site = siteRows.first;
+    final editable = EditorSchema.defaultDetailFields.toSet();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await d.transaction((txn) async {
+      for (final entry in values.entries) {
+        if (!editable.contains(entry.key)) continue;
+        final value = entry.value?.toString();
+        if (value == '6개월 초과') continue; // 화면용 가림 글자는 수정값이 아니다
+        await txn.delete(
+          'report_override',
+          where: 'ID = ? AND column_name = ?',
+          whereArgs: [reportId, entry.key],
         );
+        final siteValue = _stringify(site[entry.key]);
+        if ((value ?? '') != siteValue &&
+            (value ?? '').trim() != siteValue.trim()) {
+          await txn.insert('report_override', {
+            'ID': reportId,
+            'column_name': entry.key,
+            'value': value,
+            'updated_at': now,
+          });
+        }
       }
-    }
-
-    final existingComparable = <String, Object?>{};
-    final nextComparable = <String, Object?>{};
-    for (final key in _syncedAtTrackedKeys) {
-      existingComparable[key] = existing[key];
-      nextComparable[key] = next[key];
-    }
-    final reportChanged = !_rowsEqual(existingComparable, nextComparable);
-    final syncedAt = reportChanged
-        ? DateTime.now().millisecondsSinceEpoch
-        : (_toEpochMillis(existing['synced_at']) ??
-              DateTime.now().millisecondsSinceEpoch);
-    next['synced_at'] = syncedAt;
-
-    await d.update(
-      'reports',
-      next,
-      where: 'ID = ?',
-      whereArgs: [reportId],
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    });
     _invalidateProjectRowsCache();
-    await DuplicateProjectionService.refreshDuplicateGroups(d);
     return true;
   }
 

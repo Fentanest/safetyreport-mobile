@@ -18,6 +18,7 @@ import '../services/permission_service.dart';
 import '../services/server_connection_service.dart';
 import '../services/server_contract.dart';
 import '../services/standalone_auth_service.dart';
+import '../services/support_links.dart';
 import 'permission_screen.dart';
 import 'setup_screen.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -880,11 +881,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  /// GitHub 이슈 트래커로 이동 (양쪽 모드 공통, 버그/기능요청).
-  Future<void> _openBugReport() async {
-    final url = Uri.parse(
-      'https://github.com/Fentanest/safetyreport-mobile/issues',
-    );
+  String get _modeLabel {
+    final provider = context.read<ReportProvider>();
+    if (provider.appMode != AppMode.standalone) return 'Client';
+    return provider.isStandaloneDemo ? 'Standalone (데모)' : 'Standalone';
+  }
+
+  String get _osLabel => Platform.isAndroid
+      ? 'Android ${Platform.operatingSystemVersion}'
+      : Platform.operatingSystem;
+
+  /// 도움·문의 카드 링크(버그 제보·기능 요청·사용 가이드). 양쪽 모드 공통.
+  Future<void> _openSupportLink(Uri url) async {
     final ok = await launchUrl(url, mode: LaunchMode.externalApplication);
     if (!ok && mounted) {
       ScaffoldMessenger.of(
@@ -996,6 +1004,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ],
                 ),
               ),
+            ),
+            const SizedBox(height: 16),
+
+            // ── 도움·문의 카드 ─────────────────────────────
+            // 버그 제보 위치를 사용자가 자주 찾지 못해(2026-09-24 제보) 앱 정보 맨 아래에서 설정 맨 위로 옮겼다.
+            _SupportCard(
+              onBugReport: () => _openSupportLink(
+                SupportLinks.bugReport(
+                  appVersion: _appVersion,
+                  modeLabel: _modeLabel,
+                  osLabel: _osLabel,
+                ),
+              ),
+              onFeatureRequest: () => _openSupportLink(
+                SupportLinks.featureRequest(
+                  appVersion: _appVersion,
+                  modeLabel: _modeLabel,
+                  osLabel: _osLabel,
+                ),
+              ),
+              onGuide: () =>
+                  _openSupportLink(Uri.parse(SupportLinks.userGuide)),
             ),
             const SizedBox(height: 16),
 
@@ -1777,12 +1807,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
+                    // 맨 위 도움·문의 카드와 같은 동작. 앱 정보에서 찾는 사용자를 위해 남긴다.
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(
                         icon: const Icon(Icons.bug_report_outlined, size: 18),
-                        label: const Text('버그 제보 / 기능 요청'),
-                        onPressed: _openBugReport,
+                        label: const Text('버그 제보하기'),
+                        onPressed: () => _openSupportLink(
+                          SupportLinks.bugReport(
+                            appVersion: _appVersion,
+                            modeLabel: _modeLabel,
+                            osLabel: _osLabel,
+                          ),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -2081,6 +2118,89 @@ class _ChoiceTile extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+/// 설정 맨 위 도움·문의 카드. 버그 제보를 가장 눈에 띄게 둔다.
+class _SupportCard extends StatelessWidget {
+  final VoidCallback onBugReport;
+  final VoidCallback onFeatureRequest;
+  final VoidCallback onGuide;
+
+  const _SupportCard({
+    required this.onBugReport,
+    required this.onFeatureRequest,
+    required this.onGuide,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.support_agent, color: cs.primary),
+                const SizedBox(width: 8),
+                Text(
+                  '도움·문의',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: cs.primary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '앱이 이상하게 동작하면 알려 주세요. 앱 버전·모드가 미리 채워진 제보 양식이 열립니다.',
+              style: TextStyle(fontSize: 13, height: 1.45, color: cs.onSurface),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'GitHub 계정이 필요하고, 제보는 공개됩니다. 아이디·API 키·차량번호 같은 개인정보는 적지 마세요.',
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.45,
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 12),
+            FilledButton.tonalIcon(
+              icon: const Icon(Icons.bug_report_outlined),
+              label: const Text('버그 제보하기'),
+              onPressed: onBugReport,
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.lightbulb_outline, size: 18),
+                    label: const Text('기능 요청'),
+                    onPressed: onFeatureRequest,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.menu_book_outlined, size: 18),
+                    label: const Text('사용 가이드'),
+                    onPressed: onGuide,
+                  ),
+                ),
+              ],
             ),
           ],
         ),

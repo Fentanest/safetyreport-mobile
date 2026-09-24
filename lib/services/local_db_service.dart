@@ -6,7 +6,6 @@ import 'package:path/path.dart';
 import 'package:safetyreport/services/fine_estimate.dart' as fine_estimate;
 import 'package:sqflite/sqflite.dart';
 
-import '../models/duplicate_group.dart';
 import '../models/report.dart';
 import 'duplicate_projection_service.dart';
 import 'geocode_utils.dart';
@@ -2314,153 +2313,41 @@ class LocalDbService {
     }
   }
 
-  static Future<Map<String, String>> _loadServerEntryValues(
+  /// 서버 DB 의 표를 원시 값 그대로 읽는다. 표가 없으면(구서버) 빈 목록, 그 밖의 읽기 오류는 그대로 올린다
+  /// (예전처럼 삼키면 조용히 빈 값이 들어갔다 — M-28). 가져오기는 임시 DB 에서 하므로 실패해도 기존 데이터는 그대로다.
+  static Future<List<Map<String, Object?>>> _readServerTable(
     Database serverDb,
+    Set<String> serverTables,
+    String table,
   ) async {
-    final entryValueById = <String, String>{};
-    try {
-      final rows = await serverDb.query('mysafety_entry_value');
-      for (final row in rows) {
-        final id = row['ID']?.toString() ?? '';
-        if (id.isEmpty) continue;
-        entryValueById[id] = row['entry_value']?.toString() ?? '';
-      }
-    } catch (_) {}
-    return entryValueById;
+    if (!serverTables.contains(table)) return const [];
+    return serverDb.query(table);
   }
 
-  static Future<Map<String, Map<String, Object?>>> _loadServerRawPayload(
-    Database serverDb,
-  ) async {
-    final rawPayloadById = <String, Map<String, Object?>>{};
-    try {
-      final rows = await serverDb.query('mysafety_raw_content');
-      for (final row in rows) {
-        final id = row['ID']?.toString() ?? '';
-        if (id.isEmpty) continue;
-        rawPayloadById[id] = {
-          'raw_content': row['raw_content']?.toString() ?? '',
-          'raw_type': row['raw_type']?.toString() ?? '',
-          'saved_at': _toEpochMillis(row['saved_at']),
-        };
-      }
-    } catch (_) {}
-    return rawPayloadById;
+  /// 계약 타입(integer/real)에 맞춘다. 숫자 문자열은 숫자로, 빈 문자열은 NULL 로(숫자 열에 '' 는 잘못된 값).
+  static Object? _coerceForColumn(Object? value, String? declaredType) {
+    if (value is! String) return value;
+    final type = (declaredType ?? '').toUpperCase();
+    if (type.contains('INT')) {
+      if (value.trim().isEmpty) return null;
+      return int.tryParse(value.trim()) ??
+          double.tryParse(value.trim())?.toInt() ??
+          value;
+    }
+    if (type.contains('REAL')) {
+      if (value.trim().isEmpty) return null;
+      return double.tryParse(value.trim()) ?? value;
+    }
+    return value;
   }
 
-  static Future<List<Map<String, Object?>>> _loadServerSyncMeta(
-    Database serverDb,
-  ) async {
-    final rows = <Map<String, Object?>>[];
-    try {
-      final sourceRows = await serverDb.query('mysafety_sync_meta');
-      for (final row in sourceRows) {
-        final key = row['key']?.toString() ?? '';
-        if (key.isEmpty || key == 'map_backfill_state') continue;
-        rows.add({'key': key, 'value': row['value']?.toString() ?? ''});
-      }
-    } catch (_) {}
-    return rows;
-  }
-
-  static Future<List<Map<String, Object?>>> _loadServerDuplicateGroups(
-    Database serverDb,
-  ) async {
-    final duplicateGroups = <Map<String, Object?>>[];
-    try {
-      final sourceRows = await serverDb.query('mysafety_duplicate_group');
-      for (final row in sourceRows) {
-        final groupId = row['group_id']?.toString() ?? '';
-        if (groupId.isEmpty) continue;
-        duplicateGroups.add({
-          'group_id': groupId,
-          'fingerprint': row['fingerprint']?.toString() ?? groupId,
-          'match_type': row['match_type']?.toString() ?? 'payload_exact',
-          'status':
-              row['status']?.toString() ?? DuplicateStatuses.confirmedDuplicate,
-          'representative_mode':
-              row['representative_mode']?.toString() ??
-              RepresentativeModes.auto,
-          'representative_id': row['representative_id']?.toString() ?? '',
-          'member_count':
-              int.tryParse(row['member_count']?.toString() ?? '') ?? 0,
-          'apply_globally':
-              int.tryParse(row['apply_globally']?.toString() ?? '') ??
-              ((row['status']?.toString() ?? '') ==
-                      DuplicateStatuses.confirmedDuplicate
-                  ? 1
-                  : 0),
-          'note': row['note']?.toString() ?? '',
-          'created_at': _toEpochMillis(row['created_at']),
-          'updated_at': _toEpochMillis(row['updated_at']),
-        });
-      }
-    } catch (_) {}
-    return duplicateGroups;
-  }
-
-  static Future<List<Map<String, Object?>>> _loadServerDuplicateMembers(
-    Database serverDb,
-  ) async {
-    final duplicateMembers = <Map<String, Object?>>[];
-    try {
-      final sourceRows = await serverDb.query('mysafety_duplicate_member');
-      for (final row in sourceRows) {
-        final groupId = row['group_id']?.toString() ?? '';
-        final reportId = row['report_id']?.toString() ?? '';
-        if (groupId.isEmpty || reportId.isEmpty) continue;
-        duplicateMembers.add({
-          'group_id': groupId,
-          'report_id': reportId,
-          'report_number': row['report_number']?.toString() ?? '',
-          'category': row['category']?.toString() ?? 'other',
-          'is_representative':
-              int.tryParse(row['is_representative']?.toString() ?? '') ?? 0,
-          'priority_score':
-              int.tryParse(row['priority_score']?.toString() ?? '') ?? 0,
-          'raw_match': int.tryParse(row['raw_match']?.toString() ?? '') ?? 0,
-          'field_match':
-              int.tryParse(row['field_match']?.toString() ?? '') ?? 0,
-          'created_at': _toEpochMillis(row['created_at']),
-          'updated_at': _toEpochMillis(row['updated_at']),
-        });
-      }
-    } catch (_) {}
-    return duplicateMembers;
-  }
-
-  static Future<List<Map<String, Object?>>> _loadServerGeocodeCacheRows(
-    Database serverDb,
-    Set<String> localCacheCols,
-    int now,
-  ) async {
-    final rows = <Map<String, Object?>>[];
-    try {
-      final sourceRows = await serverDb.query('mysafety_geocode_cache');
-      for (final row in sourceRows) {
-        final normalized = normalizeGeocodeAddress(row['주소정규화']?.toString());
-        if (normalized.isEmpty) continue;
-
-        final cachedRow = <String, Object?>{};
-        for (final entry in row.entries) {
-          if (localCacheCols.contains(entry.key)) {
-            cachedRow[entry.key] = entry.value;
-          }
-        }
-        cachedRow['주소정규화'] = normalized;
-        cachedRow['원본주소'] = row['원본주소']?.toString() ?? normalized;
-        cachedRow['행정구역'] = row['행정구역']?.toString() ?? '';
-        cachedRow['위도'] = parseGeoDouble(row['위도']);
-        cachedRow['경도'] = parseGeoDouble(row['경도']);
-        cachedRow['상태'] = row['상태']?.toString() ?? '';
-        cachedRow['source'] = row['source']?.toString() ?? 'kakao';
-        cachedRow['error_message'] = row['error_message']?.toString() ?? '';
-        cachedRow['updated_at'] = _toEpochMillis(row['updated_at']) ?? now;
-        rows.add(cachedRow);
-      }
-    } catch (_) {}
-    return rows;
-  }
+  static Future<Map<String, String>> _columnTypes(
+    DatabaseExecutor db,
+    String table,
+  ) async => {
+    for (final r in await db.rawQuery('PRAGMA table_info("$table")'))
+      r['name'] as String: (r['type'] as String?) ?? '',
+  };
 
   // ── 서버 DB → 모바일 DB 변환 ────────────────────────────────────────────────
 
@@ -2487,99 +2374,96 @@ class LocalDbService {
       );
       localDb = await _createImportTargetDb(stagedDbPath);
 
-      final now = DateTime.now().millisecondsSinceEpoch;
-      final localReportCols =
-          (await localDb.rawQuery('PRAGMA table_info(reports)'))
-              .map((row) => row['name']?.toString() ?? '')
-              .where((name) => name.isNotEmpty)
-              .toSet();
-      final localCacheCols =
-          (await localDb.rawQuery('PRAGMA table_info(geocode_cache)'))
-              .map((row) => row['name']?.toString() ?? '')
-              .where((name) => name.isNotEmpty)
-              .toSet();
+      final serverTables = (await serverDb.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table'",
+      )).map((r) => r['name'] as String).toSet();
+      final reportTypes = await _columnTypes(localDb, 'reports');
 
-      final entryValueById = await _loadServerEntryValues(serverDb);
-      final rawPayloadById = await _loadServerRawPayload(serverDb);
-      final syncMetaRows = await _loadServerSyncMeta(serverDb);
-      final duplicateGroups = await _loadServerDuplicateGroups(serverDb);
-      final duplicateMembers = await _loadServerDuplicateMembers(serverDb);
-      final geocodeCacheRows = await _loadServerGeocodeCacheRows(
-        serverDb,
-        localCacheCols,
-        now,
-      );
+      final entryValueById = <String, Object?>{
+        for (final r in await _readServerTable(
+          serverDb,
+          serverTables,
+          'mysafety_entry_value',
+        ))
+          r['ID'] as String: r['entry_value'],
+      };
+      final rawPayloadById = <String, Map<String, Object?>>{
+        for (final r in await _readServerTable(
+          serverDb,
+          serverTables,
+          'mysafety_raw_content',
+        ))
+          r['ID'] as String: r,
+      };
+      // 서버 sync_meta 의 'watchlist' 는 구서버의 낡은 사본일 수 있어 쓰지 않는다(S-15). 원천은 mysafety_watchlist.
+      final syncMetaRows =
+          (await _readServerTable(serverDb, serverTables, 'mysafety_sync_meta'))
+              .where(
+                (r) =>
+                    r['key'] != 'map_backfill_state' && r['key'] != 'watchlist',
+              )
+              .toList();
+      final watchNumbers =
+          (await _readServerTable(serverDb, serverTables, 'mysafety_watchlist'))
+              .map((r) => r['신고번호']?.toString() ?? '')
+              .where((s) => s.isNotEmpty)
+              .toSet()
+              .toList();
 
       const sourceTableMap = {
         'mysafetymerge_traffic': 'traffic',
         'mysafetymerge_parking': 'parking',
         'mysafetymerge_other': 'other',
       };
+      const geoColumns = ['주소정규화', '행정구역', '위도', '경도', '지오코딩상태'];
       int imported = 0;
 
       await localDb.transaction((txn) async {
         for (final entry in sourceTableMap.entries) {
-          final tableName = entry.key;
-          final category = entry.value;
-          final rows = await serverDb.query(tableName);
-          if (rows.isEmpty) continue;
-
+          final rows = await _readServerTable(
+            serverDb,
+            serverTables,
+            entry.key,
+          );
           for (final row in rows) {
             final reportId = row['ID']?.toString() ?? '';
             if (reportId.isEmpty) continue;
-            final rawPayload = rawPayloadById[reportId];
-            final syncedAt = _toEpochMillis(row['synced_at']) ?? now;
-            final filteredRow = <String, Object?>{};
-            for (final sourceEntry in row.entries) {
-              if (localReportCols.contains(sourceEntry.key)) {
-                filteredRow[sourceEntry.key] = sourceEntry.value;
-              }
-            }
-            if (filteredRow.isEmpty) {
-              continue;
-            }
-
+            // 값은 바꾸지 않는다(NULL 은 NULL). 모바일에 있는 열만, 계약 타입에 맞춰.
             final importedRow = <String, Object?>{
-              ...filteredRow,
-              'category': category,
+              for (final e in row.entries)
+                if (reportTypes.containsKey(e.key))
+                  e.key: _coerceForColumn(e.value, reportTypes[e.key]),
+              'category': entry.value,
               'entry_value': entryValueById[reportId] ?? '',
               'raw_content': '',
-              'synced_at': syncedAt,
             };
-            final geoPayload =
-                filteredRow.containsKey('위도') ||
-                    filteredRow.containsKey('경도') ||
-                    filteredRow.containsKey('주소정규화') ||
-                    filteredRow.containsKey('행정구역') ||
-                    filteredRow.containsKey('지오코딩상태')
-                ? extractGeoPayload(
-                    importedRow,
-                    fallbackAddress: importedRow['위반장소']?.toString() ?? '',
-                  )
-                : prepareGeoPayloadForAddress(importedRow['위반장소']?.toString());
-            importedRow.addAll(geoPayload);
+            // 구서버에 지오코딩 열이 없을 때만 주소에서 계산한다(계산값, owner=derived).
+            if (!geoColumns.any(row.containsKey)) {
+              importedRow.addAll(
+                prepareGeoPayloadForAddress(importedRow['위반장소']?.toString()),
+              );
+            }
+            importedRow['감시목록'] = watchNumbers.contains(importedRow['신고번호'])
+                ? 'Y'
+                : 'N';
             await txn.insert(
               'reports',
               importedRow,
               conflictAlgorithm: ConflictAlgorithm.replace,
             );
-            await _replaceRawPayload(
-              txn,
-              reportId,
-              rawContent: rawPayload?['raw_content']?.toString() ?? '',
-              rawType: rawPayload?['raw_type']?.toString() ?? '',
-              savedAt: _toEpochMillis(rawPayload?['saved_at']) ?? syncedAt,
-            );
+            final raw = rawPayloadById[reportId];
+            if (raw != null) {
+              await txn.insert('report_raw', {
+                'ID': reportId,
+                'raw_content': raw['raw_content'],
+                'raw_type': raw['raw_type'],
+                'saved_at': raw['saved_at'],
+              }, conflictAlgorithm: ConflictAlgorithm.replace);
+            }
             imported++;
           }
         }
-      });
 
-      if (imported <= 0) {
-        throw Exception('임포트할 신고 데이터가 없습니다.');
-      }
-
-      await localDb.transaction((txn) async {
         for (final row in syncMetaRows) {
           await txn.insert(
             'sync_meta',
@@ -2587,51 +2471,45 @@ class LocalDbService {
             conflictAlgorithm: ConflictAlgorithm.replace,
           );
         }
-        for (final row in geocodeCacheRows) {
-          await txn.insert(
-            'geocode_cache',
-            row,
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
-        }
-        for (final row in duplicateGroups) {
-          await txn.insert(
-            DuplicateProjectionService.groupTable,
-            row,
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
-        }
-        for (final row in duplicateMembers) {
-          await txn.insert(
-            DuplicateProjectionService.memberTable,
-            row,
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
+        // 감시목록은 비어 있어도 기록한다(키가 없으면 앱이 예전 값을 남길 수 있음 — M-8).
+        await txn.insert('sync_meta', {
+          'key': 'watchlist',
+          'value': watchNumbers.join(','),
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+
+        const copied = {
+          'mysafety_geocode_cache': 'geocode_cache',
+          'mysafety_duplicate_group': DuplicateProjectionService.groupTable,
+          'mysafety_duplicate_member': DuplicateProjectionService.memberTable,
+          'mysafety_report_override': 'report_override',
+          'mysafety_duplicate_decision': 'duplicate_decision',
+        };
+        for (final pair in copied.entries) {
+          final types = await _columnTypes(txn, pair.value);
+          for (final row in await _readServerTable(
+            serverDb,
+            serverTables,
+            pair.key,
+          )) {
+            await txn.insert(pair.value, {
+              for (final e in row.entries)
+                if (types.containsKey(e.key))
+                  e.key: _coerceForColumn(e.value, types[e.key]),
+            }, conflictAlgorithm: ConflictAlgorithm.replace);
+          }
         }
       });
 
-      try {
-        final watchRows = await serverDb.query(
-          'mysafety_watchlist',
-          columns: ['신고번호'],
-        );
-        final watchNumbers = watchRows
-            .map((r) => r['신고번호']?.toString() ?? '')
-            .where((s) => s.isNotEmpty)
-            .toSet()
-            .toList();
-        if (watchNumbers.isNotEmpty) {
-          await localDb.insert('sync_meta', {
-            'key': 'watchlist',
-            'value': watchNumbers.join(','),
-          }, conflictAlgorithm: ConflictAlgorithm.replace);
-          final placeholders = watchNumbers.map((_) => '?').join(',');
-          await localDb.rawUpdate(
-            "UPDATE reports SET 감시목록 = 'Y' WHERE 신고번호 IN ($placeholders)",
-            watchNumbers,
-          );
-        }
-      } catch (_) {}
+      if (imported <= 0) {
+        throw Exception('임포트할 신고 데이터가 없습니다.');
+      }
+      final duplicateGroupCount =
+          Sqflite.firstIntValue(
+            await localDb.rawQuery(
+              'SELECT COUNT(*) FROM ${DuplicateProjectionService.groupTable}',
+            ),
+          ) ??
+          0;
 
       final hasLastSync = syncMetaRows.any(
         (row) => (row['key']?.toString() ?? '') == 'last_sync',
@@ -2642,7 +2520,7 @@ class LocalDbService {
           'value': DateTime.now().toIso8601String(),
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
-      if (duplicateGroups.isEmpty || duplicateMembers.isEmpty) {
+      if (duplicateGroupCount == 0) {
         await DuplicateProjectionService.refreshDuplicateGroups(localDb);
       }
 

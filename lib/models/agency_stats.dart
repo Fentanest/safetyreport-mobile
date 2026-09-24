@@ -32,6 +32,13 @@ class AgencyStatRow {
   final int unconfirmed;
   final double unconfirmedPct;
 
+  final int? dispositionUnknown;
+  final double? dispositionUnknownPct;
+  final int? noPenalty;
+  final double? noPenaltyPct;
+  final int? unclassified;
+  final double? unclassifiedPct;
+
   /// 배정된 처리중 신고 수(S-10). 구서버 응답에는 없어서 null — 이때는 처리중이 unconfirmed 에 섞여 있다.
   final int? inProgress;
   final double? inProgressPct;
@@ -39,6 +46,10 @@ class AgencyStatRow {
 
   /// 과태료 처분인데 금액을 읽지 못한 건수(S-05). 구서버 응답에는 없어서 0.
   final int fineAmountUnknown;
+
+  final int? estimatedFineAmount;
+  final int? estimatedFineCount;
+
   final double? avgRating; // 별점 평균 (1~5, 표본 없으면 null)
   final int ratingCount; // 별점 표본 수
 
@@ -55,10 +66,18 @@ class AgencyStatRow {
     required this.rejectsPct,
     required this.unconfirmed,
     required this.unconfirmedPct,
+    this.dispositionUnknown,
+    this.dispositionUnknownPct,
+    this.noPenalty,
+    this.noPenaltyPct,
+    this.unclassified,
+    this.unclassifiedPct,
     this.inProgress,
     this.inProgressPct,
     this.totalFineAmount = 0,
     this.fineAmountUnknown = 0,
+    this.estimatedFineAmount,
+    this.estimatedFineCount,
     this.avgRating,
     this.ratingCount = 0,
   });
@@ -77,10 +96,18 @@ class AgencyStatRow {
       rejectsPct: _toDoubleOrNull(json['rejects_pct']) ?? 0.0,
       unconfirmed: _toIntOrNull(json['unconfirmed']) ?? 0,
       unconfirmedPct: _toDoubleOrNull(json['unconfirmed_pct']) ?? 0.0,
+      dispositionUnknown: _toIntOrNull(json['disposition_unknown']),
+      dispositionUnknownPct: _toDoubleOrNull(json['disposition_unknown_pct']),
+      noPenalty: _toIntOrNull(json['no_penalty']),
+      noPenaltyPct: _toDoubleOrNull(json['no_penalty_pct']),
+      unclassified: _toIntOrNull(json['unclassified']),
+      unclassifiedPct: _toDoubleOrNull(json['unclassified_pct']),
       inProgress: _toIntOrNull(json['in_progress']),
       inProgressPct: _toDoubleOrNull(json['in_progress_pct']),
       totalFineAmount: _toIntOrNull(json['total_fine_amount']) ?? 0,
       fineAmountUnknown: _toIntOrNull(json['fine_amount_unknown']) ?? 0,
+      estimatedFineAmount: _toIntOrNull(json['estimated_fine_amount']),
+      estimatedFineCount: _toIntOrNull(json['estimated_fine_count']),
       avgRating: _toDoubleOrNull(json['avg_rating']),
       ratingCount: _toIntOrNull(json['rating_count']) ?? 0,
     );
@@ -96,6 +123,9 @@ class CategoryStats {
   final List<AgencyStatRow> otherByPerson;
   final List<String> availableLaws;
   final bool hasEmptyLaw;
+  final int totalFineAmount;
+  final int? estimatedFineAmount;
+  final int? estimatedFineCount;
 
   const CategoryStats({
     required this.byAgency,
@@ -106,6 +136,9 @@ class CategoryStats {
     required this.otherByPerson,
     this.availableLaws = const [],
     this.hasEmptyLaw = false,
+    this.totalFineAmount = 0,
+    this.estimatedFineAmount,
+    this.estimatedFineCount,
   });
 
   static List<AgencyStatRow> _parse(Map<String, dynamic> json, String key) =>
@@ -125,6 +158,9 @@ class CategoryStats {
           .map((e) => e.toString())
           .toList(),
       hasEmptyLaw: json['has_empty_law'] as bool? ?? false,
+      totalFineAmount: _toIntOrNull(json['total_fine_amount']) ?? 0,
+      estimatedFineAmount: _toIntOrNull(json['estimated_fine_amount']),
+      estimatedFineCount: _toIntOrNull(json['estimated_fine_count']),
     );
   }
 }

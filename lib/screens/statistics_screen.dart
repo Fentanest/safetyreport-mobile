@@ -772,6 +772,23 @@ class _RowCard extends StatelessWidget {
       surface: scheme.surface,
     ).foreground;
     final fineStr = _formatFine(row.totalFineAmount);
+    // 2026-09-24: 확정 과태료와 법정 최저 기준 추정 과태료는 항상 따로 표시한다(PROJECT_RULES §3-2).
+    final estimatedStr = (row.estimatedFineCount ?? 0) > 0
+        ? _formatFine(row.estimatedFineAmount ?? 0)
+        : '';
+    final fineParts = <String>[
+      if (fineStr.isNotEmpty)
+        row.fineAmountUnknown > 0
+            ? '확정 $fineStr · 금액 미확인 ${row.fineAmountUnknown}건'
+            : '확정 $fineStr',
+      if (estimatedStr.isNotEmpty)
+        '추정 $estimatedStr (${row.estimatedFineCount}건)',
+    ];
+    // (b) 분리 필드가 있으면(새 서버·Standalone) 기타·미분류를 셋으로 나눠 보인다. 구서버는 기존 한 칸.
+    final hasSplit =
+        row.dispositionUnknown != null &&
+        row.noPenalty != null &&
+        row.unclassified != null;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -849,7 +866,7 @@ class _RowCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 10),
                       ],
-                      if (fineStr.isNotEmpty) ...[
+                      if (fineParts.isNotEmpty) ...[
                         Icon(
                           Icons.payments_outlined,
                           size: 11,
@@ -858,9 +875,7 @@ class _RowCard extends StatelessWidget {
                         const SizedBox(width: 2),
                         Flexible(
                           child: Text(
-                            row.fineAmountUnknown > 0
-                                ? '$fineStr · 금액 미확인 ${row.fineAmountUnknown}건'
-                                : fineStr,
+                            fineParts.join(' / '),
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: 11,
@@ -1001,16 +1016,47 @@ class _RowCard extends StatelessWidget {
                           serverRejectColor,
                         ),
                       ),
-                      SizedBox(
-                        width: badgeWidth,
-                        // S-04: 대시보드 '처분 미확인'(교통, 처분이 '미확인')과 뜻이 달라 이름을 나눈다.
-                        child: _statBadge(
-                          '기타·미분류',
-                          row.unconfirmed,
-                          row.unconfirmedPct,
-                          serverUnconfirmedColor,
+                      if (!hasSplit)
+                        SizedBox(
+                          width: badgeWidth,
+                          // S-04: 대시보드 '처분 미확인'(교통, 처분이 '미확인')과 뜻이 달라 이름을 나눈다.
+                          child: _statBadge(
+                            '기타·미분류',
+                            row.unconfirmed,
+                            row.unconfirmedPct,
+                            serverUnconfirmedColor,
+                          ),
                         ),
-                      ),
+                      if (hasSplit && row.dispositionUnknown! > 0)
+                        SizedBox(
+                          width: badgeWidth,
+                          child: _statBadge(
+                            '처분 미확인',
+                            row.dispositionUnknown!,
+                            row.dispositionUnknownPct ?? 0,
+                            serverUnconfirmedColor,
+                          ),
+                        ),
+                      if (hasSplit && row.noPenalty! > 0)
+                        SizedBox(
+                          width: badgeWidth,
+                          child: _statBadge(
+                            '처분 대상 아님',
+                            row.noPenalty!,
+                            row.noPenaltyPct ?? 0,
+                            serverWithdrawColor,
+                          ),
+                        ),
+                      if (hasSplit && row.unclassified! > 0)
+                        SizedBox(
+                          width: badgeWidth,
+                          child: _statBadge(
+                            '기타·미분류',
+                            row.unclassified!,
+                            row.unclassifiedPct ?? 0,
+                            serverUnconfirmedColor,
+                          ),
+                        ),
                       // S-10: 배정된 처리중 신고. 구서버(null)·0건이면 숨긴다.
                       if ((row.inProgress ?? 0) > 0)
                         SizedBox(

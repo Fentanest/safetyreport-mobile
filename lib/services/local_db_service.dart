@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart';
+import 'package:safetyreport/services/fine_estimate.dart' as fine_estimate;
 import 'package:sqflite/sqflite.dart';
 
 import '../models/duplicate_group.dart';
@@ -944,7 +945,9 @@ class LocalDbService {
   static DateTime? _parseOverviewDate(Object? value) {
     final text = (value?.toString() ?? '').trim();
     if (text.length < 10) return null;
-    final m = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(text.substring(0, 10));
+    final m = RegExp(
+      r'^(\d{4})-(\d{2})-(\d{2})$',
+    ).firstMatch(text.substring(0, 10));
     if (m == null) return null;
     final y = int.parse(m.group(1)!);
     final mo = int.parse(m.group(2)!);
@@ -1649,6 +1652,22 @@ class LocalDbService {
       (r) => (r['위반법규'] as String? ?? '').isEmpty,
     );
 
+    int categoryTotalFine = 0;
+    int categoryEstimatedFineAmount = 0;
+    int categoryEstimatedFineCount = 0;
+    for (final r in rows) {
+      final fine = r['범칙금_과태료'] as String? ?? '';
+      final fineAmount = extractFineAmount(fine);
+      categoryTotalFine += fineAmount;
+      if (fine.contains('과태료') && fineAmount == 0) {
+        final est = fine_estimate.estimate(r);
+        if (est != null) {
+          categoryEstimatedFineAmount += est['amount'] as int;
+          categoryEstimatedFineCount++;
+        }
+      }
+    }
+
     return {
       'by_agency': allAgency,
       'by_person': allPerson,
@@ -1658,6 +1677,9 @@ class LocalDbService {
       'other_by_person': nonPolicePerson,
       'available_laws': allLaws,
       'has_empty_law': hasEmptyLaw,
+      'total_fine_amount': categoryTotalFine,
+      'estimated_fine_amount': categoryEstimatedFineAmount,
+      'estimated_fine_count': categoryEstimatedFineCount,
     };
   }
 
@@ -1679,13 +1701,16 @@ class LocalDbService {
     bool normalizePolice = false,
   }) async {
     final d = await db;
-    final withdrawFilter = excludeWithdraw ? "AND IFNULL(처리상태, '') != '취하'" : '';
+    final withdrawFilter = excludeWithdraw
+        ? "AND IFNULL(처리상태, '') != '취하'"
+        : '';
     // 신고번호 DESC 가 유니크 tiebreaker 라 LIMIT/OFFSET 페이지 경계에서
     // 누락/중복 없이 전체 정렬 순서를 그대로 유지한다.
     final rows = <Map<String, dynamic>>[];
     var offset = 0;
     while (true) {
-      final page = await d.rawQuery('''
+      final page = await d.rawQuery(
+        '''
         WITH dup_vehicles AS (
           SELECT 차량번호,
                  COUNT(*)                                                 AS total_count,
@@ -1704,7 +1729,9 @@ class LocalDbService {
         WHERE r.차량번호 != '' $withdrawFilter
         ORDER BY dv.max_report_no DESC, r.차량번호 ASC, r.신고번호 DESC
         LIMIT ? OFFSET ?
-      ''', [_kListChunkSize, offset]);
+      ''',
+        [_kListChunkSize, offset],
+      );
       rows.addAll(page);
       if (page.length < _kListChunkSize) break;
       offset += _kListChunkSize;
@@ -1792,7 +1819,9 @@ class LocalDbService {
     if (numbers.isEmpty) return [];
     final d = await db;
     final placeholders = numbers.map((_) => '?').join(',');
-    final withdrawFilter = excludeWithdraw ? " AND IFNULL(처리상태, '') != '취하'" : '';
+    final withdrawFilter = excludeWithdraw
+        ? " AND IFNULL(처리상태, '') != '취하'"
+        : '';
     final rows = await d.rawQuery(
       'SELECT * FROM reports WHERE 신고번호 IN ($placeholders)$withdrawFilter ORDER BY 신고일 DESC',
       numbers.toList(),
@@ -2762,8 +2791,16 @@ class _AgencyAgg {
 
   /// S-10: 완료도 취하도 아닌 상태(처리중·진행·검토중·보완요청·이송·빈 값 등). 미분류와 따로 센다.
   int inProgress = 0;
+
+  int dispositionUnknown = 0;
+  int noPenalty = 0;
+  int unclassified = 0;
+
   int totalFine = 0;
   int fineAmountUnknown = 0; // S-05: 과태료인데 금액을 읽지 못한 건(0원과 구분)
+  int estimatedFineAmount = 0;
+  int estimatedFineCount = 0;
+
   final List<int> responseDays = [];
   final List<int> ratings = []; // 1~5 별점 표본
 
@@ -2788,11 +2825,35 @@ class _AgencyAgg {
         inProgress++;
       } else {
         unconfirmed++;
+        final category = (r['category'] as String? ?? '').trim();
+        final entry = (r['entry_value'] as String? ?? '').trim();
+        final eligible =
+            category == 'traffic' ||
+            category == 'parking' ||
+            entry.contains('자동차·교통위반') ||
+            entry.contains('불법주정차신고') ||
+            entry.contains('쓰레기, 폐기물');
+
+        final isUnknown = fine.trim() == '미확인';
+        if (isUnknown) {
+          dispositionUnknown++;
+        } else if (!eligible && completed) {
+          noPenalty++;
+        } else {
+          unclassified++;
+        }
       }
     }
     final fineAmount = extractFineAmount(fine);
     totalFine += fineAmount;
-    if (fine.contains('과태료') && fineAmount == 0) fineAmountUnknown++;
+    if (fine.contains('과태료') && fineAmount == 0) {
+      fineAmountUnknown++;
+      final est = fine_estimate.estimate(r);
+      if (est != null) {
+        estimatedFineAmount += est['amount'] as int;
+        estimatedFineCount++;
+      }
+    }
 
     final date = r['신고일'] as String? ?? '';
     final resp = r['답변일'] as String? ?? '';
@@ -2836,12 +2897,24 @@ class _AgencyAgg {
       'unconfirmed_pct': double.parse(
         (unconfirmed / t * 100).toStringAsFixed(1),
       ),
+      'disposition_unknown': dispositionUnknown,
+      'disposition_unknown_pct': double.parse(
+        (dispositionUnknown / t * 100).toStringAsFixed(1),
+      ),
+      'no_penalty': noPenalty,
+      'no_penalty_pct': double.parse((noPenalty / t * 100).toStringAsFixed(1)),
+      'unclassified': unclassified,
+      'unclassified_pct': double.parse(
+        (unclassified / t * 100).toStringAsFixed(1),
+      ),
       'in_progress': inProgress,
       'in_progress_pct': double.parse(
         (inProgress / t * 100).toStringAsFixed(1),
       ),
       'total_fine_amount': totalFine,
       'fine_amount_unknown': fineAmountUnknown,
+      'estimated_fine_amount': estimatedFineAmount,
+      'estimated_fine_count': estimatedFineCount,
       'avg_rating': avgRating,
       'rating_count': ratings.length,
       // S-01: 서버 _calc_avg_days 와 같이 소수 1자리.

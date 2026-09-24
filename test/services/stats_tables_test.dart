@@ -92,6 +92,11 @@ void main() {
     expect(a['fines'], 1);
     expect(a['in_progress'], 2); // 처리중 + 진행(담당자 없어도 기관표에는 들어간다)
     expect(a['unconfirmed'], 2); // 답변완료(처분 없음) + 취하
+    expect(a['disposition_unknown'], 0);
+    expect(a['no_penalty'], 1);
+    expect(a['unclassified'], 1);
+    expect(a['estimated_fine_amount'], 0);
+    expect(a['estimated_fine_count'], 0);
     expect(a['in_progress_pct'], 40.0);
     expect(a['avg_days'], 7.0); // 완료 신고만: 10일, 4일
     expect(agency['B경찰서']!['in_progress'], 1); // 보완요청도 처리중

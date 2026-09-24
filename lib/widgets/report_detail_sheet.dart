@@ -1107,10 +1107,15 @@ class _VideoPlayerState extends State<_VideoPlayer>
   // 상세 시트는 ListView 라서 화면 밖으로 나간 자식 Element 가 파기된다.
   // keep-alive 를 걸지 않으면 스크롤을 올렸다 내릴 때마다 컨트롤러가 dispose 되고
   // 다시 처음부터 버퍼링(재다운로드)한다. 시트가 닫힐 때는 정상적으로 dispose 된다.
+  // 불러오기 전(자리표시)에는 붙잡아 둘 것이 없으므로 keep-alive 하지 않는다.
   @override
-  bool get wantKeepAlive => true;
+  bool get wantKeepAlive => _requested;
 
   late VideoPlayerController _ctrl;
+
+  // 사용자가 탭해야 불러온다. 시트를 열자마자 모든 동영상을 불러오면, 위로 스크롤하는 도중
+  // 로딩이 끝나며 높이가 바뀌고 여러 플레이어가 동시에 버퍼링해 스크롤이 멈추는 문제가 있었다(2026-09-24 제보).
+  bool _requested = false;
   bool _initialized = false;
   bool _error = false;
   bool _seeking = false;
@@ -1119,9 +1124,9 @@ class _VideoPlayerState extends State<_VideoPlayer>
   bool _showControls = true;
   Timer? _hideTimer;
 
-  @override
-  void initState() {
-    super.initState();
+  void _requestLoad() {
+    setState(() => _requested = true);
+    updateKeepAlive();
     _initController();
   }
 
@@ -1155,7 +1160,7 @@ class _VideoPlayerState extends State<_VideoPlayer>
   @override
   void dispose() {
     _hideTimer?.cancel();
-    _ctrl.dispose();
+    if (_requested) _ctrl.dispose();
     super.dispose();
   }
 
@@ -1208,6 +1213,42 @@ class _VideoPlayerState extends State<_VideoPlayer>
               child: const Text('재시도', style: TextStyle(fontSize: 12)),
             ),
           ],
+        ),
+      );
+    }
+    if (!_requested) {
+      return Semantics(
+        button: true,
+        label: '${widget.label ?? '동영상'} 불러오기',
+        excludeSemantics: true,
+        child: GestureDetector(
+          onTap: _requestLoad,
+          child: Container(
+            height: 160,
+            decoration: BoxDecoration(
+              color: Colors.black,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.play_circle_outline,
+                  color: Colors.white,
+                  size: 44,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  widget.label == null
+                      ? '탭하여 동영상 불러오기'
+                      : '탭하여 불러오기 · ${widget.label}',
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
         ),
       );
     }

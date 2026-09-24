@@ -328,3 +328,6 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
   - 서버 DB 가져오기: 값 그대로(NULL 유지), 숫자 열 형 맞춤, `감시목록` 은 서버 `mysafety_watchlist` 로 전부 다시 계산하고 sync_meta 'watchlist' 를 항상 기록(서버 sync_meta 의 옛 사본은 무시), 새 표 복사, 표 읽기 오류는 가져오기 실패로(임시 DB 라 기존 데이터 보존).
   - 앱 백업 복원(`replaceFromBackup`): 종류(모바일)·버전(0 < v ≤ dbVersion) 확인 → 임시 사본 마이그레이션·무결성 검사 → `.bak` 롤백 교체.
   - 알려진 결함 고정 테스트 `test/storage/known_defects_test.dart`(M-1·2/3·12·24 — R3 에서 고치면 기대값을 뒤집는다).
+- **R2·R3(2026-09-24)**: `reports` 는 **사이트 원본**(서버 title+detail 과 같은 뜻). 사용자 수정값은 `report_override`, 화면·통계는 보기 `reports_effective`(원본 위에 수정값, DB 를 열 때마다 재생성 — 이 보기가 참조하는 열을 DROP/RENAME 하려면 먼저 보기를 지울 것).
+  서버 DB 가져오기는 `mysafety` + `mysafetydetail_*` 를 읽고(구서버만 merge), 6개월 지난 첨부는 `attachment_policy.dart` 로 화면에서 가림.
+  `upsertReport(…, ratingLookup:)` 는 UPDATE 로 사이트·계산 열만 쓴다. 데모 계정은 `standalone_reports_demo.db`(설정 키 `standaloneDemoMode`). DB v13.

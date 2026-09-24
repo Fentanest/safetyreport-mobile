@@ -119,14 +119,19 @@ void main() {
   });
 
   group('computeStatsOverview (로컬 DB)', () {
+    late Directory tempDbDir;
     setUpAll(() async {
       sqfliteFfiInit();
       databaseFactory = databaseFactoryFfi;
       // flutter test 는 파일별로 병렬 실행된다. DB 를 쓰는 테스트 파일마다 전용 경로를 써야
       // standalone_reports.db 를 서로 덮어쓰지 않는다(2026-09-24 Gemini 검수 R1 에서 재현).
       await databaseFactory.setDatabasesPath(
-        Directory.systemTemp.createTempSync('sr_db_test_').path,
+        (tempDbDir = Directory.systemTemp.createTempSync('sr_db_test_')).path,
       );
+    });
+    tearDownAll(() async {
+      await LocalDbService.closeDb();
+      if (tempDbDir.existsSync()) tempDbDir.deleteSync(recursive: true);
     });
 
     setUp(() async {

@@ -117,6 +117,17 @@ class LocalGeocodeService {
     });
   }
 
+  /// 좌표 채울 후보: 사이트 원본 주소(reports) + 사용자가 고친 주소(reports_effective, S-4).
+  /// 고친 주소는 캐시만 채우면 보기가 좌표를 가져가므로 원본 행에 쓰지 않는다(is_override=1).
+  static final _pendingSource =
+      '''
+      SELECT ID, 위반장소, 주소정규화, 행정구역, 위도, 경도, 지오코딩상태, 0 AS is_override FROM reports
+      UNION ALL
+      SELECT e.ID, e.위반장소, e.주소정규화, e.행정구역, e.위도, e.경도, e.지오코딩상태, 1 AS is_override
+      FROM ${LocalDbService.effectiveReportsView} e
+      WHERE EXISTS (SELECT 1 FROM report_override o WHERE o.ID = e.ID AND o.column_name = '위반장소')
+  ''';
+
   static Future<int> countSavedCoordinateRecords() async {
     final d = await LocalDbService.db;
     final rows = await d.rawQuery('''
@@ -132,7 +143,7 @@ class LocalGeocodeService {
     final d = await LocalDbService.db;
     final rows = await d.rawQuery('''
       SELECT COUNT(*) AS cnt
-      FROM reports r
+      FROM ($_pendingSource) r
       INNER JOIN geocode_cache c
         ON c.주소정규화 = TRIM(COALESCE(NULLIF(r.주소정규화, ''), r.위반장소))
       WHERE r.위반장소 IS NOT NULL
@@ -244,7 +255,7 @@ class LocalGeocodeService {
     final d = await LocalDbService.db;
     final rows = await d.rawQuery('''
       SELECT COUNT(*) AS cnt
-      FROM reports
+      FROM ($_pendingSource)
       WHERE 위반장소 IS NOT NULL
         AND TRIM(위반장소) != ''
         AND (위도 IS NULL OR 경도 IS NULL)
@@ -286,8 +297,8 @@ class LocalGeocodeService {
         final rows = cacheOnlyMode
             ? await d.rawQuery(
                 '''
-                SELECT r.ID, r.위반장소, r.주소정규화, r.행정구역, r.위도, r.경도, r.지오코딩상태
-                FROM reports r
+                SELECT r.ID, r.위반장소, r.주소정규화, r.행정구역, r.위도, r.경도, r.지오코딩상태, r.is_override
+                FROM ($_pendingSource) r
                 INNER JOIN geocode_cache c
                   ON c.주소정규화 = TRIM(COALESCE(NULLIF(r.주소정규화, ''), r.위반장소))
                 WHERE r.위반장소 IS NOT NULL
@@ -300,17 +311,17 @@ class LocalGeocodeService {
                 ''',
                 [batchSize],
               )
-            : await d.query(
-                'reports',
-                columns: ['ID', '위반장소', '주소정규화', '행정구역', '위도', '경도', '지오코딩상태'],
-                where: '''
-                  위반장소 IS NOT NULL
+            : await d.rawQuery(
+                '''
+                SELECT * FROM ($_pendingSource)
+                WHERE 위반장소 IS NOT NULL
                   AND TRIM(위반장소) != ''
                   AND (위도 IS NULL OR 경도 IS NULL)
                   AND COALESCE(지오코딩상태, '') != 'not_found'
+                ORDER BY ID DESC
+                LIMIT ?
                 ''',
-                orderBy: 'ID DESC',
-                limit: batchSize,
+                [batchSize],
               );
 
         if (rows.isEmpty) break;
@@ -333,13 +344,18 @@ class LocalGeocodeService {
           final normalizedRow = Map<String, dynamic>.from(row);
           final reportId = normalizedRow['ID']?.toString() ?? '';
           final address = normalizedRow['위반장소']?.toString() ?? '';
+          final isOverride = normalizedRow['is_override'] == 1;
           processed++;
           recountCountdown += 1;
 
           try {
             final payload = await resolveAddress(apiKey, address);
             final nextStatus = payload['지오코딩상태']?.toString() ?? '';
-            await _applyGeoPayload(reportId, payload);
+            if (isOverride) {
+              LocalDbService.invalidateCaches(); // 캐시가 채워졌으니 보기가 새 좌표를 보여 줌
+            } else {
+              await _applyGeoPayload(reportId, payload);
+            }
             if (nextStatus == 'ok') {
               updated++;
               remainingMissing = remainingMissing > 0
@@ -352,10 +368,12 @@ class LocalGeocodeService {
                   : 0;
             }
           } on GeocodeConfigurationError catch (exc) {
-            await _applyGeoPayload(
-              reportId,
-              buildPendingGeoPayload(address, status: 'error'),
-            );
+            if (!isOverride) {
+              await _applyGeoPayload(
+                reportId,
+                buildPendingGeoPayload(address, status: 'error'),
+              );
+            }
             final notice = await _missingApiKeyNotice();
             _setProgressState({
               'state': notice.state,
@@ -372,10 +390,12 @@ class LocalGeocodeService {
             });
             return;
           } on GeocodeProviderError catch (exc) {
-            await _applyGeoPayload(
-              reportId,
-              buildPendingGeoPayload(address, status: 'error'),
-            );
+            if (!isOverride) {
+              await _applyGeoPayload(
+                reportId,
+                buildPendingGeoPayload(address, status: 'error'),
+              );
+            }
             final adjustedRemaining = remainingMissing > 0
                 ? remainingMissing
                 : await countPendingReports();

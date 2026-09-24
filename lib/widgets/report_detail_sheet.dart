@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -67,6 +68,11 @@ void showReportDetailSheet(BuildContext context, Report report) {
 class ReportDetailSheet extends StatelessWidget {
   final Report report;
   const ReportDetailSheet({super.key, required this.report});
+
+  /// 첨부 동영상 컨트롤러 생성(테스트에서 가짜로 바꿔 끼운다).
+  @visibleForTesting
+  static VideoPlayerController Function(Uri url) videoControllerFactory =
+      VideoPlayerController.networkUrl;
 
   String _ratingLabel() {
     final rating = report.rating;
@@ -1122,11 +1128,16 @@ class _VideoPlayerState extends State<_VideoPlayer>
   bool get wantKeepAlive => _requested;
 
   late VideoPlayerController _ctrl;
+  bool _ctrlCreated = false;
 
-  // 사용자가 탭해야 불러온다. 시트를 열자마자 모든 동영상을 불러오면, 위로 스크롤하는 도중
-  // 로딩이 끝나며 높이가 바뀌고 여러 플레이어가 동시에 버퍼링해 스크롤이 멈추는 문제가 있었다(2026-09-24 제보).
+  // 자동으로 불러오되, 멈춤을 일으키던 세 가지를 피한다(2026-09-24 제보: 로딩이 끝나면 스크롤이 멈춤).
+  //  1) 스크롤 중에는 시작하지 않는다 — 화면에 보이고 스크롤이 멈췄을 때 시작.
+  //  2) 한 번에 하나만 불러온다(_VideoLoadQueue) — 여러 플레이어 동시 버퍼링 방지.
+  //  3) 자리표시·로딩·재생 모두 같은 16:9 칸 — 로딩이 끝나도 높이가 바뀌지 않는다.
+  // 자리표시를 누르면 바로 불러온다.
   bool _requested = false;
   bool _initialized = false;
+  ValueListenable<bool>? _scrolling;
   bool _error = false;
   bool _seeking = false;
   bool _wasPlaying = false;
@@ -1134,21 +1145,55 @@ class _VideoPlayerState extends State<_VideoPlayer>
   bool _showControls = true;
   Timer? _hideTimer;
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final scrolling = Scrollable.maybeOf(context)?.position.isScrollingNotifier;
+    if (!identical(scrolling, _scrolling)) {
+      _scrolling?.removeListener(_maybeAutoLoad);
+      _scrolling = scrolling?..addListener(_maybeAutoLoad);
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeAutoLoad());
+  }
+
+  /// 화면에 보이고 스크롤이 멈춰 있으면 불러오기를 건다.
+  void _maybeAutoLoad() {
+    if (!mounted || _requested || (_scrolling?.value ?? false)) return;
+    final box = context.findRenderObject() as RenderBox?;
+    final viewport =
+        Scrollable.maybeOf(context)?.context.findRenderObject() as RenderBox?;
+    if (box == null ||
+        !box.attached ||
+        viewport == null ||
+        !viewport.attached) {
+      return;
+    }
+    final top = box.localToGlobal(Offset.zero).dy;
+    final vpTop = viewport.localToGlobal(Offset.zero).dy;
+    final visible =
+        top + box.size.height > vpTop && top < vpTop + viewport.size.height;
+    if (visible) _requestLoad();
+  }
+
   void _requestLoad() {
+    if (_requested) return;
     setState(() => _requested = true);
     updateKeepAlive();
     _initController();
   }
 
   void _initController() {
-    _ctrl = VideoPlayerController.networkUrl(Uri.parse(widget.url))
-      ..initialize()
-          .then((_) {
-            if (mounted) setState(() => _initialized = true);
-          })
-          .catchError((_) {
-            if (mounted) setState(() => _error = true);
-          });
+    _VideoLoadQueue.run(() async {
+      if (!mounted) return; // 차례가 오기 전에 시트가 닫혔다
+      _ctrl = ReportDetailSheet.videoControllerFactory(Uri.parse(widget.url));
+      _ctrlCreated = true;
+      try {
+        await _ctrl.initialize();
+        if (mounted) setState(() => _initialized = true);
+      } catch (_) {
+        if (mounted) setState(() => _error = true);
+      }
+    });
   }
 
   // 재생 시작 시 3초 후 컨트롤 자동 숨김
@@ -1170,9 +1215,19 @@ class _VideoPlayerState extends State<_VideoPlayer>
   @override
   void dispose() {
     _hideTimer?.cancel();
-    if (_requested) _ctrl.dispose();
+    _scrolling?.removeListener(_maybeAutoLoad);
+    if (_ctrlCreated) _ctrl.dispose();
     super.dispose();
   }
+
+  /// 자리표시·로딩·오류·재생이 모두 같은 크기를 쓴다(로딩 완료로 높이가 바뀌지 않게).
+  Widget _frame(Widget child) => ClipRRect(
+    borderRadius: BorderRadius.circular(8),
+    child: AspectRatio(
+      aspectRatio: 16 / 9,
+      child: ColoredBox(color: Colors.black, child: child),
+    ),
+  );
 
   String _fmt(Duration d) {
     final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
@@ -1184,45 +1239,42 @@ class _VideoPlayerState extends State<_VideoPlayer>
   Widget build(BuildContext context) {
     super.build(context); // AutomaticKeepAliveClientMixin 필수 호출
     if (_error) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: context.sr.surfaceAlt,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              Icons.videocam_off_outlined,
-              color: context.sr.textSecondary,
-              size: 20,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                widget.label ?? '동영상',
-                style: TextStyle(fontSize: 13, color: context.sr.textSecondary),
+      return _frame(
+        Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.videocam_off_outlined,
+                color: Colors.white70,
+                size: 32,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                '${widget.label ?? '동영상'}을 불러오지 못했습니다',
+                style: const TextStyle(color: Colors.white, fontSize: 13),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
-            ),
-            TextButton(
-              style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
-              onPressed: () {
-                if (mounted) {
+              TextButton(
+                style: TextButton.styleFrom(foregroundColor: Colors.white),
+                onPressed: () {
+                  if (_ctrlCreated) {
+                    _ctrl.dispose();
+                    _ctrlCreated = false;
+                  }
                   setState(() {
                     _error = false;
                     _initialized = false;
                     _seeking = false;
                     _seekPosition = Duration.zero;
                   });
-                }
-                _ctrl.dispose();
-                _initController();
-              },
-              child: const Text('재시도', style: TextStyle(fontSize: 12)),
-            ),
-          ],
+                  _initController();
+                },
+                child: const Text('재시도'),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -1233,13 +1285,8 @@ class _VideoPlayerState extends State<_VideoPlayer>
         excludeSemantics: true,
         child: GestureDetector(
           onTap: _requestLoad,
-          child: Container(
-            height: 160,
-            decoration: BoxDecoration(
-              color: Colors.black,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Column(
+          child: _frame(
+            Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const Icon(
@@ -1247,15 +1294,15 @@ class _VideoPlayerState extends State<_VideoPlayer>
                   color: Colors.white,
                   size: 44,
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  widget.label == null
-                      ? '탭하여 동영상 불러오기'
-                      : '탭하여 불러오기 · ${widget.label}',
-                  style: const TextStyle(color: Colors.white, fontSize: 13),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                if (widget.label != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    widget.label!,
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ],
             ),
           ),
@@ -1263,39 +1310,33 @@ class _VideoPlayerState extends State<_VideoPlayer>
       );
     }
     if (!_initialized) {
-      return Container(
-        height: 160,
-        decoration: BoxDecoration(
-          color: Colors.black,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: const Center(
-          child: CircularProgressIndicator(color: Colors.white),
-        ),
+      return _frame(
+        const Center(child: CircularProgressIndicator(color: Colors.white)),
       );
     }
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: Stack(
+    return _frame(
+      Stack(
         alignment: Alignment.bottomCenter,
         children: [
-          AspectRatio(
-            aspectRatio: _ctrl.value.aspectRatio,
-            child: GestureDetector(
-              onTap: () {
-                if (!_showControls) {
-                  _showControlsTemporarily();
-                } else if (_ctrl.value.isPlaying) {
-                  _ctrl.pause();
-                  _hideTimer?.cancel();
-                  setState(() => _showControls = true);
-                } else {
-                  _ctrl.play();
-                  _scheduleHide();
-                  setState(() {});
-                }
-              },
-              child: VideoPlayer(_ctrl),
+          Center(
+            child: AspectRatio(
+              aspectRatio: _ctrl.value.aspectRatio,
+              child: GestureDetector(
+                onTap: () {
+                  if (!_showControls) {
+                    _showControlsTemporarily();
+                  } else if (_ctrl.value.isPlaying) {
+                    _ctrl.pause();
+                    _hideTimer?.cancel();
+                    setState(() => _showControls = true);
+                  } else {
+                    _ctrl.play();
+                    _scheduleHide();
+                    setState(() {});
+                  }
+                },
+                child: VideoPlayer(_ctrl),
+              ),
             ),
           ),
           // 하단 컨트롤 바
@@ -1597,5 +1638,18 @@ class _SupplementMetaRow extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// 첨부 동영상을 한 번에 하나씩 불러온다. 여러 플레이어가 동시에 버퍼링하면 스크롤이 멈췄다.
+class _VideoLoadQueue {
+  static Future<void> _tail = Future.value();
+
+  static void run(Future<void> Function() task) {
+    _tail = _tail
+        .then((_) => task())
+        // 응답 없는 동영상 하나가 뒤 순서를 영영 막지 않게 한다(불러오기 자체는 계속된다).
+        .timeout(const Duration(seconds: 30), onTimeout: () {})
+        .catchError((_) {});
   }
 }

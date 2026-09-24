@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/notification_item.dart';
 import '../models/rating_batch_result.dart';
 import '../services/app_prefs_keys.dart';
+import '../services/prefs_inbox.dart';
 import '../services/sync_engine.dart' show ChangeType;
 
 class NotificationHistoryProvider with ChangeNotifier {
@@ -44,10 +45,12 @@ class NotificationHistoryProvider with ChangeNotifier {
 
   Future<void> load({bool notify = true}) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.reload(); // WsService가 직접 쓴 내용 반영
+    await prefs.reload(); // WsService 가 수신함에 넣은 것 반영
     _items = _decode(prefs.getString(_key));
-    _knownIds = _items.map((i) => i.id).toSet();
     _loaded = true;
+    if (PrefsInbox.read(prefs, PrefsInbox.history).isNotEmpty) {
+      await _save(); // 수신함을 합쳐 기록에 넣고 비운다
+    }
     if (notify) notifyListeners();
   }
 
@@ -122,7 +125,12 @@ class NotificationHistoryProvider with ChangeNotifier {
     _items = [];
     _loaded = true;
     final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
     await prefs.remove(_key);
+    await PrefsInbox.remove(
+      prefs,
+      PrefsInbox.read(prefs, PrefsInbox.history).map((e) => e.key),
+    );
     notifyListeners();
   }
 
@@ -264,27 +272,30 @@ class NotificationHistoryProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  /// 마지막으로 읽은 뒤 백그라운드 서비스(Kotlin WsService)가 새로 넣은 알림은 남기고,
-  /// 이 화면에서 지운 알림은 되살리지 않는다(같은 설정 키를 두 쪽이 쓰며 서로 덮던 문제 — M-29/M-31).
+  static const _maxItems = 200;
+
+  /// 알림 기록 키는 이 앱만 쓴다. 백그라운드 서비스(Kotlin WsService)는 새 알림을 수신함 키에 넣고,
+  /// 여기서 합친 뒤 합친 키만 지운다(같은 키를 두 쪽이 읽고-고쳐-쓰며 서로 덮던 문제 — M-29/M-31).
   Future<void> _save() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.reload();
-    final onDisk = _decode(prefs.getString(_key));
-    final mine = _items.map((i) => i.id).toSet();
-    final addedElsewhere = onDisk
-        .where((i) => !mine.contains(i.id) && !_knownIds.contains(i.id))
-        .toList();
-    if (addedElsewhere.isNotEmpty) {
-      _items = [...addedElsewhere, ..._items];
+    final inbox = PrefsInbox.read(prefs, PrefsInbox.history);
+    final ids = _items.map((i) => i.id).toSet();
+    for (final entry in inbox) {
+      // 오래된 수신함부터 앞에 붙인다 → 가장 새 것이 맨 앞. 한 수신함 안은 이미 새 것부터.
+      final fresh = entry.items
+          .map(NotificationItem.fromJson)
+          .where((i) => ids.add(i.id))
+          .toList();
+      _items = [...fresh, ..._items];
     }
+    if (_items.length > _maxItems) _items = _items.sublist(0, _maxItems);
     await prefs.setString(
       _key,
       jsonEncode(_items.map((i) => i.toJson()).toList()),
     );
-    _knownIds = _items.map((i) => i.id).toSet();
+    await PrefsInbox.remove(prefs, inbox.map((e) => e.key));
   }
-
-  Set<String> _knownIds = {};
 
   static List<NotificationItem> _decode(String? raw) {
     if (raw == null || raw.isEmpty) return [];

@@ -80,7 +80,7 @@ while (queue not empty):
 
 ```
 SyncEngine.emitChanges(List<Map>)
-  ├─ pending_crawl_changes SharedPref 누적 (main.dart 가 카드 시트로 표시)
+  ├─ 대기 변경 수신함 `inbox.pending.*` 에 새 키로 추가 (main.dart 가 카드 시트로 표시)
   ├─ 각 신고에 대해 MethodChannel showNotification (heads-up):
   │    ├─ ChangeType.newReport         → "🆕 신규 신고"
   │    ├─ ChangeType.statusChanged     → "🔄 처리 변경"
@@ -106,9 +106,16 @@ SyncEngine.emitChanges(List<Map>)
 | `flutter.standalone_pending_reports` | **String (CSV)** | Standalone 큐 (아래 함정 주의) |
 | `flutter.standalone_last_detected_at` | long | 디버그용 |
 | `flutter.foreground_event` | String | WsService → 포그라운드 복귀 SnackBar |
-| `flutter.pending_crawl_changes` | String (JSON) | 카드 시트 표시 대기 |
-| `flutter.notifications_history` | String (JSON) | 알림 히스토리 (최대 200개) |
+| `flutter.inbox.pending.<ms>_<순번>` | String (JSON 배열) | 카드 시트 표시 대기. Kotlin·Dart 모두 **새 키에만** 쓰고 `PendingChangesStore.readAndClear` 가 합친 키만 지움 |
+| `flutter.inbox.history.<ms>_<순번>` | String (JSON 배열) | Kotlin 이 넣는 새 알림. `NotificationHistoryProvider` 가 기록에 합치고 그 키만 지움. Kotlin 쪽 최대 200키 |
+| `flutter.notifications_history` | String (JSON) | 알림 히스토리 (최대 200개). **Dart 만 씀** |
+| `flutter.pending_crawl_changes` | String (JSON) | (R6 이전 값) 남아 있으면 한 번 읽고 지움 |
 | `flutter.auto_enqueue_count` / `flutter.auto_enqueue_last_at` | int / long | Client 자동 enqueue 푸시 억제 |
+
+### 같은 키를 두 쪽이 쓰지 않는다 (R6, M-29/M-31)
+앱과 WsService 는 같은 프로세스의 같은 SharedPreferences 를 쓴다. 한 키를 둘 다 읽고-고쳐-쓰면 거의 동시에 쓸 때 한쪽이 사라진다.
+그래서 서비스 → 앱 전달은 수신함(`lib/services/prefs_inbox.dart`, `WsService.putInbox`)으로: 넣는 쪽은 매번 고유한 새 키, 합치기·지우기는 앱이 하고 합친 키만 이름으로 지운다.
+키 접두어는 두 파일에서 같아야 한다.
 
 ### ⚠️ Flutter SharedPreferences 큐 형식 함정
 

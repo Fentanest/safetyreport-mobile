@@ -1,9 +1,10 @@
-// 알림 기록을 백그라운드 서비스(Kotlin WsService)와 같은 설정 키에 함께 쓸 때 서로 덮지 않는지 (M-29/M-31).
+// 알림 기록: 백그라운드 서비스(Kotlin WsService)는 수신함 키에만 넣고 앱이 합친다 (M-29/M-31, R6).
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/providers/notification_history_provider.dart';
 import 'package:safetyreport/services/app_prefs_keys.dart';
+import 'package:safetyreport/services/prefs_inbox.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Map<String, dynamic> _item(String id) => {
@@ -15,11 +16,43 @@ Map<String, dynamic> _item(String id) => {
   'isRead': false,
 };
 
+/// WsService.putInbox 와 같은 모양의 키.
+String _serviceKey(int ms, int seq) =>
+    '${PrefsInbox.history}${ms.toString().padLeft(15, '0')}_${seq.toString().padLeft(6, '0')}';
+
+Future<List<String>> _savedIds() async {
+  final prefs = await SharedPreferences.getInstance();
+  return (jsonDecode(prefs.getString(AppPrefsKeys.notificationsHistory)!)
+          as List)
+      .map((e) => e['id'] as String)
+      .toList();
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test(
-    'saving keeps items the background service added after we loaded',
+    'items the service put in the inbox are merged newest first and the inbox is emptied',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        AppPrefsKeys.notificationsHistory: jsonEncode([_item('a')]),
+        _serviceKey(1000, 1): jsonEncode([_item('k2'), _item('k1')]),
+        _serviceKey(2000, 2): jsonEncode([_item('m')]),
+      });
+      final provider = NotificationHistoryProvider();
+      await provider.load(notify: false);
+      expect(provider.items.map((i) => i.id), ['m', 'k2', 'k1', 'a']);
+      expect(await _savedIds(), ['m', 'k2', 'k1', 'a']);
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getKeys().where((k) => k.startsWith(PrefsInbox.history)),
+        isEmpty,
+      );
+    },
+  );
+
+  test(
+    'saving keeps items the service added after we loaded and does not bring back cleared ones',
     () async {
       SharedPreferences.setMockInitialValues({
         AppPrefsKeys.notificationsHistory: jsonEncode([_item('a'), _item('b')]),
@@ -27,25 +60,15 @@ void main() {
       final provider = NotificationHistoryProvider();
       await provider.load(notify: false);
 
-      // 백그라운드 서비스가 새 알림을 적음
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        AppPrefsKeys.notificationsHistory,
-        jsonEncode([_item('k'), _item('a'), _item('b')]),
-      );
-
+      await prefs.setString(_serviceKey(3000, 3), jsonEncode([_item('k')]));
       await provider.markRead('a');
-      final saved =
-          (jsonDecode(prefs.getString(AppPrefsKeys.notificationsHistory)!)
-                  as List)
-              .map((e) => e['id'])
-              .toList();
-      expect(saved, containsAll(['k', 'a', 'b']));
-      final a =
-          (jsonDecode(prefs.getString(AppPrefsKeys.notificationsHistory)!)
-                  as List)
-              .firstWhere((e) => e['id'] == 'a');
-      expect(a['isRead'], isTrue);
+      expect(await _savedIds(), ['k', 'a', 'b']);
+      expect(provider.items.firstWhere((i) => i.id == 'a').isRead, isTrue);
+
+      await provider.clearAll();
+      await provider.load(notify: false);
+      expect(provider.items, isEmpty);
     },
   );
 }

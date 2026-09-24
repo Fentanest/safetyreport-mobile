@@ -33,6 +33,7 @@ class PendingChangesStore {
   static Future<void> append(List<Map<String, dynamic>> changes) async {
     if (changes.isEmpty) return;
     final prefs = await SharedPreferences.getInstance();
+    await prefs.reload(); // Kotlin WsService 가 같은 키에 쓴 내용을 먼저 반영(M-29)
     final existingRaw = prefs.getString(AppPrefsKeys.pendingCrawlChanges);
     List<dynamic> existing = const [];
     if (existingRaw != null && existingRaw.isNotEmpty) {

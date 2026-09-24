@@ -14,6 +14,9 @@ class AppPrefsKeys {
   static const standaloneUsername = 'standaloneUsername';
   static const standalonePhoneNumber = 'standalonePhoneNumber';
   static const standaloneDemoMode = 'standaloneDemoMode';
+
+  /// 서버 변경 기록의 기기별 읽은 위치에 쓰는 식별자(설치마다 한 번 만듦, 개인정보 아님 — 저장 계층 재설계 R5).
+  static const deviceInstallId = 'deviceInstallId';
   static const standaloneKakaoRestApiKey = 'standaloneKakaoRestApiKey';
   static const standaloneToken = 'standaloneToken';
   static const standaloneTokenExpiresAt = 'standaloneTokenExpiresAt';

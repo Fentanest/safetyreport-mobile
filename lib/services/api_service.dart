@@ -1,3 +1,6 @@
+import 'app_prefs_keys.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:math';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -598,9 +601,15 @@ class ApiService {
   }
 
   Future<List<Map<String, dynamic>>> fetchCrawlResults() async {
+    // 기기별 읽은 위치(서버 결정 D-5). 구서버는 모르는 매개변수를 무시하고 예전처럼 응답한다.
+    final deviceId = await deviceInstallId();
     final response = await _sendWithRetry(
       () => http.get(
-        ServerContract.apiUri(baseUrl, ServerContract.crawlResultsPath),
+        ServerContract.apiUri(
+          baseUrl,
+          ServerContract.crawlResultsPath,
+          queryParameters: {'device_id': deviceId},
+        ),
         headers: _headers,
       ),
     );
@@ -807,4 +816,18 @@ class ApiService {
   String get wsBaseUrl {
     return ServerContract.wsBaseUri(baseUrl).toString();
   }
+}
+
+/// 설치마다 한 번 만드는 기기 식별자(무작위 32자리, 개인정보 아님).
+Future<String> deviceInstallId() async {
+  final prefs = await SharedPreferences.getInstance();
+  final existing = prefs.getString(AppPrefsKeys.deviceInstallId);
+  if (existing != null && existing.isNotEmpty) return existing;
+  final random = Random.secure();
+  final id = List.generate(
+    16,
+    (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+  ).join();
+  await prefs.setString(AppPrefsKeys.deviceInstallId, id);
+  return id;
 }

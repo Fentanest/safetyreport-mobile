@@ -45,19 +45,8 @@ class NotificationHistoryProvider with ChangeNotifier {
   Future<void> load({bool notify = true}) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.reload(); // WsService가 직접 쓴 내용 반영
-    final raw = prefs.getString(_key);
-    if (raw != null && raw.isNotEmpty) {
-      try {
-        final list = jsonDecode(raw) as List;
-        _items = list
-            .map((i) => NotificationItem.fromJson(i as Map<String, dynamic>))
-            .toList();
-      } catch (_) {
-        _items = [];
-      }
-    } else {
-      _items = [];
-    }
+    _items = _decode(prefs.getString(_key));
+    _knownIds = _items.map((i) => i.id).toSet();
     _loaded = true;
     if (notify) notifyListeners();
   }
@@ -275,11 +264,36 @@ class NotificationHistoryProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  /// 마지막으로 읽은 뒤 백그라운드 서비스(Kotlin WsService)가 새로 넣은 알림은 남기고,
+  /// 이 화면에서 지운 알림은 되살리지 않는다(같은 설정 키를 두 쪽이 쓰며 서로 덮던 문제 — M-29/M-31).
   Future<void> _save() async {
     final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    final onDisk = _decode(prefs.getString(_key));
+    final mine = _items.map((i) => i.id).toSet();
+    final addedElsewhere = onDisk
+        .where((i) => !mine.contains(i.id) && !_knownIds.contains(i.id))
+        .toList();
+    if (addedElsewhere.isNotEmpty) {
+      _items = [...addedElsewhere, ..._items];
+    }
     await prefs.setString(
       _key,
       jsonEncode(_items.map((i) => i.toJson()).toList()),
     );
+    _knownIds = _items.map((i) => i.id).toSet();
+  }
+
+  Set<String> _knownIds = {};
+
+  static List<NotificationItem> _decode(String? raw) {
+    if (raw == null || raw.isEmpty) return [];
+    try {
+      return (jsonDecode(raw) as List)
+          .map((i) => NotificationItem.fromJson(i as Map<String, dynamic>))
+          .toList();
+    } catch (_) {
+      return [];
+    }
   }
 }

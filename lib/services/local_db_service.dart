@@ -1,3 +1,4 @@
+import '../models/rating_lookup.dart';
 import '../storage/schema_utils.dart';
 import 'dart:io';
 
@@ -489,75 +490,21 @@ class LocalDbService {
 
   // ── 신고 저장/업데이트 ─────────────────────────────────────────────────────
 
+  /// 크롤링한 신고 1건을 저장한다(저장 계층 재설계 R3, 서버 core/storage/reports_repo.py 와 같은 규칙).
+  /// - 기존 행은 사이트 열·계산 열만 UPDATE 한다. REPLACE 를 쓰지 않아 모델에 없는 열(사진 촬영 시각 등)이 지워지지 않는다.
+  /// - 신고번호·신고명 같은 식별 정보는 빈 값으로 덮지 않는다.
+  /// - 별점·사유·만족도조사여부는 [ratingLookup] 에 따라(결정 D-2·D-3): 사이트 값이 있으면 사이트, 조회 실패·미시도면 기존 유지,
+  ///   '참여 완료' 는 되돌리지 않는다.
+  /// - 변경 판정(synced_at): [_syncedAtTrackedKeys] + 본문, NULL 과 '' 는 같게. 본문·entry_value 는 이전 값이 있을 때만 비교.
   static Future<void> upsertReport(
     Report r,
     String category,
     String entryValue, {
     String rawContent = '',
+    RatingLookup ratingLookup = RatingLookup.notTried,
   }) async {
-    final watchlistNums = await getWatchlistNumbers();
     final d = await db;
     final now = DateTime.now().millisecondsSinceEpoch;
-    Map<String, dynamic>? existingRecord;
-    try {
-      final existingRows = await d.query(
-        'reports',
-        where: 'ID = ?',
-        whereArgs: [r.id],
-        limit: 1,
-      );
-      if (existingRows.isNotEmpty) {
-        existingRecord = Map<String, dynamic>.from(existingRows.first);
-      }
-    } catch (_) {}
-    final geoPayload = prepareGeoPayloadForAddress(
-      r.location,
-      existingRecord: existingRecord,
-    );
-    final reportRow = <String, Object?>{
-      'ID': r.id,
-      '상태': r.result,
-      '신고번호': r.reportNumber,
-      '신고명': r.name,
-      '신고일': r.date,
-      '만족도조사여부': r.pollStatus,
-      '별점': r.rating,
-      '별점사유': r.ratingCause,
-      '감시목록': watchlistNums.contains(r.reportNumber) ? 'Y' : 'N',
-      '처리상태': r.status,
-      '차량번호': r.carNumber,
-      '위반법규': r.law,
-      '범칙금_과태료': r.fineInfo,
-      '벌점': r.penaltyPoints,
-      '처리기관': r.agency,
-      '담당자': r.manager,
-      '답변일': r.responseDate,
-      '발생일자': r.occurrenceDate,
-      '발생시각': r.occurrenceTime,
-      '위반장소': r.location,
-      '주소정규화': geoPayload['주소정규화'],
-      '행정구역': geoPayload['행정구역'],
-      '위도': geoPayload['위도'],
-      '경도': geoPayload['경도'],
-      '지오코딩상태': geoPayload['지오코딩상태'],
-      '종결여부': r.processingFinish,
-      '신고내용': r.reportContent,
-      '처리내용': r.processContent,
-      '지도': r.mapImage,
-      '첨부사진': r.attachedPhotos,
-      '첨부파일': r.attachedFiles,
-      'category': category,
-      'entry_value': entryValue,
-      'raw_content': '',
-      '보완횟수': r.supplementCount,
-      '보완_미응답': r.supplementOpen ? 'Y' : 'N',
-      '보완_요청자': r.supplementRequester,
-      '보완_요청일시': r.supplementRequestedAt,
-      '보완_완료일시': r.supplementCompletedAt,
-      '보완_요청_내용': r.supplementRequest,
-      '보완_신고자_의견': r.supplementOpinion,
-    };
-
     await d.transaction((txn) async {
       final existingRows = await txn.query(
         'reports',
@@ -565,35 +512,107 @@ class LocalDbService {
         whereArgs: [r.id],
         limit: 1,
       );
-      final existingRaw = await _getRawPayload(txn, r.id);
+      final existing = existingRows.isEmpty
+          ? null
+          : Map<String, Object?>.from(existingRows.first);
+      final watchlist = await _readWatchlist(txn);
+      final geoPayload = prepareGeoPayloadForAddress(
+        r.location,
+        existingRecord: existing,
+      );
+
+      String keepIfEmpty(String column, String value) =>
+          value.isNotEmpty ? value : (existing?[column]?.toString() ?? value);
+
+      final existingPoll = existing?['만족도조사여부']?.toString();
+      final Object? rating;
+      final Object? ratingCause;
+      switch (ratingLookup) {
+        case RatingLookup.found:
+          rating = r.rating;
+          ratingCause = r.ratingCause;
+        case RatingLookup.failed:
+          rating = r.rating ?? existing?['별점'];
+          ratingCause = existing?['별점사유'] ?? r.ratingCause;
+        case RatingLookup.notTried:
+          rating = r.rating ?? existing?['별점'];
+          ratingCause = existing == null ? r.ratingCause : existing['별점사유'];
+      }
+      final poll = existingPoll == '참여 완료' && r.pollStatus != '참여 완료'
+          ? existingPoll
+          : r.pollStatus;
+
+      final siteRow = <String, Object?>{
+        '상태': keepIfEmpty('상태', r.result),
+        '신고번호': keepIfEmpty('신고번호', r.reportNumber),
+        '신고명': keepIfEmpty('신고명', r.name),
+        '신고일': keepIfEmpty('신고일', r.date),
+        '만족도조사여부': poll,
+        '별점': rating,
+        '별점사유': ratingCause,
+        '처리상태': r.status,
+        '차량번호': r.carNumber,
+        '위반법규': r.law,
+        '범칙금_과태료': r.fineInfo,
+        '벌점': r.penaltyPoints,
+        '처리기관': r.agency,
+        '담당자': r.manager,
+        '답변일': r.responseDate,
+        '발생일자': r.occurrenceDate,
+        '발생시각': r.occurrenceTime,
+        '위반장소': r.location,
+        '종결여부': r.processingFinish,
+        '신고내용': r.reportContent,
+        '처리내용': r.processContent,
+        '지도': r.mapImage,
+        '첨부사진': r.attachedPhotos,
+        '첨부파일': r.attachedFiles,
+        'category': category,
+        'entry_value': entryValue,
+        '보완횟수': r.supplementCount,
+        '보완_미응답': r.supplementOpen ? 'Y' : 'N',
+        '보완_요청자': r.supplementRequester,
+        '보완_요청일시': r.supplementRequestedAt,
+        '보완_완료일시': r.supplementCompletedAt,
+        '보완_요청_내용': r.supplementRequest,
+        '보완_신고자_의견': r.supplementOpinion,
+        for (final e in geoPayload.entries) e.key: e.value,
+        '감시목록': watchlist.contains(r.reportNumber) ? 'Y' : 'N',
+      };
 
       int syncedAt = now;
-      // 모델(Report)에 없는 교환 컬럼은 REPLACE 로 지워지지 않게 기존 값을 이어받는다(서버에서 가져온 사진 촬영 시각 등).
-      final carried = <String, Object?>{};
-      if (existingRows.isNotEmpty) {
-        final existing = Map<String, Object?>.from(existingRows.first);
-        for (final col in photoCaptureColumns) {
-          carried[col] = existing[col];
-        }
-        final existingComparable = <String, Object?>{};
-        final reportComparable = <String, Object?>{};
-        for (final key in _syncedAtTrackedKeys) {
-          existingComparable[key] = existing[key];
-          reportComparable[key] = reportRow[key];
-        }
-        final reportChanged = !_rowsEqual(existingComparable, reportComparable);
-        final rawChanged =
-            _stringify(existingRaw?['raw_content']) != _stringify(rawContent);
-        syncedAt = (!reportChanged && !rawChanged)
-            ? (_toEpochMillis(existing['synced_at']) ?? now)
-            : now;
+      if (existing != null) {
+        final existingRaw = await _getRawPayload(txn, r.id);
+        final tracked = _syncedAtTrackedKeys.where(
+          (k) => k != 'entry_value' && k != 'category',
+        );
+        final changed =
+            tracked.any(
+              (k) => _stringify(existing[k]) != _stringify(siteRow[k]),
+            ) ||
+            existing['category'] != category ||
+            (_stringify(existing['entry_value']).isNotEmpty &&
+                existing['entry_value'] != entryValue) ||
+            (existingRaw != null &&
+                _stringify(existingRaw['raw_content']).isNotEmpty &&
+                _stringify(existingRaw['raw_content']) != rawContent);
+        syncedAt = changed
+            ? now
+            : (_toEpochMillis(existing['synced_at']) ?? now);
+        await txn.update(
+          'reports',
+          {...siteRow, 'synced_at': syncedAt},
+          where: 'ID = ?',
+          whereArgs: [r.id],
+        );
+      } else {
+        await txn.insert('reports', {
+          'ID': r.id,
+          ...siteRow,
+          'raw_content': '',
+          'synced_at': syncedAt,
+        });
       }
-
-      await txn.insert('reports', {
-        ...reportRow,
-        ...carried,
-        'synced_at': syncedAt,
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
       await _replaceRawPayload(
         txn,
         r.id,
@@ -602,6 +621,21 @@ class LocalDbService {
       );
     });
     _invalidateProjectRowsCache();
+  }
+
+  static Future<Set<String>> _readWatchlist(DatabaseExecutor db) async {
+    final rows = await db.query(
+      'sync_meta',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: ['watchlist'],
+    );
+    final raw = rows.isEmpty ? '' : (rows.first['value']?.toString() ?? '');
+    return raw
+        .split(',')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toSet();
   }
 
   // ── 신고 조회 ─────────────────────────────────────────────────────────────

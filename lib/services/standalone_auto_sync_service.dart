@@ -12,10 +12,10 @@ import 'sync_engine.dart';
 
 /// 개별 fetch 결과 — drainIfPending 분기용.
 enum _FetchResult {
-  success,        // 정상 처리 + 큐 제거
-  notInDb,        // DB에 없음 → 증분 fallback 1회
-  networkError,   // errno=104, timeout 등 일시 오류 → 큐 유지하고 drain 종료
-  otherError,     // 4xx/5xx 등 진짜 실패 → 큐 제거 (재시도 무의미)
+  success, // 정상 처리 + 큐 제거
+  notInDb, // DB에 없음 → 증분 fallback 1회
+  networkError, // errno=104, timeout 등 일시 오류 → 큐 유지하고 drain 종료
+  otherError, // 4xx/5xx 등 진짜 실패 → 큐 제거 (재시도 무의미)
 }
 
 /// Standalone 모드 자동 동기화 드레인.
@@ -155,13 +155,22 @@ class StandaloneAutoSyncService {
       final ev = entryValueFromDetail(<String, dynamic>{}, detail);
       final cat = categoryFromEntryValue(ev);
       var report = parseJsonToReport(<String, dynamic>{}, detail);
-      final raw = (detail['C_A_CONTENTS'] ?? detail['C_A_BODY'] ?? '').toString();
-      report = await SyncEngine.augmentRatingCause(report);
-      await LocalDbService.upsertReport(report, cat, ev, rawContent: raw);
-      final duplicateRefresh = await DuplicateProjectionService.refreshDuplicateGroups(
-        await LocalDbService.db,
-        trackChanges: true,
+      final raw = (detail['C_A_CONTENTS'] ?? detail['C_A_BODY'] ?? '')
+          .toString();
+      final augmented = await SyncEngine.augmentRatingCause(report);
+      report = augmented.report;
+      await LocalDbService.upsertReport(
+        report,
+        cat,
+        ev,
+        rawContent: raw,
+        ratingLookup: augmented.lookup,
       );
+      final duplicateRefresh =
+          await DuplicateProjectionService.refreshDuplicateGroups(
+            await LocalDbService.db,
+            trackChanges: true,
+          );
       final changeType = beforeStatus != report.status
           ? ChangeType.statusChanged
           : ChangeType.individualConfirm;
@@ -170,7 +179,9 @@ class StandaloneAutoSyncService {
         (duplicateRefresh['changes'] as List? ?? const [])
             .whereType<Map<String, dynamic>>(),
       );
-      SyncEngine.emitLog('완료: $reportNumber → $changeType (상태=${report.status})');
+      SyncEngine.emitLog(
+        '완료: $reportNumber → $changeType (상태=${report.status})',
+      );
       return _FetchResult.success;
     } on SocketException catch (e) {
       SyncEngine.emitLog('네트워크 오류 (Socket): $reportNumber → $e');
@@ -185,8 +196,10 @@ class StandaloneAutoSyncService {
       // _getWithRetry가 실패한 경우 throw Exception('네트워크 오류 (3회 재시도 실패): ...')
       // 으로 일반 Exception을 던지므로 메시지로도 판별
       final msg = e.toString();
-      if (msg.contains('네트워크') || msg.contains('errno') ||
-          msg.contains('reset') || msg.contains('timed out')) {
+      if (msg.contains('네트워크') ||
+          msg.contains('errno') ||
+          msg.contains('reset') ||
+          msg.contains('timed out')) {
         SyncEngine.emitLog('네트워크 오류 (일반): $reportNumber → $e');
         return _FetchResult.networkError;
       }

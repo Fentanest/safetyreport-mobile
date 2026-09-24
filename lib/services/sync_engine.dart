@@ -1,3 +1,4 @@
+import '../models/rating_lookup.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/services.dart';
@@ -229,9 +230,16 @@ class SyncEngine {
             .toString();
 
         // 별점이 있는 신고 한정으로 사유 추가 fetch (인증 불필요 별도 API)
-        report = await _augmentRatingCause(report);
+        final augmented = await _augmentRatingCause(report);
+        report = augmented.report;
 
-        await LocalDbService.upsertReport(report, cat, ev, rawContent: raw);
+        await LocalDbService.upsertReport(
+          report,
+          cat,
+          ev,
+          rawContent: raw,
+          ratingLookup: augmented.lookup,
+        );
         if (!fullSync) _trackChange(existingStatus[cNo], report);
         done++;
 
@@ -254,8 +262,15 @@ class SyncEngine {
           final cat = categoryFromEntryValue(ev);
           final raw = (detail['C_A_CONTENTS'] ?? detail['C_A_BODY'] ?? '')
               .toString();
-          report = await _augmentRatingCause(report);
-          await LocalDbService.upsertReport(report, cat, ev, rawContent: raw);
+          final augmented = await _augmentRatingCause(report);
+          report = augmented.report;
+          await LocalDbService.upsertReport(
+            report,
+            cat,
+            ev,
+            rawContent: raw,
+            ratingLookup: augmented.lookup,
+          );
           if (!fullSync) _trackChange(existingStatus[cNo], report);
           done++;
         } catch (retryErr) {
@@ -415,57 +430,33 @@ class SyncEngine {
   /// 안전신문고 만족도 조회는 로그인 ID가 아니라 휴대폰번호가 필요하다.
   /// fetch 실패해도 별점 자체는 보존, ratingCause만 빈 채로 남김.
   /// (auto_sync_service에서도 호출 → public)
-  static Future<Report> augmentRatingCause(Report report) =>
-      _augmentRatingCause(report);
+  static Future<({Report report, RatingLookup lookup})> augmentRatingCause(
+    Report report,
+  ) => _augmentRatingCause(report);
 
-  static Future<Report> _augmentRatingCause(Report report) async {
-    if (report.rating == null || report.rating! <= 0) return report;
-    if (report.ratingCause.isNotEmpty) return report; // 이미 있으면 스킵
+  static Future<({Report report, RatingLookup lookup})> _augmentRatingCause(
+    Report report,
+  ) async {
+    if (report.rating == null || report.rating! <= 0) {
+      return (report: report, lookup: RatingLookup.notTried);
+    }
     final prefs = await SharedPreferences.getInstance();
     final phone = (prefs.getString(AppPrefsKeys.standalonePhoneNumber) ?? '')
         .replaceAll(RegExp(r'[^0-9]'), '');
-    if (phone.isEmpty) return report;
+    if (phone.isEmpty) return (report: report, lookup: RatingLookup.failed);
     final result = await StandaloneApiService.fetchSatisfaction(
       report.reportNumber,
       phone,
     );
-    return Report(
-      id: report.id,
-      reportNumber: report.reportNumber,
-      name: report.name,
-      date: report.date,
-      responseDate: report.responseDate,
-      agency: report.agency,
-      manager: report.manager,
-      status: report.status,
-      result: report.result,
-      fineInfo: report.fineInfo,
-      penaltyPoints: report.penaltyPoints,
-      carNumber: report.carNumber,
-      law: report.law,
-      location: report.location,
-      occurrenceDate: report.occurrenceDate,
-      occurrenceTime: report.occurrenceTime,
-      reportContent: report.reportContent,
-      processContent: report.processContent,
-      attachedPhotos: report.attachedPhotos,
-      attachedFiles: report.attachedFiles,
-      mapImage: report.mapImage,
-      pollStatus: report.pollStatus,
-      processingFinish: report.processingFinish,
-      rating: result.score ?? report.rating,
-      ratingCause: result.cause,
-      totalCount: report.totalCount,
-      validCount: report.validCount,
-      category: report.category,
-      syncedAt: report.syncedAt,
-      supplementCount: report.supplementCount,
-      supplementOpen: report.supplementOpen,
-      supplementRequester: report.supplementRequester,
-      supplementRequestedAt: report.supplementRequestedAt,
-      supplementCompletedAt: report.supplementCompletedAt,
-      supplementRequest: report.supplementRequest,
-      supplementOpinion: report.supplementOpinion,
+    if (result.score == null) {
+      return (report: report, lookup: RatingLookup.failed);
+    }
+    return (
+      report: report.copyWith(
+        rating: result.score! > 0 ? result.score : report.rating,
+        ratingCause: result.cause,
+      ),
+      lookup: RatingLookup.found,
     );
   }
 

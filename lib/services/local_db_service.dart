@@ -2553,31 +2553,76 @@ class LocalDbService {
     }
   }
 
-  /// 백업 .db 파일을 통째로 현재 DB 자리로 복사 (덮어쓰기).
-  /// Standalone 백업 → 같은 모바일 스키마 DB 를 그대로 사용.
-  /// (서버 DB 는 스키마가 달라서 이 메서드 사용 불가 → importFromServerDb 사용)
+  /// 모바일 백업 .db 로 현재 DB 를 바꾼다(저장 계층 재설계 R1d, M-11).
+  /// 임시 사본에서 종류·버전 확인 → 마이그레이션 → 무결성 검사를 마친 뒤 `_commitImportedDatabase` 로 교체한다
+  /// (기존 DB 는 .bak 으로 남기고 실패하면 되돌린다). 서버 DB 는 importFromServerDb 를 쓴다.
   static Future<void> replaceFromBackup(String backupDbPath) async {
     _invalidateProjectRowsCache();
-    final preparedDbPath = await _prepareExternalDbSnapshot(backupDbPath);
-    await closeDb();
-    final dbPath = await getDbPath();
-    final src = File(preparedDbPath);
-    if (!src.existsSync()) {
-      await _cleanupPreparedSnapshot(preparedDbPath);
+    if (!File(backupDbPath).existsSync()) {
       throw Exception('백업 파일이 존재하지 않습니다: $backupDbPath');
     }
-    await _deleteDbSidecars(dbPath);
-    await src.copy(dbPath);
-    await _cleanupPreparedSnapshot(preparedDbPath);
-    final reopened = await db;
-    await reopened.delete(
-      'sync_meta',
-      where: 'key = ?',
-      whereArgs: ['map_backfill_state'],
-    );
-    await DuplicateProjectionService.refreshDuplicateGroups(reopened);
-    _invalidateProjectRowsCache();
-    // 다음 db getter 호출 시 새로 open.
+    final kind = await detectDbKind(backupDbPath);
+    if (kind != 'mobile') {
+      throw Exception('앱 백업 형식이 아닙니다($kind). 서버 DB 는 서버 DB 가져오기를 사용하세요.');
+    }
+    final preparedDbPath = await _prepareExternalDbSnapshot(backupDbPath);
+    Directory? stagingDir;
+    Database? staged;
+    try {
+      stagingDir = await Directory.systemTemp.createTemp(
+        'mysafetyreport_restore_staged_',
+      );
+      final stagedPath = join(stagingDir.path, 'standalone_reports_restore.db');
+      await File(preparedDbPath).copy(stagedPath);
+      for (final ext in ['-wal', '-shm']) {
+        final side = File('$preparedDbPath$ext');
+        if (side.existsSync()) await side.copy('$stagedPath$ext');
+      }
+
+      final probe = await openDatabase(
+        stagedPath,
+        readOnly: true,
+        singleInstance: false,
+      );
+      final version = await probe.getVersion();
+      await probe.close();
+      if (version <= 0) {
+        throw Exception('백업 파일의 DB 버전을 알 수 없습니다.');
+      }
+      if (version > dbVersion) {
+        throw Exception('더 새 버전 앱에서 만든 백업입니다(v$version). 앱을 업데이트한 뒤 복원하세요.');
+      }
+
+      staged = await _createImportTargetDb(stagedPath); // 구버전이면 여기서 마이그레이션
+      await staged.delete(
+        'sync_meta',
+        where: 'key = ?',
+        whereArgs: ['map_backfill_state'],
+      );
+      await DuplicateProjectionService.refreshDuplicateGroups(staged);
+      final integrity = (await staged.rawQuery(
+        'PRAGMA integrity_check',
+      )).first.values.first;
+      if (integrity != 'ok') {
+        throw Exception('백업 파일 무결성 검사 실패: $integrity');
+      }
+      await staged.close();
+      staged = null;
+      await _commitImportedDatabase(stagedPath);
+      _invalidateProjectRowsCache();
+    } finally {
+      if (staged != null) {
+        try {
+          await staged.close();
+        } catch (_) {}
+      }
+      if (stagingDir != null) {
+        try {
+          await stagingDir.delete(recursive: true);
+        } catch (_) {}
+      }
+      await _cleanupPreparedSnapshot(preparedDbPath);
+    }
   }
 
   static Future<Map<String, dynamic>?> getEditableRecord(

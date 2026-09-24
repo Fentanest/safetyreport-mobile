@@ -152,6 +152,12 @@ SyncEngine.emitChanges(List<Map>)
 | `sync_fgs` | LOW | "🔄 동기화 진행 중" Standalone FGS |
 | `app_push_v2` | HIGH | Standalone 변경 알림 (Flutter → MethodChannel showNotification), 하루 1회 로그인 점검의 "🔐 재로그인 필요" 알림(id 7301) |
 
+### 앱 아이콘 / 알림 아이콘 (2026-09-24)
+- 앱 아이콘은 서버와 같은 카메라 아이콘. 원본 `assets/branding/app_icon.png`, Android 8+ 는 적응형 아이콘
+  (`mipmap-anydpi-v26/ic_launcher.xml`, 전경 `drawable-*/ic_launcher_foreground.png`, 배경 `@color/ic_launcher_background` #0035B9).
+  모두 `flutter_launcher_icons.yaml` 로 생성하므로 손으로 고치지 말고 원본을 바꾼 뒤 `dart run flutter_launcher_icons`.
+- 알림 표시줄 아이콘 `R.drawable.ic_stat_logo` 는 흰 카메라 실루엣 **벡터**(`drawable/ic_stat_logo.xml`). 같은 이름의 PNG 를 다시 넣으면 리소스가 충돌한다.
+
 ### `SafetyReportApplication` (2026-09-24)
 - 매니페스트 `android:name` 을 Flutter 기본(`${applicationName}`)에서 `.SafetyReportApplication` 으로 바꿨다.
 - WorkManager 백그라운드 Flutter 엔진(`workmanager` 플러그인)에는 MainActivity 의 MethodChannel 이 없어 Dart 가 직접 알림을 못 띄운다.

@@ -100,7 +100,9 @@ void main() {
       expect(await db.getVersion(), (contract['schema_version'] as Map)['mobile']);
       final cols = (await db.rawQuery('PRAGMA table_info(reports)')).map((r) => r['name'] as String).toSet();
       expect(cols, contractColumns);
-      expect((await db.rawQuery("SELECT name FROM sqlite_master WHERE name='geocode_cache'")), isNotEmpty);
+      for (final table in ['geocode_cache', 'report_override', 'duplicate_decision']) {
+        expect(await db.rawQuery("SELECT name FROM sqlite_master WHERE name=?", [table]), isNotEmpty, reason: table);
+      }
 
       final after = await db.query('reports', orderBy: 'ID');
       expect(after.length, before.length);

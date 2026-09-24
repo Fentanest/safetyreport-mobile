@@ -1,3 +1,4 @@
+import '../storage/schema_utils.dart';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
@@ -57,11 +58,14 @@ class LocalDbService {
     }
   }
 
+  /// 앱 DB 스키마 버전. contracts/storage-contract.json 의 schema_version.mobile 과 같아야 한다(테스트가 확인).
+  static const dbVersion = 12;
+
   static Future<Database> _open() async {
     final dbPath = await getDatabasesPath();
     final database = await openDatabase(
       join(dbPath, 'standalone_reports.db'),
-      version: 11,
+      version: dbVersion,
       onCreate: _create,
       onUpgrade: _migrateLocalDatabase,
     );
@@ -107,40 +111,54 @@ class LocalDbService {
   /// 보완요청 마지막 round 1개 + 누적 횟수 + 요청자/일시 메타를 reports row 에 보존.
   /// 이전 빌드에서 잠시 존재했던 report_supplement_history 테이블은 정리한다.
   static Future<void> _addSupplementColumns(DatabaseExecutor db) async {
-    for (final col in const [
-      "ALTER TABLE reports ADD COLUMN 보완횟수 INTEGER DEFAULT 0",
-      "ALTER TABLE reports ADD COLUMN 보완_미응답 TEXT DEFAULT 'N'",
-      "ALTER TABLE reports ADD COLUMN 보완_요청자 TEXT DEFAULT ''",
-      "ALTER TABLE reports ADD COLUMN 보완_요청일시 TEXT DEFAULT ''",
-      "ALTER TABLE reports ADD COLUMN 보완_완료일시 TEXT DEFAULT ''",
-      "ALTER TABLE reports ADD COLUMN 보완_요청_내용 TEXT DEFAULT ''",
-      "ALTER TABLE reports ADD COLUMN 보완_신고자_의견 TEXT DEFAULT ''",
+    for (final (col, type) in const [
+      ('보완횟수', 'INTEGER DEFAULT 0'),
+      ('보완_미응답', "TEXT DEFAULT 'N'"),
+      ('보완_요청자', "TEXT DEFAULT ''"),
+      ('보완_요청일시', "TEXT DEFAULT ''"),
+      ('보완_완료일시', "TEXT DEFAULT ''"),
+      ('보완_요청_내용', "TEXT DEFAULT ''"),
+      ('보완_신고자_의견', "TEXT DEFAULT ''"),
     ]) {
-      try {
-        await db.execute(col);
-      } catch (_) {
-        // 이미 추가된 경우 무시
-      }
+      await addColumnIfMissing(db, 'reports', col, type);
     }
-    try {
-      await db.execute('DROP TABLE IF EXISTS report_supplement_history');
-    } catch (_) {}
+    await db.execute('DROP TABLE IF EXISTS report_supplement_history');
   }
 
   static Future<void> _addGeoColumns(DatabaseExecutor db) async {
-    for (final col in const [
-      "ALTER TABLE reports ADD COLUMN 주소정규화 TEXT DEFAULT ''",
-      "ALTER TABLE reports ADD COLUMN 행정구역 TEXT DEFAULT ''",
-      "ALTER TABLE reports ADD COLUMN 위도 REAL",
-      "ALTER TABLE reports ADD COLUMN 경도 REAL",
-      "ALTER TABLE reports ADD COLUMN 지오코딩상태 TEXT DEFAULT ''",
+    for (final (col, type) in const [
+      ('주소정규화', "TEXT DEFAULT ''"),
+      ('행정구역', "TEXT DEFAULT ''"),
+      ('위도', 'REAL'),
+      ('경도', 'REAL'),
+      ('지오코딩상태', "TEXT DEFAULT ''"),
     ]) {
-      try {
-        await db.execute(col);
-      } catch (_) {
-        // 이미 추가된 경우 무시
-      }
+      await addColumnIfMissing(db, 'reports', col, type);
     }
+  }
+
+  /// v12(저장 계층 재설계 R1): 사용자 수정값·중복 판단 표. 서버 mysafety_report_override / mysafety_duplicate_decision 과 같은 구조.
+  static Future<void> _createStorageTables(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS report_override (
+        ID          TEXT NOT NULL,
+        column_name TEXT NOT NULL,
+        value       TEXT,
+        updated_at  INTEGER NOT NULL,
+        PRIMARY KEY (ID, column_name)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS duplicate_decision (
+        group_id            TEXT PRIMARY KEY,
+        status              TEXT NOT NULL,
+        representative_mode TEXT NOT NULL,
+        representative_id   TEXT,
+        apply_globally      INTEGER NOT NULL,
+        note                TEXT,
+        updated_at          INTEGER NOT NULL
+      )
+    ''');
   }
 
   static Future<void> _migrateLocalDatabase(
@@ -149,12 +167,8 @@ class LocalDbService {
     int newV,
   ) async {
     if (oldV < 4) {
-      try {
-        await db.execute("ALTER TABLE reports ADD COLUMN 별점 INTEGER");
-        await db.execute("ALTER TABLE reports ADD COLUMN 별점사유 TEXT DEFAULT ''");
-      } catch (_) {
-        // 이미 컬럼이 있는 경우 무시
-      }
+      await addColumnIfMissing(db, 'reports', '별점', 'INTEGER');
+      await addColumnIfMissing(db, 'reports', '별점사유', "TEXT DEFAULT ''");
     }
     if (oldV < 5) {
       await _createRawTable(db);
@@ -176,6 +190,9 @@ class LocalDbService {
     if (oldV < 11) {
       await _addPhotoCaptureColumns(db);
     }
+    if (oldV < 12) {
+      await _createStorageTables(db);
+    }
   }
 
   /// 주정차 사진 EXIF 촬영 시각(서버 `services/photo_capture_time.py` 가 채움). 서버 detail/merge 와 같은 이름·형식.
@@ -183,17 +200,9 @@ class LocalDbService {
   static const photoCaptureColumns = ['사진_첫촬영', '사진_끝촬영', '사진_촬영수'];
 
   static Future<void> _addPhotoCaptureColumns(DatabaseExecutor db) async {
-    for (final col in const [
-      'ALTER TABLE reports ADD COLUMN 사진_첫촬영 TEXT',
-      'ALTER TABLE reports ADD COLUMN 사진_끝촬영 TEXT',
-      'ALTER TABLE reports ADD COLUMN 사진_촬영수 INTEGER',
-    ]) {
-      try {
-        await db.execute(col);
-      } catch (_) {
-        // 이미 추가된 경우 무시
-      }
-    }
+    await addColumnIfMissing(db, 'reports', '사진_첫촬영', 'TEXT');
+    await addColumnIfMissing(db, 'reports', '사진_끝촬영', 'TEXT');
+    await addColumnIfMissing(db, 'reports', '사진_촬영수', 'INTEGER');
   }
 
   static Future<void> _create(Database db, int version) async {
@@ -249,6 +258,7 @@ class LocalDbService {
     await _createRawTable(db);
     await _createGeocodeCacheTable(db);
     await DuplicateProjectionService.createSchema(db);
+    await _createStorageTables(db);
     await db.execute('''
       CREATE TABLE sync_meta (
         key   TEXT PRIMARY KEY,
@@ -2253,7 +2263,7 @@ class LocalDbService {
   static Future<Database> _createImportTargetDb(String path) async {
     return openDatabase(
       path,
-      version: 11,
+      version: dbVersion,
       onCreate: _create,
       onUpgrade: _migrateLocalDatabase,
     );

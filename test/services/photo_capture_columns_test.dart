@@ -89,7 +89,7 @@ void main() {
     }
   });
 
-  test('v10 database upgrades to v11 with photo capture columns', () async {
+  test('v10 database upgrades with photo capture columns', () async {
     final path = await LocalDbService.getDbPath();
     final old = await openDatabase(path, version: 10, onCreate: (db, _) async {
       await db.execute('CREATE TABLE reports (ID TEXT PRIMARY KEY, 신고번호 TEXT)');
@@ -98,7 +98,7 @@ void main() {
     await old.close();
 
     final d = await LocalDbService.db;
-    expect(await d.getVersion(), 11);
+    expect(await d.getVersion(), LocalDbService.dbVersion);
     final cols = (await d.rawQuery('PRAGMA table_info(reports)')).map((r) => r['name']).toSet();
     expect(cols, containsAll(LocalDbService.photoCaptureColumns));
     final row = (await d.query('reports', where: 'ID = ?', whereArgs: ['old-1'])).single;

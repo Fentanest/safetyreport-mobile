@@ -4,6 +4,7 @@ import 'package:crypto/crypto.dart' as crypto;
 import 'package:sqflite/sqflite.dart';
 
 import '../models/duplicate_group.dart';
+import '../storage/schema_utils.dart';
 
 class DuplicateProjectionService {
   static const groupTable = 'duplicate_group';
@@ -40,13 +41,12 @@ class DuplicateProjectionService {
         PRIMARY KEY (group_id, report_id)
       )
     ''');
-    try {
-      await db.execute(
-        'ALTER TABLE $groupTable ADD COLUMN apply_globally INTEGER NOT NULL DEFAULT 1',
-      );
-    } catch (_) {
-      // already exists
-    }
+    await addColumnIfMissing(
+      db,
+      groupTable,
+      'apply_globally',
+      'INTEGER NOT NULL DEFAULT 1',
+    );
   }
 
   static int _nowMs() => DateTime.now().millisecondsSinceEpoch;

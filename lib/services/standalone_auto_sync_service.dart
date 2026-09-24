@@ -6,6 +6,7 @@ import 'app_prefs_keys.dart';
 import 'duplicate_projection_service.dart';
 import 'local_db_service.dart';
 import 'standalone_api_service.dart';
+import 'standalone_auth_service.dart';
 import 'standalone_parser.dart';
 import 'standalone_pending_queue_store.dart';
 import 'sync_engine.dart';
@@ -14,7 +15,7 @@ import 'sync_engine.dart';
 enum _FetchResult {
   success,        // 정상 처리 + 큐 제거
   notInDb,        // DB에 없음 → 증분 fallback 1회
-  networkError,   // errno=104, timeout 등 일시 오류 → 큐 유지하고 drain 종료
+  networkError,   // errno=104, timeout, 로그인 필요·안전신문고 연결 실패 → 큐 유지하고 drain 종료
   otherError,     // 4xx/5xx 등 진짜 실패 → 큐 제거 (재시도 무의미)
 }
 
@@ -172,6 +173,13 @@ class StandaloneAutoSyncService {
       );
       SyncEngine.emitLog('완료: $reportNumber → $changeType (상태=${report.status})');
       return _FetchResult.success;
+    } on TokenExpiredException catch (e) {
+      // 재로그인이 필요한 상태 — 큐를 지우면 이 신고를 영영 놓친다. 큐를 보존하고 멈춘다.
+      SyncEngine.emitLog('로그인 필요로 drain 중단 (큐 보존): $reportNumber → $e');
+      return _FetchResult.networkError;
+    } on AuthTemporarilyUnavailableException catch (e) {
+      SyncEngine.emitLog('안전신문고 연결 실패로 drain 중단 (큐 보존): $reportNumber → $e');
+      return _FetchResult.networkError;
     } on SocketException catch (e) {
       SyncEngine.emitLog('네트워크 오류 (Socket): $reportNumber → $e');
       return _FetchResult.networkError;

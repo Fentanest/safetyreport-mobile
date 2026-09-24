@@ -15,6 +15,7 @@ import '../providers/report_provider.dart';
 import '../theme/sr_colors.dart';
 import '../server_palette.dart';
 import '../screens/report_list_screen.dart';
+import '../services/review_prompt_service.dart';
 import '../services/standalone_auth_service.dart';
 
 const _officialSafetyReportUrl = 'https://www.safetyreport.go.kr/';
@@ -44,6 +45,10 @@ void showReportDetailSheet(BuildContext context, Report report) {
     } catch (_) {}
   }
   ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
+  var isDemo = false;
+  try {
+    isDemo = context.read<ReportProvider>().isStandaloneDemo;
+  } catch (_) {}
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
@@ -51,7 +56,12 @@ void showReportDetailSheet(BuildContext context, Report report) {
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
     builder: (_) => ReportDetailSheet(report: report),
-  );
+  ).then((_) {
+    // 최근에 받은 좋은 결과를 다 보고 닫은 직후가 스토어 별점 요청 시점(조건은 ReviewPromptService).
+    unawaited(
+      ReviewPromptService.maybeRequestAfterViewing(report, isDemo: isDemo),
+    );
+  });
 }
 
 class ReportDetailSheet extends StatelessWidget {

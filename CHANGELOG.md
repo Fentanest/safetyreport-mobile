@@ -10,6 +10,35 @@
 
 ## 2026-09-24 (버전 변경 없음, 브랜치 `docs/ui-renewal-bootstrap`)
 
+### Standalone 자동 재로그인 정리 + 하루 1회 로그인 점검 + 스토어 별점 요청
+
+상태: 완료 (단위·위젯 테스트, 에뮬레이터로 알림·백그라운드 실행 확인). 실제 안전신문고 로그인·Play 리뷰 창은 NOT_RUN
+
+배경:
+- 제보: Standalone 에서 동기화하려는데 "토큰 만료"가 떴다.
+- 원인(코드): 자동 재로그인의 모든 실패(네트워크 끊김·점검·5xx 포함)를 "토큰 만료, 재로그인하세요"로 알렸다.
+  또 앱 복귀 때 재로그인이 진행 중이면 `refreshSessionIfNeeded()` 가 기다리지 않고 돌아와, 뒤따르는 drain/동기화가 만료 토큰으로 시작해 로그인이 겹쳤다.
+  (`allowBackup=false` 라 백업 복원으로 비밀번호가 깨지는 경우는 아님. 토큰은 1시간짜리라 하루 1회 미리 갱신은 의미 없음 — 사용자와 합의)
+- 추가 발견: drain 중 인증 실패는 otherError 로 처리돼 **큐에서 지워졌다** → 그 신고를 영영 놓칠 수 있었다.
+
+변경:
+- `StandaloneAuthService`: `relogin()` single-flight, 결과 `success/noCredentials/rejected/transient`, 일시 오류 1회 재시도, 결과 기록(`standalone_auth_last_*`, `status` ValueNotifier).
+  `login()` 은 `LoginRejectedException`(400/401, RSA 세션 오류 제외) / `AuthTemporarilyUnavailableException`(네트워크·점검·5xx·비정상 응답)을 던진다.
+  `ensureValidToken()`·API 401 경로: 재로그인 필요 → `TokenExpiredException`, 일시 오류 → `AuthTemporarilyUnavailableException`.
+- `SyncEngine`: 인증 예외는 메시지 그대로 올려 동기화를 멈춘다(상세 조회 루프의 중복 재로그인 제거). `StandaloneAutoSyncService`: 인증 실패 시 큐 보존.
+- UI: 대시보드·동기화 화면 맨 위 '재로그인 필요' 경고(재로그인 필요할 때만, `재로그인` → 설정 재로그인 창 바로 열림), 설정 계정 카드 '마지막 로그인' 줄.
+- 하루 1회 백그라운드 로그인 점검(`workmanager` 추가, `BackgroundLoginCheck`): 비밀번호 거부·로그인 정보 없음일 때만 알림(72시간에 1회), 일시 오류는 조용히.
+  백그라운드 엔진엔 MainActivity 채널이 없어 Kotlin `SafetyReportApplication`(신규, 매니페스트 `android:name` 변경)이 `standalone_auth_alert` 키 변경을 듣고 알림.
+- 스토어 별점(`in_app_review` 추가, `ReviewPromptService`): 구글 API 는 별점 여부를 알려 주지 않으므로 요청 횟수로 조절.
+  최근 3일 안에 받은 수용·과태료·범칙금 결과 상세를 닫은 뒤, 설치 7일·사용한 날 5일 이상, 90일 간격, 평생 3회, 이번 실행 오류 없음, 데모 제외.
+  만족도를 먼저 묻는 방식(구글 정책 위반)은 쓰지 않는다. 설정 도움·문의 카드에 'Play 스토어에서 평가하기'(조건 없음) 추가.
+
+검증:
+- 테스트 추가: `standalone_auth_relogin_test`(5), `background_login_check_test`(4), `review_prompt_service_test`(5), `auth_status_notice_test`(2). 실제 로그인 호출 없음(`loginOverride`).
+- 에뮬레이터(`sr_uitest_api35`, 데모, 임시 검증 코드는 커밋 안 함): 알림 키 쓰기 → '🔐 안전신문고 재로그인 필요' 알림 표시, 주기 작업 등록(네트워크·배터리 조건, 6시간 지연) 확인,
+  일회성 작업 강제 실행 → 백그라운드 엔진에서 점검 실행·`SUCCESS`(데모라 로그인 건너뜀). 설정 화면 평가 버튼 렌더 확인.
+- `flutter analyze` error 0 / warning 2(기존) / info 36, `flutter test` 121 passed, 골든 4 통과.
+
 ### 설정: 버그 제보를 맨 위 '도움·문의' 카드로
 
 상태: 완료 (에뮬레이터 화면 확인, 링크 열기는 실행 안 함)

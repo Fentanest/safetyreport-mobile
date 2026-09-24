@@ -33,6 +33,6 @@
 ```sh
 flutter analyze            # 2026-09-24: error 0 / warning 2(기존 setup_screen) / info 36 → 종료코드 1 (시작 baseline: info 73)
                            # 심각도 집계: flutter analyze | awk -F' • ' '/ • /{print $1}' | sort | uniq -c
-flutter test               # 2026-09-24: 102 passed (골든은 `golden` 태그, 폰트 없는 환경에서 자동 skip)
+flutter test               # 2026-09-24: 121 passed (골든은 `golden` 태그, 폰트 없는 환경에서 자동 skip)
 ```
 빌드/릴리즈 스크립트(`build_android_release.sh`, `.github/workflows/build-apk.yml`)는 배포 경로다. 승인 없이 실행하지 않는다.

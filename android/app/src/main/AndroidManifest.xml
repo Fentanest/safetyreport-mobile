@@ -21,7 +21,7 @@
 
     <application
         android:label="나만의 안전신문고"
-        android:name="${applicationName}"
+        android:name=".SafetyReportApplication"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"
         android:allowBackup="false">

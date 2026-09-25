@@ -57,7 +57,7 @@ void main() {
         'com.fentanest.mysafetyreport://auth/callback/extra?code=abcdefgh1234',
         'com.fentanest.mysafetyreport://evil/callback?code=abcdefgh1234',
         'com.fentanest.mysafetyreport://auth.evil/callback?code=abcdefgh1234',
-        'https://worklazy.net/safeauth/callback.html?code=abcdefgh1234',
+        'https://safeauth.worklazy.net/callback.html?code=abcdefgh1234',
         'http://auth/callback?code=abcdefgh1234',
         'com.fentanest.mysafetyreportx://auth/callback?code=abcdefgh1234',
         'com.fentanest.mysafetyreport://user@auth/callback?code=abcdefgh1234',

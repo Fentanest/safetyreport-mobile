@@ -73,7 +73,7 @@ Map<String, dynamic> _status(String state, {bool canManage = true}) => {
       ? {
           'request_id': 'req-1',
           'display_code': 'ABCD-2345',
-          'bootstrap_url': 'https://worklazy.net/safeauth/#r=req-1&t=secret',
+          'bootstrap_url': 'https://safeauth.worklazy.net/#r=req-1&t=secret',
           'expires_at': '2026-09-25T01:10:00Z',
           'phase': 'claimed',
         }

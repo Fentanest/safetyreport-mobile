@@ -10,7 +10,7 @@
 
 ## 2026-09-25 (버전 변경 없음)
 
-### 커뮤니티 계정 연결 (worklazy.net/safeauth)
+### 커뮤니티 계정 연결 (safeauth.worklazy.net)
 
 커뮤니티 지도에 쓰는 **카카오 계정**(Supabase Auth)을 연결한다. 안전신문고 계정과 별개이고, 계정 연결만으로 신고 데이터가 업로드되지는 않는다.
 설계·흐름·저장 키·보안 메모: `docs/architecture/community-account.md`.

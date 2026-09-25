@@ -1,4 +1,4 @@
-# 커뮤니티 계정 연결 (worklazy.net/safeauth · Supabase Auth · 카카오)
+# 커뮤니티 계정 연결 (safeauth.worklazy.net · Supabase Auth · 카카오)
 
 2026-09-25 추가. 커뮤니티 지도(`safetyreport-community-map`)에 쓰는 **카카오 계정**을 앱/서버에 연결한다.
 안전신문고 계정(`standalone_auth_service.dart`)과는 완전히 별개다. 계정 연결만으로 신고 데이터가 업로드되지는 않는다
@@ -14,7 +14,7 @@
 | 인증·세션 주인 | **이 앱** | **연결된 safetyreport 서버** |
 | 폰이 부르는 곳 | Supabase Auth REST 직접(`/auth/v1/*`) | 서버 API `/api/v1/community-auth/*` (`X-API-Key`)만 |
 | 폰에 저장되는 것 | 세션(access/refresh token)·대기 로그인 — `flutter_secure_storage` 만 | **없음**(토큰을 받지도 저장하지도 않음, M06) |
-| 브라우저 | 카카오 authorize 주소를 외부 브라우저로 | 서버가 만든 1회용 `bootstrap_url`(worklazy.net/safeauth)을 외부 브라우저로 |
+| 브라우저 | 카카오 authorize 주소를 외부 브라우저로 | 서버가 만든 1회용 `bootstrap_url`(safeauth.worklazy.net)을 외부 브라우저로 |
 | 중계(relay) | 쓰지 않음 | 서버가 씀 |
 | 코드 | `lib/services/community_auth_service.dart`, `lib/widgets/community_account_card.dart` | `lib/services/community_server_link_service.dart`, `lib/widgets/community_server_account_card.dart` |
 
@@ -113,7 +113,7 @@ flutter build apk --dart-define=COMMUNITY_SUPABASE_URL=https://<project>.supabas
 - 둘 중 하나라도 없으면 "설정되지 않음"(로그인 버튼 없음). URL 은 https 만. 디버그 빌드에서만 `http://127.0.0.1`·`http://10.0.2.2`(로컬 Supabase) 허용.
 - 기존 릴리즈 스크립트(`build_android_*.sh`)에는 아직 넣지 않았다(서명·릴리즈 경로는 승인 범위 밖). 넣을 때 공개값만 넣는다.
 - **Supabase 대시보드 Auth > URL Configuration > Redirect URLs 에 `com.fentanest.mysafetyreport://auth/callback` 을 정확히 등록해야 한다.**
-  (웹 중계 콜백 `https://worklazy.net/safeauth/callback.html` 과 별개 항목.) Kakao provider 활성화도 필요.
+  (웹 중계 콜백 `https://safeauth.worklazy.net/callback.html` 과 별개 항목.) Kakao provider 활성화도 필요.
 
 ## 5. Client: 서버의 커뮤니티 계정
 

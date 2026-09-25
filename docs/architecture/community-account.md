@@ -4,7 +4,7 @@
 안전신문고 계정(`standalone_auth_service.dart`)과는 완전히 별개다. 계정 연결만으로 신고 데이터가 업로드되지는 않는다
 (업로드·동의는 이번 범위 밖 — 세션 공급 인터페이스까지만).
 
-프로토콜 정본: `safetyreport-community-map` 레포 `docs/safeauth/protocol.md`(§6 Supabase Auth REST, GoTrue v2.197.0 기준).
+프로토콜 정본: `safetyreport-community-auth` 레포 `docs/protocol.md`(§6 Supabase Auth REST, GoTrue v2.197.0 기준).
 인수 기준: 인계 키트 `04_TESTS_AND_ACCEPTANCE.md` M01–M10.
 
 ## 1. 두 모드, 두 주인

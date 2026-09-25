@@ -7,10 +7,11 @@ import 'package:safetyreport/models/rating_batch_result.dart';
 import 'package:safetyreport/models/report.dart';
 import 'package:safetyreport/services/local_db_service.dart';
 import 'package:safetyreport/services/rating_service.dart';
+import 'package:safetyreport/services/standalone_api_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-typedef Site = ({int? score, String cause, bool confirmed});
+typedef Site = ({int? score, String cause, bool confirmed, bool exists});
 
 Report _report(String number) => Report(
   id: number.replaceAll(RegExp(r'\D'), ''),
@@ -35,7 +36,7 @@ Report _report(String number) => Report(
 );
 
 Site site(int score, [String cause = '']) =>
-    (score: score, cause: cause, confirmed: true);
+    (score: score, cause: cause, confirmed: true, exists: true);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -62,6 +63,19 @@ void main() {
         expect(normalized.runes.length, c['normalized_length']);
       }
       expect(RatingService.causeError(input) != null, c['too_long']);
+    }
+  });
+
+  test('shared popup cause vectors (same as server)', () {
+    for (final raw in doc['popup_cases'] as List) {
+      final c = raw as Map<String, dynamic>;
+      expect(
+        StandaloneApiService.extractCauseFromPopupHtmlForTest(
+          c['html'] as String,
+        ),
+        c['cause'],
+        reason: c['html'] as String,
+      );
     }
   });
 
@@ -140,11 +154,24 @@ void main() {
     });
 
     test('never confirmed is a failure, nothing saved', () async {
-      final (items, _) = await run(List.filled(8, site(0)));
+      final (items, posts) = await run(List.filled(8, site(0)));
+      expect(posts, hasLength(1)); // 재시도에서 다시 제출하지 않는다(중복 제출 방지)
       expect(items.single.status, RatingBatchItemStatus.failure);
       expect(items.single.message, contains('제출 후 사이트에서 점수를 확인하지 못했습니다'));
       expect((await row())['별점'], isNull);
     });
+
+    test(
+      'missing site record fails without submitting (like server)',
+      () async {
+        final (items, posts) = await run([
+          (score: null, cause: '', confirmed: true, exists: false),
+        ]);
+        expect(posts, isEmpty);
+        expect(items.single.status, RatingBatchItemStatus.failure);
+        expect(items.single.message, contains('대상 신고건이 없거나'));
+      },
+    );
 
     test('already rated on site is a skip with the site values', () async {
       final (items, posts) = await run([site(5, '예전 사유')]);

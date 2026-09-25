@@ -148,7 +148,9 @@ class RatingService {
     List<Report> reports,
     int score,
     String cause, {
-    Future<({int? score, String cause, bool confirmed})> Function(String spp)?
+    Future<({int? score, String cause, bool confirmed, bool exists})> Function(
+      String spp,
+    )?
     lookup,
     Future<void> Function(String spp, int score, String cause)? post,
     Duration retryDelay = const Duration(seconds: 1),
@@ -173,12 +175,21 @@ class RatingService {
           try {
             final site = await fetch(reportNumber);
             if (!site.confirmed) throw Exception('만족도 조회 실패');
+            if (!site.exists) {
+              // 서버와 같음: 대상이 없으면 제출하지 않고 실패(재시도 의미 없음)
+              outcome = _failureItem(report, '대상 신고건이 없거나 휴대폰 번호가 맞지 않습니다.');
+              break;
+            }
             if (site.score != null && site.score! > 0) {
               await _saveSiteRating(reportNumber, site);
               outcome = posted
                   ? _successItem(report, site, cause)
                   : _skipItem(report, '이미 만족도 조사에 참여한 신고입니다.');
               break;
+            }
+            if (posted) {
+              // 이미 제출했는데 아직 안 보인다 — 다시 제출하지 않고 확인만 되풀이(중복 제출 방지, 서버와 같음)
+              throw Exception('제출 후 사이트에서 점수를 확인하지 못했습니다');
             }
             await send(reportNumber, score, cause);
             posted = true;
@@ -205,7 +216,7 @@ class RatingService {
 
   static Future<void> _saveSiteRating(
     String reportNumber,
-    ({int? score, String cause, bool confirmed}) site,
+    ({int? score, String cause, bool confirmed, bool exists}) site,
   ) => LocalDbService.updateReportRatingByNumber(
     reportNumber,
     pollStatus: '참여 완료',
@@ -215,7 +226,7 @@ class RatingService {
 
   static RatingBatchItem _successItem(
     Report report,
-    ({int? score, String cause, bool confirmed}) site,
+    ({int? score, String cause, bool confirmed, bool exists}) site,
     String cause,
   ) {
     final mismatch = cause.isNotEmpty && normalizeCause(site.cause) != cause;
@@ -234,9 +245,8 @@ class RatingService {
     List<Report> reports,
     int score,
     String cause, {
-    required Future<({int? score, String cause, bool confirmed})> Function(
-      String spp,
-    )
+    required Future<({int? score, String cause, bool confirmed, bool exists})>
+    Function(String spp)
     lookup,
     required Future<void> Function(String spp, int score, String cause) post,
   }) => _submitStandalone(

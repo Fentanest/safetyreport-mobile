@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
 import 'network_retry_config.dart';
 import 'standalone_auth_service.dart';
@@ -18,6 +19,38 @@ class StandaloneApiService {
     'X-Requested-With': 'XMLHttpRequest',
     'Accept': 'application/json, text/plain, */*',
   };
+
+  static const _namedEntities = <String, String>{
+    'amp': '&',
+    'lt': '<',
+    'gt': '>',
+    'quot': '"',
+    'apos': "'",
+    'nbsp': '\u00a0',
+  };
+
+  /// HTML 엔터티 해독(숫자 &#N; &#xH; 와 흔한 이름). 서버 `html.unescape` 와 같은 결과를 내는 범위.
+  @visibleForTesting
+  static String decodeHtmlEntities(String text) => text.replaceAllMapped(
+    RegExp(r'&(#[xX][0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);'),
+    (m) {
+      final body = m.group(1)!;
+      if (body.startsWith('#')) {
+        final hex = body.length > 1 && (body[1] == 'x' || body[1] == 'X');
+        final code = int.tryParse(
+          hex ? body.substring(2) : body.substring(1),
+          radix: hex ? 16 : 10,
+        );
+        if (code == null || code <= 0 || code > 0x10FFFF) return m.group(0)!;
+        return String.fromCharCode(code);
+      }
+      return _namedEntities[body] ?? m.group(0)!;
+    },
+  );
+
+  @visibleForTesting
+  static String extractCauseFromPopupHtmlForTest(String html) =>
+      _extractCauseFromPopupHtml(html);
 
   static String _extractCauseFromPopupHtml(String html) {
     final patterns = <RegExp>[
@@ -40,15 +73,10 @@ class StandaloneApiService {
     for (final pattern in patterns) {
       final match = pattern.firstMatch(html);
       if (match == null) continue;
-      final cause = (match.group(1) ?? '')
-          .replaceAll(RegExp(r'<[^>]+>'), '')
-          .replaceAll('&nbsp;', ' ')
-          .replaceAll('&amp;', '&')
-          .replaceAll('&lt;', '<')
-          .replaceAll('&gt;', '>')
-          .replaceAll('&quot;', '"')
-          .replaceAll('&#39;', "'")
-          .trim();
+      // 서버 satisfaction_fetcher 와 같은 순서: 엔터티 해독 → 태그 제거 → 앞뒤 공백 제거
+      final cause = decodeHtmlEntities(
+        match.group(1) ?? '',
+      ).replaceAll(RegExp(r'<[^>]+>'), '').trim();
       if (cause.isNotEmpty) return cause;
     }
     return '';
@@ -80,40 +108,25 @@ class StandaloneApiService {
     return null;
   }
 
-  static Future<http.Response> _postPublicFormWithRetry(
+  /// 별점 제출 POST — **한 번만** 보낸다. 제출은 됐는데 응답만 끊긴 경우 다시 보내면 중복 제출이 되므로,
+  /// 재시도는 호출하는 쪽(RatingService)이 사이트 점수를 먼저 확인한 뒤에만 한다(서버 star_rating_service 와 같음).
+  static Future<http.Response> _postPublicFormOnce(
     Uri uri, {
     required Map<String, String> body,
     String? referer,
-  }) async {
-    Object? lastError;
-    for (var attempt = 1; attempt <= mobileMaxRetryAttempts; attempt++) {
-      try {
-        final response = await http
-            .post(
-              uri,
-              headers: {
-                ..._commonHeaders,
-                'Content-Type':
-                    'application/x-www-form-urlencoded; charset=UTF-8',
-                'Origin': 'https://www.safetyreport.go.kr',
-                if (referer != null) 'Referer': referer,
-              },
-              body: body,
-            )
-            .timeout(const Duration(seconds: 10));
-        return response;
-      } on SocketException catch (e) {
-        lastError = e;
-      } on http.ClientException catch (e) {
-        lastError = e;
-      } on TimeoutException catch (e) {
-        lastError = e;
-      }
-      if (attempt < mobileMaxRetryAttempts) {
-        await Future.delayed(const Duration(seconds: mobileRetryDelaySeconds));
-      }
-    }
-    throw Exception('별점 전송 실패 (${mobileMaxRetryAttempts}회 재시도): $lastError');
+  }) {
+    return http
+        .post(
+          uri,
+          headers: {
+            ..._commonHeaders,
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'Origin': 'https://www.safetyreport.go.kr',
+            if (referer != null) 'Referer': referer,
+          },
+          body: body,
+        )
+        .timeout(const Duration(seconds: 10));
   }
 
   /// 유효한 토큰으로 헤더 구성. 만료 시 자동 재로그인.
@@ -244,9 +257,17 @@ class StandaloneApiService {
     String spp,
     String phone,
   ) async {
+    final r = await _fetchSatisfactionDetailed(spp, phone);
+    return (score: r.score, cause: r.cause, confirmed: r.confirmed);
+  }
+
+  /// [fetchSatisfaction] + [exists]: 사이트가 이 신고·번호 조합을 알고 있는가(`result` 가 비어 있지 않음).
+  /// 별점 제출은 서버 star_rating_service 처럼 대상이 없으면 제출하지 않고 실패로 본다.
+  static Future<({int? score, String cause, bool confirmed, bool exists})>
+  _fetchSatisfactionDetailed(String spp, String phone) async {
     final normalizedPhone = phone.replaceAll(RegExp(r'[^0-9]'), '');
     if (normalizedPhone.isEmpty || spp.isEmpty) {
-      return (score: null, cause: '', confirmed: false);
+      return (score: null, cause: '', confirmed: false, exists: false);
     }
     final uri = Uri.parse(
       '$_base/api/v1/portal/statistics/satisfactionstatistics/score/$spp/$normalizedPhone',
@@ -254,7 +275,7 @@ class StandaloneApiService {
     try {
       final res = await _getPublicWithRetry(uri);
       if (res == null || res.statusCode != 200) {
-        return (score: null, cause: '', confirmed: false);
+        return (score: null, cause: '', confirmed: false, exists: false);
       }
       final json = jsonDecode(res.body) as Map<String, dynamic>;
       final result = json['result'];
@@ -263,6 +284,7 @@ class StandaloneApiService {
           score: null,
           cause: '',
           confirmed: true,
+          exists: false,
         ); // 서버 satisfaction_fetcher 와 같음
       }
       final r = result as Map<String, dynamic>;
@@ -284,9 +306,10 @@ class StandaloneApiService {
         score: score > 0 ? score : null,
         cause: cause.trim(),
         confirmed: true,
+        exists: true,
       );
     } catch (_) {
-      return (score: null, cause: '', confirmed: false);
+      return (score: null, cause: '', confirmed: false, exists: false);
     }
   }
 
@@ -296,10 +319,10 @@ class StandaloneApiService {
     } catch (_) {}
   }
 
-  static Future<({int? score, String cause, bool confirmed})>
+  static Future<({int? score, String cause, bool confirmed, bool exists})>
   fetchSatisfactionStatus(String spp) async {
     final phone = await StandaloneAuthService.getPhoneNumber();
-    return fetchSatisfaction(spp, phone);
+    return _fetchSatisfactionDetailed(spp, phone);
   }
 
   static Future<void> submitSatisfaction(
@@ -317,7 +340,7 @@ class StandaloneApiService {
     final uri = Uri.parse(
       '$_base/api/v1/portal/statistics/satisfactionstatistics',
     );
-    final response = await _postPublicFormWithRetry(
+    final response = await _postPublicFormOnce(
       uri,
       referer: referer,
       body: {

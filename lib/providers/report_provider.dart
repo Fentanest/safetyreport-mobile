@@ -1153,19 +1153,9 @@ class ReportProvider with ChangeNotifier {
   }
 
   Future<void> startCrawlQueue(List<String> reportNumbers) async {
-    String crawlType = 'api';
-    String crawlMode = 'full';
-    int maxEmptyPages = 3;
-    try {
-      final config = await _api.getCrawlConfig();
-      crawlType = config['crawl_type']?.toString() ?? 'api';
-      crawlMode = config['crawl_mode']?.toString() ?? 'full';
-      maxEmptyPages = (config['max_empty_pages'] as num?)?.toInt() ?? 3;
-    } catch (_) {}
+    // 큐 지정 크롤링은 목록 전체를 다시 보지 않는다 — 모드는 full 로 보낸다(예전 설정의 min 은 레거시 전용이라 없앰)
     await _api.startCrawl(
-      crawlType: crawlType,
-      crawlMode: crawlMode,
-      maxEmptyPages: maxEmptyPages,
+      crawlMode: 'full',
       queueList: reportNumbers.join('\n'),
     );
   }

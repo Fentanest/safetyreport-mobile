@@ -20,11 +20,8 @@ class CrawlScreen extends StatefulWidget {
 
 class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
   // ── 서버 모드 상태 ──────────────────────────────────────────────────────────
-  String _crawlType = 'api';
   String _crawlMode = 'full';
-  int _maxEmptyPages = 3;
   final _queueController = TextEditingController();
-  final _maxPagesController = TextEditingController(text: '3');
 
   bool _isRunning = false;
   void _setRunning(bool val) {
@@ -62,7 +59,6 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
     _ws?.close();
     _syncSub?.cancel();
     _queueController.dispose();
-    _maxPagesController.dispose();
     _logScroll.dispose();
     super.dispose();
   }
@@ -242,10 +238,9 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
     try {
       final cfg = await api.getCrawlConfig();
       setState(() {
-        _crawlType = (cfg['crawl_type'] ?? 'api').toString();
-        _crawlMode = (cfg['crawl_mode'] ?? 'full').toString();
-        _maxEmptyPages = (cfg['max_empty_pages'] ?? 3) as int;
-        _maxPagesController.text = _maxEmptyPages.toString();
+        // 최소 크롤링(min)은 레거시 전용이라 없앴다 — 예전 설정값 min 은 전체로 본다(서버와 같음)
+        final mode = (cfg['crawl_mode'] ?? 'full').toString();
+        _crawlMode = mode == 'reset' ? 'reset' : 'full';
         _loading = false;
       });
     } catch (_) {
@@ -349,11 +344,8 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
     _setRunning(true);
 
     try {
-      final pages = int.tryParse(_maxPagesController.text) ?? 3;
       await api.startCrawl(
-        crawlType: _crawlType,
         crawlMode: _crawlMode,
-        maxEmptyPages: pages,
         queueList: _queueController.text,
       );
       _connectWs(api);
@@ -677,8 +669,6 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
   // ── 서버 모드 UI ─────────────────────────────────────────────────────────────
 
   Widget _buildServer() {
-    final isMin = _crawlMode == 'min';
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('크롤링 제어'),
@@ -704,68 +694,6 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.sync_alt,
-                          size: 14,
-                          color: context.sr.textSecondary,
-                        ),
-                        SizedBox(width: 6),
-                        Text(
-                          '크롤링 방식:',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: context.sr.textSecondary,
-                          ),
-                        ),
-                        SizedBox(width: 6),
-                        Chip(
-                          label: Text(
-                            _crawlType == 'api' ? 'API 방식' : '웹 크롤링 방식',
-                            style: TextStyle(fontSize: 11),
-                          ),
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          visualDensity: VisualDensity.compact,
-                          side: BorderSide.none,
-                          backgroundColor: _crawlType == 'api'
-                              ? StatusTone.of(
-                                  Theme.of(context).colorScheme.primary,
-                                  brightness: Theme.of(context).brightness,
-                                  surface: context.sr.surface,
-                                ).background
-                              : StatusTone.of(
-                                  StatusTone.of(
-                                    Colors.orange,
-                                    brightness: Theme.of(context).brightness,
-                                    surface: context.sr.surface,
-                                  ).foreground,
-                                  brightness: Theme.of(context).brightness,
-                                  surface: context.sr.surface,
-                                ).background,
-                          labelStyle: TextStyle(
-                            color: _crawlType == 'api'
-                                ? StatusTone.of(
-                                    Theme.of(context).colorScheme.primary,
-                                    brightness: Theme.of(context).brightness,
-                                    surface: context.sr.surface,
-                                  ).foreground
-                                : StatusTone.of(
-                                    StatusTone.of(
-                                      Colors.orange,
-                                      brightness: Theme.of(context).brightness,
-                                      surface: context.sr.surface,
-                                    ).foreground,
-                                    brightness: Theme.of(context).brightness,
-                                    surface: context.sr.surface,
-                                  ).foreground,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                    SizedBox(height: 12),
-
                     _sectionTitle('1. 크롤링 범위'),
                     _radioTile(
                       '전체 크롤링',
@@ -774,48 +702,6 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
                       '',
                       onChanged: (v) => setState(() => _crawlMode = v!),
                     ),
-                    _radioTile(
-                      '최소 크롤링',
-                      'min',
-                      _crawlMode,
-                      '변경사항 감지된 곳까지만',
-                      enabled: _crawlType != 'api',
-                      onChanged: _crawlType == 'api'
-                          ? null
-                          : (v) => setState(() => _crawlMode = v!),
-                    ),
-                    if (_crawlType != 'api' && isMin)
-                      Padding(
-                        padding: const EdgeInsets.only(
-                          left: 32,
-                          top: 4,
-                          bottom: 4,
-                        ),
-                        child: Row(
-                          children: [
-                            const Text(
-                              '탐색 페이지 한도:',
-                              style: TextStyle(fontSize: 13),
-                            ),
-                            SizedBox(width: 8),
-                            SizedBox(
-                              width: 70,
-                              child: TextField(
-                                controller: _maxPagesController,
-                                keyboardType: TextInputType.number,
-                                style: TextStyle(fontSize: 13),
-                                decoration: const InputDecoration(
-                                  isDense: true,
-                                  contentPadding: EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 6,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
                     _radioTile(
                       'DB 초기화 후 새로 크롤링',
                       'reset',

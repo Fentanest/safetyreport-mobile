@@ -654,22 +654,16 @@ class ApiService {
     throw Exception('설정 조회 실패');
   }
 
+  /// 크롤링 시작. 서버는 API 방식·회원 로그인만 쓴다(레거시·비회원·최소 크롤링은 2026-09-25 제거).
   Future<void> startCrawl({
-    required String crawlType,
     required String crawlMode,
-    required int maxEmptyPages,
     required String queueList,
   }) async {
     final response = await _sendWithRetry(
       () => http.post(
         ServerContract.apiUri(baseUrl, ServerContract.crawlStartPath),
         headers: _headers,
-        body: jsonEncode({
-          'crawl_type': crawlType,
-          'crawl_mode': crawlMode,
-          'max_empty_pages': maxEmptyPages,
-          'queue_list': queueList,
-        }),
+        body: jsonEncode({'crawl_mode': crawlMode, 'queue_list': queueList}),
       ),
     );
     if (response.statusCode != 200) {
@@ -750,18 +744,6 @@ class ApiService {
     if (response.statusCode != 200) {
       throw Exception('설정 저장 실패');
     }
-  }
-
-  Future<void> saveCrawlType(String crawlType) async {
-    try {
-      await _sendWithRetry(
-        () => http.post(
-          ServerContract.apiUri(baseUrl, ServerContract.settingsPath),
-          headers: _headers,
-          body: jsonEncode({'crawl_type': crawlType}),
-        ),
-      );
-    } catch (_) {}
   }
 
   Future<(bool, String)> startRatingBatch({

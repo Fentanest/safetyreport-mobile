@@ -781,12 +781,18 @@ class ApiService {
   Future<(bool, String)> startRatingBatch({
     required List<String> reportNumbers,
     required int score,
+    String cause = '',
   }) async {
     final response = await _sendWithRetry(
       () => http.post(
         ServerContract.apiUri(baseUrl, ServerContract.ratingStartPath),
         headers: _headers,
-        body: jsonEncode({'report_numbers': reportNumbers, 'score': score}),
+        body: jsonEncode({
+          'report_numbers': reportNumbers,
+          'score': score,
+          // 공통 사유 — 서버가 capabilities 에 rating_cause 를 알릴 때만 채워진다(구서버는 이 필드를 무시)
+          if (cause.isNotEmpty) 'cause': cause,
+        }),
       ),
       timeout: const Duration(seconds: 30),
     );

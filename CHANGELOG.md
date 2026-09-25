@@ -10,6 +10,14 @@
 
 ## 2026-09-25 (버전 변경 없음)
 
+### 별점 공통 사유 입력 (G16 W2)
+
+- 별점 다이얼로그에 "공통 사유(선택)" 칸. 입력하면 선택한 모든 건에 같은 사유를 사이트 `STSFDG_CAUSE` 로 함께 보낸다(예전엔 늘 빈 값). 비우면 예전과 같다.
+- 길이·공백 규칙은 서버와 같다(유니코드 코드포인트 1000자, 앞뒤 공백 제거, 줄바꿈 유지) — 공용 `contracts/rating-eligibility-vectors.json` 의 `cause_cases`.
+- Standalone 성공 판정 강화: 제출 뒤 사이트에서 점수를 다시 읽어 보일 때만 성공으로 기록하고, 사이트가 돌려준 점수·사유를 저장한다(보낸 사유와 다르면 결과에 표시). 확인이 안 되면 최대 3회 다시 확인하고, 그래도 안 되면 실패. 서버와 같은 흐름.
+- Client: 서버가 `app/config` 의 `capabilities` 에 `rating_cause` 를 알릴 때만 사유 칸을 보여 준다(구서버면 "서버를 업데이트하면…" 안내).
+- 테스트 `test/services/rating_cause_test.dart`. flutter test 205 통과.
+
 ### 별점 대상 규칙 공용 벡터 (G16 W1)
 
 - 서버가 목록·제출 모두 이 앱의 `RatingService.ineligibleReason` 규칙을 쓰도록 통일했다. 같은 판정은 두 레포 공용 `contracts/rating-eligibility-vectors.json` 으로 확인(`test/services/rating_eligibility_vectors_test.dart`). 앱 동작 변화 없음.

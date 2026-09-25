@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../models/app_mode.dart';
 import '../models/rating_batch_result.dart';
 import '../models/report.dart';
@@ -12,14 +14,54 @@ import 'sync_engine.dart';
 class RatingService {
   static const _blockedStatuses = {'취하', '답변 대기', '처리중'};
 
+  /// 공통 사유 안전 상한(유니코드 코드포인트 수). 서버 `rating_eligibility.RATING_CAUSE_MAX` 와 같다.
+  static const ratingCauseMax = 1000;
+
+  /// 서버 `_TRIM_CHARS`·JS `trim()` 과 같은 문자(공백·탭·줄바꿈·NBSP·전각 공백·BOM 등).
+  static const _causeTrimChars = <int>{
+    0x20, 0x09, 0x0A, 0x0B, 0x0C, 0xA0, 0x1680, //
+    0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008,
+    0x2009, 0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000, 0xFEFF,
+  };
+
+  /// 줄바꿈을 \n 으로 맞추고 앞뒤 공백을 뗀다(가운데 줄바꿈 유지). 서버 `normalize_cause` 와 같다.
+  static String normalizeCause(String? text) {
+    final runes = (text ?? '')
+        .replaceAll('\r\n', '\n')
+        .replaceAll('\r', '\n')
+        .runes
+        .toList();
+    var start = 0;
+    var end = runes.length;
+    while (start < end && _causeTrimChars.contains(runes[start])) {
+      start++;
+    }
+    while (end > start && _causeTrimChars.contains(runes[end - 1])) {
+      end--;
+    }
+    return String.fromCharCodes(runes.sublist(start, end));
+  }
+
+  /// 정리한 사유가 상한을 넘으면 안내 문구. 서버 `cause_error` 와 같은 문구.
+  static String? causeError(String? text) {
+    final length = normalizeCause(text).runes.length;
+    return length > ratingCauseMax
+        ? '사유는 $ratingCauseMax자까지 입력할 수 있습니다. (현재 $length자)'
+        : null;
+  }
+
   static Future<RatingBatchResult> submit({
     required AppMode appMode,
     required List<Report> selectedReports,
     required int score,
+    String cause = '',
     ApiService? api,
     required bool isStandaloneDemo,
   }) async {
     final timestamp = _timestamp();
+    cause = normalizeCause(cause);
+    final causeProblem = causeError(cause);
+    if (causeProblem != null) throw ArgumentError(causeProblem);
     final uniqueReports = _dedupReports(selectedReports);
     final skippedItems = <RatingBatchItem>[];
     final eligibleReports = <Report>[];
@@ -59,11 +101,12 @@ class RatingService {
     }
 
     final remoteItems = appMode == AppMode.standalone
-        ? await _submitStandalone(eligibleReports, score)
+        ? await _submitStandalone(eligibleReports, score, cause)
         : await _submitServer(
             api: api,
             eligibleReports: eligibleReports,
             score: score,
+            cause: cause,
           );
 
     return _buildResult(
@@ -95,53 +138,64 @@ class RatingService {
     return !_blockedStatuses.contains(status);
   }
 
+  /// 한 신고의 제출 시도 횟수(서버 `max_retry_attemps + 1` 과 같은 역할). 제출 뒤 사이트에서 점수가 아직 안 보이면 다시 확인한다.
+  static const _standaloneAttempts = 3;
+
+  /// Standalone 제출 — 서버 `star_rating_service.run_batch_rating` 과 같은 흐름:
+  /// 사이트 확인 → (점수 있으면: 이번에 제출했으면 성공, 아니면 스킵) → 제출 → 다시 확인해 점수가 보일 때만 성공.
+  /// 저장은 사이트가 돌려준 점수·사유. 테스트는 [lookup]·[post] 로 사이트를 바꿔 끼운다.
   static Future<List<RatingBatchItem>> _submitStandalone(
     List<Report> reports,
     int score,
-  ) async {
+    String cause, {
+    Future<({int? score, String cause, bool confirmed})> Function(String spp)?
+    lookup,
+    Future<void> Function(String spp, int score, String cause)? post,
+    Duration retryDelay = const Duration(seconds: 1),
+    Duration pause = const Duration(seconds: 1),
+  }) async {
+    final fetch = lookup ?? StandaloneApiService.fetchSatisfactionStatus;
+    final send =
+        post ??
+        (String spp, int s, String c) =>
+            StandaloneApiService.submitSatisfaction(spp, score: s, cause: c);
     final results = <RatingBatchItem>[];
     await SyncEngine.acquireFgs('별점 주기 진행 중...');
     try {
-      await StandaloneApiService.warmUpSatisfaction();
+      if (lookup == null) await StandaloneApiService.warmUpSatisfaction();
       for (final report in reports) {
         final reportNumber = report.reportNumber;
-        try {
-          final existing = await StandaloneApiService.fetchSatisfactionStatus(
-            reportNumber,
-          );
-          if (existing.score != null && existing.score! > 0) {
-            await LocalDbService.updateReportRatingByNumber(
-              reportNumber,
-              pollStatus: '참여 완료',
-              rating: existing.score,
-              ratingCause: existing.cause,
-            );
-            results.add(_skipItem(report, '이미 만족도 조사에 참여한 신고입니다.'));
-          } else {
-            await StandaloneApiService.submitSatisfaction(
-              reportNumber,
-              score: score,
-            );
-            await LocalDbService.updateReportRatingByNumber(
-              reportNumber,
-              pollStatus: '참여 완료',
-              rating: score,
-              ratingCause: '',
-            );
-            results.add(
-              RatingBatchItem(
-                reportNumber: reportNumber,
-                name: report.name,
-                status: RatingBatchItemStatus.success,
-                message: '$score점 별점을 전송했습니다.',
-                reportData: reportToMap(report),
-              ),
-            );
+        var posted = false;
+        RatingBatchItem? outcome;
+        Object? lastError;
+        for (var attempt = 0; attempt < _standaloneAttempts; attempt++) {
+          if (attempt > 0) await Future<void>.delayed(retryDelay);
+          try {
+            final site = await fetch(reportNumber);
+            if (!site.confirmed) throw Exception('만족도 조회 실패');
+            if (site.score != null && site.score! > 0) {
+              await _saveSiteRating(reportNumber, site);
+              outcome = posted
+                  ? _successItem(report, site, cause)
+                  : _skipItem(report, '이미 만족도 조사에 참여한 신고입니다.');
+              break;
+            }
+            await send(reportNumber, score, cause);
+            posted = true;
+            // HTTP 200 만으로는 성공으로 보지 않는다 — 사이트에서 점수를 다시 읽어 확인
+            final verify = await fetch(reportNumber);
+            if (verify.confirmed && verify.score != null && verify.score! > 0) {
+              await _saveSiteRating(reportNumber, verify);
+              outcome = _successItem(report, verify, cause);
+              break;
+            }
+            throw Exception('제출 후 사이트에서 점수를 확인하지 못했습니다');
+          } catch (e) {
+            lastError = e;
           }
-        } catch (e) {
-          results.add(_failureItem(report, e.toString()));
         }
-        await Future.delayed(const Duration(seconds: 1));
+        results.add(outcome ?? _failureItem(report, '$lastError'));
+        if (pause > Duration.zero) await Future<void>.delayed(pause);
       }
     } finally {
       await SyncEngine.releaseFgs();
@@ -149,10 +203,57 @@ class RatingService {
     return results;
   }
 
+  static Future<void> _saveSiteRating(
+    String reportNumber,
+    ({int? score, String cause, bool confirmed}) site,
+  ) => LocalDbService.updateReportRatingByNumber(
+    reportNumber,
+    pollStatus: '참여 완료',
+    rating: site.score,
+    ratingCause: site.cause,
+  );
+
+  static RatingBatchItem _successItem(
+    Report report,
+    ({int? score, String cause, bool confirmed}) site,
+    String cause,
+  ) {
+    final mismatch = cause.isNotEmpty && normalizeCause(site.cause) != cause;
+    return RatingBatchItem(
+      reportNumber: report.reportNumber,
+      name: report.name,
+      status: RatingBatchItemStatus.success,
+      message:
+          '${site.score}점 별점을 전송했습니다.${mismatch ? ' (사이트에 저장된 사유가 보낸 사유와 다릅니다)' : ''}',
+      reportData: reportToMap(report),
+    );
+  }
+
+  @visibleForTesting
+  static Future<List<RatingBatchItem>> submitStandaloneForTest(
+    List<Report> reports,
+    int score,
+    String cause, {
+    required Future<({int? score, String cause, bool confirmed})> Function(
+      String spp,
+    )
+    lookup,
+    required Future<void> Function(String spp, int score, String cause) post,
+  }) => _submitStandalone(
+    reports,
+    score,
+    normalizeCause(cause),
+    lookup: lookup,
+    post: post,
+    retryDelay: Duration.zero,
+    pause: Duration.zero,
+  );
+
   static Future<List<RatingBatchItem>> _submitServer({
     required ApiService? api,
     required List<Report> eligibleReports,
     required int score,
+    String cause = '',
   }) async {
     if (api == null) {
       return eligibleReports
@@ -167,6 +268,7 @@ class RatingService {
             .map((report) => report.reportNumber)
             .toList(),
         score: score,
+        cause: cause,
       );
       if (start.$1 == false) {
         return eligibleReports

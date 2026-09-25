@@ -261,6 +261,14 @@ class ReportProvider with ChangeNotifier {
   Future<void>? _watchlistLoadFuture;
   Future<void>? _appConfigLoadFuture;
 
+  /// 서버가 `/api/v1/app/config` 의 `capabilities` 로 알린 기능(Client 모드). 구서버는 빈 목록.
+  List<String> _serverCapabilities = const [];
+
+  /// 별점 공통 사유를 보낼 수 있는가 — Standalone 은 항상, Client 는 서버가 rating_cause 를 알릴 때만.
+  bool get ratingCauseSupported =>
+      _appMode == AppMode.standalone ||
+      _serverCapabilities.contains('rating_cause');
+
   ReportFilter _filter = const ReportFilter();
   bool _excludeWithdraw = true;
   bool _normalizePolice = true;
@@ -669,6 +677,9 @@ class ReportProvider with ChangeNotifier {
       _normalizePolice = cfg['normalize_police'] as bool? ?? false;
       _useRepresentativeRecords =
           cfg['use_representative_records'] as bool? ?? true;
+      _serverCapabilities = [
+        for (final c in (cfg['capabilities'] as List? ?? const [])) '$c',
+      ];
       notifyListeners();
     } catch (_) {}
   }
@@ -1163,11 +1174,13 @@ class ReportProvider with ChangeNotifier {
   Future<RatingBatchResult> submitRatings(
     List<Report> reports, {
     required int score,
+    String cause = '',
   }) async {
     final result = await RatingService.submit(
       appMode: _appMode,
       selectedReports: reports,
       score: score,
+      cause: ratingCauseSupported ? cause : '',
       api: _appMode == AppMode.server ? _api : null,
       isStandaloneDemo: _isStandaloneDemo,
     );

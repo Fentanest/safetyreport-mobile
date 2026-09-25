@@ -305,6 +305,7 @@ class StandaloneApiService {
   static Future<void> submitSatisfaction(
     String spp, {
     required int score,
+    String cause = '',
   }) async {
     final phone = await StandaloneAuthService.getPhoneNumber();
     final normalizedPhone = phone.replaceAll(RegExp(r'[^0-9]'), '');
@@ -323,7 +324,7 @@ class StandaloneApiService {
         'STTEMNT_NO': spp,
         'C_PHONE2': normalizedPhone,
         'STSFDG_SCORE': '$score',
-        'STSFDG_CAUSE': '',
+        'STSFDG_CAUSE': cause, // 공통 사유(선택) — 서버 star_rating_service 와 같은 필드
       },
     );
     if (response.statusCode != 200) {

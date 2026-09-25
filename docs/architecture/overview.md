@@ -202,19 +202,21 @@ Flutter main()
 ReportListScreen
   └─ SelectionActionBar
        └─ 별점 주기 버튼
-            ├─ 1~5점 다이얼로그
-            ├─ RatingService.ineligibleReason() 기준 선별
-            │    └─ 참여 완료 / 참여 불가 / 답변 대기 / 취하 / 처리중 / 진행 / 진행중 자동 스킵
-            └─ ReportProvider.submitRatings()
+            ├─ 1~5점 + 공통 사유(선택) 다이얼로그
+            │    └─ 사유 칸은 Standalone 항상, Client 는 서버 app/config capabilities 에 rating_cause 가 있을 때만
+            │       (길이는 코드포인트, 상한 1000 — RatingService.normalizeCause/causeError, 서버와 공용 벡터)
+            ├─ RatingService.ineligibleReason() 기준 선별 (서버 services/rating_eligibility 와 같은 규칙·공용 벡터)
+            │    └─ 참여 완료 / 참여 불가 / 답변 대기 / 취하 / 처리중 / 진행 / 진행중 / 검토중 자동 스킵
+            └─ ReportProvider.submitRatings(score, cause)
                  ├─ Client(server)
-                 │    ├─ POST /api/v1/rating/start (API 키 인증 별점 작업 요청)
-                 │    ├─ /api/v1/files/download?path=logs/current_rating.log 폴링
+                 │    ├─ POST /api/v1/rating/start {report_numbers, score, cause?}
+                 │    ├─ /api/v1/files/download?path=logs/current_rating.log 폴링 (로그 줄 형식이 계약)
                  │    └─ 성공/스킵/실패를 RatingBatchResult 로 정리
-                 └─ Standalone
-                      ├─ public 만족도 score API로 기참여 여부 확인
-                      ├─ POST /api/v1/portal/statistics/satisfactionstatistics 직접 전송
-                      └─ LocalDbService.updateReportRatingByNumber() 로
-                         만족도조사여부/별점/별점사유 즉시 반영
+                 └─ Standalone (서버 star_rating_service 와 같은 흐름)
+                      ├─ public 만족도 score API로 확인 — 점수 있으면 스킵(이번에 제출했으면 성공)
+                      ├─ POST …/satisfactionstatistics (STSFDG_CAUSE = 사유)
+                      ├─ 다시 조회해 점수가 보일 때만 성공(아니면 최대 3회 재시도 후 실패)
+                      └─ 사이트가 돌려준 점수·사유를 updateReportRatingByNumber() 로 저장
 
 완료 후:
   ├─ NotificationHistoryProvider.addRatingBatchResult()

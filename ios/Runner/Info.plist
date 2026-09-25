@@ -53,6 +53,19 @@
 	<array>
 		<string>appsafetyreport</string>
 	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.fentanest.mysafetyreport.auth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.fentanest.mysafetyreport</string>
+			</array>
+		</dict>
+	</array>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

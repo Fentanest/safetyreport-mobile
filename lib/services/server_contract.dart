@@ -42,6 +42,15 @@ class ServerContract {
       '$apiPrefix/community-auth/disconnect';
   static const communityAccountCapability = 'community_account';
 
+  // 커뮤니티 게이트·초기화 (서버 job 제어, Client 모드).
+  // 민감 제어(초기화 시작·수동 업로드)는 `X-Community-User-Token`(폰 access token)으로
+  // 서버가 GoTrue `/user` 로 검증해 서버 연결 사용자와 같을 때만 허용한다.
+  static const communityUserTokenHeader = 'X-Community-User-Token';
+  static const communityGatePath = '$apiPrefix/community/gate';
+  static const communityRebuildPath = '$apiPrefix/community/rebuild';
+  static const communityRebuildStartPath = '$apiPrefix/community/rebuild/start';
+  static const communityRebuildResumePath = '$apiPrefix/community/rebuild/resume';
+
   static String normalizeBaseUrl(String baseUrl) =>
       baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
 

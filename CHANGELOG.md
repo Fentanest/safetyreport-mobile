@@ -8,6 +8,38 @@
 
 ---
 
+## 2026-09-26 (버전 변경 없음)
+
+### 커뮤니티 필수 게이트·온보딩·초기화 (T5)
+
+앱이 기존 권한 안내보다 먼저 `[필수] 카카오 인증` + `[필수] 신고내용 공유 동의` 를 요구한다(신규·기존 사용자 모두).
+설계: `docs/architecture/community-gate.md`, 계약: `contracts/community-ingest/`(사본, 수정 없음).
+
+- **게이트** (`lib/community/gate/`): `gate.md` 판정 순서 그대로(순수 함수 + 벡터 테스트),
+  `community-account/status` (apikey + Bearer, 10초 타임아웃), 캐시 10분·`requireFresh(60s)`·`invalidate`,
+  포그라운드 60초 poll + resume 즉시 refresh. Standalone 은 통과 때 `CommunityStore.setContext`,
+  상실 때 `deactivateContext`. writer 연결 등록·rebind·takeover(409 `writer_conflict` → "이 기기로 업로드 전환"),
+  연결 비밀은 `flutter_secure_storage` `community_connection_v1` 에만.
+- **온보딩** (`community_onboarding_screen.dart`): 제목·설명·두 카드·동의문 전문 펼침(번들 사본
+  `assets/community/share-consent-2026-09-26.1.md`, 계약과 sha256 동일)·체크 기본 해제·`동의하고 계속`
+  성공 응답 뒤에만 완료·`다음` 조건부 활성·복구 화면·도움말/개인정보/로그아웃/종료 상시·건너뛰기 없음·Android back 종료.
+- **진입 순서** (`main.dart`): 로딩 → 온보딩 → 권한 common → Setup → 권한 mode 보충(허용됨은 건너뜀)
+  → 초기화(필요 시) → 메인. `ReportProvider.init()` 은 설정 로드만, 예약·drain·자동 동기화·WsService 는
+  `onGatePassed()` 로 이동(1회). 알림 탭·payload·pending 변경은 게이트 미충족이면 무시, 딥링크는 게이트 중 수신.
+- **권한** (`permission_service.dart`): Android 전용 항목 iOS 제외, MethodChannel 은
+  `MissingPluginException`·`PlatformException` → "해당 없음", 확인 호출 5초 fail-closed.
+  `PermissionScreen(phase: common|mode)`.
+- **초기화** (`lib/community/rebuild/`, `community_rebuild_screen.dart`): `rebuild.md` 상태기계,
+  `VACUUM INTO` 백업 + 무결성 검사, `SyncEngine.start(fullSync: true)` 실행(orphan 보존),
+  영구 누락 수락·일시정지·같은 run 재개, 시작 전 manifest 확인, 진행 중 자동 동기화 차단.
+  Client 는 서버 job 화면 + `GET /api/v1/community/gate` fingerprint 비교
+  (`server_contract.dart` 경로·`X-Community-User-Token` 추가).
+- **설정 카드**: 동의 상태·정책 버전·철회(`stale_grant` 재요청·`lineage_active:false` 확인 뒤 게이트 복귀),
+  공유 자료 삭제 요청(확인 문구), 연결 기기 상태·전환.
+- **iOS 복귀** (`Info.plist` CFBundleURLTypes 만 + `AppDelegate.swift`): Android 와 같은 채널·메서드명,
+  cold start 보관(`getInitialLink`). Xcode 없어 빌드 미검증.
+- T6 연결 자리 `lib/community/upload_hooks.dart` (기본값; `.agent-runs/T5/REQUESTS.md` 참고).
+
 ## 2026-09-25 (버전 변경 없음)
 
 ### 커뮤니티 계정 연결 (safeauth.worklazy.net)

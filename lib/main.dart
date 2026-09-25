@@ -18,6 +18,8 @@ import 'models/report.dart';
 import 'providers/report_provider.dart';
 import 'providers/notification_history_provider.dart';
 import 'services/background_login_check.dart';
+import 'services/community_auth_link_channel.dart';
+import 'services/community_auth_service.dart';
 import 'services/pending_changes_store.dart';
 import 'services/review_prompt_service.dart';
 import 'services/sync_engine.dart' show ChangeType;
@@ -29,6 +31,7 @@ import 'widgets/status_badge.dart';
 import 'widgets/duplicate_group_detail_sheet.dart';
 import 'widgets/report_detail_sheet.dart';
 import 'widgets/maintenance_status_bar.dart';
+import 'widgets/community_account_card.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -37,6 +40,10 @@ Future<void> main() async {
   try {
     await Workmanager().initialize(backgroundTaskDispatcher);
   } catch (_) {}
+  // 커뮤니티 계정(Standalone) 로그인 복귀 링크 — SetupScreen·설정 등 어느 화면에서든 받도록 앱 시작 때 등록.
+  CommunityAuthLinkChannel.start((link) async {
+    await CommunityAuthService.instance.handleCallbackLink(link);
+  });
   runApp(
     MultiProvider(
       providers: [
@@ -61,6 +68,11 @@ class SafetyReportApp extends StatelessWidget {
         return MaterialApp(
           title: '나만의 안전신문고',
           debugShowCheckedModeBanner: false,
+          // 커뮤니티 로그인 복귀 뒤 계정 확인 창·안내를 어느 화면에서든 띄우기 위한 루트 키.
+          navigatorKey: communityAuthNavigatorKey,
+          scaffoldMessengerKey: communityAuthMessengerKey,
+          builder: (context, child) =>
+              CommunityAuthPrompt(child: child ?? const SizedBox.shrink()),
           theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
           themeMode: provider.themeMode.themeMode,

@@ -33,6 +33,15 @@ class ServerContract {
   static const serverVersionPath = '$apiPrefix/server/version';
   static const sunwiPayloadPath = '$apiPrefix/sunwi/payload';
 
+  // 서버의 커뮤니티 계정(서버가 인증·세션 주인, 폰은 토큰을 받지 않음). capability `community_account`.
+  static const communityAuthStatusPath = '$apiPrefix/community-auth/status';
+  static const communityAuthStartPath = '$apiPrefix/community-auth/start';
+  static const communityAuthConfirmPath = '$apiPrefix/community-auth/confirm';
+  static const communityAuthCancelPath = '$apiPrefix/community-auth/cancel';
+  static const communityAuthDisconnectPath =
+      '$apiPrefix/community-auth/disconnect';
+  static const communityAccountCapability = 'community_account';
+
   static String normalizeBaseUrl(String baseUrl) =>
       baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
 

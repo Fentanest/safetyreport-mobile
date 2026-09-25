@@ -46,6 +46,23 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- 커뮤니티 계정(Standalone) 카카오 로그인 복귀: Supabase Auth 가 PKCE 코드를 붙여 이 주소로 돌려보낸다.
+                 scheme/host/path 가 정확히 같을 때만 받는다. 아래 <queries> 의 appsafetyreport(공식 앱 실행, outbound)와 별개.
+                 링크는 MainActivity 가 직접 꺼내 MethodChannel community_auth 로 넘긴다(docs/architecture/community-account.md). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data
+                    android:scheme="com.fentanest.mysafetyreport"
+                    android:host="auth"
+                    android:path="/callback"/>
+            </intent-filter>
+            <!-- Flutter 기본 딥링크 처리(링크를 Navigator 라우트로 밀어 넣음)를 끈다. 인증 코드가 라우트 이름으로
+                 새지 않게 하고, 복귀 링크는 MethodChannel 한 경로로만 처리한다. -->
+            <meta-data
+                android:name="flutter_deeplinking_enabled"
+                android:value="false" />
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

@@ -7,6 +7,7 @@ import '../models/rating_batch_result.dart';
 import '../models/report.dart';
 import '../services/api_service.dart';
 import '../services/app_prefs_keys.dart';
+import '../services/community_auth_service.dart';
 import '../services/local_db_service.dart';
 import '../services/local_geocode_service.dart';
 import '../services/maintenance_service.dart';
@@ -17,6 +18,7 @@ import '../services/review_prompt_service.dart';
 import '../services/standalone_auth_service.dart';
 import '../services/standalone_auto_sync_service.dart';
 import '../services/sync_engine.dart';
+import '../services/server_contract.dart';
 
 const _defaultStatusOrder = <String>[
   '수용',
@@ -268,6 +270,11 @@ class ReportProvider with ChangeNotifier {
   bool get ratingCauseSupported =>
       _appMode == AppMode.standalone ||
       _serverCapabilities.contains('rating_cause');
+
+  /// 연결된 서버가 "서버의 커뮤니티 계정" API 를 알리는가(Client 모드). 구서버는 false.
+  bool get communityAccountSupported =>
+      _appMode == AppMode.server &&
+      _serverCapabilities.contains(ServerContract.communityAccountCapability);
 
   ReportFilter _filter = const ReportFilter();
   bool _excludeWithdraw = true;
@@ -900,6 +907,11 @@ class ReportProvider with ChangeNotifier {
     await prefs.remove(AppPrefsKeys.standalonePhoneNumber);
     await prefs.remove(AppPrefsKeys.standaloneDemoMode);
     await StandaloneAuthService.clearToken();
+    // 실제 모드 변경: Standalone 커뮤니티 세션·대기 로그인을 지운다(M05). 서버의 커뮤니티 계정은 건드리지 않는다.
+    _serverCapabilities = const [];
+    try {
+      await CommunityAuthService.instance.clearForModeChange();
+    } catch (_) {}
     await LocalDbService.closeDb();
 
     notifyListeners();

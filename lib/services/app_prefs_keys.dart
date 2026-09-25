@@ -24,6 +24,17 @@ class AppPrefsKeys {
   /// FlutterSecureStorage (Keystore) 에 저장하는 비밀번호 키.
   static const standalonePassword = 'standalone_password';
 
+  // Standalone 커뮤니티 계정(Supabase Auth, 카카오) — 모두 FlutterSecureStorage 키다.
+  // SharedPreferences·sqflite 에 넣지 않는다(docs/architecture/community-account.md).
+  /// 연결된 세션(access/refresh token, 만료, 표시 이름) JSON 한 덩어리.
+  static const communitySession = 'community_session_v1';
+
+  /// 브라우저로 보낸 로그인(PKCE verifier, 시작 시각, attempt id). 복귀 링크를 받으면 지운다.
+  static const communityPendingLogin = 'community_pending_login_v1';
+
+  /// 마지막으로 소비한 복귀 링크의 SHA-256(중복 전달 방지). 코드 원문은 저장하지 않는다.
+  static const communityConsumedCallback = 'community_consumed_callback_v1';
+
   // 큐 / 이벤트 (Kotlin 과 공유)
   static const standalonePendingReports = 'standalone_pending_reports';
   static const standaloneLastDetectedAt = 'standalone_last_detected_at';

@@ -29,6 +29,25 @@ class CommunityAuthLinkChannel {
       return null;
     });
     unawaited(drain());
+    // iOS 콜드 스타트: AppDelegate 가 launchOptions URL 을 보관한다.
+    // Android 에는 이 메서드가 없어 PlatformException → 무시된다.
+    unawaited(drainInitial());
+  }
+
+  /// iOS `getInitialLink` 보관함의 링크를 꺼내 처리한다.
+  static Future<void> drainInitial() async {
+    final handler = _onLink;
+    if (handler == null) return;
+    String? link;
+    try {
+      link = await channel.invokeMethod<String>('getInitialLink');
+    } on MissingPluginException {
+      return;
+    } on PlatformException {
+      return;
+    }
+    if (link == null || link.isEmpty) return;
+    await handler(link);
   }
 
   /// 네이티브 보관함의 링크를 꺼내 처리한다. 채널이 없는 플랫폼(테스트·데스크톱)에서는 아무것도 안 한다.

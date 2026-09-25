@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart' as crypto;
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:sqflite/sqflite.dart';
 
 import '../models/duplicate_group.dart';
@@ -52,6 +53,43 @@ class DuplicateProjectionService {
   static int _nowMs() => DateTime.now().millisecondsSinceEpoch;
 
   static String _text(dynamic value) => value?.toString().trim() ?? '';
+
+  /// 옛 중복군 상태 → 현재 상태. 서버 duplicate_group_service._LEGACY_STATUS_MAP 과 같다.
+  static const _legacyStatusMap = {
+    'auto': DuplicateStatuses.confirmedDuplicate,
+    'confirmed': DuplicateStatuses.confirmedDuplicate,
+    'review_required': DuplicateStatuses.reviewRequired,
+    'excluded': DuplicateStatuses.notDuplicate,
+  };
+
+  /// 서버 `_normalize_duplicate_status` 와 같다: 소문자로 보고, 현재 값이면 그대로, 옛 값이면 변환, 아니면 ''.
+  @visibleForTesting
+  static String normalizeDuplicateStatus(dynamic value) {
+    final v = _text(value).toLowerCase();
+    if (const {
+      DuplicateStatuses.reviewRequired,
+      DuplicateStatuses.confirmedDuplicate,
+      DuplicateStatuses.notDuplicate,
+    }.contains(v)) {
+      return v;
+    }
+    return _legacyStatusMap[v] ?? '';
+  }
+
+  /// 서버 `_normalize_representative_mode` 와 같다: 현재 값이면 그대로, 옛 상태가 confirmed 면 manual, 아니면 auto.
+  @visibleForTesting
+  static String normalizeRepresentativeMode(
+    dynamic value, {
+    dynamic existingStatus,
+  }) {
+    final v = _text(value).toLowerCase();
+    if (v == RepresentativeModes.manual || v == RepresentativeModes.auto) {
+      return v;
+    }
+    return _text(existingStatus).toLowerCase() == 'confirmed'
+        ? RepresentativeModes.manual
+        : RepresentativeModes.auto;
+  }
 
   static String _normalizeInline(dynamic value) {
     return _text(value).replaceAll(RegExp(r'\s+'), ' ');
@@ -257,8 +295,13 @@ class DuplicateProjectionService {
           (legacyGroupId.isEmpty
               ? null
               : existingGroupsByLegacyId[legacyGroupId]);
-      final preservedStatus = _text(existing?['status']);
-      final preservedMode = _text(existing?['representative_mode']);
+      final preservedStatus = normalizeDuplicateStatus(existing?['status']);
+      final preservedMode = existing == null
+          ? ''
+          : normalizeRepresentativeMode(
+              existing['representative_mode'],
+              existingStatus: existing['status'],
+            );
       final preservedRep = _text(existing?['representative_id']);
       final createdAt =
           int.tryParse(existing?['created_at']?.toString() ?? '') ?? currentTs;

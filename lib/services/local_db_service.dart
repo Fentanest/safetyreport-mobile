@@ -169,7 +169,7 @@ class LocalDbService {
   }
 
   /// 앱 DB 스키마 버전. contracts/storage-contract.json 의 schema_version.mobile 과 같아야 한다(테스트가 확인).
-  static const dbVersion = 14;
+  static const dbVersion = 15;
 
   static Future<Database> _open() async {
     final path = await getDbPath();
@@ -437,6 +437,12 @@ class LocalDbService {
 
   /// v13(저장 계층 재설계 R3, M-14): 옛 DB 의 처리상태·종결여부·보완_미응답 정규화를 한 번만 한다.
   /// 예전엔 DB 를 열 때마다 전 행에 돌고 오류를 삼켰다.
+  /// 서버 database._normalize_processing_layers 와 같은 네 단계(NULL 은 '' 로 보고 비교 — 2026-09-25 동등성 검수로 맞춤).
+  @visibleForTesting
+  static Future<void> normalizeLegacyProcessingStatesForTest(
+    DatabaseExecutor database,
+  ) => _normalizeLegacyProcessingStates(database);
+
   static Future<void> _normalizeLegacyProcessingStates(
     DatabaseExecutor database,
   ) async {
@@ -461,15 +467,15 @@ class LocalDbService {
         SET 처리상태 = '보완요청',
             종결여부 = 'N'
         WHERE 보완_미응답 = 'Y'
-          AND 상태 NOT IN ('수용', '일부수용', '불수용', '기타', '답변완료', '취하', '이송')
-          AND 처리상태 != '보완요청'
+          AND IFNULL(상태, '') NOT IN ('수용', '일부수용', '불수용', '기타', '답변완료', '취하', '이송')
+          AND IFNULL(처리상태, '') != '보완요청'
       """);
     await database.execute("""
         UPDATE reports
         SET 처리상태 = '처리중',
             종결여부 = 'N'
-        WHERE 상태 NOT IN ('수용', '일부수용', '불수용', '기타', '답변완료', '취하', '이송', '보완요청')
-          AND 보완_미응답 != 'Y'
+        WHERE IFNULL(상태, '') NOT IN ('수용', '일부수용', '불수용', '기타', '답변완료', '취하', '이송')
+          AND IFNULL(보완_미응답, '') != 'Y'
           AND (처리상태 IS NULL OR 처리상태 IN ('', '진행', '진행중', '처리중', '검토중'))
       """);
   }
@@ -512,6 +518,46 @@ class LocalDbService {
     if (oldV < 14) {
       await _restoreReportContentFromRaw(db);
     }
+    if (oldV < 15) {
+      // 2026-09-25 서버↔모바일 동등성 검수: NULL 상태 보정을 서버와 같게 다시 적용하고,
+      // 서버에서 가져온 예전 데이터의 차량번호(다음 줄이 붙은 값)를 서버 repair_car_numbers 와 같게 고친다.
+      await _normalizeLegacyProcessingStates(db);
+      await _repairCarNumbersFromRaw(db);
+    }
+  }
+
+  /// 서버 maintenance_service.repair_car_numbers 와 같은 규칙: 차량번호에 `*` 가 들어간 신고를 저장된 본문 원문으로 다시 뽑는다.
+  /// 예전 서버 파서는 칸이 비면 다음 줄(`* 발생일자 …`)을 번호로 가져갔다. 앱 파서는 그런 값을 만들지 않았지만
+  /// 그 서버 DB 를 가져오면 들어온다. 네트워크 없음. 반환: 고친 건수.
+  @visibleForTesting
+  static Future<int> repairCarNumbersForTest(DatabaseExecutor db) =>
+      _repairCarNumbersFromRaw(db);
+
+  static Future<int> _repairCarNumbersFromRaw(DatabaseExecutor db) async {
+    final hasRaw = (await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='report_raw'",
+    )).isNotEmpty;
+    if (!hasRaw) return 0;
+    final rows = await db.rawQuery(
+      'SELECT r.ID, r.차량번호, w.raw_content FROM reports r '
+      'JOIN report_raw w ON w.ID = r.ID '
+      "WHERE r.차량번호 LIKE '%*%'",
+    );
+    var fixed = 0;
+    for (final row in rows) {
+      final old = row['차량번호']?.toString() ?? '';
+      final repaired = extractCarNumber(row['raw_content']?.toString() ?? '');
+      if (repaired != old) {
+        await db.update(
+          'reports',
+          {'차량번호': repaired},
+          where: 'ID = ?',
+          whereArgs: [row['ID']],
+        );
+        fixed++;
+      }
+    }
+    return fixed;
   }
 
   /// v14(2026-09-25 파서 통일): 예전 앱은 신고내용에서 "본 신고는 안전신문고 … 신고입니다" 안내 문장을 지웠다.
@@ -807,6 +853,10 @@ class LocalDbService {
     return projected.map((row) => Map<String, dynamic>.from(row)).toList();
   }
 
+  /// 계약 `change_tracked.columns` + category·entry_value(따로 비교) — 서버 CHANGE_TRACKED_COLUMNS 와 같아야 한다(테스트).
+  @visibleForTesting
+  static List<String> get syncedAtTrackedKeysForTest => _syncedAtTrackedKeys;
+
   static const _syncedAtTrackedKeys = <String>[
     '처리상태',
     '차량번호',
@@ -844,16 +894,22 @@ class LocalDbService {
   /// - 별점·사유·만족도조사여부는 [ratingLookup] 에 따라(결정 D-2·D-3): 사이트 값이 있으면 사이트, 조회 실패·미시도면 기존 유지,
   ///   '참여 완료' 는 되돌리지 않는다.
   /// - 변경 판정(synced_at): [_syncedAtTrackedKeys] + 본문, NULL 과 '' 는 같게. 본문·entry_value 는 이전 값이 있을 때만 비교.
-  static Future<void> upsertReport(
+  /// 반환: 새 신고인지, 저장으로 바뀌었는지(synced_at 을 갱신했는지 — 서버 reports_repo 의 "신규"/"변경" 판정과 같음), 저장된 synced_at.
+  static Future<({bool isNew, bool changed, int syncedAt})> upsertReport(
     Report r,
     String category,
     String entryValue, {
     String rawContent = '',
+    // 서버 parser 와 같게 상세 JSON 에서 뽑은 본문 원문의 종류는 'report_body'
+    String rawType = 'report_body',
     RatingLookup ratingLookup = RatingLookup.notTried,
     PhotoCapture? photoCapture,
   }) async {
     final d = await db;
     final now = DateTime.now().millisecondsSinceEpoch;
+    var isNew = false;
+    var changedResult = false;
+    var syncedAtResult = now;
     await d.transaction((txn) async {
       final existingRows = await txn.query(
         'reports',
@@ -942,8 +998,15 @@ class LocalDbService {
       };
 
       int syncedAt = now;
+      // 본문 원문: 서버 reports_repo._save_raw 와 같은 규칙 — 새 원문이 비면 기존 것을 그대로 두고(변경 아님),
+      // 있으면 이전 원문과 내용·종류 중 하나라도 다를 때 변경.
+      final existingRaw = await _getRawPayload(txn, r.id);
+      final rawChanged =
+          rawContent.trim().isNotEmpty &&
+          existingRaw != null &&
+          (_stringify(existingRaw['raw_content']) != rawContent ||
+              _stringify(existingRaw['raw_type']) != rawType);
       if (existing != null) {
-        final existingRaw = await _getRawPayload(txn, r.id);
         final tracked = _syncedAtTrackedKeys.where(
           (k) => k != 'entry_value' && k != 'category',
         );
@@ -954,12 +1017,11 @@ class LocalDbService {
             existing['category'] != category ||
             (_stringify(existing['entry_value']).isNotEmpty &&
                 existing['entry_value'] != entryValue) ||
-            (existingRaw != null &&
-                _stringify(existingRaw['raw_content']).isNotEmpty &&
-                _stringify(existingRaw['raw_content']) != rawContent);
+            rawChanged;
         syncedAt = changed
             ? now
             : (_toEpochMillis(existing['synced_at']) ?? now);
+        changedResult = changed;
         await txn.update(
           'reports',
           {...siteRow, 'synced_at': syncedAt},
@@ -967,6 +1029,8 @@ class LocalDbService {
           whereArgs: [r.id],
         );
       } else {
+        isNew = true;
+        changedResult = true;
         await txn.insert('reports', {
           'ID': r.id,
           ...siteRow,
@@ -974,14 +1038,22 @@ class LocalDbService {
           'synced_at': syncedAt,
         });
       }
-      await _replaceRawPayload(
-        txn,
-        r.id,
-        rawContent: rawContent,
-        savedAt: syncedAt,
-      );
+      syncedAtResult = syncedAt;
+      if (rawContent.trim().isNotEmpty) {
+        final previousSavedAt = _toEpochMillis(existingRaw?['saved_at']);
+        await _replaceRawPayload(
+          txn,
+          r.id,
+          rawContent: rawContent,
+          rawType: rawType,
+          savedAt: existingRaw == null || rawChanged || previousSavedAt == null
+              ? now
+              : previousSavedAt,
+        );
+      }
     });
     _invalidateProjectRowsCache();
+    return (isNew: isNew, changed: changedResult, syncedAt: syncedAtResult);
   }
 
   static Future<Set<String>> _readWatchlist(DatabaseExecutor db) async {
@@ -1322,13 +1394,22 @@ class LocalDbService {
       useRepresentativeRecords: useRepresentativeRecords,
     );
 
-    // 필터와 무관하게 전체에서 available_years/laws 추출
-    // (취하 제외는 available_years/laws에는 영향 안 줌 — 서버도 동일)
+    // available_years 는 필터와 무관하게 전체에서(서버 _load_stats_frames 와 같음).
     var allRows = await d.query(
       effectiveReportsView,
       columns: ['답변일', '위반법규', 'category'],
     );
-    return _aggregateStats(rows, allRows, normalizePolice);
+    // available_laws 는 서버 get_agency_stats 처럼 연도·취하 제외·대표건을 적용한 뒤, 법규 필터는 빼고 만든다
+    // (2026-09-25 서버↔모바일 계산 동등성 검사에서 발견 — 예전엔 전체 행에서 만들어 필터와 어긋났다).
+    final lawScopeRows = law == null
+        ? rows
+        : await _queryStatsRows(
+            d,
+            year: year,
+            excludeWithdraw: excludeWithdraw,
+            useRepresentativeRecords: useRepresentativeRecords,
+          );
+    return _aggregateStats(rows, allRows, lawScopeRows, normalizePolice);
   }
 
   /// 통계 요약 카드 + 월별 추이 (서버 `get_stats_overview` 와 같은 정의).
@@ -2004,6 +2085,7 @@ class LocalDbService {
   static Map<String, dynamic> _aggregateStats(
     List<Map<String, dynamic>> rows,
     List<Map<String, dynamic>> allRows,
+    List<Map<String, dynamic>> lawScopeRows,
     bool normalizePolice,
   ) {
     final traffic = rows.where((r) => r['category'] == 'traffic').toList();
@@ -2027,17 +2109,17 @@ class LocalDbService {
     return {
       'traffic': buildStatsCategory(
         traffic,
-        allRows.where((r) => r['category'] == 'traffic').toList(),
+        lawScopeRows.where((r) => r['category'] == 'traffic').toList(),
         normalizePolice,
       ),
       'parking': buildStatsCategory(
         parking,
-        allRows.where((r) => r['category'] == 'parking').toList(),
+        lawScopeRows.where((r) => r['category'] == 'parking').toList(),
         normalizePolice,
       ),
       'other': buildStatsCategory(
         other,
-        allRows.where((r) => r['category'] == 'other').toList(),
+        lawScopeRows.where((r) => r['category'] == 'other').toList(),
         normalizePolice,
       ),
       'available_years': years,
@@ -2050,7 +2132,7 @@ class LocalDbService {
   @visibleForTesting
   static Map<String, dynamic> buildStatsCategory(
     List<Map<String, dynamic>> rows,
-    List<Map<String, dynamic>> allCatRows,
+    List<Map<String, dynamic>> lawScopeCatRows,
     bool normalizePolice,
   ) {
     // 경찰기관 정규화: 집계 키 단계에서 처리해 같은 경찰서로 통합
@@ -2101,13 +2183,13 @@ class LocalDbService {
 
     // 법규 목록은 카테고리 전체에서 추출 (필터 변경 시 다른 법규 선택지 유지)
     final allLaws =
-        allCatRows
+        lawScopeCatRows
             .map((r) => r['위반법규'] as String? ?? '')
             .where((l) => l.isNotEmpty)
             .toSet()
             .toList()
           ..sort();
-    final hasEmptyLaw = allCatRows.any(
+    final hasEmptyLaw = lawScopeCatRows.any(
       (r) => (r['위반법규'] as String? ?? '').isEmpty,
     );
 

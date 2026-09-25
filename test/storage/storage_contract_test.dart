@@ -74,6 +74,19 @@ void main() {
     expect(tables, covered);
   });
 
+  test(
+    'change-tracked columns match the contract (server uses the same list)',
+    () {
+      final contract = _contract()['change_tracked'] as Map<String, dynamic>;
+      expect(
+        LocalDbService.syncedAtTrackedKeysForTest
+            .where((k) => k != 'category' && k != 'entry_value')
+            .toList(),
+        (contract['columns'] as List).cast<String>(),
+      );
+    },
+  );
+
   test('schema version in contract matches the app', () async {
     final db = await LocalDbService.db;
     expect(

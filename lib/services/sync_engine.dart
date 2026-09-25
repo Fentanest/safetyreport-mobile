@@ -30,6 +30,9 @@ class ChangeType {
   /// 사용자가 알림 탭으로 명시적 요청한 개별 fetch — 처리상태 변동 없음
   /// (Standalone 모드 _tryFetchSingle 에서 사용)
   static const individualConfirm = '개별확인';
+
+  /// 처리상태는 그대로이고 다른 내용(과태료·답변·보완 등)이 바뀜 — 서버 crawl_changes 의 '변경' 과 같은 값.
+  static const contentChanged = '변경';
 }
 
 class SyncEvent {
@@ -275,7 +278,7 @@ class SyncEngine {
           report.attachedPhotos,
         );
 
-        await LocalDbService.upsertReport(
+        final saved = await LocalDbService.upsertReport(
           report,
           cat,
           ev,
@@ -283,7 +286,7 @@ class SyncEngine {
           ratingLookup: augmented.lookup,
           photoCapture: photo,
         );
-        if (!fullSync) _trackChange(existingStatus[cNo], report);
+        if (!fullSync) _trackChange(existingStatus[cNo], report, saved);
         done++;
 
         if (done % 10 == 0) {
@@ -310,6 +313,17 @@ class SyncEngine {
       if (filled > 0) _log('[photo] 촬영 시각 재시도로 $filled건 채움');
     }
 
+    // 사이트 목록에서 사라진 신고 정리는 중복군 재계산보다 먼저(지운 신고를 가리키는 중복 멤버가 남지 않게). 정리 조건은 전체 재동기화이고 목록을 빠짐없이 받았을 때만(M-1, M-20).
+    if (fullSync && !_stopping && listPageErrors == 0 && allItems.isNotEmpty) {
+      final removed = await LocalDbService.removeReportsNotIn(
+        allItems
+            .map((i) => i['C_NO']?.toString() ?? '')
+            .where((id) => id.isNotEmpty)
+            .toSet(),
+      );
+      if (removed > 0) _log('사이트 목록에 없는 신고 $removed건 정리');
+    }
+
     final duplicateRefresh =
         await DuplicateProjectionService.refreshDuplicateGroups(
           await LocalDbService.db,
@@ -325,16 +339,6 @@ class SyncEngine {
       }
     }
 
-    // 사이트 목록에서 사라진 신고 정리는 전체 재동기화이고 목록을 빠짐없이 받았을 때만(M-1, M-20).
-    if (fullSync && !_stopping && listPageErrors == 0 && allItems.isNotEmpty) {
-      final removed = await LocalDbService.removeReportsNotIn(
-        allItems
-            .map((i) => i['C_NO']?.toString() ?? '')
-            .where((id) => id.isNotEmpty)
-            .toSet(),
-      );
-      if (removed > 0) _log('사이트 목록에 없는 신고 $removed건 정리');
-    }
     // 목록 페이지가 하나라도 실패하면 마지막 동기화 시각을 성공으로 남기지 않는다(M-20).
     if (_stopping) {
       _log('[주의] 중지됨 — 마지막 동기화 시각을 갱신하지 않음');
@@ -345,6 +349,15 @@ class SyncEngine {
     }
 
     if (_lastChanges.isNotEmpty) {
+      // 신고 변경은 서버와 같은 순서로, 중복군 변경은 그 뒤에
+      final reportChanges = _lastChanges
+          .where((c) => c['notification_kind'] == 'report')
+          .toList();
+      final others = _lastChanges
+          .where((c) => c['notification_kind'] != 'report')
+          .toList();
+      _sortReportChanges(reportChanges);
+      _lastChanges = [...reportChanges, ...others];
       await emitChanges(_lastChanges);
     }
 
@@ -427,20 +440,73 @@ class SyncEngine {
     }
   }
 
-  /// snapshot 과 비교해 신규/처리변경 판정 후 _lastChanges 에 추가.
-  static void _trackChange(Map<String, String>? snap, Report r) {
-    if (snap == null) {
-      _lastChanges.add(reportToChangeMap(r, ChangeType.newReport));
-    } else if (snap['처리상태'] != r.status) {
-      _lastChanges.add(reportToChangeMap(r, ChangeType.statusChanged));
+  /// 서버 reports_repo 와 같은 기준: 새 신고면 '신규', 저장으로 바뀌었으면(추적 열·category·entry_value·원문) 변경.
+  /// 처리상태까지 바뀌었으면 '처리변경', 그 밖의 변경(과태료·답변 내용 등)은 서버와 같은 '변경'.
+  static void _trackChange(
+    Map<String, String>? snap,
+    Report r,
+    ({bool isNew, bool changed, int syncedAt}) saved,
+  ) {
+    if (snap == null || saved.isNew) {
+      _lastChanges.add(
+        reportToChangeMap(r, ChangeType.newReport, syncedAt: saved.syncedAt),
+      );
+    } else if (saved.changed) {
+      _lastChanges.add(
+        reportToChangeMap(
+          r,
+          snap['처리상태'] != r.status
+              ? ChangeType.statusChanged
+              : ChangeType.contentChanged,
+          syncedAt: saved.syncedAt,
+        ),
+      );
     }
+  }
+
+  /// 서버 crawl_state_store._report_change_sort_key 와 같은 순서: synced_at 있는 것 먼저(최신순), 없으면 답변일, 그다음 신고번호.
+  static void _sortReportChanges(List<Map<String, dynamic>> changes) {
+    int keyRank(Map<String, dynamic> c) =>
+        (int.tryParse('${c['synced_at'] ?? ''}') ?? -1) >= 0 ? 1 : 0;
+    changes.sort((a, b) {
+      final ra = keyRank(a), rb = keyRank(b);
+      if (ra != rb) return rb.compareTo(ra);
+      final pa = ra == 1 ? (int.tryParse('${a['synced_at']}') ?? 0) : 0;
+      final pb = rb == 1 ? (int.tryParse('${b['synced_at']}') ?? 0) : 0;
+      if (pa != pb) return pb.compareTo(pa);
+      if (ra == 0) {
+        final da = '${a['답변일'] ?? ''}', db = '${b['답변일'] ?? ''}';
+        if (da != db) return db.compareTo(da);
+      }
+      return '${b['신고번호'] ?? ''}'.compareTo('${a['신고번호'] ?? ''}');
+    });
   }
 
   /// Report 객체를 Report.fromJson 키 형식의 Map 으로 변환 + change_type 부여.
   /// pending_crawl_changes / notification history / bottom sheet 에서 공통 사용.
-  static Map<String, dynamic> reportToChangeMap(Report r, String changeType) {
+  static Map<String, dynamic> reportToChangeMap(
+    Report r,
+    String changeType, {
+    int? syncedAt,
+  }) {
+    // 서버 crawl_state_store.save_crawl_changes 와 같은 보완 판정·필드
+    final supplementOpen = r.supplementOpen;
+    final changeReason = (supplementOpen || r.status.trim() == '보완요청')
+        ? 'supplement'
+        : 'report';
     return {
+      'notification_kind': 'report',
       'change_type': changeType,
+      'change_reason': changeReason,
+      'supplement_open': supplementOpen,
+      'supplement_count': r.supplementCount,
+      '보완횟수': r.supplementCount,
+      '보완_미응답': supplementOpen ? 'Y' : 'N',
+      '보완_요청자': r.supplementRequester,
+      '보완_요청일시': r.supplementRequestedAt,
+      '보완_완료일시': r.supplementCompletedAt,
+      '보완_요청_내용': r.supplementRequest,
+      '보완_신고자_의견': r.supplementOpinion,
       'ID': r.id,
       '신고번호': r.reportNumber,
       '신고명': r.name,
@@ -464,7 +530,7 @@ class SyncEngine {
       '만족도조사여부': r.pollStatus,
       '종결여부': r.processingFinish,
       'category': r.category,
-      'synced_at': r.syncedAt,
+      'synced_at': syncedAt ?? r.syncedAt,
     };
   }
 

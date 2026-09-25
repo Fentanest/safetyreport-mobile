@@ -355,7 +355,17 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
   `upsertReport(…, ratingLookup:)` 는 UPDATE 로 사이트·계산 열만 쓴다. 데모 계정은 `standalone_reports_demo.db`(설정 키 `standaloneDemoMode`). DB v13.
 
 ## 앱 업데이트 때 DB 처리 (2026-09-25)
-- DB 를 열 때 sqflite 가 저장된 버전을 보고 `_migrateLocalDatabase` 로 `LocalDbService.dbVersion`(현재 13)까지 올린다. sqflite 가 이 과정을 한 트랜잭션으로 돌려 실패하면 통째로 되돌아간다.
+- DB 를 열 때 sqflite 가 저장된 버전을 보고 `_migrateLocalDatabase` 로 `LocalDbService.dbVersion`(현재 15)까지 올린다. sqflite 가 이 과정을 한 트랜잭션으로 돌려 실패하면 통째로 되돌아간다.
 - 올리기 전에 `LocalDbService.backupBeforeUpgrade` 가 DB 파일을 `<db>.pre_v<옛 버전>.<epoch ms>.bak` 로 복사한다(버전 없이 열어 WAL 을 합친 뒤 복사, 새 설치·이미 최신이면 건너뜀, 최근 3개 유지). 앱 데이터 폴더 안이라 앱을 지우면 함께 지워진다.
 - **이전 버전 앱으로 되돌리면 새 DB 를 열지 못한다**: 구조는 추가만 했지만 sqflite 가 버전 번호가 내려가는 것(onDowngrade 없음)을 막는다. 되돌릴 때는 `.pre_v<그 앱의 버전>` 백업을 원래 이름으로 바꾸거나, 앱 데이터를 지우고 다시 동기화한다(Standalone) / 서버에서 다시 받는다(Client).
 - 앱 백업 복원(`replaceFromBackup`)은 따로: 종류·버전 확인 → 임시 사본 업그레이드·검사 → `.bak` 남기고 교체. 새 앱이 만든 백업은 거부한다.
+
+## 2026-09-25 서버↔모바일 동등성 검수(G17)로 맞춘 규칙
+- DB v15: 옛 상태 보정(`_normalizeLegacyProcessingStates`)을 서버 `_normalize_processing_layers` 와 같게(NULL 은 '' 로 비교) 다시 적용하고, 서버 `repair_car_numbers` 와 같은 차량번호 복구(`*` 가 든 번호를 저장된 본문 원문으로 다시 뽑기)를 한 번 돈다. 가져오기·복원은 값을 바꾸지 않는다(왕복 무손실).
+- 상세 저장(`upsertReport`): 본문 원문 종류 `report_body`, 새 원문이 비면 기존 유지, 원문 내용·종류 중 하나라도 바뀌면 변경(서버 `_save_raw`). 반환값 `({isNew, changed, syncedAt})` 으로 동기화가 변경 알림을 판정한다 — 서버 reports_repo 와 같은 기준(신규 / 추적 열·category·entry_value·원문 변경). 처리상태가 바뀌면 '처리변경', 그 밖엔 서버와 같은 '변경'. payload 에 `notification_kind`·`change_reason`·보완 필드·`synced_at`, 순서는 서버 `_report_change_sort_key` 와 같게.
+- 변경 판정 열 목록 = 계약 `change_tracked.columns`(서버 `CHANGE_TRACKED_COLUMNS` 와 같은 목록, 양쪽 테스트).
+- 파서: 빈 문자열 주소(`RN_ADRES`·`SPLMNT_RN_ADRES`)는 다음 후보로, `C_NOW` 는 "10.0" 같은 소수 표기도 읽음(서버 `int(float())`).
+- 통계 법규 선택지는 연도·취하 제외·대표건 적용 후, 법규 필터 전 행에서(서버 `get_agency_stats`).
+- 옛 중복군 상태·대표건 모드 변환은 서버 `_LEGACY_STATUS_MAP` 과 같게(`normalizeDuplicateStatus`/`normalizeRepresentativeMode`).
+- 전체 재동기화는 사라진 신고 정리를 중복군 재계산보다 먼저 한다.
+- 계산 동등성 하네스 `test/tool/logic_parity_harness_test.dart` — 서버 `scripts/dev/logic_parity_check.py` 가 호출(평소 flutter test 에서는 건너뜀).

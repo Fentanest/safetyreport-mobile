@@ -172,9 +172,15 @@ Report parseJsonToReport(
   var occurrenceTime = timeMatch?.group(1)?.trim() ?? '';
 
   // 위반장소
+  // 서버 parser 처럼 빈 문자열도 "없음"으로 보고 다음 후보로 넘어간다(2026-09-25 동등성 검수).
+  String? nonEmpty(Object? v) {
+    final t = v?.toString() ?? '';
+    return t.isEmpty ? null : t;
+  }
+
   var violationLocation =
-      (detailData['RN_ADRES'] as String? ??
-              detailData['C_A_ADD2'] as String? ??
+      (nonEmpty(detailData['RN_ADRES']) ??
+              nonEmpty(detailData['C_A_ADD2']) ??
               '${detailData['C_A_ADDR_HEAD'] ?? ''} ${detailData['C_A_ADDR_TAIL'] ?? ''}')
           .trim();
 
@@ -197,20 +203,19 @@ Report parseJsonToReport(
       occurrenceTime = '${rawTime.substring(0, 2)}:${rawTime.substring(2, 4)}';
     }
     final splmntLoc =
-        ((detailData['SPLMNT_RN_ADRES'] ?? detailData['SPLMNT_C_A_ADD2'] ?? '')
-                as String)
+        (nonEmpty(detailData['SPLMNT_RN_ADRES']) ??
+                nonEmpty(detailData['SPLMNT_C_A_ADD2']) ??
+                '')
             .trim();
     if (splmntLoc.isNotEmpty) violationLocation = splmntLoc;
   }
 
   // ── 신고 상태 (C_NOW) ────────────────────────────────────────────────────
-  int cNow = 0;
-  try {
-    cNow =
-        (detailData['C_NOW'] as num?)?.toInt() ??
-        int.tryParse(detailData['C_NOW']?.toString() ?? '') ??
-        0;
-  } catch (_) {}
+  // 서버 int(float(c_now)) 와 같게 숫자·"10"·"10.0" 모두 읽고, 못 읽으면 0.
+  final rawCNow = detailData['C_NOW'];
+  final int cNow = rawCNow is num
+      ? rawCNow.toInt()
+      : (double.tryParse('${rawCNow ?? ''}'.trim())?.toInt() ?? 0);
 
   // 보완요청 상태 판정 (서버 parse_json_details 동일)
   int splmntDmndNo = 0;

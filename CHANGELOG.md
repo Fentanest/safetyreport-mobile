@@ -8,6 +8,14 @@
 
 ---
 
+## 2026-09-25 (버전 변경 없음)
+
+### 업데이트 전 자동 DB 백업
+
+- 앱을 새 버전으로 올린 뒤 처음 DB 를 열 때, 구조를 바꾸기 전에 DB 파일을 `<db>.pre_v<옛 버전>.<시각>.bak` 로 복사해 둔다(최근 3개). 새 설치·이미 최신이면 건너뜀.
+- 이전 버전 앱으로 되돌리면 새 DB 를 열 수 없다는 점과 되돌리는 방법을 `docs/architecture/data-contracts.md` 에 적음.
+- 테스트: `test/storage/migration_test.dart`(옛 버전 그대로 복사, 한 번만, 개수 제한). flutter test 160 통과.
+
 ## 2026-09-24 (버전 변경 없음, 브랜치 `feature/storage-refactor`)
 
 ### 저장 계층 Gemini 교차 검토(G11) 반영

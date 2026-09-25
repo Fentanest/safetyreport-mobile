@@ -156,4 +156,59 @@ void main() {
       },
     );
   }
+
+  test(
+    'an old DB is copied before the upgrade, once, and only the latest copies are kept',
+    () async {
+      await _makeOldDb(11);
+      final path = await LocalDbService.getDbPath();
+      final folder = File(path).parent;
+      final name = File(path).uri.pathSegments.last;
+      List<File> backups() => folder
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.uri.pathSegments.last.startsWith('$name.pre_v'))
+          .toList();
+      for (final f in backups()) {
+        f.deleteSync();
+      }
+      // 오래된 백업 몇 개가 이미 있다고 치자
+      for (var i = 0; i < 4; i++) {
+        File('$path.pre_v10.${1000 + i}.bak').writeAsBytesSync([0]);
+      }
+
+      await LocalDbService.db; // 업데이트 뒤 첫 열기
+      final made = backups()
+          .where((f) => f.path.contains('.pre_v11.'))
+          .toList();
+      expect(made, hasLength(1));
+      final copy = await openDatabase(
+        made.single.path,
+        readOnly: true,
+        singleInstance: false,
+      );
+      expect(await copy.getVersion(), 11); // 올리기 전 그대로
+      expect((await copy.query('reports')).length, 3);
+      await copy.close();
+      expect(
+        await (await LocalDbService.db).getVersion(),
+        LocalDbService.dbVersion,
+      );
+      expect(backups(), hasLength(LocalDbService.preUpgradeBackupKeep));
+      expect(
+        File('$path.pre_v10.1000.bak').existsSync(),
+        isFalse,
+      ); // 가장 오래된 것부터 지움
+
+      await LocalDbService.closeDb();
+      await LocalDbService.db; // 이미 최신 — 새 백업 없음
+      expect(
+        backups().where((f) => f.path.contains('.pre_v11.')),
+        hasLength(1),
+      );
+      for (final f in backups()) {
+        f.deleteSync();
+      }
+    },
+  );
 }

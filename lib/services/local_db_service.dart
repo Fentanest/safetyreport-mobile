@@ -170,14 +170,65 @@ class LocalDbService {
   static const dbVersion = 13;
 
   static Future<Database> _open() async {
+    final path = await getDbPath();
+    await backupBeforeUpgrade(path);
     final database = await openDatabase(
-      await getDbPath(),
+      path,
       version: dbVersion,
       onCreate: _create,
       onUpgrade: _migrateLocalDatabase,
     );
     await _ensureEffectiveView(database);
     return database;
+  }
+
+  static const preUpgradeBackupKeep = 3;
+
+  /// 앱 업데이트 뒤 처음 DB 를 열 때, 스키마를 올리기 전에 DB 파일을 복사해 둔다.
+  /// 저장된 버전이 1 이상이고 [dbVersion] 보다 낮을 때만(새 설치·이미 최신은 건너뜀).
+  /// 파일: `<db>.pre_v<옛 버전>.<epoch ms>.bak`, 최근 [preUpgradeBackupKeep] 개만 남긴다.
+  /// 버전 없이 열어(마이그레이션 없음) WAL 을 본 파일에 합친 뒤 복사하므로 최근 쓰기도 들어간다.
+  /// 되돌리기: 이 파일을 원래 이름으로 바꾸고 **그 버전의 앱**으로 연다(새 앱으로 열면 다시 올린다).
+  @visibleForTesting
+  static Future<String?> backupBeforeUpgrade(String path) async {
+    final file = File(path);
+    if (!file.existsSync()) return null;
+    final probe = await openDatabase(path, singleInstance: false);
+    int version;
+    try {
+      version = await probe.getVersion();
+      if (version >= 1 && version < dbVersion) {
+        await probe.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+      }
+    } finally {
+      await probe.close();
+    }
+    if (version < 1 || version >= dbVersion) return null;
+    final target =
+        '$path.pre_v$version.${DateTime.now().millisecondsSinceEpoch}.bak';
+    await file.copy(target);
+    final dir = file.parent;
+    final name = file.uri.pathSegments.last;
+    final olds = dir.listSync().whereType<File>().where((f) {
+      final n = f.uri.pathSegments.last;
+      return n.startsWith('$name.pre_v') && n.endsWith('.bak');
+    }).toList()..sort((a, b) => _backupStamp(a).compareTo(_backupStamp(b)));
+    for (final f in olds.take(
+      olds.length > preUpgradeBackupKeep
+          ? olds.length - preUpgradeBackupKeep
+          : 0,
+    )) {
+      try {
+        f.deleteSync();
+      } catch (_) {}
+    }
+    return target;
+  }
+
+  /// `<db>.pre_v<버전>.<epoch ms>.bak` 의 시각 부분(정렬용).
+  static int _backupStamp(File f) {
+    final parts = f.uri.pathSegments.last.split('.');
+    return parts.length >= 2 ? int.tryParse(parts[parts.length - 2]) ?? 0 : 0;
   }
 
   /// 보완요청 마지막 round 1개 + 누적 횟수 + 요청자/일시 메타를 reports row 에 보존.

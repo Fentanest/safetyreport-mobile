@@ -346,3 +346,9 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
 - **R2·R3(2026-09-24)**: `reports` 는 **사이트 원본**(서버 title+detail 과 같은 뜻). 사용자 수정값은 `report_override`, 화면·통계는 보기 `reports_effective`(원본 위에 수정값, DB 를 열 때마다 재생성 — 이 보기가 참조하는 열을 DROP/RENAME 하려면 먼저 보기를 지울 것).
   서버 DB 가져오기는 `mysafety` + `mysafetydetail_*` 를 읽고(구서버만 merge), 6개월 지난 첨부는 `attachment_policy.dart` 로 화면에서 가림.
   `upsertReport(…, ratingLookup:)` 는 UPDATE 로 사이트·계산 열만 쓴다. 데모 계정은 `standalone_reports_demo.db`(설정 키 `standaloneDemoMode`). DB v13.
+
+## 앱 업데이트 때 DB 처리 (2026-09-25)
+- DB 를 열 때 sqflite 가 저장된 버전을 보고 `_migrateLocalDatabase` 로 `LocalDbService.dbVersion`(현재 13)까지 올린다. sqflite 가 이 과정을 한 트랜잭션으로 돌려 실패하면 통째로 되돌아간다.
+- 올리기 전에 `LocalDbService.backupBeforeUpgrade` 가 DB 파일을 `<db>.pre_v<옛 버전>.<epoch ms>.bak` 로 복사한다(버전 없이 열어 WAL 을 합친 뒤 복사, 새 설치·이미 최신이면 건너뜀, 최근 3개 유지). 앱 데이터 폴더 안이라 앱을 지우면 함께 지워진다.
+- **이전 버전 앱으로 되돌리면 새 DB 를 열지 못한다**: 구조는 추가만 했지만 sqflite 가 버전 번호가 내려가는 것(onDowngrade 없음)을 막는다. 되돌릴 때는 `.pre_v<그 앱의 버전>` 백업을 원래 이름으로 바꾸거나, 앱 데이터를 지우고 다시 동기화한다(Standalone) / 서버에서 다시 받는다(Client).
+- 앱 백업 복원(`replaceFromBackup`)은 따로: 종류·버전 확인 → 임시 사본 업그레이드·검사 → `.bak` 남기고 교체. 새 앱이 만든 백업은 거부한다.

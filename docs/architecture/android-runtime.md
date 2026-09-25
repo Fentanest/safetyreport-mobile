@@ -91,6 +91,21 @@ SyncEngine.emitChanges(List<Map>)
 `ChangeType` (sync_engine.dart) 가 모든 식별자의 single source of truth.  
 `reportToChangeMap(report, changeType)` 가 표준 Map 형식 생성.
 
+### 5. 커뮤니티 계정 로그인 복귀 딥링크 (2026-09-25)
+
+```
+Supabase Auth → com.fentanest.mysafetyreport://auth/callback?code=…   (MainActivity intent-filter VIEW/DEFAULT/BROWSABLE, path 정확히 일치)
+  └─ MainActivity.captureCommunityAuthLink (onCreate·onNewIntent 에서 super 전에)
+       ├ scheme/host/path/userInfo/port 정확히 일치할 때만, 프로세스 복원·최근 앱 재실행 intent 는 무시
+       ├ companion 보관함(한 칸)에 넣고 intent.data = null
+       └ Dart 준비됨이면 MethodChannel community_auth "onCommunityAuthLink"(신호만)
+Dart CommunityAuthLinkChannel (main() 에서 등록) → "takePendingLink"(꺼내며 비움) → CommunityAuthService.handleCallbackLink
+```
+
+- 같은 activity 에 `flutter_deeplinking_enabled=false`: Flutter 기본 딥링크(기본값 true)가 intent data 를 Navigator 라우트로 보내지 않게.
+- 기존 `handleNavIntent`(알림·바로가기 extras)는 그대로. `<queries>` 의 `appsafetyreport` 는 공식 앱 실행용 outbound 로, 이 수신 필터와 무관.
+- 상세·보안 메모: [community-account.md](community-account.md).
+
 ## SharedPreferences 키 (Kotlin ↔ Flutter 공유)
 
 저장소: `FlutterSharedPreferences` (Android XML)
@@ -115,6 +130,17 @@ SyncEngine.emitChanges(List<Map>)
 | `flutter.standalone_auth_last_at` / `_outcome` / `_message` | long / String / String | 마지막 자동·수동 로그인 결과 (2026-09-24) |
 | `flutter.standalone_auth_alert` | String | 백그라운드 로그인 점검 → Kotlin 알림 트리거 (`<epoch ms>|메시지`) |
 | `flutter.review_*` | int / String | 스토어 별점 요청 조건(설치 시각·사용한 날·요청 횟수·마지막 요청) |
+
+### FlutterSecureStorage 키 (Dart 만, Kotlin 은 읽지 않음)
+
+`encryptedSharedPreferences: true`(Android Keystore). SharedPreferences 표와 별개 저장소이며 `allowBackup="false"`.
+
+| 키 | 용도 |
+|----|------|
+| `standalone_password` | 안전신문고 재로그인용 비밀번호 |
+| `community_session_v1` | Standalone 커뮤니티 계정 세션(Supabase access/refresh token·만료·표시 이름) — [community-account.md](community-account.md) |
+| `community_pending_login_v1` | 브라우저로 보낸 커뮤니티 로그인(PKCE verifier·시작 시각) |
+| `community_consumed_callback_v1` | 마지막으로 소비한 복귀 링크의 SHA-256(중복 교환 방지) |
 
 ### 같은 키를 두 쪽이 쓰지 않는다 (R6, M-29/M-31)
 앱과 WsService 는 같은 프로세스의 같은 SharedPreferences 를 쓴다. 한 키를 둘 다 읽고-고쳐-쓰면 거의 동시에 쓸 때 한쪽이 사라진다.

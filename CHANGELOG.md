@@ -10,6 +10,31 @@
 
 ## 2026-09-25 (버전 변경 없음)
 
+### 커뮤니티 계정 연결 (worklazy.net/safeauth)
+
+커뮤니티 지도에 쓰는 **카카오 계정**(Supabase Auth)을 연결한다. 안전신문고 계정과 별개이고, 계정 연결만으로 신고 데이터가 업로드되지는 않는다.
+설계·흐름·저장 키·보안 메모: `docs/architecture/community-account.md`.
+
+- **Standalone (앱이 인증·세션 주인)**: 설정 > "커뮤니티 계정" 카드(설정되지 않음 / 연결 안 됨 / 브라우저 대기 / 계정 확인 / 연결됨 / 다시 로그인 필요).
+  PKCE(S256)로 카카오 authorize 주소를 외부 브라우저에서 열고, `com.fentanest.mysafetyreport://auth/callback` 으로 돌아오면 코드 교환 →
+  계정 확인 창("이 계정으로 연결"/"취소", 다른 계정이면 교체 경고) → 확인할 때만 세션을 `flutter_secure_storage` 에 저장. 취소·연결 해제는 `logout?scope=local`.
+  세션 공급 `getAccessToken()`: 만료 60초 전 갱신, 동시 호출은 갱신 한 번, 회전된 access+refresh 함께 저장, 만료·철회는 "다시 로그인 필요", 네트워크 오류는 세션 유지.
+- 중복 링크(onNewIntent·콜드 스타트 재전달·최근 앱 복원)에도 교환은 한 번(교환 전 대기 로그인 소비 + 소비 표시). 대기 로그인 없음·10분 지남·다른 scheme/host/path 는 무시.
+- **Android**: MainActivity 에 복귀 intent-filter(VIEW/DEFAULT/BROWSABLE, path 정확히 일치)와 `flutter_deeplinking_enabled=false`.
+  링크는 super 전에 꺼내 intent 에서 지우고 새 MethodChannel `com.fentanest.mysafetyreport/community_auth`(`takePendingLink`/`onCommunityAuthLink`)로만 넘긴다.
+  Dart 핸들러는 `main()` 에서 등록해 SetupScreen 에서도 받는다. 기존 알림·바로가기 intent 라우팅은 그대로.
+- **Client (서버가 인증·세션 주인)**: 서버가 `capabilities` 에 `community_account` 를 알리면 설정 > "서버 연결" 아래 "서버의 커뮤니티 계정" 카드.
+  서버 API `/api/v1/community-auth/{status,start,confirm,cancel,disconnect}` 만 부르고 폰은 토큰을 받거나 저장하지 않는다. 1회용 연결 링크는 외부 브라우저로만 열고
+  비교코드를 크게 보인다. 403 은 서버 관리자 화면 권한 안내, 404 는 "서버가 이 기능을 아직 지원하지 않습니다", 서버가 꺼져 있으면 오류만(Standalone 로그인으로 바꾸지 않음).
+  pending/확인 대기일 때만 3초마다 상태 조회, POST 는 자동 재시도 없음.
+- 모드 변경(`resetConfig`)은 Standalone 커뮤니티 세션·대기 로그인을 지운다(서버 계정은 건드리지 않음). SharedPreferences·SQLite 에는 아무것도 저장하지 않는다.
+- 빌드 설정 `--dart-define=COMMUNITY_SUPABASE_URL=…`, `COMMUNITY_SUPABASE_PUBLISHABLE_KEY=…`(공개값). 없으면 "설정되지 않음". https 만(디버그에서만 127.0.0.1·10.0.2.2), `sb_secret_`·service_role 키 거부.
+  Supabase Redirect URLs 에 `com.fentanest.mysafetyreport://auth/callback` 등록 필요. supabase_flutter 등 새 패키지는 추가하지 않았다(GoTrue v2.197.0 REST 계약 기준 좁은 어댑터).
+- 테스트 추가: PKCE(RFC 7636 벡터)·복귀 링크 해석·설정 검사, 서비스(MockClient + 보안 저장소 mock: 중복 링크 1회 교환, 만료 무시, 보안 저장소에만 저장, scope=local,
+  갱신 single-flight·회전 저장, invalid grant, resetConfig), Client 서비스(상태·오류 대응·오프라인), 두 카드 라이트/다크·글자 2.0배·320폭 + 전역 확인 창.
+- 결과: flutter test 313 통과 / 2 skip(이전 218 / 2). flutter analyze error 0 / warning 2 / info 36(변화 없음). `flutter build apk --debug`(dart-define 없음) 성공, 병합 매니페스트에 복귀 필터·`flutter_deeplinking_enabled=false` 확인.
+- 미검증: 실기기·에뮬레이터 복귀(콜드 스타트/onNewIntent), 실제 Supabase·카카오 로그인, 실서버 커뮤니티 API 연동, 백그라운드 isolate 갱신. iOS 미구현.
+
 ### 서버↔모바일 DB·로직 동등성 검수 반영 (G17, DB v15)
 
 - 6Sol·Gemini 교차 검수와 같은 데이터로 양쪽 계산을 비교하는 새 검사(서버 `scripts/dev/logic_parity_check.py` + `test/tool/logic_parity_harness_test.dart`)에서 찾은 차이를 서버 규칙에 맞춤.

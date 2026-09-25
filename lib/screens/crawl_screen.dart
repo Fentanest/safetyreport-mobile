@@ -20,7 +20,6 @@ class CrawlScreen extends StatefulWidget {
 
 class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
   // ── 서버 모드 상태 ──────────────────────────────────────────────────────────
-  String _loginMode = 'member';
   String _crawlType = 'api';
   String _crawlMode = 'full';
   int _maxEmptyPages = 3;
@@ -352,7 +351,6 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
     try {
       final pages = int.tryParse(_maxPagesController.text) ?? 3;
       await api.startCrawl(
-        loginMode: _loginMode,
         crawlType: _crawlType,
         crawlMode: _crawlMode,
         maxEmptyPages: pages,
@@ -413,19 +411,6 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
         );
       }
     }
-  }
-
-  Future<void> _resumeCrawl() async {
-    final api = _api();
-    if (api == null) return;
-    try {
-      await api.resumeCrawl();
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('재개 신호를 전송했습니다.')));
-      }
-    } catch (_) {}
   }
 
   // ── 빌드 ─────────────────────────────────────────────────────────────────────
@@ -781,25 +766,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
                     ),
                     SizedBox(height: 12),
 
-                    _sectionTitle('1. 로그인 모드'),
-                    _radioTile(
-                      '회원 로그인',
-                      'member',
-                      _loginMode,
-                      '저장된 ID/PW로 자동 로그인',
-                      onChanged: (v) => setState(() => _loginMode = v!),
-                    ),
-                    _radioTile(
-                      '비회원(수동) 로그인',
-                      'nonmember',
-                      _loginMode,
-                      '브라우저에서 수동 로그인 후 재개 버튼 누르기',
-                      onChanged: (v) => setState(() => _loginMode = v!),
-                    ),
-
-                    SizedBox(height: 12),
-
-                    _sectionTitle('2. 크롤링 범위'),
+                    _sectionTitle('1. 크롤링 범위'),
                     _radioTile(
                       '전체 크롤링',
                       'full',
@@ -860,7 +827,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
 
                     SizedBox(height: 12),
 
-                    _sectionTitle('4. 큐 (선택사항)'),
+                    _sectionTitle('2. 큐 (선택사항)'),
                     TextField(
                       controller: _queueController,
                       maxLines: 3,
@@ -885,21 +852,6 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
                             onPressed: _isRunning ? null : _startCrawl,
                           ),
                         ),
-                        if (_loginMode == 'nonmember') ...[
-                          SizedBox(width: 8),
-                          FilledButton.icon(
-                            icon: Icon(Icons.play_circle_outline),
-                            label: const Text('재개'),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: StatusTone.of(
-                                Colors.orange,
-                                brightness: Theme.of(context).brightness,
-                                surface: context.sr.surface,
-                              ).foreground,
-                            ),
-                            onPressed: _isRunning ? _resumeCrawl : null,
-                          ),
-                        ],
                         SizedBox(width: 8),
                         FilledButton.icon(
                           icon: Icon(Icons.stop),

@@ -1163,7 +1163,6 @@ class ReportProvider with ChangeNotifier {
       maxEmptyPages = (config['max_empty_pages'] as num?)?.toInt() ?? 3;
     } catch (_) {}
     await _api.startCrawl(
-      loginMode: 'member',
       crawlType: crawlType,
       crawlMode: crawlMode,
       maxEmptyPages: maxEmptyPages,

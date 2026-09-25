@@ -22,7 +22,6 @@ class ServerContract {
   static const crawlConfigPath = '$apiPrefix/crawl/config';
   static const crawlStartPath = '$apiPrefix/crawl/start';
   static const crawlKillPath = '$apiPrefix/crawl/kill';
-  static const crawlResumePath = '$apiPrefix/crawl/resume';
   static const appConfigPath = '$apiPrefix/app/config';
   static const settingsDbPath = '$apiPrefix/settings/db';
   static const settingsDbUploadPath = '$apiPrefix/settings/db/upload';

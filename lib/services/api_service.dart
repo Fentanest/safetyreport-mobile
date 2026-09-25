@@ -655,7 +655,6 @@ class ApiService {
   }
 
   Future<void> startCrawl({
-    required String loginMode,
     required String crawlType,
     required String crawlMode,
     required int maxEmptyPages,
@@ -666,7 +665,6 @@ class ApiService {
         ServerContract.apiUri(baseUrl, ServerContract.crawlStartPath),
         headers: _headers,
         body: jsonEncode({
-          'login_mode': loginMode,
           'crawl_type': crawlType,
           'crawl_mode': crawlMode,
           'max_empty_pages': maxEmptyPages,
@@ -690,18 +688,6 @@ class ApiService {
     if (response.statusCode != 200) {
       final msg = jsonDecode(response.body)['detail'] ?? '중지 실패';
       throw Exception(msg);
-    }
-  }
-
-  Future<void> resumeCrawl() async {
-    final response = await _sendWithRetry(
-      () => http.post(
-        ServerContract.apiUri(baseUrl, ServerContract.crawlResumePath),
-        headers: _headers,
-      ),
-    );
-    if (response.statusCode != 200) {
-      throw Exception('재개 실패');
     }
   }
 

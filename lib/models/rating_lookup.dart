@@ -9,4 +9,7 @@ enum RatingLookup {
 
   /// 조회 성공 → 사이트 점수·사유를 그대로 기록.
   found,
+
+  /// 조회는 됐고 만족도조사 참여가 없다고 확정 → '참여 가능' 으로 되돌리고 별점·사유를 지운다(서버 detail_pipeline 과 같음).
+  confirmedNone,
 }

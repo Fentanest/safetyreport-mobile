@@ -213,6 +213,12 @@ class SyncEngine {
       start += pageSize;
     }
 
+    // 목록 값 갱신(서버 title_to_sql 과 같음): 상세를 다시 받지 않는 종결 신고의 상태·만족도도 사이트와 맞춘다.
+    if (allItems.isNotEmpty && !_stopping) {
+      final refreshed = await LocalDbService.updateTitlesFromList(allItems);
+      if (refreshed > 0) _log('목록 값 갱신: $refreshed건');
+    }
+
     // 신규/증분 대상 필터 (서버 get_pending_detail_ids 동일)
     // - 신규: DB에 없는 ID
     // - 미종결: 종결여부 != 'Y'
@@ -254,9 +260,8 @@ class SyncEngine {
         var report = parseJsonToReport(item, detail);
         final ev = entryValueFromDetail(item, detail);
         final cat = categoryFromEntryValue(ev);
-        // 차량번호 파싱 실패 디버깅용: API 원본 C_A_CONTENTS 저장
-        final raw = (detail['C_A_CONTENTS'] ?? detail['C_A_BODY'] ?? '')
-            .toString();
+        // 본문 원문(서버와 같은 정규화) — 중복 해시·변경 판정이 서버와 같아진다
+        final raw = normalizeRawPayloadText(rawContentOf(detail));
 
         // 별점이 있는 신고 한정으로 사유 추가 fetch (인증 불필요 별도 API)
         final augmented = await _augmentRatingCause(report);
@@ -471,7 +476,12 @@ class SyncEngine {
       phone,
     );
     if (result.score == null) {
-      return (report: report, lookup: RatingLookup.failed);
+      return (
+        report: report,
+        lookup: result.confirmed
+            ? RatingLookup.confirmedNone
+            : RatingLookup.failed,
+      );
     }
     return (
       report: report.copyWith(

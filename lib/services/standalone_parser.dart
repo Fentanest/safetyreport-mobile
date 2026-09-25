@@ -34,9 +34,7 @@ String entryValueFromDetail(
   Map<String, dynamic> listData,
   Map<String, dynamic> detailData,
 ) {
-  final rawContent =
-      (detailData['C_A_CONTENTS'] ?? detailData['C_A_BODY'] ?? '') as String;
-  final content = _normalizeNumbers(rawContent);
+  final content = normalizeRawPayloadText(rawContentOf(detailData));
   final m = RegExp(
     r'본 신고는 안전신문고 (?:앱의|포털의) (.+?) 메뉴로 접수된 신고입니다',
   ).firstMatch(content);
@@ -67,6 +65,63 @@ String _normalizeNumbers(String s) => s
     .replaceAll('９', '9')
     .replaceAll('，', ',');
 
+/// 본문 원문 정규화(서버 parser._normalize_raw_payload_text 와 같음): 줄바꿈 통일, nbsp → 공백, 전각 숫자·쉼표 → 반각, 앞뒤 공백 제거.
+/// 저장하는 원문(report_raw)과 파싱 입력이 모두 이 값을 쓴다 — 서버·앱 중복 해시·변경 판정이 같아진다.
+String normalizeRawPayloadText(String? value) => _normalizeNumbers(
+  (value ?? '')
+      .replaceAll('\r\n', '\n')
+      .replaceAll('\r', '\n')
+      .replaceAll('\u00a0', ' '),
+).trim();
+
+/// 상세 응답의 본문(C_A_CONTENTS, 비어 있으면 C_A_BODY) 원문.
+String rawContentOf(Map<String, dynamic> detailData) {
+  final contents = detailData['C_A_CONTENTS']?.toString() ?? '';
+  return contents.isNotEmpty
+      ? contents
+      : (detailData['C_A_BODY']?.toString() ?? '');
+}
+
+/// 목록 API 한 항목의 목록 값(서버 crawltitle_api 와 같은 규칙): 상태·신고번호·신고명·신고일(날짜만)·만족도조사여부.
+Map<String, String> titleFieldsFromListItem(Map<String, dynamic> item) {
+  final cNow = int.tryParse('${item['C_NOW'] ?? 0}'.split('.').first) ?? 0;
+  final score =
+      int.tryParse('${item['STSFDG_SCORE'] ?? 0}'.split('.').first) ?? 0;
+  final title = (item['C_A_TITLE'] ?? '').toString();
+  final String poll;
+  if (score > 0) {
+    poll = '참여 완료';
+  } else if ([10, 11, 14, 15].contains(cNow)) {
+    poll = '참여 가능';
+  } else if ([20, 30].contains(cNow)) {
+    poll = '참여 불가';
+  } else {
+    poll = '답변 대기';
+  }
+  final date = (item['C_DATE'] ?? '').toString().trim();
+  return {
+    '상태': _cNowStatus[cNow] ?? cNow.toString(),
+    '신고번호': (item['STTEMNT_NO'] ?? '').toString(),
+    '신고명': title.contains(')')
+        ? title.split(')').sublist(1).join(')').trim()
+        : title.trim(),
+    '신고일': date.isEmpty ? '' : date.split(' ').first,
+    '만족도조사여부': poll,
+  };
+}
+
+/// 본문의 `차량번호 : …` 한 줄에서 번호만(서버 parser.extract_car_number 와 같음). 같은 줄 안에서만 읽고 `*`·`(위` 에서 끊는다.
+String extractCarNumber(String content) {
+  final m = RegExp(r'차량번호[ \t]*:[ \t]*([^\n]*)').firstMatch(content);
+  if (m == null) return '';
+  final value = m.group(1)!.split(RegExp(r'\*|\(위')).first;
+  return value.replaceAll(RegExp(r'\s+'), '');
+}
+
+/// 신고내용: 본문에서 `* 차량번호` 앞까지(서버와 같음 — 안내 문장도 지우지 않는다, 사용자 결정 2026-09-25).
+String reportContentOf(String normalizedContent) =>
+    normalizedContent.split(RegExp(r'\*\s*차량번호')).first.trim();
+
 // ── 과태료 금액 → 원 단위 정수 추출 (서버 _extract_fine_amount 와 동일) ──────
 // '과태료: 40,000원' 형식만 합산. '범칙금: 40,000원'은 0 반환.
 // 통계의 총 과태료 합계용.
@@ -94,11 +149,7 @@ Report parseJsonToReport(
   // ── 신고 내용 텍스트 파싱 ────────────────────────────────────────────────
   // Traffic 신고는 CRLF(\r\n)를 사용함. Dart regex의 '.'는 \r을 매치하지 않아
   // 차량번호 파싱이 실패. \r\n → \n, 단독 \r → \n 으로 정규화.
-  final rawContent =
-      (detailData['C_A_CONTENTS'] ?? detailData['C_A_BODY'] ?? '') as String;
-  final content = _normalizeNumbers(
-    rawContent,
-  ).replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+  final content = normalizeRawPayloadText(rawContentOf(detailData));
 
   final entryMatch = RegExp(
     r'본 신고는 안전신문고 (?:앱의|포털의) (.+?) 메뉴로 접수된 신고입니다',
@@ -107,20 +158,17 @@ Report parseJsonToReport(
       entryMatch?.group(1)?.trim() ??
       (detailData['C_APP_GUBUN_NM'] as String? ?? '');
 
-  // \n, *(다음 항목), (위, 문자열 끝 모두를 종단점으로 처리
-  final carMatch = RegExp(
-    r'차량번호\s*:\s*(.*?)(?=\n|\*|\(위|$)',
-  ).firstMatch(content);
-  var carNumber = carMatch != null
-      ? carMatch.group(1)!.replaceAll(RegExp(r'\s+'), '')
-      : '';
+  var carNumber = extractCarNumber(content);
 
   final dateMatch = RegExp(
-    r'발생일자\s*:\s*(\d{4}[.]\d{1,2}[.]\d{1,2})',
+    r'발생일자[ \t]*:[ \t]*(\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2})',
   ).firstMatch(content);
-  var occurrenceDate = dateMatch?.group(1)?.trim().replaceAll('.', '-') ?? '';
+  var occurrenceDate =
+      dateMatch?.group(1)?.trim().replaceAll(RegExp(r'[.\-/]'), '-') ?? '';
 
-  final timeMatch = RegExp(r'발생시각\s*:\s*(\d{2}:\d{2})').firstMatch(content);
+  final timeMatch = RegExp(
+    r'발생시각[ \t]*:[ \t]*(\d{2}:\d{2})',
+  ).firstMatch(content);
   var occurrenceTime = timeMatch?.group(1)?.trim() ?? '';
 
   // 위반장소
@@ -182,12 +230,8 @@ Report parseJsonToReport(
 
   final rawStatus = _cNowStatus[cNow] ?? (cNow > 0 ? cNow.toString() : '진행');
 
-  // ── 신고 내용 (차량번호 이전 텍스트에서 intro 문장 제거) ─────────────────
-  var reportContent = content.split(RegExp(r'\*\s*차량번호')).first;
-  // "본 신고는 안전신문고 앱의 X 메뉴로 접수된 신고입니다" intro 문장 제거
-  reportContent = reportContent
-      .replaceAll(RegExp(r'본 신고는 안전신문고 (?:앱의|포털의) .+? 메뉴로 접수된 신고입니다\.?\s*'), '')
-      .trim();
+  // ── 신고 내용 ────────────────────────────────────────────────────────────
+  final reportContent = reportContentOf(content);
 
   // ── 처리 기관 답변 파싱 ──────────────────────────────────────────────────
   var processingStatus = '';
@@ -230,7 +274,9 @@ Report parseJsonToReport(
     processingContent = processingContent
         .replaceAll(RegExp(r'<[^>]+>'), '\n')
         .trim();
-    processingContent = _normalizeNumbers(processingContent);
+    processingContent = _normalizeNumbers(
+      processingContent.replaceAll('\u00a0', ' '),
+    );
   }
 
   // 위반법규
@@ -509,7 +555,8 @@ _SupplementSummary _summarizeLastSupplementFromJson(
       : (detailData['SPLMNT_ANS_CONTENTS'] ?? '').toString().trim();
 
   return _SupplementSummary(
-    count: dmndNo > 0 ? dmndNo : (content.isEmpty ? 0 : 1),
+    // 요청 번호가 없어도 round 가 있으면(요청 내용 또는 완료 시각) 1회 — 서버와 같음
+    count: dmndNo > 0 ? dmndNo : 1,
     open: isOpen,
     requester: requester,
     requestedAt: requestedAt,

@@ -69,13 +69,13 @@ class StandaloneApiService {
         lastError = e;
       }
       if (attempt < mobileMaxRetryAttempts) {
-        await Future.delayed(
-          const Duration(seconds: mobileRetryDelaySeconds),
-        );
+        await Future.delayed(const Duration(seconds: mobileRetryDelaySeconds));
       }
     }
     if (lastError != null) {
-      throw Exception('공개 API 조회 실패 (${mobileMaxRetryAttempts}회 재시도): $lastError');
+      throw Exception(
+        '공개 API 조회 실패 (${mobileMaxRetryAttempts}회 재시도): $lastError',
+      );
     }
     return null;
   }
@@ -110,9 +110,7 @@ class StandaloneApiService {
         lastError = e;
       }
       if (attempt < mobileMaxRetryAttempts) {
-        await Future.delayed(
-          const Duration(seconds: mobileRetryDelaySeconds),
-        );
+        await Future.delayed(const Duration(seconds: mobileRetryDelaySeconds));
       }
     }
     throw Exception('별점 전송 실패 (${mobileMaxRetryAttempts}회 재시도): $lastError');
@@ -150,14 +148,14 @@ class StandaloneApiService {
         lastError = e;
       }
       if (attempt < mobileMaxRetryAttempts) {
-        await Future.delayed(
-          const Duration(seconds: mobileRetryDelaySeconds),
-        );
+        await Future.delayed(const Duration(seconds: mobileRetryDelaySeconds));
       }
     }
 
     if (res == null) {
-      throw Exception('네트워크 오류 (${mobileMaxRetryAttempts}회 재시도 실패): $lastError');
+      throw Exception(
+        '네트워크 오류 (${mobileMaxRetryAttempts}회 재시도 실패): $lastError',
+      );
     }
 
     // 401이면 토큰 만료 — 자동 재로그인 후 1회 재시도.
@@ -241,22 +239,32 @@ class StandaloneApiService {
   /// 만족도조사 점수+사유 조회 (인증 불필요 — 신고번호 + 휴대폰번호로 확인).
   /// 본인 휴대폰번호가 없으면 null. STSFDG_CAUSE는 불만족 사유 텍스트(빈 문자열 가능).
   /// 반환: (score: 1~5 또는 null, cause: String)
-  static Future<({int? score, String cause})> fetchSatisfaction(
+  /// [confirmed] 는 응답을 정상으로 받았다는 뜻(점수 없음 = 확정 미참여). 네트워크·HTTP 오류면 false.
+  static Future<({int? score, String cause, bool confirmed})> fetchSatisfaction(
     String spp,
     String phone,
   ) async {
     final normalizedPhone = phone.replaceAll(RegExp(r'[^0-9]'), '');
-    if (normalizedPhone.isEmpty || spp.isEmpty) return (score: null, cause: '');
+    if (normalizedPhone.isEmpty || spp.isEmpty) {
+      return (score: null, cause: '', confirmed: false);
+    }
     final uri = Uri.parse(
       '$_base/api/v1/portal/statistics/satisfactionstatistics/score/$spp/$normalizedPhone',
     );
     try {
       final res = await _getPublicWithRetry(uri);
-      if (res == null) return (score: null, cause: '');
-      if (res.statusCode != 200) return (score: null, cause: '');
+      if (res == null || res.statusCode != 200) {
+        return (score: null, cause: '', confirmed: false);
+      }
       final json = jsonDecode(res.body) as Map<String, dynamic>;
       final result = json['result'];
-      if (result == null) return (score: null, cause: '');
+      if (result == null || (result is Map && result.isEmpty)) {
+        return (
+          score: null,
+          cause: '',
+          confirmed: true,
+        ); // 서버 satisfaction_fetcher 와 같음
+      }
       final r = result as Map<String, dynamic>;
       final scoreRaw = r['STSFDG_SCORE'];
       final score = (scoreRaw is num)
@@ -272,9 +280,13 @@ class StandaloneApiService {
           cause = _extractCauseFromPopupHtml(popupRes.body);
         }
       }
-      return (score: score > 0 ? score : null, cause: cause.trim());
+      return (
+        score: score > 0 ? score : null,
+        cause: cause.trim(),
+        confirmed: true,
+      );
     } catch (_) {
-      return (score: null, cause: '');
+      return (score: null, cause: '', confirmed: false);
     }
   }
 
@@ -284,9 +296,8 @@ class StandaloneApiService {
     } catch (_) {}
   }
 
-  static Future<({int? score, String cause})> fetchSatisfactionStatus(
-    String spp,
-  ) async {
+  static Future<({int? score, String cause, bool confirmed})>
+  fetchSatisfactionStatus(String spp) async {
     final phone = await StandaloneAuthService.getPhoneNumber();
     return fetchSatisfaction(spp, phone);
   }

@@ -167,7 +167,7 @@ class LocalDbService {
   }
 
   /// 앱 DB 스키마 버전. contracts/storage-contract.json 의 schema_version.mobile 과 같아야 한다(테스트가 확인).
-  static const dbVersion = 13;
+  static const dbVersion = 14;
 
   static Future<Database> _open() async {
     final path = await getDbPath();
@@ -180,6 +180,49 @@ class LocalDbService {
     );
     await _ensureEffectiveView(database);
     return database;
+  }
+
+  /// 목록 API 로 받은 값으로 이미 저장된 신고의 목록 값을 갱신한다(서버 database.title_to_sql 과 같은 규칙).
+  /// 종결돼 상세를 다시 받지 않는 신고도 사이트에서 바뀐 상태·만족도(나중에 매긴 별점)가 반영된다.
+  /// 새 값이 비면 기존 값 유지, '참여 완료' 는 되돌리지 않는다(결정 D-3). 반환: 갱신한 신고 수.
+  static Future<int> updateTitlesFromList(
+    List<Map<String, dynamic>> items,
+  ) async {
+    final d = await db;
+    var updated = 0;
+    await d.transaction((txn) async {
+      final batch = txn.batch();
+      for (final item in items) {
+        final id = item['C_NO']?.toString() ?? '';
+        if (id.isEmpty) continue;
+        final t = titleFieldsFromListItem(item);
+        batch.rawUpdate(
+          '''
+          UPDATE reports SET
+            상태 = CASE WHEN ? = '' THEN 상태 ELSE ? END,
+            신고번호 = CASE WHEN ? = '' THEN 신고번호 ELSE ? END,
+            신고명 = CASE WHEN ? = '' THEN 신고명 ELSE ? END,
+            신고일 = CASE WHEN ? = '' THEN 신고일 ELSE ? END,
+            만족도조사여부 = CASE
+              WHEN ? = '' THEN 만족도조사여부
+              WHEN 만족도조사여부 = '참여 완료' THEN 만족도조사여부
+              ELSE ? END
+          WHERE ID = ?
+          ''',
+          [
+            for (final k in ['상태', '신고번호', '신고명', '신고일', '만족도조사여부']) ...[
+              t[k],
+              t[k],
+            ],
+            id,
+          ],
+        );
+      }
+      final results = await batch.commit();
+      updated = results.whereType<int>().fold(0, (a, b) => a + b);
+    });
+    if (updated > 0) invalidateCaches();
+    return updated;
   }
 
   static const preUpgradeBackupKeep = 3;
@@ -407,6 +450,51 @@ class LocalDbService {
     if (oldV < 13) {
       await _normalizeLegacyProcessingStates(db);
     }
+    if (oldV < 14) {
+      await _restoreReportContentFromRaw(db);
+    }
+  }
+
+  /// v14(2026-09-25 파서 통일): 예전 앱은 신고내용에서 "본 신고는 안전신문고 … 신고입니다" 안내 문장을 지웠다.
+  /// 서버와 같은 규칙(본문에서 `* 차량번호` 앞까지, 안내 문장 유지)으로 저장된 원문(report_raw)에서 다시 만든다. 네트워크 없음.
+  /// 원문이 없는 신고는 그대로 둔다. 반환: 고친 건수.
+  @visibleForTesting
+  static Future<int> restoreReportContentFromRawForTest(DatabaseExecutor db) =>
+      _restoreReportContentFromRaw(db);
+
+  static Future<int> _restoreReportContentFromRaw(DatabaseExecutor db) async {
+    final hasRaw = (await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='report_raw'",
+    )).isNotEmpty;
+    if (!hasRaw) return 0;
+    final rows = await db.rawQuery('''
+      SELECT r.ID, r.신고내용, w.raw_content FROM reports r
+      JOIN report_raw w ON w.ID = r.ID
+      WHERE COALESCE(w.raw_content, '') != ''
+    ''');
+    var fixed = 0;
+    for (final row in rows) {
+      final restored = reportContentOf(
+        normalizeRawPayloadText(row['raw_content'] as String?),
+      );
+      final current = (row['신고내용'] ?? '').toString();
+      // 예전 앱이 안내 문장만 지운 행만 고친다(서버에서 가져온 다른 경로의 값은 건드리지 않음).
+      final withoutIntro = restored
+          .replaceAll(
+            RegExp(r'본 신고는 안전신문고 (?:앱의|포털의) .+? 메뉴로 접수된 신고입니다\.?\s*'),
+            '',
+          )
+          .trim();
+      if (restored == current || withoutIntro != current.trim()) continue;
+      await db.update(
+        'reports',
+        {'신고내용': restored},
+        where: 'ID = ?',
+        whereArgs: [row['ID']],
+      );
+      fixed++;
+    }
+    return fixed;
   }
 
   /// 주정차 사진 EXIF 촬영 시각(서버 `services/photo_capture_time.py` 가 채움). 서버 detail/merge 와 같은 이름·형식.
@@ -738,8 +826,14 @@ class LocalDbService {
         case RatingLookup.notTried:
           rating = r.rating ?? existing?['별점'];
           ratingCause = existing == null ? r.ratingCause : existing['별점사유'];
+        case RatingLookup.confirmedNone:
+          rating = null;
+          ratingCause = '';
       }
-      final poll = existingPoll == '참여 완료' && r.pollStatus != '참여 완료'
+      // '참여 완료' 는 되돌리지 않는다 — 조회가 미참여를 확정했을 때만 예외(결정 D-3).
+      final poll = ratingLookup == RatingLookup.confirmedNone
+          ? '참여 가능'
+          : existingPoll == '참여 완료' && r.pollStatus != '참여 완료'
           ? existingPoll
           : r.pollStatus;
 

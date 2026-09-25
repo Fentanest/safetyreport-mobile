@@ -161,8 +161,7 @@ class StandaloneAutoSyncService {
       final ev = entryValueFromDetail(<String, dynamic>{}, detail);
       final cat = categoryFromEntryValue(ev);
       var report = parseJsonToReport(<String, dynamic>{}, detail);
-      final raw = (detail['C_A_CONTENTS'] ?? detail['C_A_BODY'] ?? '')
-          .toString();
+      final raw = normalizeRawPayloadText(rawContentOf(detail));
       final augmented = await SyncEngine.augmentRatingCause(report);
       report = augmented.report;
       await LocalDbService.upsertReport(

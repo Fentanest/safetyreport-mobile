@@ -14,6 +14,7 @@ import 'package:sqflite/sqflite.dart';
 import '../models/report.dart';
 import 'duplicate_projection_service.dart';
 import 'geocode_utils.dart';
+import 'attachment_policy.dart';
 import 'photo_capture_time.dart';
 import 'standalone_parser.dart';
 
@@ -231,10 +232,7 @@ class LocalDbService {
   static Future<List<({String id, String photos, String reportNumber})>>
   pendingPhotoRows({int? limit}) async {
     final d = await db;
-    final now = DateTime.now();
-    final cutoff = DateTime(now.year, now.month - 6, now.day);
-    String two(int n) => n.toString().padLeft(2, '0');
-    final cutoffText = '${cutoff.year}-${two(cutoff.month)}-${two(cutoff.day)}';
+    final cutoffText = attachmentCutoff(DateTime.now());
     final rows = await d.rawQuery(
       '''
       SELECT ID, 첨부사진, 신고번호 FROM reports
@@ -255,6 +253,19 @@ class LocalDbService {
           reportNumber: (r['신고번호'] ?? '').toString(),
         ),
     ];
+  }
+
+  /// 상세 저장 전에 촬영 시각을 읽어야 하는지: 아직 없는 신고이거나 `사진_촬영수` 가 NULL(서버 `_prefetch_derived` 와 같음).
+  static Future<bool> needsPhotoCapture(String id) async {
+    final d = await db;
+    final rows = await d.query(
+      'reports',
+      columns: ['사진_촬영수'],
+      where: 'ID = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    return rows.isEmpty || rows.first['사진_촬영수'] == null;
   }
 
   /// 촬영 시각을 저장한다(아직 비어 있을 때만). 사이트 원본이 아니라 계산값이라 변경 알림·synced_at 과 무관.
@@ -839,6 +850,7 @@ class LocalDbService {
     String entryValue, {
     String rawContent = '',
     RatingLookup ratingLookup = RatingLookup.notTried,
+    PhotoCapture? photoCapture,
   }) async {
     final d = await db;
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -921,6 +933,12 @@ class LocalDbService {
         '보완_신고자_의견': r.supplementOpinion,
         for (final e in geoPayload.entries) e.key: e.value,
         '감시목록': watchlist.contains(r.reportNumber) ? 'Y' : 'N',
+        // 사진 촬영 시각: 트랜잭션 밖에서 읽어 온 값. 이미 있는 값은 이어받는다(변경 판정 대상 아님).
+        if (photoCapture != null && existing?['사진_촬영수'] == null) ...{
+          '사진_첫촬영': photoCapture.first,
+          '사진_끝촬영': photoCapture.last,
+          '사진_촬영수': photoCapture.count,
+        },
       };
 
       int syncedAt = now;

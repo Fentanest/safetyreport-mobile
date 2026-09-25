@@ -147,15 +147,9 @@ class MaintenanceService {
         done: i,
         current: row.reportNumber.isEmpty ? row.id : row.reportNumber,
       );
-      try {
-        final capture = await collectPhotoCapture(row.photos, fetch: fetch);
-        if (capture != null) {
-          await LocalDbService.setPhotoCapture(row.id, capture);
-          filled++;
-        } else {
-          failed++;
-        }
-      } catch (_) {
+      if (await _fillOne(row.id, row.photos, fetch)) {
+        filled++;
+      } else {
         failed++;
       }
       if (interval > Duration.zero) await Future<void>.delayed(interval);
@@ -168,6 +162,54 @@ class MaintenanceService {
       done: rows.length,
       message: '$filled건 채움${failed > 0 ? ', $failed건은 다음에 다시' : ''}',
     );
+  }
+
+  /// 한 신고의 촬영 시각을 읽어 저장한다. 네트워크 오류면 false — 다음에 다시(서버 `photo_capture_time.fill_one`).
+  static Future<bool> _fillOne(
+    String id,
+    String photos,
+    Future<String?> Function(String url)? fetch,
+  ) async {
+    try {
+      final capture = await collectPhotoCapture(photos, fetch: fetch);
+      if (capture == null) return false;
+      await LocalDbService.setPhotoCapture(id, capture);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 상세 저장 직전(DB 트랜잭션 밖) 촬영 시각 — 서버 `reports_repo._prefetch_derived` 와 같은 규칙:
+  /// 주정차 신고이고 아직 못 읽었으면(새 신고 포함) 사진 앞부분을 받아 읽는다. 오류면 null(저장은 계속, 다음에 다시).
+  static Future<PhotoCapture?> prefetchForSave(
+    String id,
+    String category,
+    String entryValue,
+    String attachedPhotos, {
+    Future<String?> Function(String url)? fetch,
+  }) async {
+    if (!isParkingReport(category, entryValue)) return null;
+    try {
+      if (!await LocalDbService.needsPhotoCapture(id)) return null;
+      return await collectPhotoCapture(attachedPhotos, fetch: fetch);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 동기화가 끝날 때 재시도 — 서버 `photo_capture_time.backfill_missing(limit=30)`(S-8)과 같다.
+  /// 종결돼 다시 받지 않는 신고가 한 번 실패로 영영 비지 않게. 6개월 이내·최신 ID 부터 [limit] 건. 반환: 채운 건수.
+  static Future<int> backfillMissing({
+    int limit = 30,
+    Future<String?> Function(String url)? fetch,
+  }) async {
+    var filled = 0;
+    for (final row in await LocalDbService.pendingPhotoRows(limit: limit)) {
+      if (LocalDbService.closeRequested) break;
+      if (await _fillOne(row.id, row.photos, fetch)) filled++;
+    }
+    return filled;
   }
 
   /// Standalone 표시줄용: 사진 작업 + 지도 좌표 채우기(LocalGeocodeService) 진행.

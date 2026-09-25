@@ -4,10 +4,18 @@
 /// 원본은 보존하므로, 앱도 원본을 두고 화면에서만 가린다(저장 계층 재설계 R2).
 library;
 
+/// 오늘 - 6개월. 서버 `relativedelta(months=6)` 와 같게, 그 달에 없는 날이면 말일로(8/31 → 2/28).
 String attachmentCutoff(DateTime now) {
-  final cutoff = DateTime(now.year, now.month - 6, now.day);
+  var year = now.year;
+  var month = now.month - 6;
+  if (month < 1) {
+    month += 12;
+    year -= 1;
+  }
+  final lastDay = DateTime(year, month + 1, 0).day;
+  final day = now.day > lastDay ? lastDay : now.day;
   String two(int v) => v.toString().padLeft(2, '0');
-  return '${cutoff.year}-${two(cutoff.month)}-${two(cutoff.day)}';
+  return '${year.toString().padLeft(4, '0')}-${two(month)}-${two(day)}';
 }
 
 bool attachmentsExpired(String reportDate, {DateTime? now}) {

@@ -8,6 +8,7 @@ import '../models/report.dart';
 import 'app_prefs_keys.dart';
 import 'duplicate_projection_service.dart';
 import 'local_db_service.dart';
+import 'maintenance_service.dart';
 import 'pending_changes_store.dart';
 import 'standalone_api_service.dart';
 import 'review_prompt_service.dart';
@@ -266,6 +267,13 @@ class SyncEngine {
         // 별점이 있는 신고 한정으로 사유 추가 fetch (인증 불필요 별도 API)
         final augmented = await _augmentRatingCause(report);
         report = augmented.report;
+        // 주정차 사진 촬영 시각(서버 상세 저장과 같은 시점·규칙)
+        final photo = await MaintenanceService.prefetchForSave(
+          report.id,
+          cat,
+          ev,
+          report.attachedPhotos,
+        );
 
         await LocalDbService.upsertReport(
           report,
@@ -273,6 +281,7 @@ class SyncEngine {
           ev,
           rawContent: raw,
           ratingLookup: augmented.lookup,
+          photoCapture: photo,
         );
         if (!fullSync) _trackChange(existingStatus[cNo], report);
         done++;
@@ -293,6 +302,12 @@ class SyncEngine {
 
       // API 과부하 방지: 100ms 딜레이
       await Future.delayed(const Duration(milliseconds: 100));
+    }
+
+    if (!_stopping) {
+      // 종결돼 다시 받지 않는 주정차 신고의 촬영 시각 재시도(서버 크롤링 끝 backfill_missing 과 같음)
+      final filled = await MaintenanceService.backfillMissing();
+      if (filled > 0) _log('[photo] 촬영 시각 재시도로 $filled건 채움');
     }
 
     final duplicateRefresh =

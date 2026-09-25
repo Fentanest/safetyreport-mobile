@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/models/report.dart';
 import 'package:safetyreport/services/local_db_service.dart';
 import 'package:safetyreport/services/maintenance_service.dart';
+import 'package:safetyreport/services/photo_capture_time.dart';
 import 'package:safetyreport/theme/app_theme.dart';
 import 'package:safetyreport/widgets/maintenance_status_bar.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -189,6 +190,85 @@ void main() {
     );
     expect(MaintenanceService.photoJob.value, isNull);
     expect(MaintenanceService.localJobs(), isEmpty);
+  });
+
+  group('same call sites as the server crawl', () {
+    const entry = '불법주정차신고-기타 불법주정차';
+    Future<String?> fetch(String url) async => '2026-09-20 23:10:00';
+
+    test('save-time capture: parking reports not yet read', () async {
+      // 새 신고(아직 행 없음)도 대상 — 서버 _prefetch_derived 와 같음
+      final fresh = await MaintenanceService.prefetchForSave(
+        '1',
+        'parking',
+        entry,
+        'https://x/a.jpg',
+        fetch: fetch,
+      );
+      expect(fresh?.count, 1);
+      await LocalDbService.upsertReport(
+        _report('1', date: _daysAgo(3), photos: 'https://x/a.jpg'),
+        'parking',
+        entry,
+        photoCapture: fresh,
+      );
+      final row = await _row('1');
+      expect(row['사진_첫촬영'], '2026-09-20 23:10:00');
+      expect(row['사진_촬영수'], 1);
+
+      // 이미 읽은 신고는 다시 받지 않고, 재저장해도 값을 이어받는다
+      expect(
+        await MaintenanceService.prefetchForSave(
+          '1',
+          'parking',
+          entry,
+          'https://x/a.jpg',
+          fetch: (_) async => throw StateError('should not fetch'),
+        ),
+        isNull,
+      );
+      await LocalDbService.upsertReport(
+        _report('1', date: _daysAgo(3), photos: 'https://x/a.jpg'),
+        'parking',
+        entry,
+        photoCapture: const PhotoCapture(first: 'x', last: 'x', count: 9),
+      );
+      expect((await _row('1'))['사진_촬영수'], 1);
+    });
+
+    test('save-time capture skips non-parking and survives errors', () async {
+      expect(
+        await MaintenanceService.prefetchForSave(
+          '5',
+          'traffic',
+          '자동차·교통위반-신호위반',
+          'https://x/e.jpg',
+          fetch: fetch,
+        ),
+        isNull,
+      );
+      expect(
+        await MaintenanceService.prefetchForSave(
+          '6',
+          'parking',
+          entry,
+          'https://x/f.jpg',
+          fetch: (_) async => throw Exception('timeout'),
+        ),
+        isNull,
+      );
+    });
+
+    test('end-of-sync retry takes the newest [limit] rows', () async {
+      await seed();
+      final filled = await MaintenanceService.backfillMissing(
+        limit: 1,
+        fetch: fetch,
+      );
+      expect(filled, 1);
+      expect((await _row('2'))['사진_촬영수'], 1);
+      expect((await _row('1'))['사진_촬영수'], isNull);
+    });
   });
 
   test('jobsFromServer reads the server status payload', () {

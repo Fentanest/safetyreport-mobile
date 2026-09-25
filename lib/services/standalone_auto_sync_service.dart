@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'app_prefs_keys.dart';
 import 'duplicate_projection_service.dart';
 import 'local_db_service.dart';
+import 'maintenance_service.dart';
 import 'standalone_api_service.dart';
 import 'standalone_auth_service.dart';
 import 'standalone_parser.dart';
@@ -124,6 +125,13 @@ class StandaloneAutoSyncService {
         // 다음 iteration 으로 → drain 도중 Kotlin 이 추가한 항목까지 처리.
       }
 
+      // 큐 지정 크롤링 끝의 촬영 시각 재시도(서버 _process_and_save_results 와 같음).
+      // 증분 fallback 을 탔으면 그 동기화 끝에서 이미 했다.
+      if (didAnyWork && !didIncremental && !LocalDbService.closeRequested) {
+        final filled = await MaintenanceService.backfillMissing();
+        if (filled > 0) SyncEngine.emitLog('[photo] 촬영 시각 재시도로 $filled건 채움');
+      }
+
       // 개별 fetch 변경사항 일괄 emit
       if (_singleFetchChanges.isNotEmpty) {
         await SyncEngine.emitChanges(_singleFetchChanges);
@@ -164,12 +172,20 @@ class StandaloneAutoSyncService {
       final raw = normalizeRawPayloadText(rawContentOf(detail));
       final augmented = await SyncEngine.augmentRatingCause(report);
       report = augmented.report;
+      // 주정차 사진 촬영 시각(서버 상세 저장과 같은 시점·규칙)
+      final photo = await MaintenanceService.prefetchForSave(
+        report.id,
+        cat,
+        ev,
+        report.attachedPhotos,
+      );
       await LocalDbService.upsertReport(
         report,
         cat,
         ev,
         rawContent: raw,
         ratingLookup: augmented.lookup,
+        photoCapture: photo,
       );
       final duplicateRefresh =
           await DuplicateProjectionService.refreshDuplicateGroups(

@@ -73,6 +73,11 @@ void main() {
           contrastRatio(scheme.onPrimary, scheme.primary),
           greaterThanOrEqualTo(4.5),
         );
+        // 채움 버튼·선택 탭(웹과 같은 진한 파랑 + 흰 글자)
+        final fill = theme.filledButtonTheme.style!.backgroundColor!.resolve(
+          {},
+        )!;
+        expect(contrastRatio(Colors.white, fill), greaterThanOrEqualTo(4.5));
         expect(
           contrastRatio(scheme.primary, sr.surface),
           greaterThanOrEqualTo(4.5),

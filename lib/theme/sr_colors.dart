@@ -5,7 +5,8 @@ import 'package:flutter/material.dart';
 /// UI 리뉴얼 디자인 토큰. 정의와 출처는 `docs/design/ui-renewal-spec.md` §2.
 ///
 /// - 라이트: 토큰 보드 라이트 값.
-/// - 다크: 토큰 보드의 슬레이트 값 (D-01, 2026-09-24 사용자 결정).
+/// - 다크: B안 "딥 다크"(2026-09-25 사용자 결정) — 채도 거의 없는 검정 계단. 서버 웹 `web/static/ui/tokens.css` 다크와 같은 값
+///   (대응표 `docs/design/dark-palette.md`). 예전 슬레이트(푸른 기) 값은 D-01(2026-09-24).
 /// 화면 코드는 색을 직접 쓰지 말고 `context.sr` 또는 `Theme.of(context).colorScheme` 을 읽는다.
 @immutable
 class SrColors extends ThemeExtension<SrColors> {
@@ -54,15 +55,15 @@ class SrColors extends ThemeExtension<SrColors> {
   );
 
   static const dark = SrColors(
-    background: Color(0xFF0B1220),
-    surface: Color(0xFF111827),
-    surfaceAlt: Color(0xFF1F2937),
-    border: Color(0xFF334155),
-    textPrimary: Color(0xFFF8FAFC),
-    textSecondary: Color(0xFFCBD5E1),
-    textDisabled: Color(0xFF64748B),
-    brand: Color(0xFF0D6EFD),
-    brandSoft: Color(0xFF172554),
+    background: Color(0xFF0B0B0C), // web --sr-bg
+    surface: Color(0xFF131314), // --sr-surface
+    surfaceAlt: Color(0xFF1B1B1C), // --sr-surface-2
+    border: Color(0xFF2D2D2F), // --sr-border
+    textPrimary: Color(0xFFF3F3F4), // --sr-text
+    textSecondary: Color(0xFF9EA0A4), // --sr-text-muted
+    textDisabled: Color(0xFF6B6D72),
+    brand: Color(0xFF2563EB), // --sr-primary (채움, 흰 글자 5.17:1)
+    brandSoft: Color(0xFF192436), // --sr-primary-soft 를 surface 위에 합성한 값
     modeClient: Color(0xFF60A5FA),
     modeStandalone: Color(0xFF4ADE80),
   );

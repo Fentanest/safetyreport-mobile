@@ -11,8 +11,11 @@ class AppTheme {
   /// 라이트 primary. 토큰 `#0D6EFD` 는 흰 글자 대비가 4.50:1 경계라 한 단계 어둡게 쓴다(5.84:1).
   static const lightPrimary = Color(0xFF0B5ED7);
 
-  /// 다크 primary. 슬레이트 surface 위 글자/아이콘 대비 6.98:1, onPrimary 는 어두운 글자.
+  /// 다크 primary(글자·아이콘 역할). 웹 `--sr-primary-text` 와 같은 값 — 딥 다크 바탕 위 7.7:1, onPrimary 는 어두운 글자.
   static const darkPrimary = Color(0xFF60A5FA);
+
+  /// 다크 채움(버튼·선택 탭 바탕, 흰 글자 5.17:1). 웹 `--sr-primary` 와 같은 값. 라이트는 [lightPrimary] 가 채움도 맡는다.
+  static const darkPrimaryFill = Color(0xFF2563EB);
 
   static ThemeData light() => build(Brightness.light);
   static ThemeData dark() => build(Brightness.dark);
@@ -22,6 +25,9 @@ class AppTheme {
     final t = isDark ? SrColors.dark : SrColors.light;
     final primary = isDark ? darkPrimary : lightPrimary;
     final onPrimary = isDark ? t.background : Colors.white;
+    // 채움(버튼·선택 탭)은 웹과 같게 진한 파랑 + 흰 글자. 글자·아이콘은 primary.
+    final fill = isDark ? darkPrimaryFill : lightPrimary;
+    const onFill = Colors.white;
 
     final scheme = ColorScheme(
       brightness: brightness,
@@ -55,12 +61,12 @@ class AppTheme {
       surfaceContainerLow: t.surface,
       surfaceContainer: t.surfaceAlt,
       surfaceContainerHigh: isDark
-          ? const Color(0xFF273244)
+          ? const Color(0xFF232324) // --sr-surface-3
           : const Color(0xFFE9EEF5),
       surfaceContainerHighest: isDark
-          ? const Color(0xFF2E3A4F)
+          ? const Color(0xFF2A2A2C)
           : const Color(0xFFE2E8F0),
-      outline: isDark ? const Color(0xFF475569) : const Color(0xFFCBD5E1),
+      outline: isDark ? const Color(0xFF3A3A3D) : const Color(0xFFCBD5E1),
       outlineVariant: t.border,
       inverseSurface: isDark ? t.textPrimary : const Color(0xFF1E293B),
       onInverseSurface: isDark ? t.background : const Color(0xFFF8FAFC),
@@ -110,13 +116,13 @@ class AppTheme {
       tabBarTheme: TabBarThemeData(
         // 시안의 알약형 선택 탭. 선택/미선택 모두 배경 대비 AA 를 만족해야 한다(test/theme).
         indicator: BoxDecoration(
-          color: primary,
+          color: fill,
           borderRadius: BorderRadius.circular(999),
         ),
         indicatorSize: TabBarIndicatorSize.tab,
-        indicatorColor: primary,
+        indicatorColor: fill,
         dividerColor: Colors.transparent,
-        labelColor: onPrimary,
+        labelColor: onFill,
         unselectedLabelColor: t.textSecondary,
         labelStyle: const TextStyle(
           fontSize: 13.5,
@@ -213,6 +219,8 @@ class AppTheme {
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
+          backgroundColor: fill,
+          foregroundColor: onFill,
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),

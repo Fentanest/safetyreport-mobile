@@ -11,6 +11,7 @@ import 'screens/report_management_screen.dart';
 import 'screens/statistics_screen.dart';
 import 'screens/setup_screen.dart';
 import 'screens/notifications_screen.dart';
+import 'models/app_mode.dart';
 import 'models/app_theme_mode.dart';
 import 'models/duplicate_group.dart';
 import 'models/report.dart';
@@ -27,6 +28,7 @@ import 'theme/sr_colors.dart';
 import 'widgets/status_badge.dart';
 import 'widgets/duplicate_group_detail_sheet.dart';
 import 'widgets/report_detail_sheet.dart';
+import 'widgets/maintenance_status_bar.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -730,48 +732,65 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
           return const SizedBox.shrink();
         }),
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) {
-          setState(() => _selectedIndex = index);
-          _refreshOnTab(index);
-        },
-        destinations: [
-          const NavigationDestination(
-            icon: Icon(Icons.dashboard_outlined),
-            selectedIcon: Icon(Icons.dashboard),
-            label: '대시보드',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.list_alt_outlined),
-            selectedIcon: Icon(Icons.list_alt),
-            label: '신고내역',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.inventory_2_outlined),
-            selectedIcon: Icon(Icons.inventory_2),
-            label: '신고관리',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.bar_chart_outlined),
-            selectedIcon: Icon(Icons.bar_chart),
-            label: '통계',
-          ),
-          NavigationDestination(
-            icon: Badge(
-              isLabelVisible: unread > 0,
-              label: Text('$unread'),
-              child: const Icon(Icons.notifications_outlined),
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 업데이트 뒤 한 번 훑기 진행(작업이 없으면 높이 0). Client 는 서버 작업, Standalone 은 이 기기 작업.
+          if (p.isConfigured && !p.isStandaloneDemo)
+            MaintenanceStatusBar(
+              key: ValueKey('maintenance-${p.appMode.name}'),
+              fetchServerStatus: p.appMode == AppMode.server
+                  ? p.fetchMaintenanceStatus
+                  : null,
             ),
-            selectedIcon: Badge(
-              isLabelVisible: unread > 0,
-              label: Text('$unread'),
-              child: const Icon(Icons.notifications),
-            ),
-            label: '알림',
-          ),
+          _buildNavigationBar(unread),
         ],
       ),
+    );
+  }
+
+  Widget _buildNavigationBar(int unread) {
+    return NavigationBar(
+      selectedIndex: _selectedIndex,
+      onDestinationSelected: (index) {
+        setState(() => _selectedIndex = index);
+        _refreshOnTab(index);
+      },
+      destinations: [
+        const NavigationDestination(
+          icon: Icon(Icons.dashboard_outlined),
+          selectedIcon: Icon(Icons.dashboard),
+          label: '대시보드',
+        ),
+        const NavigationDestination(
+          icon: Icon(Icons.list_alt_outlined),
+          selectedIcon: Icon(Icons.list_alt),
+          label: '신고내역',
+        ),
+        const NavigationDestination(
+          icon: Icon(Icons.inventory_2_outlined),
+          selectedIcon: Icon(Icons.inventory_2),
+          label: '신고관리',
+        ),
+        const NavigationDestination(
+          icon: Icon(Icons.bar_chart_outlined),
+          selectedIcon: Icon(Icons.bar_chart),
+          label: '통계',
+        ),
+        NavigationDestination(
+          icon: Badge(
+            isLabelVisible: unread > 0,
+            label: Text('$unread'),
+            child: const Icon(Icons.notifications_outlined),
+          ),
+          selectedIcon: Badge(
+            isLabelVisible: unread > 0,
+            label: Text('$unread'),
+            child: const Icon(Icons.notifications),
+          ),
+          label: '알림',
+        ),
+      ],
     );
   }
 

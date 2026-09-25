@@ -9,6 +9,7 @@ import '../services/api_service.dart';
 import '../services/app_prefs_keys.dart';
 import '../services/local_db_service.dart';
 import '../services/local_geocode_service.dart';
+import '../services/maintenance_service.dart';
 import '../services/permission_service.dart';
 import '../services/rating_service.dart';
 import '../services/background_login_check.dart';
@@ -1202,6 +1203,10 @@ class ReportProvider with ChangeNotifier {
       await fetchDuplicateReports();
       await fetchWatchlistNumbers();
       await LocalGeocodeService.ensureMapBackfillStartedFromStoredKey();
+      // 업데이트 뒤 한 번 훑기: 촬영 시각을 아직 못 읽은 주정차 사진(6개월 이내). 대상이 없으면 바로 끝난다.
+      if (!_isStandaloneDemo) {
+        unawaited(MaintenanceService.startPhotoBackfill());
+      }
     } else {
       await Future.wait([
         fetchSummary(),
@@ -1211,6 +1216,10 @@ class ReportProvider with ChangeNotifier {
       ]);
     }
   }
+
+  /// Client 모드 하단 표시줄용: 서버의 한 번 훑기 작업 진행. 구서버·오류면 null.
+  Future<Map<String, dynamic>?> fetchMaintenanceStatus() =>
+      _api.fetchMaintenanceStatus();
 
   List<Report> applyFilterToReports(List<Report> reports) =>
       _applyFilter(reports);

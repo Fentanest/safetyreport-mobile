@@ -600,6 +600,26 @@ class ApiService {
     throw Exception('완료 확인 실패');
   }
 
+  /// 서버의 업데이트 뒤 한 번 훑기 작업 진행(하단 표시줄용). 구서버(엔드포인트 없음)·오류면 null.
+  Future<Map<String, dynamic>?> fetchMaintenanceStatus() async {
+    try {
+      final response = await http
+          .get(
+            ServerContract.apiUri(
+              baseUrl,
+              ServerContract.maintenanceStatusPath,
+            ),
+            headers: _headers,
+          )
+          .timeout(const Duration(seconds: 8));
+      if (response.statusCode != 200) return null;
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      return json['data'] as Map<String, dynamic>?;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<List<Map<String, dynamic>>> fetchCrawlResults() async {
     // 기기별 읽은 위치(서버 결정 D-5). 구서버는 모르는 매개변수를 무시하고 예전처럼 응답한다.
     final deviceId = await deviceInstallId();

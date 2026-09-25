@@ -14,6 +14,7 @@ import 'package:sqflite/sqflite.dart';
 import '../models/report.dart';
 import 'duplicate_projection_service.dart';
 import 'geocode_utils.dart';
+import 'photo_capture_time.dart';
 import 'standalone_parser.dart';
 
 /// 서버 _normalize_police_agency 동일: '경찰서' 이후 문자열 제거
@@ -223,6 +224,53 @@ class LocalDbService {
     });
     if (updated > 0) invalidateCaches();
     return updated;
+  }
+
+  /// 촬영 시각을 아직 못 읽은 주정차 신고 (ID, 첨부사진, 신고번호). 신고일 6개월 이내(첨부 URL 만료 전)만, 최신 ID 부터.
+  /// 서버 photo_capture_time.pending_photo_rows 와 같은 조건.
+  static Future<List<({String id, String photos, String reportNumber})>>
+  pendingPhotoRows({int? limit}) async {
+    final d = await db;
+    final now = DateTime.now();
+    final cutoff = DateTime(now.year, now.month - 6, now.day);
+    String two(int n) => n.toString().padLeft(2, '0');
+    final cutoffText = '${cutoff.year}-${two(cutoff.month)}-${two(cutoff.day)}';
+    final rows = await d.rawQuery(
+      '''
+      SELECT ID, 첨부사진, 신고번호 FROM reports
+      WHERE (category = 'parking' OR COALESCE(entry_value, '') LIKE '%불법주정차신고%')
+        AND 사진_촬영수 IS NULL
+        AND COALESCE(첨부사진, '') LIKE 'http%'
+        AND COALESCE(신고일, '') >= ?
+      ORDER BY ID DESC
+      ${limit == null ? '' : 'LIMIT $limit'}
+      ''',
+      [cutoffText],
+    );
+    return [
+      for (final r in rows)
+        (
+          id: r['ID'].toString(),
+          photos: (r['첨부사진'] ?? '').toString(),
+          reportNumber: (r['신고번호'] ?? '').toString(),
+        ),
+    ];
+  }
+
+  /// 촬영 시각을 저장한다(아직 비어 있을 때만). 사이트 원본이 아니라 계산값이라 변경 알림·synced_at 과 무관.
+  static Future<void> setPhotoCapture(String id, PhotoCapture capture) async {
+    final d = await db;
+    final n = await d.update(
+      'reports',
+      {
+        '사진_첫촬영': capture.first,
+        '사진_끝촬영': capture.last,
+        '사진_촬영수': capture.count,
+      },
+      where: 'ID = ? AND 사진_촬영수 IS NULL',
+      whereArgs: [id],
+    );
+    if (n > 0) invalidateCaches();
   }
 
   static const preUpgradeBackupKeep = 3;

@@ -332,7 +332,10 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
   서버 반올림은 `_round_half_up`(Dart `toStringAsFixed` 와 같음), 과태료 금액은 `40.000원` 점 구분자도 읽는다(`extractFineAmount` 와 같음).
 - **DB v11 사진 촬영 시각** `reports.사진_첫촬영`(TEXT `YYYY-MM-DD HH:MM:SS`)·`사진_끝촬영`(TEXT)·`사진_촬영수`(INTEGER). 서버 detail/merge 와 같은 이름·형식, 서버 크롤러가 주정차 사진 EXIF 로 채운다.
   NULL = 아직 시도 안 함, `사진_촬영수 = 0` = 촬영 정보 없음. `Report` 모델에는 없으므로 `upsertReport`(REPLACE)가 기존 값을 이어받는다 — 모델에 없는 교환 컬럼을 추가할 때 같은 처리를 해야 한다.
-  Standalone 은 아직 채우지 않는다(서버에서 가져온 값만 보존). 테스트 `test/services/photo_capture_columns_test.dart`.
+  테스트 `test/services/photo_capture_columns_test.dart`.
+  - 2026-09-25부터 Standalone 도 직접 채운다: `lib/services/photo_capture_time.dart` 가 서버 `services/photo_capture_time.py` 와 같은 규칙(사진 앞 128KB, EXIF DateTimeOriginal → DateTime, 네트워크 오류면 NULL 유지해 다음에 다시, 모두 받았는데 없으면 0). 같은 입력·같은 결과는 두 레포 공용 `contracts/exif-vectors.json`(합성 JPEG 7건)으로 양쪽 테스트.
+  - 한 번 훑기: `MaintenanceService.startPhotoBackfill()` 이 `refreshAll()`(앱 시작·동기화 뒤·설정 변경 뒤) 때마다 대상(주정차, `사진_촬영수 IS NULL`, `첨부사진` URL, 신고일 6개월 이내 — URL 만료 전)이 있으면 백그라운드로 돈다. 0.4초 간격, 동기화 중이면 기다렸다 이어 가고, 백업·복원이 DB 를 닫으려 하면 멈춘다(`runBackgroundWork`). 채운 신고는 대상에서 빠지므로 다음에 열면 남은 것부터. 새로 동기화한 주정차 신고도 동기화 뒤 `refreshAll()` 에서 이 경로로 채운다(동기화 루프 안에서 사진을 받지는 않음). 데모 모드는 하지 않는다.
+  - 진행 표시: `lib/widgets/maintenance_status_bar.dart` 가 탭 바 바로 위 한 줄 박스(작업 없으면 높이 0)로 그린다. Standalone 은 `MaintenanceService.localJobs()`(사진 작업 + `LocalGeocodeService` 지도 좌표 채우기), Client 는 서버 `GET /api/v1/maintenance/status` 를 작업 중 2초·평소 30초마다 읽는다(구서버·오류면 표시 안 함). 끝나면 "… 완료"를 6초 보여 주고 숨김. 서버 웹 `base.html` `#srJobBar` 와 같은 문구·모양.
 - **서버↔모바일 DB 왕복 검사**(PROJECT_RULES §3-1): 서버 레포 `scripts/dev/db_roundtrip_check.py --mobile-repo <이 작업트리>` 가
   `test/tool/db_roundtrip_harness_test.dart`(환경변수 `SR_RT_MODE=import` 일 때만 실행, 평소 skip)로 이 레포의 `importFromServerDb` 를 호출한다.
   서버→모바일→서버, 모바일→서버→모바일 모두 원시 값 비교 차이 0(2026-09-24). 가져오기·내보내기 코드나 `reports` 컬럼을 바꾸면 돌린다.

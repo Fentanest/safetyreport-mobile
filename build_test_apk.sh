@@ -64,10 +64,12 @@ if [[ "$MODE" == "release" ]]; then
     trap cleanup_android_signing_files EXIT
     stage_android_signing_files "$SCRIPT_DIR" "$KEY_PROPERTIES_PATH" "$KEYSTORE_PATH"
     echo "✅ android/key.properties staged for local Flutter build"
+    prepare_community_public_config "$SCRIPT_DIR" release
 
     APK_SRC="build/app/outputs/flutter-apk/app-release.apk"
     APK_DEST="$SCRIPT_DIR/mysafetyreport-release.apk"
 else
+    prepare_community_public_config "$SCRIPT_DIR" debug
     APK_SRC="build/app/outputs/flutter-apk/app-debug.apk"
     APK_DEST="$SCRIPT_DIR/mysafetyreport-debug.apk"
 fi
@@ -78,11 +80,13 @@ fi
 if [[ "$MODE" == "release" ]]; then
     "$FLUTTER_BIN" build apk --release \
         --build-name="$BUILD_NAME" \
-        --build-number="$BUILD_NUMBER"
+        --build-number="$BUILD_NUMBER" \
+        "${COMMUNITY_DART_DEFINE_ARGS[@]}"
 else
     "$FLUTTER_BIN" build apk --debug \
         --build-name="$BUILD_NAME" \
-        --build-number="$BUILD_NUMBER"
+        --build-number="$BUILD_NUMBER" \
+        "${COMMUNITY_DART_DEFINE_ARGS[@]}"
 fi
 
 cp "$SCRIPT_DIR/$APK_SRC" "$APK_DEST"

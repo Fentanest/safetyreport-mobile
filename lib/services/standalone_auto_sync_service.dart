@@ -2,13 +2,14 @@ import 'dart:async';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../community/capture/capture_retry_store.dart';
+import '../community/capture/community_capture.dart';
 import 'app_prefs_keys.dart';
 import 'duplicate_projection_service.dart';
 import 'local_db_service.dart';
 import 'maintenance_service.dart';
 import 'standalone_api_service.dart';
 import 'standalone_auth_service.dart';
-import 'standalone_parser.dart';
 import 'standalone_pending_queue_store.dart';
 import 'sync_engine.dart';
 
@@ -166,27 +167,35 @@ class StandaloneAutoSyncService {
     try {
       SyncEngine.emitLog('상세 API 호출 (ID=${existing.id})');
       final detail = await StandaloneApiService.fetchReportDetail(existing.id);
-      final ev = entryValueFromDetail(<String, dynamic>{}, detail);
-      final cat = categoryFromEntryValue(ev);
-      var report = parseJsonToReport(<String, dynamic>{}, detail);
-      final raw = normalizeRawPayloadText(rawContentOf(detail));
-      final augmented = await SyncEngine.augmentRatingCause(report);
-      report = augmented.report;
-      // 주정차 사진 촬영 시각(서버 상세 저장과 같은 시점·규칙)
-      final photo = await MaintenanceService.prefetchForSave(
-        report.id,
-        cat,
-        ev,
-        report.attachedPhotos,
-      );
-      await LocalDbService.upsertReport(
-        report,
-        cat,
-        ev,
-        rawContent: raw,
-        ratingLookup: augmented.lookup,
-        photoCapture: photo,
-      );
+      // 증분·rebuild 와 같은 함수로 capture+저장한다. 재로그인 재시도 경로가
+      // 같은 건을 두 번 불러도 두 번째는 동일 내용이라 이벤트가 생기지 않는다.
+      final community = await SyncEngine.openCommunitySession();
+      var captureActive = false;
+      if (community.store != null) {
+        captureActive =
+            await SyncEngine.communityCaptureReady(community.store!);
+      }
+      SavedDetail saved;
+      try {
+        saved = await SyncEngine.captureAndSaveDetail(
+          cNo: existing.id,
+          item: <String, dynamic>{},
+          detail: detail,
+          trigger: 'realtime',
+          tracker: CaptureTracker(),
+          communityStore: community.store,
+          retryFile: community.retryFile,
+          projectNamespace: community.projectNamespace,
+          captureActive: captureActive,
+        );
+      } on CaptureStoreUnavailable catch (e) {
+        SyncEngine.emitLog('커뮤니티 저장소 실패로 drain 중단 (큐 보존): $reportNumber → $e');
+        return _FetchResult.networkError;
+      } on DetailFailed catch (e) {
+        SyncEngine.emitLog('실패: $reportNumber → $e');
+        return _FetchResult.otherError;
+      }
+      final report = saved.report;
       final duplicateRefresh =
           await DuplicateProjectionService.refreshDuplicateGroups(
             await LocalDbService.db,

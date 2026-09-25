@@ -19,6 +19,7 @@ import '../services/local_geocode_service.dart';
 import '../services/permission_service.dart';
 import '../widgets/report_detail_sheet.dart';
 import '../widgets/report_list_card.dart';
+import '../widgets/community_upload_panel.dart';
 import 'report_list_screen.dart';
 import 'settings_screen.dart';
 import '../theme/sr_colors.dart';
@@ -370,6 +371,11 @@ class _ReportMapScreenState extends State<ReportMapScreen>
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                     child: _buildMetaSummary(payload.meta),
                   ),
+                // 커뮤니티 공유 업로드 (접이식 카드 — 지도와 겹치지 않게 필터 바 아래).
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: CommunityUploadPanelHost(),
+                ),
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.all(16),

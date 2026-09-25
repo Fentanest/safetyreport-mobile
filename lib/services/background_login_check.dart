@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 
+import '../community/upload/community_schedule.dart';
+import '../community/upload/upload_background.dart';
 import '../models/app_mode.dart';
 import 'app_prefs_keys.dart';
 import 'standalone_auth_service.dart';
@@ -16,12 +18,44 @@ void backgroundTaskDispatcher() {
     try {
       if (task == BackgroundLoginCheck.taskName) {
         await BackgroundLoginCheck.run();
+      } else if (task == communityPeriodicTaskName ||
+          task == communityMidnightTaskName) {
+        await runCommunityUploadTask(task);
       }
     } catch (_) {
-      // 점검은 부가 기능이다. 실패해도 WorkManager 재시도를 요청하지 않고 다음 날 다시 한다.
+      // 점검·업로드는 부가 기능이다. 실패해도 WorkManager 재시도를 요청하지 않는다.
     }
     return true;
   });
+}
+
+/// 커뮤니티 업로드 백그라운드 작업 (T6).
+///
+/// 게이트 캐시가 유효 기간 안의 성공 + Standalone + context active 일 때만
+/// `catchUp('os')`/`requestCommunityUpload('recovery')` 를 실행한다.
+/// 아니면 아무 것도 보내지 않고 성공을 반환한다(재시도 폭주 방지).
+/// 정확 알람·상시 FGS·배터리 예외는 요구하지 않는다.
+@pragma('vm:entry-point')
+Future<void> runCommunityUploadTask(String task) async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    final mode = AppModeX.fromString(prefs.getString(AppPrefsKeys.appMode));
+    if (mode != AppMode.standalone) return;
+    if (prefs.getBool(AppPrefsKeys.standaloneDemoMode) ?? false) return;
+    if (!await isGateCacheFresh(prefs, DateTime.now())) return;
+    final store = await openCommunityStoreForBackground();
+    if (store == null) return;
+    final context = await store.activeContext();
+    if (context == null) return;
+    await catchUp(
+      'os',
+      store: store,
+      runUpload: (trigger) => uploadFromBackground(store, trigger),
+    );
+  } catch (_) {
+    // 다음 기회에 다시 시도한다.
+  }
 }
 
 /// Standalone 하루 1회 로그인 점검.

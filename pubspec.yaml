@@ -91,6 +91,7 @@ flutter:
   assets:
     - assets/branding/logo_lockup_light.png
     - assets/branding/logo_lockup_dark.png
+    - assets/community/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

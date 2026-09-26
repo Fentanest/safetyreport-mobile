@@ -34,7 +34,8 @@ Future<int> mergeRebuildStaging(String runId, {CommunityStore? store}) async {
   return s.transaction((tx) async {
     final localDatasetId = await s.meta('local_dataset_id', tx) ?? '';
     final generation =
-        int.tryParse(await s.meta('source_generation', tx) ?? '0') ?? 0;
+        (int.tryParse(await s.meta('source_generation', tx) ?? '0') ?? 0) + 1;
+    await s.setMeta('source_generation', '$generation', tx);
     final rows = await tx.rawQuery(
       'SELECT source_report_id, event_id, payload_sha256, eligible '
       'FROM report_latest_staging WHERE run_id=?',

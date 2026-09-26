@@ -10,6 +10,23 @@
 
 ## 2026-09-26 (버전 변경 없음)
 
+### 커뮤니티 통합 검수 (Opus, T5 ↔ T6 연결)
+
+- `lib/community/community_wiring.dart`: 게이트(T5)와 데이터 경로(T6)를 실제로 연결 — manifest 갱신·자정/주기 작업 등록·보충 실행·삭제 후 대기 행 차단,
+  포그라운드 업로드는 게이트 60초 재검증(`LiveGateCheck`). `main.dart` 가 게이트 생성 직후 호출한다.
+- **업로드가 실제로는 아무것도 보내지 않던 결함 수정**: 수집은 공개 설정 URL 로 만든 namespace 를 journal 에 쓰는데 업로더·자정 스케줄은
+  아무도 쓰지 않는 `meta.project_namespace`('unconfigured')와 비교했다 → 같은 규칙(설정 URL)으로 계산.
+- manifest 를 계약대로: `POST {protocol, connection_id, after, limit}`(이전 GET 쿼리), 페이지 형식 검증, total·중복·dataset/epoch·토큰 3회 규칙,
+  받는 동안 upload lease. 연결이 없으면 수집 전 검사를 건너뛰던 경로(fail-open)를 막음.
+- 게이트: writer 충돌·공식 계정 없음·superseded 연결이면 진입은 허용하되 업로드 context 를 끈다(이전엔 연결 없이 활성화). 충돌한 다른 기기 정보 표시.
+  Client 모드 폰은 업로드 context 를 켜지 않는다. 백그라운드 작업이 읽는 게이트 캐시(`community_gate_cache_v1`)를 게이트가 기록한다(이전엔 아무도 쓰지 않아
+  백그라운드 업로드가 항상 건너뜀). 마지막 수락 revision 으로 로컬 revision 하한을 올린다.
+- **연결 비밀을 암호학적 난수 32바이트로**(이전: 시각 해시). 계정·수집 응답을 UTF-8 로 해독(한글 깨짐 방지).
+- 초기화: rebuild 모드 수집(`rebuildRunId`)·목록 완료 표시·실패 전파, 병합은 T6 함수 하나로(source_generation 증가 — PC 와 같음).
+- 크롤 로그 WS 에 `api_key` 를 붙인다(서버가 인증·게이트를 요구).
+- 테스트: `integration_contract_test.dart`(event_decisions 10건, manifest 계약, 게이트 writer 규칙·비밀 난수), 실제 로컬 스택 `live_stack_test.dart`(선택 실행) 통과.
+  전체 `flutter test` 503 passed / 2 skipped(골든) + 라이브 1 skipped, `flutter analyze` error 0 / warning 2(기존).
+
 ### 커뮤니티 필수 게이트·온보딩·초기화 (T5)
 
 앱이 기존 권한 안내보다 먼저 `[필수] 카카오 인증` + `[필수] 신고내용 공유 동의` 를 요구한다(신규·기존 사용자 모두).

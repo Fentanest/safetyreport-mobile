@@ -26,6 +26,7 @@ import 'services/community_auth_service.dart';
 import 'services/local_db_service.dart';
 import 'services/permission_service.dart';
 import 'community/community_store.dart';
+import 'community/community_wiring.dart';
 import 'community/gate/community_gate.dart';
 import 'community/rebuild/community_rebuild.dart';
 import 'services/pending_changes_store.dart';
@@ -68,6 +69,9 @@ Future<void> main() async {
     appMode: () => reportProvider.appMode.name,
   );
   gate.addOnFirstPassed(reportProvider.onGatePassed);
+  if (communityStore != null) {
+    CommunityWiring.wire(communityGate: gate, store: communityStore);
+  }
   runApp(
     MultiProvider(
       providers: [

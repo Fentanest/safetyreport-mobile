@@ -12,6 +12,8 @@ import 'package:sqflite/sqflite.dart';
 import 'package:workmanager/workmanager.dart';
 
 import '../community_store.dart';
+import '../community_store.dart' as community_store;
+import '../../services/community_auth_config.dart';
 import 'community_uploader.dart';
 
 const String communityPeriodicUniqueName = 'community-upload-periodic';
@@ -102,12 +104,14 @@ Future<String> catchUp(
   required CommunityStore store,
   required UploadRunner runUpload,
   DateTime? now,
+  String? namespace,
 }) async {
   final t = (now ?? DateTime.now()).toUtc();
   final key = dueKey(t);
   final context = await store.activeContext();
   if (context == null) return 'deferred';
-  final projectNamespace = context['project_namespace']?.toString() ?? '';
+  // context 표에는 namespace 열이 없다 — capture·uploader 와 같은 규칙(공개 설정 URL)으로 계산한다.
+  final projectNamespace = namespace ?? community_store.projectNamespace(CommunityAuthConfig.fromEnvironment.supabaseUrl);
   final fingerprint = context['contributor_fingerprint']?.toString() ?? '';
   final localDatasetId = await store.localDatasetId();
   final epoch = int.tryParse('${context['writer_epoch']}') ?? 0;

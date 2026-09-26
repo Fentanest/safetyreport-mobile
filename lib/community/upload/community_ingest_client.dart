@@ -51,7 +51,7 @@ class CommunityIngestClient {
       throw CommunityIngestTransport('transport: $e');
     }
     try {
-      final decoded = jsonDecode(res.body);
+      final decoded = jsonDecode(utf8.decode(res.bodyBytes, allowMalformed: true));
       if (decoded is Map) {
         return {
           'httpStatus': res.statusCode,
@@ -70,32 +70,52 @@ class CommunityIngestClient {
     };
   }
 
-  /// manifest 페이지 조회. 실패하면 null.
+  /// manifest 페이지 조회 — `POST {url}/functions/v1/community-ingest/manifest`
+  /// 본문 `{"protocol":1,"connection_id","after","limit"}`(account-api.md). 형식이 하나라도 틀리면 null.
   Future<Map<String, Object?>?> fetchManifestPage(
     String accessToken,
     String connectionId, {
     String? after,
     int limit = 5000,
   }) async {
-    final query = <String, String>{
+    final uri = Uri.parse('$supabaseUrl/functions/v1/community-ingest/manifest');
+    final body = jsonEncode({
+      'protocol': 1,
       'connection_id': connectionId,
-      'limit': '$limit',
-    };
-    if (after != null) query['after'] = after;
-    final uri = Uri.parse('$supabaseUrl/functions/v1/community-ingest/manifest')
-        .replace(queryParameters: query);
+      'after': after,
+      'limit': limit.clamp(1, 5000),
+    });
     try {
       final res = await _http
-          .get(uri, headers: _headers(accessToken))
+          .post(uri, headers: _headers(accessToken), body: body)
           .timeout(const Duration(seconds: 30));
       if (res.statusCode != 200) return null;
-      final decoded = jsonDecode(res.body);
+      final decoded = jsonDecode(utf8.decode(res.bodyBytes));
       if (decoded is! Map) return null;
-      return Map<String, Object?>.from(decoded);
+      final page = Map<String, Object?>.from(decoded);
+      return validManifestPage(page) ? page : null;
     } catch (_) {
       return null;
     }
   }
+}
+
+final _hex24 = RegExp(r'^[0-9a-f]{24}$');
+final _hex64 = RegExp(r'^[0-9a-f]{64}$');
+final _decimal = RegExp(r'^[0-9]+$');
+
+/// manifest 응답 한 페이지 형식 검사(PC `_valid_manifest_page` 와 같은 규칙).
+bool validManifestPage(Map<String, Object?> p) {
+  if (p['protocol'] != 1) return false;
+  final total = p['total'];
+  final token = p['manifest_token'];
+  final keys = p['key_prefixes'];
+  final next = p['next_after'];
+  if (total is! int || total < 0) return false;
+  if (token is! String || !_decimal.hasMatch(token)) return false;
+  if (keys is! List || !keys.every((k) => k is String && _hex24.hasMatch(k))) return false;
+  if (p['dataset_key'] is! String || p['writer_epoch'] is! int) return false;
+  return next == null || (next is String && _hex64.hasMatch(next));
 }
 
 class CommunityIngestTooLarge implements Exception {

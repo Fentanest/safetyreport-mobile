@@ -8,10 +8,10 @@
 // [CommunityServerUploadClient] 로 주입받는다 (테스트는 가짜, T5 병합 후 연결).
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../community/community_wiring.dart';
 
 import '../../models/app_mode.dart';
 import '../../services/app_prefs_keys.dart';
-import '../community/upload/community_schedule.dart';
 import '../community/upload/community_uploader.dart';
 import '../community/upload/upload_defaults.dart';
 
@@ -70,7 +70,7 @@ Future<CommunityPanelData> loadCommunityPanelData({
       }
       return CommunityPanelData(clientMode: true, serverState: serverState);
     }
-    final uploader = await buildDefaultUploader(gate: CacheGateCheck());
+    final uploader = await buildDefaultUploader(gate: CommunityWiring.gateCheck());
     final status = await uploader.uploadStatus();
     return CommunityPanelData(
       clientMode: false,
@@ -88,13 +88,13 @@ Future<CommunityPanelData> loadCommunityPanelData({
 }
 
 Future<String> runCommunityUploadNow() async {
-  final uploader = await buildDefaultUploader(gate: CacheGateCheck());
+  final uploader = await buildDefaultUploader(gate: CommunityWiring.gateCheck());
   final result = await uploader.requestCommunityUpload('manual');
   return result.result;
 }
 
 Future<String> runCommunityReshareNow() async {
-  final uploader = await buildDefaultUploader(gate: CacheGateCheck());
+  final uploader = await buildDefaultUploader(gate: CommunityWiring.gateCheck());
   final result = await uploader.requestReshare();
   return result.result;
 }

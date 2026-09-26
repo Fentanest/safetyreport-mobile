@@ -274,7 +274,9 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
   void _connectWs(ApiService api) async {
     if (_ws != null) return;
     try {
-      _ws = await WebSocket.connect('${api.wsBaseUrl}/crawl/ws/logs');
+      // 서버는 2026-09-26 부터 로그 WS 에 API 키(또는 관리자 세션)와 커뮤니티 게이트를 요구한다(미충족 4403).
+      _ws = await WebSocket.connect(
+          '${api.wsBaseUrl}/crawl/ws/logs?api_key=${Uri.encodeQueryComponent(api.apiKey)}');
       _ws!.listen(
         (data) {
           if (!mounted) return;

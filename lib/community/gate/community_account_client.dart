@@ -125,7 +125,7 @@ class CommunityAccountClient {
             body: jsonEncode({'protocol': 1, ...body}),
           )
           .timeout(timeout);
-      return _decode(res.statusCode, res.body);
+      return _decode(res.statusCode, utf8.decode(res.bodyBytes, allowMalformed: true));
     } on TimeoutException {
       throw const CommunityAccountError(code: 'timeout', message: '서버 응답이 늦습니다. 다시 시도해 주세요.');
     } on CommunityAccountError {
@@ -149,17 +149,21 @@ class CommunityAccountClient {
     }
     String code = 'server_error';
     String? message;
+    final extra = <String, Object?>{};
     if (json is Map) {
       final err = json['error'];
       if (err is Map) {
         if (err['code'] is String) code = err['code'] as String;
         if (err['message'] is String) message = err['message'] as String;
+        final writer = err['active_writer'];
+        if (writer is Map) extra['active_writer'] = writer.cast<String, Object?>();
       }
     }
     throw CommunityAccountError(
       code: code,
       message: message ?? _defaultMessage(statusCode, code),
       httpStatus: statusCode,
+      extra: extra,
     );
   }
 
@@ -189,7 +193,9 @@ class CommunityAccountError implements Exception {
   final String code;
   final String message;
   final int? httpStatus;
-  const CommunityAccountError({required this.code, required this.message, this.httpStatus});
+  /// `writer_conflict` 의 `active_writer`(device_label·platform·source_app·created_at) 등 표시용 부가 정보.
+  final Map<String, Object?> extra;
+  const CommunityAccountError({required this.code, required this.message, this.httpStatus, this.extra = const {}});
 
   bool get isAuth => code == 'auth_required' || httpStatus == 401;
   bool get isForbidden =>

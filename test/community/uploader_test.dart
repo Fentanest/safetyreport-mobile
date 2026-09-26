@@ -48,7 +48,7 @@ Future<CommunityStore> openStore() async {
     'source_app': 'safetyreport-mobile',
     'source_mode': 'standalone',
   });
-  await store.setMeta('project_namespace', 'ns1');
+  // 통합 검수: 업로더는 공개 설정 URL 로 namespace 를 계산한다(capture 와 같은 규칙) — 테스트 capture 도 같은 값.
   return store;
 }
 
@@ -104,6 +104,8 @@ Map<String, Object?> ackFor(String eventId, String status,
       'projection_status': projection,
     };
 
+final kNs = projectNamespace('https://example.supabase.co');
+
 void main() {
   group('uploader', () {
     late CommunityStore store;
@@ -119,7 +121,7 @@ void main() {
     test('B01: capture 뒤 realtime 업로드 → accepted 삭제·투영 저장', () async {
       final c = await capture(adapter('수용'),
           sourceReportId: 'R1', trigger: 'realtime',
-          store: store, projectNamespace: 'ns1');
+          store: store, projectNamespace: kNs);
       final eventId = c.eventId!;
       final httpClient = MockClient((req) async {
         final body = jsonDecode(req.body) as Map<String, dynamic>;
@@ -155,10 +157,10 @@ void main() {
     test('B02: 같은 신고 두 이벤트는 앞 ACK 뒤 다음 요청으로', () async {
       await capture(adapter('수용'),
           sourceReportId: 'R1', trigger: 'realtime',
-          store: store, projectNamespace: 'ns1');
+          store: store, projectNamespace: kNs);
       await capture(adapter('수용'),
           sourceReportId: 'R1', trigger: 'manual',
-          store: store, projectNamespace: 'ns1');
+          store: store, projectNamespace: kNs);
       // payload 가 같으면 두 번째는 이벤트 없음 → 다른 내용으로 다시.
       await capture(
           {
@@ -166,7 +168,7 @@ void main() {
             'penalty_amount': '과태료: 50,000원',
           },
           sourceReportId: 'R1', trigger: 'manual',
-          store: store, projectNamespace: 'ns1');
+          store: store, projectNamespace: kNs);
       var requestCount = 0;
       final seenPerRequest = <List<String>>[];
       final httpClient = MockClient((req) async {
@@ -202,7 +204,7 @@ void main() {
     test('B03: 403 consent_revoked → blocked + 게이트 무효화', () async {
       final c = await capture(adapter('수용'),
           sourceReportId: 'R1', trigger: 'realtime',
-          store: store, projectNamespace: 'ns1');
+          store: store, projectNamespace: kNs);
       final httpClient = MockClient((_) async => http.Response(
           jsonEncode({
             'error': {
@@ -226,7 +228,7 @@ void main() {
     test('B04: 429 → Retry-After 뒤 재시도 예약', () async {
       await capture(adapter('수용'),
           sourceReportId: 'R1', trigger: 'realtime',
-          store: store, projectNamespace: 'ns1');
+          store: store, projectNamespace: kNs);
       final httpClient = MockClient((_) async => http.Response(
           jsonEncode({
             'error': {
@@ -250,7 +252,7 @@ void main() {
     test('B05: 500 → 지수 백오프 retry_wait', () async {
       await capture(adapter('수용'),
           sourceReportId: 'R1', trigger: 'realtime',
-          store: store, projectNamespace: 'ns1');
+          store: store, projectNamespace: kNs);
       final httpClient = MockClient(
           (_) async => http.Response('boom', 500));
       final u = makeUploader(
@@ -265,10 +267,10 @@ void main() {
     test('B08: conflict → dead_letter, rejected → blocked 보존', () async {
       final c1 = await capture(adapter('수용'),
           sourceReportId: 'R1', trigger: 'realtime',
-          store: store, projectNamespace: 'ns1');
+          store: store, projectNamespace: kNs);
       final c2 = await capture(adapter('수용'),
           sourceReportId: 'R2', trigger: 'realtime',
-          store: store, projectNamespace: 'ns1');
+          store: store, projectNamespace: kNs);
       final httpClient = MockClient((_) async => http.Response(
           jsonEncode({
             'protocol': 1,
@@ -303,7 +305,7 @@ void main() {
     test('B11: 401 → 토큰 갱신 1회 재시도', () async {
       await capture(adapter('수용'),
           sourceReportId: 'R1', trigger: 'realtime',
-          store: store, projectNamespace: 'ns1');
+          store: store, projectNamespace: kNs);
       var calls = 0;
       String? authed;
       final httpClient = MockClient((req) async {
@@ -345,7 +347,7 @@ void main() {
     test('C04: 다른 귀속 journal 은 context_mismatch 로 차단·미전송', () async {
       final c = await capture(adapter('수용'),
           sourceReportId: 'R1', trigger: 'realtime',
-          store: store, projectNamespace: 'ns1');
+          store: store, projectNamespace: kNs);
       // 다른 계정으로 context 교체.
       await store.setContext({
         'contributor_fingerprint': 'fp2',
@@ -378,7 +380,7 @@ void main() {
     test('Client 모드에서는 어떤 업로드도 하지 않는다', () async {
       await capture(adapter('수용'),
           sourceReportId: 'R1', trigger: 'realtime',
-          store: store, projectNamespace: 'ns1');
+          store: store, projectNamespace: kNs);
       var calls = 0;
       final httpClient = MockClient((_) async {
         calls++;

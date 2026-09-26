@@ -149,7 +149,7 @@ void main() {
     expect(gate.writerConflict, isNull);
   });
 
-  test('F16/F17 client: no writer registration, context records client mode', () async {
+  test('F16/F17 client: no writer registration, upload context stays off', () async {
     final gate = makeGate(
       appMode: () => 'server',
       officialAccountId: () async => 'User@Example.com',
@@ -157,7 +157,9 @@ void main() {
     expect((await gate.refreshNow()).canEnter, isTrue);
     expect(server.count('/connections'), 0);
     expect(server.count('/connections-rebind'), 0);
+    // 통합 검수(2026-09-26): Client 폰은 writer 가 아니므로 업로드 context 를 켜지 않는다(서버가 올린다).
     final ctx = await store.context();
-    expect(ctx?['source_mode'], 'client');
+    expect(ctx?['state'], 'inactive');
+    expect(ctx?['inactive_reason'], 'client_mode');
   });
 }

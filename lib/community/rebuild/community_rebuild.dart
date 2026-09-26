@@ -9,6 +9,7 @@ import 'package:sqflite/sqflite.dart';
 import '../../services/sync_engine.dart';
 import '../community_store.dart';
 import '../upload_hooks.dart';
+import '../capture/rebuild_helpers.dart';
 
 /// 1회 초기화 크롤링 범위 키 (`contracts/community-ingest/rebuild.md`).
 const String communityRebuildRequiredVersion = 'source-rebuild-2026-09-26.1';
@@ -53,15 +54,23 @@ class CommunityRebuildGuard {
 class RebuildEngine {
   const RebuildEngine();
 
+  /// rebuild 모드 전체 수집(T6): 목록 부재 행을 지우지 않고 rebuild_items 에 checkpoint 를 남긴다.
+  /// 실패(목록 일부 실패·로그인 실패 포함)는 성공으로 보지 않는다(G12).
   Future<RebuildRunOutcome> run({required String runId}) async {
-    // T6 시그니처(`rebuildRunId`)가 아직 없어 runId 는 items checkpoint 기록용으로만 쓴다.
-    await SyncEngine.start(fullSync: true);
+    final result = await SyncEngine.start(fullSync: true, rebuildRunId: runId);
+    if (result.failed) {
+      throw StateError(result.errorMessage ?? 'rebuild_sync_failed');
+    }
+    final store = await CommunityStore.open();
+    final permanent = await store.db.rawQuery(
+      "SELECT source_report_id FROM rebuild_items WHERE run_id=? AND state='failed_permanent'", [runId]);
+    final listed = await store.db.rawQuery('SELECT list_complete FROM rebuild_jobs WHERE run_id=?', [runId]);
     return RebuildRunOutcome(
-      listComplete: true,
-      fetched: 0,
-      permanentFailures: const [],
-      orphanCount: 0,
-      note: 'sync_engine_full_sync',
+      listComplete: listed.isNotEmpty && listed.first['list_complete'] == 1,
+      fetched: result.done,
+      permanentFailures: [for (final r in permanent) r['source_report_id'] as String],
+      orphanCount: result.orphans,
+      note: 'sync_engine_rebuild',
     );
   }
 }
@@ -314,28 +323,8 @@ class CommunityRebuild extends ChangeNotifier {
 
   Future<void> _commit({required bool finishedWithGaps}) async {
     await _save({'state': RebuildStates.committing, 'phase': 'commit'});
-    await _store.transaction((tx) async {
-      final runId = _job!['run_id'] as String;
-      final staged = await tx.rawQuery(
-        'SELECT source_report_id, event_id, payload_sha256, eligible FROM report_latest_staging WHERE run_id=?',
-        [runId],
-      );
-      for (final row in staged) {
-        final localId = await _store.meta('local_dataset_id', tx) ?? '';
-        await tx.insert(
-          'report_latest',
-          {
-            'local_dataset_id': localId,
-            'source_report_id': row['source_report_id'],
-            'event_id': row['event_id'],
-            'payload_sha256': row['payload_sha256'],
-            'eligible': row['eligible'],
-            'source_generation': 1,
-          },
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
-      }
-    });
+    // T6 병합 함수 하나로(PC 와 같은 규칙): staging → report_latest upsert, 삭제 없음, source_generation 증가.
+    await mergeRebuildStaging(_job!['run_id'] as String, store: _store);
     await _save({
       'state': finishedWithGaps ? RebuildStates.completedWithGaps : RebuildStates.completed,
       'phase': 'done',

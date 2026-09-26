@@ -290,7 +290,7 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
     final context = await store.activeContext();
     if (context == null) return;
     final namespace =
-        await store.meta('project_namespace') ?? 'unconfigured';
+        projectNamespace(supabaseUrl);
     final at = isoUtc(DateTime.now());
     final rows = await store.db.rawQuery('''
 SELECT j.event_id AS event_id FROM source_journal j
@@ -349,7 +349,7 @@ AND j.connection_id = ? AND j.consent_grant_id = ?
 ORDER BY j.source_revision ASC LIMIT 60
 ''', [
         isoUtc(DateTime.now()),
-        await store.meta('project_namespace') ?? 'unconfigured',
+        projectNamespace(supabaseUrl),
         context['contributor_fingerprint'],
         context['connection_id'],
         context['consent_grant_id'],

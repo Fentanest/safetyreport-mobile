@@ -319,6 +319,8 @@ class SyncEngine {
           .where((id) => id.isNotEmpty)
           .toSet();
       await registerRebuildItems(store, rebuildRunId, ids);
+      // 전 페이지 성공(빈 목록 0건 포함)만 list_complete — PC start.py 와 같은 규칙.
+      await store.db.rawUpdate('UPDATE rebuild_jobs SET list_complete=1 WHERE run_id=?', [rebuildRunId]);
       final rows = await store.db.rawQuery(
         'SELECT source_report_id, state, last_list_label FROM rebuild_items WHERE run_id=?',
         [rebuildRunId],
@@ -597,8 +599,8 @@ class SyncEngine {
     }
     final current = '${context['dataset_key']}:${context['writer_epoch']}';
     if (scope == current) return true;
-    // T5 가 연결하기 전에는 검사를 건너뛴다(REQUESTS.md).
-    if (ensureManifestFresh == null) return true;
+    // 연결(CommunityWiring)이 없으면 신선도를 확인할 수 없다 → 수집하지 않는다(fail-closed).
+    if (ensureManifestFresh == null) return false;
     try {
       return await ensureManifestFresh!();
     } catch (_) {

@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
-import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../services/community_auth_config.dart';
 import '../../services/community_auth_service.dart';
@@ -279,15 +280,16 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         return _state;
       }
       if (isStandalone) {
-        final ok = await _ensureWriterConnection(status, token);
-        if (!ok) {
-          _checked = true;
-          notifyListeners();
-          return _state;
+        // 진입(K·C)과 업로드 연결은 별개다: 연결을 못 얻으면 화면은 쓰되 context 를 끄고 업로드만 멈춘다.
+        final blocked = await _ensureWriterConnection(status, token);
+        if (blocked == null) {
+          await _activateContext(status);
+        } else {
+          await _deactivate('writer:$blocked');
         }
-        await _activateContext(status);
       } else {
-        await _activateContext(status);
+        // Client: 폰은 writer 가 아니다(업로드·자정 없음). 서버가 자기 게이트로 올린다.
+        await _deactivate('client_mode');
       }
       _apply(next);
       _checked = true;
@@ -309,12 +311,26 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// 백그라운드 업로드(Workmanager)가 읽는 게이트 캐시(`isGateCacheFresh`, T6). ok 가 아니면 즉시 막힌다.
+  static const String gateCacheKey = 'community_gate_cache_v1';
+
   void _apply(GateState next) {
     _state = next;
+    unawaited(_writeGateCache(next));
+  }
+
+  Future<void> _writeGateCache(GateState next) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(gateCacheKey, jsonEncode({
+        'state': next.state,
+        'verified_at': (next.canEnter ? (_verifiedAt ?? DateTime.now()) : DateTime.now()).millisecondsSinceEpoch,
+      }));
+    } catch (_) {}
   }
 
   Future<void> _deactivate(String reason) async {
-    _writerConflict = null;
+    if (!reason.startsWith('writer:')) _writerConflict = null;
     try {
       await _store?.deactivateContext(reason);
     } catch (_) {}
@@ -339,58 +355,60 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     } catch (_) {}
   }
 
-  /// Standalone writer 연결 보장. false 면 게이트 통과로 보지 않고 재시도 안내만 둔다.
-  Future<bool> _ensureWriterConnection(CommunityAccountStatus status, String token) async {
+  /// Standalone writer 연결 확보. null = 연결 정상(context 활성화), 문자열 = 업로드를 멈출 이유(context 비활성).
+  /// PC `community_gate._ensure_writer` 와 같은 규칙: 같은 사용자·같은 공식 계정의 저장 연결이 status 에서 active 면
+  /// (현재 세션에 묶이지 않았을 때만) rebind, superseded·suspended 면 멈춤(사용자가 전환 선택), 없거나 폐기면 새로 등록.
+  Future<String?> _ensureWriterConnection(CommunityAccountStatus status, String token) async {
     _writerConflict = null;
     _manifestError = null;
     final officialId = await _officialAccountId?.call();
     if (officialId == null || officialId.trim().isEmpty) {
-      return true;
+      return 'official_account_required';
     }
     final datasetKey = datasetKeyForOfficialId(officialId);
     final stored = await _readStoredConnection();
+    // status 는 저장 연결 id 로 요청했고, 그 연결이 이 사용자 것일 때만 connection 을 채운다(계약).
+    final conn = (stored != null && stored['dataset_key'] == datasetKey) ? status.connection : null;
+    int? lastAccepted;
     try {
-      if (stored != null && stored['dataset_key'] == datasetKey) {
-        final rebound = await _client().rebindConnection(
-          accessToken: token,
-          connectionId: (stored['connection_id'] ?? '') as String,
-          connectionSecret: (stored['connection_secret'] ?? '') as String,
-        );
-        await _writeStoredConnection(
-          connectionId: rebound.connectionId,
-          connectionSecret: (stored['connection_secret'] ?? '') as String,
-          datasetKey: datasetKey,
-          writerEpoch: rebound.writerEpoch,
-        );
+      if (conn != null && conn['status'] == 'active') {
+        lastAccepted = (conn['last_accepted_revision'] as num?)?.toInt();
+        if (conn['bound_to_current_session'] != true) {
+          final rebound = await _client().rebindConnection(
+            accessToken: token,
+            connectionId: (stored!['connection_id'] ?? '') as String,
+            connectionSecret: (stored['connection_secret'] ?? '') as String,
+          );
+          lastAccepted = rebound.lastAcceptedRevision ?? lastAccepted;
+          await _writeStoredConnection(
+            connectionId: rebound.connectionId,
+            connectionSecret: (stored['connection_secret'] ?? '') as String,
+            datasetKey: datasetKey,
+            writerEpoch: rebound.writerEpoch,
+          );
+        }
+      } else if (conn != null && (conn['status'] == 'superseded' || conn['status'] == 'suspended')) {
+        return 'connection_${conn['status']}';
       } else {
+        // 저장 연결 없음·다른 공식 계정·다른 사용자(status 가 null 로 숨김)·폐기됨 → 새 등록
         final registered = await _registerFresh(token, datasetKey, takeover: false);
-        if (registered == null) return true;
+        if (registered == null) return 'writer_conflict';
       }
     } on CommunityAccountError catch (e) {
-      if (e.code == 'writer_conflict') {
-        _writerConflict = const WriterConflict(
-          deviceLabel: '',
-          platform: '',
-          sourceApp: '',
-          createdAt: '',
-        );
-        _apply(evaluateGate(config: 'ok', session: 'valid'));
-        return true;
-      }
-      if (e.code == 'not_found') {
-        await _clearStoredConnection();
-        final registered = await _registerFresh(token, datasetKey, takeover: false);
-        if (registered == null) return true;
-      } else {
-        _notice = e.message;
-        return true;
-      }
+      _notice = e.message;
+      return e.code;
+    }
+    if (lastAccepted != null && lastAccepted > 0) {
+      try {
+        await _store?.raiseRevisionFloor(lastAccepted);
+      } catch (_) {}
     }
     final manifestOk = await CommunityUploadHooks.refreshServerCompletedNow();
     if (!manifestOk) {
+      // 수집 시작 전 scope 검사(SyncEngine.ensureManifestFresh)가 다시 시도하고, 실패하면 수집하지 않는다.
       _manifestError = '중앙 공유 목록을 확인하지 못했습니다. 다시 시도해 주세요.';
     }
-    return true;
+    return null;
   }
 
   /// 새 연결 등록. `writer_conflict` 면 [_writerConflict] 를 세우고 null 반환.
@@ -419,11 +437,12 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
       return result;
     } on CommunityAccountError catch (e) {
       if (e.code == 'writer_conflict' && !takeover) {
-        _writerConflict = const WriterConflict(
-          deviceLabel: '',
-          platform: '',
-          sourceApp: '',
-          createdAt: '',
+        final w = (e.extra['active_writer'] as Map?)?.cast<String, Object?>() ?? const {};
+        _writerConflict = WriterConflict(
+          deviceLabel: (w['device_label'] as String?) ?? '',
+          platform: (w['platform'] as String?) ?? '',
+          sourceApp: (w['source_app'] as String?) ?? '',
+          createdAt: (w['created_at'] as String?) ?? '',
         );
         return null;
       }
@@ -450,9 +469,10 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     return true;
   }
 
+  /// 연결 비밀: 암호학적 난수 32바이트(base64url). 이전 구현은 시각 해시라 추측 가능했다(통합 검수에서 수정).
   String _newConnectionSecret() {
-    final rand = DateTime.now().microsecondsSinceEpoch.toString();
-    final bytes = sha256.convert(utf8.encode('connection|$rand')).bytes;
+    final rng = Random.secure();
+    final bytes = List<int>.generate(32, (_) => rng.nextInt(256));
     return base64Url.encode(bytes).replaceAll('=', '');
   }
 

@@ -569,8 +569,6 @@ class _ModeCard extends StatelessWidget {
   final Color color;
   final String title;
   final String description;
-  final String? badge;
-  final Color? badgeColor;
   final VoidCallback onTap;
 
   const _ModeCard({
@@ -578,15 +576,11 @@ class _ModeCard extends StatelessWidget {
     required this.color,
     required this.title,
     required this.description,
-    this.badge,
-    this.badgeColor,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final bc = badgeColor ?? color;
-    final hasBadge = badge != null && badge!.isNotEmpty;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -628,30 +622,6 @@ class _ModeCard extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        if (hasBadge) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 7,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: bc.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: bc.withValues(alpha: 0.4),
-                              ),
-                            ),
-                            child: Text(
-                              badge!,
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: bc,
-                              ),
-                            ),
-                          ),
-                        ],
                       ],
                     ),
                     const SizedBox(height: 6),

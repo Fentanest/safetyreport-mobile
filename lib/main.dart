@@ -658,7 +658,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                   controller: controller,
                   padding: const EdgeInsets.all(12),
                   itemCount: changes.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
                   itemBuilder: (ctx, i) {
                     final r = changes[i];
                     final isDuplicate =
@@ -753,7 +753,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                                       ),
                                     if (memberCount.isNotEmpty)
                                       Text(
-                                        '멤버 수: ${memberCount}건',
+                                        '멤버 수: $memberCount건',
                                         style: TextStyle(
                                           fontSize: 11,
                                           color: context.sr.textSecondary,

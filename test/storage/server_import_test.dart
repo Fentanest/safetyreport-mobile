@@ -126,4 +126,141 @@ void main() {
       expect(row['보완횟수'], isNull);
     },
   );
+
+  // ── 2026-09-26 감사 SOL-02·03·05 (PC exchange 와 같은 규칙) ──────────────────
+
+  Future<void> alter(String path, List<String> sql) async {
+    final db = await openDatabase(path);
+    for (final q in sql) {
+      await db.execute(q);
+    }
+    await db.close();
+  }
+
+  test('unknown server column with a value refuses before replacing the DB (SOL-02)', () async {
+    final first = await _serverDb(dir, watchlist: []);
+    await LocalDbService.importFromServerDb(first);
+    final path = await _serverDb(dir, watchlist: []);
+    await alter(path, [
+      'ALTER TABLE mysafetymerge_traffic ADD COLUMN 미래열 TEXT',
+      "UPDATE mysafetymerge_traffic SET 미래열 = '' WHERE ID = 's1'",
+      "UPDATE mysafetymerge_traffic SET 신고명 = '바뀌면 안 됨'",
+    ]);
+    await expectLater(
+      LocalDbService.importFromServerDb(path),
+      throwsA(isA<UnknownColumnsException>().having((e) => e.toString(), 'message', contains('mysafetymerge_traffic.미래열(1행)'))),
+    );
+    expect((await _row('s1'))['신고명'], '신호위반', reason: '기존 DB 그대로');
+  });
+
+  // 혼합 구버전 서버 DB: traffic 은 원본(mysafety + 상세), parking 은 상세 표가 없어 merge 에서 읽는다.
+  Future<String> mixedServerDb({String? parkingFuture}) async {
+    final path = '${dir.path}/mixed_${DateTime.now().microsecondsSinceEpoch}.db';
+    final db = await openDatabase(path);
+    await db.execute('CREATE TABLE mysafety (ID TEXT PRIMARY KEY, 상태 TEXT, 신고번호 TEXT, 신고명 TEXT, 신고일 TEXT, 감시목록 TEXT)');
+    await db.execute('CREATE TABLE mysafetydetail_traffic (ID TEXT PRIMARY KEY, 처리상태 TEXT, 위반장소 TEXT)');
+    await db.execute('CREATE TABLE mysafetymerge_traffic (ID TEXT PRIMARY KEY, 신고번호 TEXT, 위반장소 TEXT)');
+    await db.execute(
+      'CREATE TABLE mysafetymerge_parking (ID TEXT PRIMARY KEY, 상태 TEXT, 신고번호 TEXT, 신고명 TEXT, 위반장소 TEXT'
+      '${parkingFuture != null ? ', 미래열 TEXT' : ''})',
+    );
+    await db.execute('CREATE TABLE mysafetymerge_other AS SELECT ID, 신고번호, 위반장소 FROM mysafetymerge_traffic WHERE 0');
+    await db.insert('mysafety', {'ID': 't1', '상태': '수용', '신고번호': 'SPP-T1', '신고명': '신호위반', '신고일': '2026-09-01', '감시목록': 'N'});
+    await db.insert('mysafetydetail_traffic', {'ID': 't1', '처리상태': '수용', '위반장소': '서울 강서구 1'});
+    await db.insert('mysafetymerge_parking', {
+      'ID': 'p1', '상태': '수용', '신고번호': 'SPP-P1', '신고명': '불법주정차', '위반장소': '서울 강서구 2',
+      '미래열': ?parkingFuture,
+    });
+    await db.close();
+    return path;
+  }
+
+  test('mixed old DB imports traffic from source tables and parking from merge (SOL-02 recheck, success path)', () async {
+    expect(await LocalDbService.importFromServerDb(await mixedServerDb()), 2);
+    expect((await _row('t1'))['신고명'], '신호위반', reason: 'traffic 은 mysafety 제목 열에서');
+    expect((await _row('t1'))['category'], 'traffic');
+    expect((await _row('p1'))['신고명'], '불법주정차', reason: 'parking 은 상세 표가 없어 merge 에서');
+    expect((await _row('p1'))['category'], 'parking');
+  });
+
+  test('mixed old DB: an unknown value in the merge table actually read for parking is refused (SOL-02 recheck)', () async {
+    await LocalDbService.importFromServerDb(await mixedServerDb());
+    await expectLater(
+      LocalDbService.importFromServerDb(await mixedServerDb(parkingFuture: '')),
+      throwsA(isA<UnknownColumnsException>().having((e) => e.toString(), 'message', contains('mysafetymerge_parking.미래열(1행)'))),
+    );
+    expect((await _row('p1'))['신고명'], '불법주정차', reason: '기존 DB 그대로');
+  });
+
+  test('unknown server column that is all NULL loses nothing and imports', () async {
+    final path = await _serverDb(dir, watchlist: []);
+    await alter(path, ['ALTER TABLE mysafetymerge_traffic ADD COLUMN 미래열 TEXT']);
+    expect(await LocalDbService.importFromServerDb(path), 2);
+  });
+
+  test('entry_value: no server row is NULL, an empty or filled row is kept as is (SOL-03)', () async {
+    final path = await _serverDb(dir, watchlist: []);
+    await alter(path, [
+      'CREATE TABLE mysafety_entry_value (ID TEXT PRIMARY KEY, entry_value TEXT NOT NULL)',
+      "INSERT INTO mysafety_entry_value VALUES ('s1', '')",
+    ]);
+    await LocalDbService.importFromServerDb(path);
+    expect((await _row('s1'))['entry_value'], '');
+    expect((await _row('s2'))['entry_value'], isNull);
+    final filled = await _serverDb(dir, watchlist: []);
+    await alter(filled, [
+      'CREATE TABLE mysafety_entry_value (ID TEXT PRIMARY KEY, entry_value TEXT NOT NULL)',
+      "INSERT INTO mysafety_entry_value VALUES ('s2', '자동차·교통위반-신호위반')",
+    ]);
+    await LocalDbService.importFromServerDb(filled);
+    expect((await _row('s2'))['entry_value'], '자동차·교통위반-신호위반');
+    expect((await _row('s1'))['entry_value'], isNull);
+  });
+
+  test('a successful import keeps the previous DB as a backup, newest three only (SOL-05)', () async {
+    final dbFile = File(await LocalDbService.getDbPath());
+    for (final f in dbFile.parent.listSync().whereType<File>()) {
+      if (f.uri.pathSegments.last.contains('.before_import.')) f.deleteSync();
+    }
+    final first = await _serverDb(dir, watchlist: []);
+    await LocalDbService.importFromServerDb(first);
+    expect(await LocalDbService.latestImportBackup(), isNull, reason: '처음에는 바꿀 DB 가 없었다');
+    for (var i = 0; i < 4; i++) {
+      final next = await _serverDb(dir, watchlist: []);
+      await alter(next, ["UPDATE mysafetymerge_traffic SET 신고명 = '가져오기 $i'"]);
+      await LocalDbService.importFromServerDb(next);
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+    }
+    final latest = await LocalDbService.latestImportBackup();
+    expect(latest, isNotNull);
+    final backup = await openDatabase(latest!, readOnly: true, singleInstance: false);
+    final name = (await backup.query('reports', where: 'ID = ?', whereArgs: ['s1'])).single['신고명'];
+    await backup.close();
+    expect(name, '가져오기 2', reason: '마지막 가져오기 직전 DB');
+    final dbPath = await LocalDbService.getDbPath();
+    final base = File(dbPath).uri.pathSegments.last;
+    final kept = File(dbPath).parent.listSync().whereType<File>()
+        .where((f) => f.uri.pathSegments.last.startsWith('$base.before_import.')).length;
+    expect(kept, LocalDbService.importBackupKeep);
+  });
+
+  test('the settings revert brings back the DB from before the last import, and can be undone (SOL-05 recheck)', () async {
+    final dbFile = File(await LocalDbService.getDbPath());
+    for (final f in dbFile.parent.listSync().whereType<File>()) {
+      if (f.uri.pathSegments.last.contains('.before_import.')) f.deleteSync();
+    }
+    expect(await LocalDbService.revertToPreviousImport(), isFalse, reason: '사본이 없으면 아무것도 하지 않는다');
+    final a = await _serverDb(dir, watchlist: []);
+    await alter(a, ["UPDATE mysafetymerge_traffic SET 신고명 = 'A'"]);
+    await LocalDbService.importFromServerDb(a);
+    final b = await _serverDb(dir, watchlist: []);
+    await alter(b, ["UPDATE mysafetymerge_traffic SET 신고명 = 'B'"]);
+    await LocalDbService.importFromServerDb(b);
+    expect((await _row('s1'))['신고명'], 'B');
+    expect(await LocalDbService.revertToPreviousImport(), isTrue);
+    expect((await _row('s1'))['신고명'], 'A');
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+    expect(await LocalDbService.revertToPreviousImport(), isTrue, reason: '되돌리기 직전 DB(B)도 사본으로 남는다');
+    expect((await _row('s1'))['신고명'], 'B');
+  });
 }

@@ -161,7 +161,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   }
 
   CategoryStats get _currentCat {
-    if (_stats == null)
+    if (_stats == null) {
       return const CategoryStats(
         byAgency: [],
         byPerson: [],
@@ -170,6 +170,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         otherByAgency: [],
         otherByPerson: [],
       );
+    }
     return _cat == 'traffic'
         ? _stats!.traffic
         : _cat == 'parking'
@@ -747,8 +748,8 @@ class _RowCard extends StatelessWidget {
     if (amount >= 10000) {
       final man = amount ~/ 10000;
       final rest = amount % 10000;
-      if (rest == 0) return '${man}만원';
-      return '${man}만 ${_comma(rest)}원';
+      if (rest == 0) return '$man만원';
+      return '$man만 ${_comma(rest)}원';
     }
     return '${_comma(amount)}원';
   }

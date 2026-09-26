@@ -205,11 +205,10 @@ class ApiService {
         ),
         headers: _headers,
         body: jsonEncode({
-          if (representativeId != null) 'representative_id': representativeId,
-          if (duplicateStatus != null) 'duplicate_status': duplicateStatus,
-          if (representativeMode != null)
-            'representative_mode': representativeMode,
-          if (note != null) 'note': note,
+          'representative_id': ?representativeId,
+          'duplicate_status': ?duplicateStatus,
+          'representative_mode': ?representativeMode,
+          'note': ?note,
         }),
       ),
     );
@@ -570,7 +569,13 @@ class ApiService {
       ),
     );
     if (response.statusCode != 200) {
-      throw Exception('Failed to enqueue crawl');
+      // 서버가 이유를 주면 그대로 보인다(예: 여러 신고에 걸리는 번호 400 — 서버 감사 R8-02).
+      String? detail;
+      try {
+        final body = jsonDecode(response.body);
+        if (body is Map && body['detail'] != null) detail = body['detail'].toString();
+      } catch (_) {}
+      throw Exception(detail ?? 'Failed to enqueue crawl');
     }
   }
 

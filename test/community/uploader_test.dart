@@ -162,6 +162,52 @@ void main() {
       expect(status.lastProjection, equals('published'));
     });
 
+    test('SOL-01: acked events are never re-sent by manual/midnight/recovery; stale re-enqueued rows are removed', () async {
+      final events = <String>[];
+      for (final id in ['A1', 'A2', 'A3', 'A4']) {
+        final c = await capture({...adapter('수용'), 'person_in_charge': id},
+            sourceReportId: id, trigger: 'realtime', store: store, projectNamespace: kNs);
+        events.add(c.eventId!);
+      }
+      final statuses = ['accepted', 'duplicate', 'no_change', 'quarantined'];
+      var sent = <String>[];
+      final httpClient = MockClient((req) async {
+        final body = jsonDecode(req.body) as Map<String, dynamic>;
+        final ids = [for (final e in body['events'] as List) (e as Map)['event_id'] as String];
+        sent.addAll(ids);
+        return http.Response(
+            jsonEncode({
+              'protocol': 1,
+              'request_id': 'req',
+              'results': [for (final id in ids) ackFor(id, statuses[events.indexOf(id)])],
+            }),
+            200);
+      });
+      final u = makeUploader(store: store, gate: gate, tokens: tokens, httpClient: httpClient);
+      await u.requestCommunityUpload('realtime');
+      expect(sent.toSet(), events.toSet());
+      // 예전 버전이 만든 ACK 뒤 대기 행을 흉내 낸다.
+      await store.db.insert('outbox', {
+        'event_id': events[0], 'state': 'pending', 'attempt_count': 0,
+        'enqueued_trigger': 'manual', 'enqueued_at': '2026-09-26T00:00:00.000Z',
+      });
+      for (final trigger in ['manual', 'midnight', 'recovery']) {
+        sent = [];
+        await u.requestCommunityUpload(trigger);
+        expect(sent, isEmpty, reason: trigger);
+      }
+      expect(await store.db.rawQuery('SELECT * FROM outbox'), isEmpty);
+      // 미ACK 이벤트는 여전히 보낸다.
+      final c = await capture({...adapter('수용'), 'person_in_charge': 'U1'},
+          sourceReportId: 'U1', trigger: 'realtime', store: store, projectNamespace: kNs);
+      events.add(c.eventId!);
+      statuses.add('accepted');
+      await store.db.rawDelete('DELETE FROM outbox'); // realtime 경로 없이 수동 보충만으로
+      sent = [];
+      await u.requestCommunityUpload('manual');
+      expect(sent, [c.eventId]);
+    });
+
     test('B02: 같은 신고 두 이벤트는 앞 ACK 뒤 다음 요청으로', () async {
       await capture(adapter('수용'),
           sourceReportId: 'R1', trigger: 'realtime',

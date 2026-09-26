@@ -393,7 +393,7 @@ class CommunityRebuild extends ChangeNotifier {
     if (_job == null) {
       await _insertRow();
     }
-    await _save({'state': state, if (error != null) 'last_error': error});
+    await _save({'state': state, 'last_error': ?error});
   }
 
   /// 진행 표시용 건수.

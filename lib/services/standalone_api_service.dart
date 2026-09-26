@@ -102,7 +102,7 @@ class StandaloneApiService {
     }
     if (lastError != null) {
       throw Exception(
-        '공개 API 조회 실패 (${mobileMaxRetryAttempts}회 재시도): $lastError',
+        '공개 API 조회 실패 ($mobileMaxRetryAttempts회 재시도): $lastError',
       );
     }
     return null;
@@ -122,7 +122,7 @@ class StandaloneApiService {
             ..._commonHeaders,
             'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
             'Origin': 'https://www.safetyreport.go.kr',
-            if (referer != null) 'Referer': referer,
+            'Referer': ?referer,
           },
           body: body,
         )
@@ -167,7 +167,7 @@ class StandaloneApiService {
 
     if (res == null) {
       throw Exception(
-        '네트워크 오류 (${mobileMaxRetryAttempts}회 재시도 실패): $lastError',
+        '네트워크 오류 ($mobileMaxRetryAttempts회 재시도 실패): $lastError',
       );
     }
 

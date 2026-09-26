@@ -210,7 +210,7 @@ class StandaloneAuthService {
       }
       if (!tokenSuccess) {
         throw AuthTemporarilyUnavailableException(
-          '안전신문고 로그인 요청이 네트워크 오류로 실패했습니다(${mobileMaxRetryAttempts}회 재시도). 잠시 후 다시 시도해 주세요. ($tokenLastError)',
+          '안전신문고 로그인 요청이 네트워크 오류로 실패했습니다($mobileMaxRetryAttempts회 재시도). 잠시 후 다시 시도해 주세요. ($tokenLastError)',
         );
       }
 

@@ -297,10 +297,16 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
     final namespace =
         projectNamespace(supabaseUrl);
     final at = isoUtc(DateTime.now());
+    // durable ACK 를 받은 journal 은 다시 보내지 않는다(PC 와 같은 조건 — 2026-09-26 감사 SOL-01).
+    // 예전 버전이 ACK 뒤에 다시 만든 대기 행은 정리한다.
+    await store.db.rawDelete('''
+DELETE FROM outbox WHERE state IN ('pending','retry_wait') AND event_id IN (
+SELECT event_id FROM source_journal WHERE ack_status IS NOT NULL)
+''');
     final rows = await store.db.rawQuery('''
 SELECT j.event_id AS event_id FROM source_journal j
 LEFT JOIN outbox o ON o.event_id = j.event_id
-WHERE o.event_id IS NULL AND j.blocked_reason IS NULL
+WHERE o.event_id IS NULL AND j.ack_status IS NULL AND j.blocked_reason IS NULL
 AND j.project_namespace = ? AND j.contributor_fingerprint = ?
 AND j.connection_id = ? AND j.consent_grant_id = ?
 ''', [

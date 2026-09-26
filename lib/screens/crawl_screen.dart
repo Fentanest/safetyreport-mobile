@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/app_mode.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
+import '../services/crawl_unresolved.dart';
 import '../services/local_db_service.dart';
 import '../services/sync_engine.dart';
 import '../widgets/auth_status_notice.dart';
@@ -24,6 +25,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
   final _queueController = TextEditingController();
 
   bool _isRunning = false;
+  List<CrawlUnresolved> _unresolved = const [];
   void _setRunning(bool val) {
     if (_isRunning == val) return;
     setState(() => _isRunning = val);
@@ -254,6 +256,10 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
     try {
       final status = await api.getCrawlStatus();
       final running = status['running'] == true;
+      final unresolved = CrawlUnresolved.fromStatus(status);
+      if (mounted && !CrawlUnresolved.sameList(unresolved, _unresolved)) {
+        setState(() => _unresolved = unresolved);
+      }
       if (running && !_isRunning) _connectWs(api);
       if (!running && _isRunning) {
         _ws?.close();
@@ -276,7 +282,8 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
     try {
       // 서버는 2026-09-26 부터 로그 WS 에 API 키(또는 관리자 세션)와 커뮤니티 게이트를 요구한다(미충족 4403).
       _ws = await WebSocket.connect(
-          '${api.wsBaseUrl}/crawl/ws/logs?api_key=${Uri.encodeQueryComponent(api.apiKey)}');
+        '${api.wsBaseUrl}/crawl/ws/logs?api_key=${Uri.encodeQueryComponent(api.apiKey)}',
+      );
       _ws!.listen(
         (data) {
           if (!mounted) return;
@@ -697,25 +704,28 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _sectionTitle('1. 크롤링 범위'),
-                    _radioTile(
-                      '전체 크롤링',
-                      'full',
-                      _crawlMode,
-                      '',
-                      onChanged: (v) => setState(() => _crawlMode = v!),
-                    ),
-                    _radioTile(
-                      'DB 초기화 후 새로 크롤링',
-                      'reset',
-                      _crawlMode,
-                      '',
-                      isRed: true,
-                      onChanged: (v) => setState(() => _crawlMode = v!),
+                    RadioGroup<String>(
+                      groupValue: _crawlMode,
+                      onChanged: (v) {
+                        if (v != null) setState(() => _crawlMode = v);
+                      },
+                      child: Column(
+                        children: [
+                          _radioTile('전체 크롤링', 'full', ''),
+                          _radioTile(
+                            'DB 초기화 후 새로 크롤링',
+                            'reset',
+                            '',
+                            isRed: true,
+                          ),
+                        ],
+                      ),
                     ),
 
                     SizedBox(height: 12),
 
                     _sectionTitle('2. 큐 (선택사항)'),
+                    if (_unresolved.isNotEmpty) _unresolvedNotice(),
                     TextField(
                       controller: _queueController,
                       maxLines: 3,
@@ -859,14 +869,45 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
     ),
   );
 
+  /// 서버 대기 큐에서 처리하지 못한 번호(최근 5개).
+  Widget _unresolvedNotice() => Container(
+    width: double.infinity,
+    margin: const EdgeInsets.only(bottom: 8),
+    padding: const EdgeInsets.all(10),
+    decoration: BoxDecoration(
+      color: Theme.of(context).colorScheme.errorContainer,
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '처리하지 못한 신고번호',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 12,
+            color: Theme.of(context).colorScheme.onErrorContainer,
+          ),
+        ),
+        for (final u in _unresolved.take(5))
+          Text(
+            '${u.number} — ${u.message}',
+            style: TextStyle(
+              fontSize: 12,
+              color: Theme.of(context).colorScheme.onErrorContainer,
+            ),
+          ),
+      ],
+    ),
+  );
+
+  /// 선택 값·변경 처리는 감싼 [RadioGroup] 이 맡는다.
   Widget _radioTile(
     String title,
     String value,
-    String groupValue,
     String subtitle, {
     bool enabled = true,
     bool isRed = false,
-    void Function(String?)? onChanged,
   }) {
     return RadioListTile<String>(
       title: Text(
@@ -886,10 +927,9 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
             )
           : null,
       value: value,
-      groupValue: groupValue,
+      enabled: enabled,
       dense: true,
       contentPadding: EdgeInsets.zero,
-      onChanged: enabled ? onChanged : null,
     );
   }
 }

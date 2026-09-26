@@ -26,8 +26,9 @@ class StandalonePendingQueueStore {
     final prefs = await SharedPreferences.getInstance();
     for (final n in reportNumbers) {
       final value = n.trim();
-      if (value.isNotEmpty)
+      if (value.isNotEmpty) {
         await PrefsInbox.putString(prefs, PrefsInbox.queue, value);
+      }
     }
   }
 

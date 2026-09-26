@@ -37,6 +37,17 @@ class DbBusyException implements Exception {
   String toString() => message;
 }
 
+/// 가져올 DB 의 모르는 열에 값이 있어 교체하지 않았을 때(감사 SOL-02). 메시지는 그대로 화면에 보인다.
+class UnknownColumnsException implements Exception {
+  UnknownColumnsException(this.columns);
+  final List<String> columns;
+
+  @override
+  String toString() =>
+      '이 앱이 모르는 열에 값이 있어 가져오지 않았습니다(그대로 바꾸면 값이 사라집니다): '
+      '${columns.join(', ')}. 앱을 최신 버전으로 업데이트한 뒤 다시 시도하세요.';
+}
+
 class LocalDbService {
   static Database? _db;
   static Future<Database>? _initFuture;
@@ -2746,7 +2757,9 @@ class LocalDbService {
     var restoreSucceeded = !hadCurrentDb;
 
     if (hadCurrentDb) {
-      backupPath = '$dbPath.bak.${DateTime.now().millisecondsSinceEpoch}';
+      // 성공해도 남긴다 — 잘못 가져온 뒤 직전 DB 로 되돌릴 사본(감사 SOL-05). 최근 [importBackupKeep] 개만.
+      backupPath =
+          '$dbPath.before_import.${DateTime.now().millisecondsSinceEpoch}.bak';
       await target.copy(backupPath);
     }
 
@@ -2784,12 +2797,57 @@ class LocalDbService {
       try {
         await stagedCopy.delete();
       } catch (_) {}
-      if (backupPath != null && (replacementSucceeded || restoreSucceeded)) {
+      if (backupPath != null && !replacementSucceeded && restoreSucceeded) {
+        // 교체 실패 → 원래 DB 를 되돌렸으니 같은 내용의 사본은 필요 없다.
         try {
           await File(backupPath).delete();
         } catch (_) {}
       }
     }
+    if (replacementSucceeded) _pruneImportBackups(dbPath);
+  }
+
+  static const importBackupKeep = 3;
+
+  /// 가져오기·복원 직전 사본 `<db>.before_import.<epoch ms>.bak` 은 최근 [importBackupKeep] 개만 남긴다.
+  static void _pruneImportBackups(String dbPath) {
+    final file = File(dbPath);
+    final name = file.uri.pathSegments.last;
+    try {
+      final olds = file.parent.listSync().whereType<File>().where((f) {
+        final n = f.uri.pathSegments.last;
+        return n.startsWith('$name.before_import.') && n.endsWith('.bak');
+      }).toList()..sort((a, b) => _backupStamp(a).compareTo(_backupStamp(b)));
+      for (final f in olds.take(
+        olds.length > importBackupKeep ? olds.length - importBackupKeep : 0,
+      )) {
+        try {
+          f.deleteSync();
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
+  /// 가장 최근 가져오기·복원 직전 사본으로 되돌린다(감사 SOL-05). 되돌리기도 복원이라 지금 DB 가 새 사본으로 남는다.
+  /// 사본이 없으면 false.
+  static Future<bool> revertToPreviousImport() async {
+    final latest = await latestImportBackup();
+    if (latest == null) return false;
+    await replaceFromBackup(latest);
+    return true;
+  }
+
+  /// 가장 최근 가져오기·복원 직전 사본(없으면 null) — 설정 화면의 되돌리기 버튼이 쓴다.
+  static Future<String?> latestImportBackup() async {
+    final dbPath = await getDbPath();
+    final file = File(dbPath);
+    final name = file.uri.pathSegments.last;
+    if (!file.parent.existsSync()) return null;
+    final list = file.parent.listSync().whereType<File>().where((f) {
+      final n = f.uri.pathSegments.last;
+      return n.startsWith('$name.before_import.') && n.endsWith('.bak');
+    }).toList()..sort((a, b) => _backupStamp(a).compareTo(_backupStamp(b)));
+    return list.isEmpty ? null : list.last.path;
   }
 
   static Future<Database> _createImportTargetDb(String path) async {
@@ -2911,6 +2969,55 @@ class LocalDbService {
       r['name'] as String: (r['type'] as String?) ?? '',
   };
 
+  /// 서버 DB 에서 읽는 표에 이 앱이 모르는 열이 있고 그 열에 NULL 아닌 값('' 포함)이 있으면 교체 전에 멈춘다.
+  /// 그대로 가져오면 그 값이 조용히 사라진다(PROJECT_RULES 3-1, 감사 SOL-02 — PC exchange.UnknownColumns 와 같은 규칙).
+  /// 아는 열 = 이 앱의 대상 표 열(계약 storage-contract.json 과 같음 — test/storage/storage_contract_test.dart).
+  static Future<void> _refuseUnknownServerColumns(
+    Database serverDb,
+    Set<String> serverTables,
+    DatabaseExecutor localDb,
+  ) async {
+    final reportColumns = (await _columnTypes(localDb, 'reports')).keys.toSet();
+    // 분류마다 실제로 읽는 표와 같게 고른다(_readServerReportRows 와 같은 조건 — Sol 재검증 SOL-02):
+    // mysafety + 그 분류의 상세 표가 있으면 둘, 없으면 그 분류의 merge 표.
+    final known = <String, Set<String>>{
+      for (final c in const ['traffic', 'parking', 'other'])
+        if (serverTables.contains('mysafety') &&
+            serverTables.contains('mysafetydetail_$c')) ...{
+          'mysafety': reportColumns,
+          'mysafetydetail_$c': reportColumns,
+        } else
+          'mysafetymerge_$c': reportColumns,
+      'mysafety_raw_content': (await _columnTypes(localDb, 'report_raw')).keys.toSet(),
+      'mysafety_sync_meta': const {'key', 'value'},
+      'mysafety_watchlist': const {'신고번호'},
+      'mysafety_entry_value': const {'ID', 'entry_value'},
+      'mysafety_geocode_cache': (await _columnTypes(localDb, 'geocode_cache')).keys.toSet(),
+      'mysafety_duplicate_group':
+          (await _columnTypes(localDb, DuplicateProjectionService.groupTable)).keys.toSet(),
+      'mysafety_duplicate_member':
+          (await _columnTypes(localDb, DuplicateProjectionService.memberTable)).keys.toSet(),
+      'mysafety_report_override': (await _columnTypes(localDb, 'report_override')).keys.toSet(),
+      'mysafety_duplicate_decision':
+          (await _columnTypes(localDb, 'duplicate_decision')).keys.toSet(),
+    };
+    final problems = <String>[];
+    for (final entry in known.entries) {
+      if (!serverTables.contains(entry.key)) continue;
+      for (final col in (await _columnTypes(serverDb, entry.key)).keys) {
+        if (entry.value.contains(col)) continue;
+        final n = Sqflite.firstIntValue(await serverDb.rawQuery(
+              'SELECT COUNT(*) FROM "${entry.key}" WHERE "$col" IS NOT NULL',
+            )) ??
+            0;
+        if (n > 0) problems.add('${entry.key}.$col($n행)');
+      }
+    }
+    if (problems.isNotEmpty) {
+      throw UnknownColumnsException(problems);
+    }
+  }
+
   // ── 서버 DB → 모바일 DB 변환 ────────────────────────────────────────────────
 
   /// 서버 DB (mysafetymerge_traffic / parking / other 3개 테이블 + mysafety_watchlist)
@@ -2978,6 +3085,7 @@ class LocalDbService {
         'mysafetymerge_parking': 'parking',
         'mysafetymerge_other': 'other',
       };
+      await _refuseUnknownServerColumns(serverDb, serverTables, localDb);
       const geoColumns = ['주소정규화', '행정구역', '위도', '경도', '지오코딩상태'];
       int imported = 0;
 
@@ -3017,7 +3125,8 @@ class LocalDbService {
                 if (reportTypes.containsKey(e.key))
                   e.key: _coerceForColumn(e.value, reportTypes[e.key]),
               'category': entry.value,
-              'entry_value': entryValueById[reportId] ?? '',
+              // 서버 행 없음 = 모름(NULL), 행의 값(빈 문자열 포함)은 그대로 — PC exchange 와 같은 규칙(감사 SOL-03).
+              'entry_value': entryValueById[reportId],
               'raw_content': '',
             };
             // 구서버에 지오코딩 열이 없을 때만 주소에서 계산한다(계산값, owner=derived).
@@ -3148,7 +3257,7 @@ class LocalDbService {
 
   /// 모바일 백업 .db 로 현재 DB 를 바꾼다(저장 계층 재설계 R1d, M-11).
   /// 임시 사본에서 종류·버전 확인 → 마이그레이션 → 무결성 검사를 마친 뒤 `_commitImportedDatabase` 로 교체한다
-  /// (기존 DB 는 .bak 으로 남기고 실패하면 되돌린다). 서버 DB 는 importFromServerDb 를 쓴다.
+  /// (기존 DB 는 `<db>.before_import.<시각>.bak` 으로 남기고(최근 3개) 실패하면 되돌린다). 서버 DB 는 importFromServerDb 를 쓴다.
   static Future<void> replaceFromBackup(String backupDbPath) async {
     _refuseDuringBackgroundWork('백업 복원을');
     _invalidateProjectRowsCache();

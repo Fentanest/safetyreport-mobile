@@ -159,7 +159,7 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: duplicateStatus,
+                initialValue: duplicateStatus,
                 decoration: const InputDecoration(
                   labelText: '중복 상태',
                   border: OutlineInputBorder(),
@@ -185,7 +185,7 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: representativeMode,
+                initialValue: representativeMode,
                 decoration: const InputDecoration(
                   labelText: '대표건 선정',
                   border: OutlineInputBorder(),
@@ -220,51 +220,56 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
-              ...group.members.map(
-                (member) => Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  child: RadioListTile<String>(
-                    value: member.reportId,
-                    groupValue: representativeId,
-                    onChanged: (value) {
-                      if (value == null) return;
-                      setSheetState(() {
-                        representativeId = value;
-                        representativeMode = RepresentativeModes.manual;
-                      });
-                    },
-                    title: Text(
-                      member.report.reportNumber.isNotEmpty
-                          ? member.report.reportNumber
-                          : member.reportId,
-                    ),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (member.report.name.isNotEmpty)
-                          Text(
-                            member.report.name,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
+              RadioGroup<String>(
+                groupValue: representativeId,
+                onChanged: (value) {
+                  if (value == null) return;
+                  setSheetState(() {
+                    representativeId = value;
+                    representativeMode = RepresentativeModes.manual;
+                  });
+                },
+                child: Column(
+                  children: [
+                    for (final member in group.members)
+                      Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        child: RadioListTile<String>(
+                          value: member.reportId,
+                          title: Text(
+                            member.report.reportNumber.isNotEmpty
+                                ? member.report.reportNumber
+                                : member.reportId,
                           ),
-                        Text(
-                          '${member.entryValue.isNotEmpty ? member.entryValue : member.category} · ${member.report.statusWithFine}',
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (member.report.name.isNotEmpty)
+                                Text(
+                                  member.report.name,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              Text(
+                                '${member.entryValue.isNotEmpty ? member.entryValue : member.category} · ${member.report.statusWithFine}',
+                              ),
+                              if (member.report.agency.isNotEmpty)
+                                Text(
+                                  member.report.agency,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                            ],
+                          ),
+                          secondary: IconButton(
+                            icon: const Icon(Icons.open_in_new),
+                            tooltip: '상세 보기',
+                            onPressed: () =>
+                                showReportDetailSheet(context, member.report),
+                          ),
                         ),
-                        if (member.report.agency.isNotEmpty)
-                          Text(
-                            member.report.agency,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                      ],
-                    ),
-                    secondary: IconButton(
-                      icon: const Icon(Icons.open_in_new),
-                      tooltip: '상세 보기',
-                      onPressed: () =>
-                          showReportDetailSheet(context, member.report),
-                    ),
-                  ),
+                      ),
+                  ],
                 ),
               ),
               const SizedBox(height: 8),

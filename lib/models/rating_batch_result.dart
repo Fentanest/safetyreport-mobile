@@ -116,7 +116,7 @@ class RatingBatchResult {
       .map((item) => item.reportNumber)
       .toList(growable: false);
 
-  String get title => '⭐ 별점 ${score}점 처리';
+  String get title => '⭐ 별점 $score점 처리';
   String get summary => '성공 $successCount건, 스킵 $skipCount건, 실패 $failureCount건';
 
   RatingBatchResult copyWith({

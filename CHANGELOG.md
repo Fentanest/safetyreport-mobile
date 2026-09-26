@@ -40,6 +40,24 @@
   cold start 보관(`getInitialLink`). Xcode 없어 빌드 미검증.
 - T6 연결 자리 `lib/community/upload_hooks.dart` (기본값; `.agent-runs/T5/REQUESTS.md` 참고).
 
+### 커뮤니티 데이터 경로 T6 (모바일 업로드)
+
+Standalone 모드가 공식 상세 응답 순간의 값으로 공유 DTO 를 확정해 `community.db` 에
+불변 저장하고, 그 사본만으로 실시간·수동·자정 업로드를 `community-ingest` 로 보낸다.
+계약 정본 `contracts/community-ingest/`, 설계 `docs/architecture/community-upload.md`.
+
+- capture(`lib/community/capture/`): 어댑터·DTO·정규 JSON·event 결정·한 트랜잭션 저장·
+  재시도 파일·연속 3회 중단·manifest 교체·삭제 처리·reshare. 벡터 전부 통과
+  (observations ·canonical-json ·schedule ·list_refetch).
+- 수집 연결: `SyncEngine.start(fullSync, rebuildRunId)` — 상세 루프·단건이 같은
+  capture+저장 함수를 쓰고, rebuild 는 부재 행 삭제 없이 orphan 수만 결과에 담는다.
+  `replaceFromBackup`·`importFromServerDb` 전에 `rotateDataset` 호출.
+- 업로드(`lib/community/upload/`): 게이트·lease·drain(≤20건·≤256KiB·같은 신고 하나)·
+  오류 분기·durable ACK·upload_runs. Client 모드 전송 금지.
+- 스케줄: 1시간 periodic + 다음 자정 one-off, dispatcher 분기, iOS plist 항목
+  (실기기 미검증). 지도 탭 접이식 패널. 빌드 공개 설정 dart-define 주입 + 자리표시자 거부.
+- T5 연결점·벡터 확인 요청: `.agent-runs/T6/REQUESTS.md`.
+
 ## 2026-09-25 (버전 변경 없음)
 
 ### 커뮤니티 계정 연결 (safeauth.worklazy.net)

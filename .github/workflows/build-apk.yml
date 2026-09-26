@@ -60,6 +60,9 @@ jobs:
 
     - name: Build APK & AAB with local Flutter CLI
       if: steps.check_tag.outputs.tag_exists == 'false'
+      env:
+        COMMUNITY_SUPABASE_URL: ${{ vars.COMMUNITY_SUPABASE_URL }}
+        COMMUNITY_SUPABASE_PUBLISHABLE_KEY: ${{ vars.COMMUNITY_SUPABASE_PUBLISHABLE_KEY }}
       run: |
         bash ./build_android_release.sh
 

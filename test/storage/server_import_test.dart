@@ -153,20 +153,43 @@ void main() {
     expect((await _row('s1'))['신고명'], '신호위반', reason: '기존 DB 그대로');
   });
 
-  test('mixed old DB: a category without its detail table is read from merge and guarded there (SOL-02 recheck)', () async {
-    final path = await _serverDb(dir, watchlist: []);
-    await alter(path, [
-      // traffic 는 원본(mysafety + 상세)에서, parking 은 상세 표가 없어 merge 에서 읽는다
-      'CREATE TABLE mysafetydetail_traffic (ID TEXT PRIMARY KEY, 처리상태 TEXT, 위반장소 TEXT)',
-      "INSERT INTO mysafety VALUES ('s1')",
-      "INSERT INTO mysafetydetail_traffic VALUES ('s1', '수용', '서울 강서구 1')",
-      'ALTER TABLE mysafetymerge_parking ADD COLUMN 미래열 TEXT',
-      "INSERT INTO mysafetymerge_parking (ID, 신고번호, 위반장소, 미래열) VALUES ('p1', 'SPP-9', '서울 강서구 2', '')",
-    ]);
+  // 혼합 구버전 서버 DB: traffic 은 원본(mysafety + 상세), parking 은 상세 표가 없어 merge 에서 읽는다.
+  Future<String> mixedServerDb({String? parkingFuture}) async {
+    final path = '${dir.path}/mixed_${DateTime.now().microsecondsSinceEpoch}.db';
+    final db = await openDatabase(path);
+    await db.execute('CREATE TABLE mysafety (ID TEXT PRIMARY KEY, 상태 TEXT, 신고번호 TEXT, 신고명 TEXT, 신고일 TEXT, 감시목록 TEXT)');
+    await db.execute('CREATE TABLE mysafetydetail_traffic (ID TEXT PRIMARY KEY, 처리상태 TEXT, 위반장소 TEXT)');
+    await db.execute('CREATE TABLE mysafetymerge_traffic (ID TEXT PRIMARY KEY, 신고번호 TEXT, 위반장소 TEXT)');
+    await db.execute(
+      'CREATE TABLE mysafetymerge_parking (ID TEXT PRIMARY KEY, 상태 TEXT, 신고번호 TEXT, 신고명 TEXT, 위반장소 TEXT'
+      '${parkingFuture != null ? ', 미래열 TEXT' : ''})',
+    );
+    await db.execute('CREATE TABLE mysafetymerge_other AS SELECT ID, 신고번호, 위반장소 FROM mysafetymerge_traffic WHERE 0');
+    await db.insert('mysafety', {'ID': 't1', '상태': '수용', '신고번호': 'SPP-T1', '신고명': '신호위반', '신고일': '2026-09-01', '감시목록': 'N'});
+    await db.insert('mysafetydetail_traffic', {'ID': 't1', '처리상태': '수용', '위반장소': '서울 강서구 1'});
+    await db.insert('mysafetymerge_parking', {
+      'ID': 'p1', '상태': '수용', '신고번호': 'SPP-P1', '신고명': '불법주정차', '위반장소': '서울 강서구 2',
+      if (parkingFuture != null) '미래열': parkingFuture,
+    });
+    await db.close();
+    return path;
+  }
+
+  test('mixed old DB imports traffic from source tables and parking from merge (SOL-02 recheck, success path)', () async {
+    expect(await LocalDbService.importFromServerDb(await mixedServerDb()), 2);
+    expect((await _row('t1'))['신고명'], '신호위반', reason: 'traffic 은 mysafety 제목 열에서');
+    expect((await _row('t1'))['category'], 'traffic');
+    expect((await _row('p1'))['신고명'], '불법주정차', reason: 'parking 은 상세 표가 없어 merge 에서');
+    expect((await _row('p1'))['category'], 'parking');
+  });
+
+  test('mixed old DB: an unknown value in the merge table actually read for parking is refused (SOL-02 recheck)', () async {
+    await LocalDbService.importFromServerDb(await mixedServerDb());
     await expectLater(
-      LocalDbService.importFromServerDb(path),
+      LocalDbService.importFromServerDb(await mixedServerDb(parkingFuture: '')),
       throwsA(isA<UnknownColumnsException>().having((e) => e.toString(), 'message', contains('mysafetymerge_parking.미래열(1행)'))),
     );
+    expect((await _row('p1'))['신고명'], '불법주정차', reason: '기존 DB 그대로');
   });
 
   test('unknown server column that is all NULL loses nothing and imports', () async {

@@ -86,6 +86,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _loadFilterSettings();
     _loadServerVersion();
     _loadPreviousImportBackup();
+    // 모드·데모 DB 가 바뀌면 되돌리기 사본 표시도 그 DB 기준으로 다시 읽는다(감사 R2-03).
+    _dbKeyProvider = provider..addListener(_onDbTargetMaybeChanged);
+    _dbKey = _dbKeyOf(provider);
     PackageInfo.fromPlatform().then((info) {
       if (mounted) setState(() => _appVersion = info.version);
     });
@@ -196,8 +199,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _wsToggling = false);
   }
 
+  ReportProvider? _dbKeyProvider;
+  String? _dbKey;
+
+  static String _dbKeyOf(ReportProvider p) => '${p.appMode.name}|${p.isStandaloneDemo}';
+
+  void _onDbTargetMaybeChanged() {
+    final p = _dbKeyProvider;
+    if (p == null) return;
+    final key = _dbKeyOf(p);
+    if (key == _dbKey) return;
+    _dbKey = key;
+    _loadPreviousImportBackup();
+  }
+
   @override
   void dispose() {
+    _dbKeyProvider?.removeListener(_onDbTargetMaybeChanged);
     _urlController.dispose();
     _apiController.dispose();
     _standaloneKakaoController.dispose();

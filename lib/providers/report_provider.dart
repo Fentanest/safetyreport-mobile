@@ -802,8 +802,13 @@ class ReportProvider with ChangeNotifier {
           unawaited(PermissionService.startWsService());
         }
       }
-      await CommunityUploadHooks.registerBackgroundJobsNow();
-      await CommunityUploadHooks.catchUpNow('gate-passed');
+      // 업로드·자정 작업은 Standalone writer(데모 제외)만. Client·데모는 등록된 작업을 해제한다.
+      if (_appMode == AppMode.standalone && !_isStandaloneDemo) {
+        await CommunityUploadHooks.registerBackgroundJobsNow();
+        await CommunityUploadHooks.catchUpNow('gate-passed');
+      } else {
+        await CommunityUploadHooks.cancelBackgroundJobsNow();
+      }
     } catch (e) {
       _errorMessage = '게이트 통과 후 시작 실패: $e';
       notifyListeners();
@@ -834,6 +839,8 @@ class ReportProvider with ChangeNotifier {
     await StandaloneAuthService.reloadStatus();
     StandaloneAuthService.startKeepAlive();
     await StandaloneAuthService.refreshSessionIfNeeded();
+    // 앱 복귀: 재시도 시각이 지난 공유 업로드를 바로 이어서(초기화 중에도 — 업로드는 수집과 별개).
+    CommunityUploadHooks.wakeUploadNow('recovery');
     if (CommunityRebuildGuard.active) return;
     await _drainAndRefresh();
   }
@@ -852,6 +859,7 @@ class ReportProvider with ChangeNotifier {
   Future<void> setConfig(String url, String key) async {
     StandaloneAuthService.stopKeepAlive();
     unawaited(BackgroundLoginCheck.cancel());
+    unawaited(CommunityUploadHooks.cancelBackgroundJobsNow()); // Client·데모·초기화: 공유 업로드 작업 해제
     final cleanUrl = url.endsWith('/') ? url.substring(0, url.length - 1) : url;
     _appMode = AppMode.server;
     _isStandaloneDemo = false;
@@ -880,6 +888,7 @@ class ReportProvider with ChangeNotifier {
       StandaloneAuthService.stopKeepAlive();
       await StandaloneAuthService.clearToken();
       unawaited(BackgroundLoginCheck.cancel());
+      unawaited(CommunityUploadHooks.cancelBackgroundJobsNow()); // 데모: 공유 업로드 작업 해제
     } else {
       StandaloneAuthService.startKeepAlive();
       unawaited(BackgroundLoginCheck.schedule());
@@ -931,6 +940,7 @@ class ReportProvider with ChangeNotifier {
     await PermissionService.stopWsService();
     StandaloneAuthService.stopKeepAlive();
     unawaited(BackgroundLoginCheck.cancel());
+    unawaited(CommunityUploadHooks.cancelBackgroundJobsNow()); // Client·데모·초기화: 공유 업로드 작업 해제
     _appMode = AppMode.server;
     _baseUrl = '';
     _apiKey = '';

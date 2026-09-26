@@ -39,6 +39,17 @@ class CommunityPanelData {
     this.lastProjection,
     this.serverState,
     this.error,
+    this.authRequired = 0,
+    this.quarantined = 0,
+    this.stored = 0,
+    this.published = 0,
+    this.oldestUnsentAt,
+    this.nextRetryAt,
+    this.lastCentralAckAt,
+    this.controlState = 'ready',
+    this.controlUntil,
+    this.controlReason,
+    this.lastRequest,
   });
 
   final bool clientMode;
@@ -51,6 +62,19 @@ class CommunityPanelData {
   final String? lastProjection;
   final CommunityServerUploadState? serverState;
   final String? error;
+  final int authRequired;
+  final int quarantined;
+  final int stored;
+  final int published;
+
+  /// UTC ISO 시각(표시할 때 한국 시간으로).
+  final String? oldestUnsentAt;
+  final String? nextRetryAt;
+  final String? lastCentralAckAt;
+  final String controlState;
+  final String? controlUntil;
+  final String? controlReason;
+  final String? lastRequest;
 }
 
 /// 패널 데이터 로드 (게이트 불필요 — 로컬 개수만 읽는다).
@@ -81,22 +105,71 @@ Future<CommunityPanelData> loadCommunityPanelData({
       lastFinishedAt: status.lastFinishedAt,
       reshareCandidates: status.reshareCandidateCount,
       lastProjection: status.lastProjection,
+      authRequired: status.authRequired,
+      quarantined: status.quarantined,
+      stored: status.stored,
+      published: status.published,
+      oldestUnsentAt: status.oldestUnsentAt,
+      nextRetryAt: status.nextRetryAt,
+      lastCentralAckAt: status.lastCentralAckAt,
+      controlState: status.controlState,
+      controlUntil: status.controlUntil,
+      controlReason: status.controlReason,
+      lastRequest: status.lastRequest,
     );
   } catch (e) {
     return CommunityPanelData(clientMode: false, error: '$e');
   }
 }
 
+/// 수동 업로드 → 사용자 문구(PC 지도 패널과 같은 문구).
 Future<String> runCommunityUploadNow() async {
   final uploader = await buildDefaultUploader(gate: CommunityWiring.gateCheck());
-  final result = await uploader.requestCommunityUpload('manual');
-  return result.result;
+  return uploadRunMessage(await uploader.requestCommunityUpload('manual'));
 }
 
 Future<String> runCommunityReshareNow() async {
   final uploader = await buildDefaultUploader(gate: CommunityWiring.gateCheck());
-  final result = await uploader.requestReshare();
-  return result.result;
+  return uploadRunMessage(await uploader.requestReshare());
+}
+
+String uploadRunMessage(UploadRunResult result) {
+  var text = runMessage(result.result);
+  if (result.result == 'cooldown' && result.nextAttemptAt != null) text += ' (${kstLabel(result.nextAttemptAt)}까지)';
+  if (result.errorCode != null && result.result != 'sent' && result.result != 'no_pending') {
+    text += ' · ${uploadErrorText(result.errorCode)}';
+  }
+  return text;
+}
+
+/// UTC ISO → 한국 시간 'YYYY-MM-DD HH:mm'. 읽을 수 없으면 원문.
+String kstLabel(String? iso) {
+  if (iso == null) return '';
+  final t = DateTime.tryParse(iso);
+  if (t == null) return iso;
+  final k = t.toUtc().add(const Duration(hours: 9));
+  String two(int v) => v.toString().padLeft(2, '0');
+  return '${k.year}-${two(k.month)}-${two(k.day)} ${two(k.hour)}:${two(k.minute)}';
+}
+
+/// 확인된 코드만 사람이 읽는 말로(원인을 추정하지 않는다 — PC ERROR_TEXT 와 같음).
+String uploadErrorText(String? code) {
+  if (code == null || code.isEmpty) return '';
+  const known = {
+    'rate_limited': '요청이 많아 서버가 잠시 대기를 요청함(429)',
+    'busy': '서버 혼잡(503)',
+    'service_unavailable': '서비스 일시 중단(503)',
+    'server_error': '서버 일시 오류(500)',
+    'offline': '네트워크 연결 실패',
+    'invalid_ack': '서버 응답 형식 이상',
+    'ack_missing': '일부 응답 누락',
+    'auth_unavailable': '인증 서버 연결 실패',
+  };
+  final hit = known[code];
+  if (hit != null) return hit;
+  final http = RegExp(r'^http_(\d{3})$').firstMatch(code);
+  if (http != null) return '서버 일시 오류(HTTP ${http.group(1)})';
+  return '오류 $code';
 }
 
 /// 필터 바 아래에 두는 접이식 카드 호스트 (스스로 로드·새로고침).
@@ -143,12 +216,12 @@ class _CommunityUploadPanelHostState extends State<CommunityUploadPanelHost> {
       String result;
       if ((_data?.clientMode ?? false) && widget.serverClient != null) {
         await widget.serverClient!.run();
-        result = 'requested';
+        result = runMessage('requested');
       } else {
         result = await runCommunityUploadNow();
       }
       if (!mounted) return;
-      setState(() => _notice = _runMessage(result));
+      setState(() => _notice = result);
     } catch (e) {
       if (!mounted) return;
       setState(() => _notice = '업로드 요청 실패: $e');
@@ -185,7 +258,7 @@ class _CommunityUploadPanelHostState extends State<CommunityUploadPanelHost> {
     try {
       final result = await runCommunityReshareNow();
       if (!mounted) return;
-      setState(() => _notice = _runMessage(result));
+      setState(() => _notice = result);
     } catch (e) {
       if (!mounted) return;
       setState(() => _notice = '다시 공유 실패: $e');
@@ -209,24 +282,43 @@ class _CommunityUploadPanelHostState extends State<CommunityUploadPanelHost> {
   }
 }
 
-String _runMessage(String result) {
+/// 실행 결과 코드 → 문구. 새 코드(UC-1)와 예전 기록의 코드를 모두 읽는다(PC RESULT_TEXT 와 같음).
+String runMessage(String result) {
   switch (result) {
+    case 'sent':
     case 'success':
-      return '업로드 완료';
+      return '중앙 저장 확인';
+    case 'no_pending':
     case 'no_change':
-      return '보낼 자료가 없습니다';
+      return '보낼 미전송 자료가 없습니다';
+    case 'not_due':
+      return '미전송 자료는 다음 재시도 시각에 보냅니다';
+    case 'more_pending':
+      return '남은 자료를 이어서 보냅니다';
     case 'partial':
-      return '일부만 전송됨(보류 확인)';
+      return '일부만 저장 확인 — 확인이 필요한 항목이 있습니다';
+    case 'cooldown':
+      return '서버가 일시적으로 요청을 받지 못해 잠시 기다립니다';
     case 'deferred':
-      return '다음 기회에 전송합니다';
+      return '다음 기회에 다시 시도합니다';
+    case 'busy_other_run':
+      return '다른 업로드가 진행 중입니다';
+    case 'blocked_gate':
+      return '커뮤니티 연결 확인 뒤 보냅니다';
+    case 'needs_auth':
     case 'auth_required':
-      return '커뮤니티 계정 확인이 필요합니다';
+      return '인증 필요 — 커뮤니티 계정을 다시 연결해 주세요';
+    case 'needs_consent':
+    case 'consent_required':
+      return '공유 동의 확인 필요';
+    case 'connection_required':
+      return '연결 확인 필요';
     case 'offline':
       return '네트워크 연결 후 전송합니다';
     case 'requested':
       return '서버에 업로드를 요청했습니다';
     default:
-      return '전송 실패($result)';
+      return '실패($result)';
   }
 }
 
@@ -323,10 +415,14 @@ class CommunityUploadPanel extends StatelessWidget {
   }
 
   String _summarySubtitle() {
+    if (data.controlState == 'cooling_down') {
+      return '서버가 일시적으로 요청을 받지 못해 ${kstLabel(data.controlUntil)}까지 기다립니다';
+    }
+    if (data.authRequired > 0) return '커뮤니티 계정 인증이 필요합니다';
     if (data.lastProjection != null) {
       return projectionMessage(data.lastProjection);
     }
-    if (data.lastResult != null) return _runMessage(data.lastResult!);
+    if (data.lastResult != null) return runMessage(data.lastResult!);
     return '전송 대기 없음';
   }
 
@@ -341,11 +437,26 @@ class CommunityUploadPanel extends StatelessWidget {
     }
     final lines = <String>[
       '전송 대기 ${data.pending}건',
+      if (data.authRequired > 0) '인증 필요 ${data.authRequired}건 — 다시 연결하면 대기 중인 자료를 그대로 보냅니다',
+      if (data.controlState == 'cooling_down')
+        '서버 대기: ${kstLabel(data.controlUntil)}까지'
+            '${data.controlReason == null ? '' : ' · ${uploadErrorText(data.controlReason)}'}',
+      if (data.oldestUnsentAt != null) '가장 오래된 미전송: ${kstLabel(data.oldestUnsentAt)}',
+      if (data.nextRetryAt != null) '다음 재시도: ${kstLabel(data.nextRetryAt)}',
+      data.lastCentralAckAt != null
+          ? '마지막 중앙 저장 확인: ${kstLabel(data.lastCentralAckAt)}'
+          : '중앙 저장 확인 기록 없음',
+      if (data.stored > 0) '중앙 저장 ${data.stored}건 중 지도 반영 ${data.published}건',
+      if (data.quarantined > 0) '중앙 보관·지도 미반영 ${data.quarantined}건(확인 필요)',
       if (data.lastProjection != null)
         '최근: ${projectionMessage(data.lastProjection)}',
       if (data.blocked > 0) '보류 ${data.blocked}건(사유 확인 필요)',
       if (data.deadLetter > 0) '전송 불가 ${data.deadLetter}건',
-      if (data.lastFinishedAt != null) '마지막 전송: ${data.lastFinishedAt}',
+      if (data.lastFinishedAt != null)
+        '마지막 전송: ${kstLabel(data.lastFinishedAt)}'
+            '${data.lastResult == null ? '' : ' · ${runMessage(data.lastResult!)}'}'
+            '${data.lastRequest == null ? '' : ' · 추적 ${data.lastRequest}'}',
+      '(한국 시간)',
     ];
     return lines;
   }

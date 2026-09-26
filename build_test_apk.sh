@@ -30,7 +30,7 @@ for arg in "$@"; do
     esac
 done
 
-ensure_flutter_available "$FLUTTER_BIN"
+resolve_pinned_flutter "$SCRIPT_DIR"
 ensure_java_available
 
 # VERSION 읽기

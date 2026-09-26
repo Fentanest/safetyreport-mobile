@@ -18,6 +18,12 @@ class CommunityUploadHooks {
   /// T6 `registerBackgroundJobs()` — 자정·주기 업로드 작업 등록.
   static Future<void> Function()? registerBackgroundJobs;
 
+  /// Client·데모 전환 때 자정·주기 작업 해제.
+  static Future<void> Function()? cancelBackgroundJobs;
+
+  /// 수집(capture) 직후 실시간 업로드 깨우기(앱 isolate 의 업로드 제어기). 백그라운드 isolate 에서는 비어 있다.
+  static void Function(String trigger)? wakeUpload;
+
   /// T6 `catchUp(reason)` — resume·시작 시 보충 실행.
   static Future<void> Function(String reason)? catchUp;
 
@@ -90,6 +96,20 @@ class CommunityUploadHooks {
     if (fn == null) return;
     try {
       await fn();
+    } catch (_) {}
+  }
+
+  static Future<void> cancelBackgroundJobsNow() async {
+    final fn = cancelBackgroundJobs;
+    if (fn == null) return;
+    try {
+      await fn();
+    } catch (_) {}
+  }
+
+  static void wakeUploadNow([String trigger = 'realtime']) {
+    try {
+      wakeUpload?.call(trigger);
     } catch (_) {}
   }
 

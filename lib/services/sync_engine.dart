@@ -10,6 +10,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../community/capture/capture_retry_store.dart';
 import '../community/capture/community_capture.dart';
+import '../community/upload_hooks.dart';
 import '../community/capture/list_refetch.dart';
 import '../community/capture/rebuild_helpers.dart';
 import '../community/capture/report_adapter.dart';
@@ -733,6 +734,8 @@ class SyncEngine {
             rebuildRunId: rebuildRunId,
             store: communityStore,
             projectNamespace: projectNamespace);
+        // 공유 사본이 생겼으면 실시간 업로드를 깨운다(앱 isolate 제어기가 합쳐 한 번에 보낸다).
+        if (cap.eventId != null) CommunityUploadHooks.wakeUploadNow();
       } catch (_) {
         if (tracker.recordFailure()) {
           throw CaptureStoreUnavailable(

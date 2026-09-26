@@ -13,6 +13,7 @@ import 'gate/community_gate.dart';
 import 'upload/community_ingest_client.dart';
 import 'upload/community_schedule.dart' as schedule;
 import 'upload/community_uploader.dart';
+import 'upload/upload_controller.dart';
 import 'upload/upload_defaults.dart';
 import 'upload_hooks.dart';
 
@@ -23,6 +24,9 @@ class LiveGateCheck implements CommunityGateCheck {
 
   @override
   Future<bool> requireFresh() async => (await gate.requireFresh()).canEnter;
+
+  @override
+  String? get blockedState => gate.state.canEnter ? null : gate.state.state;
 
   @override
   void invalidate(String reason) => gate.invalidate(reason);
@@ -43,7 +47,16 @@ class CommunityWiring {
     gate = communityGate;
     CommunityUploadHooks.refreshServerCompleted = () => refreshManifest(store);
     SyncEngine.ensureManifestFresh = () => refreshManifest(store);
-    CommunityUploadHooks.registerBackgroundJobs = schedule.registerBackgroundJobs;
+    // Standalone writer(데모 제외)로 게이트를 통과했을 때만 불린다(ReportProvider.onGatePassed).
+    CommunityUploadHooks.registerBackgroundJobs = () async {
+      await schedule.registerBackgroundJobs();
+      CommunityUploadController.instance.start(() => buildDefaultUploader(gate: gateCheck()));
+    };
+    CommunityUploadHooks.cancelBackgroundJobs = () async {
+      CommunityUploadController.instance.stop();
+      await schedule.cancelBackgroundJobs();
+    };
+    CommunityUploadHooks.wakeUpload = CommunityUploadController.instance.wake;
     CommunityUploadHooks.catchUp = (reason) async {
       final uploader = await buildDefaultUploader(gate: gateCheck());
       await schedule.catchUp(reason, store: store, runUpload: uploader.requestCommunityUpload);

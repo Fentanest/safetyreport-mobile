@@ -233,8 +233,35 @@ class ChangeType {
 - Flutter 빌드: `--build-name` / `--build-number` 플래그
 - 런타임 표시: `package_info_plus` (settings_screen.dart)
 
+### Android 빌드 도구 (2026-09-27)
+- **Flutter 3.47.5 고정**(`tool/flutter-version`). 빌드 스크립트 `resolve_pinned_flutter` 가 `FLUTTER_BIN`(기본 `flutter`) 또는
+  `~/development/flutter-<버전>/bin/flutter` 중 고정 버전을 찾고, 없으면 실패한다(전역 SDK 는 바꾸지 않는다). CI 는 저장소 변수 `FLUTTER_BIN` 으로 지정 가능.
+- **AGP 9.1.0 · Gradle 9.3.1 · KGP 2.4.0 · JDK 17+**(Flutter 3.47.5 앱 템플릿 조합, Flutter 3.47 지원 상한 AGP 9.2). 앱은 kotlin-android 를
+  적용하지 않고 `kotlin { compilerOptions { jvmTarget = JVM_17 } }` 를 쓴다.
+- `android/gradle.properties` 의 `android.newDsl=false`·`android.builtInKotlin=false` 는 Flutter 공식 임시 opt-out 이다. 근거·제거 조건은 그 파일 주석
+  (KGP 를 적용하는 플러그인 7개, 최신판도 4개가 아직 적용). AGP 10 에서 opt-out 이 없어진다.
+- `android/build.gradle.kts` 는 file_picker 11.0.2 에만 kotlin-android 를 붙인다(그 플러그인은 AGP 9 이면 built-in Kotlin 을 가정해 KGP 를 빼는데,
+  이 앱은 builtInKotlin=false 라 그대로면 `FilePickerPlugin` 이 컴파일되지 않는다). builtInKotlin=true 로 바꾸거나 file_picker 를 올리면 지운다.
+- AGP 9 는 필요한 Build-Tools 36 을 SDK 에 자동 설치한다(2026-09-27 이 기계에 설치됨 — 기존 패키지는 바꾸지 않음).
+
+### R8·리소스 축소·서명
+- release: `isMinifyEnabled = true`, `isShrinkResources = true` 명시(Flutter Gradle Plugin 기본값과 같음, AGP 9 optimized resource shrinking).
+  끄거나 전체 keep·광범위 dontwarn 으로 우회하지 않는다. keep 규칙은 `proguard-rules.pro` 의 `-assumenosideeffects Window.set*Color` 하나뿐(위 절).
+- 서명: `android/key.properties` 가 없으면 release 패키징(`packageRelease`·`signReleaseBundle`)이 실패한다 — debug 키로 조용히 대체하지 않는다.
+  검증 전용 빌드만 `ALLOW_DEBUG_SIGNED_RELEASE=1`(산출물 이름 `-DEBUG-SIGNED`, 메타 `signing=debug` — 배포·업로드에 쓰지 않는다).
+
+### 이미지 디코딩·Play `H2.h.b` (2026-09-27)
+- 신고 상세 첨부 사진(`report_detail_sheet.dart _RetryableImage`)은 원본 해상도로 디코딩하지 않는다: `ResizeImage(NetworkImage, fit)` —
+  폭 = 화면 폭 × 픽셀 비율(최대 4096), 높이 상한 = 화면 높이 × 픽셀 비율 × 4(최대 8192), 비율 유지·확대 없음(`photoDecodeSize`).
+  원본은 기존 '다른 앱으로 열기'. 측정(호스트 flutter_test, 이미지 캐시 바이트): 4000×3000 48,000,000 → 3,491,644, 1080×20000 86,400,000 → 14,483,456.
+  앱·플러그인의 다른 Android BitmapFactory 호출·알림 이미지는 없다.
+- Play 경고의 `H2.h.b` = file_picker 11.0.2 `FileUtils.processUri/compressImage`(`BitmapFactory.decodeStream` 옵션 없음, `FileUtils.kt:464`) —
+  후보 3개 버전 CI AAB mapping(pg_map_id `fbc35fa…`)으로 확인. 2026-09-27 빌드(pg_map_id `7cfb1fe4…`)에서는 R8 이 같은 코드를 `md0.f` 로 합쳤다.
+  `compressionQuality > 0` 일 때만 실행되고 앱은 항상 0 이라 실행 경로는 아니다. 수정판(file_picker ≥12)은 win32 6 → flutter_secure_storage 11
+  (v10 이전 저장 방식 데이터를 못 읽음)을 요구해 **보류** — 선택지는 PC 레포 `docs/plans/2026-09-27-upload-hardening-android.md` §7.
+
 ### 로컬 테스트 빌드 (`build_test_apk.sh`)
-CI 와 동일한 Docker 이미지 (`ghcr.io/cirruslabs/flutter:stable`).
+고정 Flutter 로컬 CLI.
 
 ```bash
 ./build_test_apk.sh           # debug
@@ -242,18 +269,22 @@ CI 와 동일한 Docker 이미지 (`ghcr.io/cirruslabs/flutter:stable`).
 ```
 
 ### 로컬 정식 Android 릴리즈 빌드 (`build_android_release.sh`)
-`build-apk.yml` 과 동일한 순서:
-- `VERSION` 읽기
-- `pubspec.yaml version:` 동기화
-- Docker Flutter 이미지에서 `flutter build apk --release`
-- 이어서 `flutter build appbundle --release`
-- 산출물 복사:
-  - `build/app/outputs/flutter-apk/mysafetyreport.apk`
-  - `build/app/outputs/bundle/release/mysafetyreport.aab`
+`build-apk.yml` 과 같은 순서:
+- 고정 Flutter 확인, `VERSION` 읽기, `pubspec.yaml version:` 동기화, 서명키 임시 배치
+- `flutter build apk --release` → **곧바로** APK 와 그 빌드의 R8 출력(mapping·configuration·usage·seeds·resources)을 `dist/<버전>-<커밋>/apk/` 에 보존
+- `flutter build appbundle --release` → 같은 방식으로 `dist/…/aab/` (AAB 빌드가 `build/…/mapping` 을 덮어쓰기 전에 APK 것을 따로 둔다)
+- 산출물별 서명 인증서(공개 지문 — 배포용인데 Android Debug 인증서면 실패)·SHA256SUMS, `dist/…/build-meta.json`(버전·커밋·작업트리 변경 여부·서명 종류·
+  Flutter/Dart/AGP/KGP/Gradle/JDK·파일 해시·pg_map_id)
+- 산출물 복사: `build/app/outputs/flutter-apk/mysafetyreport.apk`, `build/app/outputs/bundle/release/mysafetyreport.aab`
 
 ```bash
-./build_android_release.sh
+./build_android_release.sh                                # 배포용(서명키 필요)
+ALLOW_DEBUG_SIGNED_RELEASE=1 ./build_android_release.sh   # 검증 전용(debug 서명, 배포 불가)
 ```
+
+CI `build-apk.yml`: `workflow_dispatch` 입력 `verify_only` 면 태그 확인·GitHub Release 를 건너뛰고 산출물·`dist/`(mapping·메타)만 artifact 로 남긴다.
+정식 실행도 `dist/` 를 artifact(400일)로 올린다. Play 스택(`H2.h.b` 같은 난독화 이름)은 그 빌드의 mapping 으로 되돌린다
+(AAB 는 `BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map` 에도 들어 있다).
 
 기본 키 경로:
 - `~/mysafetyreport-android/key.properties`

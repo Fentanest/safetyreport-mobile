@@ -2,6 +2,11 @@ name: Build & Release APK
 
 on:
   workflow_dispatch:
+    inputs:
+      verify_only:
+        description: '검증 전용 빌드(태그 확인·GitHub Release 생략, 산출물·mapping 만 artifact 로 보관)'
+        type: boolean
+        default: false
   push:
     branches:
       - main
@@ -40,6 +45,7 @@ jobs:
 
     - name: Check if tag already exists
       id: check_tag
+      if: ${{ !inputs.verify_only }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         TAG: ${{ steps.version.outputs.tag }}
@@ -58,30 +64,44 @@ jobs:
           exit 1
         fi
 
-    - name: Build APK & AAB with local Flutter CLI
-      if: steps.check_tag.outputs.tag_exists == 'false'
+    # Flutter 는 tool/flutter-version(3.47.5) 고정 — 스크립트가 FLUTTER_BIN 또는 ~/development/flutter-<버전> 을 확인하고,
+    # 다르면 실패한다. 서명키가 없으면 실패한다(debug 서명으로 대체하지 않음).
+    - name: Build APK & AAB with pinned Flutter CLI
+      if: ${{ inputs.verify_only || steps.check_tag.outputs.tag_exists == 'false' }}
       env:
         COMMUNITY_SUPABASE_URL: ${{ vars.COMMUNITY_SUPABASE_URL }}
         COMMUNITY_SUPABASE_PUBLISHABLE_KEY: ${{ vars.COMMUNITY_SUPABASE_PUBLISHABLE_KEY }}
+        FLUTTER_BIN: ${{ vars.FLUTTER_BIN || 'flutter' }}
       run: |
+        rm -rf -- ./dist   # self-hosted 작업 폴더에 남은 이전 빌드 보존본을 이번 artifact 에 섞지 않는다
         bash ./build_android_release.sh
 
+    # 산출물별 R8 mapping·configuration·usage·resources·서명 인증서·SHA-256·build-meta.json (Play 스택 추적용 — 릴리즈에는 넣지 않음)
+    - name: Upload mapping and build metadata
+      if: ${{ inputs.verify_only || steps.check_tag.outputs.tag_exists == 'false' }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: mysafetyreport-${{ steps.version.outputs.build_name }}+${{ steps.version.outputs.build_number }}-${{ github.sha }}-mapping
+        path: dist/
+        if-no-files-found: error
+        retention-days: 400
+
     - name: Upload APK artifact
-      if: steps.check_tag.outputs.tag_exists == 'false'
+      if: ${{ inputs.verify_only || steps.check_tag.outputs.tag_exists == 'false' }}
       uses: actions/upload-artifact@v7
       with:
         name: mysafetyreport-${{ steps.version.outputs.build_name }}+${{ steps.version.outputs.build_number }}-apk
         path: build/app/outputs/flutter-apk/mysafetyreport.apk
 
     - name: Upload AAB artifact (Play Store용, 릴리즈 미포함)
-      if: steps.check_tag.outputs.tag_exists == 'false'
+      if: ${{ inputs.verify_only || steps.check_tag.outputs.tag_exists == 'false' }}
       uses: actions/upload-artifact@v7
       with:
         name: mysafetyreport-${{ steps.version.outputs.build_name }}+${{ steps.version.outputs.build_number }}-aab
         path: build/app/outputs/bundle/release/mysafetyreport.aab
 
     - name: Create GitHub Release with APK
-      if: steps.check_tag.outputs.tag_exists == 'false'
+      if: ${{ !inputs.verify_only && steps.check_tag.outputs.tag_exists == 'false' }}
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.version.outputs.tag }}

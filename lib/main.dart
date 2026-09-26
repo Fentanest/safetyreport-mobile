@@ -66,7 +66,8 @@ Future<void> main() async {
     officialAccountId: () async => reportProvider.standaloneUsername.isEmpty
         ? null
         : reportProvider.standaloneUsername,
-    appMode: () => reportProvider.appMode.name,
+    // 데모는 Standalone 화면이지만 writer 가 아니다(연결 등록·업로드 없음).
+    appMode: () => reportProvider.isStandaloneDemo ? 'demo' : reportProvider.appMode.name,
   );
   // 초기화 크롤링이 필요하거나 진행 중이면 일반 동기화(수동·공유 대기열 처리)를 시작하지 않는다(PC 크롤 시작 409 와 같음).
   // 초기화 화면보다 먼저 도는 게이트 통과 직후 처리도 여기서 막힌다.

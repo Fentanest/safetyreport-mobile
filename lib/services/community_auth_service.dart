@@ -8,6 +8,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
+import '../community/community_store.dart';
 import 'app_prefs_keys.dart';
 import 'community_auth_config.dart';
 import 'community_auth_link.dart';
@@ -169,7 +170,9 @@ class CommunityAuthService {
     DateTime Function()? now,
     Random? random,
     Duration timeout = const Duration(seconds: 15),
+    CommunityRefreshLock? refreshLock,
   }) : config = config ?? CommunityAuthConfig.fromEnvironment,
+       _refreshLock = refreshLock ?? communityDbRefreshLock,
        _client = client,
        _storage = storage ?? _defaultStorage,
        _launcher = launcher ?? _launchExternal,
@@ -187,6 +190,7 @@ class CommunityAuthService {
   static Future<bool> _launchExternal(Uri uri) =>
       launchUrl(uri, mode: LaunchMode.externalApplication);
 
+  final CommunityRefreshLock _refreshLock;
   _CandidateSession? _candidate;
   Future<CommunityLinkOutcome>? _linkInFlight;
   Future<CommunityTokenResult>? _tokenInFlight;
@@ -447,13 +451,17 @@ class CommunityAuthService {
   Future<String?> getAccessToken() async =>
       (await getAccessTokenResult()).accessToken;
 
-  Future<CommunityTokenResult> getAccessTokenResult() {
+  /// [rejected]: 서버가 401 로 거절한 토큰. 저장된 토큰이 그것과 같으면 만료 전이어도 **실제로** refresh 한다
+  /// (같은 토큰을 다시 돌려주는 것은 갱신이 아니다). 다른 isolate 가 이미 바꿨으면 새 토큰을 돌려준다.
+  /// 강제 갱신의 네트워크 실패는 거절된 토큰을 다시 주지 않고 temporarilyUnavailable.
+  Future<CommunityTokenResult> getAccessTokenResult({String? rejected}) {
+    if (rejected != null) return _getTokenOnce(rejected: rejected);
     return _tokenInFlight ??= _getTokenOnce().whenComplete(() {
       _tokenInFlight = null;
     });
   }
 
-  Future<CommunityTokenResult> _getTokenOnce() async {
+  Future<CommunityTokenResult> _getTokenOnce({String? rejected}) async {
     if (!config.isConfigured) {
       return const CommunityTokenResult(CommunityTokenStatus.notConfigured);
     }
@@ -464,11 +472,29 @@ class CommunityAuthService {
     if (s.reauthRequired) {
       return const CommunityTokenResult(CommunityTokenStatus.reauthRequired);
     }
-    final now = _now();
-    if (s.expiresAt.difference(now) > refreshMargin) {
+    if (_freshEnough(s, rejected)) {
       return CommunityTokenResult(CommunityTokenStatus.ok, s.accessToken);
     }
-    final stillValid = s.expiresAt.isAfter(now);
+    // 앱 isolate 와 백그라운드 isolate 가 같은 refresh token 으로 동시에 갱신하면 한쪽이 회전된 토큰을 잃는다
+    // (refresh_token_already_used → 재로그인 표시로 덮어씀). community.db lease 로 갱신 구간을 isolate 간 직렬화하고,
+    // 잠금을 잡은 뒤 저장소를 다시 읽어 이미 갱신됐으면 그 값을 쓴다.
+    return _refreshLock(() => _refreshLocked(rejected));
+  }
+
+  bool _freshEnough(_StoredSession s, String? rejected) {
+    if (rejected != null) return s.accessToken != rejected && s.expiresAt.isAfter(_now());
+    return s.expiresAt.difference(_now()) > refreshMargin;
+  }
+
+  Future<CommunityTokenResult> _refreshLocked(String? rejected) async {
+    final s = await _readSession();
+    if (s == null || s.reauthRequired) return _fromCurrent(s);
+    if (_freshEnough(s, rejected)) {
+      return CommunityTokenResult(CommunityTokenStatus.ok, s.accessToken);
+    }
+    final forced = rejected != null;
+    final now = _now();
+    final stillValid = !forced && s.expiresAt.isAfter(now);
     http.Response res;
     try {
       res = await _post(
@@ -491,7 +517,7 @@ class CommunityAuthService {
           CommunityTokenStatus.temporarilyUnavailable,
         );
       }
-      // 갱신하는 동안 세션이 바뀌었으면(연결 해제·교체·다른 isolate 의 갱신) 덮어쓰지 않는다.
+      // 갱신하는 동안 세션이 바뀌었으면(연결 해제·교체) 덮어쓰지 않는다.
       final current = await _readSession();
       if (current == null || current.refreshToken != s.refreshToken) {
         return _fromCurrent(current);
@@ -899,5 +925,36 @@ class _StoredSession {
     } catch (_) {
       return null;
     }
+  }
+}
+
+
+/// isolate 간 토큰 갱신 잠금. body 를 잠금 안에서 실행한다.
+typedef CommunityRefreshLock = Future<CommunityTokenResult> Function(
+    Future<CommunityTokenResult> Function() body);
+
+/// 기본 잠금: community.db 의 lease `auth_refresh`(앱·백그라운드 isolate 가 같은 파일을 쓴다). 파일 잠금은 같은 프로세스의
+/// isolate 끼리 막지 못해 SQLite 로 잡는다. 20초 안에 못 잡으면 일시 장애로 본다(세션은 그대로).
+/// community.db 를 열 수 없으면(테스트·손상) 잠금 없이 실행한다.
+Future<CommunityTokenResult> communityDbRefreshLock(
+    Future<CommunityTokenResult> Function() body) async {
+  CommunityStore store;
+  try {
+    store = await CommunityStore.open();
+  } catch (_) {
+    return body();
+  }
+  final owner = 'auth:${newUuidV4()}';
+  final deadline = DateTime.now().add(const Duration(seconds: 20));
+  while (!await store.acquireLease('auth_refresh', owner, const Duration(seconds: 30))) {
+    if (DateTime.now().isAfter(deadline)) {
+      return const CommunityTokenResult(CommunityTokenStatus.temporarilyUnavailable);
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+  }
+  try {
+    return await body();
+  } finally {
+    await store.releaseLease('auth_refresh', owner);
   }
 }

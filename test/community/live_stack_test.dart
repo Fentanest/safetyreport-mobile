@@ -65,6 +65,8 @@ class _Gate implements CommunityGateCheck {
   @override
   Future<bool> requireFresh() async => true; // 게이트 판정 자체는 gate 테스트·PC 수직 테스트가 본다. 서버는 매번 다시 확인한다.
   @override
+  String? get blockedState => null;
+  @override
   void invalidate(String reason) {}
 }
 
@@ -72,7 +74,8 @@ class _Tokens implements CommunityTokenSource {
   _Tokens(this.token);
   final String token;
   @override
-  Future<String?> getAccessToken() async => token;
+  Future<CommunityTokenResult> getAccessTokenResult({String? rejected}) async =>
+      CommunityTokenResult(CommunityTokenStatus.ok, token);
 }
 
 void main() {
@@ -129,7 +132,7 @@ void main() {
     final uploader = CommunityUploader(gate: _Gate(), tokens: _Tokens(token), appMode: () async => AppMode.standalone,
         supabaseUrl: api, publishableKey: key, clientVersion: 'it', openStore: () async => store);
     final run = await uploader.requestCommunityUpload('manual');
-    expect(run.result, 'success', reason: '${run.result} ${run.errorCode} ${run.counts}');
+    expect(run.result, 'sent', reason: '${run.result} ${run.errorCode} ${run.counts}');
     final journal = await store.db.rawQuery('SELECT ack_status, projection_status FROM source_journal WHERE event_id=?', [captured.eventId]);
     expect(journal.single['ack_status'], 'accepted');
     expect(journal.single['projection_status'], 'published');
@@ -148,7 +151,7 @@ void main() {
     final other = Map<String, Object?>.from(input);
     await capture(other, sourceReportId: '${reportId}B', trigger: 'realtime', store: store, projectNamespace: ns);
     final blocked = await uploader.requestCommunityUpload('manual');
-    expect(blocked.result, isNot('success'));
+    expect(blocked.result, 'needs_consent', reason: '원격 철회는 403 consent_revoked');
     expect(sql('select count(*) from private.community_ingest_events;'), ledger);
     expect(sql("select count(*) from jsonb_array_elements(public.internal_analytics_v2_facts(date '2024-01-01', date '2028-12-31', 'all', null, null, null, null)) e "
         "where e->>'contributor_id' = '$userId';"), '0');

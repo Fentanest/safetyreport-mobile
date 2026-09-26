@@ -50,7 +50,7 @@ void main() {
           runUpload: (t) async {
             triggers.add(t);
             return const UploadRunResult(
-                runId: 'r1', result: 'success', counts: {'sent': 2});
+                runId: 'r1', result: 'sent', counts: {'sent': 2});
           },
           now: DateTime.utc(2026, 9, 26, 3));
       expect(state, equals('succeeded'));
@@ -63,7 +63,7 @@ void main() {
       var calls = 0;
       Future<UploadRunResult> run(String t) async {
         calls++;
-        return const UploadRunResult(runId: 'r', result: 'success');
+        return const UploadRunResult(runId: 'r', result: 'sent');
       }
 
       final now = DateTime.utc(2026, 9, 26, 3);
@@ -79,10 +79,21 @@ void main() {
       final state = await catchUp('os',
           store: store,
           runUpload: (t) async =>
-              const UploadRunResult(runId: 'r', result: 'success'),
+              const UploadRunResult(runId: 'r', result: 'sent'),
           now: DateTime.utc(2026, 9, 26, 3));
       expect(state, equals('deferred'));
     });
+  });
+
+  test('midnight key is succeeded only for sent/no_pending (PC run_midnight 와 같음)', () {
+    for (final r in ['sent', 'no_pending']) {
+      expect(midnightState(r), 'succeeded', reason: r);
+    }
+    for (final r in ['not_due', 'cooldown', 'busy_other_run', 'needs_auth', 'needs_consent', 'blocked_gate', 'more_pending']) {
+      expect(midnightState(r), 'deferred', reason: r);
+    }
+    expect(midnightState('failed'), 'failed');
+    expect(midnightState('partial'), 'failed');
   });
 
   group('gate cache', () {

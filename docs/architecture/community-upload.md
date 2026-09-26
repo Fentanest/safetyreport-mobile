@@ -19,8 +19,10 @@ PC(safetyreport) 구현과 같은 벡터(같은 결과)다.
 | `lib/community/capture/rebuild_helpers.dart` | 오류 분류·staging 병합 |
 | `lib/community/capture/server_completed.dart` | manifest 교체·`onContributionsDeleted` |
 | `lib/community/capture/reshare.dart` | reshare 발급·location_supplement 후보 |
-| `lib/community/upload/community_ingest_client.dart` | ingest REST 클라이언트 |
-| `lib/community/upload/community_uploader.dart` | `requestCommunityUpload`·`uploadStatus`·`requestReshare` |
+| `lib/community/upload/upload_policy.dart` | 업로드 공통 판정 UC-1(응답 해석·오류 분류·Retry-After·백오프) — PC `community_upload_policy.py` 와 같은 벡터 |
+| `lib/community/upload/community_ingest_client.dart` | ingest REST 클라이언트(전송 계층 결과 그대로: 상태·헤더·본문 ≤1MiB, 30초에 요청을 끊음, 리다이렉트 → 502) |
+| `lib/community/upload/community_uploader.dart` | `requestCommunityUpload`·`nextDueAt`·`uploadStatus`·`requestReshare` (UC-1) |
+| `lib/community/upload/upload_controller.dart` | 앱 isolate 업로드 제어기(깨우기·재실행 표시·재시도 타이머) |
 | `lib/community/upload/community_schedule.dart` | due 키·`registerBackgroundJobs`·`catchUp`·`CacheGateCheck` |
 | `lib/community/upload/upload_defaults.dart` | 앱 기본 uploader 조립 (T5 가 gate 주입) |
 | `lib/community/upload/upload_background.dart` | 백그라운드 isolate 조립 |
@@ -48,12 +50,40 @@ PC(safetyreport) 구현과 같은 벡터(같은 결과)다.
   journal 표시(reshare·supplement 영구 제외), `server_completed` 비움.
 - Client 모드에서는 어떤 업로드·등록도 하지 않는다.
 
+## 업로드 제어 UC-1 (2026-09-27, PC 와 같은 규칙)
+
+계약 `contracts/upload-control/`(vectors.json + MANIFEST, PC 와 바이트 동일). 규칙 서술은 PC
+`docs/architecture/community-upload.md` 의 UC-1 절과 같다 — 완료 조건(durable === true + receipt UUID), invalid_ack/ack_missing,
+오류 분류와 서비스·계정 cooldown(`upload_control`, community.db v2), Retry-After(초·HTTP-date·본문, 24시간 상한), 백오프,
+probing, attempt 집계, 실행별 lease owner + heartbeat, 예산(요청 25·90초 → `more_pending`), 신고별 가장 앞 revision,
+UTF-8 크기 계산·413 이분·모호한 422 대조, journal writer_epoch 그대로, 영수증 없는 옛 완료 재확인, 401 실제 강제 갱신,
+auth_required 재개, 실행 기록 보관(500행·30일). 결과 코드: sent·partial·no_pending·not_due·cooldown·busy_other_run·needs_auth·
+needs_consent·blocked_gate·failed·more_pending(모바일은 서버 API 소비자가 아니어서 옛 값 변환이 없다).
+
+모바일만의 것:
+- 토큰: `CommunityAuthService.getAccessTokenResult(rejected:)` — 거절된 토큰이면 만료 전이어도 실제 refresh. 앱·백그라운드 isolate 가
+  같은 refresh token 을 동시에 쓰지 않게 community.db lease `auth_refresh`(20초 대기) 안에서 저장소를 다시 읽고 갱신한다
+  (회전된 refresh token 을 옛 값으로 덮지 않음).
+- Client·데모 모드: uploader 가 `blocked_gate`/`client_mode` 로 끝내고 기록하지 않는다. 게이트는 데모를 writer 로 등록하지 않고
+  (`appMode='demo'` → `deactivate('demo_mode')`), `onGatePassed` 는 Standalone(데모 제외)에서만 자정·주기 작업과 제어기를 켠다.
+  Client·데모 전환·설정 초기화는 작업과 제어기를 끈다.
+- 앱 제어기(`CommunityUploadController`): 수집 직후(`SyncEngine.captureAndSaveDetail` → `CommunityUploadHooks.wakeUploadNow`)·
+  앱 복귀(`checkAutoSyncOnResume` → recovery)·게이트 통과가 깨운다. 실행 중 깨우기는 표시만 남겨 끝난 뒤 한 번 더(넓은 트리거 우선).
+  끝날 때마다 다음 깨울 시각(`nextDueAt`)에 타이머 하나. needs_auth/needs_consent/blocked_gate 는 시각으로 깨우지 않고,
+  busy_other_run 5초, failed 60초, more_pending 은 요청 간격 뒤 곧바로. 네트워크 복구 감지 플러그인은 쓰지 않는다(cooldown 탐색·복귀가 맡음).
+
 ## 스케줄·백그라운드
 
 - Workmanager unique periodic `community-upload-periodic`(1시간·network) +
-  unique one-off `community-midnight`(다음 KST 자정). dispatcher 분기는
-  `background_login_check.dart` — 게이트 캐시(600초 이내 성공)+Standalone+
-  context active 일 때만 `catchUp('os')`, 아니면 전송 없이 성공 반환.
+  unique one-off `community-midnight`(다음 KST 자정 — 자정 작업이 끝날 때마다 백그라운드에서 다음 날 것을 다시 예약).
+  dispatcher 분기는 `background_login_check.dart runCommunityUploadTask` — Standalone(데모 제외)+context active 일 때만.
+  게이트 캐시(600초 이내 ok)가 오래됐으면 `refreshGateHeadless` 로 중앙 status 를 한 번 다시 확인한다(토큰 갱신 포함):
+  ok(포그라운드와 같은 `evaluateGate` + 저장 연결 active·현재 세션에 묶임·context 일치)면 캐시 갱신 후 업로드,
+  일시 장애면 아무 것도 바꾸지 않고 끝, 명시적 거절이면 캐시에 기록하고 context 를 끈다. rebind·등록은 하지 않는다(포그라운드 몫).
+- 자정 작업: `catchUp('os')`(그날 key — PC `run_midnight` 와 같이 한 트랜잭션에서 확인·선점, 실행별 owner, owner 일치일 때만 결과 기록). 주기 작업: 누락 자정 보충 뒤, 재시도 시각이 된 행이 있으면 `recovery` — 자정 성공과 별개.
+  자정 key 는 `sent`/`no_pending` 만 succeeded, 보류 사유는 오류 코드 또는 결과 코드(`midnightState`, PC `run_midnight` 와 같음).
+- WorkManager 결과: 상태를 저장했거나 할 일이 없으면 true, community.db 를 못 여는 등 저장 전 예기치 못한 실패면 false(OS 재시도).
+- `CacheGateCheck.invalidate` 는 캐시에 `invalidated:<사유>` 를 기록해 다른 isolate 도 보게 한다.
 - iOS `Info.plist`: `UIBackgroundModes`(fetch, processing) +
   `BGTaskSchedulerPermittedIdentifiers`(workmanager-apple 소스에서 확인한 unique
   이름). **실기기 미검증.**
@@ -70,6 +100,10 @@ release 에서 비었거나 자리표시자(`<`·`...`·`PROJECT_REF`·`example.
 게이트로 잠긴다.
 
 ## 코드 대조 정정
+
+- 2026-09-27 UC-1: 이전 모바일 업로더는 본문 `httpStatus` 가 실제 상태를 덮고, durable 을 보지 않고, 빈 results 에서 즉시 재전송
+  루프, 400/413/422·HTML 404 를 통째 dead_letter, Retry-After 헤더 무시, owner 고정 lease, `wake()` 호출처 없음,
+  게이트 캐시가 오래되면 백그라운드가 매번 그냥 끝났다 — 위 규칙으로 바꿨다(재현 표: PC `docs/plans/2026-09-27-upload-hardening-android.md` §0).
 
 - `geocode_cache` 쓰기 경로는 `LocalGeocodeService._persistCacheRecord` 하나뿐
   (source='kakao', 공식 주소 해석). 사용자 수정 쓰기 경로 없음 — capture 는

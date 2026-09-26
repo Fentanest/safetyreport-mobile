@@ -4,7 +4,9 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 
+import '../community/community_store.dart';
 import '../community/upload/community_schedule.dart';
+import '../community/upload/community_uploader.dart' show UploadRunResult;
 import '../community/upload/upload_background.dart';
 import '../models/app_mode.dart';
 import 'app_prefs_keys.dart';
@@ -15,46 +17,61 @@ import 'standalone_auth_service.dart';
 void backgroundTaskDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     DartPluginRegistrant.ensureInitialized();
+    if (task == communityPeriodicTaskName || task == communityMidnightTaskName) {
+      // 상태를 저장했으면 true, 저장 전 예기치 못한 예외면 false(OS 가 백오프로 다시 실행).
+      return runCommunityUploadTask(task);
+    }
     try {
       if (task == BackgroundLoginCheck.taskName) {
         await BackgroundLoginCheck.run();
-      } else if (task == communityPeriodicTaskName ||
-          task == communityMidnightTaskName) {
-        await runCommunityUploadTask(task);
       }
     } catch (_) {
-      // 점검·업로드는 부가 기능이다. 실패해도 WorkManager 재시도를 요청하지 않는다.
+      // 로그인 점검은 부가 기능이다. 실패해도 WorkManager 재시도를 요청하지 않는다.
     }
     return true;
   });
 }
 
-/// 커뮤니티 업로드 백그라운드 작업 (T6).
+/// 커뮤니티 업로드 백그라운드 작업 (UC-1 §2 모바일).
 ///
-/// 게이트 캐시가 유효 기간 안의 성공 + Standalone + context active 일 때만
-/// `catchUp('os')`/`requestCommunityUpload('recovery')` 를 실행한다.
-/// 아니면 아무 것도 보내지 않고 성공을 반환한다(재시도 폭주 방지).
+/// Standalone(데모 제외) + context active 일 때만. 게이트 캐시(600초)가 오래됐으면 [refreshGateHeadless] 로 중앙 상태를
+/// 한 번 다시 확인하고, ok 일 때만 보낸다(일시 장애면 상태를 보존하고 끝, 명시적 거절이면 차단 기록).
+/// - 자정 작업: 그날 key 를 `catchUp('os')` 로 실행하고 다음 자정 작업을 다시 예약한다.
+/// - 주기 작업(1시간): 누락 자정 보충(`catchUp`) 뒤, 재시도 시각이 된 행이 있으면 `recovery` — 자정 성공 여부와 별개.
+/// 반환: 상태를 저장했거나 할 일이 없으면 true, 저장 전 예기치 못한 예외면 false.
 /// 정확 알람·상시 FGS·배터리 예외는 요구하지 않는다.
 @pragma('vm:entry-point')
-Future<void> runCommunityUploadTask(String task) async {
+Future<bool> runCommunityUploadTask(
+  String task, {
+  DateTime? now,
+  @visibleForTesting Future<CommunityStore?> Function()? openStore,
+  @visibleForTesting Future<UploadRunResult> Function(String trigger)? upload,
+  @visibleForTesting Future<bool> Function(CommunityStore store, {DateTime? now})? recoveryCheck,
+}) async {
   try {
     final prefs = await SharedPreferences.getInstance();
     await prefs.reload();
     final mode = AppModeX.fromString(prefs.getString(AppPrefsKeys.appMode));
-    if (mode != AppMode.standalone) return;
-    if (prefs.getBool(AppPrefsKeys.standaloneDemoMode) ?? false) return;
-    if (!await isGateCacheFresh(prefs, DateTime.now())) return;
-    final store = await openCommunityStoreForBackground();
-    if (store == null) return;
-    final context = await store.activeContext();
-    if (context == null) return;
-    await catchUp(
-      'os',
-      store: store,
-      runUpload: (trigger) => uploadFromBackground(store, trigger),
-    );
+    if (mode != AppMode.standalone) return true;
+    if (prefs.getBool(AppPrefsKeys.standaloneDemoMode) ?? false) return true;
+    final store = await (openStore ?? openCommunityStoreForBackground)();
+    if (store == null) return false; // community.db 를 열지 못함 — 저장 전 실패
+    if (task == communityMidnightTaskName) await registerMidnightTask(now: now);
+    if (await store.activeContext() == null) return true;
+    if (!await isGateCacheFresh(prefs, now ?? DateTime.now())) {
+      final gate = await refreshGateHeadless(store, prefs: prefs);
+      if (gate != HeadlessGate.ok) return true;
+    }
+    final Future<UploadRunResult> Function(String) run =
+        upload ?? ((String trigger) => uploadFromBackground(store, trigger));
+    await catchUp('os', store: store, runUpload: run, now: now);
+    // 복구는 자정 결과와 별개다(자정 key 가 다른 실행에 잡혀 deferred 여도 재시도 시각이 된 행은 보낸다)
+    if (task == communityPeriodicTaskName && await (recoveryCheck ?? recoveryDue)(store, now: now)) {
+      await run('recovery');
+    }
+    return true;
   } catch (_) {
-    // 다음 기회에 다시 시도한다.
+    return false;
   }
 }
 

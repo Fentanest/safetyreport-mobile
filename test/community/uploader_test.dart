@@ -164,7 +164,7 @@ void main() {
 
     test('SOL-01: acked events are never re-sent by manual/midnight/recovery; stale re-enqueued rows are removed', () async {
       final events = <String>[];
-      for (final (id, status) in [('A1', 'accepted'), ('A2', 'duplicate'), ('A3', 'no_change'), ('A4', 'quarantined')]) {
+      for (final id in ['A1', 'A2', 'A3', 'A4']) {
         final c = await capture({...adapter('수용'), 'person_in_charge': id},
             sourceReportId: id, trigger: 'realtime', store: store, projectNamespace: kNs);
         events.add(c.eventId!);

@@ -356,6 +356,11 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
   - DB v12: `report_override`(사용자 수정값), `duplicate_decision`(중복 판단) 표 추가. 버전 상수는 `LocalDbService.dbVersion` 하나. 열 추가는 `lib/storage/schema_utils.dart addColumnIfMissing`(이미 있는 경우만 건너뜀).
   - 서버 DB 가져오기: 값 그대로(NULL 유지), 숫자 열 형 맞춤, `감시목록` 은 서버 `mysafety_watchlist` 로 전부 다시 계산하고 sync_meta 'watchlist' 를 항상 기록(서버 sync_meta 의 옛 사본은 무시), 새 표 복사, 표 읽기 오류는 가져오기 실패로(임시 DB 라 기존 데이터 보존).
   - 앱 백업 복원(`replaceFromBackup`): 종류(모바일)·버전(0 < v ≤ dbVersion) 확인 → 임시 사본 마이그레이션·무결성 검사 → `.bak` 롤백 교체.
+  - **2026-09-26 감사 보강(SOL-02·03·05, 서버 레포와 함께 변경)**:
+    - 모르는 열: 서버 DB 에서 읽는 표에 이 앱의 대상 표에 없는 열이 있고 NULL 아닌 값('' 포함)이 있으면 교체 전에 `UnknownColumnsException`.
+      값이 모두 NULL 인 열은 통과. 서버는 반대 방향에 같은 규칙(`exchange.UnknownColumns`, 409).
+    - entry_value: 서버 `mysafety_entry_value` 행 없음 → `reports.entry_value` NULL, 행의 값(빈 문자열 포함) → 같은 값. 서버 복원은 앱 값이 원천(빈 문자열도 덮음, NULL 은 행 없음).
+    - 가져오기·복원이 성공해도 직전 DB 를 `<db>.before_import.<epoch ms>.bak` 으로 남긴다(최근 3개, `LocalDbService.latestImportBackup`). 실패하면 되돌리고 그 사본은 지운다.
   - 알려진 결함 고정 테스트 `test/storage/known_defects_test.dart`(M-1·2/3·12·24 — R3 에서 고치면 기대값을 뒤집는다).
 - **R2·R3(2026-09-24)**: `reports` 는 **사이트 원본**(서버 title+detail 과 같은 뜻). 사용자 수정값은 `report_override`, 화면·통계는 보기 `reports_effective`(원본 위에 수정값, DB 를 열 때마다 재생성 — 이 보기가 참조하는 열을 DROP/RENAME 하려면 먼저 보기를 지울 것).
   서버 DB 가져오기는 `mysafety` + `mysafetydetail_*` 를 읽고(구서버만 merge), 6개월 지난 첨부는 `attachment_policy.dart` 로 화면에서 가림.

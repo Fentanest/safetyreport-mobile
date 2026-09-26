@@ -86,6 +86,117 @@ class CommunityServerLinkService {
     offlineMessage: '서버에 연결할 수 없어 연결을 해제하지 못했습니다.',
   );
 
+  /// Client 서버 게이트 조회 (`GET /api/v1/community/gate`).
+  /// 403 `COMMUNITY_ONBOARDING_REQUIRED` 면 서버 연결 승인·설정 복구 UI만 보인다.
+  static Future<CommunityGateLinkResult> fetchCommunityGate({
+    required String baseUrl,
+    required String apiKey,
+    http.Client? client,
+  }) => _callGate(
+    baseUrl,
+    apiKey,
+    ServerContract.communityGatePath,
+    null,
+    null,
+    client: client,
+    offlineMessage: '서버에 연결할 수 없어 서버 게이트를 확인하지 못했습니다.',
+  );
+
+  /// Client 서버 초기화 job 조회.
+  static Future<CommunityGateLinkResult> fetchCommunityRebuild({
+    required String baseUrl,
+    required String apiKey,
+    String? userToken,
+    http.Client? client,
+  }) => _callGate(
+    baseUrl,
+    apiKey,
+    ServerContract.communityRebuildPath,
+    null,
+    userToken,
+    client: client,
+    offlineMessage: '서버에 연결할 수 없어 초기화 상태를 확인하지 못했습니다.',
+  );
+
+  /// Client 서버 초기화 시작·재개. 409 `COMMUNITY_REBUILD_REQUIRED` 는 본문으로 전달.
+  static Future<CommunityGateLinkResult> startCommunityRebuild({
+    required String baseUrl,
+    required String apiKey,
+    String? userToken,
+    http.Client? client,
+  }) => _callGate(
+    baseUrl,
+    apiKey,
+    ServerContract.communityRebuildStartPath,
+    const <String, Object?>{},
+    userToken,
+    client: client,
+    offlineMessage: '서버에 연결할 수 없어 초기화를 시작하지 못했습니다.',
+  );
+
+  static Future<CommunityGateLinkResult> resumeCommunityRebuild({
+    required String baseUrl,
+    required String apiKey,
+    String? userToken,
+    http.Client? client,
+  }) => _callGate(
+    baseUrl,
+    apiKey,
+    ServerContract.communityRebuildResumePath,
+    const <String, Object?>{},
+    userToken,
+    client: client,
+    offlineMessage: '서버에 연결할 수 없어 초기화를 재개하지 못했습니다.',
+  );
+
+  static Future<CommunityGateLinkResult> _callGate(
+    String baseUrl,
+    String apiKey,
+    String path,
+    Map<String, Object?>? body,
+    String? userToken, {
+    http.Client? client,
+    required String offlineMessage,
+  }) async {
+    if (baseUrl.trim().isEmpty) {
+      return CommunityGateLinkResult.failure(
+        code: 'offline',
+        message: offlineMessage,
+        offline: true,
+      );
+    }
+    final uri = ServerContract.apiUri(baseUrl, path);
+    final owned = client ?? http.Client();
+    try {
+      final http.Response res;
+      if (body == null) {
+        res = await owned
+            .get(uri, headers: {ServerContract.apiKeyHeader: apiKey})
+            .timeout(const Duration(seconds: 10));
+      } else {
+        final headers = ServerContract.apiHeaders(apiKey);
+        if (userToken != null && userToken.isNotEmpty) {
+          headers[ServerContract.communityUserTokenHeader] = userToken;
+        }
+        res = await owned
+            .post(uri, headers: headers, body: jsonEncode(body))
+            .timeout(const Duration(seconds: 10));
+      }
+      return CommunityGateLinkResult.parse(
+        res.statusCode,
+        utf8.decode(res.bodyBytes, allowMalformed: true),
+      );
+    } catch (_) {
+      return CommunityGateLinkResult.failure(
+        code: 'offline',
+        message: offlineMessage,
+        offline: true,
+      );
+    } finally {
+      if (client == null) owned.close();
+    }
+  }
+
   /// [body] 가 null 이면 GET, 아니면 POST(JSON).
   static Future<CommunityServerResult> _call(
     String baseUrl,
@@ -143,8 +254,7 @@ class CommunityServerLinkService {
   }
 
   /// 응답 해석(테스트용으로 공개).
-  static CommunityServerResult parseResponse(int statusCode, String body) {
-    Object? json;
+  static CommunityServerResult parseResponse(int statusCode, String body) {    Object? json;
     try {
       json = jsonDecode(body);
     } catch (_) {
@@ -465,3 +575,74 @@ class CommunityServerResult {
 
   bool get isOk => status != null;
 }
+
+/// Client 서버 게이트·초기화 job 원시 응답.
+///
+/// 403 `COMMUNITY_ONBOARDING_REQUIRED`·409 `COMMUNITY_REBUILD_REQUIRED` 는
+/// 오류가 아니라 화면 분기 신호이므로 `code` 로 그대로 들고 있는다.
+class CommunityGateLinkResult {
+  final Map<String, dynamic>? data;
+  final String? code;
+  final String? message;
+  final int? httpStatus;
+  final bool offline;
+  const CommunityGateLinkResult._({
+    this.data,
+    this.code,
+    this.message,
+    this.httpStatus,
+    this.offline = false,
+  });
+
+  factory CommunityGateLinkResult.success(Map<String, dynamic> data) =>
+      CommunityGateLinkResult._(data: data);
+  factory CommunityGateLinkResult.failure({
+    String? code,
+    String? message,
+    int? httpStatus,
+    bool offline = false,
+  }) => CommunityGateLinkResult._(
+    code: code,
+    message: message,
+    httpStatus: httpStatus,
+    offline: offline,
+  );
+
+  bool get isOk => data != null;
+  bool get needsOnboarding => code == 'COMMUNITY_ONBOARDING_REQUIRED';
+  bool get needsRebuild => code == 'COMMUNITY_REBUILD_REQUIRED';
+
+  static CommunityGateLinkResult parse(int statusCode, String body) {
+    Object? json;
+    try {
+      json = jsonDecode(body);
+    } catch (_) {
+      json = null;
+    }
+    Map<String, dynamic>? data;
+    if (json is Map) {
+      final d = json['data'];
+      if (d is Map) data = d.cast<String, dynamic>();
+    }
+    if (statusCode == 200 && data != null) {
+      return CommunityGateLinkResult.success(data);
+    }
+    String code = '';
+    String? message;
+    if (json is Map) {
+      final c = json['code'];
+      final e = json['error'];
+      if (c is String) code = c;
+      if (e is Map && e['code'] is String) code = e['code'] as String;
+      final m = json['message'];
+      if (m is String) message = m;
+    }
+    return CommunityGateLinkResult.failure(
+      code: code.isEmpty ? 'server_error' : code,
+      message: message ?? '서버 오류: HTTP $statusCode',
+      httpStatus: statusCode,
+    );
+  }
+}
+
+

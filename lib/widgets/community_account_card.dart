@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../community/gate/community_account_client.dart';
+import '../community/gate/community_gate.dart';
 import '../services/community_auth_service.dart';
 import 'community_card_parts.dart';
 
@@ -13,7 +15,12 @@ final communityAuthMessengerKey = GlobalKey<ScaffoldMessengerState>();
 /// 설정 > Standalone "커뮤니티 계정" 카드.
 class CommunityAccountCard extends StatefulWidget {
   final CommunityAuthService? service;
-  const CommunityAccountCard({super.key, this.service});
+
+  /// 게이트·공유 동의 섹션용(없으면 계정 카드만 보인다).
+  final CommunityGate? gate;
+  final CommunityAccountClient? accountClient;
+
+  const CommunityAccountCard({super.key, this.service, this.gate, this.accountClient});
 
   @override
   State<CommunityAccountCard> createState() => _CommunityAccountCardState();
@@ -68,31 +75,46 @@ class _CommunityAccountCardState extends State<CommunityAccountCard> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final muted = cs.onSurfaceVariant;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: ValueListenableBuilder<CommunityAuthState>(
-          valueListenable: _svc.state,
-          builder: (context, st, _) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const CommunityCardHeader(
-                  icon: Icons.forum_outlined,
-                  title: '커뮤니티 계정',
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '카카오 계정으로 커뮤니티 지도에 연결합니다. 안전신문고 계정과는 별개입니다.',
-                  style: TextStyle(color: muted, fontSize: 12),
-                ),
-                const SizedBox(height: 12),
-                ..._body(context, st),
-              ],
-            );
-          },
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: ValueListenableBuilder<CommunityAuthState>(
+              valueListenable: _svc.state,
+              builder: (context, st, _) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const CommunityCardHeader(
+                      icon: Icons.forum_outlined,
+                      title: '커뮤니티 계정',
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '카카오 계정으로 커뮤니티 지도에 연결합니다. 안전신문고 계정과는 별개입니다.',
+                      style: TextStyle(color: muted, fontSize: 12),
+                    ),
+                    const SizedBox(height: 12),
+                    ..._body(context, st),
+                  ],
+                );
+              },
+            ),
+          ),
         ),
-      ),
+        if (widget.gate != null && widget.accountClient != null) ...[
+          const SizedBox(height: 12),
+          _CommunityShareSection(
+            gate: widget.gate!,
+            client: widget.accountClient!,
+            auth: _svc,
+            busy: _busy,
+            run: _run,
+          ),
+        ],
+      ],
     );
   }
 
@@ -352,9 +374,271 @@ class _CommunityAuthPromptState extends State<CommunityAuthPrompt> {
   Widget build(BuildContext context) => widget.child;
 }
 
+/// 공유 동의·연결 기기 섹션 (설정 카드 하단).
+///
+/// - 동의 상태·정책 버전 표시, 철회(확인 대화상자 → `consent-revoke` → 즉시 게이트 복귀).
+///   응답이 `stale_grant`(409)면 status 를 다시 받아 현재 grant 로 다시 요청한다.
+///   성공 응답의 `lineage_active:false` 를 확인한 뒤에만 "철회됨"으로 표시한다.
+/// - `공유한 자료 삭제 요청`(확인 문구 입력 → `contributions-delete`).
+/// - 연결 기기(writer) 상태·전환.
+class _CommunityShareSection extends StatefulWidget {
+  const _CommunityShareSection({
+    required this.gate,
+    required this.client,
+    required this.auth,
+    required this.busy,
+    required this.run,
+  });
+
+  final CommunityGate gate;
+  final CommunityAccountClient client;
+  final CommunityAuthService auth;
+  final bool busy;
+  final Future<void> Function(Future<void> Function() action) run;
+
+  @override
+  State<_CommunityShareSection> createState() => _CommunityShareSectionState();
+}
+
+class _CommunityShareSectionState extends State<_CommunityShareSection> {
+  String? _message;
+  bool _revokedShown = false;
+
+  CommunityGate get _gate => widget.gate;
+
+  @override
+  void initState() {
+    super.initState();
+    _gate.addListener(_onGate);
+  }
+
+  @override
+  void dispose() {
+    _gate.removeListener(_onGate);
+    super.dispose();
+  }
+
+  void _onGate() {
+    if (mounted) setState(() {});
+  }
+
+  Future<String?> _token() => widget.auth.getAccessToken();
+
+  Future<void> _revoke() async {
+    final grantId = _gate.lastStatus?.consentGrantId;
+    if (grantId == null || grantId.isEmpty) {
+      setState(() => _message = '철회할 동의 정보를 찾지 못했습니다.');
+      return;
+    }
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('신고내용 공유 동의 철회'),
+        content: const Text(
+          '공유 동의를 철회하면 즉시 필수 설정 화면으로 돌아가고, '
+          '이 동의로 보낸 자료는 공개 지도에서 빠집니다.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('철회'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await widget.run(() async {
+      final token = await _token();
+      if (token == null || token.isEmpty) {
+        setState(() => _message = '로그인이 필요합니다.');
+        return;
+      }
+      try {
+        final res = await widget.client.revokeConsent(
+          accessToken: token,
+          grantId: grantId,
+        );
+        if (!mounted) return;
+        if (res.lineageActive == false) {
+          setState(() {
+            _message = '공유 동의가 철회되었습니다.';
+            _revokedShown = true;
+          });
+          _gate.invalidate('consent_revoked');
+        } else {
+          setState(() => _message = '철회가 확인되지 않았습니다. 다시 시도해 주세요.');
+        }
+      } on CommunityAccountError catch (e) {
+        if (e.code == 'stale_grant') {
+          await _gate.refreshNow();
+          if (!mounted) return;
+          final current = _gate.lastStatus?.consentGrantId;
+          if (current == null || current.isEmpty) {
+            setState(() => _message = '동의 상태가 바뀌었습니다. 다시 확인해 주세요.');
+            return;
+          }
+          try {
+            final retry = await widget.client.revokeConsent(
+              accessToken: token,
+              grantId: current,
+            );
+            if (!mounted) return;
+            if (retry.lineageActive == false) {
+              setState(() {
+                _message = '공유 동의가 철회되었습니다.';
+                _revokedShown = true;
+              });
+              _gate.invalidate('consent_revoked');
+            } else {
+              setState(() => _message = '철회가 확인되지 않았습니다. 다시 시도해 주세요.');
+            }
+          } on CommunityAccountError catch (e2) {
+            if (mounted) setState(() => _message = e2.message);
+          }
+        } else if (mounted) {
+          setState(() => _message = e.message);
+        }
+      }
+    });
+  }
+
+  Future<void> _delete() async {
+    final controller = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('공유한 자료 삭제 요청'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '공개 지도와 통계에서 공유한 자료를 삭제합니다. '
+              '삭제 전에 수집한 사본은 다시 올릴 수 없습니다. '
+              '계속하려면 아래에 DELETE_MY_SHARED_REPORTS 를 입력하세요.',
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                hintText: 'DELETE_MY_SHARED_REPORTS',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(
+              ctx,
+              controller.text.trim() == 'DELETE_MY_SHARED_REPORTS',
+            ),
+            child: const Text('삭제 요청'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (ok != true) {
+      if (ok == false && mounted) {
+        setState(() => _message = '확인 문구가 일치하지 않습니다.');
+      }
+      return;
+    }
+    await widget.run(() async {
+      final token = await _token();
+      if (token == null || token.isEmpty) {
+        setState(() => _message = '로그인이 필요합니다.');
+        return;
+      }
+      try {
+        await widget.client.deleteContributions(accessToken: token);
+        await _gate.handleContributionsDeleted();
+        if (mounted) {
+          setState(() => _message = '공유한 자료 삭제를 요청했습니다. 다음 게이트 통과 때 새 연결을 등록합니다.');
+        }
+      } on CommunityAccountError catch (e) {
+        if (mounted) setState(() => _message = e.message);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final status = _gate.lastStatus;
+    final consentState = status?.consentState ?? '-';
+    final policyVersion = status?.consentPolicyVersion ?? '-';
+    final connection = status?.connection;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const CommunityCardHeader(
+              icon: Icons.share_outlined,
+              title: '신고내용 공유',
+            ),
+            const SizedBox(height: 10),
+            CommunityInfoRow(label: '동의 상태', value: _revokedShown ? '철회됨' : consentState),
+            CommunityInfoRow(label: '정책 버전', value: policyVersion),
+            if (connection != null)
+              CommunityInfoRow(
+                label: '연결 기기',
+                value: '${connection['source_app'] ?? ''} · epoch ${connection['writer_epoch'] ?? ''} '
+                    '(${connection['status'] ?? ''})',
+              ),
+            if (_gate.writerConflict != null) ...[
+              const SizedBox(height: 8),
+              const CommunityNoticeBox(
+                icon: Icons.warning_amber_rounded,
+                tone: CommunityTone.danger,
+                text: '다른 기기가 이 신고자 이름으로 업로드하고 있습니다.',
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: widget.busy ? null : () => widget.run(() => _gate.requestTakeover()),
+                  child: const Text('이 기기로 업로드 전환'),
+                ),
+              ),
+            ],
+            if (_message != null) ...[
+              const SizedBox(height: 8),
+              Text(_message!, style: const TextStyle(fontSize: 12.5)),
+            ],
+            const SizedBox(height: 12),
+            CommunityButtonBar(
+              children: [
+                OutlinedButton(
+                  onPressed: widget.busy ? null : _revoke,
+                  child: const Text('동의 철회'),
+                ),
+                OutlinedButton(
+                  onPressed: widget.busy ? null : _delete,
+                  child: const Text('공유한 자료 삭제 요청'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// 계정 확인 창(Standalone 복귀 직후). 뒤로 가기로 닫히지 않는다 — 둘 중 하나를 고른다.
-class CommunityConfirmDialog extends StatelessWidget {
-  final String displayName;
+class CommunityConfirmDialog extends StatelessWidget {  final String displayName;
   final String? replacingName;
   const CommunityConfirmDialog({
     super.key,

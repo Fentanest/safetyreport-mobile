@@ -11,6 +11,9 @@ import 'screens/report_management_screen.dart';
 import 'screens/statistics_screen.dart';
 import 'screens/setup_screen.dart';
 import 'screens/notifications_screen.dart';
+import 'screens/permission_screen.dart';
+import 'screens/community_onboarding_screen.dart';
+import 'screens/community_rebuild_screen.dart';
 import 'models/app_mode.dart';
 import 'models/app_theme_mode.dart';
 import 'models/duplicate_group.dart';
@@ -20,6 +23,11 @@ import 'providers/notification_history_provider.dart';
 import 'services/background_login_check.dart';
 import 'services/community_auth_link_channel.dart';
 import 'services/community_auth_service.dart';
+import 'services/local_db_service.dart';
+import 'services/permission_service.dart';
+import 'community/community_store.dart';
+import 'community/gate/community_gate.dart';
+import 'community/rebuild/community_rebuild.dart';
 import 'services/pending_changes_store.dart';
 import 'services/review_prompt_service.dart';
 import 'services/sync_engine.dart' show ChangeType;
@@ -41,13 +49,30 @@ Future<void> main() async {
     await Workmanager().initialize(backgroundTaskDispatcher);
   } catch (_) {}
   // 커뮤니티 계정(Standalone) 로그인 복귀 링크 — SetupScreen·설정 등 어느 화면에서든 받도록 앱 시작 때 등록.
+  // 게이트 중에도 수신한다(게이트가 끝나면 상태가 반영된다).
   CommunityAuthLinkChannel.start((link) async {
     await CommunityAuthService.instance.handleCallbackLink(link);
   });
+  CommunityStore? communityStore;
+  try {
+    communityStore = await CommunityStore.open();
+  } catch (_) {
+    communityStore = null;
+  }
+  final reportProvider = ReportProvider()..init();
+  final gate = CommunityGate(
+    store: communityStore,
+    officialAccountId: () async => reportProvider.standaloneUsername.isEmpty
+        ? null
+        : reportProvider.standaloneUsername,
+    appMode: () => reportProvider.appMode.name,
+  );
+  gate.addOnFirstPassed(reportProvider.onGatePassed);
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => ReportProvider()..init()),
+        ChangeNotifierProvider.value(value: reportProvider),
+        ChangeNotifierProvider.value(value: gate),
         ChangeNotifierProvider(
           create: (_) => NotificationHistoryProvider()..load(),
         ),
@@ -57,13 +82,28 @@ Future<void> main() async {
   );
 }
 
-class SafetyReportApp extends StatelessWidget {
+class SafetyReportApp extends StatefulWidget {
   const SafetyReportApp({super.key});
 
   @override
+  State<SafetyReportApp> createState() => _SafetyReportAppState();
+}
+
+class _SafetyReportAppState extends State<SafetyReportApp> {
+  @override
+  void initState() {
+    super.initState();
+    final gate = context.read<CommunityGate>();
+    gate.startPolling();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(gate.refreshNow());
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return Consumer<ReportProvider>(
-      builder: (context, provider, _) {
+    return Consumer2<ReportProvider, CommunityGate>(
+      builder: (context, provider, gate, _) {
         // 두 모드 공통 테마(D-03). 모드는 ModeBadge 로 따로 표시한다.
         return MaterialApp(
           title: '나만의 안전신문고',
@@ -78,17 +118,199 @@ class SafetyReportApp extends StatelessWidget {
           themeMode: provider.themeMode.themeMode,
           home: Builder(
             builder: (_) {
-              if (!provider.isInitialized) {
+              // 진입 순서(§6.2): 로딩 → 게이트(검사 중에는 로딩 셸만, 신고 화면 flash 금지)
+              // → 온보딩 → 권한(common) → Setup → 권한 보충(mode) → 초기화 → 메인.
+              if (!provider.isInitialized || !gate.isChecked) {
                 return const Scaffold(
                   body: Center(child: CircularProgressIndicator()),
                 );
               }
-              if (!provider.isConfigured) {
-                return const SetupScreen();
+              if (!gate.canEnter) {
+                return CommunityOnboardingScreen(
+                  gate: gate,
+                  onNext: () async {
+                    await gate.requireFresh();
+                  },
+                );
               }
-              return const MainNavigationScreen();
+              if (!provider.isConfigured) {
+                return const _SetupFlow();
+              }
+              return const _PostGateFlow();
             },
           ),
+        );
+      },
+    );
+  }
+}
+
+/// 게이트 통과 뒤 신규 설치 흐름: 모드 무관 권한(common) → 기존 SetupScreen.
+class _SetupFlow extends StatefulWidget {
+  const _SetupFlow();
+
+  @override
+  State<_SetupFlow> createState() => _SetupFlowState();
+}
+
+class _SetupFlowState extends State<_SetupFlow> {
+  bool _commonDone = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_commonDone) {
+      return PermissionScreen(
+        phase: PermissionPhase.common,
+        isSetup: true,
+        onDone: () => setState(() => _commonDone = true),
+      );
+    }
+    return const SetupScreen();
+  }
+}
+
+/// 설정 완료 사용자 흐름: 모드 권한 보충(mode, 이미 허용됐으면 건너뜀) → 초기화(필요 시) → 메인.
+class _PostGateFlow extends StatefulWidget {
+  const _PostGateFlow();
+
+  @override
+  State<_PostGateFlow> createState() => _PostGateFlowState();
+}
+
+class _PostGateFlowState extends State<_PostGateFlow> {
+  bool _modeDone = false;
+  bool _rebuildDone = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_modeDone) {
+      return _ModeSupplement(onDone: () => setState(() => _modeDone = true));
+    }
+    if (!_rebuildDone) {
+      final provider = context.read<ReportProvider>();
+      if (provider.appMode == AppMode.server) {
+        return CommunityRebuildScreen(
+          isClient: true,
+          serverBaseUrl: provider.baseUrl,
+          serverApiKey: provider.apiKey,
+          onDone: () async {
+            setState(() => _rebuildDone = true);
+          },
+        );
+      }
+      return _StandaloneRebuildGate(
+        onDone: () => setState(() => _rebuildDone = true),
+      );
+    }
+    return const MainNavigationScreen();
+  }
+}
+
+/// 모드 의존 권한 보충. 이미 허용됐으면 화면 없이 건너뛴다.
+class _ModeSupplement extends StatelessWidget {
+  const _ModeSupplement({required this.onDone});
+  final VoidCallback onDone;
+
+  Future<bool> _needsSupplement(ReportProvider provider) async {
+    if (provider.appMode == AppMode.standalone) return false;
+    if (!PermissionService.supportsWsService) return false;
+    return !await PermissionService.isWsServiceRunning();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = context.read<ReportProvider>();
+    return FutureBuilder<bool>(
+      future: _needsSupplement(provider),
+      builder: (context, snap) {
+        if (!snap.hasData) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snap.data == false) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => onDone());
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        return PermissionScreen(
+          phase: PermissionPhase.mode,
+          isSetup: true,
+          onDone: onDone,
+        );
+      },
+    );
+  }
+}
+
+/// Standalone 초기화 필요 여부 확인. 필요 없으면 메인으로 건너뛴다.
+class _StandaloneRebuildGate extends StatefulWidget {
+  const _StandaloneRebuildGate({required this.onDone});
+  final VoidCallback onDone;
+
+  @override
+  State<_StandaloneRebuildGate> createState() => _StandaloneRebuildGateState();
+}
+
+class _StandaloneRebuildGateState extends State<_StandaloneRebuildGate> {
+  Future<CommunityRebuild?>? _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _prepare();
+  }
+
+  Future<CommunityRebuild?> _prepare() async {
+    final provider = context.read<ReportProvider>();
+    final gate = context.read<CommunityGate>();
+    final store = await CommunityStore.open();
+    final rebuild = CommunityRebuild(
+      store: store,
+      localDatasetId: store.localDatasetId,
+      sourceNamespace: () async {
+        final id = provider.standaloneUsername;
+        if (id.isEmpty) return '';
+        return datasetKeyForOfficialId(id);
+      },
+      gateFresh: () async => (await gate.requireFresh()).canEnter,
+      personalDbPath: LocalDbService.getDbPath,
+    );
+    await rebuild.load();
+    if (!await rebuild.required()) return null;
+    return rebuild;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<CommunityRebuild?>(
+      future: _future,
+      builder: (context, snap) {
+        if (snap.hasError) {
+          // 저장소를 열지 못하면(테스트·손상) 초기화를 건너뛰고 메인으로 간다.
+          WidgetsBinding.instance.addPostFrameCallback((_) => widget.onDone());
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snap.connectionState != ConnectionState.done) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        final rebuild = snap.data;
+        if (rebuild == null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => widget.onDone());
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+        return CommunityRebuildScreen(
+          rebuild: rebuild,
+          onDone: () async {
+            widget.onDone();
+          },
         );
       },
     );
@@ -104,11 +326,24 @@ class MainNavigationScreen extends StatefulWidget {
 
 const _permChannel = MethodChannel('com.fentanest.mysafetyreport/permissions');
 
+/// 게이트 미충족이면 알림 탭 이동·payload 상세 열기를 무시한다 (F06).
+/// Provider 가 없으면(예전 테스트) 허용으로 둔다.
+bool communityNavAllowed(BuildContext context) {
+  try {
+    return Provider.of<CommunityGate>(context, listen: false).canEnter;
+  } catch (_) {
+    return true;
+  }
+}
+
 class _MainNavigationScreenState extends State<MainNavigationScreen>
     with WidgetsBindingObserver {
   int _selectedIndex = 0;
   String _lastQuickActionSignature = '';
   late final List<Widget?> _screenCache = List<Widget?>.filled(_tabCount, null);
+
+  /// 게이트 미충족이면 알림 탭 이동·payload 상세 열기를 무시한다.
+  bool get _gateAllows => communityNavAllowed(context);
 
   /// 하단 탭 수(D-06: 7 → 5). 동기화/크롤링·파일은 [AppRoutes] 로 연다.
   static const _tabCount = 5;
@@ -147,6 +382,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
 
   Future<dynamic> _handleNativeCall(MethodCall call) async {
     if (call.method == 'navigateToTab') {
+      if (!_gateAllows) return;
       final args = call.arguments as Map?;
       final tab = (args?['tab'] as num?)?.toInt() ?? 4;
       final subTab = (args?['sub_tab'] as num?)?.toInt();
@@ -229,7 +465,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
 
   Future<void> _checkForegroundEvent() async {
     final event = await ForegroundEventStore.readAndClear();
-    if (event == null || !mounted) return;
+    if (event == null || !mounted || !_gateAllows) return;
     final title = event['title']?.toString() ?? '';
     final body = event['body']?.toString() ?? '';
     final payloadJson = event['payload_json']?.toString() ?? '';
@@ -279,6 +515,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   }
 
   void _openNotificationPayloadDetail(String payloadJson) {
+    if (!_gateAllows) return;
     final data = _decodeNotificationPayload(payloadJson);
     if (data == null) return;
     unawaited(
@@ -294,7 +531,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
 
   Future<void> _checkPendingChanges() async {
     final changes = await PendingChangesStore.readAndClear();
-    if (changes.isEmpty || !mounted) return;
+    if (changes.isEmpty || !mounted || !_gateAllows) return;
     final history = context.read<NotificationHistoryProvider>();
     await history.ensureLoaded();
     if (!mounted) return;

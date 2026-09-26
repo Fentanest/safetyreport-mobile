@@ -22,6 +22,35 @@ class CommunityUploadHooks {
   /// T6 `onContributionsDeleted()` — 공유 자료 삭제 성공 뒤 대기 행 차단.
   static Future<void> Function()? onContributionsDeleted;
 
+  /// 중앙 삭제 요청 **전** 로컬 삭제 대기 표시(community.db). 실패하면 중앙 삭제를 요청하지 않는다(Sol 2차 H-03a).
+  static Future<String> Function()? beginDeletion;
+
+  /// 중앙 삭제가 확실히 실패했을 때 그 표시 하나를 지운다.
+  static Future<void> Function(String id)? cancelDeletion;
+
+  /// 공유 자료 삭제 요청 순서(PC 라우트와 같음): 로컬 표시 → 중앙 삭제 → 로컬 적용.
+  /// 반환: 'not_started'(표시를 못 써 중앙 요청 안 함), 'done', 'local_pending'(중앙 삭제됨, 로컬 적용은 다음 업로드 때).
+  /// 중앙 호출이 실패하면 이 삭제의 표시만 지우고 예외를 그대로 올린다.
+  static Future<String> requestDeletion(Future<void> Function() central) async {
+    final begin = beginDeletion;
+    String id;
+    try {
+      if (begin == null) return 'not_started';
+      id = await begin();
+    } catch (_) {
+      return 'not_started';
+    }
+    try {
+      await central();
+    } catch (_) {
+      try {
+        await cancelDeletion?.call(id);
+      } catch (_) {} // 지우지 못하면 업로드가 막힌 채 남는다(fail-closed)
+      rethrow;
+    }
+    return await contributionsDeletedNow() ? 'done' : 'local_pending';
+  }
+
   static Future<bool> refreshServerCompletedNow() async {
     final fn = refreshServerCompleted;
     if (fn == null) return true;

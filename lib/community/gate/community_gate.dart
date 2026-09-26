@@ -516,6 +516,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
 
   /// 공유 자료 삭제 성공 뒤: T6 대기 행 차단 + 저장 연결 폐기 + 다음 통과 때 재등록.
   Future<void> handleContributionsDeleted() async {
+    // 적용은 이미 한 번 시도됐을 수 있다(requestDeletion) — 표시가 없으면 아무 일도 하지 않으므로 다시 불러도 안전하다.
     final ok = await CommunityUploadHooks.contributionsDeletedNow();
     if (!ok) {
       _notice = '중앙에서는 삭제했지만 이 기기의 대기 사본 정리를 끝내지 못했습니다. 정리될 때까지 업로드하지 않고 다음 업로드 때 다시 시도합니다.';

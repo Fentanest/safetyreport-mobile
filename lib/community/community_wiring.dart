@@ -48,8 +48,9 @@ class CommunityWiring {
       final uploader = await buildDefaultUploader(gate: gateCheck());
       await schedule.catchUp(reason, store: store, runUpload: uploader.requestCommunityUpload);
     };
-    CommunityUploadHooks.onContributionsDeleted =
-        () => completed.onContributionsDeleted(deletedAt: DateTime.now(), store: store);
+    CommunityUploadHooks.onContributionsDeleted = () => completed.applyPendingDeletion(store: store);
+    CommunityUploadHooks.beginDeletion = () => completed.beginDeletion(store: store);
+    CommunityUploadHooks.cancelDeletion = (id) => completed.cancelDeletion(id, store: store);
   }
 
   /// manifest 전 페이지 → server_completed 교체. 받는 동안 upload lease 를 잡아 자기 업로드로 세대가 바뀌지 않게 한다.

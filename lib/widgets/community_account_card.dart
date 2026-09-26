@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../community/gate/community_account_client.dart';
+import '../community/upload_hooks.dart';
 import '../community/gate/community_gate.dart';
 import '../services/community_auth_service.dart';
 import 'community_card_parts.dart';
@@ -561,7 +562,15 @@ class _CommunityShareSectionState extends State<_CommunityShareSection> {
         return;
       }
       try {
-        await widget.client.deleteContributions(accessToken: token);
+        // 로컬 표시 → 중앙 삭제 → 로컬 적용(Sol 2차 H-03a). 표시를 못 쓰면 중앙 삭제를 요청하지 않는다.
+        final outcome = await CommunityUploadHooks.requestDeletion(
+            () => widget.client.deleteContributions(accessToken: token));
+        if (outcome == 'not_started') {
+          if (mounted) {
+            setState(() => _message = '이 기기의 공유 저장소에 기록할 수 없어 삭제를 요청하지 않았습니다. 잠시 뒤 다시 시도해 주세요.');
+          }
+          return;
+        }
         await _gate.handleContributionsDeleted();
         if (mounted) {
           setState(() => _message = '공유한 자료 삭제를 요청했습니다. 다음 게이트 통과 때 새 연결을 등록합니다.');

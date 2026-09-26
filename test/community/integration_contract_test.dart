@@ -14,6 +14,7 @@ import 'package:safetyreport/community/capture/capture_retry_store.dart';
 import 'package:safetyreport/community/capture/community_capture.dart';
 import 'package:safetyreport/community/capture/server_completed.dart';
 import 'package:safetyreport/community/community_store.dart';
+import 'package:safetyreport/community/upload_hooks.dart';
 import 'package:safetyreport/community/gate/community_gate.dart';
 import 'package:safetyreport/community/upload/community_ingest_client.dart';
 import 'package:safetyreport/services/community_auth_service.dart';
@@ -167,6 +168,36 @@ void main() {
         expect(retry.existsSync(), isFalse, reason: '개인 저장 경로에 들어가지 않았다');
       });
     }
+  });
+
+  group('deletion request order (Sol 2차 H-03a)', () {
+    tearDown(() {
+      CommunityUploadHooks.beginDeletion = null;
+      CommunityUploadHooks.cancelDeletion = null;
+      CommunityUploadHooks.onContributionsDeleted = null;
+    });
+
+    test('marker cannot be written → central delete is not called', () async {
+      CommunityUploadHooks.beginDeletion = () async => throw StateError('readonly');
+      var central = 0;
+      expect(await CommunityUploadHooks.requestDeletion(() async => central++), 'not_started');
+      expect(central, 0);
+    });
+
+    test('central failure cancels only this marker and rethrows; success applies', () async {
+      final cancelled = <String>[];
+      var applied = 0;
+      CommunityUploadHooks.beginDeletion = () async => 'm1';
+      CommunityUploadHooks.cancelDeletion = (id) async => cancelled.add(id);
+      CommunityUploadHooks.onContributionsDeleted = () async => applied++;
+      await expectLater(CommunityUploadHooks.requestDeletion(() async => throw StateError('503')), throwsStateError);
+      expect(cancelled, ['m1']);
+      expect(applied, 0);
+      expect(await CommunityUploadHooks.requestDeletion(() async {}), 'done');
+      expect(applied, 1);
+      CommunityUploadHooks.onContributionsDeleted = () async => throw StateError('disk');
+      expect(await CommunityUploadHooks.requestDeletion(() async {}), 'local_pending');
+    });
   });
 
   group('gate writer rules', () {

@@ -1,8 +1,6 @@
 // 중앙 manifest → server_completed 교체 + 삭제 처리 (S-04).
 import 'dart:convert';
 
-import 'package:shared_preferences/shared_preferences.dart';
-
 import '../community_store.dart';
 
 /// manifest 한 페이지. 키는 completed fact key 앞 24hex.
@@ -102,54 +100,37 @@ Future<bool> refreshServerCompleted({
   return true;
 }
 
-/// 삭제 뒤 로컬 차단 표시(SharedPreferences). 적용이 끝나야 지운다 — 남아 있으면 업로드·reshare 를 하지 않는다.
-const String deletionPendingKey = 'community_deletion_pending_v1';
+/// 삭제 대기 표시: journal 과 같은 community.db 의 meta 에 트랜잭션으로 둔다(PC 와 같은 규칙, Sol 2차 H-03a/b).
+const String deletionKeyPrefix = 'deletion_pending:';
 
-/// `contributions-delete` 성공 뒤(PC `on_contributions_deleted` 와 같은 규칙, Sol 통합 검토 H-03):
-/// 그 시점에 있던 journal 행 전부를 **행 순번 경계**로 영구 제외한다(시계와 무관 — 앞선 시계의 captured_at 도 막힌다),
-/// 그 행들의 outbox 를 막고 server_completed 를 비운다. 먼저 영속 표시를 쓰고, 적용이 끝나면 지운다.
-/// 적용이 실패하면 예외를 올리고 표시는 남는다.
-Future<void> onContributionsDeleted({
-  required DateTime deletedAt,
-  CommunityStore? store,
-  String? deletionId,
-}) async {
+/// 중앙 삭제를 요청하기 **전에** 표시를 남긴다. 못 쓰면 예외 → 호출자는 중앙 삭제를 요청하지 않는다.
+/// 표시마다 고유 id 라 동시 삭제가 서로를 지우지 않는다.
+Future<String> beginDeletion({CommunityStore? store}) async {
   final s = store ?? await CommunityStore.open();
-  int? boundary;
-  try {
-    final r = await s.db.rawQuery('SELECT max(rowid) AS m FROM source_journal');
-    boundary = (r.first['m'] as int?) ?? 0;
-  } catch (_) {
-    boundary = null; // 읽을 수 없으면 적용 시점의 전체 행을 막는다(보수적)
-  }
-  final prefs = await SharedPreferences.getInstance();
-  await prefs.setString(deletionPendingKey, jsonEncode({
-    'deletion_id': deletionId,
-    'journal_rowid_max': boundary,
-    'recorded_at': isoUtc(deletedAt),
-  }));
-  await applyPendingDeletion(store: s);
+  final id = newUuidV4();
+  await s.transaction((tx) async {
+    await s.setMeta('$deletionKeyPrefix$id', jsonEncode({'requested_at': isoUtc(DateTime.now())}), tx);
+  });
+  return id;
 }
 
-/// 남은 삭제 표시가 없으면 true. 있으면 적용하고 지운다. 적용 실패는 예외.
-Future<bool> applyPendingDeletion({CommunityStore? store}) async {
-  final prefs = await SharedPreferences.getInstance();
-  await prefs.reload();
-  final raw = prefs.getString(deletionPendingKey);
-  if (raw == null) return true;
-  Map<String, Object?> marker;
-  try {
-    marker = (jsonDecode(raw) as Map).cast<String, Object?>();
-  } catch (_) {
-    marker = const {}; // 손상된 표시: 경계 없이 적용 시점의 전체 행을 막는다(영구 잠김 대신 보수적 복구)
-  }
+/// 중앙 삭제가 확실히 실패했을 때만 그 표시 하나를 지운다.
+Future<void> cancelDeletion(String id, {CommunityStore? store}) async {
   final s = store ?? await CommunityStore.open();
   await s.transaction((tx) async {
-    var boundary = marker['journal_rowid_max'] as int?;
-    if (boundary == null) {
-      final r = await tx.rawQuery('SELECT max(rowid) AS m FROM source_journal');
-      boundary = (r.first['m'] as int?) ?? 0;
-    }
+    await tx.rawDelete('DELETE FROM meta WHERE key=?', ['$deletionKeyPrefix$id']);
+  });
+}
+
+/// 남은 표시가 있으면 한 트랜잭션에서 적용하고 지운다: 그 시점까지의 journal 전부(행 순번 — 시계 무관) deleted_by_user,
+/// 그 outbox blocked, server_completed 비움. 표시가 없으면 아무것도 하지 않는다. 실패는 예외.
+Future<bool> applyPendingDeletion({CommunityStore? store}) async {
+  final s = store ?? await CommunityStore.open();
+  await s.transaction((tx) async {
+    final keys = await tx.rawQuery('SELECT key FROM meta WHERE key LIKE ?', ['$deletionKeyPrefix%']);
+    if (keys.isEmpty) return;
+    final r = await tx.rawQuery('SELECT max(rowid) AS m FROM source_journal');
+    final boundary = (r.first['m'] as int?) ?? 0;
     await tx.rawUpdate(
       "UPDATE source_journal SET blocked_reason='deleted_by_user' "
       "WHERE rowid <= ? AND (blocked_reason IS NULL OR blocked_reason != 'deleted_by_user')",
@@ -161,12 +142,25 @@ Future<bool> applyPendingDeletion({CommunityStore? store}) async {
       [boundary],
     );
     await tx.rawDelete('DELETE FROM server_completed');
+    for (final k in keys) {
+      await tx.rawDelete('DELETE FROM meta WHERE key=?', [k['key']]);
+    }
   });
-  await prefs.remove(deletionPendingKey);
   return true;
 }
 
-/// 삭제 뒤 로컬 차단이 아직 끝나지 않았으면 다시 적용해 본다. 여전히 못 하면 true(업로드 금지).
+/// 중앙 삭제 성공 뒤(표시는 [beginDeletion] 이 남겼다). 표시 없이 불리면 보수적으로 만든 뒤 적용한다.
+Future<void> onContributionsDeleted({
+  required DateTime deletedAt,
+  CommunityStore? store,
+  String? deletionId,
+}) async {
+  final s = store ?? await CommunityStore.open();
+  if (deletionId == null) await beginDeletion(store: s);
+  await applyPendingDeletion(store: s);
+}
+
+/// 표시가 남아 있으면 적용을 다시 시도한다. 여전히 못 하면(또는 저장소 오류) true — 업로드·reshare 금지.
 Future<bool> deletionCleanupPending({CommunityStore? store}) async {
   try {
     return !(await applyPendingDeletion(store: store));

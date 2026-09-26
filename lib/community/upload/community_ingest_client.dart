@@ -1,9 +1,10 @@
 // community-ingest REST 클라이언트.
 //
 // POST {url}/functions/v1/community-ingest — apikey + Bearer.
-// 타임아웃: 연결 5s·전체 30s. envelope source_app=safetyreport-mobile,
+// 타임아웃: 전체 30s(초과하면 요청을 끊는다). envelope source_app=safetyreport-mobile,
 // source_mode=standalone, parser_version=mobile-parser-1.
 // Client 모드에서는 어떤 업로드·등록도 하지 않는다(호출자가 차단).
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -15,12 +16,16 @@ class CommunityIngestClient {
     required this.publishableKey,
     http.Client? httpClient,
     this.clientVersion = '',
-  }) : _http = httpClient ?? http.Client();
+  })  : _http = httpClient ?? http.Client(),
+        _ownsClient = httpClient == null;
 
   final String supabaseUrl;
   final String publishableKey;
   final String clientVersion;
   final http.Client _http;
+  final bool _ownsClient;
+
+  static const int maxResponseBytes = 1024 * 1024;
 
   Map<String, String> _headers(String accessToken) => {
         'Content-Type': 'application/json',
@@ -31,43 +36,46 @@ class CommunityIngestClient {
   Uri _ingestUri() =>
       Uri.parse('$supabaseUrl/functions/v1/community-ingest');
 
-  /// envelope 전송. 네트워크·타임아웃은 예외로, HTTP 오류는 본문 그대로 반환한다.
-  Future<Map<String, Object?>> postIngest(
-    String accessToken,
-    Map<String, Object?> envelope,
-  ) async {
-    final body = jsonEncode(envelope);
-    if (utf8.encode(body).length > 256 * 1024) {
-      throw const CommunityIngestTooLarge();
-    }
-    http.Response res;
+  /// envelope 전송 1회(재시도 없음 — 재시도는 outbox·전송 제어가 맡는다, UC-1).
+  /// 전송 계층 결과(실제 HTTP 상태·헤더·본문 바이트)를 그대로 돌려준다. 판정은 `upload_policy.interpretResponse`.
+  /// 연결·DNS·timeout 은 status=null. 리다이렉트는 따르지 않고 502 로 본다(PC 와 같음). 응답 본문은 최대 1MiB 까지만 읽는다.
+  Future<IngestTransport> postEnvelopeBytes(String accessToken, List<int> body,
+      {Duration timeout = const Duration(seconds: 30)}) async {
+    final abort = Completer<void>();
+    final timer = Timer(timeout, () {
+      if (!abort.isCompleted) abort.complete();
+    });
     try {
-      res = await _http
-          .post(_ingestUri(), headers: _headers(accessToken), body: body)
-          .timeout(const Duration(seconds: 30));
-    } on CommunityIngestTooLarge {
-      rethrow;
-    } catch (e) {
-      throw CommunityIngestTransport('transport: $e');
-    }
-    try {
-      final decoded = jsonDecode(utf8.decode(res.bodyBytes, allowMalformed: true));
-      if (decoded is Map) {
-        return {
-          'httpStatus': res.statusCode,
-          ...Map<String, Object?>.from(decoded),
-        };
+      final request = http.AbortableRequest('POST', _ingestUri(), abortTrigger: abort.future)
+        ..followRedirects = false
+        ..headers.addAll(_headers(accessToken))
+        ..bodyBytes = body;
+      final response = await _http.send(request).timeout(timeout + const Duration(seconds: 1));
+      final bytes = <int>[];
+      await for (final chunk in response.stream.timeout(timeout)) {
+        final room = maxResponseBytes - bytes.length;
+        if (room <= 0) break;
+        bytes.addAll(chunk.length > room ? chunk.sublist(0, room) : chunk);
+        if (bytes.length >= maxResponseBytes) break;
       }
-    } catch (_) {}
-    return {
-      'httpStatus': res.statusCode,
-      'error': {
-        'code': 'bad_response',
-        'message': 'ingest 응답을 읽을 수 없습니다.',
-        'request_id': '',
-        'retryable': res.statusCode >= 500,
-      },
-    };
+      final status = response.statusCode;
+      return IngestTransport(
+        status: (status >= 300 && status < 400) ? 502 : status,
+        rawStatus: status,
+        headers: response.headers,
+        body: bytes,
+      );
+    } catch (_) {
+      return const IngestTransport(status: null, rawStatus: null, headers: {}, body: null);
+    } finally {
+      timer.cancel();
+      if (!abort.isCompleted) abort.complete(); // 읽기를 끝냈거나 실패했으면 남은 연결을 끊는다
+    }
+  }
+
+  /// 실행 끝에 닫는다(실행 단위로 client 하나 — 주입받은 client 는 호출자가 닫는다).
+  void close() {
+    if (_ownsClient) _http.close();
   }
 
   /// manifest 페이지 조회 — `POST {url}/functions/v1/community-ingest/manifest`
@@ -118,13 +126,12 @@ bool validManifestPage(Map<String, Object?> p) {
   return next == null || (next is String && _hex64.hasMatch(next));
 }
 
-class CommunityIngestTooLarge implements Exception {
-  const CommunityIngestTooLarge();
-}
-
-class CommunityIngestTransport implements Exception {
-  CommunityIngestTransport(this.message);
-  final String message;
-  @override
-  String toString() => message;
+/// 전송 계층 결과. status=null 은 연결·timeout 실패(요청이 서버에 닿았는지 모름). [status] 는 판정용(3xx → 502),
+/// [rawStatus] 는 실제 값.
+class IngestTransport {
+  const IngestTransport({required this.status, required this.rawStatus, required this.headers, required this.body});
+  final int? status;
+  final int? rawStatus;
+  final Map<String, String> headers;
+  final List<int>? body;
 }

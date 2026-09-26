@@ -105,9 +105,10 @@ void main() {
     key: 'sb_publishable_test',
   );
 
-  CommunityAuthService build({CommunityAuthConfig? cfg}) =>
+  CommunityAuthService build({CommunityAuthConfig? cfg, CommunityRefreshLock? lock}) =>
       CommunityAuthService(
         config: cfg ?? config,
+        refreshLock: lock,
         client: fake.client,
         storage: const FlutterSecureStorage(),
         launcher: (u) async {
@@ -436,6 +437,54 @@ void main() {
       fake.refreshOverride = (_) => http.Response('{"code":500}', 503);
       final r = await svc.getAccessTokenResult();
       expect(r.status, CommunityTokenStatus.temporarilyUnavailable);
+      expect(stored()!['state'], 'active');
+    });
+
+    test('401 로 거절된 토큰은 만료 전이어도 실제로 갱신한다(같은 토큰을 다시 주지 않음)', () async {
+      seedSession(expiresAt: now.add(const Duration(minutes: 30)));
+      final r = await svc.getAccessTokenResult(rejected: 'acc-old');
+      expect((r.status, r.accessToken), (CommunityTokenStatus.ok, 'acc-1'));
+      expect(fake.count('/auth/v1/token', 'refresh_token'), 1);
+      expect(stored()!['refresh_token'], 'ref-1');
+    });
+
+    test('다른 isolate 가 이미 바꾼 토큰이면 갱신 없이 그 토큰', () async {
+      seedSession(expiresAt: now.add(const Duration(minutes: 30)), access: 'acc-new');
+      final r = await svc.getAccessTokenResult(rejected: 'acc-old');
+      expect((r.status, r.accessToken), (CommunityTokenStatus.ok, 'acc-new'));
+      expect(fake.requests, isEmpty);
+    });
+
+    test('강제 갱신의 네트워크 실패는 거절된 토큰을 돌려주지 않고 일시 오류', () async {
+      seedSession(expiresAt: now.add(const Duration(minutes: 30)));
+      fake.throwOnRefresh = true;
+      final r = await svc.getAccessTokenResult(rejected: 'acc-old');
+      expect((r.status, r.accessToken), (CommunityTokenStatus.temporarilyUnavailable, null));
+      expect(stored()!['state'], 'active');
+      expect(stored()!['refresh_token'], 'ref-old');
+    });
+
+    test('두 isolate(서비스 둘)가 같은 저장소로 갱신해도 refresh 는 한 번 — 잠금 뒤 다시 읽는다', () async {
+      seedSession(expiresAt: now.add(const Duration(seconds: 30)));
+      // community.db lease 대신 같은 뜻의 직렬 잠금(프로세스 안 두 서비스 = 두 isolate 흉내)
+      Future<void> tail = Future.value();
+      Future<CommunityTokenResult> lock(Future<CommunityTokenResult> Function() body) {
+        final result = tail.then((_) => body());
+        tail = result.then((_) {}, onError: (_) {});
+        return result;
+      }
+
+      final app = build(lock: lock);
+      final background = build(lock: lock);
+      fake.refreshGate = Completer<void>();
+      final a = app.getAccessTokenResult();
+      final b = background.getAccessTokenResult();
+      await pumpEventQueue();
+      fake.refreshGate!.complete();
+      expect((await a).accessToken, 'acc-1');
+      expect((await b).accessToken, 'acc-1');
+      expect(fake.count('/auth/v1/token', 'refresh_token'), 1, reason: '회전된 refresh token 을 다른 쪽이 옛 값으로 덮지 않는다');
+      expect(stored()!['refresh_token'], 'ref-1');
       expect(stored()!['state'], 'active');
     });
 

@@ -1,7 +1,7 @@
 import '../services/attachment_policy.dart';
 import 'dart:async';
 import 'dart:io';
-import 'package:flutter/foundation.dart' show ValueListenable;
+import 'package:flutter/foundation.dart' show ValueListenable, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -971,6 +971,20 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
 
 // ──────────────────────────────────────────────────────────────
 /// 로드 실패 시 2초 후 자동 1회 재시도하는 이미지 위젯
+/// 첨부 사진 디코딩 크기(물리 픽셀): (폭, 최대 높이). ResizeImagePolicy.fit 으로 비율을 유지해 이 상자 안에 맞춘다(확대 없음).
+/// 폭은 화면 폭 × 픽셀 비율(최대 4096), 높이는 화면 높이 × 픽셀 비율 × 4(최대 8192).
+@visibleForTesting
+(int, int) photoDecodeSize({
+  required double logicalWidth,
+  required double screenHeight,
+  required double devicePixelRatio,
+}) {
+  final dpr = devicePixelRatio > 0 ? devicePixelRatio : 1.0;
+  final width = (logicalWidth * dpr).round().clamp(1, 4096);
+  final height = (screenHeight * dpr * 4).round().clamp(1, 8192);
+  return (width, height);
+}
+
 class _RetryableImage extends StatefulWidget {
   final String url;
   const _RetryableImage({required this.url});
@@ -1063,12 +1077,24 @@ class _RetryableImageState extends State<_RetryableImage> {
       );
     }
 
+    // 원본 해상도(카메라 사진 4000×3000 ≈ 48MB)로 디코딩하지 않는다: 표시 폭 × 기기 픽셀 비율로 줄여 디코딩하고,
+    // 세로로 아주 긴 이미지는 화면 높이의 4배를 넘지 않게 비율을 유지해 줄인다. 원본은 '다른 앱으로 열기'로 본다.
+    final media = MediaQuery.of(context);
+    final (decodeWidth, decodeMaxHeight) = photoDecodeSize(
+      logicalWidth: media.size.width,
+      screenHeight: media.size.height,
+      devicePixelRatio: media.devicePixelRatio,
+    );
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
-      child: Image.network(
-        widget.url,
+      child: Image(
+        image: ResizeImage(
+          NetworkImage(widget.url, headers: _headers),
+          width: decodeWidth,
+          height: decodeMaxHeight,
+          policy: ResizeImagePolicy.fit,
+        ),
         key: ValueKey('${widget.url}_$_attempt'),
-        headers: _headers,
         fit: BoxFit.cover,
         loadingBuilder: (_, child, progress) {
           if (progress == null) return child; // 로드 완료

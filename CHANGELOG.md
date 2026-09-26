@@ -10,6 +10,38 @@
 
 ## 2026-09-27 (버전 변경 없음)
 
+### 커뮤니티 업로드 장애 대응 UC-1 (서버와 같은 규칙, 계약 `contracts/upload-control/`)
+
+- 업로더를 서버와 같은 규칙으로 다시 만들었다. 예전 결함: 오류 본문의 `httpStatus` 가 실제 상태를 덮음, durable 미확인, 빈 응답에 즉시 무한 재전송,
+  HTML 404·400·413·422 를 통째 전송 불가 처리, Retry-After 헤더 무시, 영속 cooldown 없음, 두 isolate 가 같은 lease 이름으로 동시 업로드, 실시간 깨우기 호출처 없음.
+  지금: 영수증 있는 durable ACK 만 완료, 형식 오류는 재시도, 서비스·계정 cooldown(재시작에도 유지), 신고별 가장 앞 revision, UTF-8 크기·413 이분,
+  실행별 lease + 요청 전 연장, 요청 간격 1.1초·예산, 응답 1MiB·30초에 요청을 끊음, 저장된 writer_epoch 그대로 재전송.
+- 401 은 실제 강제 갱신 뒤 재전송. 앱·백그라운드 isolate 가 같은 refresh token 을 동시에 쓰지 않게 `community.db` 잠금 안에서 저장소를 다시 읽는다.
+- 앱 업로드 제어기: 수집 직후·앱 복귀·재시도 시각에 깨우고, 실행 중 깨우기는 끝난 뒤 한 번 더 돈다.
+- 백그라운드: 게이트 캐시(10분)가 오래됐으면 중앙 상태를 한 번 다시 확인해 보낸다(예전엔 매번 그냥 끝나 예약 업로드가 사실상 없었다).
+  자정 작업이 끝나면 다음 자정을 다시 예약하고, 1시간 주기 작업은 자정 성공과 별개로 재시도 시각이 된 행을 보낸다. WorkManager 는 저장 전 실패만 재시도 요청.
+- 데모·Client 모드는 업로드·자정 작업·공유 writer 연결 등록을 하지 않는다(예전엔 데모도 게이트 통과 뒤 작업을 등록하고 연결을 등록할 수 있었다).
+- 지도 공유 패널: 인증 필요·서버 대기 사유와 시각·가장 오래된 미전송·다음 재시도·마지막 중앙 저장 확인·중앙 저장/지도 반영 건수(한국 시간).
+- GPT-6-Sol 구현 검토(높음 6·중간 4·낮음 2) 반영: 영수증 UUID 재확인, ACK 타입 검사(벡터 4건 추가), 동시 이관 재확인, 자정 선점 owner, 401 재전송 heartbeat·간격,
+  합류 호출의 자기 실행, 413 이분 성공은 sent, 백그라운드 무효화 기록 대기, 주기 복구 독립, 빌드 인증서 검사 실패 처리(계획 문서 §7 표). 재검토 반영: lease 를 잃은 재전송은 자기 행만 되돌림, 합류 호출은
+  도착 뒤 시작한 실행 하나로 합침, 영수증 재확인은 SQL GLOB 한 문장, 자정 실행 예외는 failed 로 기록. 3차: 보류 행 정리도 자기 행만,
+  PC 영수증 완전 일치 판정(벡터 추가), 기다리는 enqueue 호출이 있으면 realtime 시작을 그 트리거로 올림.
+- `community.db` 스키마 2(서버와 같음, 기존 행 보존). 테스트: 공통 벡터, 서버와 같은 시나리오 32건 + 404/리다이렉트·데모 2건(`upload_control_test.dart`),
+  백그라운드·제어기 9건, 강제 갱신·잠금 4건, v1→v2 이관.
+
+### Android: Flutter 3.47.5 고정 · AGP 9 · R8 명시 · 서명 차단 · 산출물 보존 · 사진 디코딩 크기
+
+- Flutter 3.47.5 고정(`tool/flutter-version`, 빌드 스크립트가 확인 — 전역 SDK 는 그대로). AGP 9.1.0·Gradle 9.3.1·KGP 2.4.0, 앱은 kotlin-android 제거 +
+  `kotlin { compilerOptions }`. KGP 를 쓰는 플러그인 때문에 Flutter 공식 임시 opt-out(`newDsl=false`·`builtInKotlin=false`)을 근거·제거 조건과 함께 둔다.
+  file_picker 11.0.2 는 AGP 9 에서 Kotlin 을 빼버려 그 프로젝트에만 kotlin-android 를 붙였다.
+- release 에 R8 축소·리소스 축소 명시. 서명키가 없으면 release 빌드가 실패한다(예전엔 조용히 debug 키로 서명). 검증용만 `ALLOW_DEBUG_SIGNED_RELEASE=1`(이름 `-DEBUG-SIGNED`).
+- 빌드 스크립트가 APK·AAB 마다 그 빌드 직후 mapping·R8 출력·서명 인증서·SHA-256·도구 버전(`dist/…/build-meta.json`)을 보존한다. CI 에 검증 전용 실행(`verify_only`)과 mapping artifact 추가.
+- 신고 상세 사진을 화면 폭×픽셀 비율로 줄여 디코딩(세로로 긴 이미지는 높이 상한). 호스트 측정: 4000×3000 사진 48,000,000 → 3,491,644 바이트.
+- Play 경고 `H2.h.b` 를 CI AAB mapping 으로 file_picker `FileUtils.compressImage` 의 옵션 없는 `BitmapFactory.decodeStream` 으로 확인했다(앱은 압축을 쓰지 않아 실행되지는 않음).
+  수정판 file_picker 는 flutter_secure_storage 11(v10 이전 저장 데이터를 읽지 못함)을 요구해 이번에 올리지 않았다 — 보류.
+- Flutter 3.47.5 엔진에서 둥근 테두리 안티앨리어싱이 달라져 골든 4개(신고 카드·통계 요약 라이트/다크, 0.37~0.68%·모서리만)를 다시 만들었다. 차이 이미지는 `.agent-runs` 에 보관.
+- AGP 9 가 Android SDK 에 Build-Tools 36 을 자동 설치했다(기존 패키지 변경 없음).
+
 ### 초기화 크롤링 릴리스: 이전 DB 업데이트 로직 비활성, 이전 DB 는 백업 뒤 비움(서버·map 계약과 함께)
 
 - 이번 업데이트는 초기화 크롤링을 한 번 무조건 하므로 이전 DB 를 새 구조로 옮기지 않는다. `onUpgrade: _migrateLocalDatabase`·`backupBeforeUpgrade` 호출을

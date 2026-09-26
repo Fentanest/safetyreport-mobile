@@ -166,6 +166,11 @@ Client 모드 서버 경로와 이벤트 문자열은 Flutter/Dart 와 Android/K
 SharedPreferences·SQLite 에는 넣지 않는다(DB 스키마 변경 없음). 흐름·서버 API(`/api/v1/community-auth/*`, capability `community_account`)는
 [community-account.md](community-account.md).
 
+커뮤니티 공유 사본 `community.db`(개인 DB 와 별도 파일, 서버↔모바일 교환 대상 아님 — PROJECT_RULES 3-1 무관): `meta.schema_version` **2**
+(PC 와 같은 값). v2(2026-09-27) = 영속 전송 제어 `upload_control` 표 + `upload_runs.result` 결과 코드 확장(표 재생성·행 보존) + 인덱스.
+v1 파일은 열 때 번호 단계(`_migrations`)로 올리며 앱·백그라운드 isolate 가 함께 열어도 한 번만 적용된다(지우거나 초기화하지 않음).
+토큰 갱신 잠금은 이 파일의 `leases`(`auth_refresh`)를 쓴다(비밀은 저장하지 않음). 설명: [community-upload.md](community-upload.md).
+
 ## SQLite 스키마 (Standalone)
 
 `lib/services/local_db_service.dart` — `standalone_reports.db`, version 8.

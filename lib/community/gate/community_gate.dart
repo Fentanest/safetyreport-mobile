@@ -119,8 +119,12 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   /// 게이트가 ok 로 처음 바뀔 때 1회 실행 (`ReportProvider.onGatePassed` 연결).
   void addOnFirstPassed(FutureOr<void> Function() cb) => _onFirstPassed.add(cb);
 
+  /// 'standalone' | 'server'(Client) | 'demo'(Standalone 데모 — 화면은 Standalone 이지만 writer 가 아니다).
   String get appMode => _appModeOverride?.call() ?? 'standalone';
   bool get isStandalone => appMode != 'server';
+
+  /// 이 기기가 공유 writer 인가. 데모·Client 는 연결 등록·업로드를 하지 않는다.
+  bool get isWriter => appMode == 'standalone';
 
   String configStatus() {
     final override = _configStatusOverride?.call();
@@ -280,7 +284,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         notifyListeners();
         return _state;
       }
-      if (isStandalone) {
+      if (isWriter) {
         // 진입(K·C)과 업로드 연결은 별개다: 연결을 못 얻으면 화면은 쓰되 context 를 끄고 업로드만 멈춘다.
         final blocked = await _ensureWriterConnection(status, token);
         if (blocked == null) {
@@ -289,8 +293,8 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
           await _deactivate('writer:$blocked');
         }
       } else {
-        // Client: 폰은 writer 가 아니다(업로드·자정 없음). 서버가 자기 게이트로 올린다.
-        await _deactivate('client_mode');
+        // Client: 폰은 writer 가 아니다(업로드·자정 없음). 서버가 자기 게이트로 올린다. 데모도 writer 가 아니다.
+        await _deactivate(appMode == 'demo' ? 'demo_mode' : 'client_mode');
       }
       _apply(next);
       _checked = true;

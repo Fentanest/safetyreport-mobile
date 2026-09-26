@@ -29,13 +29,16 @@ class FakeGate implements CommunityGateCheck {
   @override
   Future<bool> requireFresh() async => fresh;
   @override
+  String? get blockedState => fresh ? null : 'verification_required';
+  @override
   void invalidate(String reason) => invalidated.add(reason);
 }
 
 class FakeTokens implements CommunityTokenSource {
   String? token = 'tok1';
   @override
-  Future<String?> getAccessToken() async => token;
+  Future<CommunityTokenResult> getAccessTokenResult({String? rejected}) async =>
+      CommunityTokenResult(CommunityTokenStatus.ok, rejected != null ? 'tok2' : token); // 강제 갱신은 새 토큰
 }
 
 Future<CommunityStore> openStore() async {
@@ -106,11 +109,12 @@ Map<String, Object?> ackFor(String eventId, String status,
       'event_id': eventId,
       'status': status,
       'durable': true,
-      'receipt_id': 'rcpt-$eventId',
+      'receipt_id': kReceipt,
       'projection_status': projection,
     };
 
 final kNs = projectNamespace('https://example.supabase.co');
+const kReceipt = '11111111-1111-4111-8111-111111111111';
 
 void main() {
   // 삭제 뒤 차단 표시(H-03)가 SharedPreferences 를 쓴다.
@@ -148,7 +152,7 @@ void main() {
       final u = makeUploader(
           store: store, gate: gate, tokens: tokens, httpClient: httpClient);
       final result = await u.requestCommunityUpload('realtime');
-      expect(result.result, equals('success'));
+      expect(result.result, equals('sent'));
       final outbox = await store.db.rawQuery('SELECT * FROM outbox');
       expect(outbox, isEmpty);
       final journal = await store.db.rawQuery(
@@ -156,7 +160,7 @@ void main() {
           [eventId]);
       expect(journal.first['a'], equals('accepted'));
       expect(journal.first['p'], equals('published'));
-      expect(journal.first['r'], equals('rcpt-$eventId'));
+      expect(journal.first['r'], equals(kReceipt));
       final status = await u.uploadStatus();
       expect(status.pending, equals(0));
       expect(status.lastProjection, equals('published'));
@@ -247,7 +251,7 @@ void main() {
       final u = makeUploader(
           store: store, gate: gate, tokens: tokens, httpClient: httpClient);
       final result = await u.requestCommunityUpload('manual');
-      expect(result.result, equals('success'));
+      expect(result.result, equals('sent'));
       for (final ids in seenPerRequest) {
         expect(ids.toSet().length, equals(ids.length));
       }
@@ -276,7 +280,7 @@ void main() {
       final outbox = await store.db
           .rawQuery('SELECT state FROM outbox WHERE event_id=?', [c.eventId]);
       expect(outbox.first['state'], equals('blocked'));
-      expect(result.result, anyOf(equals('partial'), equals('no_change')));
+      expect(result.result, equals('needs_consent'));
     });
 
     test('B04: 429 → Retry-After 뒤 재시도 예약', () async {
@@ -394,8 +398,8 @@ void main() {
           store: store, gate: gate, tokens: tokens, httpClient: httpClient);
       final result = await u.requestCommunityUpload('realtime');
       expect(calls, equals(2));
-      expect(authed, equals('Bearer tok1'));
-      expect(result.result, equals('success'));
+      expect(authed, equals('Bearer tok2'), reason: '거절된 토큰으로 실제 갱신한 새 토큰으로 재전송');
+      expect(result.result, equals('sent'));
     });
 
     test('C04: 다른 귀속 journal 은 context_mismatch 로 차단·미전송', () async {
@@ -448,7 +452,7 @@ void main() {
           mode: AppMode.server);
       final result = await u.requestCommunityUpload('manual');
       expect(calls, equals(0));
-      expect(result.result, equals('no_change'));
+      expect((result.result, result.errorCode), ('blocked_gate', 'client_mode'));
     });
 
     test('projection 문구 매핑', () {
@@ -509,7 +513,7 @@ void main() {
         expect(await journal(store), {'D1': null, 'D9': null});
       });
       expect(outcome, 'done');
-      expect((during.result, during.errorCode), ('deferred', 'deletion_cleanup_pending'));
+      expect((during.result, during.errorCode), ('blocked_gate', 'deletion_cleanup_pending'));
       expect(calls, 0);
       expect(await journal(store), {'D1': 'deleted_by_user', 'D9': 'deleted_by_user'});
       expect(await states(store), isEmpty);

@@ -10,7 +10,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
-const int communityStoreSchemaVersion = 1;
+const int communityStoreSchemaVersion = 2;
 const String communityStoreFileName = 'community.db';
 
 const List<String> _schema = [
@@ -80,6 +80,31 @@ const List<String> _schema = [
   PRIMARY KEY (run_id, source_report_id))''',
 ];
 
+// 번호 붙은 단계(v → 문장 목록). 한 단계는 한 트랜잭션, 기존 행 보존(community.db 를 지우지 않는다). PC community_store._MIGRATIONS 와 같다.
+const String _uploadRunResults =
+    "'running','no_change','success','partial','auth_required','consent_required','connection_required',"
+    "'offline','failed','deferred','sent','no_pending','not_due','cooldown','busy_other_run',"
+    "'needs_auth','needs_consent','blocked_gate','more_pending'";
+const Map<int, List<String>> _migrations = {
+  // v2 (2026-09-27 업로드 장애 대응 UC-1): 영속 전송 제어 표, upload_runs 결과 코드 확장(표 재생성·행 보존)
+  2: [
+    "CREATE TABLE IF NOT EXISTS upload_control (scope TEXT PRIMARY KEY,"
+        " state TEXT NOT NULL CHECK (state IN ('ready','cooling_down','probing')),"
+        ' next_attempt_at TEXT, consecutive_failures INTEGER NOT NULL DEFAULT 0, last_error_code TEXT,'
+        ' updated_at TEXT NOT NULL)',
+    'CREATE TABLE upload_runs_v2 (run_id TEXT PRIMARY KEY, trigger TEXT NOT NULL, schedule_key TEXT,'
+        ' contributor_fingerprint TEXT, started_at TEXT NOT NULL, finished_at TEXT,'
+        ' result TEXT CHECK (result IN ($_uploadRunResults)),'
+        " counts_json TEXT NOT NULL DEFAULT '{}', request_ids TEXT NOT NULL DEFAULT '[]', error_code TEXT)",
+    'INSERT INTO upload_runs_v2 SELECT run_id, trigger, schedule_key, contributor_fingerprint, started_at,'
+        ' finished_at, result, counts_json, request_ids, error_code FROM upload_runs',
+    'DROP TABLE upload_runs',
+    'ALTER TABLE upload_runs_v2 RENAME TO upload_runs',
+    'CREATE INDEX IF NOT EXISTS upload_runs_started ON upload_runs(started_at)',
+    'CREATE INDEX IF NOT EXISTS journal_ack ON source_journal(acked_at)',
+  ],
+};
+
 const List<String> contextFields = [
   'contributor_fingerprint', 'connection_id', 'writer_epoch', 'dataset_key', 'consent_grant_id',
   'policy_version', 'consent_text_sha256', 'source_app', 'source_mode',
@@ -144,21 +169,37 @@ class CommunityStore {
     if (pending != null) await (await pending).db.close();
   }
 
+  /// v1 표를 만든 뒤 번호 붙은 단계로 올린다(각 단계 한 트랜잭션, 기존 행 보존).
   Future<void> _migrate() async {
     for (final sql in _schema) {
       await db.execute(sql);
     }
-    await db.transaction((tx) async {
+    final version = await db.transaction((tx) async {
       final rows = await tx.rawQuery("SELECT value FROM meta WHERE key='schema_version'");
       if (rows.isEmpty) {
-        await tx.insert('meta', {'key': 'schema_version', 'value': '$communityStoreSchemaVersion'});
+        await tx.insert('meta', {'key': 'schema_version', 'value': '1'});
         await tx.insert('meta', {'key': 'local_dataset_id', 'value': newUuidV4()}, conflictAlgorithm: ConflictAlgorithm.ignore);
         await tx.insert('meta', {'key': 'next_revision', 'value': '1'}, conflictAlgorithm: ConflictAlgorithm.ignore);
         await tx.insert('meta', {'key': 'dataset_history', 'value': '[]'}, conflictAlgorithm: ConflictAlgorithm.ignore);
-      } else if (int.parse(rows.first['value'] as String) > communityStoreSchemaVersion) {
-        throw StateError('community.db schema ${rows.first['value']} is newer than this app');
+        return 1;
       }
+      final v = int.parse(rows.first['value'] as String);
+      if (v > communityStoreSchemaVersion) {
+        throw StateError('community.db schema $v is newer than this app');
+      }
+      return v;
     });
+    for (var step = version + 1; step <= communityStoreSchemaVersion; step++) {
+      await transaction((tx) async {
+        // 다른 isolate 가 먼저 올렸으면 건너뛴다(같은 파일을 앱·백그라운드가 함께 연다).
+        final now = int.parse(await meta('schema_version', tx) ?? '1');
+        if (now >= step) return;
+        for (final sql in _migrations[step]!) {
+          await tx.execute(sql);
+        }
+        await setMeta('schema_version', '$step', tx);
+      });
+    }
   }
 
   Future<T> transaction<T>(Future<T> Function(Transaction tx) action) => db.transaction(action, exclusive: true);
@@ -233,6 +274,13 @@ class CommunityStore {
             conflictAlgorithm: ConflictAlgorithm.replace);
         return true;
       });
+
+  /// 소유자가 같을 때만 연장(heartbeat). 다른 실행이 가져갔으면 false — 그 뒤로는 새 배치를 보내지 않는다.
+  Future<bool> renewLease(String name, String owner, Duration duration) async {
+    final n = await db.rawUpdate('UPDATE leases SET until=? WHERE name=? AND owner=?',
+        [isoUtc(DateTime.now().add(duration)), name, owner]);
+    return n == 1;
+  }
 
   Future<void> releaseLease(String name, String owner) =>
       db.delete('leases', where: 'name=? AND owner=?', whereArgs: [name, owner]);

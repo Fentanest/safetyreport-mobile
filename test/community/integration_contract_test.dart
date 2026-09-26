@@ -312,7 +312,7 @@ void main() {
         openStore: () async => store,
       );
       final run = await uploader.requestCommunityUpload('manual');
-      expect((run.result, run.errorCode), ('deferred', 'deletion_cleanup_pending'));
+      expect((run.result, run.errorCode), ('blocked_gate', 'deletion_cleanup_pending'));
       expect(sends, 0);
       final blocked = await store.db.rawQuery("SELECT blocked_reason FROM source_journal WHERE source_report_id='L1'");
       expect(blocked.single['blocked_reason'], isNull, reason: '확정 전에는 적용하지 않는다(H-03c)');
@@ -357,12 +357,15 @@ class _AlwaysFresh implements CommunityGateCheck {
   @override
   Future<bool> requireFresh() async => true;
   @override
+  String? get blockedState => null;
+  @override
   void invalidate(String reason) {}
 }
 
 class _Tok implements CommunityTokenSource {
   @override
-  Future<String?> getAccessToken() async => 'tok1';
+  Future<CommunityTokenResult> getAccessTokenResult({String? rejected}) async =>
+      const CommunityTokenResult(CommunityTokenStatus.ok, 'tok1');
 }
 
 Map<String, Object?> _adapter() => {

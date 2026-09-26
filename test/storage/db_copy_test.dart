@@ -1,3 +1,4 @@
+// 일관된 DB 사본(copyDatabaseConsistent). 가상 표 검사는 호스트 SQLite 에 있는 fts5 로 한다(Android 기본 SQLite 는 fts3/4 — 보조 표를 만드는 방식은 같다).
 // 일관된 DB 사본(copyDatabaseConsistent) — 이전 DB 백업과 초기화 크롤링 사전 백업이 쓴다.
 // VACUUM INTO 는 SQLite 3.27 부터라 Android 7~10(API 24~29)에서 실패한다(Sol 재검증 4). 호스트 SQLite 로는 그 실패를 재현할 수 없어서
 // 사본 내용을 원본과 전부 비교하고, 앱 코드가 VACUUM INTO 를 다시 실행하지 않는지 소스로도 확인한다.
@@ -58,6 +59,35 @@ void main() {
     await copy.close();
     expect(await db.getVersion(), 10, reason: '원본은 바뀌지 않는다');
     await db.close();
+  });
+
+  test('virtual tables with their shadow tables and a trigger on a view are copied (Sol re-check 5)', () async {
+    final src = '${dir.path}/src.db';
+    final db = await openDatabase(src, singleInstance: false);
+    await db.execute('CREATE VIRTUAL TABLE docs USING fts5(body)');
+    await db.insert('docs', {'body': '불법 주정차 신고'});
+    await db.insert('docs', {'body': '신호 위반'});
+    await db.execute('CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)');
+    await db.execute('CREATE VIEW items_view AS SELECT id, name FROM items');
+    await db.execute('CREATE TRIGGER items_view_insert INSTEAD OF INSERT ON items_view BEGIN '
+        'INSERT INTO items (name) VALUES (NEW.name); END');
+    await db.execute('CREATE TRIGGER items_log AFTER INSERT ON items BEGIN SELECT 1; END');
+    await db.rawInsert('INSERT INTO items_view (name) VALUES (?)', ['a']);
+    await db.setVersion(10);
+    await db.close();
+
+    final target = '${dir.path}/copy.bak';
+    await LocalDbService.copyDatabaseConsistent(src, target);
+    final copy = await openDatabase(target, singleInstance: false);
+    expect((await copy.rawQuery("SELECT body FROM docs WHERE docs MATCH '신호'")).map((r) => r['body']), ['신호 위반']);
+    expect((await copy.rawQuery('SELECT count(*) AS n FROM docs')).first['n'], 2);
+    expect(await copy.query('items'), [
+      {'id': 1, 'name': 'a'},
+    ], reason: '트리거가 복사 중에 발동해 행이 늘지 않는다');
+    await copy.rawInsert('INSERT INTO items_view (name) VALUES (?)', ['b']); // 보기 트리거가 살아 있다
+    expect((await copy.rawQuery('SELECT count(*) AS n FROM items')).first['n'], 2);
+    expect(await copy.getVersion(), 10);
+    await copy.close();
   });
 
   test('a copy over an existing file replaces it (a retried run reuses the name)', () async {

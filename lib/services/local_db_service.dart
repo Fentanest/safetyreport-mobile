@@ -302,8 +302,18 @@ class LocalDbService {
         for (final r in await txn.rawQuery("SELECT name FROM sqlite_master WHERE type='view'")) {
           await txn.execute('DROP VIEW "${r['name']}"');
         }
-        for (final name in oldTables) {
+        // 가상 표(FTS 등)를 먼저 지운다 — 그 보조 표를 함께 지우므로 나머지는 IF EXISTS(Sol 재검증 5).
+        final virtualTables = [
+          for (final r in await txn.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type='table' AND sql LIKE 'CREATE VIRTUAL TABLE%'",
+          ))
+            r['name'] as String,
+        ];
+        for (final name in virtualTables) {
           await txn.execute('DROP TABLE "$name"');
+        }
+        for (final name in oldTables) {
+          await txn.execute('DROP TABLE IF EXISTS "$name"');
         }
         await _createSchema(txn);
         final kept = <String>[];
@@ -366,14 +376,31 @@ class LocalDbService {
         await copy.execute('BEGIN');
         try {
           final objects = await copy.rawQuery(
-            "SELECT type, name, sql FROM src.sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' "
-            "ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'index' THEN 1 WHEN 'trigger' THEN 2 ELSE 3 END, rowid",
+            "SELECT type, name, sql FROM src.sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY rowid",
           );
-          final tables = [for (final o in objects) if (o['type'] == 'table') o['name'] as String];
-          for (final o in objects.where((o) => o['type'] == 'table')) {
+          bool isVirtual(Map<String, Object?> o) =>
+              RegExp(r'^\s*CREATE\s+VIRTUAL\s+TABLE', caseSensitive: false).hasMatch(o['sql'] as String);
+          Future<bool> existsInCopy(String name) async => (await copy.rawQuery(
+                'SELECT 1 FROM main.sqlite_master WHERE name = ?',
+                [name],
+              )).isNotEmpty;
+          final tableObjects = objects.where((o) => o['type'] == 'table').toList();
+          // 가상 표(FTS 등)를 먼저 만든다 — 그 보조(shadow) 표가 함께 생기므로 아래에서 다시 만들지 않는다(Sol 재검증 5).
+          for (final o in tableObjects.where(isVirtual)) {
             await copy.execute(o['sql'] as String);
           }
-          for (final t in tables) {
+          final copied = <String>[];
+          for (final o in tableObjects.where((o) => !isVirtual(o))) {
+            final name = o['name'] as String;
+            if (await existsInCopy(name)) {
+              await copy.execute('DELETE FROM main."$name"'); // 가상 표가 만든 보조 표: 원본 행으로 바꾼다
+            } else {
+              await copy.execute(o['sql'] as String);
+            }
+            copied.add(name);
+          }
+          // 가상 표 자체에는 넣지 않는다 — 내용은 방금 옮길 보조 표에 있다.
+          for (final t in copied) {
             await copy.execute('INSERT INTO main."$t" SELECT * FROM src."$t"');
           }
           final hasSequence = (await copy.rawQuery(
@@ -383,9 +410,14 @@ class LocalDbService {
             await copy.execute('DELETE FROM main.sqlite_sequence');
             await copy.execute('INSERT INTO main.sqlite_sequence SELECT * FROM src.sqlite_sequence');
           }
-          for (final o in objects.where((o) => o['type'] != 'table')) {
-            await copy.execute(o['sql'] as String);
+          // 인덱스 → 보기 → 트리거(보기에 다는 INSTEAD OF 트리거는 보기가 있어야 한다, Sol 재검증 5). 데이터를 다 넣은 뒤라 트리거가 복사 중에 발동하지 않는다.
+          for (final type in const ['index', 'view', 'trigger']) {
+            for (final o in objects.where((o) => o['type'] == type)) {
+              if (await existsInCopy(o['name'] as String)) continue; // 가상 표가 이미 만든 것
+              await copy.execute(o['sql'] as String);
+            }
           }
+          final tables = copied;
           final version = Sqflite.firstIntValue(await copy.rawQuery('PRAGMA src.user_version')) ?? 0;
           await copy.execute('PRAGMA main.user_version = $version');
           for (final t in tables) {

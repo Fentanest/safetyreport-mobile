@@ -283,6 +283,30 @@ void main() {
     }
   });
 
+  test('an old DB with a virtual table (and its shadow tables) is backed up and emptied', () async {
+    await _makeOldDb(10);
+    final path = await LocalDbService.getDbPath();
+    final raw = await openDatabase(path, singleInstance: false);
+    await raw.execute('CREATE VIRTUAL TABLE old_search USING fts5(body)');
+    await raw.insert('old_search', {'body': '옛 검색 색인'});
+    await raw.close();
+    for (final f in legacyBackups(path)) {
+      f.deleteSync();
+    }
+    final info = await LocalDbService.resetLegacyDatabase(path, beforeReset: () async {});
+    expect(info, isNotNull);
+    final db = await openDatabase(path, singleInstance: false);
+    expect(await db.getVersion(), LocalDbService.dbVersion);
+    expect(await db.rawQuery("SELECT name FROM sqlite_master WHERE name LIKE 'old_search%'"), isEmpty);
+    await db.close();
+    final copy = await openDatabase(info!['backup'] as String, readOnly: true, singleInstance: false);
+    expect((await copy.rawQuery("SELECT body FROM old_search WHERE old_search MATCH '검색'")), hasLength(1));
+    await copy.close();
+    for (final f in legacyBackups(path)) {
+      f.deleteSync();
+    }
+  });
+
   test('a failing step before the reset leaves the old DB as it was', () async {
     final before = await _makeOldDb(10);
     final path = await LocalDbService.getDbPath();

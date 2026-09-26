@@ -373,6 +373,8 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
   버전 재확인(다른 연결이 먼저 끝냈으면 아무것도 안 함) → 남길 자료(감시목록 `sync_meta['watchlist']`, 열 구성이 같은 `geocode_cache`) 읽기 →
   별도 연결의 일관된 사본(`LocalDbService.copyDatabaseConsistent`: 새 파일에 원본을 ATTACH 해 한 읽기 트랜잭션으로 스키마·표·`sqlite_sequence`·`user_version` 을 옮기고 표별 행 수·integrity_check 확인 — `VACUUM INTO` 는 SQLite 3.27 부터라 Android 7~10 에서 실패해 쓰지 않는다) → `<db>.legacy_v<옛 버전>.<epoch ms>.bak`
   (파일 복사가 아니라 WAL 에만 있던 쓰기까지 담는다 — Sol 검토 2, 구형 Android — Sol 재검증 4)
+  사본은 가상 표(FTS 등)를 먼저 만들어 그 보조 표는 다시 만들지 않고 원본 행으로 채우며, 인덱스 → 보기 → 트리거 순서(보기의 INSTEAD OF 트리거)로 만든다(Sol 재검증 5).
+  비우기도 가상 표를 먼저 DROP 한다.
   → 커뮤니티 dataset 선회전(실패하면 ROLLBACK, 아무것도 안 바뀜) → 표·보기 전부 DROP → `_createSchema` → 남길 자료와
   `sync_meta['legacy_reset']` = `{from_version, backup, kept, dropped, at}` 기록 → `PRAGMA user_version = dbVersion` → COMMIT.
   트랜잭션 동안 다른 연결의 쓰기는 잠김 오류로 실패한다(백업에도 새 DB 에도 없는 쓰기가 생기지 않게, Sol 재검증 1). 열린 DB 의 WAL 삭제·파일 이름 교체는

@@ -169,7 +169,7 @@ void main() {
     await db.insert('mysafetydetail_traffic', {'ID': 't1', '처리상태': '수용', '위반장소': '서울 강서구 1'});
     await db.insert('mysafetymerge_parking', {
       'ID': 'p1', '상태': '수용', '신고번호': 'SPP-P1', '신고명': '불법주정차', '위반장소': '서울 강서구 2',
-      if (parkingFuture != null) '미래열': parkingFuture,
+      '미래열': ?parkingFuture,
     });
     await db.close();
     return path;

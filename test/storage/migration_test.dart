@@ -8,6 +8,8 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/models/report.dart';
 import 'package:safetyreport/services/local_db_service.dart';
+import 'package:safetyreport/community/community_store.dart';
+import 'package:safetyreport/services/app_prefs_keys.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -204,6 +206,59 @@ void main() {
       await writer.close();
     }
     for (final f in legacyBackups(path)) {
+      f.deleteSync();
+    }
+  });
+
+  test('a write attempted while the old DB is being emptied fails instead of being lost', () async {
+    await _makeOldDb(10);
+    final path = await LocalDbService.getDbPath();
+    for (final f in legacyBackups(path)) {
+      f.deleteSync();
+    }
+    Object? writeError;
+    final info = await LocalDbService.resetLegacyDatabase(path, beforeReset: () async {
+      final other = await openDatabase(path, singleInstance: false);
+      try {
+        await other.rawQuery('PRAGMA busy_timeout=200');
+        await other.insert('reports', {'ID': 'late', '신고번호': 'SPP-LATE'});
+      } catch (e) {
+        writeError = e;
+      } finally {
+        await other.close();
+      }
+    });
+    expect(writeError, isNotNull, reason: '백업 뒤 교체 전 쓰기는 잠김으로 실패해야 한다(조용히 사라지지 않게)');
+    expect(info, isNotNull);
+    final db = await LocalDbService.db;
+    expect(await db.query('reports'), isEmpty);
+    for (final f in legacyBackups(path)) {
+      f.deleteSync();
+    }
+  });
+
+  test('an old demo DB is emptied without rotating the real account community dataset', () async {
+    SharedPreferences.setMockInitialValues({AppPrefsKeys.standaloneDemoMode: true});
+    await _makeOldDb(10);
+    final path = await LocalDbService.getDbPath();
+    expect(path, endsWith(LocalDbService.demoDbFileName));
+    final store = await CommunityStore.open();
+    final before = await store.localDatasetId();
+    await LocalDbService.db;
+    expect(await store.localDatasetId(), before);
+    expect((await LocalDbService.personalDbFacts()).legacyReset?['from_version'], 10);
+    await LocalDbService.closeDb();
+    for (final f in legacyBackups(path)) {
+      f.deleteSync();
+    }
+    // 실제 계정 DB 를 비울 때는 선회전한다.
+    SharedPreferences.setMockInitialValues({});
+    await _reset();
+    await _makeOldDb(10);
+    await LocalDbService.db;
+    expect(await store.localDatasetId(), isNot(before));
+    final realPath = await LocalDbService.getDbPath();
+    for (final f in legacyBackups(realPath)) {
       f.deleteSync();
     }
   });

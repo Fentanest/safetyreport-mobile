@@ -90,13 +90,16 @@ class LocalDbService {
   /// 다른 서비스가 reports 를 직접 고친 뒤 부른다(화면 캐시 비우기 — M-5).
   static void invalidateCaches() => _invalidateProjectRowsCache();
 
+  /// 데모 계정(심사용) DB 파일 이름.
+  static const demoDbFileName = 'standalone_reports_demo.db';
+
   static Future<String> getDbPath() async {
     final dbPath = await getDatabasesPath();
     final prefs = await SharedPreferences.getInstance();
     final demo = prefs.getBool(AppPrefsKeys.standaloneDemoMode) ?? false;
     return join(
       dbPath,
-      demo ? 'standalone_reports_demo.db' : 'standalone_reports.db',
+      demo ? demoDbFileName : 'standalone_reports.db',
     );
   }
 
@@ -203,7 +206,11 @@ class LocalDbService {
     final path = await getDbPath();
     // [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스] 이전 버전 DB 는 옮기지 않고 백업 뒤 비운다.
     // await backupBeforeUpgrade(path);
-    await resetLegacyDatabase(path);
+    // 데모 DB(심사용 합성 데이터)는 실제 계정의 커뮤니티 데이터셋과 무관하다 — 선회전하지 않는다(Sol 재검증 2).
+    await resetLegacyDatabase(
+      path,
+      beforeReset: basename(path) == demoDbFileName ? () async {} : null,
+    );
     final database = await openDatabase(
       path,
       version: dbVersion,
@@ -257,10 +264,33 @@ class LocalDbService {
   }) async {
     final file = File(path);
     if (!file.existsSync()) return null;
+    // 백업부터 파일 교체까지 옛 DB 의 쓰기 잠금을 잡는다(Sol 재검증 1): 앱의 개인 DB 접근은 모두 [db] → [_open] 을 거쳐
+    // 이 함수가 끝나기 전에는 연결이 없지만, 그 밖의 연결이 쓰려 하면 조용히 사라지지 않고 잠김 오류로 실패한다.
+    final lock = await openDatabase(path, singleInstance: false);
+    try {
+      await lock.rawQuery('PRAGMA busy_timeout=30000');
+      await lock.execute('BEGIN IMMEDIATE');
+      return await _resetLegacyLocked(path, file, beforeReset);
+    } finally {
+      try {
+        await lock.execute('ROLLBACK');
+      } catch (_) {}
+      await lock.close();
+    }
+  }
+
+  static Future<Map<String, Object?>?> _resetLegacyLocked(
+    String path,
+    File file,
+    Future<void> Function()? beforeReset,
+  ) async {
     final probe = await openDatabase(path, singleInstance: false);
     int version;
     List<String> oldTables;
     String backup;
+    Object? watchlist;
+    List<Map<String, Object?>> geoInfo = const [];
+    List<Map<String, Object?>> geoRows = const [];
     try {
       version = await probe.getVersion();
       if (version < 1 || version >= dbVersion) return null;
@@ -270,6 +300,17 @@ class LocalDbService {
         ))
           r['name'] as String,
       ];
+      // 남길 자료는 잠금 안에서 백업과 같은 시점에 읽어 둔다(새 DB 에 옛 DB 를 ATTACH 하면 그 쓰기 트랜잭션이 잠긴 옛 DB 까지 잠그려 한다).
+      if (oldTables.contains('sync_meta')) {
+        final rows = await probe.rawQuery(
+          "SELECT value FROM sync_meta WHERE key = 'watchlist' AND value IS NOT NULL",
+        );
+        if (rows.isNotEmpty) watchlist = rows.first['value'];
+      }
+      if (oldTables.contains('geocode_cache')) {
+        geoInfo = await probe.rawQuery('PRAGMA table_info("geocode_cache")');
+        geoRows = await probe.query('geocode_cache');
+      }
       // 파일 복사가 아니라 VACUUM INTO: WAL 에만 있던 최근 쓰기까지 담은 일관된 사본이다(다른 연결 때문에
       // 체크포인트가 끝나지 못해도 빠지지 않는다 — Sol 검토 2). 서버는 sqlite backup API.
       backup = '$path.legacy_v$version.${DateTime.now().millisecondsSinceEpoch}.bak';
@@ -308,42 +349,38 @@ class LocalDbService {
       singleInstance: false,
     );
     try {
-      await fresh.execute('ATTACH DATABASE ? AS old', [path]);
-      try {
-        await fresh.transaction((txn) async {
-          if (oldTables.contains('sync_meta')) {
-            final rows = await txn.rawQuery(
-              "SELECT value FROM old.sync_meta WHERE key = 'watchlist' AND value IS NOT NULL",
-            );
-            if (rows.isNotEmpty) {
-              await txn.insert('sync_meta', {'key': 'watchlist', 'value': rows.first['value']},
-                  conflictAlgorithm: ConflictAlgorithm.replace);
-              kept.add('watchlist');
-            }
+      final sameGeo = geoInfo.isNotEmpty &&
+          _columnSignature(geoInfo) ==
+              _columnSignature(await fresh.rawQuery('PRAGMA table_info("geocode_cache")'));
+      await fresh.transaction((txn) async {
+        if (watchlist != null) {
+          await txn.insert('sync_meta', {'key': 'watchlist', 'value': watchlist},
+              conflictAlgorithm: ConflictAlgorithm.replace);
+          kept.add('watchlist');
+        }
+        if (sameGeo) {
+          final batch = txn.batch();
+          for (final row in geoRows) {
+            batch.insert('geocode_cache', row);
           }
-          if (oldTables.contains('geocode_cache') &&
-              await _sameColumns(txn, 'geocode_cache')) {
-            await txn.execute('INSERT INTO main.geocode_cache SELECT * FROM old.geocode_cache');
-            kept.add('geocode_cache');
-          }
-          await txn.insert(
-            'sync_meta',
-            {
-              'key': legacyResetMetaKey,
-              'value': jsonEncode({
-                'from_version': version,
-                'backup': backup,
-                'kept': kept,
-                'dropped': oldTables,
-                'at': at,
-              }),
-            },
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
-        });
-      } finally {
-        await fresh.execute('DETACH DATABASE old');
-      }
+          await batch.commit(noResult: true);
+          kept.add('geocode_cache');
+        }
+        await txn.insert(
+          'sync_meta',
+          {
+            'key': legacyResetMetaKey,
+            'value': jsonEncode({
+              'from_version': version,
+              'backup': backup,
+              'kept': kept,
+              'dropped': oldTables,
+              'at': at,
+            }),
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      });
     } finally {
       await fresh.close();
     }
@@ -361,15 +398,11 @@ class LocalDbService {
     };
   }
 
-  static Future<bool> _sameColumns(DatabaseExecutor db, String table) async {
-    String sig(List<Map<String, Object?>> rows) => [
-          for (final r in rows)
-            '${r['name']}|${(r['type'] ?? '').toString().toUpperCase()}|${r['notnull']}|${r['dflt_value']}|${r['pk']}',
-        ].join(',');
-    final now = await db.rawQuery('PRAGMA main.table_info("$table")');
-    final old = await db.rawQuery('PRAGMA old.table_info("$table")');
-    return now.isNotEmpty && sig(now) == sig(old);
-  }
+  /// 열 구성 비교용(PRAGMA table_info): 이름·타입·NOT NULL·기본값·기본키.
+  static String _columnSignature(List<Map<String, Object?>> rows) => [
+        for (final r in rows)
+          '${r['name']}|${(r['type'] ?? '').toString().toUpperCase()}|${r['notnull']}|${r['dflt_value']}|${r['pk']}',
+      ].join(',');
 
   /// 초기화 크롤링 판정용: (개인 DB 신고 수, 이전 DB 를 비운 기록). 열지 못하면 신고 수 null(새 설치로 보지 않음).
   /// DB 를 여는 김에 이전 버전 DB 비우기가 먼저 일어난다.

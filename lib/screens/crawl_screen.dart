@@ -276,7 +276,8 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
     try {
       // 서버는 2026-09-26 부터 로그 WS 에 API 키(또는 관리자 세션)와 커뮤니티 게이트를 요구한다(미충족 4403).
       _ws = await WebSocket.connect(
-          '${api.wsBaseUrl}/crawl/ws/logs?api_key=${Uri.encodeQueryComponent(api.apiKey)}');
+        '${api.wsBaseUrl}/crawl/ws/logs?api_key=${Uri.encodeQueryComponent(api.apiKey)}',
+      );
       _ws!.listen(
         (data) {
           if (!mounted) return;
@@ -697,20 +698,22 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _sectionTitle('1. 크롤링 범위'),
-                    _radioTile(
-                      '전체 크롤링',
-                      'full',
-                      _crawlMode,
-                      '',
-                      onChanged: (v) => setState(() => _crawlMode = v!),
-                    ),
-                    _radioTile(
-                      'DB 초기화 후 새로 크롤링',
-                      'reset',
-                      _crawlMode,
-                      '',
-                      isRed: true,
-                      onChanged: (v) => setState(() => _crawlMode = v!),
+                    RadioGroup<String>(
+                      groupValue: _crawlMode,
+                      onChanged: (v) {
+                        if (v != null) setState(() => _crawlMode = v);
+                      },
+                      child: Column(
+                        children: [
+                          _radioTile('전체 크롤링', 'full', ''),
+                          _radioTile(
+                            'DB 초기화 후 새로 크롤링',
+                            'reset',
+                            '',
+                            isRed: true,
+                          ),
+                        ],
+                      ),
                     ),
 
                     SizedBox(height: 12),
@@ -859,14 +862,13 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
     ),
   );
 
+  /// 선택 값·변경 처리는 감싼 [RadioGroup] 이 맡는다.
   Widget _radioTile(
     String title,
     String value,
-    String groupValue,
     String subtitle, {
     bool enabled = true,
     bool isRed = false,
-    void Function(String?)? onChanged,
   }) {
     return RadioListTile<String>(
       title: Text(
@@ -886,10 +888,9 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
             )
           : null,
       value: value,
-      groupValue: groupValue,
+      enabled: enabled,
       dense: true,
       contentPadding: EdgeInsets.zero,
-      onChanged: enabled ? onChanged : null,
     );
   }
 }

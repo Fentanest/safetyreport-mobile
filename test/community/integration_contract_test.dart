@@ -9,7 +9,6 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:safetyreport/community/capture/canonical_json.dart';
 import 'package:safetyreport/community/capture/capture_retry_store.dart';
 import 'package:safetyreport/community/capture/community_capture.dart';
 import 'package:safetyreport/community/capture/server_completed.dart';

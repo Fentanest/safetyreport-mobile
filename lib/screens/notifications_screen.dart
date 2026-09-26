@@ -102,7 +102,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
   Future<void> _showPushNotif(int changedCount) async {
     try {
       final body = changedCount > 0
-          ? '크롤링이 완료되었습니다. ${changedCount}건의 변경사항이 있습니다.'
+          ? '크롤링이 완료되었습니다. $changedCount건의 변경사항이 있습니다.'
           : '크롤링이 완료되었습니다. 변경사항이 없습니다.';
       await _permChannel.invokeMethod('showNotification', {
         'title': '✅ 크롤링 완료',
@@ -540,7 +540,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(vertical: 8),
         itemCount: items.length,
-        separatorBuilder: (_, __) => const Divider(height: 1, indent: 16),
+        separatorBuilder: (_, _) => const Divider(height: 1, indent: 16),
         itemBuilder: (context, index) {
           final item = items[index];
           return _NotifTile(
@@ -564,7 +564,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       child: ListView.separated(
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
         itemCount: items.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 10),
+        separatorBuilder: (_, _) => const SizedBox(height: 10),
         itemBuilder: (context, index) {
           final item = items[index];
           final result = item.extraData == null

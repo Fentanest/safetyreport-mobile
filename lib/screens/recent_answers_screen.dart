@@ -66,7 +66,7 @@ class _RecentAnswersScreenState extends State<RecentAnswersScreen> {
                   horizontal: 12,
                 ),
                 itemCount: items.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 6),
+                separatorBuilder: (_, _) => const SizedBox(height: 6),
                 itemBuilder: (context, i) => _RecentCard(report: items[i]),
               ),
             ),

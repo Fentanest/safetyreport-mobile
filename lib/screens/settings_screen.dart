@@ -430,6 +430,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 : phone,
                             isDemoMode: isDemoLogin,
                           );
+                          if (!ctx.mounted || !mounted) return;
                           Navigator.pop(ctx);
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
@@ -478,6 +479,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       final targetDir = AppStoragePaths.exportsRoot();
 
+      if (!mounted) return;
       final p = context.read<ReportProvider>();
       final isStandalone = p.appMode == AppMode.standalone;
 
@@ -581,6 +583,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         : '서버의 DB가 선택한 파일로 교체됩니다. (서버 형식·모바일 형식 모두 자동 감지)\n'
               '서버는 기존 DB를 자동 백업합니다.\n계속하시겠습니까?';
 
+    if (!mounted) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -625,6 +628,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         if (mounted) {
           await context.read<ReportProvider>().refreshAll();
+          if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
@@ -823,6 +827,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           final st = await Permission.storage.status;
           if (!st.isGranted) await Permission.storage.request();
         }
+        // 화면이 닫혔으면 다운로드·모드 전환을 시작하지 않는다.
+        if (!mounted) return;
         // 진행 다이얼로그
         unawaited(
           showDialog(

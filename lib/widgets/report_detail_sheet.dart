@@ -842,7 +842,7 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
                 ignoring: !_showControls,
                 child: ValueListenableBuilder<VideoPlayerValue>(
                   valueListenable: widget.controller,
-                  builder: (_, value, __) {
+                  builder: (_, value, _) {
                     final pos = _seeking ? _seekPosition : value.position;
                     final dur = value.duration;
                     final maxMs = dur.inMilliseconds > 0
@@ -1094,7 +1094,7 @@ class _RetryableImageState extends State<_RetryableImage> {
             ),
           );
         },
-        errorBuilder: (_, __, ___) {
+        errorBuilder: (_, _, _) {
           // errorBuilder는 동기적으로 호출되므로 addPostFrameCallback으로 상태 변경
           WidgetsBinding.instance.addPostFrameCallback((_) => _onError());
           return Container(
@@ -1344,7 +1344,7 @@ class _VideoPlayerState extends State<_VideoPlayer>
           // 하단 컨트롤 바
           ValueListenableBuilder<VideoPlayerValue>(
             valueListenable: _ctrl,
-            builder: (_, value, __) {
+            builder: (_, value, _) {
               final pos = _seeking ? _seekPosition : value.position;
               final dur = value.duration;
               final maxMs = dur.inMilliseconds > 0

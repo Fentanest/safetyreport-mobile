@@ -113,7 +113,7 @@ class LocalGeocodeService {
       'error_message': _queuedMessage,
       'finished_at': DateTime.now().millisecondsSinceEpoch,
       'has_saved_coordinates': hasSavedCoordinates,
-      if (startedAt != null) 'started_at': startedAt,
+      'started_at': ?startedAt,
     });
   }
 

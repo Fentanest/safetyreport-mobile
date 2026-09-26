@@ -205,11 +205,10 @@ class ApiService {
         ),
         headers: _headers,
         body: jsonEncode({
-          if (representativeId != null) 'representative_id': representativeId,
-          if (duplicateStatus != null) 'duplicate_status': duplicateStatus,
-          if (representativeMode != null)
-            'representative_mode': representativeMode,
-          if (note != null) 'note': note,
+          'representative_id': ?representativeId,
+          'duplicate_status': ?duplicateStatus,
+          'representative_mode': ?representativeMode,
+          'note': ?note,
         }),
       ),
     );

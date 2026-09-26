@@ -11,6 +11,7 @@ import 'package:safetyreport/services/fine_estimate.dart' as fine_estimate;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../community/community_store.dart';
 import '../models/report.dart';
 import 'duplicate_projection_service.dart';
 import 'geocode_utils.dart';
@@ -3109,6 +3110,8 @@ class LocalDbService {
 
       await localDb.close();
       localDb = null;
+      // 개인 DB 교체 직전 커뮤니티 dataset 선회전 — 실패하면 교체하지 않는다(H-02).
+      await _rotateCommunityDataset('server_import');
       await _commitImportedDatabase(stagedDbPath);
       _invalidateProjectRowsCache();
       return imported;
@@ -3125,6 +3128,21 @@ class LocalDbService {
         } catch (_) {}
       }
       await _cleanupPreparedSnapshot(preparedDbPath);
+    }
+  }
+
+  /// 커뮤니티 dataset 선회전 (보수적): 개인 DB 파일을 교체하기 직전에 호출한다.
+  /// 교체가 실패해도 되돌리지 않는다(초기화 1회 추가 비용). 저장소를 열 수 없으면
+  /// 조용히 넘어간다 — 복원·가져오기를 막지 않는다.
+  /// 모드 전환 DB 이관은 ReportProvider 쪽이므로 T5 가 같은 함수를 호출한다(REQUESTS.md).
+  /// 개인 DB 를 다른 데이터셋으로 바꾸기 직전: 커뮤니티 dataset 을 선회전한다(S-20, PC exchange.restore 와 같은 규칙).
+  /// 실패하면 교체하지 않는다 — 옛 journal 과 새 개인 DB 신고가 섞이는 것을 막는다(Sol 통합 검토 H-02).
+  static Future<void> _rotateCommunityDataset(String reason) async {
+    try {
+      final store = await CommunityStore.open();
+      await store.rotateDataset(reason);
+    } catch (e) {
+      throw Exception('커뮤니티 공유 저장소를 준비하지 못해 DB 를 바꾸지 않았습니다($reason). 다시 시도해 주세요. [$e]');
     }
   }
 
@@ -3184,6 +3202,8 @@ class LocalDbService {
       }
       await staged.close();
       staged = null;
+      // 개인 DB 교체 직전 커뮤니티 dataset 선회전 — 실패하면 교체하지 않는다(H-02).
+      await _rotateCommunityDataset('restore');
       await _commitImportedDatabase(stagedPath);
       _invalidateProjectRowsCache();
     } finally {

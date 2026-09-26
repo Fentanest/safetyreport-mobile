@@ -33,6 +33,21 @@ class MainActivity : FlutterFragmentActivity() {
     private val EVENT_QUICK_SYNC = "quick_sync"
     private val EVENT_QUICK_CRAWL = "quick_crawl"
     private var methodChannel: MethodChannel? = null
+    private var communityAuthChannel: MethodChannel? = null
+    /** Dart 가 `takePendingLink` 를 한 번이라도 불렀으면(핸들러 등록 완료) 새 링크 때 신호를 보낸다. */
+    private var communityDartReady = false
+
+    companion object {
+        private const val COMMUNITY_AUTH_CHANNEL = "com.fentanest.mysafetyreport/community_auth"
+        private const val COMMUNITY_AUTH_SCHEME = "com.fentanest.mysafetyreport"
+        private const val COMMUNITY_AUTH_HOST = "auth"
+        private const val COMMUNITY_AUTH_PATH = "/callback"
+
+        // 프로세스 안 한 칸짜리 보관함. 액티비티가 다시 만들어져도 남고, Dart 가 꺼내면 비운다.
+        // 링크 원문(인가 코드 포함)은 로그에 남기지 않는다.
+        private val communityLinkLock = Any()
+        private var pendingCommunityAuthLink: String? = null
+    }
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         // Flutter 엔진 시작 전에 손상된 SharedPreferences 정리.
@@ -40,6 +55,9 @@ class MainActivity : FlutterFragmentActivity() {
         // 내부적으로 실행되는데, 손상된 List 항목이 있으면 StreamCorruptedException
         // 으로 모든 prefs 읽기 실패 → 로그인 풀림.)
         cleanupCorruptedPrefs()
+        // 커뮤니티 로그인 복귀 링크는 Flutter 가 intent 를 읽기 전에 꺼내고 intent 에서 지운다.
+        // savedInstanceState 가 있으면(프로세스 복원) 시스템이 옛 intent 를 다시 준 것이므로 받지 않는다.
+        captureCommunityAuthLink(intent, isRestore = savedInstanceState != null)
         // Android 15+ 기본 edge-to-edge 와 이전 버전 호환을 위해
         // 시스템 바 인셋만 직접 열고, AndroidX edge-to-edge 백포트의
         // deprecated system bar color 호출 경로는 피한다.
@@ -95,9 +113,51 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onNewIntent(intent: Intent) {
+        val isCommunityLink = captureCommunityAuthLink(intent, isRestore = false)
         super.onNewIntent(intent)
         setIntent(intent)
+        if (isCommunityLink) {
+            notifyCommunityAuthLink()
+        }
         handleNavIntent(intent)
+    }
+
+    /**
+     * `com.fentanest.mysafetyreport://auth/callback` (scheme/host/path 정확히 일치) 만 받는다.
+     * 받은 링크는 보관함에 넣고 intent 의 data 를 지워 재생성·최근 앱 복원 때 다시 처리되지 않게 한다.
+     * 다른 data 를 가진 intent 는 건드리지 않는다.
+     */
+    private fun captureCommunityAuthLink(intent: Intent?, isRestore: Boolean): Boolean {
+        val data = intent?.data ?: return false
+        if (intent.action != Intent.ACTION_VIEW) return false
+        if (data.scheme != COMMUNITY_AUTH_SCHEME ||
+            data.host != COMMUNITY_AUTH_HOST ||
+            data.path != COMMUNITY_AUTH_PATH ||
+            data.userInfo != null ||
+            data.port != -1
+        ) {
+            return false
+        }
+        intent.data = null
+        val fromHistory =
+            (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
+        if (isRestore || fromHistory) return false
+        synchronized(communityLinkLock) {
+            pendingCommunityAuthLink = data.toString()
+        }
+        return true
+    }
+
+    private fun takeCommunityAuthLink(): String? = synchronized(communityLinkLock) {
+        val link = pendingCommunityAuthLink
+        pendingCommunityAuthLink = null
+        link
+    }
+
+    /** Dart 핸들러가 준비됐으면 "새 링크 있음" 신호만 보낸다. 링크 원문은 takePendingLink 로만 전달. */
+    private fun notifyCommunityAuthLink() {
+        if (!communityDartReady) return
+        communityAuthChannel?.invokeMethod("onCommunityAuthLink", null)
     }
 
     private fun handleNavIntent(intent: Intent) {
@@ -239,6 +299,22 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        communityDartReady = false
+        val authChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            COMMUNITY_AUTH_CHANNEL
+        )
+        communityAuthChannel = authChannel
+        authChannel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "takePendingLink" -> {
+                    communityDartReady = true
+                    result.success(takeCommunityAuthLink())
+                }
+                else -> result.notImplemented()
+            }
+        }
 
         val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         methodChannel = channel

@@ -11,11 +11,24 @@ class PermissionScreen extends StatefulWidget {
   final bool isSetup;
   final VoidCallback? onDone;
 
-  const PermissionScreen({super.key, this.isSetup = false, this.onDone});
+  /// 게이트 뒤 진입 순서용 단계 분리 (§6.2):
+  /// - `common`: 모드와 무관한 항목(알림 접근·배터리·알림 표시·위치 선택).
+  /// - `mode`: 모드 의존 항목(서버 모드 WsService). 이미 허용된 항목은 건너뛴다.
+  final PermissionPhase phase;
+
+  const PermissionScreen({
+    super.key,
+    this.isSetup = false,
+    this.onDone,
+    this.phase = PermissionPhase.common,
+  });
 
   @override
   State<PermissionScreen> createState() => _PermissionScreenState();
 }
+
+/// 권한 요청 단계. OS 별 집합은 [PermissionService] (`supports*`)를 따른다.
+enum PermissionPhase { common, mode }
 
 class _PermissionScreenState extends State<PermissionScreen>
     with WidgetsBindingObserver {
@@ -50,11 +63,17 @@ class _PermissionScreenState extends State<PermissionScreen>
   Future<void> _checkAll() async {
     setState(() => _loading = true);
     final results = await Future.wait([
-      PermissionService.isNotificationListenerEnabled(),
-      PermissionService.isBatteryOptimizationIgnored(),
+      PermissionService.supportsNotificationListener
+          ? PermissionService.isNotificationListenerEnabled()
+          : Future.value(true),
+      PermissionService.supportsBatteryOptimization
+          ? PermissionService.isBatteryOptimizationIgnored()
+          : Future.value(true),
       PermissionService.isNotificationPermissionGranted(),
       PermissionService.isLocationPermissionGranted(),
-      PermissionService.isWsServiceRunning(),
+      PermissionService.supportsWsService
+          ? PermissionService.isWsServiceRunning()
+          : Future.value(false),
     ]);
     if (mounted) {
       setState(() {
@@ -68,19 +87,35 @@ class _PermissionScreenState extends State<PermissionScreen>
     }
   }
 
+  bool get _isModePhase => widget.phase == PermissionPhase.mode;
+
+  /// 단계별 필수 판정. 위치(선택)는 제외. iOS 에서는 Android 전용 카드를 보지 않는다.
   bool get _allGranted {
     final isStandalone =
         context.read<ReportProvider>().appMode == AppMode.standalone;
+    if (_isModePhase) {
+      // 모드 의존 보충: 서버 모드에서만 WsService. 이미 허용됐으면 건너뛴다.
+      if (isStandalone) return true;
+      return PermissionService.supportsWsService ? _wsRunning : true;
+    }
     // 위치는 신고 지도 현재 위치 표시용 선택 권한이므로 필수 판정에서 제외한다.
-    return _listenerEnabled &&
-        _batteryIgnored &&
-        _notifGranted &&
-        (isStandalone || _wsRunning);
+    if (PermissionService.isIOS) return _notifGranted;
+    return _listenerEnabled && _batteryIgnored && _notifGranted;
   }
+
+
 
   Future<void> _grantAll() async {
     final isStandalone =
         context.read<ReportProvider>().appMode == AppMode.standalone;
+    if (_isModePhase) {
+      if (!isStandalone && !_wsRunning) {
+        await PermissionService.startWsService();
+        await Future.delayed(const Duration(seconds: 1));
+        await _checkAll();
+      }
+      return;
+    }
     if (!_notifGranted) {
       await PermissionService.requestNotificationPermission();
       await _checkAll();
@@ -163,69 +198,82 @@ class _PermissionScreenState extends State<PermissionScreen>
           ),
           const SizedBox(height: 20),
 
-          // 권한 카드들
-          _PermCard(
-            icon: Icons.notifications_active,
-            title: '알림 접근 권한',
-            desc: '카카오톡·안전신문고 알림에서 신고번호를 자동으로 감지합니다.\n시스템 설정에서 직접 허용해야 합니다.',
-            granted: _listenerEnabled,
-            grantedLabel: '활성화됨',
-            deniedLabel: '허용 안 됨',
-            onGrant: () async {
-              await PermissionService.openNotificationListenerSettings();
-              // 돌아왔을 때 didChangeAppLifecycleState에서 재확인
-            },
-            buttonLabel: '알림 접근 허용하기',
-          ),
-          const SizedBox(height: 12),
+          // 권한 카드들: common 단계는 모드와 무관한 항목만, mode 단계는 모드 의존 항목만.
+          // Android 전용(알림 리스너·배터리·WsService)은 iOS 에서 표시·요청하지 않는다.
+          // mode 단계에서 이미 허용된 항목은 건너뛴다.
+          if (!_isModePhase) ...[
+            if (PermissionService.supportsNotificationListener) ...[
+              _PermCard(
+                icon: Icons.notifications_active,
+                title: '알림 접근 권한',
+                desc: '카카오톡·안전신문고 알림에서 신고번호를 자동으로 감지합니다.\n시스템 설정에서 직접 허용해야 합니다.',
+                granted: _listenerEnabled,
+                grantedLabel: '활성화됨',
+                deniedLabel: '허용 안 됨',
+                onGrant: () async {
+                  await PermissionService.openNotificationListenerSettings();
+                  // 돌아왔을 때 didChangeAppLifecycleState에서 재확인
+                },
+                buttonLabel: '알림 접근 허용하기',
+              ),
+              const SizedBox(height: 12),
+            ],
+            if (PermissionService.supportsBatteryOptimization) ...[
+              _PermCard(
+                icon: Icons.battery_full,
+                title: '배터리 최적화 제외',
+                desc: '백그라운드에서 알림을 지속적으로 감지하려면\n배터리 최적화에서 제외되어야 합니다.',
+                granted: _batteryIgnored,
+                grantedLabel: '제외됨',
+                deniedLabel: '최적화 대상',
+                onGrant: () async {
+                  await PermissionService.requestIgnoreBatteryOptimizations();
+                  await _checkAll();
+                },
+                buttonLabel: '배터리 최적화 제외 요청',
+              ),
+              const SizedBox(height: 12),
+            ],
+            _PermCard(
+              icon: Icons.circle_notifications,
+              title: '알림 표시 권한 (Android 13+)',
+              desc: '크롤링 완료 후 처리 결과를 팝업 알림으로 받으려면\n알림 표시 권한이 필요합니다.',
+              granted: _notifGranted,
+              grantedLabel: '허용됨',
+              deniedLabel: '거부됨',
+              onGrant: () async {
+                await PermissionService.requestNotificationPermission();
+                await _checkAll();
+              },
+              buttonLabel: '알림 권한 요청',
+            ),
+            const SizedBox(height: 12),
+            _PermCard(
+              icon: Icons.my_location,
+              title: '위치 권한 (선택)',
+              desc:
+                  '신고 지도에서 GPS로 현재 위치를 표시하는 선택 권한입니다.\n허용하지 않아도 나머지 기능은 정상 동작하며, 지도의 현재 위치 버튼을 누를 때 다시 요청합니다.',
+              granted: _locationGranted,
+              grantedLabel: '허용됨',
+              deniedLabel: '미허용',
+              onGrant: () async {
+                await PermissionService.requestLocationPermission();
+                await _checkAll();
+              },
+              buttonLabel: '위치 권한 요청',
+            ),
+            const SizedBox(height: 12),
+          ],
 
-          _PermCard(
-            icon: Icons.battery_full,
-            title: '배터리 최적화 제외',
-            desc: '백그라운드에서 알림을 지속적으로 감지하려면\n배터리 최적화에서 제외되어야 합니다.',
-            granted: _batteryIgnored,
-            grantedLabel: '제외됨',
-            deniedLabel: '최적화 대상',
-            onGrant: () async {
-              await PermissionService.requestIgnoreBatteryOptimizations();
-              await _checkAll();
-            },
-            buttonLabel: '배터리 최적화 제외 요청',
-          ),
-          const SizedBox(height: 12),
-
-          _PermCard(
-            icon: Icons.circle_notifications,
-            title: '알림 표시 권한 (Android 13+)',
-            desc: '크롤링 완료 후 처리 결과를 팝업 알림으로 받으려면\n알림 표시 권한이 필요합니다.',
-            granted: _notifGranted,
-            grantedLabel: '허용됨',
-            deniedLabel: '거부됨',
-            onGrant: () async {
-              await PermissionService.requestNotificationPermission();
-              await _checkAll();
-            },
-            buttonLabel: '알림 권한 요청',
-          ),
-          const SizedBox(height: 12),
-
-          _PermCard(
-            icon: Icons.my_location,
-            title: '위치 권한 (선택)',
-            desc:
-                '신고 지도에서 GPS로 현재 위치를 표시하는 선택 권한입니다.\n허용하지 않아도 나머지 기능은 정상 동작하며, 지도의 현재 위치 버튼을 누를 때 다시 요청합니다.',
-            granted: _locationGranted,
-            grantedLabel: '허용됨',
-            deniedLabel: '미허용',
-            onGrant: () async {
-              await PermissionService.requestLocationPermission();
-              await _checkAll();
-            },
-            buttonLabel: '위치 권한 요청',
-          ),
-          const SizedBox(height: 12),
-
-          if (!isStandalone) ...[
+          // common 단계(설정 탭 포함)는 기존처럼 전 항목 표시.
+          // mode 단계는 서버 모드 WsService 미실행 때만 보충 카드를 보인다.
+          if ((!_isModePhase &&
+                  !isStandalone &&
+                  PermissionService.supportsWsService) ||
+              (_isModePhase &&
+                  !isStandalone &&
+                  !_wsRunning &&
+                  PermissionService.supportsWsService)) ...[
             _PermCard(
               icon: Icons.wifi_tethering,
               title: '백그라운드 서버 연결 (WebSocket)',

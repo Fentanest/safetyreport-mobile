@@ -158,6 +158,13 @@ Client 모드 서버 경로와 이벤트 문자열은 Flutter/Dart 와 Android/K
 | 만료 시각 (ms) | SharedPreferences | `standaloneTokenExpiresAt` |
 | 비밀번호 | FlutterSecureStorage | `standalone_password` |
 | 아이디 | SharedPreferences | `standaloneUsername` |
+| 커뮤니티 계정 세션 (Supabase access/refresh token, 표시 이름) | FlutterSecureStorage | `community_session_v1` |
+| 커뮤니티 로그인 대기 (PKCE verifier, 시작 시각) | FlutterSecureStorage | `community_pending_login_v1` |
+| 커뮤니티 복귀 링크 소비 표시 (SHA-256) | FlutterSecureStorage | `community_consumed_callback_v1` |
+
+커뮤니티 계정(카카오, Supabase Auth)은 안전신문고 계정과 별개다. Standalone 만 폰에 세션을 두고, Client 는 서버가 세션 주인이라 폰에 아무것도 저장하지 않는다.
+SharedPreferences·SQLite 에는 넣지 않는다(DB 스키마 변경 없음). 흐름·서버 API(`/api/v1/community-auth/*`, capability `community_account`)는
+[community-account.md](community-account.md).
 
 ## SQLite 스키마 (Standalone)
 

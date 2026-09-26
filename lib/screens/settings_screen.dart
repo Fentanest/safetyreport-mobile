@@ -26,6 +26,8 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:file_picker/file_picker.dart';
 import '../navigation/app_routes.dart';
 import '../widgets/auth_status_notice.dart';
+import '../widgets/community_account_card.dart';
+import '../widgets/community_server_account_card.dart';
 import '../widgets/mode_badge.dart';
 import '../server_palette.dart';
 import '../widgets/status_badge.dart';
@@ -1212,6 +1214,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
               ),
+              // ── 스탠드어론: 커뮤니티 계정(카카오, 이 앱이 세션 주인) ──
+              const SizedBox(height: 16),
+              const CommunityAccountCard(),
               const SizedBox(height: 16),
               Card(
                 child: Padding(
@@ -1483,6 +1488,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
               const SizedBox(height: 16),
+
+              // ── 서버의 커뮤니티 계정(서버가 세션 주인, 폰은 토큰을 받지 않음) ──
+              if (provider.communityAccountSupported) ...[
+                CommunityServerAccountCard(
+                  baseUrl: provider.baseUrl,
+                  apiKey: provider.apiKey,
+                ),
+                const SizedBox(height: 16),
+              ],
 
               // ── 크롤링 자동 저장 카드 ──────────────────────
               Card(

@@ -8,7 +8,110 @@
 
 ---
 
+## 2026-09-26 (버전 변경 없음)
+
+### 커뮤니티 통합 검수 2 — Sol 1차 통합 검토 반영
+
+- **H-01** 공유 사본을 만들 수 없으면(커뮤니티 저장소·manifest 준비 실패) 개인 상세도 저장하지 않고 수집을 멈춘다(이전: 개인 동기화만 진행 → 그 신고의 공유가 영구 누락될 수 있었음). 단건 경로도 같은 함수로 막힌다.
+- **H-02** 개인 DB 복원·서버 DB 가져오기 전 커뮤니티 dataset 회전이 실패하면 교체하지 않는다(이전: 실패를 삼키고 교체).
+- **H-03** 공유 자료 삭제 뒤: 그 시점까지의 journal 을 **행 순번 경계**로 막는다(앞선 시계의 captured_at 도 막힘). 영속 표시(`community_deletion_pending_v1`)를 먼저 쓰고 적용 뒤 지우며,
+  표시가 남아 있으면 업로드·reshare 를 보내지 않는다. 적용 실패는 설정 화면에 안내.
+- 테스트: 실패 주입(저장소 없음·회전 실패·삭제 표시 적용 실패·손상 표시), 전체 509 passed / 3 skipped, 실스택 라이브 1 passed.
+- **H-03a/b(Sol 2차)** 삭제 대기 표시를 prefs 가 아니라 journal 과 같은 `community.db` 에(삭제별 행) **중앙 삭제 요청 전에** 트랜잭션으로 남긴다. 못 남기면 중앙 삭제를 요청하지 않고, 중앙 실패 때는 자기 표시만 지우며, 적용은 한 트랜잭션이라 동시 삭제가 서로를 지우지 않는다.
+- **H-03c/d(Sol 3차)** 표시를 prepared/confirmed 로 나눴다. 중앙 응답 전(prepared)에는 업로드·reshare 를 막기만 하고 적용·삭제하지 않는다. 중앙 성공 뒤에만 확정·적용(앞선 prepared 포함). 4xx 거절이면 자기 표시만 취소, 응답 불명(타임아웃·5xx)이면 표시를 유지하고 다시 요청하도록 안내(삭제는 여러 번 요청해도 안전).
+- **Sol 4차** 중앙 삭제 뒤 로컬 정리가 끝나지 않으면(`local_pending`·표시 남음) 성공 문구 대신 "정리를 끝내지 못했습니다 — 삭제 요청을 다시 눌러 주세요"와 게이트 알림을 보인다(정리 훅이 남은 표시 여부를 돌려줌). 테스트: 실제 게이트·community.db·업로더로 이 경로(전송 0), capture 의도 파일 쓰기 실패 시 개인 DB 미변경(`captureAndSaveDetail` 전체 경로, 양성 대조 포함). 전체 515 pass.
+
+### 커뮤니티 통합 검수 (Opus, T5 ↔ T6 연결)
+
+- `lib/community/community_wiring.dart`: 게이트(T5)와 데이터 경로(T6)를 실제로 연결 — manifest 갱신·자정/주기 작업 등록·보충 실행·삭제 후 대기 행 차단,
+  포그라운드 업로드는 게이트 60초 재검증(`LiveGateCheck`). `main.dart` 가 게이트 생성 직후 호출한다.
+- **업로드가 실제로는 아무것도 보내지 않던 결함 수정**: 수집은 공개 설정 URL 로 만든 namespace 를 journal 에 쓰는데 업로더·자정 스케줄은
+  아무도 쓰지 않는 `meta.project_namespace`('unconfigured')와 비교했다 → 같은 규칙(설정 URL)으로 계산.
+- manifest 를 계약대로: `POST {protocol, connection_id, after, limit}`(이전 GET 쿼리), 페이지 형식 검증, total·중복·dataset/epoch·토큰 3회 규칙,
+  받는 동안 upload lease. 연결이 없으면 수집 전 검사를 건너뛰던 경로(fail-open)를 막음.
+- 게이트: writer 충돌·공식 계정 없음·superseded 연결이면 진입은 허용하되 업로드 context 를 끈다(이전엔 연결 없이 활성화). 충돌한 다른 기기 정보 표시.
+  Client 모드 폰은 업로드 context 를 켜지 않는다. 백그라운드 작업이 읽는 게이트 캐시(`community_gate_cache_v1`)를 게이트가 기록한다(이전엔 아무도 쓰지 않아
+  백그라운드 업로드가 항상 건너뜀). 마지막 수락 revision 으로 로컬 revision 하한을 올린다.
+- **연결 비밀을 암호학적 난수 32바이트로**(이전: 시각 해시). 계정·수집 응답을 UTF-8 로 해독(한글 깨짐 방지).
+- 초기화: rebuild 모드 수집(`rebuildRunId`)·목록 완료 표시·실패 전파, 병합은 T6 함수 하나로(source_generation 증가 — PC 와 같음).
+- 크롤 로그 WS 에 `api_key` 를 붙인다(서버가 인증·게이트를 요구).
+- 테스트: `integration_contract_test.dart`(event_decisions 10건, manifest 계약, 게이트 writer 규칙·비밀 난수), 실제 로컬 스택 `live_stack_test.dart`(선택 실행) 통과.
+  전체 `flutter test` 502 passed / 3 skipped(골든 2 + 라이브 1, 라이브는 `COMMUNITY_STACK=1` 로 따로 1 passed), `flutter analyze` error 0 / warning 2(기존).
+
+### 커뮤니티 필수 게이트·온보딩·초기화 (T5)
+
+앱이 기존 권한 안내보다 먼저 `[필수] 카카오 인증` + `[필수] 신고내용 공유 동의` 를 요구한다(신규·기존 사용자 모두).
+설계: `docs/architecture/community-gate.md`, 계약: `contracts/community-ingest/`(사본, 수정 없음).
+
+- **게이트** (`lib/community/gate/`): `gate.md` 판정 순서 그대로(순수 함수 + 벡터 테스트),
+  `community-account/status` (apikey + Bearer, 10초 타임아웃), 캐시 10분·`requireFresh(60s)`·`invalidate`,
+  포그라운드 60초 poll + resume 즉시 refresh. Standalone 은 통과 때 `CommunityStore.setContext`,
+  상실 때 `deactivateContext`. writer 연결 등록·rebind·takeover(409 `writer_conflict` → "이 기기로 업로드 전환"),
+  연결 비밀은 `flutter_secure_storage` `community_connection_v1` 에만.
+- **온보딩** (`community_onboarding_screen.dart`): 제목·설명·두 카드·동의문 전문 펼침(번들 사본
+  `assets/community/share-consent-2026-09-26.1.md`, 계약과 sha256 동일)·체크 기본 해제·`동의하고 계속`
+  성공 응답 뒤에만 완료·`다음` 조건부 활성·복구 화면·도움말/개인정보/로그아웃/종료 상시·건너뛰기 없음·Android back 종료.
+- **진입 순서** (`main.dart`): 로딩 → 온보딩 → 권한 common → Setup → 권한 mode 보충(허용됨은 건너뜀)
+  → 초기화(필요 시) → 메인. `ReportProvider.init()` 은 설정 로드만, 예약·drain·자동 동기화·WsService 는
+  `onGatePassed()` 로 이동(1회). 알림 탭·payload·pending 변경은 게이트 미충족이면 무시, 딥링크는 게이트 중 수신.
+- **권한** (`permission_service.dart`): Android 전용 항목 iOS 제외, MethodChannel 은
+  `MissingPluginException`·`PlatformException` → "해당 없음", 확인 호출 5초 fail-closed.
+  `PermissionScreen(phase: common|mode)`.
+- **초기화** (`lib/community/rebuild/`, `community_rebuild_screen.dart`): `rebuild.md` 상태기계,
+  `VACUUM INTO` 백업 + 무결성 검사, `SyncEngine.start(fullSync: true)` 실행(orphan 보존),
+  영구 누락 수락·일시정지·같은 run 재개, 시작 전 manifest 확인, 진행 중 자동 동기화 차단.
+  Client 는 서버 job 화면 + `GET /api/v1/community/gate` fingerprint 비교
+  (`server_contract.dart` 경로·`X-Community-User-Token` 추가).
+- **설정 카드**: 동의 상태·정책 버전·철회(`stale_grant` 재요청·`lineage_active:false` 확인 뒤 게이트 복귀),
+  공유 자료 삭제 요청(확인 문구), 연결 기기 상태·전환.
+- **iOS 복귀** (`Info.plist` CFBundleURLTypes 만 + `AppDelegate.swift`): Android 와 같은 채널·메서드명,
+  cold start 보관(`getInitialLink`). Xcode 없어 빌드 미검증.
+- T6 연결 자리 `lib/community/upload_hooks.dart` (기본값; `.agent-runs/T5/REQUESTS.md` 참고).
+
+### 커뮤니티 데이터 경로 T6 (모바일 업로드)
+
+Standalone 모드가 공식 상세 응답 순간의 값으로 공유 DTO 를 확정해 `community.db` 에
+불변 저장하고, 그 사본만으로 실시간·수동·자정 업로드를 `community-ingest` 로 보낸다.
+계약 정본 `contracts/community-ingest/`, 설계 `docs/architecture/community-upload.md`.
+
+- capture(`lib/community/capture/`): 어댑터·DTO·정규 JSON·event 결정·한 트랜잭션 저장·
+  재시도 파일·연속 3회 중단·manifest 교체·삭제 처리·reshare. 벡터 전부 통과
+  (observations ·canonical-json ·schedule ·list_refetch).
+- 수집 연결: `SyncEngine.start(fullSync, rebuildRunId)` — 상세 루프·단건이 같은
+  capture+저장 함수를 쓰고, rebuild 는 부재 행 삭제 없이 orphan 수만 결과에 담는다.
+  `replaceFromBackup`·`importFromServerDb` 전에 `rotateDataset` 호출.
+- 업로드(`lib/community/upload/`): 게이트·lease·drain(≤20건·≤256KiB·같은 신고 하나)·
+  오류 분기·durable ACK·upload_runs. Client 모드 전송 금지.
+- 스케줄: 1시간 periodic + 다음 자정 one-off, dispatcher 분기, iOS plist 항목
+  (실기기 미검증). 지도 탭 접이식 패널. 빌드 공개 설정 dart-define 주입 + 자리표시자 거부.
+- T5 연결점·벡터 확인 요청: `.agent-runs/T6/REQUESTS.md`.
+
 ## 2026-09-25 (버전 변경 없음)
+
+### 커뮤니티 계정 연결 (safeauth.worklazy.net)
+
+커뮤니티 지도에 쓰는 **카카오 계정**(Supabase Auth)을 연결한다. 안전신문고 계정과 별개이고, 계정 연결만으로 신고 데이터가 업로드되지는 않는다.
+설계·흐름·저장 키·보안 메모: `docs/architecture/community-account.md`.
+
+- **Standalone (앱이 인증·세션 주인)**: 설정 > "커뮤니티 계정" 카드(설정되지 않음 / 연결 안 됨 / 브라우저 대기 / 계정 확인 / 연결됨 / 다시 로그인 필요).
+  PKCE(S256)로 카카오 authorize 주소를 외부 브라우저에서 열고, `com.fentanest.mysafetyreport://auth/callback` 으로 돌아오면 코드 교환 →
+  계정 확인 창("이 계정으로 연결"/"취소", 다른 계정이면 교체 경고) → 확인할 때만 세션을 `flutter_secure_storage` 에 저장. 취소·연결 해제는 `logout?scope=local`.
+  세션 공급 `getAccessToken()`: 만료 60초 전 갱신, 동시 호출은 갱신 한 번, 회전된 access+refresh 함께 저장, 만료·철회는 "다시 로그인 필요", 네트워크 오류는 세션 유지.
+- 중복 링크(onNewIntent·콜드 스타트 재전달·최근 앱 복원)에도 교환은 한 번(교환 전 대기 로그인 소비 + 소비 표시). 대기 로그인 없음·10분 지남·다른 scheme/host/path 는 무시.
+- **Android**: MainActivity 에 복귀 intent-filter(VIEW/DEFAULT/BROWSABLE, path 정확히 일치)와 `flutter_deeplinking_enabled=false`.
+  링크는 super 전에 꺼내 intent 에서 지우고 새 MethodChannel `com.fentanest.mysafetyreport/community_auth`(`takePendingLink`/`onCommunityAuthLink`)로만 넘긴다.
+  Dart 핸들러는 `main()` 에서 등록해 SetupScreen 에서도 받는다. 기존 알림·바로가기 intent 라우팅은 그대로.
+- **Client (서버가 인증·세션 주인)**: 서버가 `capabilities` 에 `community_account` 를 알리면 설정 > "서버 연결" 아래 "서버의 커뮤니티 계정" 카드.
+  서버 API `/api/v1/community-auth/{status,start,confirm,cancel,disconnect}` 만 부르고 폰은 토큰을 받거나 저장하지 않는다. 1회용 연결 링크는 외부 브라우저로만 열고
+  비교코드를 크게 보인다. 403 은 서버 관리자 화면 권한 안내, 404 는 "서버가 이 기능을 아직 지원하지 않습니다", 서버가 꺼져 있으면 오류만(Standalone 로그인으로 바꾸지 않음).
+  pending/확인 대기일 때만 3초마다 상태 조회, POST 는 자동 재시도 없음.
+- 모드 변경(`resetConfig`)은 Standalone 커뮤니티 세션·대기 로그인을 지운다(서버 계정은 건드리지 않음). SharedPreferences·SQLite 에는 아무것도 저장하지 않는다.
+- 빌드 설정 `--dart-define=COMMUNITY_SUPABASE_URL=…`, `COMMUNITY_SUPABASE_PUBLISHABLE_KEY=…`(공개값). 없으면 "설정되지 않음". https 만(디버그에서만 127.0.0.1·10.0.2.2), `sb_secret_`·service_role 키 거부.
+  Supabase Redirect URLs 에 `com.fentanest.mysafetyreport://auth/callback` 등록 필요. supabase_flutter 등 새 패키지는 추가하지 않았다(GoTrue v2.197.0 REST 계약 기준 좁은 어댑터).
+- 테스트 추가: PKCE(RFC 7636 벡터)·복귀 링크 해석·설정 검사, 서비스(MockClient + 보안 저장소 mock: 중복 링크 1회 교환, 만료 무시, 보안 저장소에만 저장, scope=local,
+  갱신 single-flight·회전 저장, invalid grant, resetConfig), Client 서비스(상태·오류 대응·오프라인), 두 카드 라이트/다크·글자 2.0배·320폭 + 전역 확인 창.
+- 결과: flutter test 313 통과 / 2 skip(이전 218 / 2). flutter analyze error 0 / warning 2 / info 36(변화 없음). `flutter build apk --debug`(dart-define 없음) 성공, 병합 매니페스트에 복귀 필터·`flutter_deeplinking_enabled=false` 확인.
+- 미검증: 실기기·에뮬레이터 복귀(콜드 스타트/onNewIntent), 실제 Supabase·카카오 로그인, 실서버 커뮤니티 API 연동, 백그라운드 isolate 갱신. iOS 미구현.
 
 ### 서버↔모바일 DB·로직 동등성 검수 반영 (G17, DB v15)
 

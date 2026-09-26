@@ -5,9 +5,11 @@ import '../models/app_mode.dart';
 import '../models/app_theme_mode.dart';
 import '../models/rating_batch_result.dart';
 import '../models/report.dart';
+import '../community/upload_hooks.dart';
+import '../community/rebuild/community_rebuild.dart' show CommunityRebuildGuard;
 import '../services/api_service.dart';
 import '../services/app_prefs_keys.dart';
-import '../services/local_db_service.dart';
+import '../services/community_auth_service.dart';import '../services/local_db_service.dart';
 import '../services/local_geocode_service.dart';
 import '../services/maintenance_service.dart';
 import '../services/permission_service.dart';
@@ -17,6 +19,7 @@ import '../services/review_prompt_service.dart';
 import '../services/standalone_auth_service.dart';
 import '../services/standalone_auto_sync_service.dart';
 import '../services/sync_engine.dart';
+import '../services/server_contract.dart';
 
 const _defaultStatusOrder = <String>[
   '수용',
@@ -268,6 +271,11 @@ class ReportProvider with ChangeNotifier {
   bool get ratingCauseSupported =>
       _appMode == AppMode.standalone ||
       _serverCapabilities.contains('rating_cause');
+
+  /// 연결된 서버가 "서버의 커뮤니티 계정" API 를 알리는가(Client 모드). 구서버는 false.
+  bool get communityAccountSupported =>
+      _appMode == AppMode.server &&
+      _serverCapabilities.contains(ServerContract.communityAccountCapability);
 
   ReportFilter _filter = const ReportFilter();
   bool _excludeWithdraw = true;
@@ -735,27 +743,8 @@ class ReportProvider with ChangeNotifier {
         notifyListeners();
       });
 
-      if (isConfigured) {
-        fetchWatchlistNumbers();
-        fetchAppConfig();
-        // standalone: 기존 DB 즉시 표시 후 pending 큐 처리
-        if (_appMode == AppMode.standalone) {
-          () async {
-            if (!_isStandaloneDemo) {
-              await StandaloneAuthService.reloadStatus();
-              StandaloneAuthService.startKeepAlive();
-              // 기존 설치 사용자도 앱을 한 번 열면 하루 1회 로그인 점검이 등록된다(이미 있으면 유지).
-              unawaited(BackgroundLoginCheck.schedule());
-            }
-            // 먼저 현재 DB 데이터로 대시보드 즉시 구성 (drain 이 오래 걸려도 빈 화면 없음)
-            await refreshAll();
-            // 그 다음 pending 큐 처리 (네트워크 필요, 오래 걸릴 수 있음)
-            if (!_isStandaloneDemo) {
-              await _drainAndRefresh();
-            }
-          }();
-        }
-      }
+      // 게이트 전에는 설정 로드만 한다. BackgroundLoginCheck 예약·drain·자동 동기화·
+      // WsService 시작은 게이트 통과 뒤 onGatePassed() 에서 1회 실행한다.
     } catch (e) {
       _errorMessage = '초기화 실패: $e';
       ReviewPromptService.markSessionError();
@@ -763,6 +752,67 @@ class ReportProvider with ChangeNotifier {
       _isInitialized = true;
       notifyListeners();
     }
+  }
+
+  /// 테스트 주입용 훅. null 이면 실제 서비스를 부른다.
+  /// F18: 게이트 전에는 이 훅들이 호출되지 않아야 한다.
+  static Future<void> Function()? scheduleLoginCheckHook;
+  static Future<void> Function()? drainAndRefreshHook;
+  static Future<bool> Function()? startWsServiceHook;
+
+  bool _gatePassed = false;
+
+  /// 게이트가 ok 로 처음 바뀔 때 1회 + 이후 resume(`CommunityGate.addOnFirstPassed` 연결).
+  /// T6 의 `registerBackgroundJobs()`·`catchUp('resume')` 도 여기서 부른다.
+  Future<void> onGatePassed() async {
+    if (_gatePassed) return;
+    _gatePassed = true;
+    try {
+      if (!isConfigured) return;
+      if (_appMode == AppMode.standalone) {
+        if (!_isStandaloneDemo) {
+          await StandaloneAuthService.reloadStatus();
+          StandaloneAuthService.startKeepAlive();
+          if (scheduleLoginCheckHook != null) {
+            await scheduleLoginCheckHook!();
+          } else {
+            unawaited(BackgroundLoginCheck.schedule());
+          }
+          fetchWatchlistNumbers();
+          fetchAppConfig();
+          try {
+            await refreshAll();
+          } catch (_) {
+            // 로컬 표시 갱신 실패는 drain·예약을 막지 않는다.
+          }
+          if (!_isStandaloneDemo) {
+            await _drainAndRefresh();
+          }
+        } else {
+          try {
+            await refreshAll();
+          } catch (_) {}
+        }
+      } else {
+        fetchWatchlistNumbers();
+        fetchAppConfig();
+        if (startWsServiceHook != null) {
+          await startWsServiceHook!();
+        } else {
+          unawaited(PermissionService.startWsService());
+        }
+      }
+      await CommunityUploadHooks.registerBackgroundJobsNow();
+      await CommunityUploadHooks.catchUpNow('gate-passed');
+    } catch (e) {
+      _errorMessage = '게이트 통과 후 시작 실패: $e';
+      notifyListeners();
+    }
+  }
+
+  /// 테스트·게이트 상실 복귀용. 다음 onGatePassed() 가 다시 실행된다.
+  void resetGatePassedForTest() {
+    _gatePassed = false;
   }
 
   @override
@@ -773,6 +823,7 @@ class ReportProvider with ChangeNotifier {
   }
 
   /// foreground 복귀 시 호출 (main.dart AppLifecycleState.resumed).
+  /// 초기화 필요·진행 중에는 자동 동기화 시작을 막고 조회만 한다.
   Future<void> checkAutoSyncOnResume() async {
     if (_appMode != AppMode.standalone || !isConfigured) return;
     if (_isStandaloneDemo) {
@@ -783,12 +834,17 @@ class ReportProvider with ChangeNotifier {
     await StandaloneAuthService.reloadStatus();
     StandaloneAuthService.startKeepAlive();
     await StandaloneAuthService.refreshSessionIfNeeded();
+    if (CommunityRebuildGuard.active) return;
     await _drainAndRefresh();
   }
 
-  /// drain 트리거 + UI 갱신. init() 와 checkAutoSyncOnResume 공통.
+  /// drain 트리거 + UI 갱신. onGatePassed() 와 checkAutoSyncOnResume 공통.
   /// 큐가 비어있으면 drainIfPending 첫 iteration 에서 즉시 break 하므로 비용 거의 없음.
   Future<void> _drainAndRefresh() async {
+    if (drainAndRefreshHook != null) {
+      await drainAndRefreshHook!();
+      return;
+    }
     await StandaloneAutoSyncService.drainIfPending();
     if (_appMode == AppMode.standalone) await refreshAll();
   }
@@ -900,6 +956,11 @@ class ReportProvider with ChangeNotifier {
     await prefs.remove(AppPrefsKeys.standalonePhoneNumber);
     await prefs.remove(AppPrefsKeys.standaloneDemoMode);
     await StandaloneAuthService.clearToken();
+    // 실제 모드 변경: Standalone 커뮤니티 세션·대기 로그인을 지운다(M05). 서버의 커뮤니티 계정은 건드리지 않는다.
+    _serverCapabilities = const [];
+    try {
+      await CommunityAuthService.instance.clearForModeChange();
+    } catch (_) {}
     await LocalDbService.closeDb();
 
     notifyListeners();

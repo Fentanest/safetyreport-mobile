@@ -36,7 +36,8 @@ Standalone 로그인 화면에서 `demo / demo`(휴대폰번호 공란) 또는 `
 
 - **Flutter**: UI / 상태관리 (Provider) / 로컬 DB (sqflite) / SharedPreferences / 보안 저장 (flutter_secure_storage)
 - **Kotlin Native**: 백그라운드 서비스 3개, MainActivity 브릿지 (MethodChannel)
-- **MethodChannel**: `com.fentanest.mysafetyreport/permissions` (모든 native ↔ Flutter 통신)
+- **MethodChannel**: `com.fentanest.mysafetyreport/permissions` (권한·서비스·알림·탭 이동 등 native ↔ Flutter 통신),
+  `com.fentanest.mysafetyreport/community_auth` (커뮤니티 계정 로그인 복귀 링크 전달 전용, 2026-09-25 — [community-account.md](community-account.md))
 
 ## 디렉토리 구조
 

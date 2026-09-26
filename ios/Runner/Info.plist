@@ -28,6 +28,16 @@
 	<true/>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>신고 지도에서 현재 위치를 표시하기 위해 위치 정보가 필요합니다.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>processing</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>community-upload-periodic</string>
+		<string>community-midnight</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -52,6 +62,19 @@
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>appsafetyreport</string>
+	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.fentanest.mysafetyreport.auth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.fentanest.mysafetyreport</string>
+			</array>
+		</dict>
 	</array>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>

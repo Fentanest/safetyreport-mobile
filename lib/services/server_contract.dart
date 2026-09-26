@@ -33,6 +33,24 @@ class ServerContract {
   static const serverVersionPath = '$apiPrefix/server/version';
   static const sunwiPayloadPath = '$apiPrefix/sunwi/payload';
 
+  // 서버의 커뮤니티 계정(서버가 인증·세션 주인, 폰은 토큰을 받지 않음). capability `community_account`.
+  static const communityAuthStatusPath = '$apiPrefix/community-auth/status';
+  static const communityAuthStartPath = '$apiPrefix/community-auth/start';
+  static const communityAuthConfirmPath = '$apiPrefix/community-auth/confirm';
+  static const communityAuthCancelPath = '$apiPrefix/community-auth/cancel';
+  static const communityAuthDisconnectPath =
+      '$apiPrefix/community-auth/disconnect';
+  static const communityAccountCapability = 'community_account';
+
+  // 커뮤니티 게이트·초기화 (서버 job 제어, Client 모드).
+  // 민감 제어(초기화 시작·수동 업로드)는 `X-Community-User-Token`(폰 access token)으로
+  // 서버가 GoTrue `/user` 로 검증해 서버 연결 사용자와 같을 때만 허용한다.
+  static const communityUserTokenHeader = 'X-Community-User-Token';
+  static const communityGatePath = '$apiPrefix/community/gate';
+  static const communityRebuildPath = '$apiPrefix/community/rebuild';
+  static const communityRebuildStartPath = '$apiPrefix/community/rebuild/start';
+  static const communityRebuildResumePath = '$apiPrefix/community/rebuild/resume';
+
   static String normalizeBaseUrl(String baseUrl) =>
       baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
 

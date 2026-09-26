@@ -9,6 +9,7 @@
 | [overview.md](overview.md) | 모드 개요, 기술 스택, 디렉토리, 하단 탭/패널 구조, 부팅·별점·최근답변 흐름, 상세검색, 신고현황/파일, 출처 고지, 테마 | 화면/UI 작업 전 |
 | [android-runtime.md](android-runtime.md) | Android 15 edge-to-edge, 알림 감지→동기화, drain 큐, emit, SharedPreferences 키/함정, FGS·알림 채널, enqueue 억제, ChangeType, 버전·빌드 | Kotlin/권한/알림/빌드 작업 전 |
 | [data-contracts.md](data-contracts.md) | Client 서버 계약, 중복 projection, 재시도, 중복 알림, 인증, SQLite, 모드 전환 DB 이관, errno 104, refreshAll 직렬화, CRLF regex, API 엔드포인트 | 데이터/네트워크/집계 작업 전 |
+| [community-account.md](community-account.md) | 커뮤니티 계정(카카오, Supabase Auth) — Standalone PKCE·딥링크·보안 저장, Client 서버 API 카드 (2026-09-25 신규) | 커뮤니티 로그인·딥링크·토큰 저장 작업 전 |
 | [legacy-claude-reference.md](legacy-claude-reference.md) | 원문 보관 | 이관 누락 의심 시 대조 |
 
 ## 제목별 대응표 (원문 줄 번호 → 새 위치)

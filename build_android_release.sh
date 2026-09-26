@@ -97,15 +97,19 @@ echo "=========================================="
 sync_pubspec_version "$SCRIPT_DIR" "$VERSION"
 stage_android_signing_files "$SCRIPT_DIR" "$KEY_PROPERTIES_PATH" "$KEYSTORE_PATH"
 echo "✅ android/key.properties staged for local Flutter build"
+prepare_community_public_config "$SCRIPT_DIR" release
+echo "✅ community public config staged"
 
 "$FLUTTER_BIN" --version
 "$FLUTTER_BIN" pub get
 "$FLUTTER_BIN" build apk --release \
   --build-name="$BUILD_NAME" \
-  --build-number="$BUILD_NUMBER"
+  --build-number="$BUILD_NUMBER" \
+  "${COMMUNITY_DART_DEFINE_ARGS[@]}"
 "$FLUTTER_BIN" build appbundle --release \
   --build-name="$BUILD_NAME" \
-  --build-number="$BUILD_NUMBER"
+  --build-number="$BUILD_NUMBER" \
+  "${COMMUNITY_DART_DEFINE_ARGS[@]}"
 
 cp "$SCRIPT_DIR/build/app/outputs/flutter-apk/app-release.apk" \
   "$SCRIPT_DIR/build/app/outputs/flutter-apk/mysafetyreport.apk"

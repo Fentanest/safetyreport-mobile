@@ -571,6 +571,12 @@ class _CommunityShareSectionState extends State<_CommunityShareSection> {
           }
           return;
         }
+        if (outcome == 'unconfirmed') {
+          if (mounted) {
+            setState(() => _message = '삭제 요청 결과를 확인하지 못했습니다. 확인될 때까지 업로드를 멈췄습니다. 네트워크를 확인한 뒤 다시 요청해 주세요.');
+          }
+          return;
+        }
         await _gate.handleContributionsDeleted();
         if (mounted) {
           setState(() => _message = '공유한 자료 삭제를 요청했습니다. 다음 게이트 통과 때 새 연결을 등록합니다.');

@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../services/community_auth_config.dart';
 import '../../services/community_auth_service.dart';
+import '../capture/server_completed.dart' show deletionState;
 import '../community_store.dart';
 import '../upload_hooks.dart';
 import 'community_account_client.dart';
@@ -293,6 +294,10 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
       }
       _apply(next);
       _checked = true;
+      final store = _store;
+      if (store != null && await deletionState(store: store) == 'unconfirmed') {
+        _notice = '공유한 자료 삭제 요청의 결과를 확인하지 못해 업로드를 멈춘 상태입니다. 설정에서 삭제 요청을 다시 눌러 주세요.';
+      }
       notifyListeners();
       if (!_firstPassFired) {
         _firstPassFired = true;

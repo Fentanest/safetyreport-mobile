@@ -15,6 +15,7 @@ import 'package:safetyreport/community/capture/community_capture.dart';
 import 'package:safetyreport/community/capture/server_completed.dart';
 import 'package:safetyreport/community/community_store.dart';
 import 'package:safetyreport/community/upload_hooks.dart';
+import 'package:safetyreport/community/gate/community_account_client.dart';
 import 'package:safetyreport/community/gate/community_gate.dart';
 import 'package:safetyreport/community/upload/community_ingest_client.dart';
 import 'package:safetyreport/services/community_auth_service.dart';
@@ -175,6 +176,7 @@ void main() {
       CommunityUploadHooks.beginDeletion = null;
       CommunityUploadHooks.cancelDeletion = null;
       CommunityUploadHooks.onContributionsDeleted = null;
+      CommunityUploadHooks.confirmDeletion = null;
     });
 
     test('marker cannot be written → central delete is not called', () async {
@@ -190,12 +192,18 @@ void main() {
       CommunityUploadHooks.beginDeletion = () async => 'm1';
       CommunityUploadHooks.cancelDeletion = (id) async => cancelled.add(id);
       CommunityUploadHooks.onContributionsDeleted = () async => applied++;
-      await expectLater(CommunityUploadHooks.requestDeletion(() async => throw StateError('503')), throwsStateError);
+      CommunityUploadHooks.confirmDeletion = () async => applied++;
+      // 불명(4xx 아님): 표시 유지, 취소 없음
+      expect(await CommunityUploadHooks.requestDeletion(() async => throw StateError('503')), 'unconfirmed');
+      expect(cancelled, isEmpty);
+      // 확정 거절(4xx): 이 표시만 취소하고 예외 전파
+      await expectLater(CommunityUploadHooks.requestDeletion(() async => throw const CommunityAccountError(code: 'x', message: 'x', httpStatus: 400)),
+          throwsA(isA<CommunityAccountError>()));
       expect(cancelled, ['m1']);
       expect(applied, 0);
       expect(await CommunityUploadHooks.requestDeletion(() async {}), 'done');
       expect(applied, 1);
-      CommunityUploadHooks.onContributionsDeleted = () async => throw StateError('disk');
+      CommunityUploadHooks.confirmDeletion = () async => throw StateError('disk');
       expect(await CommunityUploadHooks.requestDeletion(() async {}), 'local_pending');
     });
   });

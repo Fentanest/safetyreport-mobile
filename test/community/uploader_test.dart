@@ -1,3 +1,4 @@
+import 'dart:async';
 // uploader 테스트: 가짜 HTTP·게이트·토큰 (네트워크 없음).
 //
 // B01~B05·B08·B11~B13 대응: enqueue+drain, durable ACK 삭제, 403 blocked+게이트
@@ -9,6 +10,8 @@ import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:safetyreport/community/gate/community_account_client.dart';
+import 'package:safetyreport/community/upload_hooks.dart';
 import 'package:safetyreport/community/capture/reshare.dart';
 import 'package:safetyreport/community/capture/server_completed.dart';
 import 'package:http/http.dart' as http;
@@ -411,66 +414,101 @@ void main() {
     });
   });
 
-  group('deletion cleanup (Sol H-03, 2차 H-03a/b)', () {
-    Future<List<Object?>> pendingKeys(CommunityStore store) async =>
-        [for (final r in await store.db.rawQuery("SELECT key FROM meta WHERE key LIKE 'deletion_pending:%'")) r['key']];
+  group('deletion cleanup (Sol H-03, 2차 H-03a/b, 3차 H-03c/d)', () {
+    Future<List<String>> states(CommunityStore store) async => [
+          for (final r in await store.db.rawQuery("SELECT value FROM meta WHERE key LIKE 'deletion_pending:%' ORDER BY value"))
+            (jsonDecode(r['value'] as String) as Map)['state'] as String
+        ];
+    Future<Map<Object?, Object?>> journal(CommunityStore store) async => {
+          for (final r in await store.db.rawQuery('SELECT source_report_id, blocked_reason FROM source_journal'))
+            r['source_report_id']: r['blocked_reason']
+        };
 
-    test('rows existing at deletion are blocked by row order even with a future clock', () async {
+    test('rows existing at confirmation are blocked by row order even with a future clock', () async {
       final store = await openStore();
       addTearDown(() => closeStore(store));
       await capture(adapter('처리완료'), sourceReportId: 'D1', trigger: 'realtime', store: store, projectNamespace: kNs);
       await capture(adapter('처리완료'), sourceReportId: 'D2', trigger: 'realtime', store: store, projectNamespace: kNs);
       await store.db.rawUpdate("UPDATE source_journal SET captured_at='2099-01-01T00:00:00.000Z' WHERE source_report_id='D2'");
       await beginDeletion(store: store);
-      await applyPendingDeletion(store: store);
-      final rows = await store.db.rawQuery('SELECT source_report_id, blocked_reason FROM source_journal');
-      expect({for (final r in rows) r['source_report_id']: r['blocked_reason']}, {'D1': 'deleted_by_user', 'D2': 'deleted_by_user'});
-      expect(await pendingKeys(store), isEmpty);
+      await confirmDeletion(store: store);
+      expect(await journal(store), {'D1': 'deleted_by_user', 'D2': 'deleted_by_user'});
+      expect(await states(store), isEmpty);
       await capture(adapter('처리완료'), sourceReportId: 'D3', trigger: 'realtime', store: store, projectNamespace: kNs);
-      final d3 = await store.db.rawQuery("SELECT blocked_reason FROM source_journal WHERE source_report_id='D3'");
-      expect(d3.single['blocked_reason'], isNull, reason: '삭제 뒤 새 관측은 막지 않는다');
+      expect((await journal(store))['D3'], isNull, reason: '삭제 뒤 새 관측은 막지 않는다');
     });
 
-    test('a pending marker in community.db stops uploads and reshare until applied', () async {
+    test('while the center has not answered: uploads and reshare are blocked, nothing is applied or removed', () async {
       final store = await openStore();
       addTearDown(() => closeStore(store));
       await capture(adapter('처리완료'), sourceReportId: 'D1', trigger: 'realtime', store: store, projectNamespace: kNs);
-      await beginDeletion(store: store);
       var calls = 0;
       final uploader = makeUploader(store: store, gate: FakeGate(), tokens: FakeTokens(),
           httpClient: MockClient((req) async { calls++; return http.Response('{}', 500); }));
-      await uploader.requestCommunityUpload('manual'); // 먼저 적용하고, 막힌 행은 보내지 않는다
-      expect(await pendingKeys(store), isEmpty);
+      CommunityUploadHooks.beginDeletion = () => beginDeletion(store: store);
+      CommunityUploadHooks.cancelDeletion = (id) => cancelDeletion(id, store: store);
+      CommunityUploadHooks.confirmDeletion = () => confirmDeletion(store: store);
+      addTearDown(() {
+        CommunityUploadHooks.beginDeletion = null;
+        CommunityUploadHooks.cancelDeletion = null;
+        CommunityUploadHooks.confirmDeletion = null;
+      });
+      late UploadRunResult during;
+      final outcome = await CommunityUploadHooks.requestDeletion(() async {
+        await capture(adapter('처리완료'), sourceReportId: 'D9', trigger: 'realtime', store: store, projectNamespace: kNs);
+        during = await uploader.requestCommunityUpload('manual');
+        expect(await issueReshare('D1', store: store), isNull);
+        expect(await deletionCleanupPending(store: store), isTrue);
+        expect(await states(store), ['prepared']);
+        expect(await journal(store), {'D1': null, 'D9': null});
+      });
+      expect(outcome, 'done');
+      expect((during.result, during.errorCode), ('deferred', 'deletion_cleanup_pending'));
       expect(calls, 0);
-      final j = await store.db.rawQuery("SELECT blocked_reason FROM source_journal WHERE source_report_id='D1'");
-      expect(j.single['blocked_reason'], 'deleted_by_user');
-      expect(await issueReshare('D1', store: store), isNull);
+      expect(await journal(store), {'D1': 'deleted_by_user', 'D9': 'deleted_by_user'});
+      expect(await states(store), isEmpty);
     });
 
-    test('marker that cannot be applied keeps uploads and reshare blocked', () async {
+    test('unknown outcome keeps the marker; a retry confirms all; a 4xx refusal cancels only its own', () async {
+      final store = await openStore();
+      addTearDown(() => closeStore(store));
+      await capture(adapter('처리완료'), sourceReportId: 'D1', trigger: 'realtime', store: store, projectNamespace: kNs);
+      CommunityUploadHooks.beginDeletion = () => beginDeletion(store: store);
+      CommunityUploadHooks.cancelDeletion = (id) => cancelDeletion(id, store: store);
+      CommunityUploadHooks.confirmDeletion = () => confirmDeletion(store: store);
+      addTearDown(() {
+        CommunityUploadHooks.beginDeletion = null;
+        CommunityUploadHooks.cancelDeletion = null;
+        CommunityUploadHooks.confirmDeletion = null;
+      });
+      expect(await CommunityUploadHooks.requestDeletion(() async => throw TimeoutException('lost')), 'unconfirmed');
+      expect(await states(store), ['prepared']);
+      expect(await deletionState(store: store), 'unconfirmed');
+      await expectLater(
+          CommunityUploadHooks.requestDeletion(() async => throw const CommunityAccountError(code: 'kakao_required', message: 'x', httpStatus: 403)),
+          throwsA(isA<CommunityAccountError>()));
+      expect(await states(store), ['prepared'], reason: '거절된 요청의 표시만 지우고 앞선 불명 표시는 남긴다');
+      expect((await journal(store))['D1'], isNull);
+      expect(await CommunityUploadHooks.requestDeletion(() async {}), 'done');
+      expect(await states(store), isEmpty);
+      expect((await journal(store))['D1'], 'deleted_by_user');
+    });
+
+    test('confirmed marker whose apply failed keeps blocking; concurrent applies lose nothing', () async {
       final store = await openStore();
       await capture(adapter('처리완료'), sourceReportId: 'D1', trigger: 'realtime', store: store, projectNamespace: kNs);
       await beginDeletion(store: store);
-      await store.db.close(); // 로컬 쓰기 불가 흉내
+      await beginDeletion(store: store);
+      await store.db.rawUpdate("UPDATE meta SET value='{\"state\":\"confirmed\"}' WHERE key LIKE 'deletion_pending:%'");
+      await Future.wait([applyPendingDeletion(store: store), applyPendingDeletion(store: store)]);
+      expect(await states(store), isEmpty);
+      expect((await journal(store))['D1'], 'deleted_by_user');
+      await beginDeletion(store: store);
+      await store.db.rawUpdate("UPDATE meta SET value='{\"state\":\"confirmed\"}' WHERE key LIKE 'deletion_pending:%'");
+      await store.db.close(); // 로컬 쓰기 불가
       expect(await deletionCleanupPending(store: store), isTrue);
       expect(await issueReshare('D1', store: store), isNull);
       await CommunityStore.closeForTest(store.path);
-    });
-
-    test('cancel removes only its own marker; concurrent applies lose nothing', () async {
-      final store = await openStore();
-      addTearDown(() => closeStore(store));
-      for (var i = 0; i < 3; i++) {
-        await capture(adapter('처리완료'), sourceReportId: 'C$i', trigger: 'realtime', store: store, projectNamespace: kNs);
-      }
-      final a = await beginDeletion(store: store);
-      final b = await beginDeletion(store: store);
-      await cancelDeletion(a, store: store);
-      expect(await pendingKeys(store), ['deletion_pending:$b']);
-      await Future.wait([applyPendingDeletion(store: store), applyPendingDeletion(store: store)]);
-      expect(await pendingKeys(store), isEmpty);
-      final rows = await store.db.rawQuery('SELECT DISTINCT blocked_reason FROM source_journal');
-      expect([for (final r in rows) r['blocked_reason']], ['deleted_by_user']);
     });
   });
 }

@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'gate/community_account_client.dart';
+
 /// T6(모바일 데이터 경로) 연결 자리 (`contracts/community-ingest/interfaces.md`).
 ///
 /// T6 병합 전까지는 기본값(아래)이 쓰인다. T6 는 같은 이름·시그니처의 실제 구현으로
@@ -28,10 +30,15 @@ class CommunityUploadHooks {
   /// 중앙 삭제가 확실히 실패했을 때 그 표시 하나를 지운다.
   static Future<void> Function(String id)? cancelDeletion;
 
-  /// 공유 자료 삭제 요청 순서(PC 라우트와 같음): 로컬 표시 → 중앙 삭제 → 로컬 적용.
-  /// 반환: 'not_started'(표시를 못 써 중앙 요청 안 함), 'done', 'local_pending'(중앙 삭제됨, 로컬 적용은 다음 업로드 때).
-  /// 중앙 호출이 실패하면 이 삭제의 표시만 지우고 예외를 그대로 올린다.
-  static Future<String> requestDeletion(Future<void> Function() central) async {
+  /// 중앙 삭제 성공 뒤 모든 표시를 확정·적용한다.
+  static Future<void> Function()? confirmDeletion;
+
+  /// 공유 자료 삭제 요청 순서(PC 라우트와 같음): prepared 표시 → 중앙 삭제 → 성공이면 확정·적용.
+  /// 반환: 'not_started'(표시를 못 써 중앙 요청 안 함), 'done', 'local_pending'(중앙 삭제됨, 로컬 적용은 다음 업로드 때),
+  /// 'unconfirmed'(응답 불명 — 표시 유지·업로드 차단, 다시 요청 필요. 삭제는 여러 번 요청해도 안전 — Sol 3차 H-03d).
+  /// 중앙이 확실히 거절(4xx)하면 이 표시만 지우고 예외를 올린다.
+  static Future<String> requestDeletion(Future<void> Function() central,
+      {bool Function(Object error)? isDefinitiveRefusal}) async {
     final begin = beginDeletion;
     String id;
     try {
@@ -42,13 +49,30 @@ class CommunityUploadHooks {
     }
     try {
       await central();
-    } catch (_) {
-      try {
-        await cancelDeletion?.call(id);
-      } catch (_) {} // 지우지 못하면 업로드가 막힌 채 남는다(fail-closed)
-      rethrow;
+    } catch (e) {
+      if ((isDefinitiveRefusal ?? _definitiveRefusal)(e)) {
+        try {
+          await cancelDeletion?.call(id);
+        } catch (_) {} // 지우지 못하면 업로드가 막힌 채 남는다(fail-closed)
+        rethrow;
+      }
+      return 'unconfirmed';
     }
-    return await contributionsDeletedNow() ? 'done' : 'local_pending';
+    try {
+      final confirm = confirmDeletion;
+      if (confirm == null) return 'local_pending';
+      await confirm();
+      return 'done';
+    } catch (_) {
+      return 'local_pending';
+    }
+  }
+
+  /// 중앙이 처리하지 않았음이 확실한 거절: HTTP 4xx. 네트워크·타임아웃·5xx·그 밖 예외는 '불명'.
+  static bool _definitiveRefusal(Object e) {
+    if (e is! CommunityAccountError) return false;
+    final status = e.httpStatus;
+    return status != null && status >= 400 && status < 500;
   }
 
   static Future<bool> refreshServerCompletedNow() async {

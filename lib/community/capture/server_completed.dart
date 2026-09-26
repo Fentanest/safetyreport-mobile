@@ -100,56 +100,95 @@ Future<bool> refreshServerCompleted({
   return true;
 }
 
-/// 삭제 대기 표시: journal 과 같은 community.db 의 meta 에 트랜잭션으로 둔다(PC 와 같은 규칙, Sol 2차 H-03a/b).
+/// 삭제 대기 표시: journal 과 같은 community.db 의 meta 행(삭제별). 값 {"state":"prepared"|"confirmed"} — PC 와 같은 규칙.
 const String deletionKeyPrefix = 'deletion_pending:';
 
-/// 중앙 삭제를 요청하기 **전에** 표시를 남긴다. 못 쓰면 예외 → 호출자는 중앙 삭제를 요청하지 않는다.
-/// 표시마다 고유 id 라 동시 삭제가 서로를 지우지 않는다.
+String? _stateOf(Object? raw) {
+  try {
+    final v = jsonDecode('$raw');
+    return v is Map ? v['state'] as String? : null;
+  } catch (_) {
+    return null; // 손상된 값은 prepared 처럼 다룬다(막기만 하고 지우지 않음)
+  }
+}
+
+/// 중앙 삭제를 요청하기 **전에** prepared 표시를 남긴다. 못 쓰면 예외 → 중앙 삭제를 요청하지 않는다.
 Future<String> beginDeletion({CommunityStore? store}) async {
   final s = store ?? await CommunityStore.open();
   final id = newUuidV4();
   await s.transaction((tx) async {
-    await s.setMeta('$deletionKeyPrefix$id', jsonEncode({'requested_at': isoUtc(DateTime.now())}), tx);
+    await s.setMeta('$deletionKeyPrefix$id', jsonEncode({'state': 'prepared', 'at': isoUtc(DateTime.now())}), tx);
   });
   return id;
 }
 
-/// 중앙 삭제가 확실히 실패했을 때만 그 표시 하나를 지운다.
+/// 중앙이 **확실히 거절**했을 때만(4xx) 그 prepared 표시 하나를 지운다. 응답 불명이면 부르지 않는다.
 Future<void> cancelDeletion(String id, {CommunityStore? store}) async {
   final s = store ?? await CommunityStore.open();
   await s.transaction((tx) async {
-    await tx.rawDelete('DELETE FROM meta WHERE key=?', ['$deletionKeyPrefix$id']);
-  });
-}
-
-/// 남은 표시가 있으면 한 트랜잭션에서 적용하고 지운다: 그 시점까지의 journal 전부(행 순번 — 시계 무관) deleted_by_user,
-/// 그 outbox blocked, server_completed 비움. 표시가 없으면 아무것도 하지 않는다. 실패는 예외.
-Future<bool> applyPendingDeletion({CommunityStore? store}) async {
-  final s = store ?? await CommunityStore.open();
-  await s.transaction((tx) async {
-    final keys = await tx.rawQuery('SELECT key FROM meta WHERE key LIKE ?', ['$deletionKeyPrefix%']);
-    if (keys.isEmpty) return;
-    final r = await tx.rawQuery('SELECT max(rowid) AS m FROM source_journal');
-    final boundary = (r.first['m'] as int?) ?? 0;
-    await tx.rawUpdate(
-      "UPDATE source_journal SET blocked_reason='deleted_by_user' "
-      "WHERE rowid <= ? AND (blocked_reason IS NULL OR blocked_reason != 'deleted_by_user')",
-      [boundary],
-    );
-    await tx.rawUpdate(
-      "UPDATE outbox SET state='blocked', last_error_code='deleted_by_user' "
-      "WHERE state != 'dead_letter' AND event_id IN (SELECT event_id FROM source_journal WHERE rowid <= ?)",
-      [boundary],
-    );
-    await tx.rawDelete('DELETE FROM server_completed');
-    for (final k in keys) {
-      await tx.rawDelete('DELETE FROM meta WHERE key=?', [k['key']]);
+    final rows = await tx.rawQuery('SELECT value FROM meta WHERE key=?', ['$deletionKeyPrefix$id']);
+    if (rows.isNotEmpty && _stateOf(rows.first['value']) == 'prepared') {
+      await tx.rawDelete('DELETE FROM meta WHERE key=?', ['$deletionKeyPrefix$id']);
     }
   });
-  return true;
 }
 
-/// 중앙 삭제 성공 뒤(표시는 [beginDeletion] 이 남겼다). 표시 없이 불리면 보수적으로 만든 뒤 적용한다.
+/// 중앙 삭제 성공 뒤: 모든 표시를 confirmed 로 바꾸고(그 시점까지 전부가 지워졌다) 곧바로 적용한다.
+/// 적용이 실패해도 confirmed 표시가 남아 업로드·reshare 를 막는다.
+Future<void> confirmDeletion({CommunityStore? store}) async {
+  final s = store ?? await CommunityStore.open();
+  await s.transaction((tx) async {
+    final rows = await tx.rawQuery('SELECT key FROM meta WHERE key LIKE ?', ['$deletionKeyPrefix%']);
+    for (final r in rows) {
+      await s.setMeta(r['key'] as String, jsonEncode({'state': 'confirmed', 'at': isoUtc(DateTime.now())}), tx);
+    }
+  });
+  await applyPendingDeletion(store: s);
+}
+
+/// confirmed 표시를 한 트랜잭션에서 적용하고 지운다: 그 시점까지의 journal 전부(행 순번 — 시계 무관) deleted_by_user,
+/// 그 outbox blocked, server_completed 비움. prepared 는 건드리지 않는다(중앙 결과 전 — Sol 3차 H-03c).
+/// 남은 표시가 없으면 true, prepared 가 남으면 false. 실패는 예외.
+Future<bool> applyPendingDeletion({CommunityStore? store}) async {
+  final s = store ?? await CommunityStore.open();
+  return s.transaction((tx) async {
+    final rows = await tx.rawQuery('SELECT key, value FROM meta WHERE key LIKE ?', ['$deletionKeyPrefix%']);
+    final confirmed = [for (final r in rows) if (_stateOf(r['value']) == 'confirmed') r['key'] as String];
+    if (confirmed.isNotEmpty) {
+      final m = await tx.rawQuery('SELECT max(rowid) AS m FROM source_journal');
+      final boundary = (m.first['m'] as int?) ?? 0;
+      await tx.rawUpdate(
+        "UPDATE source_journal SET blocked_reason='deleted_by_user' "
+        "WHERE rowid <= ? AND (blocked_reason IS NULL OR blocked_reason != 'deleted_by_user')",
+        [boundary],
+      );
+      await tx.rawUpdate(
+        "UPDATE outbox SET state='blocked', last_error_code='deleted_by_user' "
+        "WHERE state != 'dead_letter' AND event_id IN (SELECT event_id FROM source_journal WHERE rowid <= ?)",
+        [boundary],
+      );
+      await tx.rawDelete('DELETE FROM server_completed');
+      for (final k in confirmed) {
+        await tx.rawDelete('DELETE FROM meta WHERE key=?', [k]);
+      }
+    }
+    return rows.length == confirmed.length;
+  });
+}
+
+/// 화면용: null / 'unconfirmed'(중앙 결과 불명 — 다시 요청 필요) / 'cleanup_pending'.
+Future<String?> deletionState({CommunityStore? store}) async {
+  try {
+    final s = store ?? await CommunityStore.open();
+    final rows = await s.db.rawQuery('SELECT value FROM meta WHERE key LIKE ?', ['$deletionKeyPrefix%']);
+    if (rows.isEmpty) return null;
+    return rows.any((r) => _stateOf(r['value']) != 'confirmed') ? 'unconfirmed' : 'cleanup_pending';
+  } catch (_) {
+    return 'cleanup_pending';
+  }
+}
+
+/// 중앙 삭제 성공 뒤(구 호출 호환): 표시가 없으면 만들고 확정·적용한다.
 Future<void> onContributionsDeleted({
   required DateTime deletedAt,
   CommunityStore? store,
@@ -157,10 +196,10 @@ Future<void> onContributionsDeleted({
 }) async {
   final s = store ?? await CommunityStore.open();
   if (deletionId == null) await beginDeletion(store: s);
-  await applyPendingDeletion(store: s);
+  await confirmDeletion(store: s);
 }
 
-/// 표시가 남아 있으면 적용을 다시 시도한다. 여전히 못 하면(또는 저장소 오류) true — 업로드·reshare 금지.
+/// 표시가 남아 있으면 true(업로드·reshare 금지). confirmed 는 적용을 시도하고 prepared 는 그대로 둔다.
 Future<bool> deletionCleanupPending({CommunityStore? store}) async {
   try {
     return !(await applyPendingDeletion(store: store));

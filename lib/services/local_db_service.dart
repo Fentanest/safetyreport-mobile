@@ -246,7 +246,7 @@ class LocalDbService {
   /// 서버 LEGACY_KEEP_TABLES 의 감시목록·지오코딩 캐시와 같다(관리자·API 키는 서버 전용).
   static const legacyKept = ['watchlist', 'geocode_cache'];
 
-  /// 이전 버전 DB(저장된 버전 1 이상, [dbVersion] 미만)면: 통째로 백업(`<db>.legacy_v<옛 버전>.<epoch ms>.bak`, 무결성 검사)
+  /// 이전 버전 DB(저장된 버전 1 이상, [dbVersion] 미만)면: 통째로 백업(`VACUUM INTO <db>.legacy_v<옛 버전>.<epoch ms>.bak`, 무결성 검사)
   /// → [beforeReset](기본: 커뮤니티 dataset 선회전, 실패하면 비우지 않음) → 새 스키마의 빈 DB 를 옆에 만들어
   /// 감시목록·지오코딩 캐시만 옮기고 sync_meta[legacy_reset] 에 기록 → 원래 이름으로 바꾼다.
   /// 반환: {from_version, backup, kept, dropped, at} (이전 버전 DB 가 아니면 null). 서버 database.reset_legacy_database 와 같은 규칙.
@@ -260,21 +260,25 @@ class LocalDbService {
     final probe = await openDatabase(path, singleInstance: false);
     int version;
     List<String> oldTables;
+    String backup;
     try {
       version = await probe.getVersion();
       if (version < 1 || version >= dbVersion) return null;
-      await probe.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
       oldTables = [
         for (final r in await probe.rawQuery(
           "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
         ))
           r['name'] as String,
       ];
+      // 파일 복사가 아니라 VACUUM INTO: WAL 에만 있던 최근 쓰기까지 담은 일관된 사본이다(다른 연결 때문에
+      // 체크포인트가 끝나지 못해도 빠지지 않는다 — Sol 검토 2). 서버는 sqlite backup API.
+      backup = '$path.legacy_v$version.${DateTime.now().millisecondsSinceEpoch}.bak';
+      final target = File(backup);
+      if (target.existsSync()) await target.delete();
+      await probe.execute("VACUUM INTO '${backup.replaceAll("'", "''")}'");
     } finally {
       await probe.close();
     }
-    final backup = '$path.legacy_v$version.${DateTime.now().millisecondsSinceEpoch}.bak';
-    await file.copy(backup);
     final check = await openDatabase(backup, readOnly: true, singleInstance: false);
     try {
       final result = (await check.rawQuery('PRAGMA integrity_check')).first.values.first;

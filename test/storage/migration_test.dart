@@ -178,6 +178,36 @@ void main() {
     );
   }
 
+  test('the backup keeps a write that is still only in the WAL (checkpoint blocked by a reader)', () async {
+    await _makeOldDb(10);
+    final path = await LocalDbService.getDbPath();
+    for (final f in legacyBackups(path)) {
+      f.deleteSync();
+    }
+    final writer = await openDatabase(path, singleInstance: false);
+    await writer.rawQuery('PRAGMA journal_mode=WAL');
+    await writer.rawQuery('PRAGMA wal_autocheckpoint=0');
+    final reader = await openDatabase(path, singleInstance: false);
+    await reader.execute('BEGIN');
+    await reader.rawQuery('SELECT count(*) FROM reports'); // 이 스냅샷이 있는 동안 WAL 을 본 파일로 다 옮기지 못한다
+    await writer.insert('reports', {'ID': 'wal-only', '신고번호': 'SPP-WAL'});
+    try {
+      final info = await LocalDbService.resetLegacyDatabase(path, beforeReset: () async {});
+      final copy = await openDatabase(info!['backup'] as String, readOnly: true, singleInstance: false);
+      expect((await copy.query('reports', where: 'ID = ?', whereArgs: ['wal-only'])), hasLength(1),
+          reason: 'WAL 에만 있던 행도 백업에 들어간다');
+      expect(await copy.getVersion(), 10);
+      await copy.close();
+    } finally {
+      await reader.execute('COMMIT');
+      await reader.close();
+      await writer.close();
+    }
+    for (final f in legacyBackups(path)) {
+      f.deleteSync();
+    }
+  });
+
   test('a failing step before the reset leaves the old DB as it was', () async {
     final before = await _makeOldDb(10);
     final path = await LocalDbService.getDbPath();

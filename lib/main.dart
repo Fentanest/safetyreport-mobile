@@ -71,7 +71,7 @@ Future<void> main() async {
   // 초기화 크롤링이 필요하거나 진행 중이면 일반 동기화(수동·공유 대기열 처리)를 시작하지 않는다(PC 크롤 시작 409 와 같음).
   // 초기화 화면보다 먼저 도는 게이트 통과 직후 처리도 여기서 막힌다.
   SyncEngine.rebuildBlocks = () async {
-    if (reportProvider.appMode != AppMode.standalone) return false;
+    if (!rebuildAppliesOnDevice(reportProvider)) return false;
     final store = communityStore ?? await CommunityStore.open();
     return standaloneRebuild(store, reportProvider).required();
   };
@@ -255,6 +255,13 @@ class _ModeSupplement extends StatelessWidget {
   }
 }
 
+/// 이 기기에서 초기화 크롤링을 판정·실행하는가: Standalone 이고 데모(심사용 합성 데이터, 별도 DB 파일)가 아닐 때만.
+/// 데모는 사이트에서 다시 읽을 실제 신고가 없다 — 첫 데모 로그인이 시드한 신고 때문에 초기화 대상이 되지 않게 한다(Sol 검토 4).
+/// Client 는 서버가 판정한다.
+@visibleForTesting
+bool rebuildAppliesOnDevice(ReportProvider provider) =>
+    provider.appMode == AppMode.standalone && !provider.isStandaloneDemo;
+
 /// Standalone 초기화 판정·실행 객체. 새 설치 판정에 개인 DB 사실(신고 수·이전 DB 를 비운 기록)을 쓴다.
 /// 시작 버튼이 있는 화면만 [gateFresh] 를 넘긴다(판정만 할 때는 게이트를 확인하지 않는다).
 @visibleForTesting
@@ -297,6 +304,7 @@ class _StandaloneRebuildGateState extends State<_StandaloneRebuildGate> {
   Future<CommunityRebuild?> _prepare() async {
     final provider = context.read<ReportProvider>();
     final gate = context.read<CommunityGate>();
+    if (!rebuildAppliesOnDevice(provider)) return null;
     final store = await CommunityStore.open();
     final rebuild = standaloneRebuild(
       store,

@@ -18,6 +18,8 @@ import 'package:safetyreport/community/upload_hooks.dart';
 import 'package:safetyreport/community/gate/community_account_client.dart';
 import 'package:safetyreport/community/gate/community_gate.dart';
 import 'package:safetyreport/community/upload/community_ingest_client.dart';
+import 'package:safetyreport/community/upload/community_uploader.dart';
+import 'package:safetyreport/models/app_mode.dart';
 import 'package:safetyreport/services/community_auth_service.dart';
 import 'package:safetyreport/services/sync_engine.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -191,7 +193,10 @@ void main() {
       var applied = 0;
       CommunityUploadHooks.beginDeletion = () async => 'm1';
       CommunityUploadHooks.cancelDeletion = (id) async => cancelled.add(id);
-      CommunityUploadHooks.onContributionsDeleted = () async => applied++;
+      CommunityUploadHooks.onContributionsDeleted = () async {
+        applied++;
+        return true;
+      };
       CommunityUploadHooks.confirmDeletion = () async => applied++;
       // 불명(4xx 아님): 표시 유지, 취소 없음
       expect(await CommunityUploadHooks.requestDeletion(() async => throw StateError('503')), 'unconfirmed');
@@ -262,6 +267,76 @@ void main() {
       expect((await store.context())?['inactive_reason'], 'writer:official_account_required');
     });
 
+    test('center deleted but local confirm failed (local_pending): marker, notice, message, zero sends, re-request', () async {
+      // Sol 4차 1: 실제 게이트·community.db·업로더로 확인한다. 중앙은 성공, 로컬 확정만 실패.
+      final server = FakeAccountServer();
+      final g = gateWith(server);
+      expect((await g.refreshNow()).canEnter, isTrue);
+      final ns = projectNamespace('https://example.supabase.co');
+      await capture(_adapter(), sourceReportId: 'L1', trigger: 'realtime', store: store, projectNamespace: ns);
+      Future<List<String>> states() async => [
+            for (final r in await store.db.rawQuery("SELECT value FROM meta WHERE key LIKE 'deletion_pending:%'"))
+              (jsonDecode(r['value'] as String) as Map)['state'] as String
+          ];
+      CommunityUploadHooks.beginDeletion = () => beginDeletion(store: store);
+      CommunityUploadHooks.cancelDeletion = (id) => cancelDeletion(id, store: store);
+      CommunityUploadHooks.onContributionsDeleted = () => applyPendingDeletion(store: store);
+      CommunityUploadHooks.confirmDeletion = () async => throw StateError('disk full');
+      addTearDown(() {
+        CommunityUploadHooks.beginDeletion = null;
+        CommunityUploadHooks.cancelDeletion = null;
+        CommunityUploadHooks.onContributionsDeleted = null;
+        CommunityUploadHooks.confirmDeletion = null;
+      });
+
+      final outcome = await CommunityUploadHooks.requestDeletion(() async {});
+      expect(outcome, 'local_pending');
+      final cleaned = await g.handleContributionsDeleted();
+      expect(cleaned, isFalse, reason: 'prepared 표시가 남아 있으면 정리 완료로 보고하지 않는다');
+      expect(await states(), ['prepared']);
+      expect(g.notice, contains('삭제 요청을 다시 눌러'));
+      expect(deletionOutcomeMessage(outcome, cleaned: cleaned), contains('정리를 끝내지 못했습니다'));
+      expect(deletionOutcomeMessage(outcome, cleaned: cleaned), isNot(contains('삭제를 요청했습니다')));
+
+      var sends = 0;
+      final uploader = CommunityUploader(
+        gate: _AlwaysFresh(),
+        tokens: _Tok(),
+        appMode: () async => AppMode.standalone,
+        supabaseUrl: 'https://example.supabase.co',
+        publishableKey: 'sb_publishable_test',
+        clientVersion: '1.3.5',
+        httpClient: MockClient((req) async {
+          sends++;
+          return http.Response('{}', 500);
+        }),
+        openStore: () async => store,
+      );
+      final run = await uploader.requestCommunityUpload('manual');
+      expect((run.result, run.errorCode), ('deferred', 'deletion_cleanup_pending'));
+      expect(sends, 0);
+      final blocked = await store.db.rawQuery("SELECT blocked_reason FROM source_journal WHERE source_report_id='L1'");
+      expect(blocked.single['blocked_reason'], isNull, reason: '확정 전에는 적용하지 않는다(H-03c)');
+
+      // 사용자가 다시 요청 → 확정·적용, 성공 문구.
+      CommunityUploadHooks.confirmDeletion = () => confirmDeletion(store: store);
+      final again = await CommunityUploadHooks.requestDeletion(() async {});
+      expect(again, 'done');
+      final cleanedAgain = await g.handleContributionsDeleted();
+      expect(cleanedAgain, isTrue);
+      expect(await states(), isEmpty);
+      expect(deletionOutcomeMessage(again, cleaned: cleanedAgain), contains('삭제를 요청했습니다'));
+      final after = await store.db.rawQuery("SELECT blocked_reason FROM source_journal WHERE source_report_id='L1'");
+      expect(after.single['blocked_reason'], 'deleted_by_user');
+    });
+
+    test('local_pending whose retry cleans up shows the success message', () {
+      expect(deletionOutcomeMessage('local_pending', cleaned: true), contains('삭제를 요청했습니다'));
+      expect(deletionOutcomeMessage('done', cleaned: false), contains('정리를 끝내지 못했습니다'));
+      expect(deletionOutcomeMessage('unconfirmed'), contains('확인하지 못했습니다'));
+      expect(deletionOutcomeMessage('not_started'), contains('요청하지 않았습니다'));
+    });
+
     test('connection secret is 32 random bytes, never the same twice', () async {
       final secrets = <String>{};
       for (var i = 0; i < 2; i++) {
@@ -278,3 +353,30 @@ void main() {
     });
   });
 }
+
+class _AlwaysFresh implements CommunityGateCheck {
+  @override
+  Future<bool> requireFresh() async => true;
+  @override
+  void invalidate(String reason) {}
+}
+
+class _Tok implements CommunityTokenSource {
+  @override
+  Future<String?> getAccessToken() async => 'tok1';
+}
+
+Map<String, Object?> _adapter() => {
+      'processing_status': '수용',
+      'penalty_amount': '과태료: 40,000원',
+      'report_date': '2026-09-01',
+      'response_date': '2026-09-10',
+      'processing_agency': '서울특별시 중구청',
+      'person_in_charge': '홍길동',
+      'car_number': '12가3456',
+      'violation_location': '서울특별시 중구 세종대로 110',
+      'entry_value': '불법주정차신고',
+      'penalty_points': '',
+      'geocode': {'status': 'pending'},
+      'progress_status': '처리완료',
+    };

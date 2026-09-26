@@ -565,21 +565,13 @@ class _CommunityShareSectionState extends State<_CommunityShareSection> {
         // 로컬 표시 → 중앙 삭제 → 로컬 적용(Sol 2차 H-03a). 표시를 못 쓰면 중앙 삭제를 요청하지 않는다.
         final outcome = await CommunityUploadHooks.requestDeletion(
             () => widget.client.deleteContributions(accessToken: token));
-        if (outcome == 'not_started') {
-          if (mounted) {
-            setState(() => _message = '이 기기의 공유 저장소에 기록할 수 없어 삭제를 요청하지 않았습니다. 잠시 뒤 다시 시도해 주세요.');
-          }
-          return;
+        // 'done'·'local_pending' 은 중앙 삭제가 끝난 경우 — 정리 결과(남은 표시 여부)에 맞춰 안내한다(Sol 4차 1).
+        var cleaned = true;
+        if (outcome == 'done' || outcome == 'local_pending') {
+          cleaned = await _gate.handleContributionsDeleted();
         }
-        if (outcome == 'unconfirmed') {
-          if (mounted) {
-            setState(() => _message = '삭제 요청 결과를 확인하지 못했습니다. 확인될 때까지 업로드를 멈췄습니다. 네트워크를 확인한 뒤 다시 요청해 주세요.');
-          }
-          return;
-        }
-        await _gate.handleContributionsDeleted();
         if (mounted) {
-          setState(() => _message = '공유한 자료 삭제를 요청했습니다. 다음 게이트 통과 때 새 연결을 등록합니다.');
+          setState(() => _message = deletionOutcomeMessage(outcome, cleaned: cleaned));
         }
       } on CommunityAccountError catch (e) {
         if (mounted) setState(() => _message = e.message);

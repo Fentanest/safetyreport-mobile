@@ -21,8 +21,8 @@ class CommunityUploadHooks {
   /// T6 `catchUp(reason)` — resume·시작 시 보충 실행.
   static Future<void> Function(String reason)? catchUp;
 
-  /// T6 `onContributionsDeleted()` — 공유 자료 삭제 성공 뒤 대기 행 차단.
-  static Future<void> Function()? onContributionsDeleted;
+  /// T6 `onContributionsDeleted()` — 공유 자료 삭제 성공 뒤 확정된 표시 적용. 남은 표시가 없으면 true(Sol 4차 1).
+  static Future<bool> Function()? onContributionsDeleted;
 
   /// 중앙 삭제 요청 **전** 로컬 삭제 대기 표시(community.db). 실패하면 중앙 삭제를 요청하지 않는다(Sol 2차 H-03a).
   static Future<String> Function()? beginDeletion;
@@ -101,15 +101,31 @@ class CommunityUploadHooks {
     } catch (_) {}
   }
 
-  /// 로컬 차단까지 끝나면 true. 실패하면 false — 영속 표시가 남아 업로드·reshare 는 계속 막힌다(H-03).
+  /// 로컬 차단까지 끝나 남은 표시가 없으면 true. 적용 실패·표시 남음이면 false —
+  /// 영속 표시 때문에 업로드·reshare 는 계속 막힌다(H-03, Sol 4차 1).
   static Future<bool> contributionsDeletedNow() async {
     final fn = onContributionsDeleted;
     if (fn == null) return false;
     try {
-      await fn();
-      return true;
+      return await fn();
     } catch (_) {
       return false;
     }
   }
+}
+
+/// 삭제 요청 결과 → 설정 카드 문구. [cleaned] 는 중앙 삭제('done'·'local_pending') 뒤 다시 시도한 로컬 정리가
+/// 끝났는지(`handleContributionsDeleted`) — 'local_pending' 이어도 재시도가 끝났으면 성공 문구다.
+String deletionOutcomeMessage(String outcome, {bool cleaned = true}) {
+  switch (outcome) {
+    case 'not_started':
+      return '이 기기의 공유 저장소에 기록할 수 없어 삭제를 요청하지 않았습니다. 잠시 뒤 다시 시도해 주세요.';
+    case 'unconfirmed':
+      return '삭제 요청 결과를 확인하지 못했습니다. 확인될 때까지 업로드를 멈췄습니다. 네트워크를 확인한 뒤 다시 요청해 주세요.';
+  }
+  if (!cleaned) {
+    return '중앙에서는 삭제했지만 이 기기의 대기 사본 정리를 끝내지 못했습니다. 정리될 때까지 업로드를 멈췄습니다. '
+        '삭제 요청을 다시 눌러 주세요(여러 번 요청해도 안전합니다).';
+  }
+  return '공유한 자료 삭제를 요청했습니다. 다음 게이트 통과 때 새 연결을 등록합니다.';
 }

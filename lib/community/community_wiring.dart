@@ -48,7 +48,7 @@ class CommunityWiring {
       final uploader = await buildDefaultUploader(gate: gateCheck());
       await schedule.catchUp(reason, store: store, runUpload: uploader.requestCommunityUpload);
     };
-    CommunityUploadHooks.onContributionsDeleted = () => completed.applyPendingDeletion(store: store);
+    CommunityUploadHooks.onContributionsDeleted = () => completed.applyPendingDeletion(store: store); // 남은 표시 없음 = true
     CommunityUploadHooks.beginDeletion = () => completed.beginDeletion(store: store);
     CommunityUploadHooks.cancelDeletion = (id) => completed.cancelDeletion(id, store: store);
     CommunityUploadHooks.confirmDeletion = () => completed.confirmDeletion(store: store);

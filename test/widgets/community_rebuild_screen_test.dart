@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/community/community_store.dart';
 import 'package:safetyreport/community/rebuild/community_rebuild.dart';
 import 'package:safetyreport/screens/community_rebuild_screen.dart';
+import 'package:safetyreport/services/community_server_link_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// 화면이 쓰는 진입점만 가진 메모리 상태기계. DB 를 건드리지 않는다.
@@ -58,6 +59,25 @@ class _MemoryRebuild extends CommunityRebuild {
 
   @override
   Future<void> acceptGaps() async {}
+}
+
+/// 이전 버전 DB 를 비운 기존 사용자(2026-09-26).
+class _LegacyMemoryRebuild extends _MemoryRebuild {
+  _LegacyMemoryRebuild(super.store);
+
+  @override
+  Map<String, Object?>? get legacyReset =>
+      {'from_version': 10, 'backup': '/data/standalone_reports.db.legacy_v10.1.bak'};
+}
+
+/// 서버 상태를 돌려주는 가짜 Client.
+class _FakeServerClient extends CommunityServerRebuildClient {
+  const _FakeServerClient(this.data);
+  final Map<String, dynamic> data;
+
+  @override
+  Future<CommunityGateLinkResult> fetch(String baseUrl, String apiKey, String? token) async =>
+      CommunityGateLinkResult.success(data);
 }
 
 void main() {
@@ -111,6 +131,57 @@ void main() {
     expect(rebuild.starts, 1);
     expect(rebuild.state, RebuildStates.completed);
     expect(done, 1);
+  });
+
+  testWidgets('a legacy-reset user sees that the old DB was backed up and not carried over', (tester) async {
+    final rebuild = _LegacyMemoryRebuild(store);
+    addTearDown(rebuild.dispose);
+    await tester.pumpWidget(MaterialApp(home: CommunityRebuildScreen(rebuild: rebuild)));
+    await tester.pumpAndSettle();
+    final text = tester.widget<Text>(find.byKey(const Key('rebuildPreservedText'))).data!;
+    expect(text, contains('이전 버전 DB 는 이번 업데이트에서 새 구조로 옮기지 않았습니다'));
+    expect(text, contains('/data/standalone_reports.db.legacy_v10.1.bak'));
+    expect(text, isNot(contains(communityRebuildPreservedText)));
+  });
+
+  testWidgets('an existing user sees the usual preserved items', (tester) async {
+    final rebuild = _MemoryRebuild(store);
+    addTearDown(rebuild.dispose);
+    await tester.pumpWidget(MaterialApp(home: CommunityRebuildScreen(rebuild: rebuild)));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Text>(find.byKey(const Key('rebuildPreservedText'))).data, communityRebuildPreservedText);
+  });
+
+  testWidgets('client mode leaves at once when the server needs no rebuild', (tester) async {
+    var done = 0;
+    await tester.pumpWidget(MaterialApp(
+      home: CommunityRebuildScreen(
+        isClient: true,
+        serverClient: const _FakeServerClient({'required': false, 'state': 'completed'}),
+        onDone: () async => done++,
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(done, 1);
+  });
+
+  testWidgets('client mode stays and shows the legacy notice when the server still needs it', (tester) async {
+    var done = 0;
+    await tester.pumpWidget(MaterialApp(
+      home: CommunityRebuildScreen(
+        isClient: true,
+        serverClient: const _FakeServerClient({
+          'required': true,
+          'state': 'required',
+          'legacy_reset': {'from_version': 0, 'backup': '/data/backups/legacy_v0_20260926_000000.db'},
+        }),
+        onDone: () async => done++,
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(done, 0);
+    expect(tester.widget<Text>(find.byKey(const Key('rebuildPreservedText'))).data,
+        contains('/data/backups/legacy_v0_20260926_000000.db'));
   });
 
   testWidgets('client mode shows server wording', (tester) async {

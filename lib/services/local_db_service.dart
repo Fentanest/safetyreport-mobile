@@ -3,6 +3,7 @@ import '../models/editor_schema.dart';
 import '../models/rating_lookup.dart';
 import '../storage/schema_utils.dart';
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
@@ -48,6 +49,17 @@ class UnknownColumnsException implements Exception {
       '${columns.join(', ')}. 앱을 최신 버전으로 업데이트한 뒤 다시 시도하세요.';
 }
 
+/// 이전(또는 모르는 새) 버전 DB — 2026-09-26 초기화 크롤링 릴리스는 이전 DB 를 새 구조로 옮기지 않는다.
+/// 가져오기·복원은 이 오류로 멈추고(무엇이든 바꾸기 전에), 앱의 기존 DB 는 [LocalDbService.resetLegacyDatabase] 가 백업 뒤 비운다.
+/// 서버 core/storage/exchange.py 의 LegacyDatabaseRefused 와 같은 규칙·문구.
+class LegacyDatabaseException implements Exception {
+  LegacyDatabaseException(this.message);
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 class LocalDbService {
   static Database? _db;
   static Future<Database>? _initFuture;
@@ -78,13 +90,16 @@ class LocalDbService {
   /// 다른 서비스가 reports 를 직접 고친 뒤 부른다(화면 캐시 비우기 — M-5).
   static void invalidateCaches() => _invalidateProjectRowsCache();
 
+  /// 데모 계정(심사용) DB 파일 이름.
+  static const demoDbFileName = 'standalone_reports_demo.db';
+
   static Future<String> getDbPath() async {
     final dbPath = await getDatabasesPath();
     final prefs = await SharedPreferences.getInstance();
     final demo = prefs.getBool(AppPrefsKeys.standaloneDemoMode) ?? false;
     return join(
       dbPath,
-      demo ? 'standalone_reports_demo.db' : 'standalone_reports.db',
+      demo ? demoDbFileName : 'standalone_reports.db',
     );
   }
 
@@ -183,17 +198,283 @@ class LocalDbService {
   /// 앱 DB 스키마 버전. contracts/storage-contract.json 의 schema_version.mobile 과 같아야 한다(테스트가 확인).
   static const dbVersion = 15;
 
+  /// 서버 DB 스키마 버전(PRAGMA user_version). contracts/storage-contract.json 의 schema_version.server 와 같아야 한다(테스트가 확인).
+  /// 서버 DB 가져오기는 정확히 이 버전만 받는다(이전 버전 서버 DB 는 거절).
+  static const serverSchemaVersion = 4;
+
   static Future<Database> _open() async {
     final path = await getDbPath();
-    await backupBeforeUpgrade(path);
+    // [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스] 이전 버전 DB 는 옮기지 않고 백업 뒤 비운다.
+    // await backupBeforeUpgrade(path);
+    // 데모 DB(심사용 합성 데이터)는 실제 계정의 커뮤니티 데이터셋과 무관하다 — 선회전하지 않는다(Sol 재검증 2).
+    await resetLegacyDatabase(
+      path,
+      beforeReset: basename(path) == demoDbFileName ? () async {} : null,
+    );
     final database = await openDatabase(
       path,
       version: dbVersion,
       onCreate: _create,
-      onUpgrade: _migrateLocalDatabase,
+      // [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스]
+      // onUpgrade: _migrateLocalDatabase,
+      onUpgrade: _refuseLegacyUpgrade,
     );
     await _ensureEffectiveView(database);
     return database;
+  }
+
+  /// 업데이트 로직 대신: 이전 버전 파일이 여기까지 오면(비우기를 거치지 않은 경로) 옮기지 않고 멈춘다.
+  /// sqflite 는 onUpgrade 가 없으면 옛 구조에 새 버전 번호만 적으므로 비워 두지 않는다.
+  static Future<void> _refuseLegacyUpgrade(Database db, int oldV, int newV) async {
+    throw LegacyDatabaseException(
+      '이전 버전 앱 DB(스키마 $oldV)는 이번 업데이트에서 옮기지 않습니다(지금 $newV). '
+      '초기화 크롤링으로 안전신문고에서 다시 수집하세요.',
+    );
+  }
+
+  /// 가져올 DB 의 스키마 버전이 이 앱과 정확히 같아야 한다(서버 exchange.refuse_other_version 과 같은 규칙).
+  static void _refuseOtherVersion(int version, int expected, String label) {
+    if (version < expected) {
+      throw LegacyDatabaseException(
+        '이전 버전 $label DB(스키마 $version)는 가져올 수 없습니다(지금 $expected). '
+        '이번 업데이트는 이전 DB 를 옮기지 않습니다 — 초기화 크롤링으로 안전신문고에서 다시 수집하세요.',
+      );
+    }
+    if (version > expected) {
+      throw LegacyDatabaseException(
+        '더 새 버전 $label DB(스키마 $version)는 가져올 수 없습니다(지금 $expected). 앱을 먼저 업데이트하세요.',
+      );
+    }
+  }
+
+  static const legacyResetMetaKey = 'legacy_reset';
+
+  /// 이전 버전 DB 를 비울 때 옮기는 코드 없이 남기는 자료: 감시목록(sync_meta 의 watchlist 값)과 지오코딩 캐시(구조가 같을 때만).
+  /// 서버 LEGACY_KEEP_TABLES 의 감시목록·지오코딩 캐시와 같다(관리자·API 키는 서버 전용).
+  static const legacyKept = ['watchlist', 'geocode_cache'];
+
+  /// 이전 버전 DB(저장된 버전 1 이상, [dbVersion] 미만)면 **파일을 바꾸지 않고 그 자리에서** 한 쓰기 트랜잭션(`BEGIN IMMEDIATE`)으로:
+  /// 버전 재확인 → 남길 자료(감시목록 `sync_meta['watchlist']`, 열 구성이 같은 지오코딩 캐시) 읽기 → 별도 읽기 연결의
+  /// 일관된 사본 `<db>.legacy_v<옛 버전>.<epoch ms>.bak`([copyDatabaseConsistent], WAL 에만 있던 쓰기 포함, 구형 Android 가능) + 무결성 검사 → [beforeReset](기본: 커뮤니티 dataset 선회전,
+  /// 실패하면 아무것도 바꾸지 않음) → 표·보기 전부 DROP → 지금 스키마 CREATE → 남길 자료·`sync_meta[legacy_reset]` 기록 → 버전 → COMMIT.
+  /// 반환: {from_version, backup, kept, dropped, at} (이전 버전 DB 가 아니거나 다른 연결이 먼저 끝냈으면 null).
+  /// 열린 DB 의 WAL 삭제·파일 이름 교체는 SQLite 가 손상 경로로 꼽으므로 하지 않는다(Sol 재검증 3). 트랜잭션 동안 다른 연결의 쓰기는 잠김 오류로 실패한다.
+  /// 서버 database.reset_legacy_database 와 같은 규칙(잠금 안 재확인·한 트랜잭션).
+  @visibleForTesting
+  static Future<Map<String, Object?>?> resetLegacyDatabase(
+    String path, {
+    Future<void> Function()? beforeReset,
+  }) async {
+    if (!File(path).existsSync()) return null;
+    final db = await openDatabase(path, singleInstance: false);
+    try {
+      final first = await db.getVersion();
+      if (first < 1 || first >= dbVersion) return null;
+      await db.rawQuery('PRAGMA busy_timeout=30000');
+      Map<String, Object?>? info;
+      await db.transaction((txn) async {
+        final version = Sqflite.firstIntValue(await txn.rawQuery('PRAGMA user_version')) ?? 0;
+        if (version < 1 || version >= dbVersion) return; // 다른 연결이 먼저 끝냈다
+        final oldTables = [
+          for (final r in await txn.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+          ))
+            r['name'] as String,
+        ];
+        Object? watchlist;
+        if (oldTables.contains('sync_meta')) {
+          final rows = await txn.rawQuery(
+            "SELECT value FROM sync_meta WHERE key = 'watchlist' AND value IS NOT NULL",
+          );
+          if (rows.isNotEmpty) watchlist = rows.first['value'];
+        }
+        var geoInfo = const <Map<String, Object?>>[];
+        var geoRows = const <Map<String, Object?>>[];
+        if (oldTables.contains('geocode_cache')) {
+          geoInfo = await txn.rawQuery('PRAGMA table_info("geocode_cache")');
+          geoRows = await txn.query('geocode_cache');
+        }
+
+        final backup = '$path.legacy_v$version.${DateTime.now().millisecondsSinceEpoch}.bak';
+        await _backupChecked(path, backup);
+        await (beforeReset ?? () => _rotateCommunityDataset('legacy_reset'))();
+
+        for (final r in await txn.rawQuery("SELECT name FROM sqlite_master WHERE type='view'")) {
+          await txn.execute('DROP VIEW "${r['name']}"');
+        }
+        // 가상 표(FTS 등)를 먼저 지운다 — 그 보조 표를 함께 지우므로 나머지는 IF EXISTS(Sol 재검증 5).
+        final virtualTables = [
+          for (final r in await txn.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type='table' AND sql LIKE 'CREATE VIRTUAL TABLE%'",
+          ))
+            r['name'] as String,
+        ];
+        for (final name in virtualTables) {
+          await txn.execute('DROP TABLE "$name"');
+        }
+        for (final name in oldTables) {
+          await txn.execute('DROP TABLE IF EXISTS "$name"');
+        }
+        await _createSchema(txn);
+        final kept = <String>[];
+        if (watchlist != null) {
+          await txn.insert('sync_meta', {'key': 'watchlist', 'value': watchlist},
+              conflictAlgorithm: ConflictAlgorithm.replace);
+          kept.add('watchlist');
+        }
+        if (geoInfo.isNotEmpty &&
+            _columnSignature(geoInfo) ==
+                _columnSignature(await txn.rawQuery('PRAGMA table_info("geocode_cache")'))) {
+          final batch = txn.batch();
+          for (final row in geoRows) {
+            batch.insert('geocode_cache', row);
+          }
+          await batch.commit(noResult: true);
+          kept.add('geocode_cache');
+        }
+        final result = <String, Object?>{
+          'from_version': version,
+          'backup': backup,
+          'kept': kept,
+          'dropped': oldTables,
+          'at': DateTime.now().toIso8601String(),
+        };
+        await txn.insert('sync_meta', {'key': legacyResetMetaKey, 'value': jsonEncode(result)},
+            conflictAlgorithm: ConflictAlgorithm.replace);
+        await txn.execute('PRAGMA user_version = $dbVersion');
+        info = result;
+      });
+      return info;
+    } finally {
+      await db.close();
+    }
+  }
+
+  /// 별도 연결로 일관된 사본([copyDatabaseConsistent])을 만든다. 실패하면 사본을 지우고 예외(개인 DB 무변경).
+  static Future<void> _backupChecked(String path, String target) =>
+      copyDatabaseConsistent(path, target);
+
+  /// [sourcePath] 의 일관된 사본을 [target] 에 만든다 — `VACUUM INTO` 를 쓰지 않는다: 그 명령은 SQLite 3.27 부터라
+  /// Android 7~10(API 24~29, 기본 SQLite 3.9~3.22)에서 실패한다(Sol 재검증 4). 대신 새 파일에 원본을 ATTACH 하고
+  /// 한 읽기 트랜잭션(DEFERRED — 원본에는 읽기 잠금만)에서 원본 스키마(`sqlite_master.sql`)를 그대로 다시 만들고 표마다 `INSERT … SELECT *`,
+  /// `sqlite_sequence`·`user_version` 도 옮긴다. 같은 트랜잭션이라 표 사이에도 같은 시점이고 WAL 에만 있던 쓰기도 들어간다.
+  /// 끝나면 표별 행 수 비교와 `integrity_check`. 어긋나면 사본을 지우고 예외. 초기화 크롤링 사전 백업도 쓴다.
+  static Future<void> copyDatabaseConsistent(String sourcePath, String target) async {
+    Future<void> removeTarget() async {
+      for (final f in [target, '$target-wal', '$target-shm', '$target-journal']) {
+        final file = File(f);
+        if (file.existsSync()) await file.delete();
+      }
+    }
+
+    await removeTarget();
+    final copy = await openDatabase(target, singleInstance: false);
+    var ok = false;
+    try {
+      await copy.execute('ATTACH DATABASE ? AS src', [sourcePath]);
+      try {
+        await copy.execute('BEGIN');
+        try {
+          final objects = await copy.rawQuery(
+            "SELECT type, name, sql FROM src.sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY rowid",
+          );
+          bool isVirtual(Map<String, Object?> o) =>
+              RegExp(r'^\s*CREATE\s+VIRTUAL\s+TABLE', caseSensitive: false).hasMatch(o['sql'] as String);
+          Future<bool> existsInCopy(String name) async => (await copy.rawQuery(
+                'SELECT 1 FROM main.sqlite_master WHERE name = ?',
+                [name],
+              )).isNotEmpty;
+          final tableObjects = objects.where((o) => o['type'] == 'table').toList();
+          // 가상 표(FTS 등)를 먼저 만든다 — 그 보조(shadow) 표가 함께 생기므로 아래에서 다시 만들지 않는다(Sol 재검증 5).
+          for (final o in tableObjects.where(isVirtual)) {
+            await copy.execute(o['sql'] as String);
+          }
+          final copied = <String>[];
+          for (final o in tableObjects.where((o) => !isVirtual(o))) {
+            final name = o['name'] as String;
+            if (await existsInCopy(name)) {
+              await copy.execute('DELETE FROM main."$name"'); // 가상 표가 만든 보조 표: 원본 행으로 바꾼다
+            } else {
+              await copy.execute(o['sql'] as String);
+            }
+            copied.add(name);
+          }
+          // 가상 표 자체에는 넣지 않는다 — 내용은 방금 옮길 보조 표에 있다.
+          for (final t in copied) {
+            await copy.execute('INSERT INTO main."$t" SELECT * FROM src."$t"');
+          }
+          final hasSequence = (await copy.rawQuery(
+            "SELECT 1 FROM src.sqlite_master WHERE name = 'sqlite_sequence'",
+          )).isNotEmpty;
+          if (hasSequence) {
+            await copy.execute('DELETE FROM main.sqlite_sequence');
+            await copy.execute('INSERT INTO main.sqlite_sequence SELECT * FROM src.sqlite_sequence');
+          }
+          // 인덱스 → 보기 → 트리거(보기에 다는 INSTEAD OF 트리거는 보기가 있어야 한다, Sol 재검증 5). 데이터를 다 넣은 뒤라 트리거가 복사 중에 발동하지 않는다.
+          for (final type in const ['index', 'view', 'trigger']) {
+            for (final o in objects.where((o) => o['type'] == type)) {
+              if (await existsInCopy(o['name'] as String)) continue; // 가상 표가 이미 만든 것
+              await copy.execute(o['sql'] as String);
+            }
+          }
+          final tables = copied;
+          final version = Sqflite.firstIntValue(await copy.rawQuery('PRAGMA src.user_version')) ?? 0;
+          await copy.execute('PRAGMA main.user_version = $version');
+          for (final t in tables) {
+            final a = Sqflite.firstIntValue(await copy.rawQuery('SELECT count(*) FROM src."$t"'));
+            final b = Sqflite.firstIntValue(await copy.rawQuery('SELECT count(*) FROM main."$t"'));
+            if (a != b) throw LegacyDatabaseException('DB 사본의 $t 행 수가 다릅니다($a → $b).');
+          }
+          await copy.execute('COMMIT');
+        } catch (_) {
+          try {
+            await copy.execute('ROLLBACK');
+          } catch (_) {}
+          rethrow;
+        }
+      } finally {
+        await copy.execute('DETACH DATABASE src');
+      }
+      final result = (await copy.rawQuery('PRAGMA integrity_check')).first.values.first.toString();
+      if (result != 'ok') throw LegacyDatabaseException('DB 사본 무결성 검사 실패: $result');
+      ok = true;
+    } finally {
+      await copy.close();
+      if (!ok) {
+        try {
+          await removeTarget();
+        } catch (_) {}
+      }
+    }
+  }
+
+  /// 열 구성 비교용(PRAGMA table_info): 이름·타입·NOT NULL·기본값·기본키.
+  static String _columnSignature(List<Map<String, Object?>> rows) => [
+        for (final r in rows)
+          '${r['name']}|${(r['type'] ?? '').toString().toUpperCase()}|${r['notnull']}|${r['dflt_value']}|${r['pk']}',
+      ].join(',');
+
+  /// 초기화 크롤링 판정용: (개인 DB 신고 수, 이전 DB 를 비운 기록). 열지 못하면 신고 수 null(새 설치로 보지 않음).
+  /// DB 를 여는 김에 이전 버전 DB 비우기가 먼저 일어난다.
+  static Future<({int? reports, Map<String, Object?>? legacyReset})> personalDbFacts() async {
+    try {
+      final d = await db;
+      final count = Sqflite.firstIntValue(await d.rawQuery('SELECT COUNT(*) FROM reports')) ?? 0;
+      final meta = await d.query('sync_meta',
+          columns: ['value'], where: 'key = ?', whereArgs: [legacyResetMetaKey], limit: 1);
+      Map<String, Object?>? legacy;
+      if (meta.isNotEmpty && meta.first['value'] != null) {
+        try {
+          final decoded = jsonDecode(meta.first['value'] as String);
+          if (decoded is Map) legacy = Map<String, Object?>.from(decoded);
+        } catch (_) {
+          legacy = {'raw': meta.first['value']};
+        }
+      }
+      return (reports: count, legacyReset: legacy);
+    } catch (_) {
+      return (reports: null, legacyReset: null);
+    }
   }
 
   /// 목록 API 로 받은 값으로 이미 저장된 신고의 목록 값을 갱신한다(서버 database.title_to_sql 과 같은 규칙).
@@ -492,6 +773,8 @@ class LocalDbService {
       """);
   }
 
+  // [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스] 호출하는 곳(onUpgrade)을 주석 처리했다. 다음 스키마 변경 때 다시 켠다.
+  // ignore: unused_element
   static Future<void> _migrateLocalDatabase(
     Database db,
     int oldV,
@@ -624,7 +907,10 @@ class LocalDbService {
     await addColumnIfMissing(db, 'reports', '사진_촬영수', 'INTEGER');
   }
 
-  static Future<void> _create(Database db, int version) async {
+  static Future<void> _create(Database db, int version) => _createSchema(db);
+
+  /// 지금 스키마의 표 전부(새 DB·이전 버전 DB 비우기가 같이 쓴다).
+  static Future<void> _createSchema(DatabaseExecutor db) async {
     await db.execute('''
       CREATE TABLE reports (
         ID              TEXT PRIMARY KEY,
@@ -2855,7 +3141,9 @@ class LocalDbService {
       path,
       version: dbVersion,
       onCreate: _create,
-      onUpgrade: _migrateLocalDatabase,
+      // [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스]
+      // onUpgrade: _migrateLocalDatabase,
+      onUpgrade: _refuseLegacyUpgrade,
     );
     await _ensureEffectiveView(database);
     return database;
@@ -3033,6 +3321,8 @@ class LocalDbService {
     Database? localDb;
 
     try {
+      // 이전(또는 더 새) 버전 서버 DB 는 가져오지 않는다(2026-09-26 초기화 크롤링 릴리스).
+      _refuseOtherVersion(await serverDb.getVersion(), serverSchemaVersion, '서버');
       await _validateServerDbSchema(serverDb);
 
       stagingDir = await Directory.systemTemp.createTemp(
@@ -3295,8 +3585,10 @@ class LocalDbService {
       if (version > dbVersion) {
         throw Exception('더 새 버전 앱에서 만든 백업입니다(v$version). 앱을 업데이트한 뒤 복원하세요.');
       }
+      // 이전 버전 앱 DB 는 옮기지 않는다(2026-09-26 초기화 크롤링 릴리스) — 예전엔 여기서 마이그레이션했다.
+      _refuseOtherVersion(version, dbVersion, '모바일 앱');
 
-      staged = await _createImportTargetDb(stagedPath); // 구버전이면 여기서 마이그레이션
+      staged = await _createImportTargetDb(stagedPath);
       await staged.delete(
         'sync_meta',
         where: 'key = ?',

@@ -86,21 +86,29 @@ void main() {
     return path;
   }
 
-  test('older app backup is migrated and swapped in', () async {
-    final path = await makeBackup(
-      'old-1',
-      version: 10,
-      dropColumns: ['사진_첫촬영', '사진_끝촬영', '사진_촬영수'],
-    );
-    expect(await _ids(), {'live'});
+  for (final version in [10, 11, 14]) {
+    test('older app backup (v$version) is refused, not migrated, and the live DB is untouched', () async {
+      final path = await makeBackup(
+        'old-$version',
+        version: version,
+        dropColumns: version <= 10 ? ['사진_첫촬영', '사진_끝촬영', '사진_촬영수'] : [],
+      );
+      expect(await _ids(), {'live'});
+      await expectLater(
+        LocalDbService.replaceFromBackup(path),
+        throwsA(isA<LegacyDatabaseException>().having(
+            (e) => e.toString(), 'message', contains('이전 버전 모바일 앱 DB(스키마 $version)'))),
+      );
+      expect(await _ids(), {'live'});
+      expect(await (await LocalDbService.db).getVersion(), LocalDbService.dbVersion);
+      expect(await LocalDbService.latestImportBackup(), isNull, reason: '교체하지 않았으니 before_import 사본도 없다');
+    });
+  }
+
+  test('a backup from this app version is swapped in', () async {
+    final path = await makeBackup('cur-1');
     await LocalDbService.replaceFromBackup(path);
-    expect(await _ids(), {'old-1'});
-    final d = await LocalDbService.db;
-    expect(await d.getVersion(), LocalDbService.dbVersion);
-    final cols = (await d.rawQuery(
-      'PRAGMA table_info(reports)',
-    )).map((r) => r['name']).toSet();
-    expect(cols, containsAll(['사진_첫촬영', '사진_촬영수']));
+    expect(await _ids(), {'cur-1'});
   });
 
   test(
@@ -134,11 +142,23 @@ void main() {
   });
 
   test('no staging directories are left behind', () async {
-    final path = await makeBackup('old-2', version: 11, dropColumns: []);
+    // 시스템 임시 폴더는 병렬로 도는 다른 테스트 파일의 복원도 잠깐 쓴다. 이 테스트 전부터 있던 것은 빼고,
+    // 새로 생긴 것 중 잠시 뒤에도 남아 있는 것(= 실제로 정리되지 않은 것)만 실패로 본다.
+    Set<String> staging() => Directory.systemTemp
+        .listSync()
+        .where((e) => e.path.contains('mysafetyreport_restore_staged_'))
+        .map((e) => e.path)
+        .toSet();
+    final before = staging();
+    final path = await makeBackup('cur-2');
     await LocalDbService.replaceFromBackup(path);
-    final leftovers = Directory.systemTemp.listSync().where(
-      (e) => e.path.contains('mysafetyreport_restore_staged_'),
-    );
+    final refused = await makeBackup('old-2', version: 11, dropColumns: []);
+    await expectLater(LocalDbService.replaceFromBackup(refused), throwsA(isA<LegacyDatabaseException>()));
+    var leftovers = staging().difference(before);
+    for (var i = 0; i < 50 && leftovers.isNotEmpty; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      leftovers = leftovers.intersection(staging());
+    }
     expect(leftovers, isEmpty);
   });
 }

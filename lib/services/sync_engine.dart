@@ -162,12 +162,35 @@ class SyncEngine {
   /// null 이면 scope 검사를 건너뛴다(연결 전 — REQUESTS.md).
   static Future<bool> Function()? ensureManifestFresh;
 
+  /// 초기화 크롤링이 필요하거나 진행 중이면 true — 그때는 일반(증분·전체) 동기화를 시작하지 않는다
+  /// (PC community_gate.crawl_block 의 409 COMMUNITY_REBUILD_REQUIRED 와 같음). main 이 standalone 판정으로 설치한다.
+  /// 확인이 실패하면 막는다(fail-closed). 초기화 run 자신(rebuildRunId)은 막지 않는다.
+  static Future<bool> Function()? rebuildBlocks;
+
+  static const rebuildBlockedMessage = '초기화 크롤링이 필요합니다. 먼저 초기화 크롤링을 완료해 주세요.';
+
   static Future<SyncRunResult> start(
       {bool fullSync = false, String? rebuildRunId}) async {
     if (_running) {
       return const SyncRunResult(done: 0, errors: 0);
     }
     _running = true;
+    final blocks = rebuildBlocks;
+    if (rebuildRunId == null && blocks != null) {
+      bool blocked;
+      try {
+        blocked = await blocks();
+      } catch (_) {
+        blocked = true;
+      }
+      if (blocked) {
+        _running = false;
+        _log('[community] $rebuildBlockedMessage');
+        _emit(SyncEvent(type: SyncEventType.error, message: rebuildBlockedMessage));
+        return const SyncRunResult(
+            done: 0, errors: 0, failed: true, errorMessage: rebuildBlockedMessage);
+      }
+    }
     _stopRequested = false;
     _lastChanges = [];
     await acquireFgs(fullSync ? '전체 재동기화 진행 중...' : '증분 동기화 진행 중...');
@@ -224,6 +247,11 @@ class SyncEngine {
 
     if (totalCount == 0) {
       _log('신고 내역이 없습니다.');
+      if (isRebuild) {
+        // 정상 인증의 빈 목록(총 0건)도 목록 탐색 완료 → completed (rebuild.md). 예전엔 여기서 돌아가 list_complete 가
+        // 안 적혀 0건 계정이 초기화를 끝낼 수 없었다. PC start.py 와 같은 규칙.
+        await markRebuildListComplete(community.store!, rebuildRunId);
+      }
       await _saveSyncTime();
       _emit(SyncEvent(type: SyncEventType.done, total: 0));
       return SyncRunResult(done: 0, errors: 0, rebuildRunId: rebuildRunId);
@@ -315,7 +343,7 @@ class SyncEngine {
           .toSet();
       await registerRebuildItems(store, rebuildRunId, ids);
       // 전 페이지 성공(빈 목록 0건 포함)만 list_complete — PC start.py 와 같은 규칙.
-      await store.db.rawUpdate('UPDATE rebuild_jobs SET list_complete=1 WHERE run_id=?', [rebuildRunId]);
+      await markRebuildListComplete(store, rebuildRunId);
       final rows = await store.db.rawQuery(
         'SELECT source_report_id, state, last_list_label FROM rebuild_items WHERE run_id=?',
         [rebuildRunId],
@@ -526,6 +554,11 @@ class SyncEngine {
         'state': 'pending',
       }, conflictAlgorithm: ConflictAlgorithm.ignore);
     }
+  }
+
+  /// 목록 전 페이지 성공(빈 목록 0건 포함) 표시 — 이것이 있어야 초기화가 validating 으로 넘어간다.
+  static Future<void> markRebuildListComplete(CommunityStore store, String runId) async {
+    await store.db.rawUpdate('UPDATE rebuild_jobs SET list_complete=1 WHERE run_id=?', [runId]);
   }
 
   /// rebuild 수집 대상: fetched 는 건너뛴다(재개).

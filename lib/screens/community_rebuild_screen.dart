@@ -66,6 +66,15 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen> {
   CommunityAuthService get _auth =>
       widget.auth ?? CommunityAuthService.instance;
 
+  /// 이전 버전 DB 를 비운 기록(기존 사용자 안내). Standalone 은 로컬 판정, Client 는 서버 상태의 legacy_reset.
+  Map<String, Object?>? get _legacyReset {
+    if (widget.isClient) {
+      final v = _serverJob?['legacy_reset'];
+      return v is Map ? v.cast<String, Object?>() : null;
+    }
+    return widget.rebuild?.legacyReset;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -109,6 +118,9 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen> {
       if (!mounted) return;
       if (res.isOk) {
         setState(() => _serverJob = res.data);
+        // 서버가 초기화 필요 없음(완료했거나 새 설치)이라고 하면 이 화면에 머물지 않는다.
+        // 예전엔 완료된 서버에서도 앱을 켤 때마다 시작 버튼을 눌러야 했다.
+        if (res.data?['required'] == false) await widget.onDone?.call();
       } else if (res.needsOnboarding) {
         setState(() => _error = '서버에서 커뮤니티 설정을 먼저 완료해야 합니다.');
       } else {
@@ -161,12 +173,16 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            const Card(
+            Card(
               child: Padding(
-                padding: EdgeInsets.all(16),
+                padding: const EdgeInsets.all(16),
                 child: Text(
-                  communityRebuildPreservedText,
-                  style: TextStyle(fontSize: 12.5, height: 1.5),
+                  _legacyReset == null
+                      ? communityRebuildPreservedText
+                      : '$communityRebuildLegacyText'
+                          '${_legacyReset!['backup'] == null ? '' : '\n백업: ${_legacyReset!['backup']}'}',
+                  key: const Key('rebuildPreservedText'),
+                  style: const TextStyle(fontSize: 12.5, height: 1.5),
                 ),
               ),
             ),

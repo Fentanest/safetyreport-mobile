@@ -366,7 +366,37 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
   서버 DB 가져오기는 `mysafety` + `mysafetydetail_*` 를 읽고(구서버만 merge), 6개월 지난 첨부는 `attachment_policy.dart` 로 화면에서 가림.
   `upsertReport(…, ratingLookup:)` 는 UPDATE 로 사이트·계산 열만 쓴다. 데모 계정은 `standalone_reports_demo.db`(설정 키 `standaloneDemoMode`). DB v13.
 
-## 앱 업데이트 때 DB 처리 (2026-09-25)
+## 이전 버전 DB 처리 — 초기화 크롤링 릴리스 (2026-09-27, 서버 레포와 함께)
+이번 릴리스는 이전 DB 를 새 구조로 옮기지 않는다. 아래 "앱 업데이트 때 DB 처리" 의 업데이트 로직(`onUpgrade: _migrateLocalDatabase`, `backupBeforeUpgrade`)은
+`lib/services/local_db_service.dart` 의 `_open`·`_createImportTargetDb` 에서 **주석으로 남겨 비활성**했다(함수 본체는 다음 스키마 변경 때 다시 켜려고 남김).
+- `_open`: 먼저 `resetLegacyDatabase(path)`. 저장 버전이 1 이상 `dbVersion` 미만이면 **파일을 바꾸지 않고 그 자리에서** 한 쓰기 트랜잭션(`BEGIN IMMEDIATE`)으로:
+  버전 재확인(다른 연결이 먼저 끝냈으면 아무것도 안 함) → 남길 자료(감시목록 `sync_meta['watchlist']`, 열 구성이 같은 `geocode_cache`) 읽기 →
+  별도 연결의 일관된 사본(`LocalDbService.copyDatabaseConsistent`: 새 파일에 원본을 ATTACH 해 한 읽기 트랜잭션으로 스키마·표·`sqlite_sequence`·`user_version` 을 옮기고 표별 행 수·integrity_check 확인 — `VACUUM INTO` 는 SQLite 3.27 부터라 Android 7~10 에서 실패해 쓰지 않는다) → `<db>.legacy_v<옛 버전>.<epoch ms>.bak`
+  (파일 복사가 아니라 WAL 에만 있던 쓰기까지 담는다 — Sol 검토 2, 구형 Android — Sol 재검증 4)
+  사본은 가상 표(FTS 등)를 먼저 만들어 그 보조 표는 다시 만들지 않고 원본 행으로 채우며, 인덱스 → 보기 → 트리거 순서(보기의 INSTEAD OF 트리거)로 만든다(Sol 재검증 5).
+  비우기도 가상 표를 먼저 DROP 한다.
+  → 커뮤니티 dataset 선회전(실패하면 ROLLBACK, 아무것도 안 바뀜) → 표·보기 전부 DROP → `_createSchema` → 남길 자료와
+  `sync_meta['legacy_reset']` = `{from_version, backup, kept, dropped, at}` 기록 → `PRAGMA user_version = dbVersion` → COMMIT.
+  트랜잭션 동안 다른 연결의 쓰기는 잠김 오류로 실패한다(백업에도 새 DB 에도 없는 쓰기가 생기지 않게, Sol 재검증 1). 열린 DB 의 WAL 삭제·파일 이름 교체는
+  SQLite 가 손상 경로로 꼽으므로 하지 않는다(Sol 재검증 3). 데모 DB(`demoDbFileName`)를 비울 때는 커뮤니티 dataset 을 선회전하지 않는다(Sol 재검증 2).
+  수정값·중복 판단·메모·신고는 옮기지 않는다(백업에만 남음). 초기화 크롤링이 신고를 다시 채운다.
+- `onUpgrade` 는 `_refuseLegacyUpgrade`(옛 버전이 비우기를 거치지 않고 여기 오면 `LegacyDatabaseException` 으로 멈춤 — sqflite 는 onUpgrade 가 없으면 옛 구조에 새 번호만 적는다).
+- 가져오기 거절(`_refuseOtherVersion`, 서버 `exchange.refuse_other_version` 과 같은 규칙·문구): 서버 DB 가져오기는 `user_version == LocalDbService.serverSchemaVersion`(계약
+  `schema_version.server`, 테스트가 확인), 앱 백업 복원·직전 DB 되돌리기는 `version == dbVersion` 만 받는다. 아니면 `LegacyDatabaseException`
+  (`이전 버전 {서버|모바일 앱} DB(스키마 N)는 가져올 수 없습니다(지금 M). …` / `더 새 버전 …`) — 스테이징·교체 전에 멈춘다. Client 모드의 복원은 서버가 같은 규칙으로 409.
+- 초기화 크롤링(`lib/community/rebuild/community_rebuild.dart`): 새 설치(`personalDbFacts`: 신고 0건 ∧ `legacy_reset` 없음)는 필요 없음 — 공식 계정이 있으면 완료 기준선
+  (`confirmed_at='fresh_install'`)을 적는다. `legacy_reset` 이 있으면 필요하고 안내 화면이 보존 항목 대신 이전 DB 백업·비움 안내(`communityRebuildLegacyText`)를 보인다.
+  Client 는 서버 상태의 `required=false` 면 안내 화면을 바로 지나가고, 서버의 `legacy_reset` 을 같은 문구로 보인다.
+- 데모(심사용 합성 데이터, `standalone_reports_demo.db`)는 초기화 대상이 아니다: `main.dart rebuildAppliesOnDevice` = Standalone ∧ 데모 아님(첫 데모 로그인이 시드한
+  신고 때문에 초기화 화면이 나오지 않게, Sol 검토 4). 판정·안내 화면·동기화 차단 모두 이 조건을 쓴다.
+- 일반 동기화 차단: `SyncEngine.rebuildBlocks`(main 이 Standalone 판정으로 설치)가 true 거나 판정이 실패하면 `SyncEngine.start`(초기화 run 제외)가
+  네트워크 전에 `rebuildBlockedMessage` 로 끝난다(서버 크롤 409 와 같음). 게이트 통과 직후 공유 대기열 처리도 여기서 막힌다.
+- 함께 고친 초기화 결함: 목록이 0건인 계정도 `list_complete=1` 로 완료된다(예전엔 끝낼 수 없었음), 같은 run 재시도의 사전 백업은 지난 사본을 지우고
+  다시 만든다(예전엔 대상 파일이 있어 실패), 무결성 검사는 만든 사본에서 한다(예전엔 원본을 검사). 사전 백업도 `VACUUM INTO` 대신 같은 일관된 사본을 쓴다
+  (예전엔 Android 7~10 에서 백업이 실패해 초기화 크롤링을 시작할 수 없었다).
+- 계약: `contracts/community-ingest/rebuild.md` "이전 버전 개인 DB"(map 레포 원본의 사본).
+
+## 앱 업데이트 때 DB 처리 (2026-09-25) — 2026-09-27 부터 비활성(위 절)
 - DB 를 열 때 sqflite 가 저장된 버전을 보고 `_migrateLocalDatabase` 로 `LocalDbService.dbVersion`(현재 15)까지 올린다. sqflite 가 이 과정을 한 트랜잭션으로 돌려 실패하면 통째로 되돌아간다.
 - 올리기 전에 `LocalDbService.backupBeforeUpgrade` 가 DB 파일을 `<db>.pre_v<옛 버전>.<epoch ms>.bak` 로 복사한다(버전 없이 열어 WAL 을 합친 뒤 복사, 새 설치·이미 최신이면 건너뜀, 최근 3개 유지). 앱 데이터 폴더 안이라 앱을 지우면 함께 지워진다.
 - **이전 버전 앱으로 되돌리면 새 DB 를 열지 못한다**: 구조는 추가만 했지만 sqflite 가 버전 번호가 내려가는 것(onDowngrade 없음)을 막는다. 되돌릴 때는 `.pre_v<그 앱의 버전>` 백업을 원래 이름으로 바꾸거나, 앱 데이터를 지우고 다시 동기화한다(Standalone) / 서버에서 다시 받는다(Client).

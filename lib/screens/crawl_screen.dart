@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/app_mode.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
+import '../services/crawl_unresolved.dart';
 import '../services/local_db_service.dart';
 import '../services/sync_engine.dart';
 import '../widgets/auth_status_notice.dart';
@@ -24,6 +25,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
   final _queueController = TextEditingController();
 
   bool _isRunning = false;
+  List<CrawlUnresolved> _unresolved = const [];
   void _setRunning(bool val) {
     if (_isRunning == val) return;
     setState(() => _isRunning = val);
@@ -254,6 +256,10 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
     try {
       final status = await api.getCrawlStatus();
       final running = status['running'] == true;
+      final unresolved = CrawlUnresolved.fromStatus(status);
+      if (mounted && unresolved.length != _unresolved.length) {
+        setState(() => _unresolved = unresolved);
+      }
       if (running && !_isRunning) _connectWs(api);
       if (!running && _isRunning) {
         _ws?.close();
@@ -719,6 +725,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
                     SizedBox(height: 12),
 
                     _sectionTitle('2. 큐 (선택사항)'),
+                    if (_unresolved.isNotEmpty) _unresolvedNotice(),
                     TextField(
                       controller: _queueController,
                       maxLines: 3,
@@ -859,6 +866,38 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
         fontSize: 13,
         color: Theme.of(context).colorScheme.primary,
       ),
+    ),
+  );
+
+  /// 서버 대기 큐에서 처리하지 못한 번호(최근 5개).
+  Widget _unresolvedNotice() => Container(
+    width: double.infinity,
+    margin: const EdgeInsets.only(bottom: 8),
+    padding: const EdgeInsets.all(10),
+    decoration: BoxDecoration(
+      color: Theme.of(context).colorScheme.errorContainer,
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '처리하지 못한 신고번호',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 12,
+            color: Theme.of(context).colorScheme.onErrorContainer,
+          ),
+        ),
+        for (final u in _unresolved.take(5))
+          Text(
+            '${u.number} — ${u.message}',
+            style: TextStyle(
+              fontSize: 12,
+              color: Theme.of(context).colorScheme.onErrorContainer,
+            ),
+          ),
+      ],
     ),
   );
 

@@ -74,5 +74,15 @@ release 에서 비었거나 자리표시자(`<`·`...`·`PROJECT_REF`·`example.
 - `geocode_cache` 쓰기 경로는 `LocalGeocodeService._persistCacheRecord` 하나뿐
   (source='kakao', 공식 주소 해석). 사용자 수정 쓰기 경로 없음 — capture 는
   상태·source 를 걸러 공식 결과만 읽는다.
-- 계약 벡터에 `event_decisions` 파일이 없다. event 결정은 observation.md 4절
-  문장으로 구현하고 `capture_test.dart` 로 검증했다 (T0 확인 요청 — REQUESTS.md).
+- event 결정 벡터는 `vectors/observations.json` 의 `event_decisions`(10건)다(별도 파일 아님) —
+  `test/community/integration_contract_test.dart` 가 전부 검사한다(2026-09-26 통합).
+
+## 통합 연결 (2026-09-26, `lib/community/community_wiring.dart`)
+- `main.dart` 가 게이트 생성 직후 `CommunityWiring.wire()` 를 부른다: manifest 갱신(`refreshManifest` — upload lease 안에서
+  `POST community-ingest/manifest` 전 페이지, 형식·total·중복·dataset/epoch·토큰 검사), `SyncEngine.ensureManifestFresh`
+  (연결이 없으면 수집하지 않음), 자정·주기 작업 등록, 보충 실행, 삭제 뒤 대기 행 차단.
+- namespace 는 capture·uploader·자정 스케줄 모두 **공개 설정 URL** 로 계산한다(`projectNamespace(supabaseUrl)`).
+  `meta.project_namespace` 는 쓰지 않는다(통합 전에는 업로더가 이 미설정 값과 비교해 아무것도 올리지 못했다).
+- 포그라운드 업로드(지도 패널)는 게이트 60초 재검증(`LiveGateCheck`), 백그라운드 isolate 는 게이트 캐시
+  `community_gate_cache_v1`(게이트가 기록, ok·600초 이내만)를 쓴다.
+- 실제 로컬 스택 확인: `COMMUNITY_STACK=1 COMMUNITY_PUBLISHABLE_KEY=… flutter test --no-pub test/community/live_stack_test.dart`.

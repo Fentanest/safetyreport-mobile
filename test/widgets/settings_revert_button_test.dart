@@ -38,6 +38,7 @@ class _Provider extends ReportProvider {
 
 Future<void> _makeServerDb(String path, String name) async {
   final db = await openDatabase(path);
+  await db.setVersion(LocalDbService.serverSchemaVersion);
   await db.execute(
     'CREATE TABLE mysafetymerge_traffic (ID TEXT PRIMARY KEY, 신고번호 TEXT, 신고명 TEXT, 위반장소 TEXT)',
   );

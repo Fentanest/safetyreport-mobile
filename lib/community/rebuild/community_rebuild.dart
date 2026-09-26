@@ -42,6 +42,18 @@ const String communityRebuildPreservedText =
     '보존 항목: 관리자·공식 계정 설정, 커뮤니티 연결·동의, 앱 설정, 수정한 값·메모·감시목록·중복 판단, '
     '지오코딩 캐시, 업로드 대기 자료. 시작 전 자동 백업을 만듭니다.';
 
+/// 이전 버전 DB 를 비운 기존 사용자 안내(2026-09-26 — 이번 릴리스는 이전 DB 를 새 구조로 옮기지 않는다). PC onboarding_rebuild.html 과 같은 뜻.
+const String communityRebuildLegacyText =
+    '이전 버전 DB 는 이번 업데이트에서 새 구조로 옮기지 않았습니다. 이전 DB 전체를 백업한 뒤 신고 자료를 비웠고, '
+    '감시목록·지도 좌표 캐시는 그대로 두었습니다. 신고는 초기화 크롤링으로 안전신문고에서 다시 수집합니다. '
+    '예전에 직접 수정한 값·중복 판단·메모는 옮겨지지 않으니 필요하면 다시 지정해 주세요. 이전 DB 는 이 버전에서 가져올 수 없습니다.';
+
+/// 새 설치 판정에 쓰는 개인 DB 사실(신고 수, 이전 DB 를 비운 기록). 신고 수 null = 읽지 못함(새 설치로 보지 않음).
+typedef PersonalDbFacts = ({int? reports, Map<String, Object?>? legacyReset});
+
+/// 새 설치 기준선 표시(`rebuild_jobs.confirmed_at`). PC community_rebuild.FRESH_INSTALL_BASELINE 과 같다.
+const String communityRebuildFreshInstallBaseline = 'fresh_install';
+
 /// 초기화 필요·진행 중 전역 가드. 수동·자동 동기화 시작点에서 확인한다.
 class CommunityRebuildGuard {
   CommunityRebuildGuard._();
@@ -109,7 +121,9 @@ class CommunityRebuild extends ChangeNotifier {
     Future<RebuildBackupResult> Function(String runId)? backup,
     Future<bool> Function()? manifestCheck,
     Future<String> Function()? personalDbPath,
+    Future<PersonalDbFacts> Function()? personalDbFacts,
   })  : _store = store,
+        _personalDbFacts = personalDbFacts,
         _localDatasetId = localDatasetId,
         _sourceNamespace = sourceNamespace,
         _gateFresh = gateFresh,
@@ -126,6 +140,12 @@ class CommunityRebuild extends ChangeNotifier {
   final Future<RebuildBackupResult> Function(String runId)? _backupOverride;
   final Future<bool> Function() _manifestCheck;
   final Future<String> Function()? _personalDbPath;
+  final Future<PersonalDbFacts> Function()? _personalDbFacts;
+
+  Map<String, Object?>? _legacyReset;
+
+  /// 이전 버전 DB 를 비운 기록(안내 화면용). [required]·[load] 뒤에 채워진다.
+  Map<String, Object?>? get legacyReset => _legacyReset;
 
   Map<String, Object?>? _job;
   Map<String, Object?>? get job => _job;
@@ -145,18 +165,60 @@ class CommunityRebuild extends ChangeNotifier {
         'source_account_namespace': await _sourceNamespace() ?? '',
       };
 
-  /// 초기화 필요 여부. 완료 행이 없으면 필요.
+  /// 새 설치: 개인 DB 에 신고가 없고 이전 DB 를 비운 기록도 없다(2026-09-26 결정 — 처음 실행은 안내 없이 평소대로).
+  /// 사실을 주지 않으면(테스트·주입 없음) 새 설치로 보지 않는다.
+  Future<bool> _isFreshInstall() async {
+    final facts = await _personalDbFacts?.call();
+    if (facts == null) return false;
+    _legacyReset = facts.legacyReset;
+    return facts.reports == 0 && facts.legacyReset == null;
+  }
+
+  /// 새 설치: 다시 읽을 기존 신고가 없으니 이 범위 키를 완료로 적는다(빈 목록 완료와 같은 뜻). 첫 수집은 일반 동기화가 한다.
+  Future<void> _recordFreshBaseline(Map<String, Object?> s) async {
+    final now = isoUtc(DateTime.now());
+    await _store.db.insert(
+      'rebuild_jobs',
+      {
+        'run_id': 'baseline-${DateTime.now().toUtc().millisecondsSinceEpoch}',
+        'required_version': s['required_version'],
+        'local_dataset_id': s['local_dataset_id'],
+        'source_account_namespace': s['source_account_namespace'],
+        'state': RebuildStates.completed,
+        'phase': 'done',
+        'confirmed_at': communityRebuildFreshInstallBaseline,
+        'started_at': now,
+        'updated_at': now,
+        'completed_at': now,
+        'list_complete': 1,
+        'counts_json': jsonEncode({'baseline': communityRebuildFreshInstallBaseline}),
+      },
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
+  /// 초기화 필요 여부. 완료 행이 없으면 필요. 새 설치([_isFreshInstall])는 필요 없음 — 공식 계정이 있으면 그 자리에서
+  /// 완료 기준선을 적어, 첫 동기화로 신고가 생긴 뒤에도 다시 필요해지지 않는다(PC community_rebuild.required 와 같은 규칙).
   Future<bool> required() async {
     final s = await _scope();
+    final fresh = await _isFreshInstall();
+    if ((s['source_account_namespace'] as String).isEmpty && fresh) return false;
     final rows = await _store.db.rawQuery(
       'SELECT state FROM rebuild_jobs WHERE required_version=? AND local_dataset_id=? AND source_account_namespace=?',
       [s['required_version'], s['local_dataset_id'], s['source_account_namespace']],
     );
-    if (rows.isEmpty) return true;
-    return rows.every((r) => !RebuildStates.terminalOk.contains(r['state']));
+    if (rows.any((r) => RebuildStates.terminalOk.contains(r['state']))) return false;
+    final active = rows.any((r) => !RebuildStates.inactiveTerminal.contains(r['state']));
+    if (!active && fresh && (s['source_account_namespace'] as String).isNotEmpty) {
+      await _recordFreshBaseline(s);
+      return false;
+    }
+    return true;
   }
 
   Future<void> load() async {
+    final facts = await _personalDbFacts?.call();
+    if (facts != null) _legacyReset = facts.legacyReset;
     final s = await _scope();
     final rows = await _store.db.rawQuery(
       'SELECT * FROM rebuild_jobs WHERE required_version=? AND local_dataset_id=? AND source_account_namespace=? ORDER BY updated_at DESC LIMIT 1',
@@ -351,22 +413,33 @@ class CommunityRebuild extends ChangeNotifier {
       final dir = p.join(p.dirname(personalPath), 'backups');
       await Directory(dir).create(recursive: true);
       final dest = p.join(dir, 'pre-rebuild-$runId.db');
+      // 같은 run 의 재시도(failed·paused → 계속)는 같은 파일 이름을 쓴다. VACUUM INTO 는 비어 있지 않은 대상 파일을
+      // 거절하므로 지난 시도의 사본을 먼저 지운다(그 사본은 이번 시도 직전 상태보다 오래됐다).
+      final previous = File(dest);
+      if (previous.existsSync()) await previous.delete();
       final db = await openDatabase(personalPath, singleInstance: false);
       try {
         final escaped = dest.replaceAll("'", "''");
         await db.rawQuery("VACUUM INTO '$escaped'");
-        final check = await db.rawQuery('PRAGMA integrity_check');
-        final ok = check.isNotEmpty && (check.first.values.first as String) == 'ok';
-        if (!ok) {
-          try {
-            await File(dest).delete();
-          } catch (_) {}
-          return const RebuildBackupResult(ok: false, error: 'integrity_check_failed');
-        }
-        return RebuildBackupResult(ok: true, ref: dest, check: 'ok');
       } finally {
         await db.close();
       }
+      // 무결성 검사는 만든 사본에서 한다(PC _backup_personal_db 와 같음).
+      final copy = await openDatabase(dest, readOnly: true, singleInstance: false);
+      bool ok;
+      try {
+        final check = await copy.rawQuery('PRAGMA integrity_check');
+        ok = check.isNotEmpty && (check.first.values.first as String) == 'ok';
+      } finally {
+        await copy.close();
+      }
+      if (!ok) {
+        try {
+          await File(dest).delete();
+        } catch (_) {}
+        return const RebuildBackupResult(ok: false, error: 'integrity_check_failed');
+      }
+      return RebuildBackupResult(ok: true, ref: dest, check: 'ok');
     } catch (e) {
       return RebuildBackupResult(ok: false, error: '$e');
     }

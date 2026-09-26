@@ -1,4 +1,5 @@
 // 서버 DB 가져오기 변환 규칙 (저장 계층 재설계 R1b, 서버 레포 docs/plans/storage-refactor-plan.md).
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -13,6 +14,7 @@ Future<String> _serverDb(
 }) async {
   final path = '${dir.path}/server_${DateTime.now().microsecondsSinceEpoch}.db';
   final db = await openDatabase(path);
+  await db.setVersion(LocalDbService.serverSchemaVersion); // 지금 서버 버전(이전 버전 서버 DB 는 거절된다)
   await db.execute(
     '''CREATE TABLE mysafetymerge_traffic (ID TEXT PRIMARY KEY, 상태 TEXT, 신고번호 TEXT, 신고명 TEXT, 신고일 TEXT,
     만족도조사여부 TEXT, 별점 INTEGER, 별점사유 TEXT, 감시목록 TEXT, 처리상태 TEXT, 처리기관 TEXT, 담당자 TEXT, 위반장소 TEXT,
@@ -127,6 +129,30 @@ void main() {
     },
   );
 
+  // ── 2026-09-26 초기화 크롤링 릴리스: 이전(또는 더 새) 버전 서버 DB 는 가져오지 않는다 (PC exchange.refuse_other_version) ──
+
+  for (final version in [0, 1, 2, 3, 5]) {
+    test('server DB of schema $version is refused before replacing the DB', () async {
+      await LocalDbService.importFromServerDb(await _serverDb(dir, watchlist: []));
+      final path = await _serverDb(dir, watchlist: []);
+      final db = await openDatabase(path);
+      await db.setVersion(version);
+      await db.update('mysafetymerge_traffic', {'신고명': '바뀌면 안 됨'});
+      await db.close();
+      await expectLater(
+        LocalDbService.importFromServerDb(path),
+        throwsA(isA<LegacyDatabaseException>().having((e) => e.toString(), 'message',
+            contains(version < LocalDbService.serverSchemaVersion ? '이전 버전 서버 DB(스키마 $version)' : '더 새 버전 서버 DB(스키마 $version)'))),
+      );
+      expect((await _row('s1'))['신고명'], '신호위반', reason: '기존 DB 그대로');
+    });
+  }
+
+  test('the server schema version matches the contract', () {
+    final contract = jsonDecode(File('contracts/storage-contract.json').readAsStringSync()) as Map<String, dynamic>;
+    expect(LocalDbService.serverSchemaVersion, (contract['schema_version'] as Map)['server']);
+  });
+
   // ── 2026-09-26 감사 SOL-02·03·05 (PC exchange 와 같은 규칙) ──────────────────
 
   Future<void> alter(String path, List<String> sql) async {
@@ -153,10 +179,11 @@ void main() {
     expect((await _row('s1'))['신고명'], '신호위반', reason: '기존 DB 그대로');
   });
 
-  // 혼합 구버전 서버 DB: traffic 은 원본(mysafety + 상세), parking 은 상세 표가 없어 merge 에서 읽는다.
+  // 혼합 구성 서버 DB: traffic 은 원본(mysafety + 상세), parking 은 상세 표가 없어 merge 에서 읽는다(읽기 규칙 검사 — 버전은 지금 서버).
   Future<String> mixedServerDb({String? parkingFuture}) async {
     final path = '${dir.path}/mixed_${DateTime.now().microsecondsSinceEpoch}.db';
     final db = await openDatabase(path);
+    await db.setVersion(LocalDbService.serverSchemaVersion);
     await db.execute('CREATE TABLE mysafety (ID TEXT PRIMARY KEY, 상태 TEXT, 신고번호 TEXT, 신고명 TEXT, 신고일 TEXT, 감시목록 TEXT)');
     await db.execute('CREATE TABLE mysafetydetail_traffic (ID TEXT PRIMARY KEY, 처리상태 TEXT, 위반장소 TEXT)');
     await db.execute('CREATE TABLE mysafetymerge_traffic (ID TEXT PRIMARY KEY, 신고번호 TEXT, 위반장소 TEXT)');
@@ -175,7 +202,7 @@ void main() {
     return path;
   }
 
-  test('mixed old DB imports traffic from source tables and parking from merge (SOL-02 recheck, success path)', () async {
+  test('mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)', () async {
     expect(await LocalDbService.importFromServerDb(await mixedServerDb()), 2);
     expect((await _row('t1'))['신고명'], '신호위반', reason: 'traffic 은 mysafety 제목 열에서');
     expect((await _row('t1'))['category'], 'traffic');
@@ -183,7 +210,7 @@ void main() {
     expect((await _row('p1'))['category'], 'parking');
   });
 
-  test('mixed old DB: an unknown value in the merge table actually read for parking is refused (SOL-02 recheck)', () async {
+  test('mixed layout: an unknown value in the merge table actually read for parking is refused (SOL-02 recheck)', () async {
     await LocalDbService.importFromServerDb(await mixedServerDb());
     await expectLater(
       LocalDbService.importFromServerDb(await mixedServerDb(parkingFuture: '')),

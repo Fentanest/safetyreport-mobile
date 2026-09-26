@@ -3,6 +3,7 @@ import '../models/editor_schema.dart';
 import '../models/rating_lookup.dart';
 import '../storage/schema_utils.dart';
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
@@ -46,6 +47,17 @@ class UnknownColumnsException implements Exception {
   String toString() =>
       '이 앱이 모르는 열에 값이 있어 가져오지 않았습니다(그대로 바꾸면 값이 사라집니다): '
       '${columns.join(', ')}. 앱을 최신 버전으로 업데이트한 뒤 다시 시도하세요.';
+}
+
+/// 이전(또는 모르는 새) 버전 DB — 2026-09-26 초기화 크롤링 릴리스는 이전 DB 를 새 구조로 옮기지 않는다.
+/// 가져오기·복원은 이 오류로 멈추고(무엇이든 바꾸기 전에), 앱의 기존 DB 는 [LocalDbService.resetLegacyDatabase] 가 백업 뒤 비운다.
+/// 서버 core/storage/exchange.py 의 LegacyDatabaseRefused 와 같은 규칙·문구.
+class LegacyDatabaseException implements Exception {
+  LegacyDatabaseException(this.message);
+  final String message;
+
+  @override
+  String toString() => message;
 }
 
 class LocalDbService {
@@ -183,17 +195,199 @@ class LocalDbService {
   /// 앱 DB 스키마 버전. contracts/storage-contract.json 의 schema_version.mobile 과 같아야 한다(테스트가 확인).
   static const dbVersion = 15;
 
+  /// 서버 DB 스키마 버전(PRAGMA user_version). contracts/storage-contract.json 의 schema_version.server 와 같아야 한다(테스트가 확인).
+  /// 서버 DB 가져오기는 정확히 이 버전만 받는다(이전 버전 서버 DB 는 거절).
+  static const serverSchemaVersion = 4;
+
   static Future<Database> _open() async {
     final path = await getDbPath();
-    await backupBeforeUpgrade(path);
+    // [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스] 이전 버전 DB 는 옮기지 않고 백업 뒤 비운다.
+    // await backupBeforeUpgrade(path);
+    await resetLegacyDatabase(path);
     final database = await openDatabase(
       path,
       version: dbVersion,
       onCreate: _create,
-      onUpgrade: _migrateLocalDatabase,
+      // [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스]
+      // onUpgrade: _migrateLocalDatabase,
+      onUpgrade: _refuseLegacyUpgrade,
     );
     await _ensureEffectiveView(database);
     return database;
+  }
+
+  /// 업데이트 로직 대신: 이전 버전 파일이 여기까지 오면(비우기를 거치지 않은 경로) 옮기지 않고 멈춘다.
+  /// sqflite 는 onUpgrade 가 없으면 옛 구조에 새 버전 번호만 적으므로 비워 두지 않는다.
+  static Future<void> _refuseLegacyUpgrade(Database db, int oldV, int newV) async {
+    throw LegacyDatabaseException(
+      '이전 버전 앱 DB(스키마 $oldV)는 이번 업데이트에서 옮기지 않습니다(지금 $newV). '
+      '초기화 크롤링으로 안전신문고에서 다시 수집하세요.',
+    );
+  }
+
+  /// 가져올 DB 의 스키마 버전이 이 앱과 정확히 같아야 한다(서버 exchange.refuse_other_version 과 같은 규칙).
+  static void _refuseOtherVersion(int version, int expected, String label) {
+    if (version < expected) {
+      throw LegacyDatabaseException(
+        '이전 버전 $label DB(스키마 $version)는 가져올 수 없습니다(지금 $expected). '
+        '이번 업데이트는 이전 DB 를 옮기지 않습니다 — 초기화 크롤링으로 안전신문고에서 다시 수집하세요.',
+      );
+    }
+    if (version > expected) {
+      throw LegacyDatabaseException(
+        '더 새 버전 $label DB(스키마 $version)는 가져올 수 없습니다(지금 $expected). 앱을 먼저 업데이트하세요.',
+      );
+    }
+  }
+
+  static const legacyResetMetaKey = 'legacy_reset';
+
+  /// 이전 버전 DB 를 비울 때 옮기는 코드 없이 남기는 자료: 감시목록(sync_meta 의 watchlist 값)과 지오코딩 캐시(구조가 같을 때만).
+  /// 서버 LEGACY_KEEP_TABLES 의 감시목록·지오코딩 캐시와 같다(관리자·API 키는 서버 전용).
+  static const legacyKept = ['watchlist', 'geocode_cache'];
+
+  /// 이전 버전 DB(저장된 버전 1 이상, [dbVersion] 미만)면: 통째로 백업(`<db>.legacy_v<옛 버전>.<epoch ms>.bak`, 무결성 검사)
+  /// → [beforeReset](기본: 커뮤니티 dataset 선회전, 실패하면 비우지 않음) → 새 스키마의 빈 DB 를 옆에 만들어
+  /// 감시목록·지오코딩 캐시만 옮기고 sync_meta[legacy_reset] 에 기록 → 원래 이름으로 바꾼다.
+  /// 반환: {from_version, backup, kept, dropped, at} (이전 버전 DB 가 아니면 null). 서버 database.reset_legacy_database 와 같은 규칙.
+  @visibleForTesting
+  static Future<Map<String, Object?>?> resetLegacyDatabase(
+    String path, {
+    Future<void> Function()? beforeReset,
+  }) async {
+    final file = File(path);
+    if (!file.existsSync()) return null;
+    final probe = await openDatabase(path, singleInstance: false);
+    int version;
+    List<String> oldTables;
+    try {
+      version = await probe.getVersion();
+      if (version < 1 || version >= dbVersion) return null;
+      await probe.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+      oldTables = [
+        for (final r in await probe.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+        ))
+          r['name'] as String,
+      ];
+    } finally {
+      await probe.close();
+    }
+    final backup = '$path.legacy_v$version.${DateTime.now().millisecondsSinceEpoch}.bak';
+    await file.copy(backup);
+    final check = await openDatabase(backup, readOnly: true, singleInstance: false);
+    try {
+      final result = (await check.rawQuery('PRAGMA integrity_check')).first.values.first;
+      if (result != 'ok') {
+        await check.close();
+        try {
+          await File(backup).delete();
+        } catch (_) {}
+        throw LegacyDatabaseException('이전 DB 백업 무결성 검사 실패: $result');
+      }
+    } finally {
+      if (check.isOpen) await check.close();
+    }
+    await (beforeReset ?? () => _rotateCommunityDataset('legacy_reset'))();
+
+    final staged = '$path.legacy_reset_staging';
+    for (final f in [staged, '$staged-wal', '$staged-shm', '$staged-journal']) {
+      final side = File(f);
+      if (side.existsSync()) await side.delete();
+    }
+    final kept = <String>[];
+    final at = DateTime.now().toIso8601String();
+    final fresh = await openDatabase(
+      staged,
+      version: dbVersion,
+      onCreate: _create,
+      singleInstance: false,
+    );
+    try {
+      await fresh.execute('ATTACH DATABASE ? AS old', [path]);
+      try {
+        await fresh.transaction((txn) async {
+          if (oldTables.contains('sync_meta')) {
+            final rows = await txn.rawQuery(
+              "SELECT value FROM old.sync_meta WHERE key = 'watchlist' AND value IS NOT NULL",
+            );
+            if (rows.isNotEmpty) {
+              await txn.insert('sync_meta', {'key': 'watchlist', 'value': rows.first['value']},
+                  conflictAlgorithm: ConflictAlgorithm.replace);
+              kept.add('watchlist');
+            }
+          }
+          if (oldTables.contains('geocode_cache') &&
+              await _sameColumns(txn, 'geocode_cache')) {
+            await txn.execute('INSERT INTO main.geocode_cache SELECT * FROM old.geocode_cache');
+            kept.add('geocode_cache');
+          }
+          await txn.insert(
+            'sync_meta',
+            {
+              'key': legacyResetMetaKey,
+              'value': jsonEncode({
+                'from_version': version,
+                'backup': backup,
+                'kept': kept,
+                'dropped': oldTables,
+                'at': at,
+              }),
+            },
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        });
+      } finally {
+        await fresh.execute('DETACH DATABASE old');
+      }
+    } finally {
+      await fresh.close();
+    }
+    for (final ext in ['-wal', '-shm', '-journal']) {
+      final side = File('$path$ext');
+      if (side.existsSync()) await side.delete();
+    }
+    await File(staged).rename(path);
+    return {
+      'from_version': version,
+      'backup': backup,
+      'kept': kept,
+      'dropped': oldTables,
+      'at': at,
+    };
+  }
+
+  static Future<bool> _sameColumns(DatabaseExecutor db, String table) async {
+    String sig(List<Map<String, Object?>> rows) => [
+          for (final r in rows)
+            '${r['name']}|${(r['type'] ?? '').toString().toUpperCase()}|${r['notnull']}|${r['dflt_value']}|${r['pk']}',
+        ].join(',');
+    final now = await db.rawQuery('PRAGMA main.table_info("$table")');
+    final old = await db.rawQuery('PRAGMA old.table_info("$table")');
+    return now.isNotEmpty && sig(now) == sig(old);
+  }
+
+  /// 초기화 크롤링 판정용: (개인 DB 신고 수, 이전 DB 를 비운 기록). 열지 못하면 신고 수 null(새 설치로 보지 않음).
+  /// DB 를 여는 김에 이전 버전 DB 비우기가 먼저 일어난다.
+  static Future<({int? reports, Map<String, Object?>? legacyReset})> personalDbFacts() async {
+    try {
+      final d = await db;
+      final count = Sqflite.firstIntValue(await d.rawQuery('SELECT COUNT(*) FROM reports')) ?? 0;
+      final meta = await d.query('sync_meta',
+          columns: ['value'], where: 'key = ?', whereArgs: [legacyResetMetaKey], limit: 1);
+      Map<String, Object?>? legacy;
+      if (meta.isNotEmpty && meta.first['value'] != null) {
+        try {
+          final decoded = jsonDecode(meta.first['value'] as String);
+          if (decoded is Map) legacy = Map<String, Object?>.from(decoded);
+        } catch (_) {
+          legacy = {'raw': meta.first['value']};
+        }
+      }
+      return (reports: count, legacyReset: legacy);
+    } catch (_) {
+      return (reports: null, legacyReset: null);
+    }
   }
 
   /// 목록 API 로 받은 값으로 이미 저장된 신고의 목록 값을 갱신한다(서버 database.title_to_sql 과 같은 규칙).
@@ -492,6 +686,8 @@ class LocalDbService {
       """);
   }
 
+  // [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스] 호출하는 곳(onUpgrade)을 주석 처리했다. 다음 스키마 변경 때 다시 켠다.
+  // ignore: unused_element
   static Future<void> _migrateLocalDatabase(
     Database db,
     int oldV,
@@ -2855,7 +3051,9 @@ class LocalDbService {
       path,
       version: dbVersion,
       onCreate: _create,
-      onUpgrade: _migrateLocalDatabase,
+      // [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스]
+      // onUpgrade: _migrateLocalDatabase,
+      onUpgrade: _refuseLegacyUpgrade,
     );
     await _ensureEffectiveView(database);
     return database;
@@ -3033,6 +3231,8 @@ class LocalDbService {
     Database? localDb;
 
     try {
+      // 이전(또는 더 새) 버전 서버 DB 는 가져오지 않는다(2026-09-26 초기화 크롤링 릴리스).
+      _refuseOtherVersion(await serverDb.getVersion(), serverSchemaVersion, '서버');
       await _validateServerDbSchema(serverDb);
 
       stagingDir = await Directory.systemTemp.createTemp(
@@ -3295,8 +3495,10 @@ class LocalDbService {
       if (version > dbVersion) {
         throw Exception('더 새 버전 앱에서 만든 백업입니다(v$version). 앱을 업데이트한 뒤 복원하세요.');
       }
+      // 이전 버전 앱 DB 는 옮기지 않는다(2026-09-26 초기화 크롤링 릴리스) — 예전엔 여기서 마이그레이션했다.
+      _refuseOtherVersion(version, dbVersion, '모바일 앱');
 
-      staged = await _createImportTargetDb(stagedPath); // 구버전이면 여기서 마이그레이션
+      staged = await _createImportTargetDb(stagedPath);
       await staged.delete(
         'sync_meta',
         where: 'key = ?',

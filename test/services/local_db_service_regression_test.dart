@@ -58,7 +58,7 @@ Future<String> _createInvalidServerDb() async {
       '${Directory.systemTemp.path}/invalid_server_${DateTime.now().millisecondsSinceEpoch}.db';
   final db = await openDatabase(
     path,
-    version: 1,
+    version: LocalDbService.serverSchemaVersion,
     onCreate: (txn, _) async {
       await txn.execute(
         'CREATE TABLE invalid_source (id TEXT PRIMARY KEY, value TEXT)',
@@ -75,7 +75,7 @@ Future<String> _createServerDbWithSyncMeta() async {
       '${Directory.systemTemp.path}/server_sync_meta_${DateTime.now().millisecondsSinceEpoch}.db';
   final db = await openDatabase(
     path,
-    version: 1,
+    version: LocalDbService.serverSchemaVersion,
     onCreate: (txn, _) async {
       await txn.execute(
         'CREATE TABLE mysafety (ID TEXT PRIMARY KEY, value TEXT)',

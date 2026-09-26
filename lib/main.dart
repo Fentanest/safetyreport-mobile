@@ -31,7 +31,7 @@ import 'community/gate/community_gate.dart';
 import 'community/rebuild/community_rebuild.dart';
 import 'services/pending_changes_store.dart';
 import 'services/review_prompt_service.dart';
-import 'services/sync_engine.dart' show ChangeType;
+import 'services/sync_engine.dart' show ChangeType, SyncEngine;
 import 'server_palette.dart';
 import 'navigation/app_routes.dart';
 import 'theme/app_theme.dart';
@@ -68,6 +68,13 @@ Future<void> main() async {
         : reportProvider.standaloneUsername,
     appMode: () => reportProvider.appMode.name,
   );
+  // 초기화 크롤링이 필요하거나 진행 중이면 일반 동기화(수동·공유 대기열 처리)를 시작하지 않는다(PC 크롤 시작 409 와 같음).
+  // 초기화 화면보다 먼저 도는 게이트 통과 직후 처리도 여기서 막힌다.
+  SyncEngine.rebuildBlocks = () async {
+    if (reportProvider.appMode != AppMode.standalone) return false;
+    final store = communityStore ?? await CommunityStore.open();
+    return standaloneRebuild(store, reportProvider).required();
+  };
   gate.addOnFirstPassed(reportProvider.onGatePassed);
   if (communityStore != null) {
     CommunityWiring.wire(communityGate: gate, store: communityStore);
@@ -248,6 +255,27 @@ class _ModeSupplement extends StatelessWidget {
   }
 }
 
+/// Standalone 초기화 판정·실행 객체. 새 설치 판정에 개인 DB 사실(신고 수·이전 DB 를 비운 기록)을 쓴다.
+/// 시작 버튼이 있는 화면만 [gateFresh] 를 넘긴다(판정만 할 때는 게이트를 확인하지 않는다).
+@visibleForTesting
+CommunityRebuild standaloneRebuild(
+  CommunityStore store,
+  ReportProvider provider, {
+  Future<bool> Function()? gateFresh,
+}) =>
+    CommunityRebuild(
+      store: store,
+      localDatasetId: store.localDatasetId,
+      sourceNamespace: () async {
+        final id = provider.standaloneUsername;
+        if (id.isEmpty) return '';
+        return datasetKeyForOfficialId(id);
+      },
+      gateFresh: gateFresh ?? () async => false,
+      personalDbPath: LocalDbService.getDbPath,
+      personalDbFacts: LocalDbService.personalDbFacts,
+    );
+
 /// Standalone 초기화 필요 여부 확인. 필요 없으면 메인으로 건너뛴다.
 class _StandaloneRebuildGate extends StatefulWidget {
   const _StandaloneRebuildGate({required this.onDone});
@@ -270,16 +298,10 @@ class _StandaloneRebuildGateState extends State<_StandaloneRebuildGate> {
     final provider = context.read<ReportProvider>();
     final gate = context.read<CommunityGate>();
     final store = await CommunityStore.open();
-    final rebuild = CommunityRebuild(
-      store: store,
-      localDatasetId: store.localDatasetId,
-      sourceNamespace: () async {
-        final id = provider.standaloneUsername;
-        if (id.isEmpty) return '';
-        return datasetKeyForOfficialId(id);
-      },
+    final rebuild = standaloneRebuild(
+      store,
+      provider,
       gateFresh: () async => (await gate.requireFresh()).canEnter,
-      personalDbPath: LocalDbService.getDbPath,
     );
     await rebuild.load();
     if (!await rebuild.required()) return null;

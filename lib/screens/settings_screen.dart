@@ -85,11 +85,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _checkWsStatus();
     _loadFilterSettings();
     _loadServerVersion();
+    _loadPreviousImportBackup();
     PackageInfo.fromPlatform().then((info) {
       if (mounted) setState(() => _appVersion = info.version);
     });
-    if (widget.openReloginOnStart &&
-        provider.appMode == AppMode.standalone) {
+    if (widget.openReloginOnStart && provider.appMode == AppMode.standalone) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _showReloginDialog();
       });
@@ -562,6 +562,62 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return stagedDbPath;
   }
 
+  /// 가져오기·복원 직전 사본(단독 모드, 없으면 null — 되돌리기 버튼 표시용, 감사 SOL-05).
+  String? _previousImportBackup;
+
+  Future<void> _loadPreviousImportBackup() async {
+    try {
+      final path = await LocalDbService.latestImportBackup();
+      if (mounted) setState(() => _previousImportBackup = path);
+    } catch (_) {}
+  }
+
+  Future<void> _revertToPreviousDb() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('직전 DB 로 되돌리기'),
+        content: const Text(
+          '마지막 가져오기·복원 직전의 DB 로 되돌립니다.\n'
+          '지금 DB 도 사본으로 남기므로 다시 되돌릴 수 있습니다.\n계속하시겠습니까?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('되돌리기'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _isRestoringDb = true);
+    try {
+      final done = await LocalDbService.revertToPreviousImport();
+      if (!mounted) return;
+      await context.read<ReportProvider>().refreshAll();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(done ? '직전 DB 로 되돌렸습니다.' : '되돌릴 사본이 없습니다.'),
+          backgroundColor: done ? srSnackSuccess : srSnackError,
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('되돌리기 실패: $e'), backgroundColor: srSnackError),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isRestoringDb = false);
+      await _loadPreviousImportBackup();
+    }
+  }
+
   Future<void> _restoreDb() async {
     final p = context.read<ReportProvider>();
     final isStandalone = p.appMode == AppMode.standalone;
@@ -669,6 +725,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     } finally {
       if (mounted) setState(() => _isRestoringDb = false);
+      await _loadPreviousImportBackup();
     }
   }
 
@@ -1758,6 +1815,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               onPressed: _restoreDb,
                             ),
                     ),
+                    if (context.watch<ReportProvider>().appMode ==
+                            AppMode.standalone &&
+                        _previousImportBackup != null &&
+                        !_isRestoringDb) ...[
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: TextButton.icon(
+                          icon: const Icon(Icons.history, size: 18),
+                          label: const Text('직전 DB 로 되돌리기'),
+                          onPressed: _revertToPreviousDb,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

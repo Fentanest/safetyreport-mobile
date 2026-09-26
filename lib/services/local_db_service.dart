@@ -2828,7 +2828,16 @@ class LocalDbService {
     } catch (_) {}
   }
 
-  /// 가장 최근 가져오기·복원 직전 사본(없으면 null) — 되돌리기 안내·테스트용.
+  /// 가장 최근 가져오기·복원 직전 사본으로 되돌린다(감사 SOL-05). 되돌리기도 복원이라 지금 DB 가 새 사본으로 남는다.
+  /// 사본이 없으면 false.
+  static Future<bool> revertToPreviousImport() async {
+    final latest = await latestImportBackup();
+    if (latest == null) return false;
+    await replaceFromBackup(latest);
+    return true;
+  }
+
+  /// 가장 최근 가져오기·복원 직전 사본(없으면 null) — 설정 화면의 되돌리기 버튼이 쓴다.
   static Future<String?> latestImportBackup() async {
     final dbPath = await getDbPath();
     final file = File(dbPath);
@@ -2969,17 +2978,16 @@ class LocalDbService {
     DatabaseExecutor localDb,
   ) async {
     final reportColumns = (await _columnTypes(localDb, 'reports')).keys.toSet();
-    final readsSourceTables = serverTables.contains('mysafety') &&
-        serverTables.any((t) => t.startsWith('mysafetydetail_'));
+    // 분류마다 실제로 읽는 표와 같게 고른다(_readServerReportRows 와 같은 조건 — Sol 재검증 SOL-02):
+    // mysafety + 그 분류의 상세 표가 있으면 둘, 없으면 그 분류의 merge 표.
     final known = <String, Set<String>>{
-      if (readsSourceTables) ...{
-        'mysafety': reportColumns,
-        for (final c in const ['traffic', 'parking', 'other'])
+      for (final c in const ['traffic', 'parking', 'other'])
+        if (serverTables.contains('mysafety') &&
+            serverTables.contains('mysafetydetail_$c')) ...{
+          'mysafety': reportColumns,
           'mysafetydetail_$c': reportColumns,
-      } else ...{
-        for (final c in const ['traffic', 'parking', 'other'])
+        } else
           'mysafetymerge_$c': reportColumns,
-      },
       'mysafety_raw_content': (await _columnTypes(localDb, 'report_raw')).keys.toSet(),
       'mysafety_sync_meta': const {'key', 'value'},
       'mysafety_watchlist': const {'신고번호'},

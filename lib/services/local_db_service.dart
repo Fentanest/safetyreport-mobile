@@ -253,112 +253,68 @@ class LocalDbService {
   /// 서버 LEGACY_KEEP_TABLES 의 감시목록·지오코딩 캐시와 같다(관리자·API 키는 서버 전용).
   static const legacyKept = ['watchlist', 'geocode_cache'];
 
-  /// 이전 버전 DB(저장된 버전 1 이상, [dbVersion] 미만)면: 통째로 백업(`VACUUM INTO <db>.legacy_v<옛 버전>.<epoch ms>.bak`, 무결성 검사)
-  /// → [beforeReset](기본: 커뮤니티 dataset 선회전, 실패하면 비우지 않음) → 새 스키마의 빈 DB 를 옆에 만들어
-  /// 감시목록·지오코딩 캐시만 옮기고 sync_meta[legacy_reset] 에 기록 → 원래 이름으로 바꾼다.
-  /// 반환: {from_version, backup, kept, dropped, at} (이전 버전 DB 가 아니면 null). 서버 database.reset_legacy_database 와 같은 규칙.
+  /// 이전 버전 DB(저장된 버전 1 이상, [dbVersion] 미만)면 **파일을 바꾸지 않고 그 자리에서** 한 쓰기 트랜잭션(`BEGIN IMMEDIATE`)으로:
+  /// 버전 재확인 → 남길 자료(감시목록 `sync_meta['watchlist']`, 열 구성이 같은 지오코딩 캐시) 읽기 → 별도 읽기 연결의
+  /// `VACUUM INTO <db>.legacy_v<옛 버전>.<epoch ms>.bak`(WAL 에만 있던 쓰기 포함) + 무결성 검사 → [beforeReset](기본: 커뮤니티 dataset 선회전,
+  /// 실패하면 아무것도 바꾸지 않음) → 표·보기 전부 DROP → 지금 스키마 CREATE → 남길 자료·`sync_meta[legacy_reset]` 기록 → 버전 → COMMIT.
+  /// 반환: {from_version, backup, kept, dropped, at} (이전 버전 DB 가 아니거나 다른 연결이 먼저 끝냈으면 null).
+  /// 열린 DB 의 WAL 삭제·파일 이름 교체는 SQLite 가 손상 경로로 꼽으므로 하지 않는다(Sol 재검증 3). 트랜잭션 동안 다른 연결의 쓰기는 잠김 오류로 실패한다.
+  /// 서버 database.reset_legacy_database 와 같은 규칙(잠금 안 재확인·한 트랜잭션).
   @visibleForTesting
   static Future<Map<String, Object?>?> resetLegacyDatabase(
     String path, {
     Future<void> Function()? beforeReset,
   }) async {
-    final file = File(path);
-    if (!file.existsSync()) return null;
-    // 백업부터 파일 교체까지 옛 DB 의 쓰기 잠금을 잡는다(Sol 재검증 1): 앱의 개인 DB 접근은 모두 [db] → [_open] 을 거쳐
-    // 이 함수가 끝나기 전에는 연결이 없지만, 그 밖의 연결이 쓰려 하면 조용히 사라지지 않고 잠김 오류로 실패한다.
-    final lock = await openDatabase(path, singleInstance: false);
+    if (!File(path).existsSync()) return null;
+    final db = await openDatabase(path, singleInstance: false);
     try {
-      await lock.rawQuery('PRAGMA busy_timeout=30000');
-      await lock.execute('BEGIN IMMEDIATE');
-      return await _resetLegacyLocked(path, file, beforeReset);
-    } finally {
-      try {
-        await lock.execute('ROLLBACK');
-      } catch (_) {}
-      await lock.close();
-    }
-  }
+      final first = await db.getVersion();
+      if (first < 1 || first >= dbVersion) return null;
+      await db.rawQuery('PRAGMA busy_timeout=30000');
+      Map<String, Object?>? info;
+      await db.transaction((txn) async {
+        final version = Sqflite.firstIntValue(await txn.rawQuery('PRAGMA user_version')) ?? 0;
+        if (version < 1 || version >= dbVersion) return; // 다른 연결이 먼저 끝냈다
+        final oldTables = [
+          for (final r in await txn.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+          ))
+            r['name'] as String,
+        ];
+        Object? watchlist;
+        if (oldTables.contains('sync_meta')) {
+          final rows = await txn.rawQuery(
+            "SELECT value FROM sync_meta WHERE key = 'watchlist' AND value IS NOT NULL",
+          );
+          if (rows.isNotEmpty) watchlist = rows.first['value'];
+        }
+        var geoInfo = const <Map<String, Object?>>[];
+        var geoRows = const <Map<String, Object?>>[];
+        if (oldTables.contains('geocode_cache')) {
+          geoInfo = await txn.rawQuery('PRAGMA table_info("geocode_cache")');
+          geoRows = await txn.query('geocode_cache');
+        }
 
-  static Future<Map<String, Object?>?> _resetLegacyLocked(
-    String path,
-    File file,
-    Future<void> Function()? beforeReset,
-  ) async {
-    final probe = await openDatabase(path, singleInstance: false);
-    int version;
-    List<String> oldTables;
-    String backup;
-    Object? watchlist;
-    List<Map<String, Object?>> geoInfo = const [];
-    List<Map<String, Object?>> geoRows = const [];
-    try {
-      version = await probe.getVersion();
-      if (version < 1 || version >= dbVersion) return null;
-      oldTables = [
-        for (final r in await probe.rawQuery(
-          "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
-        ))
-          r['name'] as String,
-      ];
-      // 남길 자료는 잠금 안에서 백업과 같은 시점에 읽어 둔다(새 DB 에 옛 DB 를 ATTACH 하면 그 쓰기 트랜잭션이 잠긴 옛 DB 까지 잠그려 한다).
-      if (oldTables.contains('sync_meta')) {
-        final rows = await probe.rawQuery(
-          "SELECT value FROM sync_meta WHERE key = 'watchlist' AND value IS NOT NULL",
-        );
-        if (rows.isNotEmpty) watchlist = rows.first['value'];
-      }
-      if (oldTables.contains('geocode_cache')) {
-        geoInfo = await probe.rawQuery('PRAGMA table_info("geocode_cache")');
-        geoRows = await probe.query('geocode_cache');
-      }
-      // 파일 복사가 아니라 VACUUM INTO: WAL 에만 있던 최근 쓰기까지 담은 일관된 사본이다(다른 연결 때문에
-      // 체크포인트가 끝나지 못해도 빠지지 않는다 — Sol 검토 2). 서버는 sqlite backup API.
-      backup = '$path.legacy_v$version.${DateTime.now().millisecondsSinceEpoch}.bak';
-      final target = File(backup);
-      if (target.existsSync()) await target.delete();
-      await probe.execute("VACUUM INTO '${backup.replaceAll("'", "''")}'");
-    } finally {
-      await probe.close();
-    }
-    final check = await openDatabase(backup, readOnly: true, singleInstance: false);
-    try {
-      final result = (await check.rawQuery('PRAGMA integrity_check')).first.values.first;
-      if (result != 'ok') {
-        await check.close();
-        try {
-          await File(backup).delete();
-        } catch (_) {}
-        throw LegacyDatabaseException('이전 DB 백업 무결성 검사 실패: $result');
-      }
-    } finally {
-      if (check.isOpen) await check.close();
-    }
-    await (beforeReset ?? () => _rotateCommunityDataset('legacy_reset'))();
+        final backup = '$path.legacy_v$version.${DateTime.now().millisecondsSinceEpoch}.bak';
+        await _vacuumIntoChecked(path, backup);
+        await (beforeReset ?? () => _rotateCommunityDataset('legacy_reset'))();
 
-    final staged = '$path.legacy_reset_staging';
-    for (final f in [staged, '$staged-wal', '$staged-shm', '$staged-journal']) {
-      final side = File(f);
-      if (side.existsSync()) await side.delete();
-    }
-    final kept = <String>[];
-    final at = DateTime.now().toIso8601String();
-    final fresh = await openDatabase(
-      staged,
-      version: dbVersion,
-      onCreate: _create,
-      singleInstance: false,
-    );
-    try {
-      final sameGeo = geoInfo.isNotEmpty &&
-          _columnSignature(geoInfo) ==
-              _columnSignature(await fresh.rawQuery('PRAGMA table_info("geocode_cache")'));
-      await fresh.transaction((txn) async {
+        for (final r in await txn.rawQuery("SELECT name FROM sqlite_master WHERE type='view'")) {
+          await txn.execute('DROP VIEW "${r['name']}"');
+        }
+        for (final name in oldTables) {
+          await txn.execute('DROP TABLE "$name"');
+        }
+        await _createSchema(txn);
+        final kept = <String>[];
         if (watchlist != null) {
           await txn.insert('sync_meta', {'key': 'watchlist', 'value': watchlist},
               conflictAlgorithm: ConflictAlgorithm.replace);
           kept.add('watchlist');
         }
-        if (sameGeo) {
+        if (geoInfo.isNotEmpty &&
+            _columnSignature(geoInfo) ==
+                _columnSignature(await txn.rawQuery('PRAGMA table_info("geocode_cache")'))) {
           final batch = txn.batch();
           for (final row in geoRows) {
             batch.insert('geocode_cache', row);
@@ -366,36 +322,47 @@ class LocalDbService {
           await batch.commit(noResult: true);
           kept.add('geocode_cache');
         }
-        await txn.insert(
-          'sync_meta',
-          {
-            'key': legacyResetMetaKey,
-            'value': jsonEncode({
-              'from_version': version,
-              'backup': backup,
-              'kept': kept,
-              'dropped': oldTables,
-              'at': at,
-            }),
-          },
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
+        final result = <String, Object?>{
+          'from_version': version,
+          'backup': backup,
+          'kept': kept,
+          'dropped': oldTables,
+          'at': DateTime.now().toIso8601String(),
+        };
+        await txn.insert('sync_meta', {'key': legacyResetMetaKey, 'value': jsonEncode(result)},
+            conflictAlgorithm: ConflictAlgorithm.replace);
+        await txn.execute('PRAGMA user_version = $dbVersion');
+        info = result;
       });
+      return info;
     } finally {
-      await fresh.close();
+      await db.close();
     }
-    for (final ext in ['-wal', '-shm', '-journal']) {
-      final side = File('$path$ext');
-      if (side.existsSync()) await side.delete();
+  }
+
+  /// 별도 읽기 연결로 `VACUUM INTO` 사본을 만들고 무결성 검사. 실패하면 사본을 지우고 예외(개인 DB 무변경).
+  static Future<void> _vacuumIntoChecked(String path, String target) async {
+    final existing = File(target);
+    if (existing.existsSync()) await existing.delete();
+    final reader = await openDatabase(path, readOnly: true, singleInstance: false);
+    try {
+      await reader.execute("VACUUM INTO '${target.replaceAll("'", "''")}'");
+    } finally {
+      await reader.close();
     }
-    await File(staged).rename(path);
-    return {
-      'from_version': version,
-      'backup': backup,
-      'kept': kept,
-      'dropped': oldTables,
-      'at': at,
-    };
+    final check = await openDatabase(target, readOnly: true, singleInstance: false);
+    String result;
+    try {
+      result = (await check.rawQuery('PRAGMA integrity_check')).first.values.first.toString();
+    } finally {
+      await check.close();
+    }
+    if (result != 'ok') {
+      try {
+        await File(target).delete();
+      } catch (_) {}
+      throw LegacyDatabaseException('이전 DB 백업 무결성 검사 실패: $result');
+    }
   }
 
   /// 열 구성 비교용(PRAGMA table_info): 이름·타입·NOT NULL·기본값·기본키.
@@ -857,7 +824,10 @@ class LocalDbService {
     await addColumnIfMissing(db, 'reports', '사진_촬영수', 'INTEGER');
   }
 
-  static Future<void> _create(Database db, int version) async {
+  static Future<void> _create(Database db, int version) => _createSchema(db);
+
+  /// 지금 스키마의 표 전부(새 DB·이전 버전 DB 비우기가 같이 쓴다).
+  static Future<void> _createSchema(DatabaseExecutor db) async {
     await db.execute('''
       CREATE TABLE reports (
         ID              TEXT PRIMARY KEY,

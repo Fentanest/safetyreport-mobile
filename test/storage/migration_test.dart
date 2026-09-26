@@ -210,6 +210,26 @@ void main() {
     }
   });
 
+  test('the old DB is emptied in place: a connection opened before sees the new DB, the file stays whole', () async {
+    // 열린 DB 의 WAL 삭제·파일 이름 교체를 하지 않는다(Sol 재검증 3). 먼저 열어 둔 연결이 옛 파일을 계속 보거나 손상된 파일을 보지 않는다.
+    await _makeOldDb(10);
+    final path = await LocalDbService.getDbPath();
+    final early = await openDatabase(path, singleInstance: false);
+    await early.rawQuery('PRAGMA journal_mode=WAL');
+    try {
+      await LocalDbService.resetLegacyDatabase(path, beforeReset: () async {});
+      expect(await early.getVersion(), LocalDbService.dbVersion);
+      expect((await early.rawQuery('SELECT count(*) AS n FROM reports')).first['n'], 0);
+      expect((await early.rawQuery('PRAGMA integrity_check')).first.values.first, 'ok');
+      expect(File('$path.legacy_reset_staging').existsSync(), isFalse);
+    } finally {
+      await early.close();
+    }
+    for (final f in legacyBackups(path)) {
+      f.deleteSync();
+    }
+  });
+
   test('a write attempted while the old DB is being emptied fails instead of being lost', () async {
     await _makeOldDb(10);
     final path = await LocalDbService.getDbPath();

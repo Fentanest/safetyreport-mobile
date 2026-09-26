@@ -369,13 +369,13 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
 ## 이전 버전 DB 처리 — 초기화 크롤링 릴리스 (2026-09-27, 서버 레포와 함께)
 이번 릴리스는 이전 DB 를 새 구조로 옮기지 않는다. 아래 "앱 업데이트 때 DB 처리" 의 업데이트 로직(`onUpgrade: _migrateLocalDatabase`, `backupBeforeUpgrade`)은
 `lib/services/local_db_service.dart` 의 `_open`·`_createImportTargetDb` 에서 **주석으로 남겨 비활성**했다(함수 본체는 다음 스키마 변경 때 다시 켜려고 남김).
-- `_open`: 먼저 `resetLegacyDatabase(path)`. 저장 버전이 1 이상 `dbVersion` 미만이면 `VACUUM INTO <db>.legacy_v<옛 버전>.<epoch ms>.bak` + `integrity_check`
-  (파일 복사가 아니다 — 다른 연결 때문에 체크포인트가 끝나지 못해도 WAL 에만 있던 쓰기까지 사본에 들어간다, Sol 검토 2).
-  백업부터 이름 교체까지 옛 DB 에 별도 연결로 `BEGIN IMMEDIATE` 쓰기 잠금을 잡고, 남길 자료(감시목록·지오코딩 캐시)는 그 잠금 안에서 백업과 같은 시점에 읽는다
-  (그 사이 다른 연결의 쓰기는 잠김 오류로 실패 — 백업에도 새 DB 에도 없는 쓰기가 생기지 않게, Sol 재검증 1). 데모 DB(`demoDbFileName`)를 비울 때는
-  커뮤니티 dataset 을 선회전하지 않는다(실제 계정의 초기화 완료가 풀리지 않게, Sol 재검증 2).
-  → 커뮤니티 dataset 선회전(실패하면 비우지 않음) → 옆에 `<db>.legacy_reset_staging` 새 빈 DB(`_create`) → `ATTACH` 로 감시목록(`sync_meta['watchlist']`)과
-  지오코딩 캐시(열 구성이 같을 때만)만 한 트랜잭션으로 옮기고 `sync_meta['legacy_reset']` = `{from_version, backup, kept, dropped, at}` 기록 → 원래 이름으로 교체.
+- `_open`: 먼저 `resetLegacyDatabase(path)`. 저장 버전이 1 이상 `dbVersion` 미만이면 **파일을 바꾸지 않고 그 자리에서** 한 쓰기 트랜잭션(`BEGIN IMMEDIATE`)으로:
+  버전 재확인(다른 연결이 먼저 끝냈으면 아무것도 안 함) → 남길 자료(감시목록 `sync_meta['watchlist']`, 열 구성이 같은 `geocode_cache`) 읽기 →
+  별도 읽기 연결의 `VACUUM INTO <db>.legacy_v<옛 버전>.<epoch ms>.bak` + `integrity_check`(파일 복사가 아니라 WAL 에만 있던 쓰기까지 담는다, Sol 검토 2)
+  → 커뮤니티 dataset 선회전(실패하면 ROLLBACK, 아무것도 안 바뀜) → 표·보기 전부 DROP → `_createSchema` → 남길 자료와
+  `sync_meta['legacy_reset']` = `{from_version, backup, kept, dropped, at}` 기록 → `PRAGMA user_version = dbVersion` → COMMIT.
+  트랜잭션 동안 다른 연결의 쓰기는 잠김 오류로 실패한다(백업에도 새 DB 에도 없는 쓰기가 생기지 않게, Sol 재검증 1). 열린 DB 의 WAL 삭제·파일 이름 교체는
+  SQLite 가 손상 경로로 꼽으므로 하지 않는다(Sol 재검증 3). 데모 DB(`demoDbFileName`)를 비울 때는 커뮤니티 dataset 을 선회전하지 않는다(Sol 재검증 2).
   수정값·중복 판단·메모·신고는 옮기지 않는다(백업에만 남음). 초기화 크롤링이 신고를 다시 채운다.
 - `onUpgrade` 는 `_refuseLegacyUpgrade`(옛 버전이 비우기를 거치지 않고 여기 오면 `LegacyDatabaseException` 으로 멈춤 — sqflite 는 onUpgrade 가 없으면 옛 구조에 새 번호만 적는다).
 - 가져오기 거절(`_refuseOtherVersion`, 서버 `exchange.refuse_other_version` 과 같은 규칙·문구): 서버 DB 가져오기는 `user_version == LocalDbService.serverSchemaVersion`(계약

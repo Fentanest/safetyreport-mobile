@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
+import '../../services/local_db_service.dart';
 import '../../services/sync_engine.dart';
 import '../community_store.dart';
 import '../upload_hooks.dart';
@@ -413,31 +414,12 @@ class CommunityRebuild extends ChangeNotifier {
       final dir = p.join(p.dirname(personalPath), 'backups');
       await Directory(dir).create(recursive: true);
       final dest = p.join(dir, 'pre-rebuild-$runId.db');
-      // 같은 run 의 재시도(failed·paused → 계속)는 같은 파일 이름을 쓴다. VACUUM INTO 는 비어 있지 않은 대상 파일을
-      // 거절하므로 지난 시도의 사본을 먼저 지운다(그 사본은 이번 시도 직전 상태보다 오래됐다).
-      final previous = File(dest);
-      if (previous.existsSync()) await previous.delete();
-      final db = await openDatabase(personalPath, singleInstance: false);
+      // VACUUM INTO 대신(SQLite 3.27 부터라 Android 7~10 에서 실패 — Sol 재검증 4) 구형 SQLite 에서도 되는 일관된 사본.
+      // 같은 run 의 재시도는 같은 이름을 쓰므로 지난 사본을 먼저 지운다(함수 안에서). 행 수·무결성 검사는 만든 사본에서 한다.
       try {
-        final escaped = dest.replaceAll("'", "''");
-        await db.rawQuery("VACUUM INTO '$escaped'");
-      } finally {
-        await db.close();
-      }
-      // 무결성 검사는 만든 사본에서 한다(PC _backup_personal_db 와 같음).
-      final copy = await openDatabase(dest, readOnly: true, singleInstance: false);
-      bool ok;
-      try {
-        final check = await copy.rawQuery('PRAGMA integrity_check');
-        ok = check.isNotEmpty && (check.first.values.first as String) == 'ok';
-      } finally {
-        await copy.close();
-      }
-      if (!ok) {
-        try {
-          await File(dest).delete();
-        } catch (_) {}
-        return const RebuildBackupResult(ok: false, error: 'integrity_check_failed');
+        await LocalDbService.copyDatabaseConsistent(personalPath, dest);
+      } catch (e) {
+        return RebuildBackupResult(ok: false, error: 'backup_failed: $e');
       }
       return RebuildBackupResult(ok: true, ref: dest, check: 'ok');
     } catch (e) {

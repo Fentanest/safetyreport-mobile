@@ -255,7 +255,7 @@ class LocalDbService {
 
   /// 이전 버전 DB(저장된 버전 1 이상, [dbVersion] 미만)면 **파일을 바꾸지 않고 그 자리에서** 한 쓰기 트랜잭션(`BEGIN IMMEDIATE`)으로:
   /// 버전 재확인 → 남길 자료(감시목록 `sync_meta['watchlist']`, 열 구성이 같은 지오코딩 캐시) 읽기 → 별도 읽기 연결의
-  /// `VACUUM INTO <db>.legacy_v<옛 버전>.<epoch ms>.bak`(WAL 에만 있던 쓰기 포함) + 무결성 검사 → [beforeReset](기본: 커뮤니티 dataset 선회전,
+  /// 일관된 사본 `<db>.legacy_v<옛 버전>.<epoch ms>.bak`([copyDatabaseConsistent], WAL 에만 있던 쓰기 포함, 구형 Android 가능) + 무결성 검사 → [beforeReset](기본: 커뮤니티 dataset 선회전,
   /// 실패하면 아무것도 바꾸지 않음) → 표·보기 전부 DROP → 지금 스키마 CREATE → 남길 자료·`sync_meta[legacy_reset]` 기록 → 버전 → COMMIT.
   /// 반환: {from_version, backup, kept, dropped, at} (이전 버전 DB 가 아니거나 다른 연결이 먼저 끝냈으면 null).
   /// 열린 DB 의 WAL 삭제·파일 이름 교체는 SQLite 가 손상 경로로 꼽으므로 하지 않는다(Sol 재검증 3). 트랜잭션 동안 다른 연결의 쓰기는 잠김 오류로 실패한다.
@@ -296,7 +296,7 @@ class LocalDbService {
         }
 
         final backup = '$path.legacy_v$version.${DateTime.now().millisecondsSinceEpoch}.bak';
-        await _vacuumIntoChecked(path, backup);
+        await _backupChecked(path, backup);
         await (beforeReset ?? () => _rotateCommunityDataset('legacy_reset'))();
 
         for (final r in await txn.rawQuery("SELECT name FROM sqlite_master WHERE type='view'")) {
@@ -340,28 +340,79 @@ class LocalDbService {
     }
   }
 
-  /// 별도 읽기 연결로 `VACUUM INTO` 사본을 만들고 무결성 검사. 실패하면 사본을 지우고 예외(개인 DB 무변경).
-  static Future<void> _vacuumIntoChecked(String path, String target) async {
-    final existing = File(target);
-    if (existing.existsSync()) await existing.delete();
-    final reader = await openDatabase(path, readOnly: true, singleInstance: false);
-    try {
-      await reader.execute("VACUUM INTO '${target.replaceAll("'", "''")}'");
-    } finally {
-      await reader.close();
+  /// 별도 연결로 일관된 사본([copyDatabaseConsistent])을 만든다. 실패하면 사본을 지우고 예외(개인 DB 무변경).
+  static Future<void> _backupChecked(String path, String target) =>
+      copyDatabaseConsistent(path, target);
+
+  /// [sourcePath] 의 일관된 사본을 [target] 에 만든다 — `VACUUM INTO` 를 쓰지 않는다: 그 명령은 SQLite 3.27 부터라
+  /// Android 7~10(API 24~29, 기본 SQLite 3.9~3.22)에서 실패한다(Sol 재검증 4). 대신 새 파일에 원본을 ATTACH 하고
+  /// 한 읽기 트랜잭션(DEFERRED — 원본에는 읽기 잠금만)에서 원본 스키마(`sqlite_master.sql`)를 그대로 다시 만들고 표마다 `INSERT … SELECT *`,
+  /// `sqlite_sequence`·`user_version` 도 옮긴다. 같은 트랜잭션이라 표 사이에도 같은 시점이고 WAL 에만 있던 쓰기도 들어간다.
+  /// 끝나면 표별 행 수 비교와 `integrity_check`. 어긋나면 사본을 지우고 예외. 초기화 크롤링 사전 백업도 쓴다.
+  static Future<void> copyDatabaseConsistent(String sourcePath, String target) async {
+    Future<void> removeTarget() async {
+      for (final f in [target, '$target-wal', '$target-shm', '$target-journal']) {
+        final file = File(f);
+        if (file.existsSync()) await file.delete();
+      }
     }
-    final check = await openDatabase(target, readOnly: true, singleInstance: false);
-    String result;
+
+    await removeTarget();
+    final copy = await openDatabase(target, singleInstance: false);
+    var ok = false;
     try {
-      result = (await check.rawQuery('PRAGMA integrity_check')).first.values.first.toString();
-    } finally {
-      await check.close();
-    }
-    if (result != 'ok') {
+      await copy.execute('ATTACH DATABASE ? AS src', [sourcePath]);
       try {
-        await File(target).delete();
-      } catch (_) {}
-      throw LegacyDatabaseException('이전 DB 백업 무결성 검사 실패: $result');
+        await copy.execute('BEGIN');
+        try {
+          final objects = await copy.rawQuery(
+            "SELECT type, name, sql FROM src.sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' "
+            "ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'index' THEN 1 WHEN 'trigger' THEN 2 ELSE 3 END, rowid",
+          );
+          final tables = [for (final o in objects) if (o['type'] == 'table') o['name'] as String];
+          for (final o in objects.where((o) => o['type'] == 'table')) {
+            await copy.execute(o['sql'] as String);
+          }
+          for (final t in tables) {
+            await copy.execute('INSERT INTO main."$t" SELECT * FROM src."$t"');
+          }
+          final hasSequence = (await copy.rawQuery(
+            "SELECT 1 FROM src.sqlite_master WHERE name = 'sqlite_sequence'",
+          )).isNotEmpty;
+          if (hasSequence) {
+            await copy.execute('DELETE FROM main.sqlite_sequence');
+            await copy.execute('INSERT INTO main.sqlite_sequence SELECT * FROM src.sqlite_sequence');
+          }
+          for (final o in objects.where((o) => o['type'] != 'table')) {
+            await copy.execute(o['sql'] as String);
+          }
+          final version = Sqflite.firstIntValue(await copy.rawQuery('PRAGMA src.user_version')) ?? 0;
+          await copy.execute('PRAGMA main.user_version = $version');
+          for (final t in tables) {
+            final a = Sqflite.firstIntValue(await copy.rawQuery('SELECT count(*) FROM src."$t"'));
+            final b = Sqflite.firstIntValue(await copy.rawQuery('SELECT count(*) FROM main."$t"'));
+            if (a != b) throw LegacyDatabaseException('DB 사본의 $t 행 수가 다릅니다($a → $b).');
+          }
+          await copy.execute('COMMIT');
+        } catch (_) {
+          try {
+            await copy.execute('ROLLBACK');
+          } catch (_) {}
+          rethrow;
+        }
+      } finally {
+        await copy.execute('DETACH DATABASE src');
+      }
+      final result = (await copy.rawQuery('PRAGMA integrity_check')).first.values.first.toString();
+      if (result != 'ok') throw LegacyDatabaseException('DB 사본 무결성 검사 실패: $result');
+      ok = true;
+    } finally {
+      await copy.close();
+      if (!ok) {
+        try {
+          await removeTarget();
+        } catch (_) {}
+      }
     }
   }
 

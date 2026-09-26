@@ -257,7 +257,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
       final status = await api.getCrawlStatus();
       final running = status['running'] == true;
       final unresolved = CrawlUnresolved.fromStatus(status);
-      if (mounted && unresolved.length != _unresolved.length) {
+      if (mounted && !CrawlUnresolved.sameList(unresolved, _unresolved)) {
         setState(() => _unresolved = unresolved);
       }
       if (running && !_isRunning) _connectWs(api);

@@ -8,6 +8,9 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:safetyreport/community/capture/reshare.dart';
+import 'package:safetyreport/community/capture/server_completed.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -107,6 +110,8 @@ Map<String, Object?> ackFor(String eventId, String status,
 final kNs = projectNamespace('https://example.supabase.co');
 
 void main() {
+  // 삭제 뒤 차단 표시(H-03)가 SharedPreferences 를 쓴다.
+  setUp(() => SharedPreferences.setMockInitialValues({}));
   group('uploader', () {
     late CommunityStore store;
     late FakeGate gate;
@@ -403,6 +408,64 @@ void main() {
       expect(projectionMessage('held'), contains('대기'));
       expect(projectionMessage('not_public'), contains('중앙 저장'));
       expect(projectionMessage(null), equals('전송 대기'));
+    });
+  });
+
+  group('deletion cleanup (Sol H-03)', () {
+    test('rows existing at deletion are blocked by row order even with a future clock', () async {
+      final store = await openStore();
+      addTearDown(() => closeStore(store));
+      await capture(adapter('처리완료'), sourceReportId: 'D1', trigger: 'realtime', store: store, projectNamespace: kNs);
+      await capture(adapter('처리완료'), sourceReportId: 'D2', trigger: 'realtime', store: store, projectNamespace: kNs);
+      await store.db.rawUpdate("UPDATE source_journal SET captured_at='2099-01-01T00:00:00.000Z' WHERE source_report_id='D2'");
+      await onContributionsDeleted(deletedAt: DateTime.now(), store: store, deletionId: 'del-1');
+      final rows = await store.db.rawQuery('SELECT source_report_id, blocked_reason FROM source_journal');
+      expect({for (final r in rows) r['source_report_id']: r['blocked_reason']}, {'D1': 'deleted_by_user', 'D2': 'deleted_by_user'});
+      expect((await SharedPreferences.getInstance()).getString(deletionPendingKey), isNull);
+      await capture(adapter('처리완료'), sourceReportId: 'D3', trigger: 'realtime', store: store, projectNamespace: kNs);
+      final d3 = await store.db.rawQuery("SELECT blocked_reason FROM source_journal WHERE source_report_id='D3'");
+      expect(d3.single['blocked_reason'], isNull, reason: '삭제 뒤 새 관측은 막지 않는다');
+    });
+
+    test('a pending marker stops uploads and reshare until it is applied', () async {
+      final store = await openStore();
+      addTearDown(() => closeStore(store));
+      await capture(adapter('처리완료'), sourceReportId: 'D1', trigger: 'realtime', store: store, projectNamespace: kNs);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(deletionPendingKey, '{"deletion_id":"del-2","journal_rowid_max":1}');
+      var calls = 0;
+      final uploader = makeUploader(store: store, gate: FakeGate(), tokens: FakeTokens(),
+          httpClient: MockClient((req) async { calls++; return http.Response('{}', 500); }));
+      // 적용은 가능하므로 첫 실행이 먼저 차단을 적용하고, 차단된 행은 보내지 않는다
+      await uploader.requestCommunityUpload('manual');
+      expect(prefs.getString(deletionPendingKey), isNull);
+      expect(calls, 0);
+      final j = await store.db.rawQuery("SELECT blocked_reason FROM source_journal WHERE source_report_id='D1'");
+      expect(j.single['blocked_reason'], 'deleted_by_user');
+      expect(await issueReshare('D1', store: store), isNull);
+    });
+
+    test('marker that cannot be applied keeps everything blocked', () async {
+      final store = await openStore();
+      addTearDown(() => closeStore(store));
+      await capture(adapter('처리완료'), sourceReportId: 'D1', trigger: 'realtime', store: store, projectNamespace: kNs);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(deletionPendingKey, '{"deletion_id":"del-3","journal_rowid_max":1}');
+      await store.db.close(); // 로컬 쓰기 불가 흉내
+      expect(await deletionCleanupPending(store: store), isTrue);
+      expect(prefs.getString(deletionPendingKey), isNotNull, reason: '표시는 남는다');
+      expect(await issueReshare('D1', store: store), isNull);
+    });
+
+    test('a corrupt marker still applies (blocks every existing row) instead of locking forever', () async {
+      final store = await openStore();
+      addTearDown(() => closeStore(store));
+      await capture(adapter('처리완료'), sourceReportId: 'D1', trigger: 'realtime', store: store, projectNamespace: kNs);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(deletionPendingKey, 'not-json');
+      expect(await deletionCleanupPending(store: store), isFalse);
+      final j = await store.db.rawQuery("SELECT blocked_reason FROM source_journal WHERE source_report_id='D1'");
+      expect(j.single['blocked_reason'], 'deleted_by_user');
     });
   });
 }

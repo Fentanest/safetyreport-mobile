@@ -10,12 +10,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:safetyreport/community/capture/canonical_json.dart';
+import 'package:safetyreport/community/capture/capture_retry_store.dart';
 import 'package:safetyreport/community/capture/community_capture.dart';
 import 'package:safetyreport/community/capture/server_completed.dart';
 import 'package:safetyreport/community/community_store.dart';
 import 'package:safetyreport/community/gate/community_gate.dart';
 import 'package:safetyreport/community/upload/community_ingest_client.dart';
 import 'package:safetyreport/services/community_auth_service.dart';
+import 'package:safetyreport/services/sync_engine.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'fake_account.dart';
@@ -149,6 +151,22 @@ void main() {
         expect(await client.fetchManifestPage('tok', 'conn-1'), isNull, reason: '$broken');
       }
     });
+  });
+
+  group('sync fail-closed (Sol H-01)', () {
+    for (final active in [false, true]) {
+      test('no community store (captureActive=$active) → CaptureStoreUnavailable before any personal save', () async {
+        final retry = File('${Directory.systemTemp.path}/retry-${DateTime.now().microsecondsSinceEpoch}.json');
+        await expectLater(
+          SyncEngine.captureAndSaveDetail(
+            cNo: 'R1', item: const {}, detail: const {}, trigger: 'realtime', tracker: CaptureTracker(),
+            communityStore: null, retryFile: retry, projectNamespace: 'ns', captureActive: active,
+          ),
+          throwsA(isA<CaptureStoreUnavailable>()),
+        );
+        expect(retry.existsSync(), isFalse, reason: '개인 저장 경로에 들어가지 않았다');
+      });
+    }
   });
 
   group('gate writer rules', () {

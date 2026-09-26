@@ -8,6 +8,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import '../community_store.dart';
+import 'server_completed.dart' show deletionCleanupPending;
 import 'community_capture.dart';
 
 /// reshare 후보 수 (최신 journal 행이 eligible 이고 차단되지 않은 신고).
@@ -28,6 +29,7 @@ Future<String?> issueReshare(
   DateTime? now,
 }) async {
   final s = store ?? await CommunityStore.open();
+  if (await deletionCleanupPending(store: s)) return null; // 삭제 뒤 정리가 끝나기 전에는 다시 공유하지 않는다(H-03)
   return s.transaction((tx) async {
     final contextRows =
         await tx.rawQuery('SELECT * FROM context WHERE id=1');

@@ -22,6 +22,7 @@ import 'package:sqflite/sqflite.dart';
 import '../../models/app_mode.dart';
 import '../capture/community_capture.dart';
 import '../capture/reshare.dart';
+import '../capture/server_completed.dart' show deletionCleanupPending;
 import '../community_store.dart';
 import 'community_ingest_client.dart';
 
@@ -163,6 +164,10 @@ class CommunityUploader {
 
     if (await appMode() != AppMode.standalone) {
       return finish('no_change', counts: {'skipped_client_mode': 1});
+    }
+    // 삭제 뒤 로컬 차단이 끝나기 전에는 아무것도 보내지 않는다(Sol H-03, PC 와 같음).
+    if (await deletionCleanupPending(store: store)) {
+      return finish('deferred', errorCode: 'deletion_cleanup_pending');
     }
     if (!await gate.requireFresh()) {
       return finish('deferred', errorCode: 'gate_not_fresh');

@@ -215,5 +215,35 @@ void main() {
         await File('build/community_public.json').delete();
       } catch (_) {}
     }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('회전 실패면 복원하지 않고 현재 DB 를 그대로 둔다 (Sol H-02)', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+      final dir = await Directory.systemTemp.createTemp('sr_rot_fail_');
+      final prevPath = await databaseFactory.getDatabasesPath();
+      await databaseFactory.setDatabasesPath(dir.path);
+      SharedPreferences.setMockInitialValues({});
+      try {
+        final db = await LocalDbService.db;
+        await db.insert('reports', {'ID': 'live1', '신고번호': 'SPP-live1', 'category': 'parking'});
+        await LocalDbService.closeDb();
+        final backupPath = '${dir.path}/backup.db';
+        await LocalDbService.exportBackup(backupPath);
+        final db2 = await LocalDbService.db;
+        await db2.insert('reports', {'ID': 'live2', '신고번호': 'SPP-live2', 'category': 'parking'});
+        await LocalDbService.closeDb();
+        // 커뮤니티 저장소 파일 자리를 폴더로 막아 열기 실패를 만든다.
+        await Directory('${dir.path}/$communityStoreFileName').create();
+        await expectLater(LocalDbService.replaceFromBackup(backupPath), throwsA(isA<Exception>()));
+        final after = await LocalDbService.db;
+        final rows = await after.rawQuery("SELECT ID FROM reports WHERE ID='live2'");
+        expect(rows, hasLength(1), reason: '교체되지 않았다');
+      } finally {
+        await LocalDbService.closeDb();
+        await databaseFactory.setDatabasesPath(prevPath);
+        await dir.delete(recursive: true);
+      }
+    }, timeout: const Timeout(Duration(minutes: 2)));
   });
 }

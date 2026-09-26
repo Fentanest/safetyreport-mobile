@@ -1,4 +1,8 @@
 // 중앙 manifest → server_completed 교체 + 삭제 처리 (S-04).
+import 'dart:convert';
+
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../community_store.dart';
 
 /// manifest 한 페이지. 키는 completed fact key 앞 24hex.
@@ -98,28 +102,75 @@ Future<bool> refreshServerCompleted({
   return true;
 }
 
-/// `contributions-delete` 성공 뒤 호출된다 (T5 카드가 호출).
-///
-/// - outbox 대기 행 전부 `blocked:deleted_by_user`
-/// - 삭제 시각 이전 journal 행 `blocked_reason='deleted_by_user'`
-///   (reshare·location_supplement 후보 영구 제외)
-/// - server_completed 비움
+/// 삭제 뒤 로컬 차단 표시(SharedPreferences). 적용이 끝나야 지운다 — 남아 있으면 업로드·reshare 를 하지 않는다.
+const String deletionPendingKey = 'community_deletion_pending_v1';
+
+/// `contributions-delete` 성공 뒤(PC `on_contributions_deleted` 와 같은 규칙, Sol 통합 검토 H-03):
+/// 그 시점에 있던 journal 행 전부를 **행 순번 경계**로 영구 제외한다(시계와 무관 — 앞선 시계의 captured_at 도 막힌다),
+/// 그 행들의 outbox 를 막고 server_completed 를 비운다. 먼저 영속 표시를 쓰고, 적용이 끝나면 지운다.
+/// 적용이 실패하면 예외를 올리고 표시는 남는다.
 Future<void> onContributionsDeleted({
   required DateTime deletedAt,
   CommunityStore? store,
+  String? deletionId,
 }) async {
   final s = store ?? await CommunityStore.open();
-  final at = isoUtc(deletedAt);
+  int? boundary;
+  try {
+    final r = await s.db.rawQuery('SELECT max(rowid) AS m FROM source_journal');
+    boundary = (r.first['m'] as int?) ?? 0;
+  } catch (_) {
+    boundary = null; // 읽을 수 없으면 적용 시점의 전체 행을 막는다(보수적)
+  }
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setString(deletionPendingKey, jsonEncode({
+    'deletion_id': deletionId,
+    'journal_rowid_max': boundary,
+    'recorded_at': isoUtc(deletedAt),
+  }));
+  await applyPendingDeletion(store: s);
+}
+
+/// 남은 삭제 표시가 없으면 true. 있으면 적용하고 지운다. 적용 실패는 예외.
+Future<bool> applyPendingDeletion({CommunityStore? store}) async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.reload();
+  final raw = prefs.getString(deletionPendingKey);
+  if (raw == null) return true;
+  Map<String, Object?> marker;
+  try {
+    marker = (jsonDecode(raw) as Map).cast<String, Object?>();
+  } catch (_) {
+    marker = const {}; // 손상된 표시: 경계 없이 적용 시점의 전체 행을 막는다(영구 잠김 대신 보수적 복구)
+  }
+  final s = store ?? await CommunityStore.open();
   await s.transaction((tx) async {
-    await tx.rawUpdate(
-      "UPDATE outbox SET state='blocked', last_error_code='deleted_by_user' "
-      "WHERE state IN ('pending','in_flight','retry_wait','auth_required')",
-    );
+    var boundary = marker['journal_rowid_max'] as int?;
+    if (boundary == null) {
+      final r = await tx.rawQuery('SELECT max(rowid) AS m FROM source_journal');
+      boundary = (r.first['m'] as int?) ?? 0;
+    }
     await tx.rawUpdate(
       "UPDATE source_journal SET blocked_reason='deleted_by_user' "
-      'WHERE captured_at < ? AND blocked_reason IS NULL',
-      [at],
+      "WHERE rowid <= ? AND (blocked_reason IS NULL OR blocked_reason != 'deleted_by_user')",
+      [boundary],
+    );
+    await tx.rawUpdate(
+      "UPDATE outbox SET state='blocked', last_error_code='deleted_by_user' "
+      "WHERE state != 'dead_letter' AND event_id IN (SELECT event_id FROM source_journal WHERE rowid <= ?)",
+      [boundary],
     );
     await tx.rawDelete('DELETE FROM server_completed');
   });
+  await prefs.remove(deletionPendingKey);
+  return true;
+}
+
+/// 삭제 뒤 로컬 차단이 아직 끝나지 않았으면 다시 적용해 본다. 여전히 못 하면 true(업로드 금지).
+Future<bool> deletionCleanupPending({CommunityStore? store}) async {
+  try {
+    return !(await applyPendingDeletion(store: store));
+  } catch (_) {
+    return true;
+  }
 }

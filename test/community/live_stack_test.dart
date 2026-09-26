@@ -19,6 +19,7 @@ import 'package:safetyreport/community/gate/community_account_client.dart';
 import 'package:safetyreport/community/upload/community_ingest_client.dart';
 import 'package:safetyreport/community/upload/community_uploader.dart';
 import 'package:safetyreport/models/app_mode.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 const api = String.fromEnvironment('COMMUNITY_API_URL', defaultValue: 'http://127.0.0.1:56321');
@@ -76,6 +77,8 @@ class _Tokens implements CommunityTokenSource {
 
 void main() {
   sqfliteFfiInit();
+  // 앱 prefs(삭제 뒤 차단 표시 등)는 메모리 목 — 플러그인 없이 prefs 가 실패하면 업로더는 fail-closed 로 보류한다.
+  SharedPreferences.setMockInitialValues({});
 
   test('standalone capture → upload ACK → public → manifest → remote revoke blocks', () async {
     final key = env['COMMUNITY_PUBLISHABLE_KEY']!;

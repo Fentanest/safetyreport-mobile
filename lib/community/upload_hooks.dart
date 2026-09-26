@@ -48,11 +48,15 @@ class CommunityUploadHooks {
     } catch (_) {}
   }
 
-  static Future<void> contributionsDeletedNow() async {
+  /// 로컬 차단까지 끝나면 true. 실패하면 false — 영속 표시가 남아 업로드·reshare 는 계속 막힌다(H-03).
+  static Future<bool> contributionsDeletedNow() async {
     final fn = onContributionsDeleted;
-    if (fn == null) return;
+    if (fn == null) return false;
     try {
       await fn();
-    } catch (_) {}
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 }

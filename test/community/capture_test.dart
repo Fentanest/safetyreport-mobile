@@ -2,6 +2,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:safetyreport/community/capture/capture_retry_store.dart';
@@ -62,6 +63,8 @@ Future<void> closeTestStore(CommunityStore store) async {
 }
 
 void main() {
+  // 삭제 뒤 차단 표시(H-03)가 SharedPreferences 를 쓴다.
+  setUp(() => SharedPreferences.setMockInitialValues({}));
   group('decideEvent', () {
     test('첫 eligible 관측은 completed_observation', () {
       expect(

@@ -206,7 +206,8 @@ class SyncEngine {
     final isRebuild = rebuildRunId != null;
     final trigger = isRebuild ? 'rebuild' : 'realtime';
 
-    // 커뮤니티 capture 준비 (실패해도 개인 동기화는 계속한다).
+    // 커뮤니티 capture 준비. 준비가 안 되면 개인 상세도 저장하지 않는다(Sol 통합 검토 H-01):
+    // 개인 DB 가 먼저 앞서 나가면 다음 증분이 그 신고를 다시 읽는다는 보장이 없어 공유 사본이 영구 누락된다.
     final community = await openCommunitySession();
     final captureTracker = CaptureTracker();
     var communityReady = true;
@@ -215,15 +216,9 @@ class SyncEngine {
           store: community.store!, isRebuild: isRebuild);
     }
     if (community.store == null || !communityReady) {
-      if (isRebuild) {
-        throw Exception(
-            'community_store_unavailable: 초기화 수집에 커뮤니티 저장소를 쓸 수 없습니다.');
-      }
-      if (community.store == null) {
-        _log('[community] 저장소를 열 수 없어 공유 capture 없이 개인 동기화만 진행합니다.');
-      } else {
-        _log('[community] manifest 를 새로 받지 못해 이번 실행은 개인 동기화만 하고 다음 실행에서 다시 읽습니다.');
-      }
+      final reason = community.store == null ? 'community_store_unavailable' : 'manifest_unavailable';
+      _log('[community] $reason — 공유 사본을 만들 수 없어 이번 수집을 시작하지 않습니다(개인 DB 변경 없음). 다음 실행에서 다시 시도합니다.');
+      throw Exception('$reason: 커뮤니티 공유 준비가 되지 않아 수집을 멈췄습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.');
     }
     final captureActive = community.store != null && communityReady;
 
@@ -680,6 +675,10 @@ class SyncEngine {
     required String projectNamespace,
     required bool captureActive,
   }) async {
+    if (!captureActive || communityStore == null) {
+      // 공유 사본(journal) 없이 개인 저장을 하지 않는다 — 큐·재조회 대상은 그대로 남는다(H-01).
+      throw CaptureStoreUnavailable('community_capture_unavailable: $cNo');
+    }
     var report = parseJsonToReport(item, detail);
     final ev = entryValueFromDetail(item, detail);
     final cat = categoryFromEntryValue(ev);
@@ -687,7 +686,7 @@ class SyncEngine {
     final raw = normalizeRawPayloadText(rawContentOf(detail));
 
     CaptureResult? cap;
-    if (captureActive && communityStore != null) {
+    {
       // 좌표는 그 시점 캐시 조회 — 비어 있으면 null(이후 location_supplement).
       final geo =
           await fetchOfficialGeocode(await LocalDbService.db, report.location);
@@ -708,13 +707,6 @@ class SyncEngine {
         }
         throw DetailFailed('community_capture_failed: $cNo');
       }
-    } else if (communityStore != null) {
-      // manifest 미확보 fail-closed: 개인 저장은 계속하되 다음 실행에서
-      // 반드시 다시 읽도록 의도만 남긴다.
-      try {
-        await CaptureRetryStore.addIntent(
-            retryFile, cNo, 'manifest_unavailable');
-      } catch (_) {}
     }
 
     // 별점이 있는 신고 한정으로 사유 추가 fetch (인증 불필요 별도 API)
@@ -739,13 +731,11 @@ class SyncEngine {
         photoCapture: photo,
       );
     } catch (e) {
-      await markPersonalSave(cap?.eventId, false, store: communityStore);
-      try {
-        await CaptureRetryStore.removeIntent(retryFile, cNo);
-      } catch (_) {}
+      // 개인 저장 실패: 재조회 의도(retry)는 남겨 다음 실행이 이 신고를 다시 읽게 한다.
+      await markPersonalSave(cap.eventId, false, store: communityStore);
       rethrow;
     }
-    await markPersonalSave(cap?.eventId, true, store: communityStore);
+    await markPersonalSave(cap.eventId, true, store: communityStore);
     try {
       await CaptureRetryStore.removeIntent(retryFile, cNo);
     } catch (_) {}

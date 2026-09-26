@@ -25,7 +25,7 @@
 - 초기화: rebuild 모드 수집(`rebuildRunId`)·목록 완료 표시·실패 전파, 병합은 T6 함수 하나로(source_generation 증가 — PC 와 같음).
 - 크롤 로그 WS 에 `api_key` 를 붙인다(서버가 인증·게이트를 요구).
 - 테스트: `integration_contract_test.dart`(event_decisions 10건, manifest 계약, 게이트 writer 규칙·비밀 난수), 실제 로컬 스택 `live_stack_test.dart`(선택 실행) 통과.
-  전체 `flutter test` 503 passed / 2 skipped(골든) + 라이브 1 skipped, `flutter analyze` error 0 / warning 2(기존).
+  전체 `flutter test` 502 passed / 3 skipped(골든 2 + 라이브 1, 라이브는 `COMMUNITY_STACK=1` 로 따로 1 passed), `flutter analyze` error 0 / warning 2(기존).
 
 ### 커뮤니티 필수 게이트·온보딩·초기화 (T5)
 

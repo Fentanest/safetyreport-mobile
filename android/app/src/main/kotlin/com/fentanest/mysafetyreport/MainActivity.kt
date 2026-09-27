@@ -464,7 +464,7 @@ class MainActivity : FlutterFragmentActivity() {
     private fun autoStartWsServiceIfConfigured() {
         val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
         val appMode = prefs.getString("flutter.appMode", "server") ?: "server"
-        if (appMode != "server") {
+        if (appMode != "server" || !ClientGateGuard.isOpen(prefs)) {
             try {
                 val intent = Intent(this, WsService::class.java).apply {
                     action = WsService.ACTION_STOP

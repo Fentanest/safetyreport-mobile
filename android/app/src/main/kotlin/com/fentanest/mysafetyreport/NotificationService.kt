@@ -71,6 +71,11 @@ class NotificationService : NotificationListenerService() {
             return
         }
 
+        if (!ClientGateGuard.isOpen(prefs)) {
+            Log.i(TAG, "카카오 인증·동의 게이트가 닫혀 있어 서버 전송 건너뜀")
+            return
+        }
+
         // 서버 모드 — 기존 로직
         val baseUrl = prefs.getString("flutter.baseUrl", "")?.trimEnd('/') ?: ""
         val apiKey = prefs.getString("flutter.apiKey", "") ?: ""
@@ -80,18 +85,23 @@ class NotificationService : NotificationListenerService() {
             return
         }
 
-        // WsService에서 crawl_started/crawl_finished 푸시 알림을 억제하도록 카운터 증가
-        val currentCount = prefs.getInt("flutter.auto_enqueue_count", 0)
-        prefs.edit()
-            .putInt("flutter.auto_enqueue_count", currentCount + 1)
-            .putLong("flutter.auto_enqueue_last_at", System.currentTimeMillis())
-            .apply()
-
         val notifId = progressNotifId.getAndIncrement()
         showProgressNotif(notifId, reportNumber)
 
         Thread {
             try {
+                if (!ServerVersionCompatibility.check(baseUrl, apiKey)) {
+                    Log.w(TAG, "서버 버전 확인 실패 또는 v3 미만. 신고번호 전송 차단")
+                    return@Thread
+                }
+                // 실제로 큐에 보낼 때만 WsService의 중복 푸시 억제 카운터를 올린다.
+                synchronized(this) {
+                    val currentCount = prefs.getInt("flutter.auto_enqueue_count", 0)
+                    prefs.edit()
+                        .putInt("flutter.auto_enqueue_count", currentCount + 1)
+                        .putLong("flutter.auto_enqueue_last_at", System.currentTimeMillis())
+                        .apply()
+                }
                 val conn = java.net.URL(
                     ServerContract.apiUrl(baseUrl, ServerContract.CRAWL_ENQUEUE_PATH)
                 )

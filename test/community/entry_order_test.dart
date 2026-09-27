@@ -12,6 +12,7 @@ import 'package:safetyreport/screens/community_onboarding_screen.dart';
 import 'package:safetyreport/screens/permission_screen.dart';
 import 'package:safetyreport/screens/setup_screen.dart';
 import 'package:safetyreport/services/app_prefs_keys.dart';
+import 'package:safetyreport/services/server_connection_service.dart';
 import 'package:safetyreport/services/standalone_auth_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -19,7 +20,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 class StubGate extends CommunityGate {
   StubGate({required this.enter}) : super(configStatus: () => 'ok');
 
-  final bool enter;
+  bool enter;
+
+  void setEnter(bool value) {
+    enter = value;
+    notifyListeners();
+  }
 
   @override
   bool get canEnter => enter;
@@ -41,13 +47,21 @@ Future<ReportProvider> _providerWith(Map<String, Object> prefs) async {
   return provider;
 }
 
-Widget _app(ReportProvider provider, StubGate gate) => MultiProvider(
+Widget _app(
+  ReportProvider provider,
+  StubGate gate, {
+  Future<ServerConnectionResult> Function(String, String)? serverVersionCheck,
+}) => MultiProvider(
   providers: [
     ChangeNotifierProvider<ReportProvider>.value(value: provider),
     ChangeNotifierProvider<CommunityGate>.value(value: gate),
     ChangeNotifierProvider(create: (_) => NotificationHistoryProvider()),
   ],
-  child: const SafetyReportApp(),
+  child: SafetyReportApp(
+    serverVersionCheck:
+        serverVersionCheck ??
+        (_, _) async => ServerConnectionResult.ok(normalizedUrl: 'http://test'),
+  ),
 );
 
 void main() {
@@ -194,8 +208,126 @@ void main() {
         if (find.byType(MainNavigationScreen).evaluate().isNotEmpty) break;
       }
       expect(find.byType(MainNavigationScreen), findsOneWidget);
+      StandaloneAuthService.stopKeepAlive();
     },
   );
+
+  testWidgets('stored Client config blocks a PC server below v3', (
+    tester,
+  ) async {
+    final provider = await _providerWith({
+      AppPrefsKeys.appMode: 'server',
+      AppPrefsKeys.baseUrl: 'http://old-server',
+      AppPrefsKeys.apiKey: 'k',
+    });
+    final gate = StubGate(enter: true);
+    addTearDown(gate.dispose);
+    await tester.pumpWidget(
+      _app(
+        provider,
+        gate,
+        serverVersionCheck: (_, _) async =>
+            ServerConnectionResult.incompatibleServer(
+              normalizedUrl: 'http://old-server',
+            ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.textContaining('v3 이상'), findsOneWidget);
+    expect(find.byType(MainNavigationScreen), findsNothing);
+    expect(permCalls, isNot(contains('startWsService')));
+  });
+
+  testWidgets('retry enters Client flow after the PC server is updated', (
+    tester,
+  ) async {
+    final provider = await _providerWith({
+      AppPrefsKeys.appMode: 'server',
+      AppPrefsKeys.baseUrl: 'http://old-server',
+      AppPrefsKeys.apiKey: 'k',
+    });
+    final gate = StubGate(enter: true);
+    addTearDown(gate.dispose);
+    var updated = false;
+    await tester.pumpWidget(
+      _app(
+        provider,
+        gate,
+        serverVersionCheck: (_, _) async => updated
+            ? ServerConnectionResult.ok(normalizedUrl: 'http://old-server')
+            : ServerConnectionResult.incompatibleServer(
+                normalizedUrl: 'http://old-server',
+              ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('다시 확인'), findsOneWidget);
+    updated = true;
+    await tester.tap(find.text('다시 확인'));
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(find.text('다시 확인'), findsNothing);
+    expect(permCalls, contains('startWsService'));
+  });
+
+  testWidgets('Kakao consent gate remains in front of server version error', (
+    tester,
+  ) async {
+    final provider = await _providerWith({
+      AppPrefsKeys.appMode: 'server',
+      AppPrefsKeys.baseUrl: 'http://old-server',
+      AppPrefsKeys.apiKey: 'k',
+    });
+    final gate = StubGate(enter: false);
+    addTearDown(gate.dispose);
+    await tester.pumpWidget(
+      _app(
+        provider,
+        gate,
+        serverVersionCheck: (_, _) async =>
+            ServerConnectionResult.incompatibleServer(
+              normalizedUrl: 'http://old-server',
+            ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.byType(CommunityOnboardingScreen), findsOneWidget);
+    expect(find.textContaining('v3 이상'), findsNothing);
+    expect(find.byType(MainNavigationScreen), findsNothing);
+  });
+
+  testWidgets('losing consent closes a pushed screen', (tester) async {
+    final provider = await _providerWith({
+      AppPrefsKeys.appMode: 'standalone',
+      AppPrefsKeys.standaloneUsername: 'demo',
+      AppPrefsKeys.standaloneDemoMode: true,
+    });
+    final gate = StubGate(enter: true);
+    addTearDown(gate.dispose);
+    await tester.pumpWidget(_app(provider, gate));
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 200));
+      if (find.byType(MainNavigationScreen).evaluate().isNotEmpty) break;
+    }
+    expect(find.byType(MainNavigationScreen), findsOneWidget);
+    Navigator.of(tester.element(find.byType(MainNavigationScreen))).push(
+      MaterialPageRoute(
+        builder: (_) => const Scaffold(body: Text('other screen')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('other screen'), findsOneWidget);
+    gate.setEnter(false);
+    await tester.pumpAndSettle();
+    expect(find.byType(CommunityOnboardingScreen), findsOneWidget);
+    expect(find.text('other screen'), findsNothing);
+    await tester.pump(const Duration(seconds: 6));
+    await tester.pump(const Duration(seconds: 6));
+  });
 
   /// MainNavigationScreen 은 유지 애니메이션(BusyRing 등)으로 settle 이 안 되므로
   /// 고정 pump 로만 진행한다.

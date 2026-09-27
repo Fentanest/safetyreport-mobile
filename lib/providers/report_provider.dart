@@ -9,7 +9,8 @@ import '../community/upload_hooks.dart';
 import '../community/rebuild/community_rebuild.dart' show CommunityRebuildGuard;
 import '../services/api_service.dart';
 import '../services/app_prefs_keys.dart';
-import '../services/community_auth_service.dart';import '../services/local_db_service.dart';
+import '../services/community_auth_service.dart';
+import '../services/local_db_service.dart';
 import '../services/local_geocode_service.dart';
 import '../services/maintenance_service.dart';
 import '../services/permission_service.dart';
@@ -762,6 +763,14 @@ class ReportProvider with ChangeNotifier {
 
   bool _gatePassed = false;
 
+  /// 카카오 인증·동의가 풀리면 Client의 백그라운드 서버 연결도 끊는다.
+  void onGateBlocked() {
+    _gatePassed = false;
+    if (_appMode == AppMode.server) {
+      unawaited(PermissionService.stopWsService());
+    }
+  }
+
   /// 게이트가 ok 로 처음 바뀔 때 1회 + 이후 resume(`CommunityGate.addOnFirstPassed` 연결).
   /// T6 의 `registerBackgroundJobs()`·`catchUp('resume')` 도 여기서 부른다.
   Future<void> onGatePassed() async {
@@ -859,7 +868,9 @@ class ReportProvider with ChangeNotifier {
   Future<void> setConfig(String url, String key) async {
     StandaloneAuthService.stopKeepAlive();
     unawaited(BackgroundLoginCheck.cancel());
-    unawaited(CommunityUploadHooks.cancelBackgroundJobsNow()); // Client·데모·초기화: 공유 업로드 작업 해제
+    unawaited(
+      CommunityUploadHooks.cancelBackgroundJobsNow(),
+    ); // Client·데모·초기화: 공유 업로드 작업 해제
     final cleanUrl = url.endsWith('/') ? url.substring(0, url.length - 1) : url;
     _appMode = AppMode.server;
     _isStandaloneDemo = false;
@@ -888,7 +899,9 @@ class ReportProvider with ChangeNotifier {
       StandaloneAuthService.stopKeepAlive();
       await StandaloneAuthService.clearToken();
       unawaited(BackgroundLoginCheck.cancel());
-      unawaited(CommunityUploadHooks.cancelBackgroundJobsNow()); // 데모: 공유 업로드 작업 해제
+      unawaited(
+        CommunityUploadHooks.cancelBackgroundJobsNow(),
+      ); // 데모: 공유 업로드 작업 해제
     } else {
       StandaloneAuthService.startKeepAlive();
       unawaited(BackgroundLoginCheck.schedule());
@@ -940,7 +953,9 @@ class ReportProvider with ChangeNotifier {
     await PermissionService.stopWsService();
     StandaloneAuthService.stopKeepAlive();
     unawaited(BackgroundLoginCheck.cancel());
-    unawaited(CommunityUploadHooks.cancelBackgroundJobsNow()); // Client·데모·초기화: 공유 업로드 작업 해제
+    unawaited(
+      CommunityUploadHooks.cancelBackgroundJobsNow(),
+    ); // Client·데모·초기화: 공유 업로드 작업 해제
     _appMode = AppMode.server;
     _baseUrl = '';
     _apiKey = '';

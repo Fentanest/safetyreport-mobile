@@ -252,6 +252,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final cleanUrl = ServerContract.normalizeBaseUrl(url);
 
     try {
+      final compatibility = await ServerConnectionService.checkVersion(
+        baseUrl: cleanUrl,
+        apiKey: key,
+      );
+      if (!mounted) return;
+      if (!compatibility.isOk) {
+        setState(
+          () => _testResult = _TestResult.error(
+            compatibility.message ?? 'PC 서버 버전을 확인할 수 없습니다.',
+          ),
+        );
+        return;
+      }
       final response = await http
           .get(
             ServerContract.apiUri(cleanUrl, ServerContract.summaryPath),
@@ -267,24 +280,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         try {
           final json = jsonDecode(response.body);
           final total = json['data']?['total'] ?? '?';
-          final version = await ServerConnectionService.fetchVersionInfo(
-            baseUrl: cleanUrl,
-            apiKey: key,
-          );
-          if (!mounted) return;
-          if (version.version == null ||
-              !ServerConnectionService.supportsServerVersion(
-                version.version!,
-              )) {
-            setState(() {
-              _testResult = _TestResult.error(
-                ServerConnectionResult.incompatibleServer(
-                  normalizedUrl: cleanUrl,
-                ).message!,
-              );
-            });
-            return;
-          }
           setState(() {
             _testResult = _TestResult.success('연결 성공! 총 $total건 조회됨');
           });

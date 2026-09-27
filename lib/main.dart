@@ -25,6 +25,7 @@ import 'services/community_auth_link_channel.dart';
 import 'services/community_auth_service.dart';
 import 'services/local_db_service.dart';
 import 'services/permission_service.dart';
+import 'services/server_connection_service.dart';
 import 'community/community_store.dart';
 import 'community/community_wiring.dart';
 import 'community/gate/community_gate.dart';
@@ -85,7 +86,7 @@ Future<void> main() async {
     final store = communityStore ?? await CommunityStore.open();
     return standaloneRebuild(store, reportProvider).required();
   };
-  gate.addOnFirstPassed(reportProvider.onGatePassed);
+  // 서버 연결은 루트에서 PC 버전 3 이상을 확인한 뒤 시작한다.
   // 모드 전환(Client·데모 → Standalone 등) 뒤에는 그 기기 DB 의 주인을 다시 확인한다.
   reportProvider.addListener(gate.onAppModeChanged);
   if (communityStore != null) {
@@ -106,21 +107,98 @@ Future<void> main() async {
 }
 
 class SafetyReportApp extends StatefulWidget {
-  const SafetyReportApp({super.key});
+  const SafetyReportApp({super.key, this.serverVersionCheck});
+
+  /// 위젯 테스트에서는 네트워크 없이 버전 검사 결과를 주입한다.
+  final Future<ServerConnectionResult> Function(String baseUrl, String apiKey)?
+  serverVersionCheck;
 
   @override
   State<SafetyReportApp> createState() => _SafetyReportAppState();
 }
 
 class _SafetyReportAppState extends State<SafetyReportApp> {
+  late final CommunityGate _gate;
+  bool _gateWasOpen = false;
+  Future<ServerConnectionResult>? _serverVersionFuture;
+  String? _checkedBaseUrl;
+  String? _checkedApiKey;
+
+  Future<ServerConnectionResult> _checkServer(ReportProvider provider) {
+    if (_serverVersionFuture != null &&
+        _checkedBaseUrl == provider.baseUrl &&
+        _checkedApiKey == provider.apiKey) {
+      return _serverVersionFuture!;
+    }
+    _checkedBaseUrl = provider.baseUrl;
+    _checkedApiKey = provider.apiKey;
+    final url = provider.baseUrl;
+    final key = provider.apiKey;
+    return _serverVersionFuture = () async {
+      ServerConnectionResult result;
+      try {
+        result =
+            await (widget.serverVersionCheck?.call(url, key) ??
+                ServerConnectionService.checkVersion(
+                  baseUrl: url,
+                  apiKey: key,
+                ));
+      } catch (_) {
+        result = ServerConnectionResult.networkError(
+          normalizedUrl: url,
+          message: 'PC 서버 버전을 확인할 수 없습니다. 다시 확인해 주세요.',
+        );
+      }
+      if (!result.isOk &&
+          provider.appMode == AppMode.server &&
+          provider.baseUrl == url &&
+          provider.apiKey == key) {
+        await PermissionService.stopWsService();
+        if (_gate.canEnter) _returnToRoot();
+      }
+      return result;
+    }();
+  }
+
+  void _retryServerVersion() {
+    setState(() => _serverVersionFuture = null);
+  }
+
+  void _returnToRoot() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final navigator = communityAuthNavigatorKey.currentState;
+      if (navigator?.canPop() == true) {
+        navigator!.popUntil((route) => route.isFirst);
+      }
+    });
+  }
+
+  void _onGateChanged() {
+    final canEnter = _gate.canEnter;
+    if (_gateWasOpen && !canEnter) {
+      context.read<ReportProvider>().onGateBlocked();
+      _returnToRoot();
+    }
+    _gateWasOpen = canEnter;
+  }
+
   @override
   void initState() {
     super.initState();
-    final gate = context.read<CommunityGate>();
-    gate.startPolling();
+    _gate = context.read<CommunityGate>();
+    _gateWasOpen = _gate.canEnter;
+    _gate.addListener(_onGateChanged);
+    _gate.startPolling();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      unawaited(gate.refreshNow());
+      unawaited(_gate.refreshNow());
     });
+  }
+
+  @override
+  void dispose() {
+    _gate.removeListener(_onGateChanged);
+    super.dispose();
   }
 
   @override
@@ -141,39 +219,110 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
           themeMode: provider.themeMode.themeMode,
           home: Builder(
             builder: (_) {
-              // 진입 순서(§6.2): 로딩 → 게이트(검사 중에는 로딩 셸만, 신고 화면 flash 금지)
-              // → 온보딩 → 권한(common) → Setup → 백그라운드 서비스 시작 → 초기화 → 메인.
-              if (!provider.isInitialized || !gate.isChecked) {
-                return const Scaffold(
-                  body: Center(child: CircularProgressIndicator()),
+              if (provider.isInitialized &&
+                  provider.appMode == AppMode.server &&
+                  provider.isConfigured) {
+                return FutureBuilder<ServerConnectionResult>(
+                  future: _checkServer(provider),
+                  builder: (context, check) =>
+                      _buildHome(provider, gate, check.data),
                 );
               }
-              if (!gate.canEnter) {
-                return CommunityOnboardingScreen(
-                  gate: gate,
-                  // 없으면 동의를 저장하지 못한다("커뮤니티 서버 설정이 없어 동의를 저장할 수 없습니다", 2026-09-27 dev 빌드에서 발견)
-                  accountClient: gate.accountClient,
-                  onReportsWiped: provider.refreshAll,
-                  clientServer:
-                      provider.appMode == AppMode.server &&
-                          provider.baseUrl.isNotEmpty
-                      ? (baseUrl: provider.baseUrl, apiKey: provider.apiKey)
-                      : null,
-                  onNext: () async {
-                    await gate.requireFresh();
-                  },
-                );
-              }
-              if (!provider.isConfigured) {
-                return const _SetupFlow();
-              }
-              return const _PostGateFlow();
+              return _buildHome(provider, gate, null);
             },
           ),
         );
       },
     );
   }
+
+  Widget _buildHome(
+    ReportProvider provider,
+    CommunityGate gate,
+    ServerConnectionResult? serverVersion,
+  ) {
+    // 진입 순서(§6.2): 로딩 → 게이트(검사 중에는 로딩 셸만, 신고 화면 flash 금지)
+    // → 온보딩 → 권한(common) → Setup → 백그라운드 서비스 시작 → 초기화 → 메인.
+    if (!provider.isInitialized || !gate.isChecked) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (!gate.canEnter) {
+      return CommunityOnboardingScreen(
+        gate: gate,
+        // 없으면 동의를 저장하지 못한다("커뮤니티 서버 설정이 없어 동의를 저장할 수 없습니다", 2026-09-27 dev 빌드에서 발견)
+        accountClient: gate.accountClient,
+        onReportsWiped: provider.refreshAll,
+        clientServer:
+            provider.appMode == AppMode.server && serverVersion?.isOk == true
+            ? (baseUrl: provider.baseUrl, apiKey: provider.apiKey)
+            : null,
+        onNext: () async {
+          await gate.requireFresh();
+        },
+      );
+    }
+    if (!provider.isConfigured) {
+      return const _SetupFlow();
+    }
+    if (provider.appMode == AppMode.server) {
+      if (serverVersion == null) {
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      }
+      if (!serverVersion.isOk) {
+        return _ServerVersionBlockedScreen(
+          message: serverVersion.message ?? 'PC 서버 버전을 확인할 수 없습니다.',
+          onRetry: _retryServerVersion,
+        );
+      }
+    }
+    return const _PostGateFlow();
+  }
+}
+
+class _ServerVersionBlockedScreen extends StatelessWidget {
+  const _ServerVersionBlockedScreen({
+    required this.message,
+    required this.onRetry,
+  });
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('PC 서버 연결 확인')),
+    body: SafeArea(
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Icon(
+                  Icons.update_rounded,
+                  size: 48,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                const SizedBox(height: 16),
+                Text(message, textAlign: TextAlign.center),
+                const SizedBox(height: 24),
+                FilledButton(onPressed: onRetry, child: const Text('다시 확인')),
+                TextButton(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SetupScreen()),
+                  ),
+                  child: const Text('서버 주소 또는 API 키 변경'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 /// 게이트 통과 뒤 신규 설치 흐름: 모드 무관 권한(common) → 기존 SetupScreen.
@@ -211,6 +360,16 @@ class _PostGateFlow extends StatefulWidget {
 class _PostGateFlowState extends State<_PostGateFlow> {
   bool _modeDone = false;
   bool _rebuildDone = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && context.read<CommunityGate>().canEnter) {
+        unawaited(context.read<ReportProvider>().onGatePassed());
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -252,11 +411,14 @@ class _ModeSupplementState extends State<_ModeSupplement> {
   Future<void> _start() async {
     final provider = context.read<ReportProvider>();
     if (provider.appMode != AppMode.server ||
-        !PermissionService.supportsWsService) {
+        !PermissionService.supportsWsService ||
+        !context.read<CommunityGate>().canEnter) {
       return;
     }
     if (!await PermissionService.isWsServiceRunning()) {
-      await PermissionService.startWsService();
+      if (mounted && context.read<CommunityGate>().canEnter) {
+        await PermissionService.startWsService();
+      }
     }
   }
 

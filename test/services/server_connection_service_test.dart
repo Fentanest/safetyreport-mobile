@@ -4,6 +4,44 @@ import 'package:http/testing.dart';
 import 'package:safetyreport/services/server_connection_service.dart';
 
 void main() {
+  group('ServerConnectionService.checkVersion', () {
+    test('accepts a configured v3 server before other API calls', () async {
+      final client = MockClient((request) async {
+        expect(request.url.path, '/api/v1/server/version');
+        expect(request.headers['X-API-Key'], 'secret');
+        return http.Response('{"version":"3.0.0.0"}', 200);
+      });
+      final result = await ServerConnectionService.checkVersion(
+        baseUrl: 'https://example.com',
+        apiKey: 'secret',
+        client: client,
+      );
+      expect(result.isOk, isTrue);
+    });
+
+    test('rejects an old stored server version', () async {
+      final client = MockClient(
+        (_) async => http.Response('{"version":"2.5.3"}', 200),
+      );
+      final result = await ServerConnectionService.checkVersion(
+        baseUrl: 'https://example.com',
+        apiKey: 'secret',
+        client: client,
+      );
+      expect(result.status, ServerConnectionStatus.incompatibleServer);
+    });
+
+    test('fails closed when the version endpoint is unavailable', () async {
+      final client = MockClient((_) async => http.Response('missing', 404));
+      final result = await ServerConnectionService.checkVersion(
+        baseUrl: 'https://example.com',
+        apiKey: 'secret',
+        client: client,
+      );
+      expect(result.status, ServerConnectionStatus.incompatibleServer);
+    });
+  });
+
   group('ServerConnectionService.testConnection', () {
     test(
       'returns ok for valid summary response and normalizes base url',
@@ -28,12 +66,11 @@ void main() {
       },
     );
 
-    test('rejects a pre-v3 PC server after valid authentication', () async {
-      final client = MockClient(
-        (request) async => request.url.path.endsWith('/summary')
-            ? http.Response('{"data":{"total":7}}', 200)
-            : http.Response('{"version":"2.5.3"}', 200),
-      );
+    test('rejects a pre-v3 PC server before requesting summary', () async {
+      final client = MockClient((request) async {
+        expect(request.url.path, '/api/v1/server/version');
+        return http.Response('{"version":"2.5.3"}', 200);
+      });
       final result = await ServerConnectionService.testConnection(
         baseUrl: 'https://example.com',
         apiKey: 'secret',
@@ -91,7 +128,11 @@ void main() {
     });
 
     test('returns networkError for malformed 200 response body', () async {
-      final client = MockClient((_) async => http.Response('<html>', 200));
+      final client = MockClient(
+        (request) async => request.url.path.endsWith('/version')
+            ? http.Response('{"version":"3.0.0.0"}', 200)
+            : http.Response('<html>', 200),
+      );
 
       final result = await ServerConnectionService.testConnection(
         baseUrl: 'https://example.com',

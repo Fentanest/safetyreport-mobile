@@ -159,6 +159,7 @@ Dart CommunityAuthLinkChannel (main() 에서 등록) → "takePendingLink"(꺼�
 ## Foreground Service 정책
 
 ### `WsService` (Client 모드)
+- 게이트 캐시가 `ok`이고 `/api/v1/server/version`이 v3 이상으로 확인된 뒤에만 WebSocket을 연다. 재연결 때도 다시 확인한다. `MainActivity` 자동 시작과 `NotificationService` 신고번호 전송에도 같은 게이트·버전 검사를 적용한다.
 - WebSocket URL 은 `ServerContract.wsEventsUrl(baseUrl, apiKey)` 로 생성
 - 지수 백오프 재연결 (3→6→12→24→60초)
 - START_STICKY (OS 가 죽여도 자동 재시작)

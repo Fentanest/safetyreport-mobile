@@ -15,6 +15,7 @@ object ServerContract {
     const val EVENT_CRAWL_CHANGES = "crawl_changes"
 
     const val CRAWL_ENQUEUE_PATH = "$API_PREFIX/crawl/enqueue"
+    const val SERVER_VERSION_PATH = "$API_PREFIX/server/version"
 
     fun normalizeBaseUrl(baseUrl: String): String = baseUrl.trimEnd('/')
 

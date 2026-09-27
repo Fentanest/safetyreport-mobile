@@ -331,6 +331,7 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
 - `GET  /api/v1/crawl/config` — 크롤링 설정
 - `GET  /api/v1/crawl/status` — 크롤링 상태 폴링
 - `GET  /version` / `GET /version/latest` — 버전 / 업데이트 체크
+- `GET /api/v1/server/version` (`X-API-Key`) — Client 접속 호환성 확인. `version`의 major가 3 이상일 때만 저장된 Client 설정으로 신고 화면·서버 작업에 들어간다. 3 미만, 엔드포인트 없음, 인증·네트워크 오류, 읽을 수 없는 버전은 진입을 막고 재확인을 안내한다. 새 서버 설정 저장 시에도 이 검사를 요약 조회보다 먼저 한다.
 - `ws://<baseUrl>/ws/events` — 이벤트 스트림 (WsService 연결)
 - `ws://<baseUrl>/crawl/ws/logs` — 실시간 로그 (CrawlScreen)
 

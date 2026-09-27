@@ -12,6 +12,76 @@ import 'server_contract.dart';
 class ServerConnectionService {
   ServerConnectionService._();
 
+  /// 저장된 Client 설정도 앱에 들어가기 전에 검사한다. 버전을 확인할 수 없으면 진입을 허용하지 않는다.
+  static Future<ServerConnectionResult> checkVersion({
+    required String baseUrl,
+    required String apiKey,
+    Duration timeout = const Duration(seconds: 10),
+    http.Client? client,
+  }) async {
+    final cleanUrl = ServerContract.normalizeBaseUrl(baseUrl);
+    final ownedClient = client ?? http.Client();
+    try {
+      final response = await ownedClient
+          .get(
+            ServerContract.apiUri(cleanUrl, ServerContract.serverVersionPath),
+            headers: ServerContract.apiHeaders(apiKey),
+          )
+          .timeout(timeout);
+      if (response.statusCode == 401) {
+        return ServerConnectionResult.unauthorized(normalizedUrl: cleanUrl);
+      }
+      if (response.statusCode == 404) {
+        return ServerConnectionResult.incompatibleServer(
+          normalizedUrl: cleanUrl,
+        );
+      }
+      if (response.statusCode != 200) {
+        return ServerConnectionResult.httpError(
+          normalizedUrl: cleanUrl,
+          statusCode: response.statusCode,
+        );
+      }
+      Object? body;
+      try {
+        body = jsonDecode(response.body);
+      } catch (_) {
+        return ServerConnectionResult.incompatibleServer(
+          normalizedUrl: cleanUrl,
+        );
+      }
+      final version = body is Map<String, dynamic> ? body['version'] : null;
+      if (version is! String || !supportsServerVersion(version)) {
+        return ServerConnectionResult.incompatibleServer(
+          normalizedUrl: cleanUrl,
+        );
+      }
+      return ServerConnectionResult.ok(normalizedUrl: cleanUrl);
+    } on SocketException catch (e) {
+      return ServerConnectionResult.networkError(
+        normalizedUrl: cleanUrl,
+        message: '서버 버전 확인 실패: $e',
+      );
+    } on http.ClientException catch (e) {
+      return ServerConnectionResult.networkError(
+        normalizedUrl: cleanUrl,
+        message: '서버 버전 확인 실패: $e',
+      );
+    } on TimeoutException {
+      return ServerConnectionResult.networkError(
+        normalizedUrl: cleanUrl,
+        message: '서버 버전 확인 시간이 초과되었습니다.',
+      );
+    } catch (_) {
+      return ServerConnectionResult.networkError(
+        normalizedUrl: cleanUrl,
+        message: '서버 버전을 확인할 수 없습니다.',
+      );
+    } finally {
+      if (client == null) ownedClient.close();
+    }
+  }
+
   /// `/api/v1/summary` 와 `/api/v1/server/version` 으로 인증과 호환성을 확인.
   ///
   /// 성공 시 [ServerConnectionResult.ok] 반환.
@@ -29,6 +99,13 @@ class ServerConnectionService {
     Object? lastError;
     http.Response? response;
     try {
+      final compatibility = await checkVersion(
+        baseUrl: cleanUrl,
+        apiKey: apiKey,
+        timeout: timeout,
+        client: ownedClient,
+      );
+      if (!compatibility.isOk) return compatibility;
       for (var attempt = 1; attempt <= mobileMaxRetryAttempts; attempt++) {
         try {
           response = await ownedClient
@@ -61,66 +138,11 @@ class ServerConnectionService {
       if (response.statusCode == 200) {
         try {
           jsonDecode(response.body);
+          return ServerConnectionResult.ok(normalizedUrl: cleanUrl);
         } catch (_) {
           return ServerConnectionResult.networkError(
             normalizedUrl: cleanUrl,
             message: '서버 응답 파싱 실패. 올바른 서버인지 확인해주세요.',
-          );
-        }
-        try {
-          final versionResponse = await ownedClient
-              .get(
-                ServerContract.apiUri(
-                  cleanUrl,
-                  ServerContract.serverVersionPath,
-                ),
-                headers: ServerContract.apiHeaders(apiKey),
-              )
-              .timeout(timeout);
-          if (versionResponse.statusCode == 401) {
-            return ServerConnectionResult.unauthorized(normalizedUrl: cleanUrl);
-          }
-          if (versionResponse.statusCode != 200) {
-            return ServerConnectionResult.incompatibleServer(
-              normalizedUrl: cleanUrl,
-            );
-          }
-          Object? versionBody;
-          try {
-            versionBody = jsonDecode(versionResponse.body);
-          } catch (_) {
-            return ServerConnectionResult.incompatibleServer(
-              normalizedUrl: cleanUrl,
-            );
-          }
-          final version = versionBody is Map<String, dynamic>
-              ? versionBody['version']
-              : null;
-          if (version is! String || !supportsServerVersion(version)) {
-            return ServerConnectionResult.incompatibleServer(
-              normalizedUrl: cleanUrl,
-            );
-          }
-          return ServerConnectionResult.ok(normalizedUrl: cleanUrl);
-        } on SocketException catch (e) {
-          return ServerConnectionResult.networkError(
-            normalizedUrl: cleanUrl,
-            message: '서버 버전 확인 실패: $e',
-          );
-        } on http.ClientException catch (e) {
-          return ServerConnectionResult.networkError(
-            normalizedUrl: cleanUrl,
-            message: '서버 버전 확인 실패: $e',
-          );
-        } on TimeoutException catch (e) {
-          return ServerConnectionResult.networkError(
-            normalizedUrl: cleanUrl,
-            message: '서버 버전 확인 실패: $e',
-          );
-        } catch (_) {
-          return ServerConnectionResult.networkError(
-            normalizedUrl: cleanUrl,
-            message: '서버 버전 확인 실패. 잠시 뒤 다시 시도해주세요.',
           );
         }
       }

@@ -106,16 +106,29 @@ class WsService : Service() {
                 val baseUrl = prefs.getString("flutter.baseUrl", "")?.trimEnd('/') ?: ""
                 val apiKey  = prefs.getString("flutter.apiKey",  "") ?: ""
 
+                if (!ClientGateGuard.isOpen(prefs)) {
+                    updateForegroundNotif("카카오 인증·동의 확인 필요")
+                    try { Thread.sleep(10_000) } catch (_: InterruptedException) { break }
+                    continue
+                }
+
                 if (baseUrl.isEmpty() || apiKey.isEmpty()) {
                     Log.w(TAG, "baseUrl/apiKey 미설정. 10초 후 재시도.")
                     try { Thread.sleep(10_000) } catch (_: InterruptedException) { break }
                     continue
                 }
 
+                if (!ServerVersionCompatibility.check(baseUrl, apiKey)) {
+                    updateForegroundNotif("PC 서버 v3 이상 확인 필요")
+                    Log.w(TAG, "서버 버전 확인 실패 또는 v3 미만. WebSocket 연결 차단")
+                    try { Thread.sleep(60_000) } catch (_: InterruptedException) { break }
+                    continue
+                }
+
                 // http → ws, https → wss 변환
                 val wsUrl = ServerContract.wsEventsUrl(baseUrl, apiKey)
 
-                Log.i(TAG, "WS 연결 시도 #$attempt: $wsUrl")
+                Log.i(TAG, "WS 연결 시도 #$attempt")
                 updateForegroundNotif("서버 연결 중... (#$attempt)")
 
                 val connected = connectAndBlock(wsUrl)

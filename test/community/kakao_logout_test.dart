@@ -201,6 +201,7 @@ void main() {
     expect(find.text('로그아웃(신고 내역 유지)'), findsOneWidget);
 
     await tester.ensureVisible(find.byKey(const Key('communityOwnerAdopt')));
+    await tester.ensureVisible(find.byKey(const Key('communityOwnerAdopt')));
     await tester.tap(find.byKey(const Key('communityOwnerAdopt')));
     await tester.pumpAndSettle();
     expect(find.text('이 계정으로 새로 시작'), findsOneWidget, reason: '지우기 전에 확인받는다');

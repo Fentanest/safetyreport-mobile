@@ -117,14 +117,27 @@ class FakeAccountServer {
   /// 동의 성공 응답 뒤 부른다(시험이 status 를 '동의함'으로 바꾸게).
   void Function()? onConsent;
 
+  /// 남은 횟수만큼 `policy` 가 일시 오류(503)를 낸다.
+  int policyFailures = 0;
+
+  /// 설정하면 status 응답이 이 Future 가 끝날 때까지 늦게 온다(늦게 도착한 이전 세션 응답 흉내).
+  Future<void>? statusDelay;
+
   late final MockClient client = MockClient((req) async {
     requests.add(req);
     final path = req.url.path;
     if (path.endsWith('/status')) {
       statusCalls++;
+      final delay = statusDelay;
+      if (delay != null) await delay;
       return http.Response.bytes(utf8.encode(jsonEncode(statusFn())), 200);
     }
     if (path.endsWith('/policy')) {
+      if (policyFailures > 0) {
+        policyFailures--;
+        return http.Response.bytes(
+            utf8.encode(jsonEncode({'error': {'code': 'busy', 'message': 'busy', 'retryable': true}})), 503);
+      }
       return http.Response.bytes(
         utf8.encode(jsonEncode({
           'protocol': 1,

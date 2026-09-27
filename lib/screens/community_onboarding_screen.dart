@@ -55,7 +55,8 @@ class _CommunityOnboardingScreenState
   CommunityPolicy? _policy;
   String? _policyError;
   bool _policyLoading = false;
-  bool _consentExpanded = false;
+  // 동의문은 처음부터 펼쳐 둔다 — 본문을 보지 않고 동의하지 않게(Codex 검수 P1).
+  bool _consentExpanded = true;
   bool _nextBusy = false;
   String? _nextError;
 
@@ -616,6 +617,14 @@ class _CommunityOnboardingScreenState
                 ),
               ),
             ],
+            // 불러오지 못했으면 이 화면에서 다시 받을 수 있게(네트워크·요청 한도 뒤 막히지 않게 — Codex 검수 P2)
+            if (_kakaoOk && _policy == null && _policyError != null && !_policyLoading)
+              TextButton.icon(
+                key: const Key('consentPolicyRetry'),
+                icon: const Icon(Icons.refresh, size: 16),
+                label: const Text('동의 문서 다시 불러오기'),
+                onPressed: _loadPolicy,
+              ),
             CheckboxListTile(
               value: _consentChecked || _consentDone,
               contentPadding: EdgeInsets.zero,

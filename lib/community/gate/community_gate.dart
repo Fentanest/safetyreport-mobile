@@ -80,6 +80,9 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   /// 이미 동의한 계정도 필수 설정 화면에 머물렀다(2026-09-27). 로그아웃·만료도 즉시 반영한다.
   bool _disposed = false;
 
+  /// 로그인 상태 세대 — 확정된 로그인 변화마다 올린다. 이전 세대에 시작한 확인 결과는 적용하지 않는다(Codex 검수 P1).
+  int _authGen = 0;
+
   /// 폐기 뒤에 끝난 확인(로그인 상태 변화로 시작된 refresh 등)은 조용히 멈춘다.
   @override
   void notifyListeners() {
@@ -97,8 +100,17 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         phase == CommunityAccountPhase.disconnected ||
         phase == CommunityAccountPhase.reauthRequired;
     if (!settled) return;
+    _authGen++;
     invalidate(phase == CommunityAccountPhase.connected ? 'login' : 'logout');
-    unawaited(refreshNow(silent: true));
+    // 진행 중인 확인이 있으면(이전 세션) 그것이 끝난 뒤 새 세션으로 다시 확인한다 — refreshNow 는 진행 중이면 같은 결과를 돌려준다.
+    final pending = _inFlight;
+    if (pending != null) {
+      unawaited(pending.whenComplete(() {
+        if (!_disposed) unawaited(refreshNow(silent: true));
+      }));
+    } else {
+      unawaited(refreshNow(silent: true));
+    }
   }
 
   static const String connectionStorageKey = 'community_connection_v1';
@@ -265,6 +277,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<GateState> _refresh({bool silent = false}) async {
+    final authGen = _authGen;
     if (!silent) {
       _checking = true;
       notifyListeners();
@@ -313,6 +326,13 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
           }
           _apply(evaluateGate(config: config, session: session));
         }
+        _checked = true;
+        notifyListeners();
+        return _state;
+      }
+      if (authGen != _authGen) {
+        // 이 확인을 시작한 뒤 로그인 상태가 바뀌었다(로그아웃·계정 변경) — 이전 세션의 응답으로 게이트를 열지 않는다.
+        // 새 세션의 확인은 _onAuthChanged 가 이어서 한다.
         _checked = true;
         notifyListeners();
         return _state;

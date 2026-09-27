@@ -1,3 +1,4 @@
+import 'dart:async';
 // CommunityGate — 캐시·무효화·연결 등록·컨텍스트 기록 (네트워크 없이 가짜 주입).
 import 'dart:io';
 
@@ -173,6 +174,22 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 50));
     expect(server.statusCalls, before + 1);
     expect(gate.canEnter, isTrue, reason: '이미 동의한 계정은 바로 통과');
+  });
+
+  test('a status answer that arrives after logout never reopens the gate (Codex review P1)', () async {
+    final gate = makeGate();
+    final slow = Completer<void>();
+    server.statusDelay = slow.future;
+    final inFlight = gate.refreshNow();
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    auth.setPhase(CommunityAccountPhase.disconnected); // 로그아웃: 이전 세션의 응답은 아직 오는 중
+    slow.complete();
+    server.statusDelay = null;
+    await inFlight;
+    expect(gate.canEnter, isFalse, reason: '늦게 온 이전 세션의 ok 로 열리지 않는다');
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(gate.canEnter, isFalse);
+    expect(gate.state.state, isNot('ok'));
   });
 
   test('invalidate forces verification_required; suspended deactivates', () async {

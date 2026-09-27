@@ -288,7 +288,7 @@ CREATE TABLE sync_meta (key TEXT PRIMARY KEY, value TEXT);
 | Standalone 일반 GET (목록/상세) | `StandaloneApiService._getWithRetry` | 3회 / 1초 sleep / 20s timeout / 401 시 자동 재로그인 + 1회 추가 |
 | Standalone 로그인 Step 1 (RSA 키) | `StandaloneAuthService.login` | 3회 / `attempt`초 backoff / 15s timeout |
 | Standalone 로그인 Step 3 (OAuth 토큰 POST) | `StandaloneAuthService.login` | 3회 / `attempt`초 backoff / 15s timeout |
-| Client DB 다운로드 (서버→standalone 변환) | `ApiService.downloadDb` | 3회 / 1초 sleep / **2분** timeout (DB 가 MB 단위) |
+| Client DB 다운로드 (DB 백업·서버→standalone 변환) | `ApiService.downloadDbToFile` | **재시도 없음**, 파일로 흘려 받기, 30초 무응답이면 요청을 닫고 멈춤, 진행률·취소 (2026-09-27 — 예전 `downloadDb` 는 전체 2분 제한 + 이전 요청을 끊지 않는 5회 재시도라 느린 회선에서 최대 약 10분 스피너만 돌았다) |
 | Client 일반 API (crawl/enqueue 등) | `ApiService` 메서드들 (`ServerContract` 경유) | retry 없음 (사용자 명시 요청 범위 외) |
 
 catch 대상: `SocketException` (errno 104), `http.ClientException`, `TimeoutException`. 4xx/5xx HTTP 응답은 재시도 무의미 → 즉시 throw.

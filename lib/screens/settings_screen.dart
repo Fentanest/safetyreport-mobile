@@ -56,6 +56,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _wsRunning = false;
   bool _wsToggling = false;
   bool _isBackingUpDb = false;
+
+  /// Client DB 백업 다운로드 진행(받은 바이트, 전체 — 모르면 null)과 취소. 받는 중이 아니면 null.
+  final ValueNotifier<(int, int?)> _dbDownloadProgress = ValueNotifier((0, null));
+  DownloadCancel? _dbDownloadCancel;
   bool _isRestoringDb = false;
 
   // 기타 데이터 필터 세팅
@@ -215,6 +219,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
+    _dbDownloadCancel?.cancel();
+    _dbDownloadProgress.dispose();
     _dbKeyProvider?.removeListener(_onDbTargetMaybeChanged);
     _urlController.dispose();
     _apiController.dispose();
@@ -509,8 +515,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await LocalDbService.exportBackup(targetFile.path);
       } else {
         final api = ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
-        final bytes = await api.downloadDb();
-        await targetFile.writeAsBytes(bytes);
+        final cancel = DownloadCancel();
+        _dbDownloadProgress.value = (0, null);
+        setState(() => _dbDownloadCancel = cancel);
+        await api.downloadDbToFile(
+          targetFile.path,
+          cancel: cancel,
+          onProgress: (received, total) {
+            if (mounted) _dbDownloadProgress.value = (received, total);
+          },
+        );
       }
 
       if (mounted) {
@@ -519,6 +533,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             content: Text('DB 백업 완료: ${targetFile.path}'),
             backgroundColor: srSnackSuccess,
           ),
+        );
+      }
+    } on DownloadCancelled {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('DB 백업을 취소했습니다.')),
         );
       }
     } catch (e) {
@@ -531,6 +551,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       }
     } finally {
+      _dbDownloadCancel = null;
       if (mounted) setState(() => _isBackingUpDb = false);
     }
   }
@@ -904,31 +925,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
         // 화면이 닫혔으면 다운로드·모드 전환을 시작하지 않는다.
         if (!mounted) return;
-        // 진행 다이얼로그
+        // 진행 다이얼로그(받은 크기·취소)
+        final cancel = DownloadCancel();
+        final progress = ValueNotifier<(int, int?)>((0, null));
         unawaited(
           showDialog(
             context: context,
             barrierDismissible: false,
-            builder: (_) => const AlertDialog(
-              content: Row(
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(width: 16),
-                  Expanded(child: Text('서버 DB 다운로드 중...')),
-                ],
+            builder: (ctx) => AlertDialog(
+              content: ValueListenableBuilder<(int, int?)>(
+                valueListenable: progress,
+                builder: (_, v, _) => DbDownloadProgressView(
+                  title: '서버 DB 다운로드 중',
+                  received: v.$1,
+                  total: v.$2,
+                ),
               ),
+              actions: [
+                TextButton(
+                  onPressed: cancel.cancel,
+                  child: const Text('취소'),
+                ),
+              ],
             ),
           ),
         );
         final api = ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
-        final bytes = await api.downloadDb();
         final dir = _backupDir();
         final fileName =
             'server_db_${DateTime.now().millisecondsSinceEpoch}.db';
         final target = File('${dir.path}/$fileName');
-        await target.writeAsBytes(bytes);
+        await api.downloadDbToFile(
+          target.path,
+          cancel: cancel,
+          onProgress: (received, total) => progress.value = (received, total),
+        );
         pendingAction = ConvertServerDbAction(target.path);
         if (mounted) Navigator.of(context).pop(); // 진행 다이얼로그 닫기
+      } on DownloadCancelled {
+        if (mounted) {
+          Navigator.of(context).pop(); // 진행 다이얼로그 닫기
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('서버 DB 다운로드를 취소했습니다. 모드는 바꾸지 않았습니다.')),
+          );
+        }
+        return;
       } catch (e) {
         if (mounted) {
           Navigator.of(context).pop(); // 진행 다이얼로그 닫기 (실패 시)
@@ -1800,7 +1841,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 14),
                     SizedBox(
                       width: double.infinity,
-                      child: _isBackingUpDb
+                      child: _isBackingUpDb && _dbDownloadCancel != null
+                          ? ValueListenableBuilder<(int, int?)>(
+                              valueListenable: _dbDownloadProgress,
+                              builder: (_, v, _) => Row(
+                                children: [
+                                  Expanded(
+                                    child: DbDownloadProgressView(
+                                      title: '서버 DB 받는 중',
+                                      received: v.$1,
+                                      total: v.$2,
+                                    ),
+                                  ),
+                                  TextButton(
+                                    key: const Key('dbBackupCancel'),
+                                    onPressed: _dbDownloadCancel?.cancel,
+                                    child: const Text('취소'),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : _isBackingUpDb
                           ? const Center(
                               child: Padding(
                                 padding: EdgeInsets.all(8),
@@ -2348,6 +2409,40 @@ class _SupportCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// DB 다운로드 진행 표시: 제목, 받은 크기 / 전체 크기, 진행 막대(전체를 모르면 흐르는 막대).
+class DbDownloadProgressView extends StatelessWidget {
+  const DbDownloadProgressView({
+    super.key,
+    required this.title,
+    required this.received,
+    required this.total,
+  });
+
+  final String title;
+  final int received;
+  final int? total;
+
+  static String _mb(int bytes) => (bytes / 1048576).toStringAsFixed(1);
+
+  @override
+  Widget build(BuildContext context) {
+    final t = total;
+    final known = t != null && t > 0;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          known ? '$title ${_mb(received)} / ${_mb(t)}MB' : '$title ${_mb(received)}MB',
+          style: const TextStyle(fontSize: 13),
+        ),
+        const SizedBox(height: 8),
+        LinearProgressIndicator(value: known ? (received / t).clamp(0.0, 1.0) : null),
+      ],
     );
   }
 }

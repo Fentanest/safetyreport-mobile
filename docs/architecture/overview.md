@@ -18,8 +18,8 @@
 
 이 절이 아래 이관 당시의 부팅·7개 하단 탭 설명보다 우선한다.
 
-1. `main.dart`가 저장소 이관, `ReportProvider.init`, `CommunityGate` 확인을 마칠 때까지 로딩 화면을 보인다. 게이트가 막히면 카카오 로그인·현재 공유 동의 화면을 연다. 두 모드 모두 동의 전 신고 화면 진입은 불가하다.
-2. 새 설치는 공통 OS 권한 화면을 한 번 보여 준 뒤 `SetupScreen`에서 모드를 고른다. Client의 `연결 확인 후 시작하기`는 서버 버전과 API 키를 검사하고 설정을 저장한다. 설정 완료 뒤 권한 화면을 다시 쌓지 않는다.
+1. `main.dart`가 저장소 이관과 `ReportProvider.init`을 마칠 때까지 로딩 화면을 보인다. 설정이 없는 새 설치는 `SetupScreen`에서 모드를 먼저 선택한다. Client·Standalone을 선택하면 `CommunityGate` 검사 및 카카오 로그인·현재 공유 동의 화면을 거친다. 기존 설정 사용자는 바로 게이트를 검사한다. 두 실제 모드 모두 동의 전 신고 화면 진입은 불가하다.
+2. 새 설치의 실제 모드 흐름은 모드 선택 → 카카오 로그인·동의 → 공통 OS 권한 → 선택한 모드 설정이다. Client의 `연결 확인 후 시작하기`는 서버 버전과 API 키를 검사하고 설정을 저장한다. 설정 완료 뒤 권한 화면을 다시 쌓지 않는다. 모드 선택의 `Demo 보기`는 별도 합성 DB의 신고 100건을 바로 열며 게이트·권한·WebSocket·동기화를 거치지 않는다.
 3. 저장된 Client 설정으로 다시 열어도 `ServerConnectionService.checkVersion`으로 `/api/v1/server/version`을 확인한다. PC 서버 v3 미만·버전 확인 실패 시 신고 화면 대신 차단 화면을 보여 주고 WebSocket을 멈춘다. 재확인 또는 서버 주소·키 변경으로 복구한다. 카카오 게이트가 먼저이며 서버 버전 확인 결과만으로 신고 화면을 열지 않는다.
 4. 게이트·서버 검사가 끝나면 Client WebSocket을 시작하고, 필요 시 초기화 안내를 거쳐 메인 화면으로 간다. 현재 하단 탭은 대시보드·신고내역·신고관리·통계·알림 5개이며 수집·파일 화면은 별도 경로로 연다.
 
@@ -39,9 +39,7 @@ Flutter + Kotlin 하이브리드 Android 앱. 안전신문고 신고 처리 현�
 | **Standalone** | 안전신문고 공식 API 직접 호출 + 로컬 SQLite | 서버 없이 모바일 단독 |
 
 `AppMode` enum (`lib/models/app_mode.dart`) 으로 식별. `ReportProvider.appMode` 가 단일 source of truth.
-숨은 **Play Console 심사용 데모 경로**도 존재:
-Standalone 로그인 화면에서 `demo / demo`(휴대폰번호 공란) 또는 `demo / demo / demo` 입력 시
-실제 로그인 없이 예시 신고 3건이 들어있는 로컬 DB를 연다.
+모드 선택 화면 아래 **Demo 보기**를 누르면 로그인 없이 예시 신고 100건이 들어 있는 별도 로컬 DB를 연다. Standalone 로그인 화면의 기존 `demo / demo` 입력도 같은 데이터로 들어간다.
 
 ## 기술 스택
 

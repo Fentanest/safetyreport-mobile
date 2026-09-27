@@ -4,6 +4,8 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:safetyreport/providers/report_provider.dart';
 import 'package:safetyreport/models/rating_lookup.dart';
 import 'package:safetyreport/models/report.dart';
 import 'package:safetyreport/services/local_db_service.dart';
@@ -225,8 +227,35 @@ void main() {
         'reports',
         columns: ['ID'],
       )).map((r) => r['ID']).toSet();
+      expect(demoIds, hasLength(100));
       expect(demoIds.contains('k-1'), isFalse);
-      expect(demoIds, isNotEmpty);
+      final demoRows = await (await LocalDbService.db).query('reports');
+      expect(
+        demoRows.every((row) => row['위도'] != null && row['경도'] != null),
+        isTrue,
+      );
+      expect(
+        demoRows.every(
+          (row) => !(row['첨부사진']?.toString().contains('http') ?? false),
+        ),
+        isTrue,
+      );
+      FlutterSecureStorage.setMockInitialValues({});
+      final provider = ReportProvider();
+      await provider.init();
+      await provider.setStandaloneConfig(
+        'demo',
+        phoneNumber: 'demo',
+        isDemoMode: true,
+      );
+      await provider.refreshAll();
+      expect(
+        provider.trafficReports.length +
+            provider.parkingReports.length +
+            provider.otherReports.length,
+        100,
+      );
+      provider.dispose();
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('standaloneDemoMode', false);

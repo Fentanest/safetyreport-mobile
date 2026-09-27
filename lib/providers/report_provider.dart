@@ -844,6 +844,7 @@ class ReportProvider with ChangeNotifier {
       await refreshAll();
       return;
     }
+    if (!_gatePassed) return;
     // 백그라운드 로그인 점검(다른 isolate)이 남긴 결과를 화면에 반영한다.
     await StandaloneAuthService.reloadStatus();
     StandaloneAuthService.startKeepAlive();
@@ -895,6 +896,9 @@ class ReportProvider with ChangeNotifier {
     bool isDemoMode = false,
   }) async {
     await PermissionService.stopWsService();
+    final wasStandaloneLive =
+        _appMode == AppMode.standalone && !_isStandaloneDemo;
+    if (!wasStandaloneLive) _gatePassed = false;
     if (isDemoMode) {
       StandaloneAuthService.stopKeepAlive();
       await StandaloneAuthService.clearToken();
@@ -903,8 +907,12 @@ class ReportProvider with ChangeNotifier {
         CommunityUploadHooks.cancelBackgroundJobsNow(),
       ); // 데모: 공유 업로드 작업 해제
     } else {
-      StandaloneAuthService.startKeepAlive();
-      unawaited(BackgroundLoginCheck.schedule());
+      // 새 모드의 게이트를 통과한 뒤 keep-alive·예약을 시작한다.
+      if (!_gatePassed) {
+        StandaloneAuthService.stopKeepAlive();
+      } else {
+        StandaloneAuthService.startKeepAlive();
+      }
     }
     _appMode = AppMode.standalone;
     _standaloneUsername = username;
@@ -951,6 +959,7 @@ class ReportProvider with ChangeNotifier {
 
   Future<void> resetConfig() async {
     await PermissionService.stopWsService();
+    _gatePassed = false;
     StandaloneAuthService.stopKeepAlive();
     unawaited(BackgroundLoginCheck.cancel());
     unawaited(

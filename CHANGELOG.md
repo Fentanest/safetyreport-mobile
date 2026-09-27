@@ -10,6 +10,14 @@
 
 ## 2026-09-27 (v2.0.0+31, dev 미배포)
 
+### Demo 보기·첫 실행 순서·Standalone 동기화 오류 수정
+
+- 첫 설치에서 Client/Standalone 모드를 먼저 고르고 카카오 로그인·공유 동의, 공통 권한, 해당 모드 설정으로 이어진다. 모드 선택 아래 `Demo 보기`를 추가해 로그인·권한 없이 가상 신고 100건을 실제 화면에서 볼 수 있게 했다. 기존 demo/demo 경로도 유지한다.
+- 데모 DB의 기존 3건을 모두 합성 자료 100건으로 바꾸고 실제 신고 원문·첨부 URL을 제거했다. 데모는 안전신문고 동기화·별점 제출·커뮤니티 업로드를 하지 않는다.
+- Android Standalone 동기화 중 `PathUtils` ClassNotFoundException을 없애는 `path_provider_android` 2.3.1로 lockfile을 갱신했다.
+- 검증: 진입·데모 DB·백그라운드 로그인 관련 테스트 21건 통과. 정적 분석 오류·경고 0(기존 형식 info 7건). 전체 테스트는 Flutter 테스트 엔진의 `shaders/ink_sparkle.frag` 디코딩 오류로 일부 위젯 테스트가 실패했다. Android 릴리스 빌드는 실행하지 않았다.
+
+
 ### 사용자·유지보수 문서 현행화
 
 - README의 첫 실행 순서, 필수 카카오 로그인·공유 동의, Client 연결 버튼·PC v3 이상 검사와 기존 설정 차단 안내를 실제 화면에 맞췄다. `docs/architecture/overview.md`에 현재 진입·권한·WebSocket 순서를 적었다. 문서만 변경했으며 앱 버전·빌드 번호는 그대로다.

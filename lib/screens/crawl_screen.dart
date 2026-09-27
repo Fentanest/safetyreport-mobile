@@ -591,7 +591,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
             SizedBox(width: 12),
             const Expanded(
               child: Text(
-                '현재는 Play Console 심사용 데모 모드입니다. 동기화 없이 예시 신고 3건만 표시됩니다.',
+                '현재 Demo 보기 모드입니다. 동기화 없이 가상 신고 100건을 표시합니다.',
                 style: TextStyle(height: 1.5),
               ),
             ),

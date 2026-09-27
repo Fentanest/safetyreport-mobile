@@ -24,6 +24,7 @@ class CommunityOnboardingScreen extends StatefulWidget {
     this.privacyLauncher,
     this.onReportsWiped,
     this.clientServer,
+    this.onBackToModeSelection,
   });
 
   final CommunityGate? gate;
@@ -37,6 +38,7 @@ class CommunityOnboardingScreen extends StatefulWidget {
 
   /// Client 모드면 서버 주소·API 키 — 이 앱과 서버의 카카오 계정이 다르면 알린다([ClientAccountMismatchNotice]).
   final ({String baseUrl, String apiKey})? clientServer;
+  final VoidCallback? onBackToModeSelection;
 
   @override
   State<CommunityOnboardingScreen> createState() =>
@@ -45,8 +47,7 @@ class CommunityOnboardingScreen extends StatefulWidget {
 
 const _privacyUrl = 'https://safeauth.worklazy.net/privacy.html';
 
-class _CommunityOnboardingScreenState
-    extends State<CommunityOnboardingScreen> {
+class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
   bool _consentChecked = false;
   bool _consentSaved = false;
   bool _consentBusy = false;
@@ -95,14 +96,18 @@ class _CommunityOnboardingScreenState
     try {
       final token = await _auth.getAccessToken();
       if (token == null || token.isEmpty) {
-        throw const CommunityAccountError(code: 'kakao_required', message: '먼저 카카오 인증을 완료해 주세요.');
+        throw const CommunityAccountError(
+          code: 'kakao_required',
+          message: '먼저 카카오 인증을 완료해 주세요.',
+        );
       }
       final policy = await client.policy(accessToken: token);
       if (mounted) setState(() => _policy = policy);
     } on CommunityAccountError catch (e) {
       if (mounted) setState(() => _policyError = e.message);
     } catch (_) {
-      if (mounted) setState(() => _policyError = '동의 문서를 불러오지 못했습니다. 잠시 뒤 다시 시도해 주세요.');
+      if (mounted)
+        setState(() => _policyError = '동의 문서를 불러오지 못했습니다. 잠시 뒤 다시 시도해 주세요.');
     } finally {
       if (mounted) setState(() => _policyLoading = false);
     }
@@ -118,7 +123,8 @@ class _CommunityOnboardingScreenState
         st.grantConsentTextSha256 == st.consentTextSha256;
   }
 
-  bool get _consentDone => _kakaoOk && (_consentSaved || _consentActiveOnServer);
+  bool get _consentDone =>
+      _kakaoOk && (_consentSaved || _consentActiveOnServer);
 
   String get _docText {
     if (!_kakaoOk) return '카카오 인증을 마치면 동의 문서를 불러옵니다.';
@@ -133,7 +139,8 @@ class _CommunityOnboardingScreenState
   bool get _canGoNext => _kakaoOk && _consentDone;
 
   String? get _blockedReason {
-    if (!_kakaoOk && !_consentDone) return '카카오 인증과 신고내용 공유 동의를 모두 완료하면 다음 단계로 이동할 수 있습니다.';
+    if (!_kakaoOk && !_consentDone)
+      return '카카오 인증과 신고내용 공유 동의를 모두 완료하면 다음 단계로 이동할 수 있습니다.';
     if (!_kakaoOk) return '카카오 인증을 완료하면 다음 단계로 이동할 수 있습니다.';
     if (!_consentDone) return '신고내용 공유 동의를 완료하면 다음 단계로 이동할 수 있습니다.';
     return null;
@@ -163,7 +170,10 @@ class _CommunityOnboardingScreenState
       }
       final policy = _policy;
       if (policy == null) {
-        throw const CommunityAccountError(code: 'policy_missing', message: '동의 문서를 먼저 불러와 주세요.');
+        throw const CommunityAccountError(
+          code: 'policy_missing',
+          message: '동의 문서를 먼저 불러와 주세요.',
+        );
       }
       // 화면에 보인 본문의 (버전, 해시) 그대로 보낸다. 그 사이 중앙 정책이 바뀌었으면 policy_mismatch — 새 본문을 다시 보인다.
       await client.consent(
@@ -177,9 +187,7 @@ class _CommunityOnboardingScreenState
       if (gate.lastStatus?.consentState == 'active') {
         setState(() => _consentSaved = true);
       } else {
-        setState(
-          () => _consentError = '동의 저장 뒤 서버 확인에 실패했습니다. 다시 시도해 주세요.',
-        );
+        setState(() => _consentError = '동의 저장 뒤 서버 확인에 실패했습니다. 다시 시도해 주세요.');
       }
     } on CommunityAccountError catch (e) {
       if (e.code == 'policy_mismatch') {
@@ -278,7 +286,9 @@ class _CommunityOnboardingScreenState
         afterWipe: widget.onReportsWiped,
       );
       if (error != null && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error)));
       }
     } finally {
       if (mounted) setState(() => _ownerBusy = false);
@@ -293,15 +303,15 @@ class _CommunityOnboardingScreenState
           ? await launcher(uri)
           : await launchUrl(uri, mode: LaunchMode.externalApplication);
       if (!ok && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('브라우저를 열지 못했습니다.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('브라우저를 열지 못했습니다.')));
       }
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('브라우저를 열지 못했습니다.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('브라우저를 열지 못했습니다.')));
       }
     }
   }
@@ -311,12 +321,25 @@ class _CommunityOnboardingScreenState
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) SystemNavigator.pop();
+        if (!didPop) {
+          if (widget.onBackToModeSelection != null) {
+            widget.onBackToModeSelection!();
+          } else {
+            SystemNavigator.pop();
+          }
+        }
       },
       child: Scaffold(
         appBar: AppBar(
           title: const Text('서비스 이용을 위한 필수 설정'),
           automaticallyImplyLeading: false,
+          leading: widget.onBackToModeSelection == null
+              ? null
+              : IconButton(
+                  tooltip: '모드 선택으로 돌아가기',
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: widget.onBackToModeSelection,
+                ),
           actions: [
             IconButton(
               tooltip: '도움말·개인정보',
@@ -437,20 +460,20 @@ class _CommunityOnboardingScreenState
   }
 
   Widget _requiredTag(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.primaryContainer,
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Text(
-          '[필수]',
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.bold,
-            color: Theme.of(context).colorScheme.onPrimaryContainer,
-          ),
-        ),
-      );
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+    decoration: BoxDecoration(
+      color: Theme.of(context).colorScheme.primaryContainer,
+      borderRadius: BorderRadius.circular(6),
+    ),
+    child: Text(
+      '[필수]',
+      style: TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.bold,
+        color: Theme.of(context).colorScheme.onPrimaryContainer,
+      ),
+    ),
+  );
 
   Widget _kakaoCard(BuildContext context) {
     final st = _auth.state.value;
@@ -480,40 +503,40 @@ class _CommunityOnboardingScreenState
             const SizedBox(height: 8),
             switch (st.phase) {
               CommunityAccountPhase.unconfigured => const Text(
-                  '이 빌드에는 커뮤니티 서버 설정이 없어 연결할 수 없습니다.',
-                  style: TextStyle(fontSize: 13),
-                ),
+                '이 빌드에는 커뮤니티 서버 설정이 없어 연결할 수 없습니다.',
+                style: TextStyle(fontSize: 13),
+              ),
               CommunityAccountPhase.connected => Text(
-                  '연결된 계정: ${st.account?.displayName ?? '카카오 사용자'}',
-                  style: const TextStyle(fontSize: 13),
-                ),
+                '연결된 계정: ${st.account?.displayName ?? '카카오 사용자'}',
+                style: const TextStyle(fontSize: 13),
+              ),
               CommunityAccountPhase.awaitingBrowser => const Text(
-                  '브라우저에서 카카오 로그인을 진행 중입니다.',
-                  style: TextStyle(fontSize: 13),
-                ),
+                '브라우저에서 카카오 로그인을 진행 중입니다.',
+                style: TextStyle(fontSize: 13),
+              ),
               CommunityAccountPhase.exchanging => const Row(
-                  children: [
-                    SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                    SizedBox(width: 8),
-                    Text('계정 확인 중...', style: TextStyle(fontSize: 13)),
-                  ],
-                ),
+                children: [
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 8),
+                  Text('계정 확인 중...', style: TextStyle(fontSize: 13)),
+                ],
+              ),
               CommunityAccountPhase.confirmRequired => Text(
-                  '로그인한 계정: ${st.candidate?.displayName ?? '카카오 사용자'} — 확인이 필요합니다.',
-                  style: const TextStyle(fontSize: 13),
-                ),
+                '로그인한 계정: ${st.candidate?.displayName ?? '카카오 사용자'} — 확인이 필요합니다.',
+                style: const TextStyle(fontSize: 13),
+              ),
               CommunityAccountPhase.reauthRequired => const Text(
-                  '로그인이 만료되었습니다. 다시 로그인해 주세요.',
-                  style: TextStyle(fontSize: 13),
-                ),
+                '로그인이 만료되었습니다. 다시 로그인해 주세요.',
+                style: TextStyle(fontSize: 13),
+              ),
               CommunityAccountPhase.disconnected => Text(
-                  st.notice ?? '카카오 계정으로 로그인합니다.',
-                  style: const TextStyle(fontSize: 13),
-                ),
+                st.notice ?? '카카오 계정으로 로그인합니다.',
+                style: const TextStyle(fontSize: 13),
+              ),
             },
             if (st.phase == CommunityAccountPhase.confirmRequired) ...[
               const SizedBox(height: 8),
@@ -541,14 +564,13 @@ class _CommunityOnboardingScreenState
                       done
                           ? '계정 변경'
                           : st.phase == CommunityAccountPhase.awaitingBrowser ||
-                                  st.phase == CommunityAccountPhase.exchanging
-                              ? '처리 중...'
-                              : '카카오 계정으로 연결',
+                                st.phase == CommunityAccountPhase.exchanging
+                          ? '처리 중...'
+                          : '카카오 계정으로 연결',
                     ),
-                    onPressed:
-                        st.phase == CommunityAccountPhase.exchanging
-                            ? null
-                            : () => _auth.startLogin(),
+                    onPressed: st.phase == CommunityAccountPhase.exchanging
+                        ? null
+                        : () => _auth.startLogin(),
                   ),
                 ),
                 if (done) ...[
@@ -584,7 +606,9 @@ class _CommunityOnboardingScreenState
                   ),
                 ),
                 Icon(
-                  _consentDone ? Icons.check_circle : Icons.radio_button_unchecked,
+                  _consentDone
+                      ? Icons.check_circle
+                      : Icons.radio_button_unchecked,
                   color: _consentDone
                       ? Colors.green
                       : Theme.of(context).disabledColor,
@@ -616,7 +640,10 @@ class _CommunityOnboardingScreenState
               ),
             ],
             // 불러오지 못했으면 이 화면에서 다시 받을 수 있게(네트워크·요청 한도 뒤 막히지 않게 — Codex 검수 P2)
-            if (_kakaoOk && _policy == null && _policyError != null && !_policyLoading)
+            if (_kakaoOk &&
+                _policy == null &&
+                _policyError != null &&
+                !_policyLoading)
               TextButton.icon(
                 key: const Key('consentPolicyRetry'),
                 icon: const Icon(Icons.refresh, size: 16),
@@ -627,7 +654,10 @@ class _CommunityOnboardingScreenState
               value: _consentChecked || _consentDone,
               contentPadding: EdgeInsets.zero,
               controlAffinity: ListTileControlAffinity.leading,
-              title: const Text('위 내용을 모두 읽고 공유에 동의합니다.', style: TextStyle(fontSize: 13)),
+              title: const Text(
+                '위 내용을 모두 읽고 공유에 동의합니다.',
+                style: TextStyle(fontSize: 13),
+              ),
               onChanged: _consentDone || _policy == null
                   ? null
                   : (v) => setState(() => _consentChecked = v ?? false),
@@ -646,7 +676,11 @@ class _CommunityOnboardingScreenState
             SizedBox(
               width: double.infinity,
               child: FilledButton(
-                onPressed: _consentChecked && !_consentDone && _policy != null && !_consentBusy
+                onPressed:
+                    _consentChecked &&
+                        !_consentDone &&
+                        _policy != null &&
+                        !_consentBusy
                     ? _saveConsent
                     : null,
                 child: _consentBusy
@@ -699,7 +733,11 @@ class _CommunityOnboardingScreenState
           children: [
             Text(
               '이 기기의 신고 내역은 다른 카카오 계정의 것입니다.',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: cs.error),
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: cs.error,
+              ),
             ),
             const SizedBox(height: 4),
             const Text(
@@ -743,7 +781,10 @@ class _CommunityOnboardingScreenState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+            Text(
+              title,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+            ),
             if (gate.notice != null) ...[
               const SizedBox(height: 4),
               Text(gate.notice!, style: const TextStyle(fontSize: 12.5)),
@@ -756,10 +797,7 @@ class _CommunityOnboardingScreenState
                   onPressed: () => gate.refreshNow(),
                   child: const Text('재시도'),
                 ),
-                OutlinedButton(
-                  onPressed: _logout,
-                  child: const Text('로그아웃'),
-                ),
+                OutlinedButton(onPressed: _logout, child: const Text('로그아웃')),
                 OutlinedButton(
                   onPressed: () => SystemNavigator.pop(),
                   child: const Text('앱 종료'),

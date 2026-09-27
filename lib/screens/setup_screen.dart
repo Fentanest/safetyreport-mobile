@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../providers/report_provider.dart';
+import '../models/app_mode.dart';
 import '../services/app_prefs_keys.dart';
 import '../services/local_db_service.dart';
 import '../services/pending_db_import_action.dart';
@@ -13,14 +14,27 @@ import '../theme/sr_colors.dart';
 enum _Step { selectMode, serverConfig, standaloneConfig }
 
 class SetupScreen extends StatefulWidget {
-  const SetupScreen({super.key});
+  const SetupScreen({super.key, this.initialMode, this.onModeSelected});
+
+  final AppMode? initialMode;
+  final ValueChanged<AppMode>? onModeSelected;
 
   @override
   State<SetupScreen> createState() => _SetupScreenState();
 }
 
 class _SetupScreenState extends State<SetupScreen> {
-  _Step _step = _Step.selectMode;
+  late _Step _step;
+
+  @override
+  void initState() {
+    super.initState();
+    _step = switch (widget.initialMode) {
+      AppMode.server => _Step.serverConfig,
+      AppMode.standalone => _Step.standaloneConfig,
+      null => _Step.selectMode,
+    };
+  }
 
   final _urlController = TextEditingController();
   final _apiController = TextEditingController();
@@ -58,6 +72,41 @@ class _SetupScreenState extends State<SetupScreen> {
       _step = step;
       _errorMessage = null;
     });
+  }
+
+  void _selectMode(AppMode mode) {
+    if (widget.onModeSelected != null) {
+      widget.onModeSelected!(mode);
+    } else {
+      _goToStep(
+        mode == AppMode.server ? _Step.serverConfig : _Step.standaloneConfig,
+      );
+    }
+  }
+
+  Future<void> _enterDemo() async {
+    setState(() {
+      _loading = true;
+      _errorMessage = null;
+    });
+    try {
+      await LocalDbService.seedPlayReviewDemo();
+      if (!mounted) return;
+      final provider = context.read<ReportProvider>();
+      await provider.setStandaloneConfig(
+        LocalDbService.playReviewDemoUsername,
+        phoneNumber: LocalDbService.playReviewDemoPhone,
+        isDemoMode: true,
+      );
+      await provider.refreshAll();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(AppPrefsKeys.pendingDbImport);
+      _finishSetup();
+    } catch (e) {
+      if (mounted) setState(() => _errorMessage = '데모 데이터 준비 실패: $e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   void _finishSetup() {
@@ -104,29 +153,7 @@ class _SetupScreenState extends State<SetupScreen> {
     final rawPhone = _phoneController.text.trim();
     final phoneNumber = rawPhone.replaceAll(RegExp(r'[^0-9]'), '');
     if (_isPlayReviewDemoLogin(username, password, rawPhone)) {
-      setState(() {
-        _loading = true;
-        _errorMessage = null;
-      });
-      try {
-        await LocalDbService.seedPlayReviewDemo();
-        if (!mounted) return;
-        await context.read<ReportProvider>().setStandaloneConfig(
-          username,
-          phoneNumber: rawPhone.isEmpty
-              ? LocalDbService.playReviewDemoPhone
-              : rawPhone,
-          isDemoMode: true,
-        );
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.remove(AppPrefsKeys.pendingDbImport);
-        // 설정 저장 후 루트가 다음 화면을 선택한다.
-        _finishSetup();
-      } catch (e) {
-        setState(() => _errorMessage = '데모 데이터 준비 실패: $e');
-      } finally {
-        if (mounted) setState(() => _loading = false);
-      }
+      await _enterDemo();
       return;
     }
     if (username.isEmpty || password.isEmpty || phoneNumber.isEmpty) {
@@ -250,7 +277,7 @@ class _SetupScreenState extends State<SetupScreen> {
             title: 'Client 모드',
             description:
                 '직접 구축한 크롤링 서버와 연결합니다.\n자동 크롤링, 통계, 파일 관리 등 모든 기능을 사용할 수 있습니다.',
-            onTap: () => _goToStep(_Step.serverConfig),
+            onTap: () => _selectMode(AppMode.server),
           ),
           const SizedBox(height: 16),
           _ModeCard(
@@ -262,9 +289,24 @@ class _SetupScreenState extends State<SetupScreen> {
             ).foreground,
             title: 'Standalone 모드',
             description: '안전신문고 계정으로 앱에서 직접 접근합니다.\n서버 없이 신고 현황을 조회할 수 있습니다.',
-            onTap: () => _goToStep(_Step.standaloneConfig),
+            onTap: () => _selectMode(AppMode.standalone),
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 16),
+          Center(
+            child: TextButton(
+              onPressed: _loading ? null : _enterDemo,
+              style: TextButton.styleFrom(
+                textStyle: const TextStyle(
+                  decoration: TextDecoration.underline,
+                ),
+              ),
+              child: const Text('Demo 보기'),
+            ),
+          ),
+          if (_loading) const Center(child: CircularProgressIndicator()),
+          if (_errorMessage != null)
+            Text(_errorMessage!, textAlign: TextAlign.center),
+          const SizedBox(height: 16),
         ],
       ),
     );

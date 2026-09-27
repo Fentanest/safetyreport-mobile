@@ -21,7 +21,6 @@ import '../services/standalone_auth_service.dart';
 import '../services/review_prompt_service.dart';
 import '../services/support_links.dart';
 import 'permission_screen.dart';
-import 'setup_screen.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:file_picker/file_picker.dart';
 import '../navigation/app_routes.dart';
@@ -891,10 +890,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         );
       }
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const SetupScreen()),
-        (_) => false,
-      );
+      Navigator.of(context).popUntil((route) => route.isFirst);
     }
   }
 
@@ -1051,10 +1047,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     await context.read<ReportProvider>().resetConfig();
     if (mounted) {
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const SetupScreen()),
-        (_) => false,
-      );
+      Navigator.of(context).popUntil((route) => route.isFirst);
     }
   }
 
@@ -1376,21 +1369,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
               ),
-              // ── 스탠드어론: 커뮤니티 계정(카카오, 이 앱이 세션 주인) ──
-              const SizedBox(height: 16),
-              // 게이트·계정 클라이언트를 넘겨야 공유 동의(상태·철회)·업로드 연결 전환 섹션이 보인다.
-              Builder(
-                builder: (context) {
-                  CommunityGate? gate;
-                  try {
-                    gate = Provider.of<CommunityGate>(context, listen: false);
-                  } catch (_) {}
-                  return CommunityAccountCard(
-                    gate: gate,
-                    accountClient: gate?.accountClient,
-                  );
-                },
-              ),
+              // 합성 자료만 쓰는 Demo 에는 커뮤니티 계정 연결이 필요 없다.
+              if (!provider.isStandaloneDemo) ...[
+                const SizedBox(height: 16),
+                // 게이트·계정 클라이언트를 넘겨야 공유 동의(상태·철회)·업로드 연결 전환 섹션이 보인다.
+                Builder(
+                  builder: (context) {
+                    CommunityGate? gate;
+                    try {
+                      gate = Provider.of<CommunityGate>(context, listen: false);
+                    } catch (_) {}
+                    return CommunityAccountCard(
+                      gate: gate,
+                      accountClient: gate?.accountClient,
+                    );
+                  },
+                ),
+              ],
               const SizedBox(height: 16),
               Card(
                 child: Padding(

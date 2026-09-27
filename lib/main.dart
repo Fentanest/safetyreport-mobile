@@ -120,6 +120,7 @@ class SafetyReportApp extends StatefulWidget {
 class _SafetyReportAppState extends State<SafetyReportApp> {
   late final CommunityGate _gate;
   bool _gateWasOpen = false;
+  AppMode? _initialModeChoice;
   Future<ServerConnectionResult>? _serverVersionFuture;
   String? _checkedBaseUrl;
   String? _checkedApiKey;
@@ -176,8 +177,9 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
 
   void _onGateChanged() {
     final canEnter = _gate.canEnter;
-    if (_gateWasOpen && !canEnter) {
-      context.read<ReportProvider>().onGateBlocked();
+    final provider = context.read<ReportProvider>();
+    if (_gateWasOpen && !canEnter && !provider.isStandaloneDemo) {
+      provider.onGateBlocked();
       _returnToRoot();
     }
     _gateWasOpen = canEnter;
@@ -241,9 +243,19 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
     CommunityGate gate,
     ServerConnectionResult? serverVersion,
   ) {
-    // 진입 순서(§6.2): 로딩 → 게이트(검사 중에는 로딩 셸만, 신고 화면 flash 금지)
-    // → 온보딩 → 권한(common) → Setup → 백그라운드 서비스 시작 → 초기화 → 메인.
-    if (!provider.isInitialized || !gate.isChecked) {
+    // 최초 설정: 모드 선택 → 카카오 동의 → 공통 권한 → 해당 모드 설정.
+    // 데모는 합성 자료만 쓰므로 인증·권한·서비스를 시작하지 않는다.
+    if (!provider.isInitialized) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (provider.isConfigured) _initialModeChoice = null;
+    if (provider.isStandaloneDemo) return const MainNavigationScreen();
+    if (!provider.isConfigured && _initialModeChoice == null) {
+      return SetupScreen(
+        onModeSelected: (mode) => setState(() => _initialModeChoice = mode),
+      );
+    }
+    if (!gate.isChecked) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (!gate.canEnter) {
@@ -259,10 +271,13 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
         onNext: () async {
           await gate.requireFresh();
         },
+        onBackToModeSelection: !provider.isConfigured
+            ? () => setState(() => _initialModeChoice = null)
+            : null,
       );
     }
     if (!provider.isConfigured) {
-      return const _SetupFlow();
+      return _SetupFlow(initialMode: _initialModeChoice);
     }
     if (provider.appMode == AppMode.server) {
       if (serverVersion == null) {
@@ -327,7 +342,9 @@ class _ServerVersionBlockedScreen extends StatelessWidget {
 
 /// 게이트 통과 뒤 신규 설치 흐름: 모드 무관 권한(common) → 기존 SetupScreen.
 class _SetupFlow extends StatefulWidget {
-  const _SetupFlow();
+  const _SetupFlow({this.initialMode});
+
+  final AppMode? initialMode;
 
   @override
   State<_SetupFlow> createState() => _SetupFlowState();
@@ -345,7 +362,7 @@ class _SetupFlowState extends State<_SetupFlow> {
         onDone: () => setState(() => _commonDone = true),
       );
     }
-    return const SetupScreen();
+    return SetupScreen(initialMode: widget.initialMode);
   }
 }
 
@@ -549,6 +566,9 @@ const _permChannel = MethodChannel('com.fentanest.mysafetyreport/permissions');
 /// Provider 가 없으면(예전 테스트) 허용으로 둔다.
 bool communityNavAllowed(BuildContext context) {
   try {
+    if (Provider.of<ReportProvider>(context, listen: false).isStandaloneDemo) {
+      return true;
+    }
     return Provider.of<CommunityGate>(context, listen: false).canEnter;
   } catch (_) {
     return true;

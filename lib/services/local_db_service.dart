@@ -107,10 +107,7 @@ class LocalDbService {
     final dbPath = await getDatabasesPath();
     final prefs = await SharedPreferences.getInstance();
     final demo = prefs.getBool(AppPrefsKeys.standaloneDemoMode) ?? false;
-    return join(
-      dbPath,
-      demo ? demoDbFileName : 'standalone_reports.db',
-    );
+    return join(dbPath, demo ? demoDbFileName : 'standalone_reports.db');
   }
 
   // ── 공유 연결과 백그라운드 작업 (M-25) ──────────────────────────────────
@@ -235,7 +232,11 @@ class LocalDbService {
 
   /// 업데이트 로직 대신: 이전 버전 파일이 여기까지 오면(비우기를 거치지 않은 경로) 옮기지 않고 멈춘다.
   /// sqflite 는 onUpgrade 가 없으면 옛 구조에 새 버전 번호만 적으므로 비워 두지 않는다.
-  static Future<void> _refuseLegacyUpgrade(Database db, int oldV, int newV) async {
+  static Future<void> _refuseLegacyUpgrade(
+    Database db,
+    int oldV,
+    int newV,
+  ) async {
     throw LegacyDatabaseException(
       '이전 버전 앱 DB(스키마 $oldV)는 이번 업데이트에서 옮기지 않습니다(지금 $newV). '
       '초기화 크롤링으로 안전신문고에서 다시 수집하세요.',
@@ -278,7 +279,10 @@ class LocalDbService {
   /// 가져올 DB 파일의 주인 카카오 회원번호. 서버 DB 는 mysafety_sync_meta, 모바일 DB 는 sync_meta.
   static Future<String?> _fileOwner(Database source, String table) async {
     try {
-      final rows = await source.rawQuery('SELECT value FROM $table WHERE key = ?', [kakaoMemberMetaKey]);
+      final rows = await source.rawQuery(
+        'SELECT value FROM $table WHERE key = ?',
+        [kakaoMemberMetaKey],
+      );
       final value = rows.isEmpty ? null : rows.first['value'];
       return value is String && value.isNotEmpty ? value : null;
     } catch (_) {
@@ -290,7 +294,9 @@ class LocalDbService {
   static Future<void> _refuseForeignOwner(Database source, String table) async {
     final current = await currentKakaoId();
     if (current == null) {
-      throw ForeignDatabaseException('카카오 로그인을 확인하지 못해 DB 를 가져올 수 없습니다. 다시 로그인한 뒤 시도하세요.');
+      throw ForeignDatabaseException(
+        '카카오 로그인을 확인하지 못해 DB 를 가져올 수 없습니다. 다시 로그인한 뒤 시도하세요.',
+      );
     }
     final owner = await _fileOwner(source, table);
     if (owner == null) {
@@ -300,7 +306,9 @@ class LocalDbService {
       );
     }
     if (owner != current) {
-      throw ForeignDatabaseException('다른 카카오 계정의 DB 는 가져올 수 없습니다. 지금 로그인한 계정으로 만든 DB 만 가져올 수 있습니다.');
+      throw ForeignDatabaseException(
+        '다른 카카오 계정의 DB 는 가져올 수 없습니다. 지금 로그인한 계정으로 만든 DB 만 가져올 수 있습니다.',
+      );
     }
   }
 
@@ -321,14 +329,20 @@ class LocalDbService {
   /// (감시목록 `sync_meta['watchlist']`·지오코딩 캐시 — [legacyKept]). 데이터 주인 표시도 지워져 다음 로그인 계정이 새 주인이 된다
   /// ([thenOwner] 를 주면 비운 뒤 그 번호를 적는다). 백업은 만들지 않는다(사용자에게 지운다고 알린 자료).
   /// 동기화·지도 변환 중이면 거절(아무것도 지우지 않음). 커뮤니티 dataset 을 먼저 선회전해 지운 자료의 공유 대기 사본이 다음 계정으로 가지 않게 한다.
-  static Future<Map<String, Object?>> wipeReportData(String reason, {String? thenOwner}) async {
+  static Future<Map<String, Object?>> wipeReportData(
+    String reason, {
+    String? thenOwner,
+  }) async {
     _refuseDuringBackgroundWork('신고 내역을 지울');
     // 백업·복원과 같은 파일 배타 구간: 막 시작한 작업은 끝날 때까지 기다리고, 그동안 새 동기화·화면은 [db] 에서 기다린다
     // (지우는 도중이나 지운 뒤에 옛 작업이 신고를 다시 쓰지 않게 — Codex 검수 P1).
     return _withFileExclusive(() => _wipeReportDataLocked(reason, thenOwner));
   }
 
-  static Future<Map<String, Object?>> _wipeReportDataLocked(String reason, String? thenOwner) async {
+  static Future<Map<String, Object?>> _wipeReportDataLocked(
+    String reason,
+    String? thenOwner,
+  ) async {
     await _rotateCommunityDataset(reason);
     final d = await db;
     final cleared = <String>[];
@@ -346,16 +360,26 @@ class LocalDbService {
           r['name'] as String,
       ];
       for (final name in tables) {
-        if (name == 'geocode_cache' || name == 'android_metadata' || name == 'sync_meta') continue;
+        if (name == 'geocode_cache' ||
+            name == 'android_metadata' ||
+            name == 'sync_meta')
+          continue;
         // 가상 표(FTS)의 보조 표는 가상 표를 비우면 함께 비워진다 — 직접 건드리지 않는다
-        if (virtualTables.any((v) => name != v && name.startsWith('${v}_'))) continue;
+        if (virtualTables.any((v) => name != v && name.startsWith('${v}_')))
+          continue;
         await txn.delete(name);
         cleared.add(name);
       }
-      await txn.delete('sync_meta', where: 'key != ?', whereArgs: ['watchlist']);
+      await txn.delete(
+        'sync_meta',
+        where: 'key != ?',
+        whereArgs: ['watchlist'],
+      );
       if (thenOwner != null && thenOwner.isNotEmpty) {
-        await txn.insert('sync_meta', {'key': kakaoMemberMetaKey, 'value': thenOwner},
-            conflictAlgorithm: ConflictAlgorithm.replace);
+        await txn.insert('sync_meta', {
+          'key': kakaoMemberMetaKey,
+          'value': thenOwner,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
     });
     _invalidateProjectRowsCache();
@@ -386,7 +410,9 @@ class LocalDbService {
       await db.rawQuery('PRAGMA busy_timeout=30000');
       Map<String, Object?>? info;
       await db.transaction((txn) async {
-        final version = Sqflite.firstIntValue(await txn.rawQuery('PRAGMA user_version')) ?? 0;
+        final version =
+            Sqflite.firstIntValue(await txn.rawQuery('PRAGMA user_version')) ??
+            0;
         if (version < 1 || version >= dbVersion) return; // 다른 연결이 먼저 끝냈다
         final oldTables = [
           for (final r in await txn.rawQuery(
@@ -408,11 +434,14 @@ class LocalDbService {
           geoRows = await txn.query('geocode_cache');
         }
 
-        final backup = '$path.legacy_v$version.${DateTime.now().millisecondsSinceEpoch}.bak';
+        final backup =
+            '$path.legacy_v$version.${DateTime.now().millisecondsSinceEpoch}.bak';
         await _backupChecked(path, backup);
         await (beforeReset ?? () => _rotateCommunityDataset('legacy_reset'))();
 
-        for (final r in await txn.rawQuery("SELECT name FROM sqlite_master WHERE type='view'")) {
+        for (final r in await txn.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type='view'",
+        )) {
           await txn.execute('DROP VIEW "${r['name']}"');
         }
         // 가상 표(FTS 등)를 먼저 지운다 — 그 보조 표를 함께 지우므로 나머지는 IF EXISTS(Sol 재검증 5).
@@ -431,13 +460,17 @@ class LocalDbService {
         await _createSchema(txn);
         final kept = <String>[];
         if (watchlist != null) {
-          await txn.insert('sync_meta', {'key': 'watchlist', 'value': watchlist},
-              conflictAlgorithm: ConflictAlgorithm.replace);
+          await txn.insert('sync_meta', {
+            'key': 'watchlist',
+            'value': watchlist,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
           kept.add('watchlist');
         }
         if (geoInfo.isNotEmpty &&
             _columnSignature(geoInfo) ==
-                _columnSignature(await txn.rawQuery('PRAGMA table_info("geocode_cache")'))) {
+                _columnSignature(
+                  await txn.rawQuery('PRAGMA table_info("geocode_cache")'),
+                )) {
           final batch = txn.batch();
           for (final row in geoRows) {
             batch.insert('geocode_cache', row);
@@ -452,8 +485,10 @@ class LocalDbService {
           'dropped': oldTables,
           'at': DateTime.now().toIso8601String(),
         };
-        await txn.insert('sync_meta', {'key': legacyResetMetaKey, 'value': jsonEncode(result)},
-            conflictAlgorithm: ConflictAlgorithm.replace);
+        await txn.insert('sync_meta', {
+          'key': legacyResetMetaKey,
+          'value': jsonEncode(result),
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
         await txn.execute('PRAGMA user_version = $dbVersion');
         info = result;
       });
@@ -472,9 +507,17 @@ class LocalDbService {
   /// 한 읽기 트랜잭션(DEFERRED — 원본에는 읽기 잠금만)에서 원본 스키마(`sqlite_master.sql`)를 그대로 다시 만들고 표마다 `INSERT … SELECT *`,
   /// `sqlite_sequence`·`user_version` 도 옮긴다. 같은 트랜잭션이라 표 사이에도 같은 시점이고 WAL 에만 있던 쓰기도 들어간다.
   /// 끝나면 표별 행 수 비교와 `integrity_check`. 어긋나면 사본을 지우고 예외. 초기화 크롤링 사전 백업도 쓴다.
-  static Future<void> copyDatabaseConsistent(String sourcePath, String target) async {
+  static Future<void> copyDatabaseConsistent(
+    String sourcePath,
+    String target,
+  ) async {
     Future<void> removeTarget() async {
-      for (final f in [target, '$target-wal', '$target-shm', '$target-journal']) {
+      for (final f in [
+        target,
+        '$target-wal',
+        '$target-shm',
+        '$target-journal',
+      ]) {
         final file = File(f);
         if (file.existsSync()) await file.delete();
       }
@@ -491,13 +534,17 @@ class LocalDbService {
           final objects = await copy.rawQuery(
             "SELECT type, name, sql FROM src.sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY rowid",
           );
-          bool isVirtual(Map<String, Object?> o) =>
-              RegExp(r'^\s*CREATE\s+VIRTUAL\s+TABLE', caseSensitive: false).hasMatch(o['sql'] as String);
+          bool isVirtual(Map<String, Object?> o) => RegExp(
+            r'^\s*CREATE\s+VIRTUAL\s+TABLE',
+            caseSensitive: false,
+          ).hasMatch(o['sql'] as String);
           Future<bool> existsInCopy(String name) async => (await copy.rawQuery(
-                'SELECT 1 FROM main.sqlite_master WHERE name = ?',
-                [name],
-              )).isNotEmpty;
-          final tableObjects = objects.where((o) => o['type'] == 'table').toList();
+            'SELECT 1 FROM main.sqlite_master WHERE name = ?',
+            [name],
+          )).isNotEmpty;
+          final tableObjects = objects
+              .where((o) => o['type'] == 'table')
+              .toList();
           // 가상 표(FTS 등)를 먼저 만든다 — 그 보조(shadow) 표가 함께 생기므로 아래에서 다시 만들지 않는다(Sol 재검증 5).
           for (final o in tableObjects.where(isVirtual)) {
             await copy.execute(o['sql'] as String);
@@ -506,7 +553,9 @@ class LocalDbService {
           for (final o in tableObjects.where((o) => !isVirtual(o))) {
             final name = o['name'] as String;
             if (await existsInCopy(name)) {
-              await copy.execute('DELETE FROM main."$name"'); // 가상 표가 만든 보조 표: 원본 행으로 바꾼다
+              await copy.execute(
+                'DELETE FROM main."$name"',
+              ); // 가상 표가 만든 보조 표: 원본 행으로 바꾼다
             } else {
               await copy.execute(o['sql'] as String);
             }
@@ -521,22 +570,34 @@ class LocalDbService {
           )).isNotEmpty;
           if (hasSequence) {
             await copy.execute('DELETE FROM main.sqlite_sequence');
-            await copy.execute('INSERT INTO main.sqlite_sequence SELECT * FROM src.sqlite_sequence');
+            await copy.execute(
+              'INSERT INTO main.sqlite_sequence SELECT * FROM src.sqlite_sequence',
+            );
           }
           // 인덱스 → 보기 → 트리거(보기에 다는 INSTEAD OF 트리거는 보기가 있어야 한다, Sol 재검증 5). 데이터를 다 넣은 뒤라 트리거가 복사 중에 발동하지 않는다.
           for (final type in const ['index', 'view', 'trigger']) {
             for (final o in objects.where((o) => o['type'] == type)) {
-              if (await existsInCopy(o['name'] as String)) continue; // 가상 표가 이미 만든 것
+              if (await existsInCopy(o['name'] as String))
+                continue; // 가상 표가 이미 만든 것
               await copy.execute(o['sql'] as String);
             }
           }
           final tables = copied;
-          final version = Sqflite.firstIntValue(await copy.rawQuery('PRAGMA src.user_version')) ?? 0;
+          final version =
+              Sqflite.firstIntValue(
+                await copy.rawQuery('PRAGMA src.user_version'),
+              ) ??
+              0;
           await copy.execute('PRAGMA main.user_version = $version');
           for (final t in tables) {
-            final a = Sqflite.firstIntValue(await copy.rawQuery('SELECT count(*) FROM src."$t"'));
-            final b = Sqflite.firstIntValue(await copy.rawQuery('SELECT count(*) FROM main."$t"'));
-            if (a != b) throw LegacyDatabaseException('DB 사본의 $t 행 수가 다릅니다($a → $b).');
+            final a = Sqflite.firstIntValue(
+              await copy.rawQuery('SELECT count(*) FROM src."$t"'),
+            );
+            final b = Sqflite.firstIntValue(
+              await copy.rawQuery('SELECT count(*) FROM main."$t"'),
+            );
+            if (a != b)
+              throw LegacyDatabaseException('DB 사본의 $t 행 수가 다릅니다($a → $b).');
           }
           await copy.execute('COMMIT');
         } catch (_) {
@@ -548,8 +609,11 @@ class LocalDbService {
       } finally {
         await copy.execute('DETACH DATABASE src');
       }
-      final result = (await copy.rawQuery('PRAGMA integrity_check')).first.values.first.toString();
-      if (result != 'ok') throw LegacyDatabaseException('DB 사본 무결성 검사 실패: $result');
+      final result = (await copy.rawQuery(
+        'PRAGMA integrity_check',
+      )).first.values.first.toString();
+      if (result != 'ok')
+        throw LegacyDatabaseException('DB 사본 무결성 검사 실패: $result');
       ok = true;
     } finally {
       await copy.close();
@@ -563,18 +627,28 @@ class LocalDbService {
 
   /// 열 구성 비교용(PRAGMA table_info): 이름·타입·NOT NULL·기본값·기본키.
   static String _columnSignature(List<Map<String, Object?>> rows) => [
-        for (final r in rows)
-          '${r['name']}|${(r['type'] ?? '').toString().toUpperCase()}|${r['notnull']}|${r['dflt_value']}|${r['pk']}',
-      ].join(',');
+    for (final r in rows)
+      '${r['name']}|${(r['type'] ?? '').toString().toUpperCase()}|${r['notnull']}|${r['dflt_value']}|${r['pk']}',
+  ].join(',');
 
   /// 초기화 크롤링 판정용: (개인 DB 신고 수, 이전 DB 를 비운 기록). 열지 못하면 신고 수 null(새 설치로 보지 않음).
   /// DB 를 여는 김에 이전 버전 DB 비우기가 먼저 일어난다.
-  static Future<({int? reports, Map<String, Object?>? legacyReset})> personalDbFacts() async {
+  static Future<({int? reports, Map<String, Object?>? legacyReset})>
+  personalDbFacts() async {
     try {
       final d = await db;
-      final count = Sqflite.firstIntValue(await d.rawQuery('SELECT COUNT(*) FROM reports')) ?? 0;
-      final meta = await d.query('sync_meta',
-          columns: ['value'], where: 'key = ?', whereArgs: [legacyResetMetaKey], limit: 1);
+      final count =
+          Sqflite.firstIntValue(
+            await d.rawQuery('SELECT COUNT(*) FROM reports'),
+          ) ??
+          0;
+      final meta = await d.query(
+        'sync_meta',
+        columns: ['value'],
+        where: 'key = ?',
+        whereArgs: [legacyResetMetaKey],
+        limit: 1,
+      );
       Map<String, Object?>? legacy;
       if (meta.isNotEmpty && meta.first['value'] != null) {
         try {
@@ -2862,137 +2936,93 @@ class LocalDbService {
     await d.delete('sync_meta');
   }
 
-  /// Play Console 심사용 데모 데이터 3건을 로컬 DB에 시드한다.
-  /// standalone demo/demo 또는 demo/demo/demo 계정에서 사용.
+  /// 모든 사용자가 볼 수 있는 합성 예시 신고 100건. 별도 DB만 비우고 다시 채운다.
   static Future<void> seedPlayReviewDemo() async {
-    // 실제 데이터 DB 는 건드리지 않고 데모 전용 파일로 바꿔서 채운다(M-24).
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(AppPrefsKeys.standaloneDemoMode, true);
     await closeDb();
     _invalidateProjectRowsCache();
     await clearAll();
     final d = await db;
-    final now = DateTime.now().millisecondsSinceEpoch;
-    const watchlistNumber = 'SPP-2604-2344496';
-    final seededAt = DateTime.now().toIso8601String();
-
-    final rows = <Map<String, Object?>>[
-      {
-        'ID': '59578643',
-        '상태': '답변완료',
-        '신고번호': 'SPP-2604-2344496',
-        '신고명': '중앙선 침범',
-        '신고일': '2026-04-23',
-        '만족도조사여부': '참여 완료',
-        '별점': 5,
-        '별점사유': '수고하십니다',
-        '감시목록': 'Y',
-        '처리상태': '수용',
-        '차량번호': '경기부천라6830',
-        '위반법규': '도로교통법 제13조3항',
-        '범칙금_과태료': '과태료: 70,000원',
-        '벌점': '',
-        '처리기관': '경찰청 경기도남부경찰청 부천원미경찰서',
-        '담당자': '장은형',
-        '답변일': '2026-04-24',
-        '발생일자': '2026-04-23',
-        '발생시각': '17:45',
-        '위반장소': '경기도 부천시 원미구 역곡동 257-2',
-        '종결여부': 'Y',
-        '신고내용': '전방 오토바이 한 대가 중앙선 침범유턴하여 신고합니다.',
-        '처리내용':
-            '안녕하십니까?\n교통법규위반 신고를 하여 주셔서 감사드리며\n귀하께서 제보해주신 영상자료를 확인한 결과,\n도로교통법 제13조3항 (통행구분 위반(중앙선 침범에 한함))를 위반한 사실이 확인되어,\n차량 소유주에게 위반행위에 따른 과태료 70,000원을 부과하고자\n‘과태료 부과 사전통지서’를 발송하였음을 알려드립니다.\n\n답변내용 중 궁금한 사항이나 이해가 가지 않는 내용이 있으실 경우\n부천원미경찰서 교통과 (☎ 032-680-7147)로\n문의하시면 자세하게 답변해 드리겠습니다.\n\n귀하의 가정에 건강과 안녕을 기원합니다.\n\n※ 다른 차량의 개인정보 보호를 위해, 신청번호 1건당 차량 1대만 단속 처리 할 수 있\n음을 양지 바랍니다.',
-        '지도':
-            'https://www.safetyreport.go.kr/fileDown/singo/202604/23/20260423_cb69c49b3fca4cdc9cbd9fecd42ed5d8_MAPIMG.png',
-        '첨부사진':
-            'https://www.safetyreport.go.kr/fileDown/singo/202604/23/20260423_1_08573e9674f1408f835666d249452340.png',
-        '첨부파일':
-            'https://www.safetyreport.go.kr/fileDown/singo/202604/23/20260423_2_2056180c13204993a4d0f4338b8c20fc.mp4\nhttps://www.safetyreport.go.kr/fileDown/singo/202604/23/20260423_3_b67c8c3310fa4fdfada7b58950b203a9.mp4\nhttps://www.safetyreport.go.kr/fileDown/singo/202604/23/20260423_4_f4898241e7f546b48fd490b4e032dd6a.mp4',
-        'category': 'traffic',
-        'entry_value': '',
-        'raw_content': '',
-        'synced_at': now,
-      },
-      {
-        'ID': '58700792',
-        '상태': '답변완료',
-        '신고번호': 'SPP-2604-0419411',
-        '신고명': '친환경차 충전구역 불법주차 신고입니다.\n\n* 차량번호',
-        '신고일': '2026-04-04',
-        '만족도조사여부': '참여 완료',
-        '별점': 5,
-        '별점사유': '',
-        '감시목록': 'N',
-        '처리상태': '수용',
-        '차량번호': '341소7346',
-        '위반법규': '',
-        '범칙금_과태료': '과태료',
-        '벌점': '',
-        '처리기관': '경기도 고양시 기후환경국 기후에너지과',
-        '담당자': '장윤석',
-        '답변일': '2026-04-10',
-        '발생일자': '',
-        '발생시각': '',
-        '위반장소': '경기도 고양시 일산동구 호수로 595',
-        '종결여부': 'Y',
-        '신고내용': '친환경차 충전구역 불법주차 신고입니다.',
-        '처리내용':
-            '1. 선생님의 가정에 건강과 행운이 늘 함께 하시기를 기원합니다. \n2. 선생님께서 제기하신 &quot;친환경자동차 충전시설의 충전구역과 전용주차구역의 주차위반 및 충전방해 행위&quot; 민원에 대해 답변드리겠습니다.\n\n가. 선생님께서 신고해주신 자료를 확인한 결과 「환경친화적 자동차의 개발 및 보급 촉진에 관한 법률」 제11조의2 규정을 위반한 행위로 판단됩니다.\n나. 따라서 우리 시에서는 차적조회 후 해당 차량 소유자에게 과태료 처분 사전통지 및 의견청취 절차를 거칠 예정이며, 의견제출 기한 후 위반행위가 명백한 경우에는 과태료 부과를 진행할 예정임을 알려드립니다.\n\n3. 선생님의 질문에 만족스러운 답변이 되었기를 바라며, 국민신문고 민원처리 결과에 대한 만족도 조사를 실시하고 있사오니, 선생님의 소중한 시간을 내어 참여해 주시면 앞으로 시정 발전에 많은 도움이 될 것입니다. 만족도 조사 참여방법은 나의신문고-민원 신청결과 답변내용 아래 「만족도 평가하기」 버튼을 눌러 참여해 주시기 바랍니다.\n4. 기타 궁금하신 사항은 고양시청 기후에너지과 장윤석 주무관(☎031-8075-2813)에게 연락주시면 친절히 답변 드리겠습니다. 감사합니다.',
-        '지도':
-            'https://www.safetyreport.go.kr/fileDown/singo/202604/04/20260404_d111734d51c849028200dbbc435ef1b2_MAPIMG.png',
-        '첨부사진':
-            'https://www.safetyreport.go.kr/fileDown/singo/202604/04/20260404_1_026f028208514fe2915d428ee7ca5d9a.jpg\nhttps://www.safetyreport.go.kr/fileDown/singo/202604/04/20260404_2_cff99e2c881e4a1088a236bdfeba6257.jpg',
-        '첨부파일': '',
-        'category': 'parking',
-        'entry_value': '',
-        'raw_content': '',
-        'synced_at': now,
-      },
-      {
-        'ID': '59578555',
-        '상태': '답변완료',
-        '신고번호': 'SPP-2604-2344422',
-        '신고명': '담배꽁초 투기',
-        '신고일': '2026-04-23',
-        '만족도조사여부': '참여 가능',
-        '별점': null,
-        '별점사유': '',
-        '감시목록': 'N',
-        '처리상태': '수용',
-        '차량번호': '86보7665',
-        '위반법규': '',
-        '범칙금_과태료': '과태료',
-        '벌점': '',
-        '처리기관': '경기도 부천시 원미구 도시미관과',
-        '담당자': '한대화',
-        '답변일': '2026-04-24',
-        '발생일자': '2026-04-23',
-        '발생시각': '17:46',
-        '위반장소': '경기도 부천시 원미구 역곡동 257-2',
-        '종결여부': 'Y',
-        '신고내용': '후면 영상 15초, 담배꽁초 버리는 다마스 신고합니다.',
-        '처리내용':
-            '1. 평소 시정에 많은 관심을 가져 주심에 진심으로 감사드립니다.\n2. 귀하께서 신청하신 민원(1AA-2604-1035550) ‘담배꽁초 무단투기 신고’ 영상자료를 검토한 결과, 「폐기물관리법」 제8조(폐기물의 투기 금지 등) 규정 위반행위가 확인됨에 따라 해당 차량 소유주에 과태료 부과 절차를 이행할 예정임을 알려드립니다. \n3. 신고포상금(6,000원)은 「부천시 폐기물 관리에 관한 조례」에 따라 위반행위 적발일로부터 14일 이내 신청할 수 있으며, 무단투기 신고포상금 지급 기준에 따라 예산 범위 내에서 지급됩니다. \n4. 또한, 포상금 신청을 원하실 경우 신청서 및 통장 사본을 이메일(story00323@korea.kr)로 제출하여 주시기 바라며, 포상금은 과태료 부과절차 이후 지급될 예정으로 30일 이상 소요됨을 참고하시기 바랍니다.\n5. 귀하의 질문에 만족스러운 답변이 되었기를 바라며, 답변 내용에 대한 추가 설명이 필요한 경우 원미구 도시미관과 주무관 한대화(☏032-625-5496)에게 연락주시면 친절히 안내해 드리도록 하겠습니다.  끝.',
-        '지도':
-            'https://www.safetyreport.go.kr/fileDown/singo/202604/23/20260423_13caf3f3c245403c9a55323ef504d4d1_MAPIMG.png',
-        '첨부사진':
-            'https://www.safetyreport.go.kr/fileDown/singo/202604/23/20260423_2_2daaa28ed220402daf792872c7fd5b54.png',
-        '첨부파일':
-            'https://www.safetyreport.go.kr/fileDown/singo/202604/23/20260423_1_75bf3964915043988c57318ebf9abd81.mp4\nhttps://www.safetyreport.go.kr/fileDown/singo/202604/23/20260423_3_1d5dcfd61cbd4445ae974a0fed3f5560.mp4',
-        'category': 'other',
-        'entry_value': '',
-        'raw_content': '',
-        'synced_at': now,
-      },
+    final now = DateTime.now();
+    final syncedAt = now.millisecondsSinceEpoch;
+    final seededAt = now.toIso8601String();
+    const categories = ['traffic', 'parking', 'other'];
+    const titles = [
+      '신호 위반',
+      '횡단보도 주정차',
+      '보도 위 적치물',
+      '중앙선 침범',
+      '소화전 주변 주정차',
+      '쓰레기 무단투기',
+      '안전모 미착용',
+      '버스 정류장 주정차',
+      '시설물 파손',
+      '차로 변경 위반',
     ];
+    const agencies = ['예시 교통 담당 기관', '예시 주차 담당 기관', '예시 생활안전 담당 기관'];
+    const places = [
+      ('서울특별시', 37.5665, 126.9780),
+      ('부산광역시', 35.1796, 129.0756),
+      ('대구광역시', 35.8714, 128.6014),
+      ('광주광역시', 35.1595, 126.8526),
+      ('대전광역시', 36.3504, 127.3845),
+      ('울산광역시', 35.5384, 129.3114),
+      ('인천광역시', 37.4563, 126.7052),
+      ('제주특별자치도', 33.4996, 126.5312),
+    ];
+    String date(DateTime value) =>
+        '${value.year.toString().padLeft(4, '0')}-'
+        '${value.month.toString().padLeft(2, '0')}-'
+        '${value.day.toString().padLeft(2, '0')}';
 
     await d.transaction((txn) async {
-      for (final row in rows) {
-        await txn.insert(
-          'reports',
-          row,
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
+      for (var index = 0; index < 100; index++) {
+        final number = index + 1;
+        final day = now.subtract(Duration(days: index * 3 + 2));
+        final answered = index % 5 != 0;
+        final categoryIndex = index % categories.length;
+        final place = places[index % places.length];
+        final reportNumber = 'DEMO-${number.toString().padLeft(4, '0')}';
+        final address =
+            '${place.$1} 예시 위치 ${number.toString().padLeft(3, '0')}';
+        await txn.insert('reports', {
+          'ID': 'demo-$reportNumber',
+          '상태': answered ? '답변완료' : '처리중',
+          '신고번호': reportNumber,
+          '신고명': '${titles[index % titles.length]} (예시)',
+          '신고일': date(day),
+          '만족도조사여부': answered ? (index % 4 == 0 ? '참여 완료' : '참여 가능') : '답변 대기',
+          '별점': answered && index % 4 == 0 ? (index % 5) + 1 : null,
+          '별점사유': '',
+          '감시목록': index % 20 == 0 ? 'Y' : 'N',
+          '처리상태': answered ? (index % 7 == 0 ? '불수용' : '수용') : '처리중',
+          '차량번호': categoryIndex == 2 ? '' : '12가${1000 + index % 18}',
+          '위반법규': '',
+          '범칙금_과태료': answered && index % 3 == 0 ? '과태료: 40,000원' : '',
+          '벌점': '',
+          '처리기관': agencies[categoryIndex],
+          '담당자': '예시 담당자',
+          '답변일': answered ? date(day.add(const Duration(days: 2))) : '',
+          '발생일자': date(day),
+          '발생시각': '${(8 + index % 12).toString().padLeft(2, '0')}:30',
+          '위반장소': address,
+          '주소정규화': address,
+          '행정구역': place.$1,
+          '위도': place.$2 + (index % 5) * 0.0001,
+          '경도': place.$3 + (index % 5) * 0.0001,
+          '지오코딩상태': 'ok',
+          '종결여부': answered ? 'Y' : 'N',
+          '신고내용': '기능을 살펴보기 위한 가상 신고 내용입니다. 실제 신고가 아닙니다.',
+          '처리내용': answered ? '예시 처리 결과입니다. 실제 기관의 답변이 아닙니다.' : '',
+          '지도': '',
+          '첨부사진': '',
+          '첨부파일': '',
+          'category': categories[categoryIndex],
+          'entry_value': '',
+          'raw_content': '',
+          'synced_at': syncedAt,
+        });
       }
       await txn.insert('sync_meta', {
         'key': 'last_sync',
@@ -3000,7 +3030,7 @@ class LocalDbService {
       }, conflictAlgorithm: ConflictAlgorithm.replace);
       await txn.insert('sync_meta', {
         'key': 'watchlist',
-        'value': watchlistNumber,
+        'value': 'DEMO-0001,DEMO-0021,DEMO-0041,DEMO-0061,DEMO-0081',
       }, conflictAlgorithm: ConflictAlgorithm.replace);
     });
     await DuplicateProjectionService.refreshDuplicateGroups(d);
@@ -3389,27 +3419,45 @@ class LocalDbService {
           'mysafetydetail_$c': reportColumns,
         } else
           'mysafetymerge_$c': reportColumns,
-      'mysafety_raw_content': (await _columnTypes(localDb, 'report_raw')).keys.toSet(),
+      'mysafety_raw_content': (await _columnTypes(
+        localDb,
+        'report_raw',
+      )).keys.toSet(),
       'mysafety_sync_meta': const {'key', 'value'},
       'mysafety_watchlist': const {'신고번호'},
       'mysafety_entry_value': const {'ID', 'entry_value'},
-      'mysafety_geocode_cache': (await _columnTypes(localDb, 'geocode_cache')).keys.toSet(),
-      'mysafety_duplicate_group':
-          (await _columnTypes(localDb, DuplicateProjectionService.groupTable)).keys.toSet(),
-      'mysafety_duplicate_member':
-          (await _columnTypes(localDb, DuplicateProjectionService.memberTable)).keys.toSet(),
-      'mysafety_report_override': (await _columnTypes(localDb, 'report_override')).keys.toSet(),
-      'mysafety_duplicate_decision':
-          (await _columnTypes(localDb, 'duplicate_decision')).keys.toSet(),
+      'mysafety_geocode_cache': (await _columnTypes(
+        localDb,
+        'geocode_cache',
+      )).keys.toSet(),
+      'mysafety_duplicate_group': (await _columnTypes(
+        localDb,
+        DuplicateProjectionService.groupTable,
+      )).keys.toSet(),
+      'mysafety_duplicate_member': (await _columnTypes(
+        localDb,
+        DuplicateProjectionService.memberTable,
+      )).keys.toSet(),
+      'mysafety_report_override': (await _columnTypes(
+        localDb,
+        'report_override',
+      )).keys.toSet(),
+      'mysafety_duplicate_decision': (await _columnTypes(
+        localDb,
+        'duplicate_decision',
+      )).keys.toSet(),
     };
     final problems = <String>[];
     for (final entry in known.entries) {
       if (!serverTables.contains(entry.key)) continue;
       for (final col in (await _columnTypes(serverDb, entry.key)).keys) {
         if (entry.value.contains(col)) continue;
-        final n = Sqflite.firstIntValue(await serverDb.rawQuery(
-              'SELECT COUNT(*) FROM "${entry.key}" WHERE "$col" IS NOT NULL',
-            )) ??
+        final n =
+            Sqflite.firstIntValue(
+              await serverDb.rawQuery(
+                'SELECT COUNT(*) FROM "${entry.key}" WHERE "$col" IS NOT NULL',
+              ),
+            ) ??
             0;
         if (n > 0) problems.add('${entry.key}.$col($n행)');
       }
@@ -3435,7 +3483,11 @@ class LocalDbService {
 
     try {
       // 이전(또는 더 새) 버전 서버 DB 는 가져오지 않는다(2026-09-26 초기화 크롤링 릴리스).
-      _refuseOtherVersion(await serverDb.getVersion(), serverSchemaVersion, '서버');
+      _refuseOtherVersion(
+        await serverDb.getVersion(),
+        serverSchemaVersion,
+        '서버',
+      );
       // 다른 카카오 계정(또는 주인을 모르는) 서버 DB 는 가져오지 않는다 — 무엇이든 바꾸기 전에
       await _refuseForeignOwner(serverDb, 'mysafety_sync_meta');
       await _validateServerDbSchema(serverDb);
@@ -3656,7 +3708,9 @@ class LocalDbService {
       final store = await CommunityStore.open();
       await store.rotateDataset(reason);
     } catch (e) {
-      throw Exception('커뮤니티 공유 저장소를 준비하지 못해 DB 를 바꾸지 않았습니다($reason). 다시 시도해 주세요. [$e]');
+      throw Exception(
+        '커뮤니티 공유 저장소를 준비하지 못해 DB 를 바꾸지 않았습니다($reason). 다시 시도해 주세요. [$e]',
+      );
     }
   }
 

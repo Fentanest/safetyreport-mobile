@@ -93,14 +93,15 @@ void main() {
   });
 
   testWidgets(
-    'F01: fresh install first screen is onboarding, zero permission calls',
+    'F01: fresh install selects mode before onboarding, zero permission calls',
     (tester) async {
       final provider = await _providerWith({});
       final gate = StubGate(enter: false);
       addTearDown(gate.dispose);
       await tester.pumpWidget(_app(provider, gate));
       await tester.pumpAndSettle();
-      expect(find.byType(CommunityOnboardingScreen), findsOneWidget);
+      expect(find.byType(SetupScreen), findsOneWidget);
+      expect(find.text('Demo 보기'), findsOneWidget);
       expect(find.byType(PermissionScreen), findsNothing);
       expect(find.byType(MainNavigationScreen), findsNothing);
       expect(
@@ -108,6 +109,27 @@ void main() {
         isEmpty,
         reason: '게이트 전 PermissionScreen·OS 권한 요청 호출 0',
       );
+      tester
+          .widget<InkWell>(
+            find.ancestor(
+              of: find.text('Client 모드'),
+              matching: find.byType(InkWell),
+            ),
+          )
+          .onTap!();
+      await tester.pumpAndSettle();
+      expect(find.byType(CommunityOnboardingScreen), findsOneWidget);
+      expect(find.byType(PermissionScreen), findsNothing);
+      tester
+          .widget<IconButton>(
+            find.ancestor(
+              of: find.byTooltip('모드 선택으로 돌아가기'),
+              matching: find.byType(IconButton),
+            ),
+          )
+          .onPressed!();
+      await tester.pumpAndSettle();
+      expect(find.text('Demo 보기'), findsOneWidget);
     },
   );
 
@@ -141,38 +163,49 @@ void main() {
     expect(find.byType(CommunityOnboardingScreen), findsOneWidget);
   });
 
-  testWidgets(
-    'S-21: gate passed + new install shows common permissions first',
-    (tester) async {
-      final provider = await _providerWith({});
-      final gate = StubGate(enter: true);
-      addTearDown(gate.dispose);
-      await tester.pumpWidget(_app(provider, gate));
-      await tester.pumpAndSettle();
-      expect(find.byType(PermissionScreen), findsOneWidget);
-      expect(
-        tester.widget<PermissionScreen>(find.byType(PermissionScreen)).phase,
-        PermissionPhase.common,
-      );
-      expect(find.text('백그라운드 서버 연결 (WebSocket)'), findsNothing);
-      // common 완료 → 기존 SetupScreen.
-      final later = find.widgetWithText(FilledButton, '나중에 설정하기');
-      await tester.ensureVisible(later);
-      await tester.pumpAndSettle();
-      await tester.tap(later, warnIfMissed: false);
-      await tester.pumpAndSettle();
-      expect(find.byType(SetupScreen), findsOneWidget);
-      await provider.setConfig('http://127.0.0.1:9', 'k');
-      for (var i = 0; i < 10; i++) {
-        await tester.pump(const Duration(milliseconds: 100));
-      }
-      expect(
-        find.byType(PermissionScreen),
-        findsNothing,
-        reason: '서버 설정을 저장한 뒤 권한 화면이 다시 열리면 안 된다',
-      );
-    },
-  );
+  testWidgets('S-21: mode selection precedes common permissions', (
+    tester,
+  ) async {
+    final provider = await _providerWith({});
+    final gate = StubGate(enter: true);
+    addTearDown(gate.dispose);
+    await tester.pumpWidget(_app(provider, gate));
+    await tester.pumpAndSettle();
+    expect(find.byType(SetupScreen), findsOneWidget);
+    expect(find.byType(PermissionScreen), findsNothing);
+    tester
+        .widget<InkWell>(
+          find.ancestor(
+            of: find.text('Client 모드'),
+            matching: find.byType(InkWell),
+          ),
+        )
+        .onTap!();
+    await tester.pumpAndSettle();
+    expect(find.byType(PermissionScreen), findsOneWidget);
+    expect(
+      tester.widget<PermissionScreen>(find.byType(PermissionScreen)).phase,
+      PermissionPhase.common,
+    );
+    expect(find.text('백그라운드 서버 연결 (WebSocket)'), findsNothing);
+    // common 완료 → 선택한 Client 설정 화면.
+    final later = find.widgetWithText(FilledButton, '나중에 설정하기');
+    await tester.ensureVisible(later);
+    await tester.pumpAndSettle();
+    tester.widget<FilledButton>(later).onPressed!();
+    await tester.pumpAndSettle();
+    expect(find.byType(SetupScreen), findsOneWidget);
+    expect(find.text('서버 연결 설정'), findsOneWidget);
+    await provider.setConfig('http://127.0.0.1:9', 'k');
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(
+      find.byType(PermissionScreen),
+      findsNothing,
+      reason: '서버 설정을 저장한 뒤 권한 화면이 다시 열리면 안 된다',
+    );
+  });
 
   testWidgets(
     'S-21: server mode starts WebSocket without reopening permissions',
@@ -265,7 +298,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.text('다시 확인'), findsOneWidget);
     updated = true;
-    await tester.tap(find.text('다시 확인'));
+    tester
+        .widget<FilledButton>(find.widgetWithText(FilledButton, '다시 확인'))
+        .onPressed!();
     for (var i = 0; i < 10; i++) {
       await tester.pump(const Duration(milliseconds: 100));
     }
@@ -300,7 +335,9 @@ void main() {
     expect(find.byType(MainNavigationScreen), findsNothing);
   });
 
-  testWidgets('losing consent closes a pushed screen', (tester) async {
+  testWidgets('demo pages remain available without Kakao consent', (
+    tester,
+  ) async {
     final provider = await _providerWith({
       AppPrefsKeys.appMode: 'standalone',
       AppPrefsKeys.standaloneUsername: 'demo',
@@ -323,14 +360,13 @@ void main() {
     expect(find.text('other screen'), findsOneWidget);
     gate.setEnter(false);
     await tester.pumpAndSettle();
-    expect(find.byType(CommunityOnboardingScreen), findsOneWidget);
-    expect(find.text('other screen'), findsNothing);
+    expect(find.byType(CommunityOnboardingScreen), findsNothing);
+    expect(find.text('other screen'), findsOneWidget);
     await tester.pump(const Duration(seconds: 6));
     await tester.pump(const Duration(seconds: 6));
   });
 
-  /// MainNavigationScreen 은 유지 애니메이션(BusyRing 등)으로 settle 이 안 되므로
-  /// 고정 pump 로만 진행한다.
+  /// MainNavigationScreen 은 유지 애니메이션 때문에 고정 pump 로 진행한다.
   Future<void> pumpMain(WidgetTester tester) async {
     await tester.pump();
     for (var i = 0; i < 5; i++) {

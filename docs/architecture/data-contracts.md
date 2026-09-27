@@ -114,19 +114,12 @@ Client 모드 서버 경로와 이벤트 문자열은 Flutter/Dart 와 Android/K
 
 **왜 `dart:io HttpClient` 인가**: `package:http` 의 정적 메서드는 매 호출마다 별도 클라이언트 → 쿠키 공유 안 됨. `HttpClient` 인스턴스 하나로 쿠키 자동 관리되므로 JSESSIONID 수동 추출 불필요.
 
-### Play review 데모 모드
+### Demo 보기 (Play Console 검토에도 사용)
 
-- SetupScreen / SettingsScreen 재로그인 다이얼로그에서
-  `username=demo`, `password=demo` 입력 후 휴대폰번호를 비우거나 `demo`를 입력하면 진입
-- `LocalDbService.seedPlayReviewDemo()` 가 아래 3건을 로컬 DB에 시드:
-  - `SPP-2604-2344496` (traffic, 별점 5, 별점사유 있음)
-  - `SPP-2604-0419411` (parking, 별점 5)
-  - `SPP-2604-2344422` (other)
-- `ReportProvider.isStandaloneDemo` true:
-  - keep-alive 타이머 시작 안 함
-  - pending queue drain, 실제 sync, 자동 재로그인 진입 안 함
-  - crawl/sync 화면에서 동기화 버튼 비활성화 + 안내 카드 표시
-- Play Console review credentials 에는 영어로 `Standalone mode -> username demo, password demo, phone blank allowed` 로 기재
+- 첫 모드 선택 화면의 `Demo 보기`를 누르면 카카오·안전신문고 계정 없이 들어간다. 기존 `demo/demo` 로그인도 같은 경로를 유지한다.
+- `LocalDbService.seedPlayReviewDemo()` 가 별도 `standalone_reports_demo.db`를 비우고 가상 신고 100건을 생성한다. 날짜·상태·카테고리·좌표·감시 목록을 섞어 실제 대시보드·신고내역·지도·통계 화면을 채운다. 실제 신고 원문·담당자·첨부 URL은 쓰지 않는다.
+- `ReportProvider.isStandaloneDemo` true: 안전신문고 세션, keep-alive, 동기화, 별점 제출, 커뮤니티 업로드, WebSocket, 초기화 크롤링을 실행하지 않는다. 메인 탐색은 카카오 게이트 없이 허용한다.
+- Play Console 앱 액세스 안내에는 `Open the app, tap Demo 보기 below Client and Standalone. No login is required.`라고 적으면 된다. 이 경로는 모든 사용자에게 보인다.
 
 ### 토큰 만료 + 자동 재로그인
 
@@ -447,3 +440,7 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
 - 옛 중복군 상태·대표건 모드 변환은 서버 `_LEGACY_STATUS_MAP` 과 같게(`normalizeDuplicateStatus`/`normalizeRepresentativeMode`).
 - 전체 재동기화는 사라진 신고 정리를 중복군 재계산보다 먼저 한다.
 - 계산 동등성 하네스 `test/tool/logic_parity_harness_test.dart` — 서버 `scripts/dev/logic_parity_check.py` 가 호출(평소 flutter test 에서는 건너뜀).
+
+## API 응답의 원본 좌표 (2026-09-27 확인)
+
+PC 저장소 `scripts/debug/extractor.py`가 저장한 `testresults/*_api_raw.json` 7건의 `result.C_A_W`와 `result.C_A_E`는 각각 한국 범위의 위도·경도 숫자 문자열이며, 7건 모두 값이 있다. 보완 자료 2건에는 `SPLMNT_C_A_W/E`도 있다. 현재 PC `services/parser.py`와 모바일 `lib/services/standalone_parser.dart`는 주소(`RN_ADRES` 등)만 읽고 이 좌표 필드를 읽지 않는다. 따라서 현재의 주소 좌표 변환 경로에서는 카카오 REST API 키가 필요할 수 있다. 원본 좌표를 직접 저장하도록 바꾸려면 양쪽 파서의 보완 신고 위치 우선순위와 좌표 유효성·주소 일치·기존 지오코딩 값 갱신 규칙을 함께 검증해야 한다.

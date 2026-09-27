@@ -144,7 +144,6 @@ Future<HeadlessGate> refreshGateHeadless(
     session: 'valid',
     status: status.toGateInput(),
     ageSeconds: 0,
-    appRequiredPolicyVersion: communityRequiredPolicyVersion,
   );
   if (!next.canEnter) return _block(store, p, next.state, clock());
   final conn = status.connection;
@@ -156,7 +155,8 @@ Future<HeadlessGate> refreshGateHeadless(
       ctx['connection_id'] == stored?['connection_id'] &&
       ctx['contributor_fingerprint'] == status.fingerprint &&
       ctx['consent_grant_id'] == status.consentGrantId &&
-      ctx['policy_version'] == status.consentPolicyVersion;
+      ctx['policy_version'] == status.consentPolicyVersion &&
+      ctx['consent_text_sha256'] == status.grantConsentTextSha256;
   if (!usable) return HeadlessGate.needsForeground;
   await p.setString('community_gate_cache_v1',
       jsonEncode({'state': 'ok', 'verified_at': clock().millisecondsSinceEpoch}));

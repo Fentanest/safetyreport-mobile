@@ -191,7 +191,6 @@ void main() {
           gate: gate,
           auth: auth,
           accountClient: server.accountClient(),
-          consentText: '동의문',
         ),
       ),
     ));

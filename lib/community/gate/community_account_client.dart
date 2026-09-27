@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
 /// `community-account` 함수 REST 클라이언트 (`contracts/community-ingest/account-api.md`).
@@ -30,6 +31,26 @@ class CommunityAccountClient {
         'connection_id': connectionId,
     }, accessToken);
     return CommunityAccountStatus.parse(json);
+  }
+
+  /// 지금 필수 동의 정책(버전·해시·본문, 계약 account-api.md `policy`, 2026-09-27).
+  /// 동의문은 앱에 넣어 두지 않고 중앙에서 받는다. 본문의 sha256(UTF-8)이 해시와 같을 때만 돌려준다 — 보여 줄 본문 = 동의할 해시.
+  Future<CommunityPolicy> policy({required String accessToken}) async {
+    final json = await _post('policy', const {}, accessToken);
+    final p = json['policy'];
+    if (p is Map) {
+      final version = p['version'];
+      final hash = p['consent_text_sha256'];
+      final text = p['consent_text'];
+      if (version is String && hash is String && text is String &&
+          sha256.convert(utf8.encode(text)).toString() == hash) {
+        return CommunityPolicy(version: version, consentTextSha256: hash, consentText: text);
+      }
+    }
+    throw const CommunityAccountError(
+      code: 'policy_invalid',
+      message: '동의 문서를 확인하지 못했습니다. 잠시 뒤 다시 시도해 주세요.',
+    );
   }
 
   Future<CommunityConsentResult> consent({
@@ -227,8 +248,11 @@ class CommunityAccountStatus {
   String? get contributorStatus => _map('contributor')?['status'] as String?;
   String get requiredPolicyVersion =>
       (_map('policy')?['required_version'] as String?) ?? '';
+  /// 중앙의 지금 정책 동의문 해시.
   String get consentTextSha256 =>
       (_map('policy')?['consent_text_sha256'] as String?) ?? '';
+  /// 내 grant 가 동의한 동의문 해시(업로드 context 에 기록).
+  String? get grantConsentTextSha256 => _map('consent')?['consent_text_sha256'] as String?;
   String? get fingerprint => _map('account')?['fingerprint'] as String?;
   String? get displayName => _map('account')?['display_name'] as String?;
 
@@ -240,12 +264,29 @@ class CommunityAccountStatus {
         'consent': {
           'state': consentState,
           'policy_version': consentPolicyVersion,
+          'consent_text_sha256': grantConsentTextSha256,
         },
-        'policy': {'required_version': requiredPolicyVersion},
+        'policy': {
+          'required_version': requiredPolicyVersion,
+          'consent_text_sha256': consentTextSha256,
+        },
       };
 
   static CommunityAccountStatus parse(Map<String, Object?> json) =>
       CommunityAccountStatus(Map<String, Object?>.from(json));
+}
+
+/// 중앙이 내려준 지금 필수 동의 정책(본문 해시 확인 뒤).
+class CommunityPolicy {
+  const CommunityPolicy({
+    required this.version,
+    required this.consentTextSha256,
+    required this.consentText,
+  });
+
+  final String version;
+  final String consentTextSha256;
+  final String consentText;
 }
 
 class CommunityConsentResult {

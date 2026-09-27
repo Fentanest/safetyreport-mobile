@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../community/gate/community_account_client.dart';
 import '../community/gate/community_gate.dart';
+import '../community/client_account_notice.dart';
 import '../community/kakao_logout.dart';
 import '../services/community_auth_service.dart';
 
@@ -18,21 +19,23 @@ class CommunityOnboardingScreen extends StatefulWidget {
     this.gate,
     this.auth,
     this.accountClient,
-    this.consentText,
     this.onNext,
     this.privacyLauncher,
     this.onReportsWiped,
+    this.clientServer,
   });
 
   final CommunityGate? gate;
   final CommunityAuthService? auth;
   final CommunityAccountClient? accountClient;
-  final String? consentText;
   final Future<void> Function()? onNext;
   final Future<bool> Function(Uri uri)? privacyLauncher;
 
   /// 카카오 로그아웃·"지우고 이 계정으로 시작"으로 신고 자료를 지운 뒤(화면 목록 갱신용).
   final Future<void> Function()? onReportsWiped;
+
+  /// Client 모드면 서버 주소·API 키 — 이 앱과 서버의 카카오 계정이 다르면 알린다([ClientAccountMismatchNotice]).
+  final ({String baseUrl, String apiKey})? clientServer;
 
   @override
   State<CommunityOnboardingScreen> createState() =>
@@ -47,7 +50,11 @@ class _CommunityOnboardingScreenState
   bool _consentSaved = false;
   bool _consentBusy = false;
   String? _consentError;
-  String? _loadedText;
+
+  /// 중앙이 내려준 지금 동의문(본문 해시 확인됨, 2026-09-27). 카카오 인증 전에는 받을 수 없다.
+  CommunityPolicy? _policy;
+  String? _policyError;
+  bool _policyLoading = false;
   bool _consentExpanded = false;
   bool _nextBusy = false;
   String? _nextError;
@@ -58,38 +65,75 @@ class _CommunityOnboardingScreenState
   @override
   void initState() {
     super.initState();
-    if (widget.consentText != null) {
-      _loadedText = widget.consentText;
-    } else {
-      _loadConsentText();
+    _auth.state.addListener(_onAuthChanged);
+    _loadPolicy();
+  }
+
+  @override
+  void dispose() {
+    _auth.state.removeListener(_onAuthChanged);
+    super.dispose();
+  }
+
+  void _onAuthChanged() {
+    if (_kakaoOk && _policy == null && !_policyLoading) _loadPolicy();
+  }
+
+  /// 동의문은 앱에 넣어 두지 않고 중앙 `policy` 로 받는다. 카카오 인증 전에는 안내만 보인다.
+  Future<void> _loadPolicy() async {
+    final client = widget.accountClient;
+    if (!_kakaoOk || client == null) {
+      if (mounted) setState(() => _policy = null);
+      return;
+    }
+    setState(() {
+      _policyLoading = true;
+      _policyError = null;
+    });
+    try {
+      final token = await _auth.getAccessToken();
+      if (token == null || token.isEmpty) {
+        throw const CommunityAccountError(code: 'kakao_required', message: '먼저 카카오 인증을 완료해 주세요.');
+      }
+      final policy = await client.policy(accessToken: token);
+      if (mounted) setState(() => _policy = policy);
+    } on CommunityAccountError catch (e) {
+      if (mounted) setState(() => _policyError = e.message);
+    } catch (_) {
+      if (mounted) setState(() => _policyError = '동의 문서를 불러오지 못했습니다. 잠시 뒤 다시 시도해 주세요.');
+    } finally {
+      if (mounted) setState(() => _policyLoading = false);
     }
   }
 
-  Future<void> _loadConsentText() async {
-    try {
-      final bundle = DefaultAssetBundle.of(context);
-      final text = await bundle.loadString(
-        'assets/community/share-consent-2026-09-28.1.md',
-      );
-      if (mounted) setState(() => _loadedText = text);
-    } catch (_) {
-      if (mounted) {
-        setState(
-          () => _loadedText = '동의문을 불러오지 못했습니다. 설정 > 도움말에서 확인해 주세요.',
-        );
-      }
-    }
+  /// 이 계정이 이미 지금 정책(버전·동의문 해시)에 동의해 있는가 — 다른 기기·서버에서 한 동의도 같은 카카오 계정이면 이어진다.
+  bool get _consentActiveOnServer {
+    final st = widget.gate?.lastStatus;
+    return st != null &&
+        st.consentState == 'active' &&
+        st.requiredPolicyVersion.isNotEmpty &&
+        st.consentPolicyVersion == st.requiredPolicyVersion &&
+        st.grantConsentTextSha256 == st.consentTextSha256;
+  }
+
+  bool get _consentDone => _kakaoOk && (_consentSaved || _consentActiveOnServer);
+
+  String get _docText {
+    if (!_kakaoOk) return '카카오 인증을 마치면 동의 문서를 불러옵니다.';
+    if (_policy != null) return _policy!.consentText;
+    if (_policyError != null) return _policyError!;
+    return '동의 문서를 불러오는 중...';
   }
 
   bool get _kakaoOk =>
       _auth.state.value.phase == CommunityAccountPhase.connected;
 
-  bool get _canGoNext => _kakaoOk && _consentSaved;
+  bool get _canGoNext => _kakaoOk && _consentDone;
 
   String? get _blockedReason {
-    if (!_kakaoOk && !_consentSaved) return '카카오 인증과 신고내용 공유 동의를 모두 완료하면 다음 단계로 이동할 수 있습니다.';
+    if (!_kakaoOk && !_consentDone) return '카카오 인증과 신고내용 공유 동의를 모두 완료하면 다음 단계로 이동할 수 있습니다.';
     if (!_kakaoOk) return '카카오 인증을 완료하면 다음 단계로 이동할 수 있습니다.';
-    if (!_consentSaved) return '신고내용 공유 동의를 완료하면 다음 단계로 이동할 수 있습니다.';
+    if (!_consentDone) return '신고내용 공유 동의를 완료하면 다음 단계로 이동할 수 있습니다.';
     return null;
   }
 
@@ -115,10 +159,15 @@ class _CommunityOnboardingScreenState
           message: '먼저 카카오 인증을 완료해 주세요.',
         );
       }
+      final policy = _policy;
+      if (policy == null) {
+        throw const CommunityAccountError(code: 'policy_missing', message: '동의 문서를 먼저 불러와 주세요.');
+      }
+      // 화면에 보인 본문의 (버전, 해시) 그대로 보낸다. 그 사이 중앙 정책이 바뀌었으면 policy_mismatch — 새 본문을 다시 보인다.
       await client.consent(
         accessToken: token,
-        policyVersion: communityRequiredPolicyVersion,
-        consentTextSha256: gate.lastStatus?.consentTextSha256 ?? '',
+        policyVersion: policy.version,
+        consentTextSha256: policy.consentTextSha256,
         via: gate.isStandalone ? 'mobile_standalone' : 'mobile_client',
       );
       await gate.refreshNow();
@@ -131,7 +180,18 @@ class _CommunityOnboardingScreenState
         );
       }
     } on CommunityAccountError catch (e) {
-      if (mounted) setState(() => _consentError = e.message);
+      if (e.code == 'policy_mismatch') {
+        if (mounted) {
+          setState(() {
+            _consentChecked = false;
+            _policy = null;
+            _consentError = '동의 문서가 바뀌었습니다. 새 문서를 확인한 뒤 다시 동의해 주세요.';
+          });
+        }
+        await _loadPolicy();
+      } else if (mounted) {
+        setState(() => _consentError = e.message);
+      }
     } catch (_) {
       if (mounted) {
         setState(() => _consentError = '동의 저장에 실패했습니다. 다시 시도해 주세요.');
@@ -298,6 +358,12 @@ class _CommunityOnboardingScreenState
             _recoveryBox(context, gate!),
           if (gateState == 'db_owner_mismatch') _ownerMismatchBox(context),
           _kakaoCard(context),
+          if (gate != null && widget.clientServer != null && _kakaoOk)
+            ClientAccountMismatchNotice(
+              gate: gate,
+              baseUrl: widget.clientServer!.baseUrl,
+              apiKey: widget.clientServer!.apiKey,
+            ),
           const SizedBox(height: 12),
           _consentCard(context),
           const SizedBox(height: 12),
@@ -516,8 +582,8 @@ class _CommunityOnboardingScreenState
                   ),
                 ),
                 Icon(
-                  _consentSaved ? Icons.check_circle : Icons.radio_button_unchecked,
-                  color: _consentSaved
+                  _consentDone ? Icons.check_circle : Icons.radio_button_unchecked,
+                  color: _consentDone
                       ? Colors.green
                       : Theme.of(context).disabledColor,
                 ),
@@ -544,18 +610,18 @@ class _CommunityOnboardingScreenState
                 ),
                 child: SingleChildScrollView(
                   child: Text(
-                    _loadedText ?? '동의문을 불러오는 중...',
+                    _docText,
                     style: const TextStyle(fontSize: 12.5, height: 1.5),
                   ),
                 ),
               ),
             ],
             CheckboxListTile(
-              value: _consentChecked,
+              value: _consentChecked || _consentDone,
               contentPadding: EdgeInsets.zero,
               controlAffinity: ListTileControlAffinity.leading,
               title: const Text('위 내용을 모두 읽고 공유에 동의합니다.', style: TextStyle(fontSize: 13)),
-              onChanged: _consentSaved
+              onChanged: _consentDone || _policy == null
                   ? null
                   : (v) => setState(() => _consentChecked = v ?? false),
             ),
@@ -573,7 +639,7 @@ class _CommunityOnboardingScreenState
             SizedBox(
               width: double.infinity,
               child: FilledButton(
-                onPressed: _consentChecked && !_consentSaved && !_consentBusy
+                onPressed: _consentChecked && !_consentDone && _policy != null && !_consentBusy
                     ? _saveConsent
                     : null,
                 child: _consentBusy
@@ -582,7 +648,7 @@ class _CommunityOnboardingScreenState
                         height: 18,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : Text(_consentSaved ? '동의 완료' : '동의하고 계속'),
+                    : Text(_consentDone ? '동의 완료' : '동의하고 계속'),
               ),
             ),
           ],

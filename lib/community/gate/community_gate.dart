@@ -70,6 +70,35 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         _projectNamespaceOverride = projectNamespace,
         _checkDataOwnerOverride = checkDataOwner {
     WidgetsBinding.instance.addObserver(this);
+    _authPhase = _auth.state.value.phase;
+    _auth.state.addListener(_onAuthChanged);
+  }
+
+  late CommunityAccountPhase _authPhase;
+
+  /// 카카오 로그인이 확정되면(다른 상태 → connected) 곧바로 다시 확인한다. 예전엔 60초 poll·앱 복귀 때까지 기다려,
+  /// 이미 동의한 계정도 필수 설정 화면에 머물렀다(2026-09-27). 로그아웃·만료도 즉시 반영한다.
+  bool _disposed = false;
+
+  /// 폐기 뒤에 끝난 확인(로그인 상태 변화로 시작된 refresh 등)은 조용히 멈춘다.
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
+
+  void _onAuthChanged() {
+    if (_disposed) return;
+    final phase = _auth.state.value.phase;
+    final was = _authPhase;
+    _authPhase = phase;
+    if (phase == was) return;
+    // 로그인 진행 중 단계(브라우저 대기·교환·계정 확인)는 기존 세션이 그대로라 건드리지 않는다(설정의 "계정 변경" 중 튕기지 않게).
+    final settled = phase == CommunityAccountPhase.connected ||
+        phase == CommunityAccountPhase.disconnected ||
+        phase == CommunityAccountPhase.reauthRequired;
+    if (!settled) return;
+    invalidate(phase == CommunityAccountPhase.connected ? 'login' : 'logout');
+    unawaited(refreshNow(silent: true));
   }
 
   static const String connectionStorageKey = 'community_connection_v1';
@@ -297,7 +326,6 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         session: session,
         status: status.toGateInput(),
         ageSeconds: 0,
-        appRequiredPolicyVersion: communityRequiredPolicyVersion,
       );
       if (!next.canEnter) {
         _apply(next);
@@ -417,7 +445,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         'dataset_key': stored?['dataset_key'],
         'consent_grant_id': status.consentGrantId,
         'policy_version': status.consentPolicyVersion,
-        'consent_text_sha256': status.consentTextSha256,
+        'consent_text_sha256': status.grantConsentTextSha256,
         'source_app': 'safetyreport-mobile',
         'source_mode': isStandalone ? 'standalone' : 'client',
       });
@@ -599,7 +627,9 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _disposed = true;
     stopPolling();
+    _auth.state.removeListener(_onAuthChanged);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

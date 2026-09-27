@@ -19,9 +19,16 @@
 
 ## 게이트 (`lib/community/gate/`)
 
-- `gate_state.dart`: 판정 순수 함수 `evaluateGate` (`gate.md` 순서 그대로).
+- `gate_state.dart`: 판정 순수 함수 `evaluateGate` (`gate.md` 순서 그대로, 계약 벡터 `vectors/gate.json` — PC 와 같은 벡터).
+  동의는 grant 의 (버전, 동의문 해시)를 중앙 status.policy 와 비교한다 — 앱에 정책 버전·동의문을 넣어 두지 않는다(2026-09-27).
   `datasetKeyForOfficialId` (`account-api.md`), Client fingerprint 비교
-  `serverAccountMismatch`.
+  `serverAccountMismatch`(`lib/community/client_account_notice.dart` 가 필수 설정 화면·설정의 서버 계정 카드 아래에 안내).
+- 동의문(2026-09-27): 필수 설정 화면은 카카오 인증 뒤 `CommunityAccountClient.policy` 로 중앙 본문을 받아 sha256 을 확인한 뒤 보여 주고,
+  그 버전·해시로 `consent` 한다(인증 전에는 "카카오 인증을 마치면 동의 문서를 불러옵니다"). 같은 카카오 계정이 이미 지금 정책에 동의했으면
+  (PC·다른 기기 포함) "동의 완료"로 보이고 다시 묻지 않는다. `policy_mismatch` 면 새 본문을 다시 받아 체크를 풀고 다시 묻는다.
+  본문 표시(표·링크)는 Sol 작업(`sol/consent-markdown`)에서 고친다.
+- 로그인 확정·로그아웃·만료(카카오 상태가 connected/disconnected/reauthRequired 로 바뀜)면 게이트가 곧바로 다시 확인한다
+  (예전엔 60초 poll·앱 복귀까지 기다렸다). 브라우저 로그인 중 단계는 건드리지 않는다.
 - `community_account_client.dart`: `community-account` REST
   (`apikey` + Bearer, 10초 타임아웃, `{"protocol":1,…}`).
 - `community_gate.dart` (`ChangeNotifier`): 캐시 10분, `requireFresh(60s)`,
@@ -100,6 +107,4 @@ T6 병합 전까지 기본값(no-op/`true`). T6 는 같은 이름·시그니처�
 
 - `SyncEngine.start` 에는 `rebuildRunId` named 파라미터가 아직 없다(T6 소유).
   rebuild 실행은 `start(fullSync: true)` 로 호출하고 runId 는 checkpoint 기록용이다.
-- `assets/community/` 폴더의 pubspec 등록은 T6 소유라 건드리지 않았다 —
-  온보딩 화면은 번들 로드 실패 시 파일 경로가 아닌 안내 문구를 보인다.
-  (테스트는 파일 경로로 직접 읽는다.)
+- (2026-09-27) 동의문 번들 `assets/community/` 는 없앴다 — 동의문은 중앙에서 받는다.

@@ -159,6 +159,22 @@ void main() {
     }
   });
 
+  // 2026-09-27: 로그인이 확정되면 곧바로 다시 확인한다(예전엔 60초 poll 까지 필수 설정 화면에 머물렀다).
+  test('a confirmed Kakao login re-checks the gate right away; in-progress login steps do not', () async {
+    auth.setPhase(CommunityAccountPhase.disconnected);
+    final gate = makeGate();
+    await gate.refreshNow();
+    expect(gate.canEnter, isFalse);
+    final before = server.statusCalls;
+    auth.setPhase(CommunityAccountPhase.awaitingBrowser);
+    await Future<void>.delayed(Duration.zero);
+    expect(server.statusCalls, before, reason: '브라우저 로그인 중에는 건드리지 않는다');
+    auth.setPhase(CommunityAccountPhase.connected);
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(server.statusCalls, before + 1);
+    expect(gate.canEnter, isTrue, reason: '이미 동의한 계정은 바로 통과');
+  });
+
   test('invalidate forces verification_required; suspended deactivates', () async {
     final gate = makeGate();
     expect((await gate.refreshNow()).canEnter, isTrue);

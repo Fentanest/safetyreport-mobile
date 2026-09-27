@@ -23,8 +23,8 @@ class GateState {
   String toString() => 'GateState($state, canEnter=$canEnter)';
 }
 
-/// 앱이 아는 필수 동의 정책 버전 (계약 `account-api.md` status 예시와 동일).
-const String communityRequiredPolicyVersion = '2026-09-28.1';
+// 필수 동의 정책(버전·동의문 해시·본문)은 앱에 넣어 두지 않는다 — 중앙 status.policy 와 `policy` 액션이 정본이다
+// (2026-09-27, contracts/community-ingest/account-api.md). 동의문이 바뀌어도 앱을 새로 배포할 필요가 없다.
 
 /// 게이트 캐시 유효 기간 (화면 이동용 10분).
 const Duration communityGateCacheTtl = Duration(seconds: 600);
@@ -55,7 +55,6 @@ GateState evaluateGate({
   Map<String, Object?>? status,
   double? ageSeconds,
   bool invalidated = false,
-  String appRequiredPolicyVersion = communityRequiredPolicyVersion,
   double ttlSeconds = 600,
 }) {
   // 1. config ≠ ok → config_invalid (fail-closed).
@@ -94,11 +93,22 @@ GateState evaluateGate({
   if (contributorStatus != 'active' && contributorStatus != 'none') {
     return const GateState(state: 'suspended', canEnter: false);
   }
-  // 6. 동의: state ≠ active 또는 정책 버전 불일치 → consent_required.
+  // 6. 동의: state ≠ active 또는 grant 의 (버전, 동의문 해시) ≠ 중앙의 지금 정책 → consent_required.
+  //    앱에 박힌 기준과 비교하지 않는다(PC services/community_gate.py decide 와 같은 규칙).
   final consent = status['consent'];
   final consentState = consent is Map ? consent['state'] : null;
   final consentPolicy = consent is Map ? consent['policy_version'] : null;
-  if (consentState != 'active' || consentPolicy != appRequiredPolicyVersion) {
+  final consentHash = consent is Map ? consent['consent_text_sha256'] : null;
+  final policy = status['policy'];
+  final requiredVersion = policy is Map ? policy['required_version'] : null;
+  final requiredHash = policy is Map ? policy['consent_text_sha256'] : null;
+  if (consentState != 'active' ||
+      requiredVersion is! String ||
+      requiredVersion.isEmpty ||
+      requiredHash is! String ||
+      requiredHash.isEmpty ||
+      consentPolicy != requiredVersion ||
+      consentHash != requiredHash) {
     return const GateState(state: 'consent_required', canEnter: false);
   }
   // 7. 통과.

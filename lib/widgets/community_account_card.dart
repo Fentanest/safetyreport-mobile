@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../community/gate/community_account_client.dart';
-import '../community/upload_hooks.dart';
+// 공유한 자료 전체 삭제(아직 구현하지 않는 기능)에서만 쓰던 import — 되살릴 때 함께 해제한다.
+// import '../community/upload_hooks.dart';
 import '../community/gate/community_gate.dart';
 import '../services/community_auth_service.dart';
 import 'community_card_parts.dart';
@@ -380,7 +381,7 @@ class _CommunityAuthPromptState extends State<CommunityAuthPrompt> {
 /// - 동의 상태·정책 버전 표시, 철회(확인 대화상자 → `consent-revoke` → 즉시 게이트 복귀).
 ///   응답이 `stale_grant`(409)면 status 를 다시 받아 현재 grant 로 다시 요청한다.
 ///   성공 응답의 `lineage_active:false` 를 확인한 뒤에만 "철회됨"으로 표시한다.
-/// - `공유한 자료 삭제 요청`(확인 문구 입력 → `contributions-delete`).
+/// - `공유한 자료 삭제 요청`: 아직 구현하지 않는 기능이라 버튼·확인 창을 주석 처리했다(2026-09-27).
 /// - 연결 기기(writer) 상태·전환.
 class _CommunityShareSection extends StatefulWidget {
   const _CommunityShareSection({
@@ -507,77 +508,78 @@ class _CommunityShareSectionState extends State<_CommunityShareSection> {
     });
   }
 
-  Future<void> _delete() async {
-    final controller = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('공유한 자료 삭제 요청'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '공개 지도와 통계에서 공유한 자료를 삭제합니다. '
-              '삭제 전에 수집한 사본은 다시 올릴 수 없습니다. '
-              '계속하려면 아래에 DELETE_MY_SHARED_REPORTS 를 입력하세요.',
-              style: TextStyle(fontSize: 13),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                border: OutlineInputBorder(),
-                hintText: 'DELETE_MY_SHARED_REPORTS',
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(
-              ctx,
-              controller.text.trim() == 'DELETE_MY_SHARED_REPORTS',
-            ),
-            child: const Text('삭제 요청'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    if (ok != true) {
-      if (ok == false && mounted) {
-        setState(() => _message = '확인 문구가 일치하지 않습니다.');
-      }
-      return;
-    }
-    await widget.run(() async {
-      final token = await _token();
-      if (token == null || token.isEmpty) {
-        setState(() => _message = '로그인이 필요합니다.');
-        return;
-      }
-      try {
-        // 로컬 표시 → 중앙 삭제 → 로컬 적용(Sol 2차 H-03a). 표시를 못 쓰면 중앙 삭제를 요청하지 않는다.
-        final outcome = await CommunityUploadHooks.requestDeletion(
-            () => widget.client.deleteContributions(accessToken: token));
-        // 'done'·'local_pending' 은 중앙 삭제가 끝난 경우 — 정리 결과(남은 표시 여부)에 맞춰 안내한다(Sol 4차 1).
-        var cleaned = true;
-        if (outcome == 'done' || outcome == 'local_pending') {
-          cleaned = await _gate.handleContributionsDeleted();
-        }
-        if (mounted) {
-          setState(() => _message = deletionOutcomeMessage(outcome, cleaned: cleaned));
-        }
-      } on CommunityAccountError catch (e) {
-        if (mounted) setState(() => _message = e.message);
-      }
-    });
-  }
+  // 공유한 자료 전체 삭제(contributions-delete)는 아직 구현하지 않는 기능이다(2026-09-27 결정). 되살릴 때 이 주석을 해제한다.
+  // Future<void> _delete() async {
+  //   final controller = TextEditingController();
+  //   final ok = await showDialog<bool>(
+  //     context: context,
+  //     builder: (ctx) => AlertDialog(
+  //       title: const Text('공유한 자료 삭제 요청'),
+  //       content: Column(
+  //         mainAxisSize: MainAxisSize.min,
+  //         crossAxisAlignment: CrossAxisAlignment.start,
+  //         children: [
+  //           const Text(
+  //             '공개 지도와 통계에서 공유한 자료를 삭제합니다. '
+  //             '삭제 전에 수집한 사본은 다시 올릴 수 없습니다. '
+  //             '계속하려면 아래에 DELETE_MY_SHARED_REPORTS 를 입력하세요.',
+  //             style: TextStyle(fontSize: 13),
+  //           ),
+  //           const SizedBox(height: 12),
+  //           TextField(
+  //             controller: controller,
+  //             decoration: const InputDecoration(
+  //               border: OutlineInputBorder(),
+  //               hintText: 'DELETE_MY_SHARED_REPORTS',
+  //             ),
+  //           ),
+  //         ],
+  //       ),
+  //       actions: [
+  //         TextButton(
+  //           onPressed: () => Navigator.pop(ctx, false),
+  //           child: const Text('취소'),
+  //         ),
+  //         FilledButton(
+  //           onPressed: () => Navigator.pop(
+  //             ctx,
+  //             controller.text.trim() == 'DELETE_MY_SHARED_REPORTS',
+  //           ),
+  //           child: const Text('삭제 요청'),
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  //   controller.dispose();
+  //   if (ok != true) {
+  //     if (ok == false && mounted) {
+  //       setState(() => _message = '확인 문구가 일치하지 않습니다.');
+  //     }
+  //     return;
+  //   }
+  //   await widget.run(() async {
+  //     final token = await _token();
+  //     if (token == null || token.isEmpty) {
+  //       setState(() => _message = '로그인이 필요합니다.');
+  //       return;
+  //     }
+  //     try {
+  //       // 로컬 표시 → 중앙 삭제 → 로컬 적용(Sol 2차 H-03a). 표시를 못 쓰면 중앙 삭제를 요청하지 않는다.
+  //       final outcome = await CommunityUploadHooks.requestDeletion(
+  //           () => widget.client.deleteContributions(accessToken: token));
+  //       // 'done'·'local_pending' 은 중앙 삭제가 끝난 경우 — 정리 결과(남은 표시 여부)에 맞춰 안내한다(Sol 4차 1).
+  //       var cleaned = true;
+  //       if (outcome == 'done' || outcome == 'local_pending') {
+  //         cleaned = await _gate.handleContributionsDeleted();
+  //       }
+  //       if (mounted) {
+  //         setState(() => _message = deletionOutcomeMessage(outcome, cleaned: cleaned));
+  //       }
+  //     } on CommunityAccountError catch (e) {
+  //       if (mounted) setState(() => _message = e.message);
+  //     }
+  //   });
+  // }
 
   @override
   Widget build(BuildContext context) {
@@ -631,10 +633,11 @@ class _CommunityShareSectionState extends State<_CommunityShareSection> {
                   onPressed: widget.busy ? null : _revoke,
                   child: const Text('동의 철회'),
                 ),
-                OutlinedButton(
-                  onPressed: widget.busy ? null : _delete,
-                  child: const Text('공유한 자료 삭제 요청'),
-                ),
+                // 공유한 자료 전체 삭제(contributions-delete)는 아직 구현하지 않는 기능이다(2026-09-27 결정). 되살릴 때 이 주석을 해제한다.
+                // OutlinedButton(
+                //   onPressed: widget.busy ? null : _delete,
+                //   child: const Text('공유한 자료 삭제 요청'),
+                // ),
               ],
             ),
           ],

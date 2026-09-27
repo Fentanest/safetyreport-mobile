@@ -103,8 +103,6 @@ class _PermissionScreenState extends State<PermissionScreen>
     return _listenerEnabled && _batteryIgnored && _notifGranted;
   }
 
-
-
   Future<void> _grantAll() async {
     final isStandalone =
         context.read<ReportProvider>().appMode == AppMode.standalone;
@@ -129,11 +127,6 @@ class _PermissionScreenState extends State<PermissionScreen>
     if (!_listenerEnabled) {
       await PermissionService.openNotificationListenerSettings();
       // 돌아오면 didChangeAppLifecycleState에서 재확인
-    }
-    if (!isStandalone && !_wsRunning) {
-      await PermissionService.startWsService();
-      await Future.delayed(const Duration(seconds: 1));
-      await _checkAll();
     }
   }
 
@@ -206,7 +199,8 @@ class _PermissionScreenState extends State<PermissionScreen>
               _PermCard(
                 icon: Icons.notifications_active,
                 title: '알림 접근 권한',
-                desc: '카카오톡·안전신문고 알림에서 신고번호를 자동으로 감지합니다.\n시스템 설정에서 직접 허용해야 합니다.',
+                desc:
+                    '카카오톡·안전신문고 알림에서 신고번호를 자동으로 감지합니다.\n시스템 설정에서 직접 허용해야 합니다.',
                 granted: _listenerEnabled,
                 grantedLabel: '활성화됨',
                 deniedLabel: '허용 안 됨',
@@ -268,6 +262,7 @@ class _PermissionScreenState extends State<PermissionScreen>
           // common 단계(설정 탭 포함)는 기존처럼 전 항목 표시.
           // mode 단계는 서버 모드 WsService 미실행 때만 보충 카드를 보인다.
           if ((!_isModePhase &&
+                  !widget.isSetup &&
                   !isStandalone &&
                   PermissionService.supportsWsService) ||
               (_isModePhase &&

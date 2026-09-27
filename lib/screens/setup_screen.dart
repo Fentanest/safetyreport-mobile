@@ -8,7 +8,6 @@ import '../services/local_db_service.dart';
 import '../services/pending_db_import_action.dart';
 import '../services/server_connection_service.dart';
 import '../services/standalone_auth_service.dart';
-import 'permission_screen.dart';
 import '../theme/sr_colors.dart';
 
 enum _Step { selectMode, serverConfig, standaloneConfig }
@@ -61,6 +60,13 @@ class _SetupScreenState extends State<SetupScreen> {
     });
   }
 
+  void _finishSetup() {
+    if (!mounted) return;
+    // 모드 전환에서는 설정 화면 위에 SetupScreen이 push된다. 루트 흐름으로 돌아간다.
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) navigator.popUntil((route) => route.isFirst);
+  }
+
   Future<void> _connectServer() async {
     final url = _urlController.text.trim();
     final key = _apiController.text.trim();
@@ -83,13 +89,8 @@ class _SetupScreenState extends State<SetupScreen> {
       }
       if (!mounted) return;
       await context.read<ReportProvider>().setConfig(result.normalizedUrl, key);
-      if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const PermissionScreen(isSetup: true),
-        ),
-      );
+      // 루트의 설정 완료 흐름이 다음 화면을 선택한다. 권한 화면을 다시 쌓지 않는다.
+      _finishSetup();
     } catch (e) {
       setState(() => _errorMessage = '서버에 연결할 수 없습니다.\n$e');
     } finally {
@@ -119,13 +120,8 @@ class _SetupScreenState extends State<SetupScreen> {
         );
         final prefs = await SharedPreferences.getInstance();
         await prefs.remove(AppPrefsKeys.pendingDbImport);
-        if (!mounted) return;
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => const PermissionScreen(isSetup: true),
-          ),
-        );
+        // 설정 저장 후 루트가 다음 화면을 선택한다.
+        _finishSetup();
       } catch (e) {
         setState(() => _errorMessage = '데모 데이터 준비 실패: $e');
       } finally {
@@ -151,13 +147,8 @@ class _SetupScreenState extends State<SetupScreen> {
       // 모드 전환 시 settings_screen 이 저장한 pending_db_import 적용
       // (Client → Standalone 의 '서버 DB 변환' 또는 '백업 파일 사용' 선택 결과)
       await _applyPendingDbImport();
-      if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const PermissionScreen(isSetup: true),
-        ),
-      );
+      // 설정 저장 후 루트가 다음 화면을 선택한다.
+      _finishSetup();
     } catch (e) {
       setState(
         () => _errorMessage = e.toString().replaceFirst('Exception: ', ''),

@@ -9,9 +9,12 @@ void main() {
       'returns ok for valid summary response and normalizes base url',
       () async {
         final client = MockClient((request) async {
-          expect(request.url.toString(), 'https://example.com/api/v1/summary');
           expect(request.headers['X-API-Key'], 'secret');
-          return http.Response('{"data":{"total":7}}', 200);
+          if (request.url.path == '/api/v1/summary') {
+            return http.Response('{"data":{"total":7}}', 200);
+          }
+          expect(request.url.path, '/api/v1/server/version');
+          return http.Response('{"version":"3.0.0.0"}', 200);
         });
 
         final result = await ServerConnectionService.testConnection(
@@ -24,6 +27,42 @@ void main() {
         expect(result.normalizedUrl, 'https://example.com');
       },
     );
+
+    test('rejects a pre-v3 PC server after valid authentication', () async {
+      final client = MockClient(
+        (request) async => request.url.path.endsWith('/summary')
+            ? http.Response('{"data":{"total":7}}', 200)
+            : http.Response('{"version":"2.5.3"}', 200),
+      );
+      final result = await ServerConnectionService.testConnection(
+        baseUrl: 'https://example.com',
+        apiKey: 'secret',
+        client: client,
+      );
+      expect(result.status, ServerConnectionStatus.incompatibleServer);
+      expect(result.message, contains('v3 이상'));
+    });
+
+    test('rejects an old server without a version endpoint', () async {
+      final client = MockClient(
+        (request) async => request.url.path.endsWith('/summary')
+            ? http.Response('{"data":{"total":7}}', 200)
+            : http.Response('missing', 404),
+      );
+      final result = await ServerConnectionService.testConnection(
+        baseUrl: 'https://example.com',
+        apiKey: 'secret',
+        client: client,
+      );
+      expect(result.status, ServerConnectionStatus.incompatibleServer);
+    });
+
+    test('accepts only recognizable v3 or newer versions', () {
+      expect(ServerConnectionService.supportsServerVersion('3.0.0.0'), isTrue);
+      expect(ServerConnectionService.supportsServerVersion('v4.1.0'), isTrue);
+      expect(ServerConnectionService.supportsServerVersion('2.9.9'), isFalse);
+      expect(ServerConnectionService.supportsServerVersion('unknown'), isFalse);
+    });
 
     test('returns unauthorized for 401 response', () async {
       final client = MockClient((_) async => http.Response('denied', 401));

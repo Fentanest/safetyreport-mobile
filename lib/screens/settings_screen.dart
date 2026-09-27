@@ -60,7 +60,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isBackingUpDb = false;
 
   /// Client DB 백업 다운로드 진행(받은 바이트, 전체 — 모르면 null)과 취소. 받는 중이 아니면 null.
-  final ValueNotifier<(int, int?)> _dbDownloadProgress = ValueNotifier((0, null));
+  final ValueNotifier<(int, int?)> _dbDownloadProgress = ValueNotifier((
+    0,
+    null,
+  ));
   DownloadCancel? _dbDownloadCancel;
   bool _isRestoringDb = false;
 
@@ -208,7 +211,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   ReportProvider? _dbKeyProvider;
   String? _dbKey;
 
-  static String _dbKeyOf(ReportProvider p) => '${p.appMode.name}|${p.isStandaloneDemo}';
+  static String _dbKeyOf(ReportProvider p) =>
+      '${p.appMode.name}|${p.isStandaloneDemo}';
 
   void _onDbTargetMaybeChanged() {
     final p = _dbKeyProvider;
@@ -263,6 +267,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
         try {
           final json = jsonDecode(response.body);
           final total = json['data']?['total'] ?? '?';
+          final version = await ServerConnectionService.fetchVersionInfo(
+            baseUrl: cleanUrl,
+            apiKey: key,
+          );
+          if (!mounted) return;
+          if (version.version == null ||
+              !ServerConnectionService.supportsServerVersion(
+                version.version!,
+              )) {
+            setState(() {
+              _testResult = _TestResult.error(
+                ServerConnectionResult.incompatibleServer(
+                  normalizedUrl: cleanUrl,
+                ).message!,
+              );
+            });
+            return;
+          }
           setState(() {
             _testResult = _TestResult.success('연결 성공! 총 $total건 조회됨');
           });
@@ -308,8 +330,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ).showSnackBar(const SnackBar(content: Text('모든 필드를 입력해주세요.')));
       return;
     }
+    setState(() => _testing = true);
+    ServerConnectionResult result;
+    try {
+      result = await ServerConnectionService.testConnection(
+        baseUrl: url,
+        apiKey: key,
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() => _testResult = _TestResult.error('서버에 연결할 수 없습니다: $e'));
+      }
+      return;
+    } finally {
+      if (mounted) setState(() => _testing = false);
+    }
+    if (!mounted) return;
+    if (!result.isOk) {
+      setState(
+        () => _testResult = _TestResult.error(
+          result.message ?? '서버에 연결할 수 없습니다.',
+        ),
+      );
+      return;
+    }
     final provider = context.read<ReportProvider>();
-    await provider.setConfig(url, key);
+    await provider.setConfig(result.normalizedUrl, key);
     // 설정 변경 후 모든 데이터 새로고침
     provider.refreshAll();
     if (mounted) {
@@ -539,9 +585,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     } on DownloadCancelled {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('DB 백업을 취소했습니다.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('DB 백업을 취소했습니다.')));
       }
     } catch (e) {
       if (mounted) {
@@ -944,10 +990,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
               actions: [
-                TextButton(
-                  onPressed: cancel.cancel,
-                  child: const Text('취소'),
-                ),
+                TextButton(onPressed: cancel.cancel, child: const Text('취소')),
               ],
             ),
           ),
@@ -2466,11 +2509,15 @@ class DbDownloadProgressView extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          known ? '$title ${_mb(received)} / ${_mb(t)}MB' : '$title ${_mb(received)}MB',
+          known
+              ? '$title ${_mb(received)} / ${_mb(t)}MB'
+              : '$title ${_mb(received)}MB',
           style: const TextStyle(fontSize: 13),
         ),
         const SizedBox(height: 8),
-        LinearProgressIndicator(value: known ? (received / t).clamp(0.0, 1.0) : null),
+        LinearProgressIndicator(
+          value: known ? (received / t).clamp(0.0, 1.0) : null,
+        ),
       ],
     );
   }

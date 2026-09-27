@@ -75,7 +75,8 @@ Future<void> main() async {
         ? null
         : reportProvider.standaloneUsername,
     // 데모는 Standalone 화면이지만 writer 가 아니다(연결 등록·업로드 없음).
-    appMode: () => reportProvider.isStandaloneDemo ? 'demo' : reportProvider.appMode.name,
+    appMode: () =>
+        reportProvider.isStandaloneDemo ? 'demo' : reportProvider.appMode.name,
   );
   // 초기화 크롤링이 필요하거나 진행 중이면 일반 동기화(수동·공유 대기열 처리)를 시작하지 않는다(PC 크롤 시작 409 와 같음).
   // 초기화 화면보다 먼저 도는 게이트 통과 직후 처리도 여기서 막힌다.
@@ -141,7 +142,7 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
           home: Builder(
             builder: (_) {
               // 진입 순서(§6.2): 로딩 → 게이트(검사 중에는 로딩 셸만, 신고 화면 flash 금지)
-              // → 온보딩 → 권한(common) → Setup → 권한 보충(mode) → 초기화 → 메인.
+              // → 온보딩 → 권한(common) → Setup → 백그라운드 서비스 시작 → 초기화 → 메인.
               if (!provider.isInitialized || !gate.isChecked) {
                 return const Scaffold(
                   body: Center(child: CircularProgressIndicator()),
@@ -153,7 +154,9 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
                   // 없으면 동의를 저장하지 못한다("커뮤니티 서버 설정이 없어 동의를 저장할 수 없습니다", 2026-09-27 dev 빌드에서 발견)
                   accountClient: gate.accountClient,
                   onReportsWiped: provider.refreshAll,
-                  clientServer: provider.appMode == AppMode.server && provider.baseUrl.isNotEmpty
+                  clientServer:
+                      provider.appMode == AppMode.server &&
+                          provider.baseUrl.isNotEmpty
                       ? (baseUrl: provider.baseUrl, apiKey: provider.apiKey)
                       : null,
                   onNext: () async {
@@ -197,7 +200,7 @@ class _SetupFlowState extends State<_SetupFlow> {
   }
 }
 
-/// 설정 완료 사용자 흐름: 모드 권한 보충(mode, 이미 허용됐으면 건너뜀) → 초기화(필요 시) → 메인.
+/// 설정 완료 사용자 흐름: Client 서비스 시작 → 초기화(필요 시) → 메인.
 class _PostGateFlow extends StatefulWidget {
   const _PostGateFlow();
 
@@ -234,39 +237,43 @@ class _PostGateFlowState extends State<_PostGateFlow> {
   }
 }
 
-/// 모드 의존 권한 보충. 이미 허용됐으면 화면 없이 건너뛴다.
-class _ModeSupplement extends StatelessWidget {
+/// WebSocket은 OS 권한이 아니라 앱 서비스다. 설정 완료 뒤 한 번 시작하고 진행한다.
+class _ModeSupplement extends StatefulWidget {
   const _ModeSupplement({required this.onDone});
   final VoidCallback onDone;
 
-  Future<bool> _needsSupplement(ReportProvider provider) async {
-    if (provider.appMode == AppMode.standalone) return false;
-    if (!PermissionService.supportsWsService) return false;
-    return !await PermissionService.isWsServiceRunning();
+  @override
+  State<_ModeSupplement> createState() => _ModeSupplementState();
+}
+
+class _ModeSupplementState extends State<_ModeSupplement> {
+  late final Future<void> _startup = _start();
+
+  Future<void> _start() async {
+    final provider = context.read<ReportProvider>();
+    if (provider.appMode != AppMode.server ||
+        !PermissionService.supportsWsService) {
+      return;
+    }
+    if (!await PermissionService.isWsServiceRunning()) {
+      await PermissionService.startWsService();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.read<ReportProvider>();
-    return FutureBuilder<bool>(
-      future: _needsSupplement(provider),
+    return FutureBuilder<void>(
+      future: _startup,
       builder: (context, snap) {
-        if (!snap.hasData) {
+        if (snap.connectionState != ConnectionState.done) {
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
           );
         }
-        if (snap.data == false) {
-          WidgetsBinding.instance.addPostFrameCallback((_) => onDone());
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
-        }
-        return PermissionScreen(
-          phase: PermissionPhase.mode,
-          isSetup: true,
-          onDone: onDone,
-        );
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) widget.onDone();
+        });
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
       },
     );
   }
@@ -286,19 +293,18 @@ CommunityRebuild standaloneRebuild(
   CommunityStore store,
   ReportProvider provider, {
   Future<bool> Function()? gateFresh,
-}) =>
-    CommunityRebuild(
-      store: store,
-      localDatasetId: store.localDatasetId,
-      sourceNamespace: () async {
-        final id = provider.standaloneUsername;
-        if (id.isEmpty) return '';
-        return datasetKeyForOfficialId(id);
-      },
-      gateFresh: gateFresh ?? () async => false,
-      personalDbPath: LocalDbService.getDbPath,
-      personalDbFacts: LocalDbService.personalDbFacts,
-    );
+}) => CommunityRebuild(
+  store: store,
+  localDatasetId: store.localDatasetId,
+  sourceNamespace: () async {
+    final id = provider.standaloneUsername;
+    if (id.isEmpty) return '';
+    return datasetKeyForOfficialId(id);
+  },
+  gateFresh: gateFresh ?? () async => false,
+  personalDbPath: LocalDbService.getDbPath,
+  personalDbFacts: LocalDbService.personalDbFacts,
+);
 
 /// Standalone 초기화 필요 여부 확인. 필요 없으면 메인으로 건너뛴다.
 class _StandaloneRebuildGate extends StatefulWidget {

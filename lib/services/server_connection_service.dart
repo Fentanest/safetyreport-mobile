@@ -12,7 +12,7 @@ import 'server_contract.dart';
 class ServerConnectionService {
   ServerConnectionService._();
 
-  /// `/api/v1/summary` 를 호출해 baseUrl/apiKey 가 유효한지 확인.
+  /// `/api/v1/summary` 와 `/api/v1/server/version` 으로 인증과 호환성을 확인.
   ///
   /// 성공 시 [ServerConnectionResult.ok] 반환.
   /// 인증 실패는 [ServerConnectionResult.unauthorized],
@@ -61,11 +61,66 @@ class ServerConnectionService {
       if (response.statusCode == 200) {
         try {
           jsonDecode(response.body);
-          return ServerConnectionResult.ok(normalizedUrl: cleanUrl);
         } catch (_) {
           return ServerConnectionResult.networkError(
             normalizedUrl: cleanUrl,
             message: '서버 응답 파싱 실패. 올바른 서버인지 확인해주세요.',
+          );
+        }
+        try {
+          final versionResponse = await ownedClient
+              .get(
+                ServerContract.apiUri(
+                  cleanUrl,
+                  ServerContract.serverVersionPath,
+                ),
+                headers: ServerContract.apiHeaders(apiKey),
+              )
+              .timeout(timeout);
+          if (versionResponse.statusCode == 401) {
+            return ServerConnectionResult.unauthorized(normalizedUrl: cleanUrl);
+          }
+          if (versionResponse.statusCode != 200) {
+            return ServerConnectionResult.incompatibleServer(
+              normalizedUrl: cleanUrl,
+            );
+          }
+          Object? versionBody;
+          try {
+            versionBody = jsonDecode(versionResponse.body);
+          } catch (_) {
+            return ServerConnectionResult.incompatibleServer(
+              normalizedUrl: cleanUrl,
+            );
+          }
+          final version = versionBody is Map<String, dynamic>
+              ? versionBody['version']
+              : null;
+          if (version is! String || !supportsServerVersion(version)) {
+            return ServerConnectionResult.incompatibleServer(
+              normalizedUrl: cleanUrl,
+            );
+          }
+          return ServerConnectionResult.ok(normalizedUrl: cleanUrl);
+        } on SocketException catch (e) {
+          return ServerConnectionResult.networkError(
+            normalizedUrl: cleanUrl,
+            message: '서버 버전 확인 실패: $e',
+          );
+        } on http.ClientException catch (e) {
+          return ServerConnectionResult.networkError(
+            normalizedUrl: cleanUrl,
+            message: '서버 버전 확인 실패: $e',
+          );
+        } on TimeoutException catch (e) {
+          return ServerConnectionResult.networkError(
+            normalizedUrl: cleanUrl,
+            message: '서버 버전 확인 실패: $e',
+          );
+        } catch (_) {
+          return ServerConnectionResult.networkError(
+            normalizedUrl: cleanUrl,
+            message: '서버 버전 확인 실패. 잠시 뒤 다시 시도해주세요.',
           );
         }
       }
@@ -83,7 +138,16 @@ class ServerConnectionService {
     }
   }
 
-  /// `/api/v1/version` 호출 → 서버 버전 정보. 실패 시 [ServerVersionInfo.empty].
+  /// 서버 릴리스 버전의 major가 3 이상인지 확인한다. 알 수 없는 버전은 거절한다.
+  static bool supportsServerVersion(String version) {
+    final match = RegExp(
+      r'^v?([0-9]+)(?:\.[0-9]+){2,3}(?:[-+][0-9A-Za-z.-]+)?$',
+    ).firstMatch(version.trim());
+    if (match == null) return false;
+    return (int.tryParse(match.group(1)!) ?? 0) >= 3;
+  }
+
+  /// `/api/v1/server/version` 호출 → 서버 버전 정보. 실패 시 [ServerVersionInfo.empty].
   static Future<ServerVersionInfo> fetchVersionInfo({
     required String baseUrl,
     required String apiKey,
@@ -125,7 +189,13 @@ class ServerConnectionService {
   }
 }
 
-enum ServerConnectionStatus { ok, unauthorized, httpError, networkError }
+enum ServerConnectionStatus {
+  ok,
+  unauthorized,
+  incompatibleServer,
+  httpError,
+  networkError,
+}
 
 class ServerConnectionResult {
   final ServerConnectionStatus status;
@@ -153,6 +223,14 @@ class ServerConnectionResult {
     normalizedUrl: normalizedUrl,
     statusCode: 401,
     message: 'API Key 인증 실패 (401)',
+  );
+
+  factory ServerConnectionResult.incompatibleServer({
+    required String normalizedUrl,
+  }) => ServerConnectionResult._(
+    status: ServerConnectionStatus.incompatibleServer,
+    normalizedUrl: normalizedUrl,
+    message: '이 PC 서버 버전은 모바일 앱 v2와 호환되지 않습니다. PC 앱을 v3 이상으로 업데이트하세요.',
   );
 
   factory ServerConnectionResult.httpError({

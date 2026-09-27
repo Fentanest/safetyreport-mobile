@@ -191,7 +191,6 @@ void main() {
           gate: gate,
           auth: auth,
           accountClient: server.accountClient(),
-          consentText: '동의문',
         ),
       ),
     ));
@@ -201,6 +200,7 @@ void main() {
     expect(find.text('신고 내역 지우고 이 계정으로 시작'), findsOneWidget);
     expect(find.text('로그아웃(신고 내역 유지)'), findsOneWidget);
 
+    await tester.ensureVisible(find.byKey(const Key('communityOwnerAdopt')));
     await tester.ensureVisible(find.byKey(const Key('communityOwnerAdopt')));
     await tester.tap(find.byKey(const Key('communityOwnerAdopt')));
     await tester.pumpAndSettle();

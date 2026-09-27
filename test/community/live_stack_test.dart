@@ -16,6 +16,7 @@ import 'package:safetyreport/community/capture/community_capture.dart';
 import 'package:safetyreport/community/community_store.dart';
 import 'package:safetyreport/community/community_wiring.dart';
 import 'package:safetyreport/community/gate/community_account_client.dart';
+import 'package:safetyreport/community/gate/gate_state.dart';
 import 'package:safetyreport/community/upload/community_ingest_client.dart';
 import 'package:safetyreport/community/upload/community_uploader.dart';
 import 'package:safetyreport/models/app_mode.dart';
@@ -96,7 +97,9 @@ void main() {
     final account = CommunityAccountClient(supabaseUrl: api, publishableKey: key);
     final hash = File('contracts/community-ingest/consent/share-consent-2026-09-28.1.sha256').readAsStringSync().split(RegExp(r'\s'))[0];
     var status = await account.status(accessToken: token);
-    if (status.consentState == 'active') {
+    // 이전 실행이 남긴 동의(동의문이 바뀌면 outdated)를 먼저 철회해 새 계보로 시작한다 — outdated 에 다시 동의하면 계보가 이어져
+    // 이전 실행의 공유 자료까지 계속 공개된다(계약: 정책이 바뀐 재동의는 계보를 잇는다).
+    if (status.consentState == 'active' || status.consentState == 'outdated') {
       await account.revokeConsent(accessToken: token, grantId: status.consentGrantId!);
     }
     final grant = await account.consent(accessToken: token, policyVersion: policy, consentTextSha256: hash, via: 'mobile_standalone');
@@ -158,6 +161,27 @@ void main() {
     expect(sql('select count(*) from private.community_ingest_events;'), ledger);
     expect(sql("select count(*) from jsonb_array_elements(public.internal_analytics_v2_facts(date '2024-01-01', date '2028-12-31', 'all', null, null, null, null)) e "
         "where e->>'contributor_id' = '$userId';"), '0');
+  }, skip: enabled ? false : 'COMMUNITY_STACK=1 과 COMMUNITY_PUBLISHABLE_KEY 가 필요하다(실제 로컬 스택)');
+
+  // 2026-09-27: 동의문은 중앙 `policy` 로 받는다 — 실제 중앙이 본문과 해시를 맞게 내려주고, 그 해시로 동의하면 통과한다.
+  test('consent text from the real center, consent with its hash, then the gate passes', () async {
+    final key = env['COMMUNITY_PUBLISHABLE_KEY']!;
+    final session = await kakaoSession(key, 'B');
+    final token = session['access_token'] as String;
+    final account = CommunityAccountClient(supabaseUrl: api, publishableKey: key);
+    final policy = await account.policy(accessToken: token);
+    expect(sha256.convert(utf8.encode(policy.consentText)).toString(), policy.consentTextSha256);
+    var status = await account.status(accessToken: token);
+    expect(status.requiredPolicyVersion, policy.version);
+    expect(status.consentTextSha256, policy.consentTextSha256);
+    await account.consent(accessToken: token, policyVersion: policy.version, consentTextSha256: policy.consentTextSha256,
+        via: 'mobile_standalone');
+    status = await account.status(accessToken: token);
+    expect(evaluateGate(config: 'ok', session: 'valid', status: status.toGateInput(), ageSeconds: 0).state, 'ok');
+    await expectLater(
+      account.consent(accessToken: token, policyVersion: policy.version, consentTextSha256: 'a' * 64, via: 'mobile_standalone'),
+      throwsA(isA<CommunityAccountError>().having((e) => e.code, 'code', 'policy_mismatch')),
+    );
   }, skip: enabled ? false : 'COMMUNITY_STACK=1 과 COMMUNITY_PUBLISHABLE_KEY 가 필요하다(실제 로컬 스택)');
 
   // 2026-09-27: 신고 자료의 주인 = 카카오 회원번호. 실제 GoTrue 의 identities 에서 읽고(user_metadata 아님),

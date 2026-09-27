@@ -12,7 +12,6 @@ void main() {
     ) as Map<String, dynamic>;
     final cases = vectors['cases'] as List;
     expect(cases, isNotEmpty);
-    final appVersion = vectors['app_required_policy_version'] as String;
     final ttl = (vectors['ttl_seconds'] as num).toDouble();
     for (final c in cases) {
       final m = c as Map<String, dynamic>;
@@ -24,7 +23,6 @@ void main() {
         status: status?.cast<String, Object?>(),
         ageSeconds: age,
         invalidated: (m['invalidated'] as bool?) ?? false,
-        appRequiredPolicyVersion: appVersion,
         ttlSeconds: ttl,
       );
       expect(result.state, m['expect'], reason: 'case ${m['name']}');

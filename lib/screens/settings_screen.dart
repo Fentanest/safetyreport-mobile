@@ -26,6 +26,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:file_picker/file_picker.dart';
 import '../navigation/app_routes.dart';
 import '../widgets/auth_status_notice.dart';
+import '../community/client_account_notice.dart';
 import '../community/gate/community_gate.dart';
 import '../widgets/community_account_card.dart';
 import '../widgets/community_server_account_card.dart';
@@ -1629,6 +1630,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 CommunityServerAccountCard(
                   baseUrl: provider.baseUrl,
                   apiKey: provider.apiKey,
+                ),
+                // 이 앱과 서버의 카카오 계정이 다르면 알린다(동의·공유는 계정마다 따로).
+                Builder(
+                  builder: (context) {
+                    CommunityGate? gate;
+                    try {
+                      gate = Provider.of<CommunityGate>(context, listen: false);
+                    } catch (_) {}
+                    if (gate == null) return const SizedBox.shrink();
+                    return ClientAccountMismatchNotice(
+                      gate: gate,
+                      baseUrl: provider.baseUrl,
+                      apiKey: provider.apiKey,
+                    );
+                  },
                 ),
                 const SizedBox(height: 16),
               ],

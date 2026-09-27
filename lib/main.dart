@@ -153,6 +153,9 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
                   // 없으면 동의를 저장하지 못한다("커뮤니티 서버 설정이 없어 동의를 저장할 수 없습니다", 2026-09-27 dev 빌드에서 발견)
                   accountClient: gate.accountClient,
                   onReportsWiped: provider.refreshAll,
+                  clientServer: provider.appMode == AppMode.server && provider.baseUrl.isNotEmpty
+                      ? (baseUrl: provider.baseUrl, apiKey: provider.apiKey)
+                      : null,
                   onNext: () async {
                     await gate.requireFresh();
                   },

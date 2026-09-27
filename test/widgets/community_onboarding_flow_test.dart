@@ -1,6 +1,8 @@
 // 온보딩 화면 — F01·F02·F03·F04·F07.
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -56,7 +58,6 @@ void main() {
           gate: gate,
           auth: auth,
           accountClient: server.accountClient(),
-          consentText: '동의문 전문',
         ),
       ),
     );
@@ -82,7 +83,6 @@ void main() {
           gate: gate,
           auth: auth,
           accountClient: server.accountClient(),
-          consentText: '동의문 전문',
           onNext: () async {
             nextCalls++;
           },
@@ -100,8 +100,8 @@ void main() {
   testWidgets('F04: consent failure keeps incomplete with error', (tester) async {
     final auth = StubAuthService();
     auth.setPhase(CommunityAccountPhase.connected);
-    final server = FakeAccountServer()
-      ..consentThrows = {'code': 'policy_mismatch', 'message': '바뀜'};
+    final server = FakeAccountServer(status: () => statusJson(consentState: 'none', consentPolicy: null))
+      ..consentThrows = {'code': 'contributor_suspended', 'message': '이 계정의 공유가 중지되어 있습니다.'};
     final gate = _makeGate(auth, server);
     await tester.pumpWidget(
       _wrap(
@@ -110,13 +110,14 @@ void main() {
           gate: gate,
           auth: auth,
           accountClient: server.accountClient(),
-          consentText: '동의문 전문',
         ),
       ),
     );
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byType(CheckboxListTile));
     await tester.tap(find.byType(CheckboxListTile));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.widgetWithText(FilledButton, '동의하고 계속'));
     await tester.tap(find.widgetWithText(FilledButton, '동의하고 계속'));
     await tester.pumpAndSettle();
     expect(server.count('/consent'), 1);
@@ -132,10 +133,13 @@ void main() {
   testWidgets('consent success enables next; next re-verifies server', (tester) async {
     final auth = StubAuthService();
     auth.setPhase(CommunityAccountPhase.connected);
-    final server = FakeAccountServer();
+    var consented = false;
+    final server = FakeAccountServer(
+        status: () => consented ? statusJson() : statusJson(consentState: 'none', consentPolicy: null))
+      ..onConsent = () => consented = true;
     final gate = _makeGate(auth, server);
     await gate.refreshNow();
-    expect(gate.canEnter, isTrue);
+    expect(gate.state.state, 'consent_required');
     final statusCalls = server.statusCalls;
     var nextCalls = 0;
     await tester.pumpWidget(
@@ -145,7 +149,6 @@ void main() {
           gate: gate,
           auth: auth,
           accountClient: server.accountClient(),
-          consentText: '동의문 전문',
           onNext: () async {
             nextCalls++;
           },
@@ -153,14 +156,17 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byType(CheckboxListTile));
     await tester.tap(find.byType(CheckboxListTile));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.widgetWithText(FilledButton, '동의하고 계속'));
     await tester.tap(find.widgetWithText(FilledButton, '동의하고 계속'));
     await tester.pumpAndSettle();
     expect(find.text('동의 완료'), findsOneWidget);
     final afterConsentCalls = server.statusCalls;
     expect(afterConsentCalls, statusCalls + 1,
         reason: '동의 저장은 성공 응답 뒤 서버 재검증 1회');
+    await tester.ensureVisible(find.widgetWithText(FilledButton, '다음'));
     await tester.tap(find.widgetWithText(FilledButton, '다음'));
     await tester.pumpAndSettle();
     expect(nextCalls, 1);
@@ -173,7 +179,10 @@ void main() {
   testWidgets('consent is saved through the gate account client, the way main.dart wires it', (tester) async {
     final auth = StubAuthService();
     auth.setPhase(CommunityAccountPhase.connected);
-    final server = FakeAccountServer();
+    var consented = false;
+    final server = FakeAccountServer(
+        status: () => consented ? statusJson() : statusJson(consentState: 'none', consentPolicy: null))
+      ..onConsent = () => consented = true;
     final gate = _makeGate(auth, server);
     await gate.refreshNow();
     await tester.pumpWidget(
@@ -183,18 +192,150 @@ void main() {
           gate: gate,
           auth: auth,
           accountClient: gate.accountClient,
-          consentText: '동의문 전문',
         ),
       ),
     );
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byType(CheckboxListTile));
     await tester.tap(find.byType(CheckboxListTile));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.widgetWithText(FilledButton, '동의하고 계속'));
     await tester.tap(find.widgetWithText(FilledButton, '동의하고 계속'));
     await tester.pumpAndSettle();
     expect(find.textContaining('커뮤니티 서버 설정이 없어'), findsNothing);
     expect(find.text('동의 완료'), findsOneWidget);
     expect(server.requests.where((r) => r.url.path.endsWith('/consent')), hasLength(1));
+  });
+
+  // 2026-09-27: 동의문은 중앙 `policy` 로 받는다 — 보인 본문의 버전·해시로 동의한다.
+  testWidgets('the consent text comes from the center and the consent carries its hash', (tester) async {
+    final auth = StubAuthService();
+    auth.setPhase(CommunityAccountPhase.connected);
+    final server = FakeAccountServer(status: () => statusJson(consentState: 'none', consentPolicy: null))
+      ..policyText = '# 중앙 동의문\n\n중앙에서 받은 본문입니다.\n';
+    final gate = _makeGate(auth, server);
+    await gate.refreshNow();
+    await tester.pumpWidget(_wrap(
+      gate: gate,
+      child: CommunityOnboardingScreen(gate: gate, auth: auth, accountClient: gate.accountClient),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('중앙에서 받은 본문입니다.'), findsOneWidget);
+    await tester.ensureVisible(find.byType(CheckboxListTile));
+    await tester.tap(find.byType(CheckboxListTile));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.widgetWithText(FilledButton, '동의하고 계속'));
+    await tester.tap(find.widgetWithText(FilledButton, '동의하고 계속'));
+    await tester.pumpAndSettle();
+    final body = jsonDecode(server.requests.lastWhere((r) => r.url.path.endsWith('/consent')).body) as Map;
+    expect(body['policy_version'], '2026-09-28.1');
+    expect(body['consent_text_sha256'], sha256.convert(utf8.encode(server.policyText)).toString(),
+        reason: '서버가 알려 준 해시가 아니라 보인 본문의 해시');
+  });
+
+  testWidgets('a text that does not match its hash is never shown or consented to', (tester) async {
+    final auth = StubAuthService();
+    auth.setPhase(CommunityAccountPhase.connected);
+    final server = FakeAccountServer(status: () => statusJson(consentState: 'none', consentPolicy: null))
+      ..policyHashOverride = 'f' * 64;
+    final gate = _makeGate(auth, server);
+    await tester.pumpWidget(_wrap(
+      gate: gate,
+      child: CommunityOnboardingScreen(gate: gate, auth: auth, accountClient: gate.accountClient),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('동의 문서를 확인하지 못했습니다'), findsOneWidget);
+    expect(tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).onChanged, isNull);
+  });
+
+  testWidgets('before Kakao login the text is not loaded; it loads once login completes', (tester) async {
+    final auth = StubAuthService();
+    final server = FakeAccountServer(status: () => statusJson(consentState: 'none', consentPolicy: null));
+    final gate = _makeGate(auth, server);
+    await tester.pumpWidget(_wrap(
+      gate: gate,
+      child: CommunityOnboardingScreen(gate: gate, auth: auth, accountClient: gate.accountClient),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('카카오 인증을 마치면 동의 문서를 불러옵니다.'), findsOneWidget);
+    expect(server.count('/policy'), 0);
+    auth.setPhase(CommunityAccountPhase.connected);
+    await tester.pumpAndSettle();
+    expect(server.count('/policy'), 1);
+    expect(find.textContaining('시험용 동의문 본문'), findsOneWidget);
+  });
+
+  testWidgets('an account that already consented elsewhere shows it as done (no second consent)', (tester) async {
+    final auth = StubAuthService();
+    auth.setPhase(CommunityAccountPhase.connected);
+    final server = FakeAccountServer();  // 같은 카카오 계정이 서버(PC)에서 이미 동의함
+    final gate = _makeGate(auth, server);
+    await gate.refreshNow();
+    await tester.pumpWidget(_wrap(
+      gate: gate,
+      child: CommunityOnboardingScreen(gate: gate, auth: auth, accountClient: gate.accountClient),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('동의 완료'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '동의하고 계속'), findsNothing);
+    expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, '다음')).enabled, isTrue);
+    expect(server.count('/consent'), 0);
+  });
+
+  testWidgets('a changed text on consent (policy_mismatch) reloads the new text and asks again', (tester) async {
+    final auth = StubAuthService();
+    auth.setPhase(CommunityAccountPhase.connected);
+    final server = FakeAccountServer(status: () => statusJson(consentState: 'none', consentPolicy: null))
+      ..consentThrows = {'code': 'policy_mismatch', 'message': '바뀜'};
+    final gate = _makeGate(auth, server);
+    await tester.pumpWidget(_wrap(
+      gate: gate,
+      child: CommunityOnboardingScreen(gate: gate, auth: auth, accountClient: gate.accountClient),
+    ));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byType(CheckboxListTile));
+    await tester.tap(find.byType(CheckboxListTile));
+    await tester.pumpAndSettle();
+    server.policyText = '# 바뀐 동의문\n';
+    await tester.ensureVisible(find.widgetWithText(FilledButton, '동의하고 계속'));
+    await tester.tap(find.widgetWithText(FilledButton, '동의하고 계속'));
+    await tester.pumpAndSettle();
+    expect(server.count('/policy'), 2, reason: '새 본문을 다시 받는다');
+    expect(tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).value, isFalse, reason: '새 본문을 읽고 다시 체크');
+    expect(find.textContaining('동의 문서가 바뀌었습니다'), findsOneWidget);
+  });
+
+  testWidgets('a failed text load can be retried on the same screen', (tester) async {
+    final auth = StubAuthService();
+    auth.setPhase(CommunityAccountPhase.connected);
+    final server = FakeAccountServer(status: () => statusJson(consentState: 'none', consentPolicy: null))
+      ..policyFailures = 1;
+    final gate = _makeGate(auth, server);
+    await tester.pumpWidget(_wrap(
+      gate: gate,
+      child: CommunityOnboardingScreen(gate: gate, auth: auth, accountClient: gate.accountClient),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('consentPolicyRetry')), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const Key('consentPolicyRetry')));
+    await tester.tap(find.byKey(const Key('consentPolicyRetry')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('consentPolicyRetry')), findsNothing);
+    expect(find.textContaining('시험용 동의문 본문'), findsOneWidget);
+    expect(tester.widget<CheckboxListTile>(find.byType(CheckboxListTile)).onChanged, isNotNull);
+  });
+
+  testWidgets('the consent text is shown expanded from the start', (tester) async {
+    final auth = StubAuthService();
+    auth.setPhase(CommunityAccountPhase.connected);
+    final server = FakeAccountServer(status: () => statusJson(consentState: 'none', consentPolicy: null));
+    final gate = _makeGate(auth, server);
+    await tester.pumpWidget(_wrap(
+      gate: gate,
+      child: CommunityOnboardingScreen(gate: gate, auth: auth, accountClient: gate.accountClient),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('시험용 동의문 본문'), findsOneWidget, reason: '펼치지 않고 동의하지 않게 처음부터 보인다');
   });
 
   test('main.dart passes the account client to the onboarding screen', () {

@@ -1,6 +1,8 @@
 // 게이트·온보딩 테스트 공용 가짜: 카카오 세션, community-account HTTP, secure storage.
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -50,9 +52,14 @@ class StubAuthService extends CommunityAuthService {
 /// 게이트의 자료 주인 확인 — 시험 기본값은 "이 계정의 자료"(주인 판정 자체는 test/storage/account_owner_test.dart).
 Future<String> ownerOk(String? kakaoId) async => 'ok';
 
+/// 가짜 중앙이 `policy` 로 내려주는 동의문(2026-09-27 — 앱에 동의문을 넣어 두지 않는다).
+const fakePolicyText = '# [필수] 신고 결과 공유 동의\n정책 버전: 2026-09-28.1\n\n시험용 동의문 본문\n';
+final fakePolicyHash = sha256.convert(utf8.encode(fakePolicyText)).toString();
+
 Map<String, Object?> statusJson({
   String consentState = 'active',
   String? consentPolicy = '2026-09-28.1',
+  String? consentHash,
   String contributor = 'active',
   bool kakao = true,
   String fingerprint = 'fp-32hex',
@@ -61,12 +68,13 @@ Map<String, Object?> statusJson({
       'gate': {'kakao': kakao, 'consent': true, 'can_enter': true, 'reasons': []},
       'policy': {
         'required_version': '2026-09-28.1',
-        'consent_text_sha256': 'abc123',
+        'consent_text_sha256': fakePolicyHash,
       },
       'consent': {
         'state': consentState,
         'grant_id': 'grant-1',
         'policy_version': consentPolicy,
+        'consent_text_sha256': consentPolicy == null ? null : (consentHash ?? fakePolicyHash),
         'granted_at': '2026-09-26T03:00:00.000Z',
       },
       'contributor': {'status': contributor},
@@ -102,17 +110,51 @@ class FakeAccountServer {
   final requests = <http.Request>[];
   int statusCalls = 0;
 
+  /// `policy` 가 내려줄 동의문(바꾸면 해시도 따라 바뀐다). [policyHashOverride] 로 본문과 다른 해시(변조)를 흉내 낸다.
+  String policyText = fakePolicyText;
+  String? policyHashOverride;
+
+  /// 동의 성공 응답 뒤 부른다(시험이 status 를 '동의함'으로 바꾸게).
+  void Function()? onConsent;
+
+  /// 남은 횟수만큼 `policy` 가 일시 오류(503)를 낸다.
+  int policyFailures = 0;
+
+  /// 설정하면 status 응답이 이 Future 가 끝날 때까지 늦게 온다(늦게 도착한 이전 세션 응답 흉내).
+  Future<void>? statusDelay;
+
   late final MockClient client = MockClient((req) async {
     requests.add(req);
     final path = req.url.path;
     if (path.endsWith('/status')) {
       statusCalls++;
+      final delay = statusDelay;
+      if (delay != null) await delay;
       return http.Response.bytes(utf8.encode(jsonEncode(statusFn())), 200);
+    }
+    if (path.endsWith('/policy')) {
+      if (policyFailures > 0) {
+        policyFailures--;
+        return http.Response.bytes(
+            utf8.encode(jsonEncode({'error': {'code': 'busy', 'message': 'busy', 'retryable': true}})), 503);
+      }
+      return http.Response.bytes(
+        utf8.encode(jsonEncode({
+          'protocol': 1,
+          'policy': {
+            'version': '2026-09-28.1',
+            'consent_text_sha256': policyHashOverride ?? sha256.convert(utf8.encode(policyText)).toString(),
+            'consent_text': policyText,
+          },
+        })),
+        200,
+      );
     }
     if (path.endsWith('/consent')) {
       if (consentThrows != null) {
         return http.Response.bytes(utf8.encode(jsonEncode({'error': consentThrows})), 409);
       }
+      onConsent?.call();
       return http.Response(
         jsonEncode(
           consentResponse ??

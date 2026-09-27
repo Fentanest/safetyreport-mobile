@@ -1,3 +1,4 @@
+import 'dart:async';
 // CommunityGate — 캐시·무효화·연결 등록·컨텍스트 기록 (네트워크 없이 가짜 주입).
 import 'dart:io';
 
@@ -157,6 +158,38 @@ void main() {
       expect((await gate.refreshNow()).canEnter, isTrue, reason: mode);
       expect(calls, 0, reason: mode);
     }
+  });
+
+  // 2026-09-27: 로그인이 확정되면 곧바로 다시 확인한다(예전엔 60초 poll 까지 필수 설정 화면에 머물렀다).
+  test('a confirmed Kakao login re-checks the gate right away; in-progress login steps do not', () async {
+    auth.setPhase(CommunityAccountPhase.disconnected);
+    final gate = makeGate();
+    await gate.refreshNow();
+    expect(gate.canEnter, isFalse);
+    final before = server.statusCalls;
+    auth.setPhase(CommunityAccountPhase.awaitingBrowser);
+    await Future<void>.delayed(Duration.zero);
+    expect(server.statusCalls, before, reason: '브라우저 로그인 중에는 건드리지 않는다');
+    auth.setPhase(CommunityAccountPhase.connected);
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(server.statusCalls, before + 1);
+    expect(gate.canEnter, isTrue, reason: '이미 동의한 계정은 바로 통과');
+  });
+
+  test('a status answer that arrives after logout never reopens the gate (Codex review P1)', () async {
+    final gate = makeGate();
+    final slow = Completer<void>();
+    server.statusDelay = slow.future;
+    final inFlight = gate.refreshNow();
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    auth.setPhase(CommunityAccountPhase.disconnected); // 로그아웃: 이전 세션의 응답은 아직 오는 중
+    slow.complete();
+    server.statusDelay = null;
+    await inFlight;
+    expect(gate.canEnter, isFalse, reason: '늦게 온 이전 세션의 ok 로 열리지 않는다');
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(gate.canEnter, isFalse);
+    expect(gate.state.state, isNot('ok'));
   });
 
   test('invalidate forces verification_required; suspended deactivates', () async {

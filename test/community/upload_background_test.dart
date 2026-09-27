@@ -28,7 +28,7 @@ Map<String, Object?> status({String consent = 'active', Map<String, Object?>? co
       'protocol': 1,
       'gate': {'kakao': true},
       'policy': {'required_version': '2026-09-28.1', 'consent_text_sha256': 'abc'},
-      'consent': {'state': consent, 'grant_id': 'grant-1', 'policy_version': '2026-09-28.1'},
+      'consent': {'state': consent, 'grant_id': 'grant-1', 'policy_version': '2026-09-28.1', 'consent_text_sha256': 'abc'},
       'contributor': {'status': 'active'},
       'connection': connection ?? {'connection_id': connectionId, 'status': 'active', 'bound_to_current_session': bound},
       'account': {'fingerprint': 'fp1', 'display_name': '테스터'},

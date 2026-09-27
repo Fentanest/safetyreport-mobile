@@ -91,7 +91,7 @@ flutter:
   assets:
     - assets/branding/logo_lockup_light.png
     - assets/branding/logo_lockup_dark.png
-    - assets/community/
+    # 공유 동의문은 앱에 넣지 않고 중앙 `policy` 로 받는다(2026-09-27).
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

@@ -1,20 +1,17 @@
-// 동의문 번들 사본이 계약과 바이트 동일 + sha256 일치.
+// 공유 동의문은 앱에 넣어 두지 않는다(2026-09-27) — 중앙 `policy` 로 받는다(계약 account-api.md).
+// 계약 사본(contracts/community-ingest/consent)은 중앙 migration 의 원본을 그대로 옮긴 것일 뿐 앱이 읽지 않는다.
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('bundled consent equals contract copy with matching sha256', () {
-    final bundled =
-        File('assets/community/share-consent-2026-09-28.1.md').readAsBytesSync();
-    final contract = File(
-      'contracts/community-ingest/consent/share-consent-2026-09-28.1.md',
-    ).readAsBytesSync();
-    expect(bundled, contract);
-    final recorded = File(
-      'contracts/community-ingest/consent/share-consent-2026-09-28.1.sha256',
-    ).readAsStringSync().split(' ').first.trim();
-    expect(sha256.convert(bundled).toString(), recorded);
+  test('the app bundles no consent text or policy constant', () {
+    expect(Directory('assets/community').existsSync() && Directory('assets/community').listSync().isNotEmpty, isFalse);
+    expect(File('pubspec.yaml').readAsStringSync(), isNot(contains('assets/community/')));
+    for (final f in Directory('lib').listSync(recursive: true).whereType<File>()) {
+      final src = f.readAsStringSync();
+      expect(src, isNot(contains('share-consent-')), reason: f.path);
+      expect(src, isNot(contains('communityRequiredPolicyVersion')), reason: f.path);
+    }
   });
 }

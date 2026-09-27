@@ -26,6 +26,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:file_picker/file_picker.dart';
 import '../navigation/app_routes.dart';
 import '../widgets/auth_status_notice.dart';
+import '../community/gate/community_gate.dart';
 import '../widgets/community_account_card.dart';
 import '../widgets/community_server_account_card.dart';
 import '../widgets/mode_badge.dart';
@@ -1338,7 +1339,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               // ── 스탠드어론: 커뮤니티 계정(카카오, 이 앱이 세션 주인) ──
               const SizedBox(height: 16),
-              const CommunityAccountCard(),
+              // 게이트·계정 클라이언트를 넘겨야 공유 동의(상태·철회)·업로드 연결 전환 섹션이 보인다.
+              Builder(
+                builder: (context) {
+                  CommunityGate? gate;
+                  try {
+                    gate = Provider.of<CommunityGate>(context, listen: false);
+                  } catch (_) {}
+                  return CommunityAccountCard(
+                    gate: gate,
+                    accountClient: gate?.accountClient,
+                  );
+                },
+              ),
               const SizedBox(height: 16),
               Card(
                 child: Padding(

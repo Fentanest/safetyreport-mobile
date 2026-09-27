@@ -58,10 +58,14 @@ Future<void> main() async {
   try {
     await Workmanager().initialize(backgroundTaskDispatcher);
   } catch (_) {}
+  // 보안 저장소의 기존 카카오 세션을 게이트 생성·첫 검사 전에 복원한다.
+  // 그렇지 않으면 재실행 때 기본 disconnected 상태를 보고 연결 화면을 다시 연다.
+  final communityAuth = CommunityAuthService.instance;
+  await communityAuth.load();
   // 커뮤니티 계정(Standalone) 로그인 복귀 링크 — SetupScreen·설정 등 어느 화면에서든 받도록 앱 시작 때 등록.
   // 게이트 중에도 수신한다(게이트가 끝나면 상태가 반영된다).
   CommunityAuthLinkChannel.start((link) async {
-    await CommunityAuthService.instance.handleCallbackLink(link);
+    await communityAuth.handleCallbackLink(link);
   });
   CommunityStore? communityStore;
   try {
@@ -71,6 +75,7 @@ Future<void> main() async {
   }
   final reportProvider = ReportProvider()..init();
   final gate = CommunityGate(
+    auth: communityAuth,
     store: communityStore,
     officialAccountId: () async => reportProvider.standaloneUsername.isEmpty
         ? null

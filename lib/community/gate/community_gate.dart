@@ -295,10 +295,11 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
       }
       final token = await _auth.getAccessToken();
       if (token == null || token.isEmpty) {
-        final st = _auth.state.value.phase;
         final next = evaluateGate(
           config: config,
-          session: st == CommunityAccountPhase.reauthRequired ? 'reauth_required' : 'none',
+          // 연결된 세션의 토큰 갱신이 일시 실패했을 수도 있다. 이때
+          // 카카오 재연결을 요구하지 않고 확인 대기 상태로 둔다.
+          session: sessionStatus(),
         );
         _apply(next);
         await _deactivate('gate:$next');

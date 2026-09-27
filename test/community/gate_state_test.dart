@@ -70,6 +70,18 @@ void main() {
     expect((ctx?['dataset_key'] as String).length, 64);
   });
 
+  test(
+    'restored session with unavailable token does not ask for Kakao login',
+    () async {
+      auth.tokenResult = null;
+      final gate = makeGate();
+      final state = await gate.refreshNow();
+      expect(state.state, 'verification_required');
+      expect(state.canEnter, isFalse);
+      expect(server.statusCalls, 0);
+    },
+  );
+
   test('F14: revoke and policy change re-evaluate to consent_required', () async {
     final gate = makeGate();
     expect((await gate.refreshNow()).canEnter, isTrue);

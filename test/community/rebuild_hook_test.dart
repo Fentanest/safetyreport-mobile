@@ -22,7 +22,7 @@ Future<CommunityStore> openStore(Directory dir) async {
     'writer_epoch': 1,
     'dataset_key': 'ds1',
     'consent_grant_id': '22222222-2222-4222-8222-222222222222',
-    'policy_version': '2026-09-26.1',
+    'policy_version': '2026-09-28.1',
     'consent_text_sha256': 'abc',
     'source_app': 'safetyreport-mobile',
     'source_mode': 'standalone',

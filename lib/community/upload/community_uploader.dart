@@ -200,6 +200,7 @@ class CommunityUploader {
     DateTime Function()? now,
     Future<void> Function(Duration)? sleep,
     int Function()? monotonicMs,
+    this.onProgress,
     this.requestBudget = runMaxRequests,
     this.bodyLimit = maxBodyBytes,
   })  : _httpClient = httpClient,
@@ -216,6 +217,7 @@ class CommunityUploader {
   final String supabaseUrl;
   final String publishableKey;
   final String clientVersion;
+  final void Function(String message)? onProgress;
   final http.Client? _httpClient;
   final Future<CommunityStore> Function() _openStore;
   final Random _random;
@@ -238,6 +240,12 @@ class CommunityUploader {
   static String? _activeTrigger;
 
   DateTime _now() => _nowFn().toUtc();
+
+  void _progress(String message) {
+    try {
+      onProgress?.call(message);
+    } catch (_) {} // 로그 표시 실패가 영속 업로드를 막지 않게 한다.
+  }
 
   String _backoffAt(int attempts, [int? hint]) {
     final seconds = policy.retryDelaySeconds(max(1, attempts), _random.nextDouble(), hint);
@@ -486,6 +494,8 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
         nextAttemptAt: state.nextAttemptAt,
       );
       await _recordRun(store, trigger, started, out);
+      _progress('결과 $result: 전송 ${counts['sent']}건, 확인 ${counts['acked']}건, 재시도 ${counts['retry']}건'
+          '${state.errorCode == null ? '' : ' (${state.errorCode})'}');
       return out;
     }
 
@@ -638,6 +648,7 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
       }
       if (interp.kind == 'ack') {
         await _applyAck(store, batch, interp, counts);
+        _progress('진행: 전송 ${counts['sent']}건, 확인 ${counts['acked']}건, 재시도 ${counts['retry']}건');
         for (final scope in scopes.values) {
           await _controlMark(store, scope, ready: true);
         }
@@ -656,6 +667,8 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
         continue;
       }
       final outcome = await _applyError(store, batch, interp, scopes, counts, state, run);
+      _progress('진행: 전송 ${counts['sent']}건, 확인 ${counts['acked']}건, 재시도 ${counts['retry']}건'
+          '${state.errorCode == null ? '' : ' (${state.errorCode})'}');
       if (outcome == 'continue') continue; // 이분·대조는 문제가 아니다 — 최종 결과는 격리·차단·재시도 집계로 정한다
       await _holdSuspects(store, run, state);
       return finish(outcome);

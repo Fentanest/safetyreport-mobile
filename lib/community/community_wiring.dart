@@ -50,13 +50,29 @@ class CommunityWiring {
     // Standalone writer(데모 제외)로 게이트를 통과했을 때만 불린다(ReportProvider.onGatePassed).
     CommunityUploadHooks.registerBackgroundJobs = () async {
       await schedule.registerBackgroundJobs();
-      CommunityUploadController.instance.start(() => buildDefaultUploader(gate: gateCheck()));
+      CommunityUploadController.instance.start(() => buildDefaultUploader(
+            gate: gateCheck(),
+            onProgress: (message) {
+              if (SyncEngine.runningListenable.value) SyncEngine.emitLog('[Supabase] $message');
+            },
+          ));
     };
     CommunityUploadHooks.cancelBackgroundJobs = () async {
       CommunityUploadController.instance.stop();
       await schedule.cancelBackgroundJobs();
     };
     CommunityUploadHooks.wakeUpload = CommunityUploadController.instance.wake;
+    CommunityUploadHooks.uploadBeforeSync = () async {
+      final uploader = await buildDefaultUploader(
+        gate: gateCheck(),
+        onProgress: (message) {
+          if (SyncEngine.runningListenable.value) SyncEngine.emitLog('[Supabase] $message');
+        },
+      );
+      final run = await uploader.requestCommunityUpload('recovery');
+      final status = await uploader.uploadStatus();
+      return (run: run, remaining: status.pending + status.authRequired);
+    };
     CommunityUploadHooks.catchUp = (reason) async {
       final uploader = await buildDefaultUploader(gate: gateCheck());
       await schedule.catchUp(reason, store: store, runUpload: uploader.requestCommunityUpload);

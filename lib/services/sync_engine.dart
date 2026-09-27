@@ -253,6 +253,7 @@ class SyncEngine {
       final reason = community.store == null ? 'community_store_unavailable' : 'manifest_unavailable';
       throw Exception('$reason: 로컬 공유 저장소 또는 공유 연결을 확인하지 못해 수집을 시작하지 않았습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.');
     }
+    await flushPendingUploadBeforeSync();
     final captureActive = community.store != null && communityReady;
     if (fullSync && !isRebuild) {
       // 새 로컬 사본에서 전 건을 다시 capture 한다. 이전 journal/outbox 는 이미 보낸 사실과
@@ -269,7 +270,7 @@ class SyncEngine {
         await markRebuildListComplete(community.store!, rebuildRunId);
       }
       await _saveSyncTime();
-      CommunityUploadHooks.wakeUploadNow('recovery');
+      await _uploadCaptured();
       _emit(SyncEvent(type: SyncEventType.done, total: 0));
       return SyncRunResult(done: 0, errors: 0, rebuildRunId: rebuildRunId);
     }
@@ -544,7 +545,7 @@ class SyncEngine {
 
     final msg =
         '${_stopping ? '동기화 중지' : '동기화 완료'}: $done건 저장${errors > 0 ? ', $errors건 오류' : ''}';
-    if (!_stopping) CommunityUploadHooks.wakeUploadNow('recovery');
+    await _uploadCaptured();
     _log(msg);
     _emit(
       SyncEvent(
@@ -561,6 +562,75 @@ class SyncEngine {
       rebuildRunId: rebuildRunId,
     );
   }
+
+  static Future<void> flushPendingUploadBeforeSync() async {
+    final uploadBeforeSync = CommunityUploadHooks.uploadBeforeSync;
+    if (uploadBeforeSync == null) return;
+    _log('[Supabase] 이전 공유 자료 업로드 확인 중...');
+    final leaseDeadline = DateTime.now().add(const Duration(seconds: 125));
+    var waitingForLease = false;
+    while (true) {
+      final upload = await uploadBeforeSync();
+      if (upload.remaining == 0) {
+        _log('[Supabase] 대기 중인 공유 자료가 없습니다.');
+        return;
+      }
+      if (upload.run.result == 'busy_other_run' && DateTime.now().isBefore(leaseDeadline) && !_stopping) {
+        if (!waitingForLease) {
+          _log('[Supabase] 다른 업로드의 저장소 잠금이 풀리기를 기다립니다.');
+          waitingForLease = true;
+        }
+        await Future<void>.delayed(const Duration(seconds: 2));
+        continue;
+      }
+      if (upload.run.result == 'more_pending' && !_stopping) continue;
+      final reason = upload.run.errorCode ?? upload.run.result;
+      throw Exception('이전 공유 자료 ${upload.remaining}건이 업로드되지 않았습니다 ($reason). 업로드 후 다시 동기화해 주세요.');
+    }
+  }
+
+  static Future<void> _uploadCaptured() async {
+    final upload = CommunityUploadHooks.uploadBeforeSync;
+    if (upload == null) {
+      CommunityUploadHooks.wakeUploadNow('recovery');
+      return;
+    }
+    _log('[Supabase] 수집한 공유 자료 업로드 중...');
+    final leaseDeadline = DateTime.now().add(const Duration(seconds: 125));
+    var waitingForLease = false;
+    try {
+      while (true) {
+        final outcome = await upload();
+        if (outcome.remaining == 0) {
+          _log('[Supabase] 대기 중인 공유 자료가 없습니다.');
+          return;
+        }
+        if (outcome.run.result == 'busy_other_run' && DateTime.now().isBefore(leaseDeadline) && !_stopping) {
+          if (!waitingForLease) {
+            _log('[Supabase] 다른 업로드의 저장소 잠금이 풀리기를 기다립니다.');
+            waitingForLease = true;
+          }
+          await Future<void>.delayed(const Duration(seconds: 2));
+          continue;
+        }
+        if (outcome.run.result == 'more_pending' && _stopping) {
+          _log('[Supabase] ${outcome.remaining}건은 다음 실행에서 이어서 업로드합니다.');
+          CommunityUploadHooks.wakeUploadNow('recovery');
+          return;
+        }
+        if (outcome.run.result != 'more_pending') {
+          _log('[Supabase] ${outcome.remaining}건 업로드 대기 중 (${outcome.run.errorCode ?? outcome.run.result}).');
+          return;
+        }
+      }
+    } catch (e) {
+      _log('[Supabase] 업로드 확인 실패: $e');
+      CommunityUploadHooks.wakeUploadNow('recovery');
+    }
+  }
+
+  /// 알림 큐의 개별 동기화도 일반 동기화와 같은 완료 업로드를 사용한다.
+  static Future<void> uploadCapturedAfterSync() => _uploadCaptured();
 
   /// rebuild item 등록 (목록 전 페이지 성공일 때만 호출한다).
   static Future<void> registerRebuildItems(
@@ -832,13 +902,27 @@ class SyncEngine {
 
   /// 신규/처리변경 신고 emit:
   ///   1. flutter.pending_crawl_changes SharedPref 에 누적 (main.dart 카드 시트 트리거)
-  ///   2. 각 신고에 대한 개별 heads-up 알림 (MainActivity.showNotification)
+  ///   2. 20건 이하면 개별 heads-up, 21건 이상이면 총건수 알림 한 건
   ///   3. changesEmitted Stream 신호 → ReportProvider 가 nonce 갱신
   static Future<void> emitChanges(List<Map<String, dynamic>> changes) async {
     if (changes.isEmpty) return;
 
     // 기존 pending 데이터에 누적 (main.dart 가 처리 전이면 함께 노출)
     await PendingChangesStore.append(changes);
+
+    if (changes.length > 20) {
+      try {
+        await _methodChannel.invokeMethod('showNotification', {
+          'title': '🔔 신고 변경',
+          'body': '${changes.length}건의 변경사항이 있습니다',
+          'nav_tab': 4,
+          'nav_subtab': 1,
+          'event_type': 'crawl_changes',
+        });
+      } catch (_) {}
+      if (!_changesEmittedController.isClosed) _changesEmittedController.add(null);
+      return;
+    }
 
     for (final r in changes) {
       final notificationKind = r['notification_kind']?.toString() ?? 'report';

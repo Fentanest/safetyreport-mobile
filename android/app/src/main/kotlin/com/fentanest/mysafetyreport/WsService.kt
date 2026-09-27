@@ -31,7 +31,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * - 수신 이벤트:
  *   - crawl_started  → "크롤링 시작됨" 알림
  *   - crawl_finished → "크롤링 완료, N건 변경" 알림
- *   - crawl_changes  → 개별 신고 변경 상세 알림
+ *   - crawl_changes  → 20건 이하면 개별 상세 알림, 21건 이상이면 총건수 알림 한 건
  *   - ping           → pong 응답 (연결 유지)
  */
 class WsService : Service() {
@@ -42,6 +42,7 @@ class WsService : Service() {
         const val NOTIF_CHANNEL_WS   = "ws_service"       // 서비스 지속 알림 채널
         const val NOTIF_CHANNEL_PUSH = "ws_push_v2"       // 이벤트 알림 채널 (heads-up)
         const val FOREGROUND_NOTIF_ID = 1001              // 지속 알림 ID (고정)
+        const val BULK_CHANGE_NOTIF_ID = 7_000_001         // 완료/변경 요약이 같은 알림을 갱신
         const val ACTION_START = "ACTION_WS_START"
         const val ACTION_STOP  = "ACTION_WS_STOP"
 
@@ -256,7 +257,8 @@ class WsService : Service() {
         showPushNotif(
             title = "✅ 크롤링 완료",
             body  = body,
-            type  = ServerContract.EVENT_CRAWL_FINISHED
+            type  = ServerContract.EVENT_CRAWL_FINISHED,
+            notificationId = if (count > 20) BULK_CHANGE_NOTIF_ID else null
         )
     }
 
@@ -293,6 +295,16 @@ class WsService : Service() {
         // 외부 앱 알림에서 자동 enqueue 된 개별 건이 결과로 돌아온 경우 "개별" prefix 부착.
         // (auto_enqueue_count > 0 은 NotificationService.sendEnqueue 가 발동한 활성 개별 세션)
         val isIndividual = isAutoEnqueueActive()
+
+        if (changes.length() > 20) {
+            showPushNotif(
+                title = "🔔 신고 변경",
+                body = "${changes.length()}건의 변경사항이 있습니다",
+                type = ServerContract.EVENT_CRAWL_CHANGES,
+                notificationId = BULK_CHANGE_NOTIF_ID
+            )
+            return
+        }
 
         for (i in 0 until changes.length()) {
             val record     = changes.getJSONObject(i)
@@ -353,7 +365,7 @@ class WsService : Service() {
             val newArr = org.json.JSONArray()
             val baseMs = System.currentTimeMillis()
 
-            for (i in 0 until changes.length()) {
+            for (i in 0 until minOf(changes.length(), 200)) {
                 val record     = changes.getJSONObject(i)
                 val notificationKind = record.optString("notification_kind", "report")
                 if (notificationKind == "duplicate") {
@@ -418,7 +430,9 @@ class WsService : Service() {
         }
     }
 
-    private fun showPushNotif(title: String, body: String, type: String, payloadJson: String? = null) {
+    private fun showPushNotif(
+        title: String, body: String, type: String, payloadJson: String? = null, notificationId: Int? = null
+    ) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         // 앱 열기 인텐트 — SINGLE_TOP으로 onNewIntent 트리거, 앱 재시작 방지
@@ -430,7 +444,7 @@ class WsService : Service() {
                 putExtra("nav_event_type", type)
                 if (!payloadJson.isNullOrEmpty()) putExtra("nav_payload_json", payloadJson)
             }
-        val notifId = pushIdGen.get()
+        val notifId = notificationId ?: pushIdGen.getAndIncrement()
         val pi = PendingIntent.getActivity(
             this, notifId,
             openIntent ?: Intent(),
@@ -446,7 +460,7 @@ class WsService : Service() {
             .setContentIntent(pi)
             .build()
 
-        nm.notify(pushIdGen.getAndIncrement(), notif)
+        nm.notify(notifId, notif)
 
         // 앱이 포그라운드일 때 in-app SnackBar 표시용 — SharedPreferences에 기록
         try {

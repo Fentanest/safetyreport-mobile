@@ -81,15 +81,18 @@ while (queue not empty):
 ```
 SyncEngine.emitChanges(List<Map>)
   ├─ 대기 변경 수신함 `inbox.pending.*` 에 새 키로 추가 (main.dart 가 카드 시트로 표시)
-  ├─ 각 신고에 대해 MethodChannel showNotification (heads-up):
+  ├─ 20건 이하: 각 신고에 대해 MethodChannel showNotification (heads-up):
   │    ├─ ChangeType.newReport         → "🆕 신규 신고"
   │    ├─ ChangeType.statusChanged     → "🔄 처리 변경"
   │    └─ ChangeType.individualConfirm → "✅ 개별 동기화"
+  ├─ 21건 이상: "n건의 변경사항이 있습니다" 알림 한 건 (개별 payload 없음)
   └─ changesEmittedController.add(null) → ReportProvider nonce++ → main.dart 트리거
 ```
 
 `ChangeType` (sync_engine.dart) 가 모든 식별자의 single source of truth.  
 `reportToChangeMap(report, changeType)` 가 표준 Map 형식 생성.
+Client `WsService.showCrawlChangesNotif` 도 같은 20건 경계로 알림을 묶는다. 상세 변경은 대기 변경 수신함에 보존하고,
+Android 알림 기록 수신함에는 기존 표시 한도인 최대 200건만 넣는다.
 
 ### 5. 커뮤니티 계정 로그인 복귀 딥링크 (2026-09-25)
 
@@ -210,7 +213,8 @@ WsService 가 `crawl_started / crawl_finished` push 알림을 쌓는 게 지저�
 1. `sendEnqueue` 호출 → `auto_enqueue_count++` + 타임스탬프 기록 + "📡 개별 크롤링 지시 중" ongoing 알림 표시
 2. POST 완료/실패 시 finally 에서 ongoing 알림 소거
 3. `WsService.showCrawlStartedNotif` / `showCrawlFinishedNotif`: `isAutoEnqueueActive()` true 면 return
-4. `crawl_changes` (실제 결과) 는 억제 안 함 — 단, auto_enqueue 활성 세션이면 "🆕 개별 신규" / "🔄 개별 처리 변경" prefix 부착 (가독성)
+4. `crawl_changes` (실제 결과) 는 억제 안 함 — 20건 이하면 auto_enqueue 활성 세션에 "🆕 개별 신규" / "🔄 개별 처리 변경" prefix 부착,
+   21건 이상이면 신고별 푸시 대신 총건수 알림 한 건.
 5. `auto_enqueue_count > 0` 이어도 `auto_enqueue_last_at` 10분 초과 시 만료 (서버 미응답 대비)
 
 ## ChangeType 상수 (sync_engine.dart)

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'gate/community_account_client.dart';
+import 'upload/community_uploader.dart';
 
 /// T6(모바일 데이터 경로) 연결 자리 (`contracts/community-ingest/interfaces.md`).
 ///
@@ -23,6 +24,9 @@ class CommunityUploadHooks {
 
   /// 수집(capture) 직후 실시간 업로드 깨우기(앱 isolate 의 업로드 제어기). 백그라운드 isolate 에서는 비어 있다.
   static void Function(String trigger)? wakeUpload;
+
+  /// 새 동기화 전에 이전 공유 자료를 실제로 전송하고 남은 건수를 확인한다.
+  static Future<({UploadRunResult run, int remaining})> Function()? uploadBeforeSync;
 
   /// T6 `catchUp(reason)` — resume·시작 시 보충 실행.
   static Future<void> Function(String reason)? catchUp;

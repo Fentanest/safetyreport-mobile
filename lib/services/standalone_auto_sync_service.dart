@@ -43,7 +43,7 @@ enum _FetchResult {
 ///
 /// drain 종료 후 신규/처리변경/개별확인된 신고는 SyncEngine.emitChanges 로:
 ///   - flutter.pending_crawl_changes SharedPref 에 누적 → main.dart 카드 시트
-///   - 각 신고에 대해 개별 heads-up 알림 (MainActivity.showNotification)
+///   - 20건 이하면 개별 heads-up, 21건 이상이면 총건수 알림 한 건 (MainActivity.showNotification)
 class StandaloneAutoSyncService {
   static bool _running = false;
   static bool get isRunning => _running;
@@ -68,6 +68,7 @@ class StandaloneAutoSyncService {
     bool didAnyWork = false;
     bool didIncremental = false;
     bool fgsAcquired = false;
+    bool preflightDone = false;
     try {
       final prefs = await SharedPreferences.getInstance();
 
@@ -83,6 +84,16 @@ class StandaloneAutoSyncService {
           fgsAcquired = true;
         }
         didAnyWork = true;
+
+        if (!preflightDone) {
+          try {
+            await SyncEngine.flushPendingUploadBeforeSync();
+            preflightDone = true;
+          } catch (e) {
+            SyncEngine.emitLog('이전 공유 자료 업로드가 남아 개별 동기화를 시작하지 않았습니다: $e');
+            break; // 큐는 남겨 두고 다음 실행에서 다시 확인한다.
+          }
+        }
 
         // 큐 맨 앞 항목을 꺼내 처리 — 큐에서 제거는 성공/포기 결정 후에만!
         // (앱이 처리 도중 죽으면 항목이 큐에 남아 다음 drain 에서 재시도)
@@ -128,10 +139,12 @@ class StandaloneAutoSyncService {
 
       // 큐 지정 크롤링 끝의 촬영 시각 재시도(서버 _process_and_save_results 와 같음).
       // 증분 fallback 을 탔으면 그 동기화 끝에서 이미 했다.
-      if (didAnyWork && !didIncremental && !LocalDbService.closeRequested) {
+      if (preflightDone && didAnyWork && !didIncremental && !LocalDbService.closeRequested) {
         final filled = await MaintenanceService.backfillMissing();
         if (filled > 0) SyncEngine.emitLog('[photo] 촬영 시각 재시도로 $filled건 채움');
       }
+
+      if (preflightDone) await SyncEngine.uploadCapturedAfterSync();
 
       // 개별 fetch 변경사항 일괄 emit
       if (_singleFetchChanges.isNotEmpty) {

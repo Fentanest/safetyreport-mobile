@@ -24,6 +24,7 @@ Future<CommunityUploader> buildDefaultUploader({
   required CommunityGateCheck gate,
   http.Client? httpClient,
   Future<CommunityStore> Function()? openStore,
+  void Function(String message)? onProgress,
 }) async {
   final prefs = await SharedPreferences.getInstance();
   await prefs.reload();
@@ -44,5 +45,6 @@ Future<CommunityUploader> buildDefaultUploader({
     clientVersion: version,
     httpClient: httpClient,
     openStore: openStore,
+    onProgress: onProgress,
   );
 }

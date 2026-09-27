@@ -693,6 +693,7 @@ class ApiService {
         headers: _headers,
         body: jsonEncode({'crawl_mode': crawlMode, 'queue_list': queueList}),
       ),
+      timeout: const Duration(minutes: 10), // 이전 공유 자료 업로드를 마친 뒤 서버 크롤링을 시작한다.
     );
     if (response.statusCode != 200) {
       final msg = jsonDecode(response.body)['detail'] ?? '크롤링 시작 실패';

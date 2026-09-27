@@ -91,6 +91,7 @@ CommunityUploader makeUploader({
   required FakeTokens tokens,
   required http.Client httpClient,
   AppMode mode = AppMode.standalone,
+  void Function(String)? onProgress,
 }) =>
     CommunityUploader(
       gate: gate,
@@ -102,6 +103,7 @@ CommunityUploader makeUploader({
       httpClient: httpClient,
       openStore: () async => store,
       random: Random(1),
+      onProgress: onProgress,
     );
 
 Map<String, Object?> ackFor(String eventId, String status,
@@ -149,10 +151,13 @@ void main() {
             }),
             200);
       });
+      final progress = <String>[];
       final u = makeUploader(
-          store: store, gate: gate, tokens: tokens, httpClient: httpClient);
+          store: store, gate: gate, tokens: tokens, httpClient: httpClient,
+          onProgress: progress.add);
       final result = await u.requestCommunityUpload('realtime');
       expect(result.result, equals('sent'));
+      expect(progress.any((line) => line.contains('확인 1건')), isTrue);
       final outbox = await store.db.rawQuery('SELECT * FROM outbox');
       expect(outbox, isEmpty);
       final journal = await store.db.rawQuery(

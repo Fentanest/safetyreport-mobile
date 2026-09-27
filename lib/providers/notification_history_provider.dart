@@ -170,7 +170,8 @@ class NotificationHistoryProvider with ChangeNotifier {
         return 'generic:${item.id}';
       }).toSet();
 
-      for (final r in serverData) {
+      // 기록은 최대 200개만 보관한다. 대량 변경 때 수천 개 객체를 먼저 만드는 일을 피한다.
+      for (final r in serverData.take(_maxItems)) {
         final notificationKind = r['notification_kind']?.toString() ?? 'report';
         if (notificationKind == 'duplicate') {
           final groupId = r['group_id']?.toString() ?? '';

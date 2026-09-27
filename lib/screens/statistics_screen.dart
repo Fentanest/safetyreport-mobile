@@ -87,6 +87,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      // 새 조건의 요약이 오기 전까지 이전 조건의 요약 수치를 보이지 않는다(불러오는 중 안내).
+      _overview = null;
+      _overviewNotice = null;
     });
     final p = context.read<ReportProvider>();
     final year = _year == 'all' ? null : _year;

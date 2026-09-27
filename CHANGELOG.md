@@ -19,6 +19,9 @@
 - Standalone 요약에 서버와 같은 `disposition`·`fine_amount`·`report_types`·`monthly_answered_fine`, 기관 행 `avg_days_count` 를 추가했다. 공용 벡터 `contracts/stats-overview-vectors.json`.
 - 대시보드의 전국 신고현황을 통계 탭 하단으로 옮겼다(제목 '전국 안전신고 현황').
 - 화면 파일의 고정 색(`Color(0x…)`: 교통 분류색·별점색·메달색)을 테마·기존 상태색으로 바꿨다.
+- 검증: 비골든 732건 통과·14건 건너뜀(신규 `stats_overview_vectors_test` 7건, 요약 위젯 18건 — 360/430dp × 글자 1.0/1.3/2.0 × 두 테마 overflow 0), 정적 분석 기존 info 7건. 서버↔모바일 동등성 48개 조합 차이 0.
+  실제 폰트 전체 화면 렌더(`test/tool/stats_screen_render_test.dart`): Standalone(서버 fixture 를 가져온 DB)·Client(fixture 서버) 각 360/390/430dp 두 테마 + 큰 글자 1.3·2.0, 렌더 예외 0.
+  통계 요약 골든 2건은 의도한 화면 변경으로 기준과 달라 실패 — 기준 갱신은 사용자 승인 뒤(후보 이미지 보관). 에뮬레이터 실기 확인은 not-run.
 
 ### 상세 검색 순서와 Enter 검색
 

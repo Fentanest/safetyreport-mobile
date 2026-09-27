@@ -49,6 +49,7 @@ const _recentAnswerStatuses = <String>{'수용', '일부수용', '불수용', '�
 class ReportFilter {
   final String name;
   final String reportNumber;
+  final String id;
   final List<String> ratings;
   final String ratingCause;
   final String agency;
@@ -76,6 +77,7 @@ class ReportFilter {
   const ReportFilter({
     this.name = '',
     this.reportNumber = '',
+    this.id = '',
     this.ratings = const [],
     this.ratingCause = '',
     this.agency = '',
@@ -104,6 +106,7 @@ class ReportFilter {
   ReportFilter copyWith({
     String? name,
     String? reportNumber,
+    String? id,
     List<String>? ratings,
     String? ratingCause,
     String? agency,
@@ -131,6 +134,7 @@ class ReportFilter {
     return ReportFilter(
       name: name ?? this.name,
       reportNumber: reportNumber ?? this.reportNumber,
+      id: id ?? this.id,
       ratings: ratings ?? this.ratings,
       ratingCause: ratingCause ?? this.ratingCause,
       agency: agency ?? this.agency,
@@ -164,6 +168,7 @@ class ReportFilter {
   bool get isEmpty =>
       name.isEmpty &&
       reportNumber.isEmpty &&
+      id.isEmpty &&
       ratings.isEmpty &&
       ratingCause.isEmpty &&
       agency.isEmpty &&
@@ -193,6 +198,7 @@ class ReportFilter {
     final list = <String>[];
     if (name.isNotEmpty) list.add('신고명: $name');
     if (reportNumber.isNotEmpty) list.add('신고번호: $reportNumber');
+    if (id.isNotEmpty) list.add('ID: $id');
     if (ratings.isNotEmpty) {
       list.add(
         '별점: ${ratings.map((rating) => rating == '__none__' ? '없음' : '$rating점').join(', ')}',
@@ -601,6 +607,7 @@ class ReportProvider with ChangeNotifier {
     return reports.where((r) {
       if (!_contains(r.name, f.name)) return false;
       if (!_contains(r.reportNumber, f.reportNumber)) return false;
+      if (!_contains(r.id, f.id)) return false;
       if (f.ratings.isNotEmpty) {
         final ratingToken = (r.rating == null || r.rating! <= 0)
             ? '__none__'

@@ -21,6 +21,7 @@ class SearchFilterSheet extends StatefulWidget {
 class _SearchFilterSheetState extends State<SearchFilterSheet> {
   late final TextEditingController _nameCtrl;
   late final TextEditingController _numCtrl;
+  late final TextEditingController _idCtrl;
   late final TextEditingController _ratingCauseCtrl;
   late final TextEditingController _agencyCtrl;
   late final TextEditingController _managerCtrl;
@@ -47,6 +48,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   late String _pollStatus;
   bool _statusExpanded = false;
   bool _ratingExpanded = false;
+  final FocusNode _selectionSubmitFocusNode = FocusNode();
 
   static const _fallbackStatusOptions = [
     '수용',
@@ -85,6 +87,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     final f = widget.provider.filter;
     _nameCtrl = TextEditingController(text: f.name);
     _numCtrl = TextEditingController(text: f.reportNumber);
+    _idCtrl = TextEditingController(text: f.id);
     _ratingCauseCtrl = TextEditingController(
       text: widget.ratingManagementMode ? '' : f.ratingCause,
     );
@@ -123,6 +126,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     for (final c in [
       _nameCtrl,
       _numCtrl,
+      _idCtrl,
       _agencyCtrl,
       _managerCtrl,
       _carCtrl,
@@ -137,6 +141,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     ]) {
       c.dispose();
     }
+    _selectionSubmitFocusNode.dispose();
     super.dispose();
   }
 
@@ -159,6 +164,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
       ReportFilter(
         name: _nameCtrl.text.trim(),
         reportNumber: _numCtrl.text.trim(),
+        id: _idCtrl.text.trim(),
         ratings: widget.ratingManagementMode
             ? const <String>[]
             : List<String>.from(_selectedRatings),
@@ -260,264 +266,299 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   Widget build(BuildContext context) {
     final statusOptions = _statusOptions;
     final lawOptions = _lawOptions;
-    return Padding(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom,
-        left: 20,
-        right: 20,
-        top: 16,
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // 핸들
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 12),
+    return Focus(
+      focusNode: _selectionSubmitFocusNode,
+      skipTraversal: true,
+      onKeyEvent: (_, event) {
+        if (!_selectionSubmitFocusNode.hasPrimaryFocus ||
+            event is! KeyDownEvent) {
+          return KeyEventResult.ignored;
+        }
+        final key = event.logicalKey;
+        if (key != LogicalKeyboardKey.enter &&
+            key != LogicalKeyboardKey.numpadEnter) {
+          return KeyEventResult.ignored;
+        }
+        _apply();
+        return KeyEventResult.handled;
+      },
+      child: Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+          left: 20,
+          right: 20,
+          top: 16,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // 핸들
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: context.sr.border,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    '상세 검색',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  TextButton(onPressed: _clear, child: const Text('전체 초기화')),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
-                  color: context.sr.border,
-                  borderRadius: BorderRadius.circular(2),
+                  color: Theme.of(context).colorScheme.surfaceContainer,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: context.sr.border),
+                ),
+                child: const Text(
+                  "안내: '&'는 AND, ','는 OR 조건입니다.",
+                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
                 ),
               ),
-            ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  '상세 검색',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                TextButton(onPressed: _clear, child: const Text('전체 초기화')),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainer,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: context.sr.border),
-              ),
-              child: const Text(
-                "안내: '&'는 AND, ','는 OR 조건입니다.",
-                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600),
-              ),
-            ),
-            const SizedBox(height: 12),
+              const SizedBox(height: 12),
 
-            // ── 신고 기본 정보 ──────────────────────────
-            _sectionLabel(context, '신고 기본 정보'),
-            _input(_nameCtrl, '신고명', Icons.description_outlined),
-            const SizedBox(height: 8),
-            _input(_numCtrl, '신고번호', Icons.tag),
-            const SizedBox(height: 8),
-            if (!widget.ratingManagementMode) ...[
+              // PC main 통계표의 공통 열 순서: 기관 → 담당자 → 과태료 → 처분 → 별점.
+              _sectionLabel(context, '주요 검색'),
+              _input(_carCtrl, '차량번호', Icons.directions_car_outlined),
+              const SizedBox(height: 8),
+              _input(_numCtrl, '신고번호', Icons.tag),
+              const SizedBox(height: 8),
+              _input(_idCtrl, 'ID', Icons.numbers_outlined),
+              const SizedBox(height: 8),
+              _input(_agencyCtrl, '처리기관', Icons.business_outlined),
+              const SizedBox(height: 8),
+              _input(_managerCtrl, '담당자', Icons.person_outline),
+              const SizedBox(height: 8),
+              _input(_fineCtrl, '과태료/범칙금', Icons.monetization_on_outlined),
+              const SizedBox(height: 8),
               _multiSelectDropdown(
                 context: context,
-                label: '별점',
-                icon: Icons.star_outline,
-                options: _ratingOptions,
-                selectedValues: _selectedRatings,
-                expanded: _ratingExpanded,
+                label: '처리상태',
+                icon: Icons.checklist_outlined,
+                options: statusOptions,
+                selectedValues: _selectedStatuses,
+                expanded: _statusExpanded,
                 onToggleExpanded: () => setState(() {
-                  _ratingExpanded = !_ratingExpanded;
-                  if (_ratingExpanded) _statusExpanded = false;
+                  _statusExpanded = !_statusExpanded;
+                  if (_statusExpanded) _ratingExpanded = false;
                 }),
-                onToggleValue: (value) => setState(() {
-                  _toggleSelection(_selectedRatings, value, _ratingOptions);
-                }),
-                onClear: () => setState(() => _selectedRatings.clear()),
+                onToggleValue: (value) {
+                  setState(() {
+                    _toggleSelection(_selectedStatuses, value, statusOptions);
+                  });
+                  _selectionSubmitFocusNode.requestFocus();
+                },
+                onClear: () {
+                  setState(() => _selectedStatuses.clear());
+                  _selectionSubmitFocusNode.requestFocus();
+                },
               ),
-              const SizedBox(height: 8),
-              _input(_ratingCauseCtrl, '별점사유', Icons.comment_outlined),
+              if (!widget.ratingManagementMode) ...[
+                const SizedBox(height: 8),
+                _multiSelectDropdown(
+                  context: context,
+                  label: '별점',
+                  icon: Icons.star_outline,
+                  options: _ratingOptions,
+                  selectedValues: _selectedRatings,
+                  expanded: _ratingExpanded,
+                  onToggleExpanded: () => setState(() {
+                    _ratingExpanded = !_ratingExpanded;
+                    if (_ratingExpanded) _statusExpanded = false;
+                  }),
+                  onToggleValue: (value) {
+                    setState(() {
+                      _toggleSelection(_selectedRatings, value, _ratingOptions);
+                    });
+                    _selectionSubmitFocusNode.requestFocus();
+                  },
+                  onClear: () {
+                    setState(() => _selectedRatings.clear());
+                    _selectionSubmitFocusNode.requestFocus();
+                  },
+                ),
+              ],
+
+              const SizedBox(height: 16),
+              _sectionLabel(context, '추가 조건'),
+              _input(_nameCtrl, '신고명', Icons.description_outlined),
               const SizedBox(height: 8),
               _singleSelectDropdown(
                 context: context,
-                label: '만족도 조사 여부',
-                icon: Icons.poll_outlined,
-                options: _pollStatusOptions,
-                currentValue: _pollStatus,
-                onChanged: (v) => setState(() => _pollStatus = v),
+                label: '위반법규',
+                icon: Icons.gavel_outlined,
+                options: lawOptions,
+                currentValue: _selectedLaw,
+                onChanged: (value) {
+                  setState(() => _selectedLaw = value);
+                  _selectionSubmitFocusNode.requestFocus();
+                },
               ),
               const SizedBox(height: 8),
-            ],
-            _input(_carCtrl, '차량번호', Icons.directions_car_outlined),
-            const SizedBox(height: 8),
-            _input(_locationCtrl, '위반장소', Icons.location_on_outlined),
-            const SizedBox(height: 8),
-            _singleSelectDropdown(
-              context: context,
-              label: '위반법규',
-              icon: Icons.gavel_outlined,
-              options: lawOptions,
-              currentValue: _selectedLaw,
-              onChanged: (value) => setState(() => _selectedLaw = value),
-            ),
-            const SizedBox(height: 8),
-            _input(_reportContentCtrl, '신고내용', Icons.article_outlined),
-
-            const SizedBox(height: 16),
-
-            // ── 처리 정보 ───────────────────────────────
-            _sectionLabel(context, '처리 정보'),
-            _input(_agencyCtrl, '처리기관', Icons.business_outlined),
-            const SizedBox(height: 8),
-            _input(_managerCtrl, '담당자', Icons.person_outline),
-            const SizedBox(height: 8),
-            _input(_fineCtrl, '과태료/범칙금', Icons.monetization_on_outlined),
-            const SizedBox(height: 8),
-            _input(_supplementCountCtrl, '보완횟수', Icons.history_edu_outlined),
-            const SizedBox(height: 8),
-            _input(_processContentCtrl, '처리내용', Icons.task_alt_outlined),
-            const SizedBox(height: 8),
-            _multiSelectDropdown(
-              context: context,
-              label: '처리상태',
-              icon: Icons.checklist_outlined,
-              options: statusOptions,
-              selectedValues: _selectedStatuses,
-              expanded: _statusExpanded,
-              onToggleExpanded: () => setState(() {
-                _statusExpanded = !_statusExpanded;
-                if (_statusExpanded) _ratingExpanded = false;
-              }),
-              onToggleValue: (value) => setState(() {
-                _toggleSelection(_selectedStatuses, value, statusOptions);
-              }),
-              onClear: () => setState(() => _selectedStatuses.clear()),
-            ),
-            const SizedBox(height: 10),
-            // 경찰기관 토글
-            Row(
-              children: [
-                Expanded(
-                  child: _toggleChip(
-                    context,
-                    '경찰기관 제외',
-                    _excludePolice,
-                    () => setState(() {
-                      _excludePolice = !_excludePolice;
-                      if (_excludePolice) _onlyPolice = false;
+              _input(_locationCtrl, '위반장소', Icons.location_on_outlined),
+              const SizedBox(height: 8),
+              _input(_reportContentCtrl, '신고내용', Icons.article_outlined),
+              const SizedBox(height: 8),
+              _input(_processContentCtrl, '처리내용', Icons.task_alt_outlined),
+              const SizedBox(height: 8),
+              _input(_supplementCountCtrl, '보완횟수', Icons.history_edu_outlined),
+              if (!widget.ratingManagementMode) ...[
+                const SizedBox(height: 8),
+                _singleSelectDropdown(
+                  context: context,
+                  label: '만족도 조사 여부',
+                  icon: Icons.poll_outlined,
+                  options: _pollStatusOptions,
+                  currentValue: _pollStatus,
+                  onChanged: (v) {
+                    setState(() => _pollStatus = v);
+                    _selectionSubmitFocusNode.requestFocus();
+                  },
+                ),
+                const SizedBox(height: 8),
+                _input(_ratingCauseCtrl, '별점사유', Icons.comment_outlined),
+              ],
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: _toggleChip(context, '경찰기관 제외', _excludePolice, () {
+                      setState(() {
+                        _excludePolice = !_excludePolice;
+                        if (_excludePolice) _onlyPolice = false;
+                      });
+                      _selectionSubmitFocusNode.requestFocus();
                     }),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _toggleChip(
-                    context,
-                    '경찰기관만',
-                    _onlyPolice,
-                    () => setState(() {
-                      _onlyPolice = !_onlyPolice;
-                      if (_onlyPolice) _excludePolice = false;
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _toggleChip(context, '경찰기관만', _onlyPolice, () {
+                      setState(() {
+                        _onlyPolice = !_onlyPolice;
+                        if (_onlyPolice) _excludePolice = false;
+                      });
+                      _selectionSubmitFocusNode.requestFocus();
                     }),
                   ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 16),
-
-            // ── 날짜/시각 범위 ───────────────────────────
-            _sectionLabel(context, '날짜 / 시각 범위'),
-            _dateRange(
-              context,
-              '신고일',
-              _reportDateStart,
-              _reportDateEnd,
-              Theme.of(context).colorScheme.primary,
-              (d) => setState(() => _reportDateStart = d),
-              (d) => setState(() => _reportDateEnd = d),
-            ),
-            const SizedBox(height: 8),
-            _dateRange(
-              context,
-              '발생일',
-              _occurDateStart,
-              _occurDateEnd,
-              Theme.of(context).colorScheme.secondary,
-              (d) => setState(() => _occurDateStart = d),
-              (d) => setState(() => _occurDateEnd = d),
-            ),
-            const SizedBox(height: 8),
-            _dateRange(
-              context,
-              '답변일',
-              _responseDateStart,
-              _responseDateEnd,
-              Theme.of(context).colorScheme.tertiary,
-              (d) => setState(() => _responseDateStart = d),
-              (d) => setState(() => _responseDateEnd = d),
-            ),
-            const SizedBox(height: 8),
-            // 발생시각
-            Row(
-              children: [
-                Container(
-                  width: 56,
-                  padding: const EdgeInsets.only(right: 8),
-                  child: Text(
-                    '발생시각',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: context.sr.textSecondary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                Expanded(
-                  child: TextField(
-                    controller: _occurTimeStartCtrl,
-                    textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      hintText: '14:30',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 10,
-                      ),
-                    ),
-                  ),
-                ),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 6),
-                  child: Text('~'),
-                ),
-                Expanded(
-                  child: TextField(
-                    controller: _occurTimeEndCtrl,
-                    textInputAction: TextInputAction.search,
-                    onSubmitted: (_) => _apply(),
-                    decoration: const InputDecoration(
-                      hintText: '15:00',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 10,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 20),
-            FilledButton.icon(
-              icon: const Icon(Icons.search, size: 18),
-              label: const Text('검색 적용'),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 14),
+                ],
               ),
-              onPressed: _apply,
-            ),
-            const SizedBox(height: 20),
-          ],
+
+              const SizedBox(height: 16),
+
+              // ── 날짜/시각 범위 ───────────────────────────
+              _sectionLabel(context, '날짜 / 시각 범위'),
+              _dateRange(
+                context,
+                '신고일',
+                _reportDateStart,
+                _reportDateEnd,
+                Theme.of(context).colorScheme.primary,
+                (d) => setState(() => _reportDateStart = d),
+                (d) => setState(() => _reportDateEnd = d),
+              ),
+              const SizedBox(height: 8),
+              _dateRange(
+                context,
+                '발생일',
+                _occurDateStart,
+                _occurDateEnd,
+                Theme.of(context).colorScheme.secondary,
+                (d) => setState(() => _occurDateStart = d),
+                (d) => setState(() => _occurDateEnd = d),
+              ),
+              const SizedBox(height: 8),
+              _dateRange(
+                context,
+                '답변일',
+                _responseDateStart,
+                _responseDateEnd,
+                Theme.of(context).colorScheme.tertiary,
+                (d) => setState(() => _responseDateStart = d),
+                (d) => setState(() => _responseDateEnd = d),
+              ),
+              const SizedBox(height: 8),
+              // 발생시각
+              Row(
+                children: [
+                  Container(
+                    width: 56,
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Text(
+                      '발생시각',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.sr.textSecondary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: TextField(
+                      controller: _occurTimeStartCtrl,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                        hintText: '14:30',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 10,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 6),
+                    child: Text('~'),
+                  ),
+                  Expanded(
+                    child: TextField(
+                      controller: _occurTimeEndCtrl,
+                      textInputAction: TextInputAction.search,
+                      onSubmitted: (_) => _apply(),
+                      decoration: const InputDecoration(
+                        hintText: '15:00',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 10,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                icon: const Icon(Icons.search, size: 18),
+                label: const Text('검색 적용'),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                onPressed: _apply,
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
         ),
       ),
     );

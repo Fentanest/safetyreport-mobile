@@ -126,3 +126,18 @@ monthly_reported[{month:"YYYY-MM",count}](신고일 기준), monthly_answered[�
 | S-11 | **구현(S-10 대조 중 발견)**: 서버 `_extract_fine_amount` 가 `과태료: 40.000원`(점 구분자)을 0원·금액 미확인으로 셈 → 모바일과 같이 점도 구분자로 읽음 |
 | S-12 | **구현(S-10 대조 중 발견)**: 서버 통계 반올림이 Python `round()`(짝수 쪽)라 23.25 → 23.2, 모바일은 23.3 → 서버를 `_round_half_up` 으로(Dart `toStringAsFixed` 와 51,479 케이스 일치). 통계 행·요약만, 대시보드 비율은 그대로 |
 | S-10 | ~~서버 `/stats` 는 담당자 없음+진행중 행을 기관별 집계에서도 빼고 NULL 기관을 '알수없음'으로 묶지만, Standalone 은 담당자별에서만 빼고 빈 기관 행은 건너뛴다~~ **결정·구현(아래 §8)**. 실측(5월 DB 사본): 처리기관이 빈 신고는 전부 답변 전(처리중·취하)이라 기본 설정에선 차이 0, 취하 표시 시 5건 차이였다 | 처리기관을 붙이거나 이송으로 담당자가 생기면 같은 처리중 신고가 표에 들어갔다 빠졌다 한다 | 서버 `_build_stats_tables`, 모바일 `LocalDbService.buildStatsCategory` |
+
+
+## 9. 통계 화면 개편 (2026-09-28, 사용자 지시 — PC 와 공통)
+
+정본 설명은 서버 레포 `docs/design/statistics-spec.md` §9 이고, 이 절은 모바일 쪽 사실만 적는다.
+
+- 구성: 공통 조건(연도·분류·위반법규 선택 줄) → 요약(접기 가능, 2열 카드 6개 → 월별 처리 추이 → '처분 분포·위반 유형 펼치기') → '신고 지도 열기' → 상세 통계(3+3 여섯 보기·검색·정렬·카드 목록) → 전국 안전신고 현황(대시보드에서 이동).
+- 요약 추가 필드(`disposition`·`fine_amount`·`report_types`·`monthly_answered_fine`, 기관 행 `avg_days_count`)는 Standalone `LocalDbService.summarizeOverviewRows`·`_AgencyAgg` 가 서버와 같은 규칙으로 계산한다.
+  같은 입력·기대값 `contracts/stats-overview-vectors.json`(서버와 바이트 동일, `test/services/stats_overview_vectors_test.dart`), 실제 fixture DB 동등성 `scripts/dev/logic_parity_check.py`(서버 레포) 48개 조합 차이 0.
+- 구서버(필드 없음): 과태료·경고/범칙금·확정 과태료 카드는 '미지원', 처분 분포·유형 카드는 제공하지 않는다는 안내. 0 으로 바꾸지 않는다.
+- **과태료 표시 변경(2026-09-27 §5 대체)**: 상단 '교통위반 과태료 합계'(`StatsFineSummary`)를 없애고, 요약의 '확정 과태료' 카드가 **선택한 분류**의 확정·금액 미확인·추정을 보인다(PC 와 같음). 확정과 추정은 여전히 더하지 않는다.
+- 월별 추이는 답변월 처리 건수(막대) + 그중 과태료(가는 막대). 신고일 계열은 그리지 않는다. 연도 선택 시 그해 1월~이번 달, 미래 달 없음, 이번 달 흐린 막대(집계 중).
+- 카드의 순위 원(금·은·동)을 없애고 정렬 기준을 문구로 알린다(평가 순위 오해 방지). 목록은 자르지 않는다.
+- 지도는 통계 안에 넣지 않고 기존 `ReportMapScreen(initialYear, initialCategory)`을 연다(위반법규는 지도에서 지원하지 않는다고 안내). 탭 화면은 IndexedStack 이라 돌아오면 상태가 그대로다.
+- 렌더 검수 도구: `test/tool/stats_screen_render_test.dart`(환경변수 있을 때만, Standalone = 서버 fixture 를 가져온 DB, Client = fixture 서버).

@@ -2019,6 +2019,18 @@ class LocalDbService {
       ];
     }
 
+    // 2026-09-28 통계 개편 추가 필드(서버 `_summarize_overview_frame` 과 같은 정의 — contracts/stats-overview-vectors.json).
+    // 답변월 기준 과태료 건수: 월별 처리 추이 보조 계열(같은 답변일 기준).
+    final answeredFineByMonth = <String, int>{};
+    for (final r in rows) {
+      final answered = _parseOverviewDate(r['답변일']);
+      final fine = r['범칙금_과태료']?.toString() ?? '';
+      if (answered != null && fine.contains('과태료')) {
+        final key = _monthKey(answered);
+        answeredFineByMonth[key] = (answeredFineByMonth[key] ?? 0) + 1;
+      }
+    }
+
     return {
       'total': rows.length,
       'completed': completed,
@@ -2036,6 +2048,64 @@ class LocalDbService {
       'undated_report_count': undated,
       'monthly_reported': series(reportedByMonth),
       'monthly_answered': series(answeredByMonth),
+      'monthly_answered_fine': series(answeredFineByMonth),
+      ..._overviewExtras(rows),
+    };
+  }
+
+  /// 카테고리 전체(기관 유무와 무관) 처분 분류·확정/추정 과태료·위반 유형. 서버 `_overview_disposition`·
+  /// `_overview_fine_amount`·`_overview_report_types` 와 같은 규칙. 처분·금액은 기관표 행([_AgencyAgg])과 같은 계산을 쓴다.
+  static Map<String, dynamic> _overviewExtras(List<Map<String, dynamic>> rows) {
+    final agg = _AgencyAgg('', '');
+    var decided = 0;
+    var confirmedCount = 0;
+    final typeCounts = <String, int>{};
+    for (final r in rows) {
+      agg.add(r);
+      final fine = r['범칙금_과태료']?.toString() ?? '';
+      final status = (r['처리상태']?.toString() ?? '').trim();
+      if (fine.contains('과태료') ||
+          fine.contains('경고') ||
+          fine.contains('범칙금') ||
+          status == '불수용' ||
+          status == '기타') {
+        decided++;
+      }
+      if (fine.contains('과태료') && extractFineAmount(fine) > 0) {
+        confirmedCount++;
+      }
+      final name = (r['신고명']?.toString() ?? '').trim();
+      typeCounts[name] = (typeCounts[name] ?? 0) + 1;
+    }
+    final types = typeCounts.entries.toList()
+      ..sort((a, b) {
+        final byCount = b.value.compareTo(a.value);
+        return byCount != 0 ? byCount : a.key.compareTo(b.key);
+      });
+    return {
+      // overlap = 과태료+경고/범칙금+불수용 합 − 셋 중 하나 이상인 신고 수(한 신고에 겹친 수)
+      'disposition': {
+        'fines': agg.fines,
+        'warnings': agg.warn,
+        'rejects': agg.reject,
+        'unconfirmed': agg.unconfirmed,
+        'in_progress': agg.inProgress,
+        'disposition_unknown': agg.dispositionUnknown,
+        'no_penalty': agg.noPenalty,
+        'unclassified': agg.unclassified,
+        'overlap': agg.fines + agg.warn + agg.reject - decided,
+      },
+      // 확정·추정은 합치지 않는다(PROJECT_RULES §3-2)
+      'fine_amount': {
+        'confirmed_amount': agg.totalFine,
+        'confirmed_count': confirmedCount,
+        'unknown_count': agg.fineAmountUnknown,
+        'estimated_amount': agg.estimatedFineAmount,
+        'estimated_count': agg.estimatedFineCount,
+      },
+      'report_types': [
+        for (final e in types) {'name': e.key, 'count': e.value},
+      ],
     };
   }
 
@@ -4044,6 +4114,8 @@ class _AgencyAgg {
       'estimated_fine_count': estimatedFineCount,
       'avg_rating': avgRating,
       'rating_count': ratings.length,
+      // 2026-09-28: 평균 처리기간 표본 수(서버 `avg_days_count`). 표 합계가 행 평균을 이 수로 가중한다.
+      'avg_days_count': responseDays.length,
       // S-01: 서버 _calc_avg_days 와 같이 소수 1자리.
       'avg_days': responseDays.isEmpty
           ? null

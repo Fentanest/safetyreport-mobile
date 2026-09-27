@@ -13,7 +13,6 @@ import 'recent_answers_screen.dart';
 import 'report_management_screen.dart';
 import 'settings_screen.dart';
 import 'filtered_list_screen.dart';
-import 'sunwi_screen.dart';
 import '../theme/sr_colors.dart';
 import '../widgets/mode_badge.dart';
 import '../widgets/status_badge.dart';
@@ -195,8 +194,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _buildWatchlistSection(context, stats.watchlist),
           const SizedBox(height: 16),
           _buildRecentSection(context, provider.recentAnswerReports),
-          const SizedBox(height: 16),
-          const SunwiSection(embedded: true),
+          // 전국 신고현황(Sunwi)은 2026-09-28 통계 탭 아래로 옮겼다.
         ],
       ),
     );

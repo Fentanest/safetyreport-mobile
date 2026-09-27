@@ -346,6 +346,9 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
 
 - **Client 신규 엔드포인트** `GET /api/v1/stats/overview` (`ServerContract.statsOverviewPath`). 요약 카드 + 월별 추이 + 전체 평균 처리일(표본 수 포함). 계약 상세: `docs/design/statistics-spec.md` §6-1.
   서버 구현: `services/report_stats_service.py::get_stats_overview` (서버 레포 브랜치 `feature/stats-overview-api`). 구서버 404 → `ApiFeatureUnavailableException` → 화면에 미지원 안내, 기관표는 유지.
+- (2026-09-28, 추가형) `/stats/overview` 각 분류 요약에 `monthly_answered_fine[{month,count}]`, `disposition{fines warnings rejects unconfirmed in_progress disposition_unknown no_penalty unclassified overlap}`,
+  `fine_amount{confirmed_amount confirmed_count unknown_count estimated_amount estimated_count}`, `report_types[{name,count}]`, `/stats` 행에 `avg_days_count`. 모델 `OverviewSummary`(필드 없으면 null)·`AgencyStatRow.avgDaysCount`.
+  정의·벡터는 서버 `docs/architecture/data-contracts.md` "2026-09-28 통계 화면 개편" 과 `contracts/stats-overview-vectors.json`. DB 스키마·교환 컬럼 변경 없음.
   Kotlin `ServerContract.kt` 는 이 경로를 쓰지 않으므로 변경 없음.
 - **Standalone** `LocalDbService.computeStatsOverview` / `summarizeOverviewRows` 가 같은 정의로 로컬 계산. `computeStats` 와 같은 행을 쓰도록 행 조회를 `_queryStatsRows` 로 분리(동작 동일).
 - ~~연도 필터 기준 컬럼이 모드마다 다르다~~ → S-08 결정으로 두 모드 모두 **답변일**. 요약 화면 각주에 `year_basis` 로 표시한다.

@@ -295,7 +295,7 @@ class _SunwiSectionState extends State<SunwiSection> {
             const SizedBox(width: 6),
             const Expanded(
               child: Text(
-                '신고현황',
+                '전국 안전신고 현황',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
             ),

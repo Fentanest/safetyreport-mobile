@@ -1,10 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../community/gate/community_account_client.dart';
 import '../community/upload_hooks.dart';
 import '../community/gate/community_gate.dart';
+import '../community/kakao_logout.dart';
+import '../providers/report_provider.dart';
 import '../services/community_auth_service.dart';
 import 'community_card_parts.dart';
 
@@ -48,29 +51,49 @@ class _CommunityAccountCardState extends State<CommunityAccountCard> {
     }
   }
 
-  Future<void> _confirmDisconnect(String name) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('커뮤니티 계정 연결 해제'),
-        content: Text(
-          '$name 계정 연결을 이 기기에서 해제합니다. '
-          '다른 기기의 로그인과 안전신문고 계정·신고 데이터는 그대로입니다.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('연결 해제'),
-          ),
-        ],
-      ),
-    );
-    if (ok == true) await _run(() => _svc.disconnect());
-  }
+  // 2026-09-27: 카카오 로그인은 필수(사용자 결정) — 신고 자료를 남긴 채 로그인만 푸는 "연결 해제"는 지금은 쓰지 않는다.
+  // 대신 카카오 로그아웃([_logout])이 이 기기의 신고 자료를 지운다. 필요해지면 되살린다(주석 처리).
+  // Future<void> _confirmDisconnect(String name) async {
+  //   final ok = await showDialog<bool>(
+  //     context: context,
+  //     builder: (ctx) => AlertDialog(
+  //       title: const Text('커뮤니티 계정 연결 해제'),
+  //       content: Text(
+  //         '$name 계정 연결을 이 기기에서 해제합니다. '
+  //         '다른 기기의 로그인과 안전신문고 계정·신고 데이터는 그대로입니다.',
+  //       ),
+  //       actions: [
+  //         TextButton(
+  //           onPressed: () => Navigator.pop(ctx, false),
+  //           child: const Text('취소'),
+  //         ),
+  //         FilledButton(
+  //           onPressed: () => Navigator.pop(ctx, true),
+  //           child: const Text('연결 해제'),
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  //   if (ok == true) await _run(() => _svc.disconnect());
+  // }
+
+  /// 카카오 로그아웃 — 이 기기의 신고 자료를 지운다는 안내 뒤 실행([KakaoLogout]).
+  Future<void> _logout() => _run(() async {
+        CommunityGate? gate = widget.gate;
+        ReportProvider? reports;
+        try {
+          gate ??= Provider.of<CommunityGate>(context, listen: false);
+        } catch (_) {}
+        try {
+          reports = Provider.of<ReportProvider>(context, listen: false);
+        } catch (_) {}
+        await KakaoLogout.confirmAndRun(
+          context,
+          gate: gate,
+          auth: _svc,
+          afterWipe: reports?.refreshAll,
+        );
+      });
 
   @override
   Widget build(BuildContext context) {
@@ -244,14 +267,24 @@ class _CommunityAccountCardState extends State<CommunityAccountCard> {
           const SizedBox(height: 8),
           Text(uploadNote, style: TextStyle(color: muted, fontSize: 12)),
           const SizedBox(height: 12),
+          // "연결 해제" 버튼은 주석 처리(2026-09-27 카카오 로그인 필수) — [_logout] 참고.
+          // SizedBox(
+          //   width: double.infinity,
+          //   child: OutlinedButton.icon(
+          //     icon: const Icon(Icons.link_off, size: 18),
+          //     label: const Text('연결 해제'),
+          //     onPressed: _busy
+          //         ? null
+          //         : () => _confirmDisconnect(a?.displayName ?? '이'),
+          //   ),
+          // ),
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
-              icon: const Icon(Icons.link_off, size: 18),
-              label: const Text('연결 해제'),
-              onPressed: _busy
-                  ? null
-                  : () => _confirmDisconnect(a?.displayName ?? '이'),
+              key: const Key('communityKakaoLogout'),
+              icon: const Icon(Icons.logout, size: 18),
+              label: const Text('카카오 로그아웃'),
+              onPressed: _busy ? null : _logout,
             ),
           ),
         ];
@@ -271,11 +304,17 @@ class _CommunityAccountCardState extends State<CommunityAccountCard> {
           const SizedBox(height: 12),
           CommunityButtonBar(
             children: [
+              // "연결 해제"는 주석 처리(2026-09-27 카카오 로그인 필수) — 카카오 로그아웃으로 바꿨다.
+              // OutlinedButton(
+              //   onPressed: _busy
+              //       ? null
+              //       : () => _confirmDisconnect(a?.displayName ?? '이'),
+              //   child: const Text('연결 해제'),
+              // ),
               OutlinedButton(
-                onPressed: _busy
-                    ? null
-                    : () => _confirmDisconnect(a?.displayName ?? '이'),
-                child: const Text('연결 해제'),
+                key: const Key('communityKakaoLogoutReauth'),
+                onPressed: _busy ? null : _logout,
+                child: const Text('카카오 로그아웃'),
               ),
               FilledButton.icon(
                 icon: const Icon(Icons.login, size: 18),

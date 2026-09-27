@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../services/community_auth_config.dart';
 import '../../services/community_auth_service.dart';
+import '../../services/local_db_service.dart';
 import '../capture/server_completed.dart' show deletionState;
 import '../community_store.dart';
 import '../upload_hooks.dart';
@@ -53,6 +54,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     String Function()? deviceLabel,
     String Function()? platformName,
     String Function()? projectNamespace,
+    Future<String> Function(String? kakaoId)? checkDataOwner,
   })  : _config = config ?? CommunityAuthConfig.fromEnvironment,
         _authOverride = auth,
         _store = store,
@@ -65,7 +67,8 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         _officialAccountId = officialAccountId,
         _deviceLabelOverride = deviceLabel,
         _platformNameOverride = platformName,
-        _projectNamespaceOverride = projectNamespace {
+        _projectNamespaceOverride = projectNamespace,
+        _checkDataOwnerOverride = checkDataOwner {
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -83,6 +86,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   final String Function()? _deviceLabelOverride;
   final String Function()? _platformNameOverride;
   final String Function()? _projectNamespaceOverride;
+  final Future<String> Function(String? kakaoId)? _checkDataOwnerOverride;
 
   CommunityAuthService get _auth => _authOverride ?? CommunityAuthService.instance;
 
@@ -285,6 +289,23 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         return _state;
       }
       if (isWriter) {
+        // 카카오 로그인·동의가 끝나도, 이 기기의 신고 자료가 다른 카카오 계정 것이면 들어가지 않는다(자료를 지우거나 로그아웃할 때까지).
+        // 다른 계정의 자료가 남아 있으면 writer 연결도 만들지 않는다(PC services/community_gate.py _check_owner 와 같은 규칙).
+        final owner = await _checkOwner();
+        if (owner != 'ok') {
+          final blocked = owner == 'mismatch'
+              ? const GateState(state: 'db_owner_mismatch', canEnter: false, reasons: ['db_owner_mismatch'])
+              : GateState(
+                  state: 'verification_required',
+                  canEnter: false,
+                  reasons: ['data_owner_unverified', ?_ownerError],
+                );
+          _apply(blocked);
+          await _deactivate('gate:${blocked.state}');
+          _checked = true;
+          notifyListeners();
+          return _state;
+        }
         // 진입(K·C)과 업로드 연결은 별개다: 연결을 못 얻으면 화면은 쓰되 context 를 끄고 업로드만 멈춘다.
         final blocked = await _ensureWriterConnection(status, token);
         if (blocked == null) {
@@ -317,6 +338,26 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         _checking = false;
         notifyListeners();
       }
+    }
+  }
+
+  String? _ownerError;
+
+  /// 게이트 통과 뒤(Standalone writer): 개인 DB 의 주인 카카오 회원번호를 확인(처음이면 적음). 번호를 못 받으면 'unknown'.
+  Future<String> _checkOwner() async {
+    _ownerError = null;
+    String? kakaoId;
+    try {
+      kakaoId = await _auth.currentKakaoId();
+    } on CommunityKakaoIdUnavailable catch (e) {
+      _ownerError = e.code;
+    } catch (_) {
+      _ownerError = 'auth_unavailable';
+    }
+    try {
+      return await (_checkDataOwnerOverride ?? LocalDbService.checkOwner)(kakaoId);
+    } catch (_) {
+      return 'unknown';
     }
   }
 

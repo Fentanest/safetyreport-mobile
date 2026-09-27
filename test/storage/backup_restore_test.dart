@@ -6,6 +6,7 @@ import 'package:safetyreport/models/report.dart';
 import 'package:safetyreport/services/local_db_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import '../support/kakao_owner.dart';
 
 Report _report(String id, String number) => Report(
   id: id,
@@ -37,6 +38,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory dir;
   late Directory files;
+  useTestKakaoAccount();
 
   setUpAll(() async {
     sqfliteFfiInit();
@@ -49,6 +51,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     await LocalDbService.closeDb();
     await deleteDatabase(await LocalDbService.getDbPath());
+    await LocalDbService.checkOwner(testKakaoId); // 게이트가 적는 이 기기 DB 의 주인 — 백업에 함께 들어간다
   });
   tearDownAll(() async {
     await LocalDbService.closeDb();

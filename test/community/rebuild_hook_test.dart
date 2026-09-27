@@ -10,6 +10,7 @@ import 'package:safetyreport/community/capture/rebuild_helpers.dart';
 import 'package:safetyreport/community/community_store.dart';
 import 'package:safetyreport/services/local_db_service.dart';
 import 'package:safetyreport/services/sync_engine.dart';
+import '../support/kakao_owner.dart';
 
 Future<CommunityStore> openStore(Directory dir) async {
   sqfliteFfiInit();
@@ -120,6 +121,7 @@ void main() {
   });
 
   group('rotate hook', () {
+    useTestKakaoAccount();
     test('replaceFromBackup 전에 rotateDataset(restore) 호출', () async {
       TestWidgetsFlutterBinding.ensureInitialized();
       sqfliteFfiInit();
@@ -137,6 +139,7 @@ void main() {
           '신고번호': 'SPP-live1',
           'category': 'parking',
         });
+        await stampOwner(db);
         await LocalDbService.closeDb();
         // 백업 파일: exportBackup 으로 만든 진짜 백업 (형식 보장).
         final backupPath = '${dir.path}/backup.db';
@@ -227,6 +230,7 @@ void main() {
       try {
         final db = await LocalDbService.db;
         await db.insert('reports', {'ID': 'live1', '신고번호': 'SPP-live1', 'category': 'parking'});
+        await stampOwner(db);
         await LocalDbService.closeDb();
         final backupPath = '${dir.path}/backup.db';
         await LocalDbService.exportBackup(backupPath);

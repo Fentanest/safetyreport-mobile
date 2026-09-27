@@ -217,16 +217,11 @@ void main() {
       requestId: 'req-1',
       client: client,
     );
-    await CommunityServerLinkService.disconnect(
-      baseUrl: _base,
-      apiKey: _key,
-      client: client,
-    );
+    // disconnect 는 없앴다(2026-09-27 카카오 로그인 필수, 서버 경로 삭제).
     expect(seen.map((r) => r.url.path), [
       '/api/v1/community-auth/start',
       '/api/v1/community-auth/confirm',
       '/api/v1/community-auth/cancel',
-      '/api/v1/community-auth/disconnect',
     ]);
     expect(seen.every((r) => r.method == 'POST'), isTrue);
     expect(
@@ -236,7 +231,6 @@ void main() {
     expect(jsonDecode(seen[0].body), <String, dynamic>{});
     expect(jsonDecode(seen[1].body), {'request_id': 'req-1'});
     expect(jsonDecode(seen[2].body), {'request_id': 'req-1'});
-    expect(jsonDecode(seen[3].body), <String, dynamic>{});
   });
 
   test(

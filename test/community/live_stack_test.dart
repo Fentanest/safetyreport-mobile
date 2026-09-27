@@ -19,6 +19,9 @@ import 'package:safetyreport/community/gate/community_account_client.dart';
 import 'package:safetyreport/community/upload/community_ingest_client.dart';
 import 'package:safetyreport/community/upload/community_uploader.dart';
 import 'package:safetyreport/models/app_mode.dart';
+import 'package:safetyreport/services/community_auth_config.dart';
+import 'package:safetyreport/services/community_auth_service.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -155,5 +158,38 @@ void main() {
     expect(sql('select count(*) from private.community_ingest_events;'), ledger);
     expect(sql("select count(*) from jsonb_array_elements(public.internal_analytics_v2_facts(date '2024-01-01', date '2028-12-31', 'all', null, null, null, null)) e "
         "where e->>'contributor_id' = '$userId';"), '0');
+  }, skip: enabled ? false : 'COMMUNITY_STACK=1 과 COMMUNITY_PUBLISHABLE_KEY 가 필요하다(실제 로컬 스택)');
+
+  // 2026-09-27: 신고 자료의 주인 = 카카오 회원번호. 실제 GoTrue 의 identities 에서 읽고(user_metadata 아님),
+  // 이 기능 전에 저장된 세션(kakao_id 없음)은 /auth/v1/user 로 한 번 채운다. 동의·연결은 건드리지 않는다(스택을 같이 쓰는 다른 작업 보호).
+  test('kakao member id comes from the real GoTrue identity and backfills an old session', () async {
+    final key = env['COMMUNITY_PUBLISHABLE_KEY']!;
+    final session = await kakaoSession(key, 'D');
+    final token = session['access_token'] as String;
+    final res = await http.get(Uri.parse('$api/auth/v1/user'), headers: {'apikey': key, 'authorization': 'Bearer $token'});
+    expect(res.statusCode, 200);
+    final user = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+    expect(kakaoMemberId(user), '920004', reason: 'mock 카카오 D 의 회원번호');
+
+    final secure = <String, String>{};
+    FlutterSecureStorage.setMockInitialValues(secure);
+    secure[CommunityAuthService.sessionKey] = jsonEncode({
+      'v': 1,
+      'access_token': token,
+      'refresh_token': session['refresh_token'],
+      'expires_at': session['expires_at'] ?? DateTime.now().millisecondsSinceEpoch ~/ 1000 + 3600,
+      'user_id': (session['user'] as Map)['id'],
+      'display_name': 'live',
+      'has_email': false,
+      'connected_at': DateTime.now().toUtc().toIso8601String(),
+      'state': 'active',
+    });
+    final svc = CommunityAuthService(
+      config: CommunityAuthConfig.validate(url: api, key: key, allowLoopbackHttp: true),
+      storage: const FlutterSecureStorage(),
+    );
+    expect(await svc.sessionKakaoId(), isNull);
+    expect(await svc.currentKakaoId(), '920004');
+    expect((jsonDecode(secure[CommunityAuthService.sessionKey]!) as Map)['kakao_id'], '920004');
   }, skip: enabled ? false : 'COMMUNITY_STACK=1 과 COMMUNITY_PUBLISHABLE_KEY 가 필요하다(실제 로컬 스택)');
 }

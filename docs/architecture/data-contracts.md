@@ -178,7 +178,7 @@ v9→v10→v11 제자리 업데이트·두 엔진 동시 시작·이관 중 종�
 이후 읽기가 실패할 수 있다(자료는 지우지 않음, `resetOnError` 기본 false) — 앱은 읽기 실패 시 표시를 남기지 않고 다음 시작에 다시 연다. iOS(Keychain, darwin 패키지)는 실기기 미확인.
 
 커뮤니티 계정(카카오, Supabase Auth)은 안전신문고 계정과 별개다. Standalone 만 폰에 세션을 두고, Client 는 서버가 세션 주인이라 폰에 아무것도 저장하지 않는다.
-SharedPreferences·SQLite 에는 넣지 않는다(DB 스키마 변경 없음). 흐름·서버 API(`/api/v1/community-auth/*`, capability `community_account`)는
+토큰은 SharedPreferences·SQLite 에 넣지 않는다(DB 스키마 변경 없음). 자료 주인 카카오 회원번호만 `sync_meta['kakao_member_id']`(아래 2026-09-27 절). 흐름·서버 API(`/api/v1/community-auth/*`, capability `community_account`)는
 [community-account.md](community-account.md).
 
 커뮤니티 공유 사본 `community.db`(개인 DB 와 별도 파일, 서버↔모바일 교환 대상 아님 — PROJECT_RULES 3-1 무관): `meta.schema_version` **2**
@@ -415,6 +415,21 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
   다시 만든다(예전엔 대상 파일이 있어 실패), 무결성 검사는 만든 사본에서 한다(예전엔 원본을 검사). 사전 백업도 `VACUUM INTO` 대신 같은 일관된 사본을 쓴다
   (예전엔 Android 7~10 에서 백업이 실패해 초기화 크롤링을 시작할 수 없었다).
 - 계약: `contracts/community-ingest/rebuild.md` "이전 버전 개인 DB"(map 레포 원본의 사본).
+
+## 2026-09-27 신고 자료의 주인 = 카카오 계정 (서버·모바일 함께)
+
+사용자 결정: 카카오 로그인은 필수, 카카오 로그아웃은 신고 자료를 지운다, 다른 사람의 DB 는 가져오지 못한다.
+- 키 `kakao_member_id`: 서버 `mysafety_sync_meta`, 모바일 `sync_meta`. 값은 카카오 회원번호 원문(숫자 문자열, GoTrue `identities[provider=kakao]` 에서 읽음 —
+  `user_metadata` 는 쓰지 않음). 스키마·버전 변경 없음(key/value 행 하나). 교환 때 다른 sync_meta 키와 같이 그대로 옮긴다 —
+  서버 레포 `scripts/dev/db_roundtrip_check.py` 가 S0·M1·S2·M3 네 DB 모두 같은 값인지 따로 확인한다(`[owner]`).
+- 쓰는 때: 게이트가 처음 통과할 때(주인 표시가 없을 때만), "신고 내역 지우고 이 계정으로 시작". 지우는 때: 카카오 로그아웃·위 전환(자료와 함께).
+  `start.py --reset` 은 이 키를 남긴다(같은 사용자의 초기화).
+- 가져오기·복원(서버 `exchange.restore`, 모바일 `importFromServerDb`·`replaceFromBackup`): 버전 검사 바로 뒤·무엇이든 바꾸기 전에 파일의 주인을 본다.
+  없거나(이 기능 전 DB 포함) 지금 로그인한 계정과 다르거나 로그인 계정 번호를 모르면 거절(서버 409 `ForeignDatabaseRefused`, 모바일 `ForeignDatabaseException`).
+- 카카오 로그아웃이 비우는 범위 = 이전 DB 초기화와 같다: 서버는 `admin_users`·`api_keys`·`mysafety_watchlist`·`mysafety_geocode_cache` 유지,
+  모바일은 감시목록(`sync_meta['watchlist']`)·`geocode_cache` 유지. 백업은 만들지 않는다. 크롤링·동기화·지도 변환 중이면 거절(아무것도 안 바꿈).
+- API: `POST /api/v1/community-auth/disconnect` 는 **삭제**(사용자 결정 "경로 삭제", 코드 주석 처리). 폰에서 서버의 카카오 로그인을 풀 수 없다.
+  상태 DTO 의 로그인 후보에 `is_different_data_owner`(하위호환 추가). 게이트 상태에 `db_owner_mismatch` 추가.
 
 ## 앱 업데이트 때 DB 처리 (2026-09-25) — 2026-09-27 부터 비활성(위 절)
 - DB 를 열 때 sqflite 가 저장된 버전을 보고 `_migrateLocalDatabase` 로 `LocalDbService.dbVersion`(현재 15)까지 올린다. sqflite 가 이 과정을 한 트랜잭션으로 돌려 실패하면 통째로 되돌아간다.

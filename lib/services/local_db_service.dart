@@ -1,4 +1,5 @@
 import 'app_prefs_keys.dart';
+import 'community_auth_service.dart';
 import '../models/editor_schema.dart';
 import '../models/rating_lookup.dart';
 import '../storage/schema_utils.dart';
@@ -52,6 +53,15 @@ class UnknownColumnsException implements Exception {
 /// 이전(또는 모르는 새) 버전 DB — 2026-09-26 초기화 크롤링 릴리스는 이전 DB 를 새 구조로 옮기지 않는다.
 /// 가져오기·복원은 이 오류로 멈추고(무엇이든 바꾸기 전에), 앱의 기존 DB 는 [LocalDbService.resetLegacyDatabase] 가 백업 뒤 비운다.
 /// 서버 core/storage/exchange.py 의 LegacyDatabaseRefused 와 같은 규칙·문구.
+/// 다른 카카오 계정의 DB(또는 주인을 모르는 DB) — 가져오지 않는다(PC account_data.ForeignDatabaseRefused 와 같은 규칙).
+class ForeignDatabaseException implements Exception {
+  ForeignDatabaseException(this.message);
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 class LegacyDatabaseException implements Exception {
   LegacyDatabaseException(this.message);
   final String message;
@@ -248,6 +258,103 @@ class LocalDbService {
   }
 
   static const legacyResetMetaKey = 'legacy_reset';
+
+  // ── 신고 자료의 주인 = 로그인한 카카오 계정 (2026-09-27 사용자 결정, PC services/account_data.py 와 같은 규칙) ──
+  /// 이 DB 의 주인 카카오 회원번호(카카오가 준 숫자 ID 원문). 서버 DB `mysafety_sync_meta` 와 같은 키 — 교환 때 그대로 옮겨진다.
+  static const kakaoMemberMetaKey = 'kakao_member_id';
+
+  /// 지금 로그인한 카카오 회원번호(가져오기 검사용). 시험은 바꿔 끼운다. 확인할 수 없으면 null(→ 거절).
+  @visibleForTesting
+  static Future<String?> Function() currentKakaoId = _defaultCurrentKakaoId;
+
+  static Future<String?> _defaultCurrentKakaoId() async {
+    try {
+      return await CommunityAuthService.instance.currentKakaoId();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 가져올 DB 파일의 주인 카카오 회원번호. 서버 DB 는 mysafety_sync_meta, 모바일 DB 는 sync_meta.
+  static Future<String?> _fileOwner(Database source, String table) async {
+    try {
+      final rows = await source.rawQuery('SELECT value FROM $table WHERE key = ?', [kakaoMemberMetaKey]);
+      final value = rows.isEmpty ? null : rows.first['value'];
+      return value is String && value.isNotEmpty ? value : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 가져오기·복원 전: 파일의 주인이 지금 로그인한 카카오 계정과 같아야 한다. 무엇이든 바꾸기 전에 부른다.
+  static Future<void> _refuseForeignOwner(Database source, String table) async {
+    final current = await currentKakaoId();
+    if (current == null) {
+      throw ForeignDatabaseException('카카오 로그인을 확인하지 못해 DB 를 가져올 수 없습니다. 다시 로그인한 뒤 시도하세요.');
+    }
+    final owner = await _fileOwner(source, table);
+    if (owner == null) {
+      throw ForeignDatabaseException(
+        '누구의 자료인지 알 수 없는 DB(카카오 계정 정보가 없는 이전 DB)는 가져올 수 없습니다. '
+        '초기화 크롤링으로 안전신문고에서 다시 받으세요.',
+      );
+    }
+    if (owner != current) {
+      throw ForeignDatabaseException('다른 카카오 계정의 DB 는 가져올 수 없습니다. 지금 로그인한 계정으로 만든 DB 만 가져올 수 있습니다.');
+    }
+  }
+
+  static Future<String?> dbOwner() => getMeta(kakaoMemberMetaKey);
+
+  /// 게이트 통과 뒤(Standalone): 'ok'(같음·처음이라 적음) | 'mismatch'(다른 계정의 자료) | 'unknown'(로그인 계정 번호를 모름).
+  static Future<String> checkOwner(String? kakaoId) async {
+    if (kakaoId == null || kakaoId.isEmpty) return 'unknown';
+    final owner = await dbOwner();
+    if (owner == null || owner.isEmpty) {
+      await setMeta(kakaoMemberMetaKey, kakaoId);
+      return 'ok';
+    }
+    return owner == kakaoId ? 'ok' : 'mismatch';
+  }
+
+  /// 카카오 로그아웃(또는 다른 계정으로 시작)할 때: 신고 자료만 비운다. 남기는 것은 이전 DB 초기화와 같다
+  /// (감시목록 `sync_meta['watchlist']`·지오코딩 캐시 — [legacyKept]). 데이터 주인 표시도 지워져 다음 로그인 계정이 새 주인이 된다
+  /// ([thenOwner] 를 주면 비운 뒤 그 번호를 적는다). 백업은 만들지 않는다(사용자에게 지운다고 알린 자료).
+  /// 동기화·지도 변환 중이면 거절(아무것도 지우지 않음). 커뮤니티 dataset 을 먼저 선회전해 지운 자료의 공유 대기 사본이 다음 계정으로 가지 않게 한다.
+  static Future<Map<String, Object?>> wipeReportData(String reason, {String? thenOwner}) async {
+    _refuseDuringBackgroundWork('신고 내역을 지울');
+    await _rotateCommunityDataset(reason);
+    final d = await db;
+    final cleared = <String>[];
+    await d.transaction((txn) async {
+      final virtualTables = [
+        for (final r in await txn.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type='table' AND sql LIKE 'CREATE VIRTUAL TABLE%'",
+        ))
+          r['name'] as String,
+      ];
+      final tables = [
+        for (final r in await txn.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+        ))
+          r['name'] as String,
+      ];
+      for (final name in tables) {
+        if (name == 'geocode_cache' || name == 'android_metadata' || name == 'sync_meta') continue;
+        // 가상 표(FTS)의 보조 표는 가상 표를 비우면 함께 비워진다 — 직접 건드리지 않는다
+        if (virtualTables.any((v) => name != v && name.startsWith('${v}_'))) continue;
+        await txn.delete(name);
+        cleared.add(name);
+      }
+      await txn.delete('sync_meta', where: 'key != ?', whereArgs: ['watchlist']);
+      if (thenOwner != null && thenOwner.isNotEmpty) {
+        await txn.insert('sync_meta', {'key': kakaoMemberMetaKey, 'value': thenOwner},
+            conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    });
+    _invalidateProjectRowsCache();
+    return {'cleared': cleared, 'kept': legacyKept};
+  }
 
   /// 이전 버전 DB 를 비울 때 옮기는 코드 없이 남기는 자료: 감시목록(sync_meta 의 watchlist 값)과 지오코딩 캐시(구조가 같을 때만).
   /// 서버 LEGACY_KEEP_TABLES 의 감시목록·지오코딩 캐시와 같다(관리자·API 키는 서버 전용).
@@ -3323,6 +3430,8 @@ class LocalDbService {
     try {
       // 이전(또는 더 새) 버전 서버 DB 는 가져오지 않는다(2026-09-26 초기화 크롤링 릴리스).
       _refuseOtherVersion(await serverDb.getVersion(), serverSchemaVersion, '서버');
+      // 다른 카카오 계정(또는 주인을 모르는) 서버 DB 는 가져오지 않는다 — 무엇이든 바꾸기 전에
+      await _refuseForeignOwner(serverDb, 'mysafety_sync_meta');
       await _validateServerDbSchema(serverDb);
 
       stagingDir = await Directory.systemTemp.createTemp(
@@ -3578,7 +3687,17 @@ class LocalDbService {
         singleInstance: false,
       );
       final version = await probe.getVersion();
+      String? probeError;
+      if (version == dbVersion) {
+        // 다른 카카오 계정(또는 주인을 모르는) 백업은 복원하지 않는다(직전 DB 되돌리기도 이 경로) — 무엇이든 바꾸기 전에
+        try {
+          await _refuseForeignOwner(probe, 'sync_meta');
+        } on ForeignDatabaseException catch (e) {
+          probeError = e.message;
+        }
+      }
       await probe.close();
+      if (probeError != null) throw ForeignDatabaseException(probeError);
       if (version <= 0) {
         throw Exception('백업 파일의 DB 버전을 알 수 없습니다.');
       }

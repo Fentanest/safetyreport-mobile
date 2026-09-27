@@ -148,6 +148,7 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
               if (!gate.canEnter) {
                 return CommunityOnboardingScreen(
                   gate: gate,
+                  onReportsWiped: provider.refreshAll,
                   onNext: () async {
                     await gate.requireFresh();
                   },

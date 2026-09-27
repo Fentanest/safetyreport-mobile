@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../community/gate/community_account_client.dart';
 import '../community/gate/community_gate.dart';
+import '../community/kakao_logout.dart';
 import '../services/community_auth_service.dart';
 
 /// 필수 게이트 온보딩: `[필수] 카카오 인증` + `[필수] 신고내용 공유 동의`.
@@ -20,6 +21,7 @@ class CommunityOnboardingScreen extends StatefulWidget {
     this.consentText,
     this.onNext,
     this.privacyLauncher,
+    this.onReportsWiped,
   });
 
   final CommunityGate? gate;
@@ -28,6 +30,9 @@ class CommunityOnboardingScreen extends StatefulWidget {
   final String? consentText;
   final Future<void> Function()? onNext;
   final Future<bool> Function(Uri uri)? privacyLauncher;
+
+  /// 카카오 로그아웃·"지우고 이 계정으로 시작"으로 신고 자료를 지운 뒤(화면 목록 갱신용).
+  final Future<void> Function()? onReportsWiped;
 
   @override
   State<CommunityOnboardingScreen> createState() =>
@@ -158,6 +163,66 @@ class _CommunityOnboardingScreenState
     }
   }
 
+  bool _ownerBusy = false;
+
+  Future<void> _logout() async {
+    final done = await KakaoLogout.confirmAndRun(
+      context,
+      gate: widget.gate,
+      auth: _auth,
+      afterWipe: widget.onReportsWiped,
+    );
+    if (done && mounted) {
+      setState(() {
+        _consentSaved = false;
+        _consentChecked = false;
+      });
+    }
+  }
+
+  Future<void> _adopt() async {
+    final gate = widget.gate;
+    if (gate == null || _ownerBusy) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('이 계정으로 새로 시작'),
+        content: const Text(
+          '이 기기에 남아 있는 다른 카카오 계정의 신고 내역을 모두 지우고, 지금 로그인한 계정으로 새로 시작합니다. '
+          '신고 내역은 안전신문고에서 처음부터 다시 불러옵니다(감시 목록은 남습니다).',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+              foregroundColor: Theme.of(ctx).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('지우고 시작'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _ownerBusy = true);
+    try {
+      final error = await KakaoLogout.adopt(
+        gate: gate,
+        auth: _auth,
+        afterWipe: widget.onReportsWiped,
+      );
+      if (error != null && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      }
+    } finally {
+      if (mounted) setState(() => _ownerBusy = false);
+    }
+  }
+
   Future<void> _openPrivacy() async {
     final uri = Uri.parse(_privacyUrl);
     final launcher = widget.privacyLauncher;
@@ -231,6 +296,7 @@ class _CommunityOnboardingScreenState
               gateState == 'verification_required' ||
               gate?.state.state == 'suspended')
             _recoveryBox(context, gate!),
+          if (gateState == 'db_owner_mismatch') _ownerMismatchBox(context),
           _kakaoCard(context),
           const SizedBox(height: 12),
           _consentCard(context),
@@ -289,16 +355,7 @@ class _CommunityOnboardingScreenState
               TextButton.icon(
                 icon: const Icon(Icons.logout, size: 16),
                 label: const Text('로그아웃'),
-                onPressed: () async {
-                  await _auth.disconnect();
-                  gate?.invalidate('logout');
-                  if (mounted) {
-                    setState(() {
-                      _consentSaved = false;
-                      _consentChecked = false;
-                    });
-                  }
-                },
+                onPressed: _logout,
               ),
               TextButton(
                 onPressed: _openPrivacy,
@@ -557,6 +614,49 @@ class _CommunityOnboardingScreenState
     );
   }
 
+  /// 게이트 `db_owner_mismatch`: 이 기기의 신고 자료가 지금 로그인한 카카오 계정의 것이 아니다.
+  Widget _ownerMismatchBox(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Card(
+      key: const Key('communityOwnerMismatch'),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '이 기기의 신고 내역은 다른 카카오 계정의 것입니다.',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: cs.error),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              '지금 계정으로 쓰려면 남아 있는 신고 내역을 지우고 새로 시작해야 합니다. '
+              '원래 계정의 신고 내역을 지키려면 로그아웃한 뒤 원래 계정으로 로그인하세요.',
+              style: TextStyle(fontSize: 12.5, height: 1.4),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                FilledButton(
+                  key: const Key('communityOwnerAdopt'),
+                  onPressed: _ownerBusy ? null : _adopt,
+                  child: const Text('신고 내역 지우고 이 계정으로 시작'),
+                ),
+                OutlinedButton(
+                  key: const Key('communityOwnerLogout'),
+                  onPressed: _ownerBusy ? null : _logout,
+                  child: const Text('로그아웃(신고 내역 유지)'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _recoveryBox(BuildContext context, CommunityGate gate) {
     final s = gate.state.state;
     final title = switch (s) {
@@ -584,10 +684,7 @@ class _CommunityOnboardingScreenState
                   child: const Text('재시도'),
                 ),
                 OutlinedButton(
-                  onPressed: () async {
-                    await _auth.disconnect();
-                    gate.invalidate('logout');
-                  },
+                  onPressed: _logout,
                   child: const Text('로그아웃'),
                 ),
                 OutlinedButton(

@@ -13,6 +13,7 @@ import 'package:safetyreport/services/app_prefs_keys.dart';
 import 'package:safetyreport/services/local_db_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import '../support/kakao_owner.dart';
 
 class _Provider extends ReportProvider {
   bool demo = false;
@@ -45,6 +46,8 @@ Future<void> _makeServerDb(String path, String name) async {
   await db.execute('CREATE TABLE mysafetymerge_parking AS SELECT * FROM mysafetymerge_traffic WHERE 0');
   await db.execute('CREATE TABLE mysafetymerge_other AS SELECT * FROM mysafetymerge_traffic WHERE 0');
   await db.execute('CREATE TABLE mysafety (ID TEXT PRIMARY KEY)');
+  await db.execute('CREATE TABLE mysafety_sync_meta (key TEXT PRIMARY KEY, value TEXT)');
+  await stampOwner(db, table: 'mysafety_sync_meta');
   await db.insert('mysafetymerge_traffic', {'ID': 's1', '신고번호': 'SPP-1', '신고명': name, '위반장소': '서울'});
   await db.close();
 }
@@ -52,6 +55,7 @@ Future<void> _makeServerDb(String path, String name) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory dir;
+  useTestKakaoAccount();
 
   setUpAll(() async {
     sqfliteFfiInit();

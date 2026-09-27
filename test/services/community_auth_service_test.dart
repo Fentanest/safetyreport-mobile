@@ -23,6 +23,10 @@ class _FakeAuth {
   var _serial = 0;
   String userId = 'user-a';
   String nickname = '테스터';
+  /// 카카오 회원번호(identities[provider=kakao]). null 이면 카카오 identity 없음.
+  String? kakaoId = '920001';
+  /// 사용자가 고칠 수 있는 user_metadata 에 넣는 가짜 번호 — 쓰이면 안 된다.
+  String? metadataProviderId;
   DateTime Function() now;
   http.Response Function(http.Request req)? pkceOverride;
   http.Response Function(http.Request req)? refreshOverride;
@@ -80,7 +84,19 @@ class _FakeAuth {
             jsonEncode({
               'id': userId,
               'email': 'hidden@example.test',
-              'user_metadata': {'nickname': nickname},
+              'user_metadata': {
+                'nickname': nickname,
+                'provider_id': ?metadataProviderId,
+                'sub': ?metadataProviderId,
+              },
+              'identities': [
+                if (kakaoId != null)
+                  {
+                    'provider': 'kakao',
+                    'id': kakaoId,
+                    'identity_data': {'provider_id': kakaoId, 'sub': kakaoId},
+                  },
+              ],
             }),
           ),
           200,
@@ -492,6 +508,76 @@ void main() {
       final r = await svc.getAccessTokenResult();
       expect(r.status, CommunityTokenStatus.notConnected);
       expect(fake.requests, isEmpty);
+    });
+  });
+
+  // 2026-09-27: 신고 자료의 주인 = 카카오 회원번호(서버가 관리하는 identities 에서만 읽는다, PC kakao_member_id 와 같음).
+  group('카카오 회원번호', () {
+    test('identities 의 카카오 번호만 읽는다(user_metadata·잘못된 값 무시)', () {
+      Map<String, dynamic> kakao(Map<String, Object?> data, {Object? id}) =>
+          {'provider': 'kakao', 'id': id, 'identity_data': data};
+      expect(kakaoMemberId({'identities': [kakao({'provider_id': '920003', 'sub': '920003'})]}), '920003');
+      expect(kakaoMemberId({'identities': [kakao({'sub': '920004'})]}), '920004');
+      expect(kakaoMemberId({'identities': [kakao({}, id: '920005')]}), '920005');
+      expect(
+        kakaoMemberId({
+          'identities': [
+            {'provider': 'google', 'identity_data': {'provider_id': '1'}},
+            kakao({'provider_id': '7'}),
+          ],
+        }),
+        '7',
+      );
+      expect(kakaoMemberId({'user_metadata': {'provider_id': '920003', 'sub': '920003'}}), isNull);
+      expect(kakaoMemberId({'identities': [kakao({'provider_id': 'abc'})]}), isNull);
+      expect(kakaoMemberId({'identities': [kakao({'provider_id': true})]}), isNull);
+      expect(kakaoMemberId({'identities': 'x'}), isNull);
+      expect(kakaoMemberId(<String, dynamic>{}), isNull);
+    });
+
+    test('로그인하면 세션에 카카오 번호가 저장되고 네트워크 없이 읽힌다', () async {
+      fake.metadataProviderId = '999999';
+      await svc.startLogin();
+      await svc.handleCallbackLink('$_link?code=$_code');
+      await svc.confirmCandidate();
+      expect(stored()?['kakao_id'], '920001', reason: 'user_metadata 의 번호가 아니라 identities 의 번호');
+      final before = fake.requests.length;
+      expect(await svc.sessionKakaoId(), '920001');
+      expect(await svc.currentKakaoId(), '920001');
+      expect(fake.requests.length, before);
+    });
+
+    test('이 기능 전에 연결한 세션은 한 번 받아 채운다; 실패는 코드로 알린다(fail-closed)', () async {
+      seedSession(expiresAt: now.add(const Duration(hours: 1)));
+      expect(await svc.sessionKakaoId(), isNull);
+      expect(await svc.currentKakaoId(), '920001');
+      expect(stored()?['kakao_id'], '920001');
+      expect(fake.count('/auth/v1/user'), 1);
+      expect(await svc.currentKakaoId(), '920001');
+      expect(fake.count('/auth/v1/user'), 1);
+
+      secure.remove(CommunityAuthService.sessionKey);
+      seedSession(expiresAt: now.add(const Duration(hours: 1)));
+      fake.kakaoId = null;
+      await expectLater(svc.currentKakaoId(),
+          throwsA(isA<CommunityKakaoIdUnavailable>().having((e) => e.code, 'code', 'kakao_id_missing')));
+      fake.kakaoId = '920001';
+      fake.userId = 'user-b';
+      await expectLater(svc.currentKakaoId(),
+          throwsA(isA<CommunityKakaoIdUnavailable>().having((e) => e.code, 'code', 'user_mismatch')));
+      expect(stored()?['kakao_id'], isNull);
+    });
+
+    test('재로그인 필요로 바뀌어도 번호는 남는다(로그아웃 판단용), 연결 안 됨이면 null', () async {
+      seedSession(expiresAt: now.add(const Duration(hours: 1)));
+      await svc.currentKakaoId();
+      final raw = stored()!..['state'] = 'reauth_required';
+      secure[CommunityAuthService.sessionKey] = jsonEncode(raw);
+      expect(await svc.sessionKakaoId(), '920001');
+      expect(await svc.currentKakaoId(), isNull);
+      secure.remove(CommunityAuthService.sessionKey);
+      expect(await svc.sessionKakaoId(), isNull);
+      expect(await svc.currentKakaoId(), isNull);
     });
   });
 

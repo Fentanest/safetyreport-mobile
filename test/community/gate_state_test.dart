@@ -40,6 +40,7 @@ void main() {
     Future<String?> Function()? officialAccountId,
   }) {
     final gate = CommunityGate(
+      checkDataOwner: ownerOk,
       config: testAuthConfig(),
       auth: auth,
       store: store,
@@ -76,6 +77,7 @@ void main() {
       status: () => statusJson(consentState: 'revoked', consentPolicy: null),
     );
     final gate2 = CommunityGate(
+      checkDataOwner: ownerOk,
       config: testAuthConfig(),
       auth: auth,
       store: store,
@@ -92,6 +94,7 @@ void main() {
       status: () => statusJson(consentState: 'outdated', consentPolicy: '2026-01-01.1'),
     );
     final gate3 = CommunityGate(
+      checkDataOwner: ownerOk,
       config: testAuthConfig(),
       auth: auth,
       store: store,
@@ -101,6 +104,59 @@ void main() {
     );
     addTearDown(gate3.dispose);
     expect((await gate3.refreshNow()).state, 'consent_required');
+  });
+
+  // 2026-09-27 사용자 결정: 이 기기의 신고 자료가 다른 카카오 계정 것이면 들어가지 않는다(PC services/community_gate.py 와 같음).
+  CommunityGate ownerGate(Future<String> Function(String?) check, {String mode = 'standalone'}) {
+    final gate = CommunityGate(
+      checkDataOwner: check,
+      config: testAuthConfig(),
+      auth: auth,
+      store: store,
+      accountClient: server.accountClient(),
+      configStatus: () => 'ok',
+      appMode: () => mode,
+      officialAccountId: () async => 'User@Example.com',
+    );
+    addTearDown(gate.dispose);
+    return gate;
+  }
+
+  bool registered() => server.requests.any((r) => r.url.path.endsWith('/connections'));
+
+  test('another account on this device data: db_owner_mismatch, no writer connection, upload context off', () async {
+    final seen = <String?>[];
+    final gate = ownerGate((id) async {
+      seen.add(id);
+      return 'mismatch';
+    });
+    final st = await gate.refreshNow();
+    expect(st.state, 'db_owner_mismatch');
+    expect(st.canEnter, isFalse);
+    expect(seen, ['910001'], reason: '로그인한 카카오 회원번호로 확인');
+    expect(registered(), isFalse, reason: '다른 계정의 자료가 남아 있으면 writer 연결도 만들지 않는다');
+    expect((await store.context())?['state'] != 'active', isTrue);
+  });
+
+  test('unknown Kakao id blocks entry as verification_required and never stamps', () async {
+    auth.kakaoId = null;
+    final gate = ownerGate((id) async => id == null ? 'unknown' : 'ok');
+    final st = await gate.refreshNow();
+    expect(st.state, 'verification_required');
+    expect(st.reasons, contains('data_owner_unverified'));
+    expect(registered(), isFalse);
+  });
+
+  test('client and demo modes do not check the owner (the server or the demo DB is not this account data)', () async {
+    for (final mode in ['server', 'demo']) {
+      var calls = 0;
+      final gate = ownerGate((id) async {
+        calls++;
+        return 'mismatch';
+      }, mode: mode);
+      expect((await gate.refreshNow()).canEnter, isTrue, reason: mode);
+      expect(calls, 0, reason: mode);
+    }
   });
 
   test('invalidate forces verification_required; suspended deactivates', () async {
@@ -114,6 +170,7 @@ void main() {
       status: () => statusJson(contributor: 'suspended'),
     );
     final gate2 = CommunityGate(
+      checkDataOwner: ownerOk,
       config: testAuthConfig(),
       auth: auth,
       store: store,

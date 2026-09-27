@@ -48,10 +48,14 @@ class CommunityCandidate {
 
   /// 이미 다른 계정이 연결되어 있고, 확인하면 그 연결을 바꾼다.
   final bool isDifferentAccount;
+
+  /// 로그인한 카카오 회원번호(모르면 null) — 화면이 이 기기 신고 자료의 주인과 비교해 "자료가 지워진다"를 알린다.
+  final String? kakaoId;
   const CommunityCandidate({
     required this.displayName,
     required this.hasEmail,
     required this.isDifferentAccount,
+    this.kakaoId,
   });
 }
 
@@ -94,6 +98,17 @@ enum CommunityTokenStatus {
 
   /// 네트워크·5xx 등으로 지금은 유효한 토큰을 못 얻음. 세션은 그대로 둔다.
   temporarilyUnavailable,
+}
+
+/// 카카오 회원번호를 지금 확인할 수 없음(네트워크·세션 문제).
+/// 카카오 회원번호를 확인하지 못함. [code] 는 PC CommunityAuthError 와 같다:
+/// 'auth_unavailable' | 'user_mismatch' | 'kakao_id_missing'.
+class CommunityKakaoIdUnavailable implements Exception {
+  const CommunityKakaoIdUnavailable([this.code = 'auth_unavailable']);
+  final String code;
+
+  @override
+  String toString() => 'CommunityKakaoIdUnavailable($code)';
 }
 
 class CommunityTokenResult {
@@ -405,6 +420,7 @@ class CommunityAuthService {
         displayName: user.displayName,
         hasEmail: user.hasEmail,
         isDifferentAccount: different,
+        kakaoId: user.kakaoId,
       ),
     );
     return CommunityLinkOutcome.confirmRequired;
@@ -425,6 +441,7 @@ class CommunityAuthService {
       hasEmail: c.user.hasEmail,
       connectedAt: _now(),
       reauthRequired: false,
+      kakaoId: c.user.kakaoId,
     );
     await _storage.write(key: sessionKey, value: session.encode());
     if (old != null && old.accessToken.isNotEmpty) {
@@ -447,6 +464,37 @@ class CommunityAuthService {
   }
 
   // ── 세션 공급 ──────────────────────────────────────────────
+
+  /// 네트워크 없이: 저장된 세션(연결됨 또는 재로그인 필요)의 카카오 회원번호. 모르면 null.
+  Future<String?> sessionKakaoId() async => (await _readSession())?.kakaoId;
+
+  /// 지금 로그인한 카카오 회원번호. 이 기능 전에 연결한 세션은 /auth/v1/user 를 한 번 받아 채워 둔다.
+  /// 연결 안 됨·재로그인 필요면 null. 네트워크 실패는 [CommunityKakaoIdUnavailable](호출자는 판단을 미룬다 — fail-closed).
+  Future<String?> currentKakaoId() async {
+    final s = await _readSession();
+    if (s == null || !s.isActive) return null;
+    if (s.kakaoId != null) return s.kakaoId;
+    final token = await getAccessTokenResult();
+    if (token.status != CommunityTokenStatus.ok || token.accessToken == null) {
+      throw const CommunityKakaoIdUnavailable();
+    }
+    final _User user;
+    try {
+      final res = await _get(config.authUri('user'), bearer: token.accessToken);
+      if (res.statusCode != 200) throw const FormatException('user');
+      user = _User.parse(_body(res));
+    } catch (_) {
+      throw const CommunityKakaoIdUnavailable();
+    }
+    final kakaoId = user.kakaoId;
+    if (user.id != s.userId) throw const CommunityKakaoIdUnavailable('user_mismatch');
+    if (kakaoId == null) throw const CommunityKakaoIdUnavailable('kakao_id_missing');
+    final now = await _readSession();
+    if (now != null && now.userId == s.userId) {
+      await _storage.write(key: sessionKey, value: now.copyWith(kakaoId: kakaoId).encode());
+    }
+    return kakaoId;
+  }
 
   /// 유효한 access token. 60초 안에 만료되면 갱신한다(동시 호출은 갱신 한 번).
   ///
@@ -795,11 +843,28 @@ class _Tokens {
   }
 }
 
+/// GoTrue /auth/v1/user 의 카카오 identity 에서 카카오 회원번호(숫자 문자열). 사용자가 스스로 고칠 수 있는 user_metadata 는
+/// 쓰지 않는다 — 서버가 관리하는 identities[provider=kakao] 만(identity_data.provider_id → sub → id). PC kakao_member_id 와 같은 규칙.
+String? kakaoMemberId(Map<String, dynamic> user) {
+  final identities = user['identities'];
+  if (identities is! List) return null;
+  final digits = RegExp(r'^[0-9]{1,20}$');
+  for (final identity in identities) {
+    if (identity is! Map || identity['provider'] != 'kakao') continue;
+    final data = identity['identity_data'] is Map ? identity['identity_data'] as Map : const {};
+    for (final value in [data['provider_id'], data['sub'], identity['id']]) {
+      if ((value is String || value is int) && digits.hasMatch('$value')) return '$value';
+    }
+  }
+  return null;
+}
+
 class _User {
   final String id;
   final String displayName;
   final bool hasEmail;
-  const _User(this.id, this.displayName, this.hasEmail);
+  final String? kakaoId;
+  const _User(this.id, this.displayName, this.hasEmail, this.kakaoId);
 
   static _User parse(String body) {
     final j = jsonDecode(body) as Map<String, dynamic>;
@@ -831,6 +896,7 @@ class _User {
       id,
       name.isEmpty ? '카카오 사용자' : name,
       email is String && email.isNotEmpty,
+      kakaoMemberId(j),
     );
   }
 }
@@ -851,6 +917,9 @@ class _StoredSession {
   final DateTime? connectedAt;
   final bool reauthRequired;
 
+  /// 카카오 회원번호(이 기능 전에 연결한 세션은 null — currentKakaoId 가 채운다).
+  final String? kakaoId;
+
   const _StoredSession({
     required this.accessToken,
     required this.refreshToken,
@@ -860,6 +929,7 @@ class _StoredSession {
     required this.hasEmail,
     required this.connectedAt,
     required this.reauthRequired,
+    this.kakaoId,
   });
 
   bool get isActive => !reauthRequired && refreshToken.isNotEmpty;
@@ -871,6 +941,7 @@ class _StoredSession {
     String? accessToken,
     String? refreshToken,
     DateTime? expiresAt,
+    String? kakaoId,
   }) => _StoredSession(
     accessToken: accessToken ?? this.accessToken,
     refreshToken: refreshToken ?? this.refreshToken,
@@ -880,6 +951,7 @@ class _StoredSession {
     hasEmail: hasEmail,
     connectedAt: connectedAt,
     reauthRequired: reauthRequired,
+    kakaoId: kakaoId ?? this.kakaoId,
   );
 
   /// 토큰은 지우고 화면용 계정 정보만 남긴다.
@@ -892,6 +964,7 @@ class _StoredSession {
     hasEmail: hasEmail,
     connectedAt: connectedAt,
     reauthRequired: true,
+    kakaoId: kakaoId,
   );
 
   String encode() => jsonEncode({
@@ -904,6 +977,7 @@ class _StoredSession {
     'has_email': hasEmail,
     'connected_at': connectedAt?.toUtc().toIso8601String(),
     'state': reauthRequired ? 'reauth_required' : 'active',
+    if (kakaoId != null) 'kakao_id': kakaoId,
   });
 
   static _StoredSession? decode(String raw) {
@@ -925,6 +999,7 @@ class _StoredSession {
         reauthRequired:
             j['state'] == 'reauth_required' ||
             (j['refresh_token'] as String? ?? '').isEmpty,
+        kakaoId: j['kakao_id'] as String?,
       );
     } catch (_) {
       return null;

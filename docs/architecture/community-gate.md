@@ -28,6 +28,11 @@
   `invalidate(reason)`, 포그라운드 60초 poll + resume 즉시 refresh.
   Standalone 이고 status active 면 `CommunityStore.setContext(...)`,
   상실이면 `deactivateContext`.
+- 자료 주인(2026-09-27, Standalone writer 만 — Client·데모는 확인하지 않음): 중앙 status 가 진입 허용이면
+  `CommunityAuthService.currentKakaoId()` 로 `LocalDbService.checkOwner` 를 부른다. 처음(주인 표시 없음)이면 적고 통과,
+  다르면 `db_owner_mismatch`(writer 연결·context 없음), 번호를 못 받으면 `verification_required`(`data_owner_unverified` + 오류 코드).
+  온보딩 화면이 "신고 내역 지우고 이 계정으로 시작"(`KakaoLogout.adopt` → `wipeReportData(thenOwner:)`)과
+  "로그아웃(신고 내역 유지)"을 보인다. PC `services/community_gate.py` 8번과 같은 규칙.
 - writer 연결(Standalone 만): 저장된 connection 이 있으면 `connections-rebind`,
   없으면 `connections` 등록, 409 `writer_conflict` 면 안내 + "이 기기로 업로드 전환"
   (takeover). 연결 등록·rebind·takeover 직후 T6 `refreshServerCompleted()` 호출,

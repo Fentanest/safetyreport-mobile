@@ -27,6 +27,7 @@ Widget _wrap({
 
 CommunityGate _makeGate(StubAuthService auth, FakeAccountServer server, {String appMode = 'standalone'}) {
   final gate = CommunityGate(
+    checkDataOwner: ownerOk,
     config: testAuthConfig(),
     auth: auth,
     store: null,

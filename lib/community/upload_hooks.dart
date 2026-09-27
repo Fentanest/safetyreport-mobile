@@ -43,6 +43,8 @@ class CommunityUploadHooks {
   /// 반환: 'not_started'(표시를 못 써 중앙 요청 안 함), 'done', 'local_pending'(중앙 삭제됨, 로컬 적용은 다음 업로드 때),
   /// 'unconfirmed'(응답 불명 — 표시 유지·업로드 차단, 다시 요청 필요. 삭제는 여러 번 요청해도 안전 — Sol 3차 H-03d).
   /// 중앙이 확실히 거절(4xx)하면 이 표시만 지우고 예외를 올린다.
+  // 공유한 자료 전체 삭제는 아직 구현하지 않는 기능이다(2026-09-27). 현재 이를 부르는 화면이 없다.
+  // 로컬 삭제 표시(업로드 차단) 규칙과 그 테스트 때문에 남겨 둔다.
   static Future<String> requestDeletion(Future<void> Function() central,
       {bool Function(Object error)? isDefinitiveRefusal}) async {
     final begin = beginDeletion;

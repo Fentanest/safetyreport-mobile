@@ -95,6 +95,7 @@ class CommunityAccountClient {
     await _post('connections-revoke', {'connection_id': connectionId}, accessToken);
   }
 
+  // 공유한 자료 전체 삭제: 아직 구현하지 않는 기능이다(2026-09-27). 현재 이를 부르는 화면이 없다(설정 카드의 버튼을 주석 처리).
   Future<CommunityDeleteResult> deleteContributions({
     required String accessToken,
   }) async {

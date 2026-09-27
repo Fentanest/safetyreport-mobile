@@ -160,6 +160,9 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// 동의 저장·철회·연결 전환 화면이 쓰는 커뮤니티 계정 API 클라이언트(게이트와 같은 설정·주입값).
+  CommunityAccountClient get accountClient => _client();
+
   CommunityAccountClient _client() {
     final override = _accountClientOverride;
     if (override != null) return override;

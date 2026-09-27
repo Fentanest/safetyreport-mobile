@@ -168,6 +168,43 @@ void main() {
         reason: '유효 캐시면 다음 이동 때 재로그인 요구 없음(F13)');
   });
 
+  // 2026-09-27 dev 빌드: main.dart 가 accountClient 를 넘기지 않아 "커뮤니티 서버 설정이 없어 동의를 저장할 수 없습니다" 로 막혔다.
+  // 앱과 같은 방식(gate.accountClient)으로 넘기면 서버에 동의가 저장된다.
+  testWidgets('consent is saved through the gate account client, the way main.dart wires it', (tester) async {
+    final auth = StubAuthService();
+    auth.setPhase(CommunityAccountPhase.connected);
+    final server = FakeAccountServer();
+    final gate = _makeGate(auth, server);
+    await gate.refreshNow();
+    await tester.pumpWidget(
+      _wrap(
+        gate: gate,
+        child: CommunityOnboardingScreen(
+          gate: gate,
+          auth: auth,
+          accountClient: gate.accountClient,
+          consentText: '동의문 전문',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(CheckboxListTile));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '동의하고 계속'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('커뮤니티 서버 설정이 없어'), findsNothing);
+    expect(find.text('동의 완료'), findsOneWidget);
+    expect(server.requests.where((r) => r.url.path.endsWith('/consent')), hasLength(1));
+  });
+
+  test('main.dart passes the account client to the onboarding screen', () {
+    // 화면 조립부 회귀 방지: 온보딩 생성자에 accountClient 가 빠지면 실제 앱에서 동의를 저장할 수 없다.
+    final src = File('lib/main.dart').readAsStringSync();
+    final start = src.indexOf('return CommunityOnboardingScreen(');
+    expect(start, greaterThan(0));
+    expect(src.substring(start, src.indexOf(');', start)), contains('accountClient: gate.accountClient'));
+  });
+
   test('F07: OAuth callback drain works with no native handler (gate irrelevant)', () async {
     var links = 0;
     CommunityAuthLinkChannel.start((_) async {

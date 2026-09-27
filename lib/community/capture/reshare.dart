@@ -1,10 +1,8 @@
-// reshare + location_supplement 후보 (observation.md 4절).
+// reshare 후보 (observation.md 4절).
 //
 // reshare: 재동의·writer 전환 뒤 사용자가 지도 탭에서 명시적으로 요청할 때만.
 // 신고별 최신 eligible journal 행의 payload·captured_at 을 그대로 두고
 // 새 event_id·새 source_revision·현재 grant/connection/epoch 로 발급한다.
-import 'dart:convert';
-
 import 'package:sqflite/sqflite.dart';
 
 import '../community_store.dart';
@@ -29,10 +27,11 @@ Future<String?> issueReshare(
   DateTime? now,
 }) async {
   final s = store ?? await CommunityStore.open();
-  if (await deletionCleanupPending(store: s)) return null; // 삭제 뒤 정리가 끝나기 전에는 다시 공유하지 않는다(H-03)
+  if (await deletionCleanupPending(store: s)) {
+    return null; // 삭제 뒤 정리가 끝나기 전에는 다시 공유하지 않는다(H-03)
+  }
   return s.transaction((tx) async {
-    final contextRows =
-        await tx.rawQuery('SELECT * FROM context WHERE id=1');
+    final contextRows = await tx.rawQuery('SELECT * FROM context WHERE id=1');
     if (contextRows.isEmpty || contextRows.first['state'] != 'active') {
       return null;
     }
@@ -93,46 +92,4 @@ Future<String?> issueReshare(
     }, conflictAlgorithm: ConflictAlgorithm.replace);
     return eventId;
   });
-}
-
-/// location_supplement 후보: 최신 journal 행이 eligible 이고 location.source="none"
-/// 인데 그 행의 address 로 공식 캐시가 이제 ok 인 신고 ID 목록.
-Future<List<String>> locationSupplementCandidates(
-  Future<Map<String, Object?>?> Function(String address) lookupCache, {
-  CommunityStore? store,
-}) async {
-  final s = store ?? await CommunityStore.open();
-  final rows = await s.db.rawQuery('''
-SELECT rl.source_report_id AS id, j.payload_json AS payload
-FROM report_latest rl
-JOIN source_journal j ON j.event_id = rl.event_id
-WHERE j.eligible = 1 AND j.blocked_reason IS NULL
-''');
-  final out = <String>[];
-  for (final row in rows) {
-    try {
-      final payload =
-          (await _decodePayload(row['payload'] as String)) ?? const {};
-      final location = payload['location'];
-      if (location is! Map || location['source'] != 'none') continue;
-      final address = payload['address']?.toString() ?? '';
-      if (address.isEmpty) continue;
-      final hit = await lookupCache(address);
-      if (hit != null && hit['status'] == 'ok') {
-        out.add(row['id'] as String);
-      }
-    } catch (_) {
-      continue;
-    }
-  }
-  return out;
-}
-
-Future<Map<String, Object?>?> _decodePayload(String raw) async {
-  try {
-    final decoded = jsonDecode(raw);
-    return decoded is Map ? Map<String, Object?>.from(decoded) : null;
-  } catch (_) {
-    return null;
-  }
 }

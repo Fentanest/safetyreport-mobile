@@ -9,7 +9,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import 'local_db_service.dart';
-import 'local_geocode_service.dart';
 import 'photo_capture_time.dart';
 import 'standalone_auto_sync_service.dart';
 import 'sync_engine.dart';
@@ -212,24 +211,11 @@ class MaintenanceService {
     return filled;
   }
 
-  /// Standalone 표시줄용: 사진 작업 + 지도 좌표 채우기(LocalGeocodeService) 진행.
+  /// Standalone 표시줄용 사진 작업 진행.
   static List<MaintenanceJob> localJobs() {
     final jobs = <MaintenanceJob>[];
     final photo = photoJob.value;
     if (photo != null) jobs.add(photo);
-    final geo = LocalGeocodeService.currentProgress();
-    if (geo.state == 'running' || geo.state == 'queued') {
-      jobs.add(
-        MaintenanceJob(
-          key: 'geocode',
-          label: '지도 좌표 채우기',
-          state: geo.state == 'running' ? 'running' : 'paused',
-          total: geo.total,
-          done: geo.processed,
-          message: geo.state == 'queued' ? '동기화가 끝나면 이어서 합니다' : '',
-        ),
-      );
-    }
     return jobs;
   }
 

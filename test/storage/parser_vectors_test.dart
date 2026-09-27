@@ -29,6 +29,8 @@ Map<String, Object?> _asColumns(Map<String, dynamic> detail) {
     '발생일자': r.occurrenceDate,
     '발생시각': r.occurrenceTime,
     '위반장소': r.location,
+    '위도': r.latitude,
+    '경도': r.longitude,
     '신고내용': r.reportContent,
     '첨부사진': r.attachedPhotos,
     '첨부파일': r.attachedFiles,

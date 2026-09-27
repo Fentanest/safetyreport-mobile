@@ -11,7 +11,6 @@ import '../services/api_service.dart';
 import '../services/app_prefs_keys.dart';
 import '../services/community_auth_service.dart';
 import '../services/local_db_service.dart';
-import '../services/local_geocode_service.dart';
 import '../services/maintenance_service.dart';
 import '../services/permission_service.dart';
 import '../services/rating_service.dart';
@@ -244,7 +243,6 @@ class ReportProvider with ChangeNotifier {
   bool _isStandaloneDemo = false;
   String _baseUrl = '';
   String _apiKey = '';
-  String _standaloneKakaoRestApiKey = '';
   bool _isLoading = false;
   bool _isInitialized = false;
   String? _errorMessage;
@@ -319,7 +317,6 @@ class ReportProvider with ChangeNotifier {
   bool get isStandaloneDemo => _isStandaloneDemo;
   String get baseUrl => _baseUrl;
   String get apiKey => _apiKey;
-  String get standaloneKakaoRestApiKey => _standaloneKakaoRestApiKey;
   bool get isLoading => _isLoading;
   bool get isInitialized => _isInitialized;
   bool get isConfigured {
@@ -736,8 +733,7 @@ class ReportProvider with ChangeNotifier {
           prefs.getBool(AppPrefsKeys.standaloneDemoMode) ?? false;
       _baseUrl = prefs.getString(AppPrefsKeys.baseUrl) ?? '';
       _apiKey = prefs.getString(AppPrefsKeys.apiKey) ?? '';
-      _standaloneKakaoRestApiKey =
-          prefs.getString(AppPrefsKeys.standaloneKakaoRestApiKey) ?? '';
+      await prefs.remove(AppPrefsKeys.standaloneKakaoRestApiKey);
 
       _changesEmittedSub ??= SyncEngine.changesEmitted.listen((_) {
         _pendingChangesNonce++;
@@ -939,16 +935,6 @@ class ReportProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setStandaloneKakaoRestApiKey(String value) async {
-    _standaloneKakaoRestApiKey = value.trim();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      AppPrefsKeys.standaloneKakaoRestApiKey,
-      _standaloneKakaoRestApiKey,
-    );
-    notifyListeners();
-  }
-
   Future<void> setThemeMode(AppThemeMode value) async {
     if (_themeMode == value) return;
     _themeMode = value;
@@ -968,7 +954,6 @@ class ReportProvider with ChangeNotifier {
     _appMode = AppMode.server;
     _baseUrl = '';
     _apiKey = '';
-    _standaloneKakaoRestApiKey = '';
     _standaloneUsername = '';
     _standalonePhoneNumber = '';
     _isStandaloneDemo = false;
@@ -1299,7 +1284,6 @@ class ReportProvider with ChangeNotifier {
       }
       await fetchDuplicateReports();
       await fetchWatchlistNumbers();
-      await LocalGeocodeService.ensureMapBackfillStartedFromStoredKey();
       // 업데이트 뒤 한 번 훑기: 촬영 시각을 아직 못 읽은 주정차 사진(6개월 이내). 대상이 없으면 바로 끝난다.
       if (!_isStandaloneDemo) {
         unawaited(MaintenanceService.startPhotoBackfill());

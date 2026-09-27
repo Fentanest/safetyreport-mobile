@@ -853,34 +853,11 @@ class LocalDbService {
       'PRAGMA table_info("reports")',
     )).map((r) => r['name'] as String).toList();
     final editable = EditorSchema.defaultDetailFields.toSet();
-    // 위반장소를 고쳤으면 좌표 열은 고친 주소의 지오코딩 캐시에서(없으면 대기) — 서버 merge 와 같은 규칙(S-4).
-    // 주소 정규화(geocode_utils.normalizeGeocodeAddress: 앞뒤 공백 제거 + 연속 공백 하나로)를 SQL 로.
-    const addressOverride =
-        "(SELECT o.value FROM report_override o WHERE o.ID = r.ID AND o.column_name = '위반장소')";
-    var normalized =
-        "REPLACE(REPLACE(REPLACE($addressOverride, char(9), ' '), char(10), ' '), char(13), ' ')";
-    for (var i = 0; i < 4; i++) {
-      normalized = "REPLACE($normalized, '  ', ' ')"; // 공백 16칸까지
-    }
-    normalized = 'TRIM($normalized)';
-    String fromCache(String column) =>
-        '(SELECT c."$column" FROM geocode_cache c WHERE c.주소정규화 = $normalized)';
-    final overriddenGeo = <String, String>{
-      '주소정규화': normalized,
-      '행정구역': fromCache('행정구역'),
-      '위도': fromCache('위도'),
-      '경도': fromCache('경도'),
-      '지오코딩상태':
-          "CASE WHEN $normalized = '' THEN '' ELSE COALESCE(${fromCache('상태')}, 'pending') END",
-    };
+    // 사용자 수정 주소는 표시용이다. 좌표는 공식 신고 원본에서 읽은 값을 유지한다.
     final select = columns
         .map((c) {
           if (editable.contains(c)) {
             return 'COALESCE((SELECT o.value FROM report_override o WHERE o.ID = r.ID AND o.column_name = \'$c\'), r."$c") AS "$c"';
-          }
-          final geo = overriddenGeo[c];
-          if (geo != null) {
-            return 'CASE WHEN $addressOverride IS NULL THEN r."$c" ELSE $geo END AS "$c"';
           }
           return 'r."$c" AS "$c"';
         })
@@ -1406,9 +1383,10 @@ class LocalDbService {
           ? null
           : Map<String, Object?>.from(existingRows.first);
       final watchlist = await _readWatchlist(txn);
-      final geoPayload = prepareGeoPayloadForAddress(
+      final geoPayload = officialGeoPayload(
         r.location,
-        existingRecord: existing,
+        r.latitude,
+        r.longitude,
       );
 
       String keepIfEmpty(String column, String value) =>
@@ -2161,7 +2139,7 @@ class LocalDbService {
           ? normalizeGeocodeAddress(row['위반장소']?.toString())
           : normalizeGeocodeAddress(row['주소정규화']?.toString());
       final address = _stringify(row['위반장소']).trim();
-      if (lat == null || lng == null || normalizedAddress.isEmpty) {
+      if (lat == null || lng == null) {
         if (address.isNotEmpty) {
           missingReports++;
         }
@@ -3589,7 +3567,7 @@ class LocalDbService {
             // 구서버에 지오코딩 열이 없을 때만 주소에서 계산한다(계산값, owner=derived).
             if (!geoColumns.any(row.containsKey)) {
               importedRow.addAll(
-                prepareGeoPayloadForAddress(importedRow['위반장소']?.toString()),
+                officialGeoPayload(importedRow['위반장소']?.toString(), null, null),
               );
             }
             importedRow['감시목록'] = watchNumbers.contains(importedRow['신고번호'])

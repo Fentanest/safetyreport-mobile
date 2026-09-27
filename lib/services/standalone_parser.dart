@@ -26,6 +26,25 @@ const _warningKeywords = [
 ];
 const _trafficEntry = '자동차·교통위반';
 
+(double?, double?) _officialCoordinates(
+  Map<String, dynamic> data, [
+  String prefix = '',
+]) {
+  final lat = double.tryParse('${data['${prefix}C_A_W'] ?? ''}'.trim());
+  final lng = double.tryParse('${data['${prefix}C_A_E'] ?? ''}'.trim());
+  if (lat == null ||
+      lng == null ||
+      !lat.isFinite ||
+      !lng.isFinite ||
+      lat < 32 ||
+      lat > 39.5 ||
+      lng < 124 ||
+      lng > 132) {
+    return (null, null);
+  }
+  return (lat, lng);
+}
+
 // ── 카테고리 분류 (서버 database.py category_from_entry_value 와 동일) ──────────
 
 /// 목록+상세 API 응답에서 entryValue를 추출한다.
@@ -183,6 +202,7 @@ Report parseJsonToReport(
               nonEmpty(detailData['C_A_ADD2']) ??
               '${detailData['C_A_ADDR_HEAD'] ?? ''} ${detailData['C_A_ADDR_TAIL'] ?? ''}')
           .trim();
+  var (latitude, longitude) = _officialCoordinates(detailData);
 
   // 보완 완료 시 신고 정보 갱신
   if ((detailData['SPLMNT_CMPTN_DT'] != null) &&
@@ -207,7 +227,18 @@ Report parseJsonToReport(
                 nonEmpty(detailData['SPLMNT_C_A_ADD2']) ??
                 '')
             .trim();
-    if (splmntLoc.isNotEmpty) violationLocation = splmntLoc;
+    if (splmntLoc.isNotEmpty) {
+      violationLocation = splmntLoc;
+      (latitude, longitude) = _officialCoordinates(detailData, 'SPLMNT_');
+    } else {
+      final (supplementLat, supplementLng) = _officialCoordinates(
+        detailData,
+        'SPLMNT_',
+      );
+      if (supplementLat != null) {
+        (latitude, longitude) = (supplementLat, supplementLng);
+      }
+    }
   }
 
   // ── 신고 상태 (C_NOW) ────────────────────────────────────────────────────
@@ -462,6 +493,8 @@ Report parseJsonToReport(
     carNumber: carNumber,
     law: violationLaw,
     location: violationLocation,
+    latitude: latitude,
+    longitude: longitude,
     occurrenceDate: occurrenceDate,
     occurrenceTime: occurrenceTime,
     reportContent: reportContent,

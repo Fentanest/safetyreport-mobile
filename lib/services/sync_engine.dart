@@ -721,10 +721,7 @@ class SyncEngine {
 
     CaptureResult? cap;
     {
-      // 좌표는 그 시점 캐시 조회 — 비어 있으면 null(이후 location_supplement).
-      final geo =
-          await fetchOfficialGeocode(await LocalDbService.db, report.location);
-      final adapterInput = buildReportAdapterInput(report, ev, geo);
+      final adapterInput = buildReportAdapterInput(report, ev);
       // capture 전에 의도를 기록한다. 기록 실패 → 즉시 중단.
       await recordCaptureIntent(retryFile, cNo);
       try {

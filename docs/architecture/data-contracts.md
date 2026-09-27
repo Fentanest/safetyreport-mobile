@@ -441,6 +441,11 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
 - 전체 재동기화는 사라진 신고 정리를 중복군 재계산보다 먼저 한다.
 - 계산 동등성 하네스 `test/tool/logic_parity_harness_test.dart` — 서버 `scripts/dev/logic_parity_check.py` 가 호출(평소 flutter test 에서는 건너뜀).
 
-## API 응답의 원본 좌표 (2026-09-27 확인)
+## 공식 신고 위치 (현재 dev)
 
-PC 저장소 `scripts/debug/extractor.py`가 저장한 `testresults/*_api_raw.json` 7건의 `result.C_A_W`와 `result.C_A_E`는 각각 한국 범위의 위도·경도 숫자 문자열이며, 7건 모두 값이 있다. 보완 자료 2건에는 `SPLMNT_C_A_W/E`도 있다. 현재 PC `services/parser.py`와 모바일 `lib/services/standalone_parser.dart`는 주소(`RN_ADRES` 등)만 읽고 이 좌표 필드를 읽지 않는다. 따라서 현재의 주소 좌표 변환 경로에서는 카카오 REST API 키가 필요할 수 있다. 원본 좌표를 직접 저장하도록 바꾸려면 양쪽 파서의 보완 신고 위치 우선순위와 좌표 유효성·주소 일치·기존 지오코딩 값 갱신 규칙을 함께 검증해야 한다.
+PC 저장소 `scripts/debug/extractor.py`가 저장한 `testresults/*_api_raw.json` 7건에서 `result.C_A_W`(위도)와 `C_A_E`(경도)가 확인됐다. 완료된 보완의 `SPLMNT_C_A_W/E`가 유효하면 보완 좌표를 쓴다. 보완 주소가 바뀌고 좌표 쌍이 유효하지 않으면 이전 위치를 새 주소에 붙이지 않는다.
+
+- 위도 32~39.5, 경도 124~132의 유한한 쌍만 기존 `reports.위도`·`경도`에 저장한다. 반올림·소수점 절사는 하지 않는다. 좌표가 없으면 두 열 모두 NULL이다.
+- `주소정규화`는 공식 주소의 공백 정리값, `행정구역`은 빈 문자열, `지오코딩상태`는 좌표가 있으면 `ok`, 주소만 있으면 `not_found`다. 이 열 이름은 서버와 DB를 교환하기 위해 유지한다.
+- 재동기화는 같은 주소여도 좌표를 덮어쓴다. 사용자가 고친 표시 주소는 공식 좌표를 바꾸지 않는다. Client·Standalone 지도는 저장된 좌표를 읽고, 커뮤니티 공유는 저장 전 공식 상세 응답 좌표를 읽는다.
+- 커뮤니티 wire `location.source="geocode"`는 기존 입력 계약의 좌표 있음 표시값이다. 보완으로 바뀐 좌표는 재동기화할 때 새 `completed_observation`으로 전달된다. 카카오 REST 주소 변환 키는 필요하지 않다.

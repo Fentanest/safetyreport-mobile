@@ -18,7 +18,7 @@ export 'observation_rules.dart' show buildPayload;
 /// 공유 payload 버전을 올리지 않고 파서만 구분한다.
 const String mobileParserVersion = 'mobile-parser-1';
 
-/// 공식 주소로 조회한 geocode_cache 행. null = 캐시 없음(나중에 location_supplement).
+/// 공식 상세 응답에서 읽은 좌표. null이면 좌표 없는 관측으로 보낸다.
 class GeocodeHit {
   const GeocodeHit({required this.status, this.lat, this.lng});
 
@@ -33,8 +33,8 @@ class GeocodeHit {
 /// Report → 어댑터 입력 (observation.md 2절 모바일 열).
 ///
 /// progressStatus = 상세의 C_NOW 라벨(`report.result`). detail_status 기록용이며
-/// payload 에는 들어가지 않는다. geo 는 **공식 주소(`report.location`) 정규화 키로
-/// 조회한 geocode_cache 행**만 쓴다. override 좌표·주소는 절대 넣지 않는다.
+/// payload 에는 들어가지 않는다. geo 는 공식 상세 응답의 좌표만 쓴다.
+/// override 좌표·주소는 절대 넣지 않는다.
 Map<String, Object?> buildAdapterInput(
   // Report 타입에 직접 의존하지 않고(테스트에서 가짜를 쓰기 위해) 필드만 받는다.
   {

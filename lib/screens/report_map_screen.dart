@@ -1,4 +1,4 @@
-import 'dart:async';
+import 'dart:async' show TimeoutException;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -15,7 +15,6 @@ import '../providers/report_provider.dart';
 import '../server_palette.dart';
 import '../services/api_service.dart';
 import '../services/local_db_service.dart';
-import '../services/local_geocode_service.dart';
 import '../services/permission_service.dart';
 import '../widgets/report_detail_sheet.dart';
 import '../widgets/report_list_card.dart';
@@ -60,13 +59,11 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     with WidgetsBindingObserver {
   final MapController _mapController = MapController();
   ReportMapPayload? _payload;
-  GeocodeBackfillProgress? _progress;
   bool _loading = true;
   bool _locating = false;
   String? _error;
   String? _locationError;
   LatLng? _currentLocation;
-  Timer? _progressTimer;
   String _selectedYear = 'all';
   String _selectedCategory = 'all';
 
@@ -85,7 +82,6 @@ class _ReportMapScreenState extends State<ReportMapScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _progressTimer?.cancel();
     _mapController.dispose();
     super.dispose();
   }
@@ -108,12 +104,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     final provider = context.read<ReportProvider>();
     try {
       ReportMapPayload payload;
-      GeocodeBackfillProgress progress;
       if (provider.appMode == AppMode.standalone) {
-        progress = await LocalGeocodeService.ensureMapBackfillStarted(
-          apiKey: provider.standaloneKakaoRestApiKey,
-          batchSize: 80,
-        );
         payload = ReportMapPayload.fromJson(
           await LocalDbService.computeReportMapStats(
             year: _selectedYear == 'all' ? null : _selectedYear,
@@ -132,17 +123,14 @@ class _ReportMapScreenState extends State<ReportMapScreen>
           year: _selectedYear == 'all' ? null : _selectedYear,
           category: _selectedCategory,
         );
-        progress = await api.getReportMapProgress();
       }
 
       if (!mounted) return;
       setState(() {
         _payload = payload;
-        _progress = progress;
         _loading = false;
         _error = null;
       });
-      _syncProgressPolling(progress);
     } catch (exc) {
       if (!mounted) return;
       setState(() {
@@ -150,34 +138,6 @@ class _ReportMapScreenState extends State<ReportMapScreen>
         _error = '$exc';
       });
     }
-  }
-
-  void _syncProgressPolling(GeocodeBackfillProgress progress) {
-    _progressTimer?.cancel();
-    if (!progress.running && !progress.isQueued) return;
-    _progressTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
-      final provider = context.read<ReportProvider>();
-      try {
-        GeocodeBackfillProgress next;
-        if (provider.appMode == AppMode.standalone) {
-          next = LocalGeocodeService.currentProgress();
-        } else {
-          next = await ApiService(
-            baseUrl: provider.baseUrl,
-            apiKey: provider.apiKey,
-          ).getReportMapProgress();
-        }
-
-        if (!mounted) return;
-        setState(() => _progress = next);
-        if (!next.running && !next.isQueued) {
-          _progressTimer?.cancel();
-          await _loadMap(silent: true);
-        }
-      } catch (_) {
-        _progressTimer?.cancel();
-      }
-    });
   }
 
   Future<void> _loadCurrentLocation({
@@ -320,7 +280,6 @@ class _ReportMapScreenState extends State<ReportMapScreen>
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final progress = _progress;
     final payload = _payload;
     final points = (payload?.points ?? const <ReportMapPoint>[])
         .where((point) => point.hasValidCoordinates)
@@ -332,7 +291,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
         actions: [
           IconButton(
             icon: const Icon(Icons.list_alt_outlined),
-            tooltip: '미변환 주소 보기',
+            tooltip: '공식 좌표 없는 신고 보기',
             onPressed: _showMissingAddressSheet,
           ),
           IconButton(
@@ -355,12 +314,6 @@ class _ReportMapScreenState extends State<ReportMapScreen>
           : Column(
               children: [
                 _buildFilterBar(cs),
-                if (progress != null &&
-                    (progress.running ||
-                        progress.isQueued ||
-                        progress.errorMessage.isNotEmpty ||
-                        progress.requiresConfiguration))
-                  _buildProgressCard(progress),
                 if (_error != null)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
@@ -380,7 +333,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: points.isEmpty && _currentLocation == null
-                        ? _buildEmptyState(progress)
+                        ? _buildEmptyState()
                         : _buildMap(points),
                   ),
                 ),
@@ -493,7 +446,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
                       padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
                       children: [
                         const Text(
-                          '미변환 주소 목록',
+                          '공식 좌표 없는 신고 목록',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
@@ -518,7 +471,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                     children: [
                       const Text(
-                        '미변환 주소 목록',
+                        '공식 좌표 없는 신고 목록',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -546,7 +499,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
                                 ),
                                 const SizedBox(height: 10),
                                 const Text(
-                                  '현재 조건에서 미변환 주소가 없습니다.',
+                                  '현재 조건에서 공식 좌표 없는 신고가 없습니다.',
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
                                     fontSize: 14,
@@ -649,121 +602,6 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     );
   }
 
-  Widget _buildProgressCard(GeocodeBackfillProgress progress) {
-    final provider = context.watch<ReportProvider>();
-    final isStandalone = provider.appMode == AppMode.standalone;
-    final isQueued = progress.isQueued;
-    final isWarning = progress.isWarning;
-    final isConfigRequired =
-        progress.requiresConfiguration && !progress.isWarning;
-    final progressTone = _tone(
-      progress.isError
-          ? serverRejectColor
-          : isQueued
-          ? changeDuplicateColor
-          : isWarning || isConfigRequired
-          ? serverSupplementColor
-          : serverProcessingColor,
-    );
-    final accentColor = progressTone.foreground;
-    final cardColor = progressTone.background;
-    final double? progressValue = isQueued
-        ? null
-        : progress.running
-        ? progress.progressPct / 100
-        : 1;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-      child: Card(
-        color: cardColor,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(
-                    progress.isError
-                        ? Icons.error_outline
-                        : isQueued
-                        ? Icons.hourglass_top_rounded
-                        : isWarning || isConfigRequired
-                        ? Icons.warning_amber_rounded
-                        : Icons.public,
-                    color: accentColor,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      progress.isError
-                          ? '좌표 변환을 마치지 못했습니다'
-                          : isWarning
-                          ? '저장된 좌표로 지도는 계속 표시됩니다'
-                          : isConfigRequired
-                          ? 'REST API 키를 입력하면 좌표 변환을 시작합니다'
-                          : isQueued
-                          ? '주소 좌표 변환 대기 중'
-                          : progress.running
-                          ? '주소 좌표 변환 진행 중'
-                          : '주소 좌표 변환 완료',
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              LinearProgressIndicator(
-                value: progressValue,
-                minHeight: 8,
-                borderRadius: BorderRadius.circular(999),
-                color: accentColor,
-              ),
-              const SizedBox(height: 10),
-              Text(
-                '진행률 ${progress.progressPct.toStringAsFixed(1)}%  ·  ${progress.processed}/${progress.total}건 처리',
-                style: const TextStyle(fontSize: 13),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                '성공 ${progress.updated}건 · 주소 미발견 ${progress.notFound}건 · 남은 대상 ${progress.remainingMissing}건',
-                style: TextStyle(fontSize: 12, color: context.sr.textSecondary),
-              ),
-              if (progress.errorMessage.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                Text(
-                  progress.errorMessage,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: accentColor,
-                    height: 1.4,
-                  ),
-                ),
-                if (progress.requiresConfiguration && isStandalone)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 10),
-                    child: OutlinedButton.icon(
-                      icon: const Icon(Icons.settings_outlined, size: 18),
-                      label: const Text('모바일 설정 열기'),
-                      onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const SettingsScreen(),
-                        ),
-                      ).then((_) => _loadMap()),
-                    ),
-                  ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   StatusTone _tone(Color base) {
     final theme = Theme.of(context);
     return StatusTone.of(
@@ -813,7 +651,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
           _summaryDivider(theme.colorScheme.outlineVariant),
           _summaryCell('좌표화', meta.geocodedReports, serverAcceptColor),
           _summaryDivider(theme.colorScheme.outlineVariant),
-          _summaryCell('미변환', meta.missingReports, serverSupplementColor),
+          _summaryCell('좌표 없음', meta.missingReports, serverSupplementColor),
           _summaryDivider(theme.colorScheme.outlineVariant),
           _summaryCell('처리기관', meta.agencyCount, changeNewColor, suffix: '곳'),
         ],
@@ -873,16 +711,8 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     );
   }
 
-  Widget _buildEmptyState(GeocodeBackfillProgress? progress) {
-    final message = progress != null && progress.running
-        ? '주소 좌표를 채우는 중입니다.\n완료되면 지도가 자동으로 표시됩니다.'
-        : progress?.isQueued == true
-        ? '다른 동기화 또는 DB 가져오기가 끝나면\n주소 좌표 변환을 자동으로 다시 시작합니다.'
-        : progress?.isWarning == true
-        ? '저장된 좌표가 있는 신고는 계속 지도에 표시됩니다.\n다만 DB에 없는 새 주소는 카카오 REST API 키를 다시 입력해야 변환할 수 있습니다.'
-        : progress?.requiresConfiguration == true
-        ? '카카오 REST API 키를 입력하면 지도 좌표 변환을 시작합니다.'
-        : '표시할 지도 데이터가 없습니다.';
+  Widget _buildEmptyState() {
+    const message = '표시할 공식 좌표가 없습니다.\n신고를 동기화한 뒤 다시 확인해 주세요.';
     return Card(
       child: Center(
         child: Padding(
@@ -930,7 +760,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
         children: [
           FlutterMap(
             key: ValueKey(
-              '${_selectedYear}_${_selectedCategory}_${points.length}_${_progress?.state}',
+              '${_selectedYear}_${_selectedCategory}_${points.length}',
             ),
             mapController: _mapController,
             options: MapOptions(

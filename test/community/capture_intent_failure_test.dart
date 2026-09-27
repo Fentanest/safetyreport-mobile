@@ -88,4 +88,39 @@ void main() {
     expect(await capturedRows(), 1);
     expect(await CaptureRetryStore.captureRetryIds(retry), isEmpty, reason: '저장 성공 뒤 의도 제거');
   });
+
+  test('completed supplement moves both personal and community coordinates', () async {
+    final cases = (jsonDecode(File('contracts/parser-vectors.json').readAsStringSync()) as Map)['cases'] as List;
+    final detail = Map<String, dynamic>.from((cases.first as Map)['detail'] as Map);
+    detail['STSFDG_SCORE'] = 0; // 별점 추가 조회를 피한다.
+    detail['C_A_W'] = '37.560123456789';
+    detail['C_A_E'] = '126.830123456789';
+    final retry = File('${dir.path}/community_capture_retry.json');
+    await run(retry, detail);
+
+    detail['SPLMNT_CMPTN_DT'] = '2026-09-02';
+    detail['SPLMNT_CMPTN_YN'] = 'Y';
+    detail['SPLMNT_RN_ADRES'] = '서울특별시 강서구 마곡중앙로 2';
+    detail['SPLMNT_C_A_W'] = '37.56123456789';
+    detail['SPLMNT_C_A_E'] = '126.83123456789';
+    await run(retry, detail);
+
+    final row = (await (await LocalDbService.db).query(
+      'reports', where: 'ID = ?', whereArgs: [detail['C_NO']],
+    )).single;
+    expect((row['위반장소'], row['위도'], row['경도']),
+        ('서울특별시 강서구 마곡중앙로 2', 37.56123456789, 126.83123456789));
+
+    final journal = await store.db.query(
+      'source_journal', orderBy: 'source_revision DESC',
+    );
+    expect(journal, hasLength(2));
+    expect(journal.first['event_type'], 'completed_observation');
+    final payload = jsonDecode(journal.first['payload_json'] as String) as Map;
+    expect(payload['location'], {
+      'lat': '37.56123456789',
+      'lng': '126.83123456789',
+      'source': 'geocode',
+    });
+  });
 }

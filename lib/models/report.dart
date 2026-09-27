@@ -10,6 +10,13 @@ int? _toIntOrNull(dynamic v) {
   return null;
 }
 
+double? _toCoordinateOrNull(dynamic value) {
+  final parsed = value is num
+      ? value.toDouble()
+      : double.tryParse(value?.toString().trim() ?? '');
+  return parsed != null && parsed.isFinite ? parsed : null;
+}
+
 class Report {
   final String id;
   final String reportNumber;
@@ -25,6 +32,8 @@ class Report {
   final String carNumber;
   final String law;
   final String location;
+  final double? latitude;
+  final double? longitude;
   final String occurrenceDate;
   final String occurrenceTime;
   final String reportContent;
@@ -64,6 +73,8 @@ class Report {
     required this.carNumber,
     required this.law,
     required this.location,
+    this.latitude,
+    this.longitude,
     required this.occurrenceDate,
     required this.occurrenceTime,
     required this.reportContent,
@@ -105,6 +116,8 @@ class Report {
     String? carNumber,
     String? law,
     String? location,
+    double? latitude,
+    double? longitude,
     String? occurrenceDate,
     String? occurrenceTime,
     String? reportContent,
@@ -144,6 +157,8 @@ class Report {
       carNumber: carNumber ?? this.carNumber,
       law: law ?? this.law,
       location: location ?? this.location,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
       occurrenceDate: occurrenceDate ?? this.occurrenceDate,
       occurrenceTime: occurrenceTime ?? this.occurrenceTime,
       reportContent: reportContent ?? this.reportContent,
@@ -195,6 +210,8 @@ class Report {
       carNumber: json['차량번호']?.toString() ?? '',
       law: json['위반법규']?.toString() ?? '',
       location: json['위반장소']?.toString() ?? '',
+      latitude: _toCoordinateOrNull(json['위도']),
+      longitude: _toCoordinateOrNull(json['경도']),
       occurrenceDate: json['발생일자']?.toString() ?? '',
       occurrenceTime: json['발생시각']?.toString() ?? '',
       reportContent: json['신고내용']?.toString() ?? '',

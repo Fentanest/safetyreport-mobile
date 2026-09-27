@@ -14,7 +14,7 @@ PC(safetyreport) 구현과 같은 벡터(같은 결과)다.
 | `lib/community/capture/community_capture.dart` | `buildAdapterInput`·`capture`·`markPersonalSave`·`decideEvent` |
 | `lib/community/capture/capture_retry_store.dart` | `community_capture_retry.json` + 연속 실패 집계 |
 | `lib/community/capture/list_refetch.dart` | 증분 선정 규칙 (list_refetch.json 그대로) |
-| `lib/community/capture/geocode_lookup.dart` | 공식 주소 `geocode_cache` 조회 (override 금지) |
+| `lib/community/capture/report_adapter.dart` | 공식 상세 응답의 위도·경도를 공유 입력으로 전달 (override 금지) |
 | `lib/community/capture/report_adapter.dart` | `Report` → 어댑터 입력 |
 | `lib/community/capture/rebuild_helpers.dart` | 오류 분류·staging 병합 |
 | `lib/community/capture/server_completed.dart` | manifest 교체·`onContributionsDeleted` |
@@ -105,7 +105,7 @@ release 에서 비었거나 자리표시자(`<`·`...`·`PROJECT_REF`·`example.
   루프, 400/413/422·HTML 404 를 통째 dead_letter, Retry-After 헤더 무시, owner 고정 lease, `wake()` 호출처 없음,
   게이트 캐시가 오래되면 백그라운드가 매번 그냥 끝났다 — 위 규칙으로 바꿨다(재현 표: PC `docs/plans/2026-09-27-upload-hardening-android.md` §0).
 
-- `geocode_cache` 쓰기 경로는 `LocalGeocodeService._persistCacheRecord` 하나뿐
+- 위치 좌표는 상세 응답의 `C_A_W/E`와 완료된 보완의 `SPLMNT_C_A_W/E`에서 가져온다. `geocode_cache`는 구 DB 교환 호환용으로만 남고 공유 위치에는 사용하지 않는다.
   (source='kakao', 공식 주소 해석). 사용자 수정 쓰기 경로 없음 — capture 는
   상태·source 를 걸러 공식 결과만 읽는다.
 - event 결정 벡터는 `vectors/observations.json` 의 `event_decisions`(10건)다(별도 파일 아님) —

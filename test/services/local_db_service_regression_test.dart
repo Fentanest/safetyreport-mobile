@@ -4,9 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/models/agency_stats.dart';
 import 'package:safetyreport/models/report.dart';
 import 'package:safetyreport/models/report_map.dart';
-import 'package:safetyreport/services/app_prefs_keys.dart';
 import 'package:safetyreport/services/local_db_service.dart';
-import 'package:safetyreport/services/local_geocode_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../support/kakao_owner.dart';
@@ -19,6 +17,8 @@ Report _report({
   String result = '처리중',
   String agency = '서울강서경찰서 교통과',
   String fineInfo = '과태료',
+  double? latitude,
+  double? longitude,
 }) {
   return Report(
     id: id,
@@ -35,6 +35,8 @@ Report _report({
     carNumber: '12가3456',
     law: '도로교통법',
     location: location,
+    latitude: latitude,
+    longitude: longitude,
     occurrenceDate: '2026-05-17',
     occurrenceTime: '12:00',
     reportContent: '테스트 신고 내용',
@@ -427,144 +429,61 @@ void main() {
       },
     );
 
-    test(
-      'missing standalone map key still uses cached coordinates before warning',
-      () async {
-        await LocalDbService.upsertReport(
-          _report(
-            id: 'cache-1',
-            reportNumber: 'CACHE-1',
-            location: '서울특별시 강서구 마곡동 1',
-          ),
-          'traffic',
-          '자동차·교통위반',
-        );
-        await LocalDbService.upsertReport(
-          _report(
-            id: 'uncached-1',
-            reportNumber: 'UNCACHED-1',
-            location: '서울특별시 강서구 방화동 9',
-          ),
-          'traffic',
-          '자동차·교통위반',
-        );
+    test('official coordinates overwrite a same-address recrawl and ignore old cache', () async {
+      const address = '서울특별시 강서구 마곡동 1';
+      final db = await LocalDbService.db;
+      await db.insert('geocode_cache', {
+        '주소정규화': address,
+        '위도': 37.1,
+        '경도': 126.1,
+        '상태': 'ok',
+        'source': 'kakao',
+      });
+      await LocalDbService.upsertReport(
+        _report(id: 'official-1', reportNumber: 'OFFICIAL-1', location: address,
+            latitude: 37.560123456789, longitude: 126.830123456789),
+        'traffic', '자동차·교통위반',
+      );
+      var row = (await db.query('reports', where: 'ID = ?', whereArgs: ['official-1'])).single;
+      expect((row['위도'], row['경도'], row['지오코딩상태']),
+          (37.560123456789, 126.830123456789, 'ok'));
 
-        final db = await LocalDbService.db;
-        await db.insert('geocode_cache', {
-          '주소정규화': '서울특별시 강서구 마곡동 1',
-          '원본주소': '서울특별시 강서구 마곡동 1',
-          '행정구역': '서울특별시 강서구 마곡동',
-          '위도': 37.5601,
-          '경도': 126.8301,
-          '상태': 'ok',
-          'source': 'kakao',
-          'error_message': '',
-          'updated_at': DateTime.now().millisecondsSinceEpoch,
-        });
+      await LocalDbService.upsertReport(
+        _report(id: 'official-1', reportNumber: 'OFFICIAL-1', location: address,
+            latitude: 37.56123456789, longitude: 126.83123456789),
+        'traffic', '자동차·교통위반',
+      );
+      row = (await db.query('reports', where: 'ID = ?', whereArgs: ['official-1'])).single;
+      expect((row['위도'], row['경도']), (37.56123456789, 126.83123456789));
 
-        await LocalGeocodeService.ensureMapBackfillStarted(apiKey: '');
+      await LocalDbService.upsertReport(
+        _report(id: 'official-1', reportNumber: 'OFFICIAL-1', location: address),
+        'traffic', '자동차·교통위반',
+      );
+      row = (await db.query('reports', where: 'ID = ?', whereArgs: ['official-1'])).single;
+      expect((row['위도'], row['경도'], row['지오코딩상태']),
+          (null, null, 'not_found'));
+    });
 
-        GeocodeBackfillProgress progress =
-            LocalGeocodeService.currentProgress();
-        for (var i = 0; i < 30 && progress.running; i++) {
-          await Future<void>.delayed(const Duration(milliseconds: 50));
-          progress = LocalGeocodeService.currentProgress();
-        }
-
-        expect(progress.running, isFalse);
-        expect(progress.state, 'config_warning');
-        expect(progress.updated, 1);
-        expect(progress.remainingMissing, 1);
-        expect(progress.hasSavedCoordinates, isTrue);
-        expect(progress.errorMessage, contains('DB에 없는 새 주소'));
-
-        final rows = await db.query('reports', orderBy: 'ID ASC');
-        final cachedRow = rows.firstWhere((row) => row['ID'] == 'cache-1');
-        final uncachedRow = rows.firstWhere((row) => row['ID'] == 'uncached-1');
-
-        expect(cachedRow['위도'], 37.5601);
-        expect(cachedRow['경도'], 126.8301);
-        expect(cachedRow['지오코딩상태'], 'ok');
-        expect(uncachedRow['위도'], isNull);
-        expect(uncachedRow['경도'], isNull);
-      },
-    );
-
-    test(
-      'stored key retry helper replays cached geocoding work on next app run',
-      () async {
-        await LocalDbService.upsertReport(
-          _report(
-            id: 'startup-cache-1',
-            reportNumber: 'STARTUP-CACHE-1',
-            location: '서울특별시 강서구 마곡동 1',
-          ),
-          'traffic',
-          '자동차·교통위반',
-        );
-        await LocalDbService.upsertReport(
-          _report(
-            id: 'startup-uncached-1',
-            reportNumber: 'STARTUP-UNCACHED-1',
-            location: '서울특별시 강서구 방화동 9',
-          ),
-          'traffic',
-          '자동차·교통위반',
-        );
-
-        final db = await LocalDbService.db;
-        await db.insert('geocode_cache', {
-          '주소정규화': '서울특별시 강서구 마곡동 1',
-          '원본주소': '서울특별시 강서구 마곡동 1',
-          '행정구역': '서울특별시 강서구 마곡동',
-          '위도': 37.5601,
-          '경도': 126.8301,
-          '상태': 'ok',
-          'source': 'kakao',
-          'error_message': '',
-          'updated_at': DateTime.now().millisecondsSinceEpoch,
-        });
-
-        SharedPreferences.setMockInitialValues({
-          AppPrefsKeys.appMode: 'standalone',
-          AppPrefsKeys.standaloneUsername: 'tester',
-          AppPrefsKeys.standalonePhoneNumber: '01012341234',
-          AppPrefsKeys.standaloneDemoMode: true,
-          AppPrefsKeys.standaloneKakaoRestApiKey: '',
-        });
-
-        await LocalGeocodeService.ensureMapBackfillStartedFromStoredKey();
-
-        GeocodeBackfillProgress progress =
-            LocalGeocodeService.currentProgress();
-        for (
-          var i = 0;
-          i < 40 && (progress.running || progress.state == 'queued');
-          i++
-        ) {
-          await Future<void>.delayed(const Duration(milliseconds: 50));
-          progress = LocalGeocodeService.currentProgress();
-        }
-
-        expect(progress.state, 'config_warning');
-        expect(progress.updated, 1);
-        expect(progress.remainingMissing, 1);
-
-        final rows = await db.query('reports', orderBy: 'ID ASC');
-        final cachedRow = rows.firstWhere(
-          (row) => row['ID'] == 'startup-cache-1',
-        );
-        final uncachedRow = rows.firstWhere(
-          (row) => row['ID'] == 'startup-uncached-1',
-        );
-
-        expect(cachedRow['위도'], 37.5601);
-        expect(cachedRow['경도'], 126.8301);
-        expect(cachedRow['지오코딩상태'], 'ok');
-        expect(uncachedRow['위도'], isNull);
-        expect(uncachedRow['경도'], isNull);
-      },
-    );
+    test('map shows an official point even when the address is empty', () async {
+      await LocalDbService.upsertReport(
+        _report(
+          id: 'official-no-address',
+          reportNumber: 'OFFICIAL-NO-ADDRESS',
+          location: '',
+          latitude: 37.560123456789,
+          longitude: 126.830123456789,
+        ),
+        'traffic',
+        '자동차·교통위반',
+      );
+      final payload = ReportMapPayload.fromJson(
+        await LocalDbService.computeReportMapStats(),
+      );
+      expect(payload.points, hasLength(1));
+      expect(payload.points.single.lat, 37.560123456789);
+      expect(payload.points.single.lng, 126.830123456789);
+    });
 
     test(
       'map payload ignores NaN coordinates instead of crashing map view',

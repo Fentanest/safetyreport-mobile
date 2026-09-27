@@ -9,6 +9,7 @@ import '../services/crawl_unresolved.dart';
 import '../services/local_db_service.dart';
 import '../services/sync_engine.dart';
 import '../widgets/auth_status_notice.dart';
+import '../widgets/sync_exit_guard.dart';
 import 'settings_screen.dart';
 import '../theme/sr_colors.dart';
 
@@ -418,11 +419,13 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
-
-    return _isStandalone ? _buildStandalone() : _buildServer();
+    return SyncExitGuard(
+      child: _loading
+          ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+          : _isStandalone
+              ? _buildStandalone()
+              : _buildServer(),
+    );
   }
 
   // ── 스탠드어론 UI ────────────────────────────────────────────────────────────
@@ -642,7 +645,10 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('전체 재동기화'),
-        content: const Text('로컬 데이터를 모두 삭제하고 처음부터 다시 동기화합니다.\n계속하시겠습니까?'),
+        content: const Text(
+          '모든 신고를 다시 받아 갱신하고 로컬 공유 사본을 새로 만듭니다. '
+          '기존 수정값과 감시 목록, Supabase에 공유한 자료는 유지됩니다.\n계속하시겠습니까?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),

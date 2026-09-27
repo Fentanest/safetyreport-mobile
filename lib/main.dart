@@ -44,6 +44,7 @@ import 'widgets/duplicate_group_detail_sheet.dart';
 import 'widgets/report_detail_sheet.dart';
 import 'widgets/maintenance_status_bar.dart';
 import 'widgets/community_account_card.dart';
+import 'widgets/sync_exit_guard.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -1210,7 +1211,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
       });
     }
 
-    return Scaffold(
+    final screen = Scaffold(
       body: IndexedStack(
         index: _selectedIndex,
         children: List<Widget>.generate(_tabCount, (index) {
@@ -1240,6 +1241,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
         ],
       ),
     );
+    return SyncExitGuard(child: screen);
   }
 
   Widget _buildNavigationBar(int unread) {

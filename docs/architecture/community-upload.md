@@ -5,6 +5,13 @@ Standalone 모드가 공식 상세 응답을 받은 순간의 값으로 공유 D
 업로드를 `community-ingest` 로 보낸다. 계약 정본: `contracts/community-ingest/`.
 PC(safetyreport) 구현과 같은 벡터(같은 결과)다.
 
+전체 재동기화는 `SyncEngine`이 `CommunityStore.rotateDataset('full_resync')`으로
+새 로컬 공유 데이터셋을 시작한 뒤 모든 신고를 다시 수집한다. 이전 journal·outbox는
+미전송 수정 사실을 잃지 않도록 남기며, 중앙 manifest와 Supabase 자료도 지우지 않는다.
+동기화 전 manifest 확인에 실패하면 로컬 데이터셋을 바꾸거나 신고를 저장하지 않는다.
+상세 1건의 개인 DB 저장을 완료하고 `personal_save_state='saved'`를 기록한 뒤에만
+업로더를 깨운다. 동기화 완료 때 `recovery` 깨우기로 누락 전송도 확인한다.
+
 ## 파일
 
 | 파일 | 역할 |

@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/community/capture/capture_retry_store.dart';
 import 'package:safetyreport/community/capture/community_capture.dart';
 import 'package:safetyreport/community/community_store.dart';
+import 'package:safetyreport/community/upload_hooks.dart';
 import 'package:safetyreport/services/local_db_service.dart';
 import 'package:safetyreport/services/sync_engine.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -48,6 +49,7 @@ void main() {
     });
   });
   tearDown(() async {
+    CommunityUploadHooks.wakeUpload = null;
     await LocalDbService.closeDb();
     await CommunityStore.closeForTest(store.path);
     dir.deleteSync(recursive: true);
@@ -87,6 +89,22 @@ void main() {
     expect(await LocalDbService.getReport(detail['C_NO'] as String), isNotNull);
     expect(await capturedRows(), 1);
     expect(await CaptureRetryStore.captureRetryIds(retry), isEmpty, reason: '저장 성공 뒤 의도 제거');
+  });
+
+  test('업로더는 개인 저장 완료 표시 뒤에 깨운다', () async {
+    final detail = Map<String, dynamic>.from(
+      ((jsonDecode(File('contracts/parser-vectors.json').readAsStringSync()) as Map)['cases'] as List).first['detail'] as Map,
+    )..['STSFDG_SCORE'] = 0;
+    Future<String?>? stateAtWake;
+    CommunityUploadHooks.wakeUpload = (_) {
+      stateAtWake = store.db.rawQuery(
+        'SELECT personal_save_state FROM source_journal ORDER BY source_revision DESC LIMIT 1',
+      ).then((rows) => rows.first['personal_save_state'] as String?);
+    };
+
+    await run(File('${dir.path}/community_capture_retry.json'), detail);
+    expect(stateAtWake, isNotNull);
+    expect(await stateAtWake, 'saved');
   });
 
   test('completed supplement moves both personal and community coordinates', () async {

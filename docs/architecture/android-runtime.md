@@ -175,6 +175,7 @@ Dart CommunityAuthLinkChannel (main() 에서 등록) → "takePendingLink"(꺼�
 - "🔄 동기화 진행 중" 알림 (LOW priority)
 - START_NOT_STICKY (작업 끝나면 정지)
 - swipe-away 방어 + OS kill 후순위 격상 (강제종료는 못 막음)
+- `SyncEngine.runningListenable`은 전체 동기화와 개별 자동 동기화의 FGS 참조 수를 함께 반영한다. `SyncExitGuard`가 실행 화면과 앱 루트의 Android 뒤로 가기를 막아 Activity 종료를 방지한다. 작업이 끝나면 뒤로 가기가 다시 동작한다.
 
 ### 알림 채널
 

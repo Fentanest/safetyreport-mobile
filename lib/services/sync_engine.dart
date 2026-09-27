@@ -2,6 +2,7 @@ import '../models/rating_lookup.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -85,6 +86,10 @@ class SyncRunResult {
 /// 안전신문고 목록 API → 상세 API → 파싱 → 로컬 DB 저장
 class SyncEngine {
   static bool _running = false;
+  static final ValueNotifier<bool> _runningNotifier = ValueNotifier(false);
+  static void _refreshRunningNotifier() =>
+      _runningNotifier.value = _running || _fgsRefCount > 0;
+  static ValueListenable<bool> get runningListenable => _runningNotifier;
 
   /// 끝날 때까지 true — [stop] 은 멈춤을 요청할 뿐이라 루프가 실제로 빠져나가야 false 가 된다(M-21: 예전엔 바로
   /// false 로 바꿔 돌던 작업 위에 새 동기화가 겹쳐 시작될 수 있었다).
@@ -119,6 +124,7 @@ class SyncEngine {
   /// 동기화 작업 시작 시 호출 — 첫 호출 시 Foreground Service 가동 → 프로세스 보호.
   static Future<void> acquireFgs(String message) async {
     _fgsRefCount++;
+    _refreshRunningNotifier();
     if (_fgsRefCount == 1) {
       try {
         await _methodChannel.invokeMethod('startSyncFgs', {'message': message});
@@ -131,6 +137,7 @@ class SyncEngine {
   /// 동기화 작업 종료 시 호출 — 마지막 호출 시 FGS 정지.
   static Future<void> releaseFgs() async {
     if (_fgsRefCount > 0) _fgsRefCount--;
+    _refreshRunningNotifier();
     if (_fgsRefCount == 0) {
       try {
         await _methodChannel.invokeMethod('stopSyncFgs');
@@ -176,6 +183,7 @@ class SyncEngine {
       return const SyncRunResult(done: 0, errors: 0);
     }
     _running = true;
+    _refreshRunningNotifier();
     final blocks = rebuildBlocks;
     if (rebuildRunId == null && blocks != null) {
       bool blocked;
@@ -186,6 +194,7 @@ class SyncEngine {
       }
       if (blocked) {
         _running = false;
+        _refreshRunningNotifier();
         _log('[community] $rebuildBlockedMessage');
         _emit(SyncEvent(type: SyncEventType.error, message: rebuildBlockedMessage));
         return const SyncRunResult(
@@ -206,6 +215,7 @@ class SyncEngine {
           failed: true, errorMessage: e.toString());
     } finally {
       _running = false;
+      _refreshRunningNotifier();
       await releaseFgs();
     }
   }
@@ -241,10 +251,15 @@ class SyncEngine {
     }
     if (community.store == null || !communityReady) {
       final reason = community.store == null ? 'community_store_unavailable' : 'manifest_unavailable';
-      _log('[community] $reason — 공유 사본을 만들 수 없어 이번 수집을 시작하지 않습니다(개인 DB 변경 없음). 다음 실행에서 다시 시도합니다.');
-      throw Exception('$reason: 커뮤니티 공유 준비가 되지 않아 수집을 멈췄습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.');
+      throw Exception('$reason: 로컬 공유 저장소 또는 공유 연결을 확인하지 못해 수집을 시작하지 않았습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.');
     }
     final captureActive = community.store != null && communityReady;
+    if (fullSync && !isRebuild) {
+      // 새 로컬 사본에서 전 건을 다시 capture 한다. 이전 journal/outbox 는 이미 보낸 사실과
+      // 미전송 수정 기록을 잃지 않도록 보존하고, 중앙 manifest 도 그대로 둔다.
+      await community.store!.rotateDataset('full_resync');
+      _log('로컬 공유 사본을 새로 시작합니다. 이전 전송 기록과 Supabase 자료는 유지합니다.');
+    }
 
     if (totalCount == 0) {
       _log('신고 내역이 없습니다.');
@@ -254,6 +269,7 @@ class SyncEngine {
         await markRebuildListComplete(community.store!, rebuildRunId);
       }
       await _saveSyncTime();
+      CommunityUploadHooks.wakeUploadNow('recovery');
       _emit(SyncEvent(type: SyncEventType.done, total: 0));
       return SyncRunResult(done: 0, errors: 0, rebuildRunId: rebuildRunId);
     }
@@ -528,6 +544,7 @@ class SyncEngine {
 
     final msg =
         '${_stopping ? '동기화 중지' : '동기화 완료'}: $done건 저장${errors > 0 ? ', $errors건 오류' : ''}';
+    if (!_stopping) CommunityUploadHooks.wakeUploadNow('recovery');
     _log(msg);
     _emit(
       SyncEvent(
@@ -731,8 +748,6 @@ class SyncEngine {
             rebuildRunId: rebuildRunId,
             store: communityStore,
             projectNamespace: projectNamespace);
-        // 공유 사본이 생겼으면 실시간 업로드를 깨운다(앱 isolate 제어기가 합쳐 한 번에 보낸다).
-        if (cap.eventId != null) CommunityUploadHooks.wakeUploadNow();
       } catch (_) {
         if (tracker.recordFailure()) {
           throw CaptureStoreUnavailable(
@@ -769,6 +784,8 @@ class SyncEngine {
       rethrow;
     }
     await markPersonalSave(cap.eventId, true, store: communityStore);
+    // 개인 저장 완료 뒤에 깨운다. pending 상태에서 먼저 돌면 업로더가 보낼 행을 찾지 못할 수 있다.
+    if (cap.eventId != null) CommunityUploadHooks.wakeUploadNow();
     try {
       await CaptureRetryStore.removeIntent(retryFile, cNo);
     } catch (_) {}

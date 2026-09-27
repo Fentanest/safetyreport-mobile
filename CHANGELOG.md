@@ -10,6 +10,10 @@
 
 ## 2026-09-27 (v2.0.0+31, dev 미배포)
 
+### GitHub Actions artifact 보관 기간
+
+- 개발 APK, 릴리스 검증용 mapping·APK·AAB artifact의 보관 기간을 1일로 설정했다.
+
 ### Demo 보기·첫 실행 순서·Standalone 동기화 오류 수정
 
 - 첫 설치에서 Client/Standalone 모드를 먼저 고르고 카카오 로그인·공유 동의, 공통 권한, 해당 모드 설정으로 이어진다. 모드 선택 아래 `Demo 보기`를 추가해 로그인·권한 없이 가상 신고 100건을 실제 화면에서 볼 수 있게 했다. 기존 demo/demo 경로도 유지한다.

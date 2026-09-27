@@ -54,7 +54,7 @@ jobs:
         name: ${{ steps.build.outputs.name }}
         path: dist-dev/
         if-no-files-found: error
-        retention-days: 30
+        retention-days: 1
 
     # 스크립트가 끝날 때 지우지만, 중간에 멈춰도 러너 작업 폴더에 서명 설정이 남지 않게 한 번 더 지운다.
     - name: Remove staged signing config

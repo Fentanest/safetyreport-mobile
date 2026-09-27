@@ -84,7 +84,7 @@ jobs:
         name: mysafetyreport-${{ steps.version.outputs.build_name }}+${{ steps.version.outputs.build_number }}-${{ github.sha }}-mapping
         path: dist/
         if-no-files-found: error
-        retention-days: 400
+        retention-days: 1
 
     - name: Upload APK artifact
       if: ${{ inputs.verify_only || steps.check_tag.outputs.tag_exists == 'false' }}
@@ -92,6 +92,7 @@ jobs:
       with:
         name: mysafetyreport-${{ steps.version.outputs.build_name }}+${{ steps.version.outputs.build_number }}-apk
         path: build/app/outputs/flutter-apk/mysafetyreport.apk
+        retention-days: 1
 
     - name: Upload AAB artifact (Play Store용, 릴리즈 미포함)
       if: ${{ inputs.verify_only || steps.check_tag.outputs.tag_exists == 'false' }}
@@ -99,6 +100,7 @@ jobs:
       with:
         name: mysafetyreport-${{ steps.version.outputs.build_name }}+${{ steps.version.outputs.build_number }}-aab
         path: build/app/outputs/bundle/release/mysafetyreport.aab
+        retention-days: 1
 
     - name: Create GitHub Release with APK
       if: ${{ !inputs.verify_only && steps.check_tag.outputs.tag_exists == 'false' }}

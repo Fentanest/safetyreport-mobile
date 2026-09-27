@@ -143,6 +143,10 @@ class CommunityAuthService {
   };
 
   static const _defaultStorage = FlutterSecureStorage(
+    // flutter_secure_storage 10: v9 에서 EncryptedSharedPreferences 로 저장한 값을 첫 접근 때 새 cipher 로 옮긴다
+    // (migrateOnAlgorithmChange 기본 true). 이관 릴리즈에서는 v9 때와 같은 옵션을 그대로 둔다(에뮬레이터 이관 시험과 같은 설정).
+    // 다음 릴리즈(v11, file_picker 13)에서 이 매개변수를 지운다 — v11 은 이 매개변수를 없앴다.
+    // ignore: deprecated_member_use
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
 

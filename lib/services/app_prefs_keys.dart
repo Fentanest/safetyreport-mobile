@@ -15,6 +15,10 @@ class AppPrefsKeys {
   static const standalonePhoneNumber = 'standalonePhoneNumber';
   static const standaloneDemoMode = 'standaloneDemoMode';
 
+  /// flutter_secure_storage 10 이관(v9 EncryptedSharedPreferences → 새 cipher)을 포그라운드 앱이 끝냈다는 표시.
+  /// 백그라운드 작업은 이 표시 전에는 보안 저장소를 열지 않고, 다음 릴리즈(v11)는 이 표시가 없는 설치본을 재로그인 안내로 보낸다.
+  static const secureStorageV10Migrated = 'secureStorageV10Migrated';
+
   /// 서버 변경 기록의 기기별 읽은 위치에 쓰는 식별자(설치마다 한 번 만듦, 개인정보 아님 — 저장 계층 재설계 R5).
   static const deviceInstallId = 'deviceInstallId';
   static const standaloneKakaoRestApiKey = 'standaloneKakaoRestApiKey';

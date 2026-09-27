@@ -38,6 +38,13 @@ class MainActivity : FlutterFragmentActivity() {
     private var communityDartReady = false
 
     companion object {
+        private const val SECURE_STORAGE_CHANNEL = "com.fentanest.mysafetyreport/secure_storage"
+        // flutter_secure_storage 의 자료 파일·키 접두사(v9·v10 같음)와 Jetpack EncryptedSharedPreferences keyset 항목 이름.
+        private const val SECURE_STORAGE_PREFS = "FlutterSecureStorage"
+        private const val SECURE_STORAGE_KEY_PREFIX = "VGhpcyBpcyB0aGUgcHJlZml4IGZvciBhIHNlY3VyZSBzdG9yYWdlCg_"
+        private const val ESP_KEYSET_PREFIX = "__androidx_security_crypto_encrypted_prefs_"
+        // v9 가 알고리즘 변경 때 같은 파일에 적을 수 있는 메타 키(자료 아님) — 남은 ESP 항목으로 세지 않는다.
+        private val SECURE_STORAGE_META_KEYS = setOf("FlutterSecureSAlgorithmKey", "FlutterSecureSAlgorithmStorage")
         private const val COMMUNITY_AUTH_CHANNEL = "com.fentanest.mysafetyreport/community_auth"
         private const val COMMUNITY_AUTH_SCHEME = "com.fentanest.mysafetyreport"
         private const val COMMUNITY_AUTH_HOST = "auth"
@@ -297,6 +304,20 @@ class MainActivity : FlutterFragmentActivity() {
         nm.notify(notifIdGen.getAndIncrement(), notif)
     }
 
+    /**
+     * v9 EncryptedSharedPreferences 로 저장돼 아직 새 cipher 로 옮겨지지 않은 항목 수.
+     * v9 ESP 항목은 이름이 암호화돼 플러그인 접두사가 없고, v10 이관이 끝나면 접두사 있는 항목과 keyset 두 줄만 남는다
+     * (에뮬레이터에서 이관 전후 파일로 확인). 값은 읽지 않는다. 파일을 못 읽으면 -1(미확인 — 이관 완료로 보지 않음).
+     */
+    private fun unmigratedLegacySecureEntries(): Int = try {
+        getSharedPreferences(SECURE_STORAGE_PREFS, MODE_PRIVATE).all.keys.count { key ->
+            !key.startsWith(SECURE_STORAGE_KEY_PREFIX) && !key.startsWith(ESP_KEYSET_PREFIX) &&
+                key !in SECURE_STORAGE_META_KEYS
+        }
+    } catch (e: Exception) {
+        -1
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
@@ -312,6 +333,14 @@ class MainActivity : FlutterFragmentActivity() {
                     communityDartReady = true
                     result.success(takeCommunityAuthLink())
                 }
+                else -> result.notImplemented()
+            }
+        }
+
+        // flutter_secure_storage 9 → 10 이관 확인(lib/services/secure_storage_migration.dart). 값은 읽지 않고 키 이름만 센다.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SECURE_STORAGE_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "unmigratedLegacyEntries" -> result.success(unmigratedLegacySecureEntries())
                 else -> result.notImplemented()
             }
         }

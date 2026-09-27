@@ -12,6 +12,7 @@ void main() {
     SharedPreferences.setMockInitialValues({
       AppPrefsKeys.appMode: 'standalone',
       AppPrefsKeys.standaloneUsername: 'tester',
+      AppPrefsKeys.secureStorageV10Migrated: true, // 포그라운드 앱이 보안 저장소 이관을 끝낸 설치본
       ...extra,
     });
   }

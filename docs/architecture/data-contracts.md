@@ -162,6 +162,21 @@ Client 모드 서버 경로와 이벤트 문자열은 Flutter/Dart 와 Android/K
 | 커뮤니티 로그인 대기 (PKCE verifier, 시작 시각) | FlutterSecureStorage | `community_pending_login_v1` |
 | 커뮤니티 복귀 링크 소비 표시 (SHA-256) | FlutterSecureStorage | `community_consumed_callback_v1` |
 
+FlutterSecureStorage(2026-09-27 부터 10.3.4): v9 에서 `encryptedSharedPreferences: true`(비밀번호·커뮤니티 세션)와 기본 옵션(`community_connection_v1`)이
+같은 `FlutterSecureStorage` 파일을 함께 썼다. v10 은 첫 접근 때 EncryptedSharedPreferences 자료를 새 cipher(RSA-OAEP·AES-GCM)로 옮긴다(migrateOnAlgorithmChange 기본).
+이관 릴리즈는 v9 와 같은 옵션을 그대로 둔다. v10 은 **처음 열 때** 옮기므로, 포그라운드 앱이 시작하자마자 두 옵션으로 열어 이관을 끝내고
+SharedPreferences `secureStorageV10Migrated=true` 를 남긴다(`lib/services/secure_storage_migration.dart`). WorkManager 작업(업로드·하루 1회 로그인 점검)은
+이 표시 전에는 보안 저장소를 열지 않는다 — 두 엔진이 동시에 첫 이관을 하지 않게, 이관은 포그라운드 한 곳에서만. 표시는 읽기 성공만으로 남기지 않는다:
+플러그인은 ESP 이관이 실패하면 ESP 로 되돌아가 성공을 알리므로, Android 네이티브(`MainActivity` 채널 `secure_storage`)가 자료 파일에 접두사 없는 v9 ESP 항목이
+0개인지(키 이름만, 값은 읽지 않음, v9 알고리즘 메타 키 제외) 확인한 뒤에만 남긴다. 확인되지 않으면 앱은 평소 화면으로 들어가지 않고 복구 화면(`SecureStorageRecoveryScreen`)만 띄운다 — 로그인·토큰 갱신·연결 등록·설정 초기화가
+폴백 상태의 저장소에 쓰지 않게(폴백 중 쓴 값은 다음 이관 때 망가진다). 사용자는 앱을 다시 열어 재시도한다. 로그인 정보를 지워 우회하는 경로는 두지 않는다(카카오 로그인 필수 —
+2026-09-27 사용자 결정). 계속 실패하는 기기는 앱 삭제·재설치 안내. 에뮬레이터에서 정상 이관·복구 화면을 확인했다. 실제 앱에서 v9 가 쓴 로그인 대기 값이 v10 제자리 업데이트 때 옮겨지고 표시가 남는 것을 확인했다. 에뮬레이터(API 35)에서 v9.2.4 로 쓴 값(두 옵션의 쓰기 순서 4가지 × v10 첫 초기화 순서 2가지 + 기본 옵션만)이
+모두 같은 값으로 읽히고 이관 뒤 쓰기·재시작도 됨을 확인했다(`.agent-runs/upload-r8-20260927/fssmig`). v11(다음 릴리즈)은 v10 이전 방식 자료를 읽지 못한다.
+v11 릴리즈 조건: ① `secureStorageV10Migrated` 표시가 **없는** 설치본(v10 을 건너뛰었거나 v10 을 한 번도 열지 않음)은 보안 저장소 자료를 잃은 것으로 보고
+재로그인·커뮤니티 연결 재설정 안내로 보낸다(조용히 로그아웃된 상태로 두지 않음), ② `encryptedSharedPreferences` 매개변수 제거, ③ 실제 자료를 채운 앱의
+v9→v10→v11 제자리 업데이트·두 엔진 동시 시작·이관 중 종료 시험. 알려진 남은 위험: 플러그인은 ESP 이관이 실패하면 ESP 로 되돌아가 성공을 알리지만
+이후 읽기가 실패할 수 있다(자료는 지우지 않음, `resetOnError` 기본 false) — 앱은 읽기 실패 시 표시를 남기지 않고 다음 시작에 다시 연다. iOS(Keychain, darwin 패키지)는 실기기 미확인.
+
 커뮤니티 계정(카카오, Supabase Auth)은 안전신문고 계정과 별개다. Standalone 만 폰에 세션을 두고, Client 는 서버가 세션 주인이라 폰에 아무것도 저장하지 않는다.
 SharedPreferences·SQLite 에는 넣지 않는다(DB 스키마 변경 없음). 흐름·서버 API(`/api/v1/community-auth/*`, capability `community_account`)는
 [community-account.md](community-account.md).

@@ -258,7 +258,9 @@ class ChangeType {
 - Play 경고의 `H2.h.b` = file_picker 11.0.2 `FileUtils.processUri/compressImage`(`BitmapFactory.decodeStream` 옵션 없음, `FileUtils.kt:464`) —
   후보 3개 버전 CI AAB mapping(pg_map_id `fbc35fa…`)으로 확인. 2026-09-27 빌드(pg_map_id `7cfb1fe4…`)에서는 R8 이 같은 코드를 `md0.f` 로 합쳤다.
   `compressionQuality > 0` 일 때만 실행되고 앱은 항상 0 이라 실행 경로는 아니다. 수정판(file_picker ≥12)은 win32 6 → flutter_secure_storage 11
-  (v10 이전 저장 방식 데이터를 못 읽음)을 요구해 **보류** — 선택지는 PC 레포 `docs/plans/2026-09-27-upload-hardening-android.md` §7.
+  (v10 이전 저장 방식 데이터를 못 읽음)을 요구한다 — **2단계로 진행(2026-09-27 사용자 결정)**: ① 이번 릴리즈에서 flutter_secure_storage 9 → 10(자료 이관,
+  `data-contracts.md` 자격증명 절), ② 다음 릴리즈에서 11 + file_picker 13(+ share_plus 13·package_info_plus 10, `encryptedSharedPreferences` 매개변수 제거).
+  ②는 사용자 대부분이 ①을 거친 뒤에 낸다(①을 건너뛴 설치본은 v11 에서 로그인·연결 비밀을 잃는다).
 
 ### 로컬 테스트 빌드 (`build_test_apk.sh`)
 고정 Flutter 로컬 CLI.

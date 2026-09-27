@@ -30,6 +30,8 @@ import 'community/community_wiring.dart';
 import 'community/gate/community_gate.dart';
 import 'community/rebuild/community_rebuild.dart';
 import 'services/pending_changes_store.dart';
+import 'services/secure_storage_migration.dart';
+import 'screens/secure_storage_recovery_screen.dart';
 import 'services/review_prompt_service.dart';
 import 'services/sync_engine.dart' show ChangeType, SyncEngine;
 import 'server_palette.dart';
@@ -45,6 +47,12 @@ import 'widgets/community_account_card.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  // 보안 저장소 v9 → v10 이관을 앱 시작 때 끝낸다(다른 코드가 보안 저장소를 열기 전에, 백그라운드 작업은 이 표시 뒤에만 연다).
+  // 확인되지 않으면 평소 화면으로 들어가지 않는다 — 로그인·토큰 갱신·연결 등록·설정 초기화가 폴백 상태의 저장소에 쓰지 않게.
+  if (!await SecureStorageMigration.ensureMigrated()) {
+    runApp(const SecureStorageRecoveryApp());
+    return;
+  }
   // Standalone 하루 1회 로그인 점검(BackgroundLoginCheck). 등록/해제는 ReportProvider 가 모드에 따라 한다.
   try {
     await Workmanager().initialize(backgroundTaskDispatcher);

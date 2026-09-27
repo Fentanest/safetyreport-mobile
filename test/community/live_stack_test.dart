@@ -30,7 +30,6 @@ const api = String.fromEnvironment('COMMUNITY_API_URL', defaultValue: 'http://12
 final env = Platform.environment;
 final enabled = env['COMMUNITY_STACK'] == '1' && (env['COMMUNITY_PUBLISHABLE_KEY'] ?? '').isNotEmpty;
 final mockKakaoHost = env['COMMUNITY_MOCK_KAKAO_HOST'] ?? '172.17.0.1';
-const policy = '2026-09-28.1';
 
 String _b64(List<int> b) => base64Url.encode(b).replaceAll('=', '');
 
@@ -95,14 +94,16 @@ void main() {
     final token = session['access_token'] as String;
     final userId = (session['user'] as Map)['id'] as String;
     final account = CommunityAccountClient(supabaseUrl: api, publishableKey: key);
-    final hash = File('contracts/community-ingest/consent/share-consent-2026-09-28.1.sha256').readAsStringSync().split(RegExp(r'\s'))[0];
+    // 동의문은 중앙 `policy` 로 받는다 — 받은 본문의 해시로 동의한다(계약 폴더에 동의문 사본 없음)
+    final centralPolicy = await account.policy(accessToken: token);
+    final hash = centralPolicy.consentTextSha256;
     var status = await account.status(accessToken: token);
     // 이전 실행이 남긴 동의(동의문이 바뀌면 outdated)를 먼저 철회해 새 계보로 시작한다 — outdated 에 다시 동의하면 계보가 이어져
     // 이전 실행의 공유 자료까지 계속 공개된다(계약: 정책이 바뀐 재동의는 계보를 잇는다).
     if (status.consentState == 'active' || status.consentState == 'outdated') {
       await account.revokeConsent(accessToken: token, grantId: status.consentGrantId!);
     }
-    final grant = await account.consent(accessToken: token, policyVersion: policy, consentTextSha256: hash, via: 'mobile_standalone');
+    final grant = await account.consent(accessToken: token, policyVersion: centralPolicy.version, consentTextSha256: hash, via: 'mobile_standalone');
     final datasetKey = sha256.convert(utf8.encode('safetyreport-dataset|v1|mobile-live-${DateTime.now().microsecondsSinceEpoch}')).toString();
     final rng = Random.secure();
     final secret = _b64(List<int>.generate(32, (_) => rng.nextInt(256)));
@@ -119,7 +120,7 @@ void main() {
     });
     await store.setContext({
       'contributor_fingerprint': status.fingerprint, 'connection_id': conn.connectionId, 'writer_epoch': conn.writerEpoch,
-      'dataset_key': datasetKey, 'consent_grant_id': grant.grantId, 'policy_version': policy,
+      'dataset_key': datasetKey, 'consent_grant_id': grant.grantId, 'policy_version': centralPolicy.version,
       'consent_text_sha256': hash, 'source_app': 'safetyreport-mobile', 'source_mode': 'standalone',
     });
 

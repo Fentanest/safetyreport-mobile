@@ -68,7 +68,7 @@ void main() {
     test('context active / inactive and unknown fields', () async {
       expect(await store.activeContext(), isNull);
       await store.setContext({'contributor_fingerprint': 'f' * 32, 'connection_id': 'c', 'writer_epoch': 3,
-        'dataset_key': 'd' * 64, 'consent_grant_id': 'g', 'policy_version': '2026-09-26.1',
+        'dataset_key': 'd' * 64, 'consent_grant_id': 'g', 'policy_version': '2026-09-28.1',
         'consent_text_sha256': 'h' * 64, 'source_app': 'safetyreport-mobile', 'source_mode': 'standalone'});
       expect((await store.activeContext())!['writer_epoch'], 3);
       await store.deactivateContext('consent_revoked');

@@ -64,7 +64,7 @@ class _CommunityOnboardingScreenState
     try {
       final bundle = DefaultAssetBundle.of(context);
       final text = await bundle.loadString(
-        'assets/community/share-consent-2026-09-26.1.md',
+        'assets/community/share-consent-2026-09-28.1.md',
       );
       if (mounted) setState(() => _loadedText = text);
     } catch (_) {

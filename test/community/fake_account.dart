@@ -40,7 +40,7 @@ class StubAuthService extends CommunityAuthService {
 
 Map<String, Object?> statusJson({
   String consentState = 'active',
-  String? consentPolicy = '2026-09-26.1',
+  String? consentPolicy = '2026-09-28.1',
   String contributor = 'active',
   bool kakao = true,
   String fingerprint = 'fp-32hex',
@@ -48,7 +48,7 @@ Map<String, Object?> statusJson({
       'protocol': 1,
       'gate': {'kakao': kakao, 'consent': true, 'can_enter': true, 'reasons': []},
       'policy': {
-        'required_version': '2026-09-26.1',
+        'required_version': '2026-09-28.1',
         'consent_text_sha256': 'abc123',
       },
       'consent': {
@@ -107,7 +107,7 @@ class FakeAccountServer {
               {
                 'protocol': 1,
                 'grant_id': 'grant-1',
-                'policy_version': '2026-09-26.1',
+                'policy_version': '2026-09-28.1',
                 'granted_at': '2026-09-26T03:00:00.000Z',
                 'created': true,
               },

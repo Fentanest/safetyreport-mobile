@@ -24,7 +24,7 @@ class GateState {
 }
 
 /// 앱이 아는 필수 동의 정책 버전 (계약 `account-api.md` status 예시와 동일).
-const String communityRequiredPolicyVersion = '2026-09-26.1';
+const String communityRequiredPolicyVersion = '2026-09-28.1';
 
 /// 게이트 캐시 유효 기간 (화면 이동용 10분).
 const Duration communityGateCacheTtl = Duration(seconds: 600);

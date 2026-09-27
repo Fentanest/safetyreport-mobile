@@ -26,7 +26,7 @@ const api = String.fromEnvironment('COMMUNITY_API_URL', defaultValue: 'http://12
 final env = Platform.environment;
 final enabled = env['COMMUNITY_STACK'] == '1' && (env['COMMUNITY_PUBLISHABLE_KEY'] ?? '').isNotEmpty;
 final mockKakaoHost = env['COMMUNITY_MOCK_KAKAO_HOST'] ?? '172.17.0.1';
-const policy = '2026-09-26.1';
+const policy = '2026-09-28.1';
 
 String _b64(List<int> b) => base64Url.encode(b).replaceAll('=', '');
 
@@ -91,7 +91,7 @@ void main() {
     final token = session['access_token'] as String;
     final userId = (session['user'] as Map)['id'] as String;
     final account = CommunityAccountClient(supabaseUrl: api, publishableKey: key);
-    final hash = File('contracts/community-ingest/consent/share-consent-2026-09-26.1.sha256').readAsStringSync().split(RegExp(r'\s'))[0];
+    final hash = File('contracts/community-ingest/consent/share-consent-2026-09-28.1.sha256').readAsStringSync().split(RegExp(r'\s'))[0];
     var status = await account.status(accessToken: token);
     if (status.consentState == 'active') {
       await account.revokeConsent(accessToken: token, grantId: status.consentGrantId!);

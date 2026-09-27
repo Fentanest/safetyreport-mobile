@@ -10,6 +10,11 @@
 
 ## 2026-09-27 (버전 변경 없음)
 
+### 커뮤니티 동의 정책 2026-09-28.1 (과태료 금액 통계 공개)
+
+- 사용자 승인(2026-09-27)으로 신고 지도가 답변에 적힌 과태료 금액의 통계를 공개한다. 동의문 `assets/community/share-consent-2026-09-28.1.md`(지도 저장소 정본과 같은 바이트), 필수 버전 `communityRequiredPolicyVersion` 변경. 2026-09-26.1 동의자는 다음 상태 확인에서 새 동의 화면을 본다(철회 아님).
+- 계약 사본 `contracts/community-ingest/` 동기화(MANIFEST 검사 통과). `flutter test test/community` 262 통과. 전체 실행의 골든 4건 실패는 dev 원본(82efd333)에서도 같게 실패하는 기존 문제.
+
 ### 보안 저장소 flutter_secure_storage 9 → 10 (Play `H2.h.b` 수정 1단계)
 
 - file_picker 수정판이 요구하는 flutter_secure_storage 11 은 v10 이전 방식으로 저장한 자료를 읽지 못해, 먼저 10 으로 올려 자료를 새 cipher 로 옮긴다

@@ -7,13 +7,13 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   test('bundled consent equals contract copy with matching sha256', () {
     final bundled =
-        File('assets/community/share-consent-2026-09-26.1.md').readAsBytesSync();
+        File('assets/community/share-consent-2026-09-28.1.md').readAsBytesSync();
     final contract = File(
-      'contracts/community-ingest/consent/share-consent-2026-09-26.1.md',
+      'contracts/community-ingest/consent/share-consent-2026-09-28.1.md',
     ).readAsBytesSync();
     expect(bundled, contract);
     final recorded = File(
-      'contracts/community-ingest/consent/share-consent-2026-09-26.1.sha256',
+      'contracts/community-ingest/consent/share-consent-2026-09-28.1.sha256',
     ).readAsStringSync().split(' ').first.trim();
     expect(sha256.convert(bundled).toString(), recorded);
   });

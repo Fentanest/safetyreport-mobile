@@ -12,14 +12,14 @@ const _token = 'access-test';
 
 Map<String, Object?> _statusJson({
   String consentState = 'active',
-  String? consentPolicy = '2026-09-26.1',
+  String? consentPolicy = '2026-09-28.1',
   String contributor = 'active',
   bool kakao = true,
 }) => {
       'protocol': 1,
       'gate': {'kakao': kakao, 'consent': true, 'can_enter': true, 'reasons': []},
       'policy': {
-        'required_version': '2026-09-26.1',
+        'required_version': '2026-09-28.1',
         'consent_text_sha256': 'abc123',
       },
       'consent': {
@@ -67,7 +67,7 @@ void main() {
         jsonEncode({
           'protocol': 1,
           'grant_id': 'g-9',
-          'policy_version': '2026-09-26.1',
+          'policy_version': '2026-09-28.1',
           'granted_at': '2026-09-26T03:00:00.000Z',
           'created': true,
         }),
@@ -76,14 +76,14 @@ void main() {
     });
     final res = await _client(mock).consent(
       accessToken: _token,
-      policyVersion: '2026-09-26.1',
+      policyVersion: '2026-09-28.1',
       consentTextSha256: 'abc123',
       via: 'mobile_standalone',
     );
     final body = jsonDecode(seen.body) as Map;
     expect(body['via'], 'mobile_standalone');
     expect(body['accepted'], isTrue);
-    expect(body['policy_version'], '2026-09-26.1');
+    expect(body['policy_version'], '2026-09-28.1');
     expect(res.grantId, 'g-9');
   });
 

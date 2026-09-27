@@ -4,8 +4,118 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
 import '../models/stats_overview.dart';
+import '../models/agency_stats.dart';
 import '../server_palette.dart';
 import '../theme/sr_colors.dart';
+
+/// PC 통계와 같은 교통위반 과태료 합계. 기관별 표를 더하지 않고 카테고리 원자료 합계를 사용한다.
+class StatsFineSummary extends StatelessWidget {
+  final CategoryStats traffic;
+
+  const StatsFineSummary({super.key, required this.traffic});
+
+  String _won(int value) =>
+      '${value.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (match) => '${match[1]},')}원';
+
+  @override
+  Widget build(BuildContext context) {
+    final estimateCount = traffic.estimatedFineCount;
+    final estimateAmount = traffic.estimatedFineAmount;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '교통위반 과태료 합계',
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              color: context.sr.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _FineTotalTile(
+            label: '확정 과태료',
+            value: _won(traffic.totalFineAmount),
+            note: '답변에 금액이 적힌 건만 · 현재 조건 적용',
+          ),
+          const SizedBox(height: 8),
+          _FineTotalTile(
+            label: '추정금액합계',
+            value: estimateAmount == null || estimateCount == null
+                ? '미지원'
+                : _won(estimateAmount),
+            note: estimateAmount == null || estimateCount == null
+                ? '현재 서버에서 추정 합계를 제공하지 않습니다.'
+                : '금액 미확인 과태료 중 추정 가능 $estimateCount건 · 확정액과 별도',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FineTotalTile extends StatelessWidget {
+  final String label;
+  final String value;
+  final String note;
+
+  const _FineTotalTile({
+    required this.label,
+    required this.value,
+    required this.note,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tone = StatusTone.of(
+      serverTrafficFineColor,
+      brightness: theme.brightness,
+      surface: theme.colorScheme.surface,
+    );
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: context.sr.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: context.sr.textSecondary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            softWrap: true,
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: tone.foreground,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            note,
+            softWrap: true,
+            style: TextStyle(fontSize: 11, color: context.sr.textSecondary),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 /// 통계 화면 상단 요약(카드 + 월별 추이). 모든 수치는 [summary] 런타임 집계에서 온다.
 /// 정의: `docs/design/statistics-spec.md` §4 (월별 신고 = 신고일 기준, 월별 답변 = 답변일 기준).

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/models/stats_overview.dart';
+import 'package:safetyreport/models/agency_stats.dart';
 import 'package:safetyreport/widgets/stats_overview_section.dart';
 
 import '../support/ui_harness.dart';
@@ -34,6 +35,52 @@ OverviewSummary fixtureSummary({int months = 8}) {
 }
 
 void main() {
+  CategoryStats traffic({int confirmed = 0, int? estimated, int? count}) =>
+      CategoryStats(
+        byAgency: const [],
+        byPerson: const [],
+        policeByAgency: const [],
+        policeByPerson: const [],
+        otherByAgency: const [],
+        otherByPerson: const [],
+        totalFineAmount: confirmed,
+        estimatedFineAmount: estimated,
+        estimatedFineCount: count,
+      );
+
+  testWidgets('교통위반 확정·추정 합계는 별도로 보이고 좁은 폭에서도 잘리지 않는다', (tester) async {
+    final errors = await pumpThemed(
+      tester,
+      StatsFineSummary(
+        traffic: traffic(confirmed: 12345678, estimated: 5650000, count: 113),
+      ),
+      brightness: Brightness.light,
+      width: 320,
+      textScale: 1.5,
+      height: 600,
+    );
+    expect(errors, isEmpty, reason: describeErrors(errors));
+    expect(find.text('12,345,678원'), findsOneWidget);
+    expect(find.text('5,650,000원'), findsOneWidget);
+    expect(find.textContaining('추정 가능 113건'), findsOneWidget);
+  });
+
+  testWidgets('추정 0건과 미지원은 구분한다', (tester) async {
+    await pumpThemed(
+      tester,
+      StatsFineSummary(traffic: traffic(estimated: 0, count: 0)),
+      brightness: Brightness.light,
+    );
+    expect(find.text('0원'), findsNWidgets(2));
+    expect(find.text('미지원'), findsNothing);
+    await pumpThemed(
+      tester,
+      StatsFineSummary(traffic: traffic()),
+      brightness: Brightness.light,
+    );
+    expect(find.text('미지원'), findsOneWidget);
+  });
+
   for (final brightness in Brightness.values) {
     for (final scale in uiTextScales) {
       testWidgets('통계 요약: overflow 없음 (${brightness.name}, x$scale)', (

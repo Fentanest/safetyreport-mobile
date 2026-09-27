@@ -72,6 +72,21 @@ const _rows = <Map<String, dynamic>>[
 ];
 
 void main() {
+  test('카테고리 과태료 합계는 기관 미지정 신고도 포함하고 추정액은 분리한다', () {
+    final rows = <Map<String, dynamic>>[
+      {'처리기관': 'A구청', '담당자': '김', '범칙금_과태료': '과태료: 40,000원'},
+      {'처리기관': '', '담당자': '', '범칙금_과태료': '과태료: 20,000원'},
+    ];
+    final category = LocalDbService.buildStatsCategory(rows, rows, false);
+    final agency = (category['by_agency'] as List)
+        .cast<Map<String, dynamic>>()
+        .single;
+    expect(category['total_fine_amount'], 60000);
+    expect(agency['total_fine_amount'], 40000);
+    expect(category['estimated_fine_amount'], 0);
+    expect(category['estimated_fine_count'], 0);
+  });
+
   test('S-10: 기관·담당자 값으로 표에 넣고, 배정된 처리중은 in_progress 로 센다', () {
     final result = LocalDbService.buildStatsCategory(_rows, _rows, false);
     final agency = {

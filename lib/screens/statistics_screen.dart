@@ -12,6 +12,7 @@ import 'report_list_screen.dart';
 import 'settings_screen.dart';
 import '../theme/sr_colors.dart';
 import '../widgets/stats_overview_section.dart';
+import '../widgets/stats_fine_breakdown.dart';
 
 class StatisticsScreen extends StatefulWidget {
   const StatisticsScreen({super.key});
@@ -134,12 +135,19 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     'other': '기타위반',
   };
 
-  Widget get _overviewHeader => StatsOverviewSection(
-    summary: _overview?.forCategory(_cat),
-    categoryLabel: _catLabels[_cat] ?? '',
-    yearBasis: _overview?.yearBasis ?? '',
-    excludeWithdraw: _overview?.excludeWithdraw ?? false,
-    notice: _overviewNotice ?? (_overview == null ? '요약을 불러오는 중입니다…' : null),
+  Widget get _overviewHeader => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      if (_stats != null) StatsFineSummary(traffic: _stats!.traffic),
+      StatsOverviewSection(
+        summary: _overview?.forCategory(_cat),
+        categoryLabel: _catLabels[_cat] ?? '',
+        yearBasis: _overview?.yearBasis ?? '',
+        excludeWithdraw: _overview?.excludeWithdraw ?? false,
+        notice:
+            _overviewNotice ?? (_overview == null ? '요약을 불러오는 중입니다…' : null),
+      ),
+    ],
   );
 
   List<AgencyStatRow> get _currentRows {
@@ -743,24 +751,6 @@ class _RowCard extends StatelessWidget {
     required this.law,
   });
 
-  String _formatFine(int amount) {
-    if (amount <= 0) return '';
-    if (amount >= 10000) {
-      final man = amount ~/ 10000;
-      final rest = amount % 10000;
-      if (rest == 0) return '$man만원';
-      return '$man만 ${_comma(rest)}원';
-    }
-    return '${_comma(amount)}원';
-  }
-
-  String _comma(int v) {
-    return v.toString().replaceAllMapped(
-      RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-      (m) => '${m[1]},',
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -772,19 +762,6 @@ class _RowCard extends StatelessWidget {
       brightness: theme.brightness,
       surface: scheme.surface,
     ).foreground;
-    final fineStr = _formatFine(row.totalFineAmount);
-    // 2026-09-24: 확정 과태료와 법정 최저 기준 추정 과태료는 항상 따로 표시한다(PROJECT_RULES §3-2).
-    final estimatedStr = (row.estimatedFineCount ?? 0) > 0
-        ? _formatFine(row.estimatedFineAmount ?? 0)
-        : '';
-    final fineParts = <String>[
-      if (fineStr.isNotEmpty)
-        row.fineAmountUnknown > 0
-            ? '확정 $fineStr · 금액 미확인 ${row.fineAmountUnknown}건'
-            : '확정 $fineStr',
-      if (estimatedStr.isNotEmpty)
-        '추정 $estimatedStr (${row.estimatedFineCount}건)',
-    ];
     // (b) 분리 필드가 있으면(새 서버·Standalone) 기타·미분류를 셋으로 나눠 보인다. 구서버는 기존 한 칸.
     final hasSplit =
         row.dispositionUnknown != null &&
@@ -829,66 +806,54 @@ class _RowCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ── 좌상단 메트릭 한 줄 (별점 · 평균 소요 · 과태료 합계) ──
-              if (row.avgRating != null ||
-                  row.avgResponseDays != null ||
-                  fineStr.isNotEmpty)
+              // 별점·처리기간과 금액을 분리해 좁은 화면에서도 금액이 잘리지 않게 한다.
+              if (row.avgRating != null || row.avgResponseDays != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 6),
-                  child: Row(
+                  child: Wrap(
+                    spacing: 10,
+                    runSpacing: 4,
                     children: [
-                      if (row.avgRating != null) ...[
-                        Icon(Icons.star, size: 12, color: fg(_ratingColor)),
-                        const SizedBox(width: 2),
-                        Text(
-                          '${row.avgRating!.toStringAsFixed(2)} (${row.ratingCount})',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: fg(_ratingColor),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                      ],
-                      if (row.avgResponseDays != null) ...[
-                        Icon(
-                          Icons.schedule,
-                          size: 11,
-                          color: fg(serverCompletedColor),
-                        ),
-                        const SizedBox(width: 2),
-                        Text(
-                          '${row.avgResponseDays!.toStringAsFixed(1)}일',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: fg(serverCompletedColor),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                      ],
-                      if (fineParts.isNotEmpty) ...[
-                        Icon(
-                          Icons.payments_outlined,
-                          size: 11,
-                          color: fg(serverTrafficFineColor),
-                        ),
-                        const SizedBox(width: 2),
-                        Flexible(
-                          child: Text(
-                            fineParts.join(' / '),
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: fg(serverTrafficFineColor),
+                      if (row.avgRating != null)
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.star, size: 12, color: fg(_ratingColor)),
+                            const SizedBox(width: 2),
+                            Text(
+                              '${row.avgRating!.toStringAsFixed(2)} (${row.ratingCount})',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: fg(_ratingColor),
+                              ),
                             ),
-                          ),
+                          ],
                         ),
-                      ],
+                      if (row.avgResponseDays != null)
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.schedule,
+                              size: 11,
+                              color: fg(serverCompletedColor),
+                            ),
+                            const SizedBox(width: 2),
+                            Text(
+                              '${row.avgResponseDays!.toStringAsFixed(1)}일',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: fg(serverCompletedColor),
+                              ),
+                            ),
+                          ],
+                        ),
                     ],
                   ),
                 ),
+              StatsFineBreakdown(row: row),
               // ── 이름 + 우측 '총 N건' ──
               Row(
                 children: [

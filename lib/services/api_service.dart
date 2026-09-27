@@ -39,6 +39,29 @@ class DeleteFilesResult {
   const DeleteFilesResult({required this.deletedCount, required this.errors});
 }
 
+/// DB 다운로드 진행: 받은 바이트, 전체 크기(서버가 알려 주지 않으면 null).
+typedef DownloadProgress = void Function(int received, int? total);
+
+/// 진행 중인 DB 다운로드를 끊는다(취소 버튼). 요청을 실제로 닫는다.
+class DownloadCancel {
+  http.Client? _client;
+  bool _cancelled = false;
+  bool get isCancelled => _cancelled;
+
+  void cancel() {
+    _cancelled = true;
+    _client?.close();
+  }
+}
+
+/// 사용자가 DB 다운로드를 취소함.
+class DownloadCancelled implements Exception {
+  const DownloadCancelled();
+
+  @override
+  String toString() => 'DB 다운로드를 취소했습니다.';
+}
+
 class ApiService {
   final String baseUrl;
   final String apiKey;
@@ -704,19 +727,80 @@ class ApiService {
     throw Exception('앱 설정 조회 실패');
   }
 
-  Future<Uint8List> downloadDb() async {
-    // 네트워크 일시 오류 (errno 104 connection reset, 110 timeout, ECONNRESET 등) →
-    // 1초 sleep 후 최대 3회 재시도. DB 는 MB 단위라 일시 끊김 가능성 높음.
-    final response = await _sendWithRetry(
-      () => http.get(
+  /// 서버 DB 를 [targetPath] 로 흘려 받는다(메모리에 통째로 두지 않는다).
+  ///
+  /// 예전 `downloadDb()` 는 파일 전체를 한 요청에 2분 안에 받아야 했고, 넘기면 이전 요청을 끊지 않은 채 처음부터 다시(최대 5회)
+  /// 받아 느린 회선에서 같은 파일을 여럿 동시에 받다가 최대 약 10분 동안 스피너만 돌았다(1.3.5 Client DB 백업 증상).
+  /// - 전체 시간 제한 대신 [idleTimeout] 동안 한 바이트도 오지 않으면 멈추고 요청을 실제로 닫는다.
+  /// - 큰 파일이라 자동으로 처음부터 다시 받지 않는다(사용자가 다시 누른다).
+  /// - `<targetPath>.part` 에 받다가, 끝까지 받고 크기가 `Content-Length` 와 맞을 때만 이름을 바꾼다. 실패·취소면 조각을 지운다.
+  /// 반환: 받은 바이트 수.
+  Future<int> downloadDbToFile(
+    String targetPath, {
+    DownloadProgress? onProgress,
+    DownloadCancel? cancel,
+    Duration idleTimeout = const Duration(seconds: 30),
+    http.Client? client,
+  }) async {
+    final c = client ?? http.Client();
+    cancel?._client = c;
+    final part = File('$targetPath.part');
+    IOSink? sink;
+    var received = 0;
+    try {
+      if (cancel?.isCancelled ?? false) throw const DownloadCancelled();
+      final request = http.Request(
+        'GET',
         ServerContract.apiUri(baseUrl, ServerContract.settingsDbPath),
-        headers: _headers,
-      ),
-      timeout: const Duration(minutes: 2),
-    );
-    if (response.statusCode == 200) return response.bodyBytes;
-    throw Exception('DB 다운로드 실패: ${response.statusCode}');
+      )..headers.addAll(_headers);
+      final response = await c.send(request).timeout(idleTimeout);
+      if (response.statusCode != 200) {
+        var detail = '';
+        try {
+          final body = await response.stream.bytesToString().timeout(idleTimeout);
+          final j = jsonDecode(body);
+          if (j is Map && j['detail'] != null) detail = ' ${j['detail']}';
+        } catch (_) {}
+        throw Exception('DB 다운로드 실패: ${response.statusCode}$detail');
+      }
+      final total = response.contentLength;
+      sink = part.openWrite();
+      onProgress?.call(0, total);
+      await for (final chunk in response.stream.timeout(idleTimeout)) {
+        sink.add(chunk);
+        received += chunk.length;
+        onProgress?.call(received, total);
+      }
+      await sink.flush();
+      await sink.close();
+      sink = null;
+      if (total != null && received != total) {
+        throw Exception('DB 다운로드가 중간에 끊겼습니다(${_mb(received)} / ${_mb(total)}). 다시 시도해 주세요.');
+      }
+      await part.rename(targetPath);
+      return received;
+    } on TimeoutException {
+      if (cancel?.isCancelled ?? false) throw const DownloadCancelled();
+      throw Exception(
+        '서버에서 ${idleTimeout.inSeconds}초 동안 데이터가 오지 않아 DB 다운로드를 멈췄습니다'
+        '(받은 크기 ${_mb(received)}). 네트워크 상태를 확인하고 다시 시도해 주세요.',
+      );
+    } catch (e) {
+      if (cancel?.isCancelled ?? false) throw const DownloadCancelled();
+      rethrow;
+    } finally {
+      try {
+        await sink?.close();
+      } catch (_) {}
+      try {
+        if (part.existsSync()) part.deleteSync();
+      } catch (_) {}
+      cancel?._client = null;
+      if (client == null) c.close();
+    }
   }
+
+  static String _mb(int bytes) => '${(bytes / 1048576).toStringAsFixed(1)}MB';
 
   /// .db 파일을 서버에 업로드해 복원. 서버는 모바일/서버 형식 자동 감지.
   /// 반환: {status, kind, imported, backup}

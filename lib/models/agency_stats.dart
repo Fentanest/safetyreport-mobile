@@ -23,6 +23,9 @@ class AgencyStatRow {
   final String person;
   final int total;
   final double? avgResponseDays;
+
+  /// 평균 처리기간 표본 수(완료 신고 중 두 날짜가 유효한 건, 2026-09-28). 구서버는 null.
+  final int? avgDaysCount;
   final int fines;
   final double finesPct;
   final int warnings;
@@ -58,6 +61,7 @@ class AgencyStatRow {
     required this.person,
     required this.total,
     this.avgResponseDays,
+    this.avgDaysCount,
     required this.fines,
     required this.finesPct,
     required this.warnings,
@@ -88,6 +92,7 @@ class AgencyStatRow {
       person: json['person']?.toString() ?? '',
       total: _toIntOrNull(json['total']) ?? 0,
       avgResponseDays: _toDoubleOrNull(json['avg_days']),
+      avgDaysCount: _toIntOrNull(json['avg_days_count']),
       fines: _toIntOrNull(json['fines']) ?? 0,
       finesPct: _toDoubleOrNull(json['fines_pct']) ?? 0.0,
       warnings: _toIntOrNull(json['warnings']) ?? 0,

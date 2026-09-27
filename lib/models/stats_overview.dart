@@ -16,6 +16,87 @@ class MonthlyCount {
   Map<String, dynamic> toJson() => {'month': month, 'count': count};
 }
 
+/// 처분 분류(카테고리 전체). 서버 `_overview_disposition` / 로컬 `_overviewExtras` (2026-09-28).
+/// 과태료·경고/범칙금·불수용은 한 신고에 겹칠 수 있다: 일곱 항목 합 = total + [overlap].
+class OverviewDisposition {
+  final int fines;
+  final int warnings;
+  final int rejects;
+  final int unconfirmed;
+  final int inProgress;
+  final int dispositionUnknown;
+  final int noPenalty;
+  final int unclassified;
+  final int overlap;
+
+  const OverviewDisposition({
+    required this.fines,
+    required this.warnings,
+    required this.rejects,
+    required this.unconfirmed,
+    required this.inProgress,
+    required this.dispositionUnknown,
+    required this.noPenalty,
+    required this.unclassified,
+    required this.overlap,
+  });
+
+  static int _int(dynamic v) => (v as num?)?.toInt() ?? 0;
+
+  static OverviewDisposition? fromJson(dynamic json) {
+    if (json is! Map) return null;
+    return OverviewDisposition(
+      fines: _int(json['fines']),
+      warnings: _int(json['warnings']),
+      rejects: _int(json['rejects']),
+      unconfirmed: _int(json['unconfirmed']),
+      inProgress: _int(json['in_progress']),
+      dispositionUnknown: _int(json['disposition_unknown']),
+      noPenalty: _int(json['no_penalty']),
+      unclassified: _int(json['unclassified']),
+      overlap: _int(json['overlap']),
+    );
+  }
+}
+
+/// 확정(원문 금액)·추정(법정 최저) 과태료. 둘을 합친 값은 없다(PROJECT_RULES §3-2).
+class OverviewFineAmount {
+  final int confirmedAmount;
+  final int confirmedCount;
+  final int unknownCount;
+  final int estimatedAmount;
+  final int estimatedCount;
+
+  const OverviewFineAmount({
+    required this.confirmedAmount,
+    required this.confirmedCount,
+    required this.unknownCount,
+    required this.estimatedAmount,
+    required this.estimatedCount,
+  });
+
+  static int _int(dynamic v) => (v as num?)?.toInt() ?? 0;
+
+  static OverviewFineAmount? fromJson(dynamic json) {
+    if (json is! Map) return null;
+    return OverviewFineAmount(
+      confirmedAmount: _int(json['confirmed_amount']),
+      confirmedCount: _int(json['confirmed_count']),
+      unknownCount: _int(json['unknown_count']),
+      estimatedAmount: _int(json['estimated_amount']),
+      estimatedCount: _int(json['estimated_count']),
+    );
+  }
+}
+
+/// 위반 유형(신고명) 건수. 빈 신고명은 name ''.
+class ReportTypeCount {
+  final String name;
+  final int count;
+
+  const ReportTypeCount(this.name, this.count);
+}
+
 class OverviewSummary {
   final int total;
   final int completed;
@@ -40,6 +121,12 @@ class OverviewSummary {
   final List<MonthlyCount> monthlyReported;
   final List<MonthlyCount> monthlyAnswered;
 
+  // 2026-09-28 추가(구서버 응답에는 없어서 null — 화면은 '미지원'으로 구분한다).
+  final List<MonthlyCount>? monthlyAnsweredFine;
+  final OverviewDisposition? disposition;
+  final OverviewFineAmount? fineAmount;
+  final List<ReportTypeCount>? reportTypes;
+
   const OverviewSummary({
     required this.total,
     required this.completed,
@@ -55,6 +142,10 @@ class OverviewSummary {
     required this.undatedReportCount,
     required this.monthlyReported,
     required this.monthlyAnswered,
+    this.monthlyAnsweredFine,
+    this.disposition,
+    this.fineAmount,
+    this.reportTypes,
   });
 
   static const empty = OverviewSummary(
@@ -98,6 +189,22 @@ class OverviewSummary {
       undatedReportCount: _int(json['undated_report_count']),
       monthlyReported: _months(json['monthly_reported']),
       monthlyAnswered: _months(json['monthly_answered']),
+      monthlyAnsweredFine: json['monthly_answered_fine'] is List
+          ? _months(json['monthly_answered_fine'])
+          : null,
+      disposition: OverviewDisposition.fromJson(json['disposition']),
+      fineAmount: OverviewFineAmount.fromJson(json['fine_amount']),
+      reportTypes: json['report_types'] is List
+          ? (json['report_types'] as List)
+                .whereType<Map>()
+                .map(
+                  (e) => ReportTypeCount(
+                    e['name']?.toString() ?? '',
+                    (e['count'] as num?)?.toInt() ?? 0,
+                  ),
+                )
+                .toList(growable: false)
+          : null,
     );
   }
 

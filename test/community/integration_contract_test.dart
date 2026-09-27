@@ -232,6 +232,7 @@ void main() {
 
     CommunityGate gateWith(FakeAccountServer server, {Future<String?> Function()? official}) {
       final g = CommunityGate(
+        checkDataOwner: ownerOk,
         config: testAuthConfig(),
         auth: auth,
         store: store,

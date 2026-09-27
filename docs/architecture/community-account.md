@@ -67,11 +67,30 @@ MainActivity(onCreate/onNewIntent) → 보관함 → MethodChannel community_aut
   isolate 사이 동시 갱신은 위 "저장값 비교"와 GoTrue 의 refresh token 재사용 허용 간격으로 완화한다(완전한 프로세스 락은 아님).
 - **세션이 있다고 백그라운드 실행 권한이 생기지 않는다**(M09). 실행 시점은 Android 스케줄러·기존 서비스가 정한다. 아직 이 세션을 쓰는 업로더는 없다.
 
-### 연결 해제
+### 카카오 로그아웃 (`disconnect()`)
 
 `disconnect()`: 진행 중 갱신을 기다린 뒤 `POST /auth/v1/logout?scope=local`(Bearer, best effort; access 가 만료됐으면 먼저 갱신) →
 로컬 세션 삭제. 결과에 서버 로그아웃 확인 여부(204/200)를 돌려주고 안내 문구를 나눈다.
 **scope 를 빼면 GoTrue 기본값이 global(모든 기기 로그아웃)이므로 항상 `scope=local`.**
+이 함수 자체는 신고 자료를 건드리지 않는다. 화면의 "카카오 로그아웃"은 `lib/community/kakao_logout.dart` 를 거쳐 자료를 먼저 지운다(아래).
+
+### 카카오 로그인 필수·자료 주인 (2026-09-27 사용자 결정, PC `services/account_data.py` 와 같은 규칙)
+
+- 카카오 로그인 없이는 쓸 수 없다(게이트·온보딩). 로그인만 푸는 "연결 해제"(설정 카드 버튼, Client 카드의 서버 연결 해제,
+  `CommunityServerLinkService.disconnect`, `ServerContract.communityAuthDisconnectPath`)는 주석 처리했다. 서버 경로도 없앴다.
+- **카카오 회원번호** `kakaoMemberId(user)`: `/auth/v1/user` 의 `identities[provider=kakao]` → `identity_data.provider_id` → `sub` → `id`(숫자만).
+  `user_metadata` 는 쓰지 않는다. 로그인 확정 때 세션 `kakao_id` 로 저장(재로그인 필요로 바뀌어도 남김). 이 기능 전 세션은 `currentKakaoId()` 가 한 번 받아 채운다.
+  실패는 `CommunityKakaoIdUnavailable(code: auth_unavailable|user_mismatch|kakao_id_missing)`.
+- **주인 표시**: 개인 DB `sync_meta['kakao_member_id']`(서버 `mysafety_sync_meta` 와 같은 키, 교환 때 그대로). 게이트(Standalone writer)가 처음 통과할 때 적는다.
+- **카카오 로그아웃**(설정 카드·온보딩): 확인 창 "로그아웃하면 이 기기에 저장된 신고 내역이 모두 지워집니다…" → `LocalDbService.wipeReportData('kakao_logout')`
+  (커뮤니티 데이터셋 선회전 → 한 트랜잭션에서 `geocode_cache`·`android_metadata`·FTS 보조 표 밖의 모든 표 행 삭제, `sync_meta` 는 `watchlist` 만 남김, 백업 없음)
+  → 게이트 무효화 → `disconnect()`. 동기화·지도 변환 중이면 `DbBusyException` 으로 아무것도 지우지 않고 로그인 유지.
+  삭제는 백업·복원과 같은 파일 배타 구간에서 한다(막 시작한 작업은 끝날 때까지 기다리고, 새 작업은 삭제 뒤에 돈다).
+  주인 표시를 읽지 못하면 로그아웃하지 않는다("주인 없음"으로 보고 남의 자료를 지우지 않게).
+  지우지 않는 경우: Client·데모 모드, 지금 계정이 주인과 **다르다고 확인된** 경우(남의 자료).
+- **가져오기·복원 거절**: `importFromServerDb`(서버 DB `mysafety_sync_meta`)·`replaceFromBackup`(백업·직전 DB 되돌리기, `sync_meta`)은
+  버전 검사 바로 뒤, 무엇이든 바꾸기 전에 `_refuseForeignOwner` — 주인이 없거나 다르거나 로그인 계정 번호를 모르면 `ForeignDatabaseException`.
+  Client 모드의 서버 업로드 복원은 서버가 같은 규칙으로 409 를 준다.
 
 ## 3. Android 딥링크
 
@@ -120,13 +139,13 @@ flutter build apk --dart-define=COMMUNITY_SUPABASE_URL=https://<project>.supabas
 - 서버 `/api/v1/app/config` 의 `capabilities` 에 `community_account` 가 있을 때만 설정 > "서버 연결" 아래 카드를 보인다
   (`ReportProvider.communityAccountSupported`). 없으면 카드 없음. 있는데 404 면 "서버가 이 기능을 아직 지원하지 않습니다".
 - 경로(`ServerContract.communityAuth*Path`): `GET status`, `POST start {device_label?}`, `POST confirm {request_id}`,
-  `POST cancel {request_id?}`, `POST disconnect {}`. 성공 `{"data": STATUS}`.
+  `POST cancel {request_id?}`. 성공 `{"data": STATUS}`. (`POST disconnect` 는 2026-09-27 에 없앴다 — 서버의 카카오 로그아웃은 서버 관리자 화면에서만, 자료가 지워진다.)
   Kotlin `ServerContract.kt` 에는 넣지 않았다 — Kotlin 은 이 API 를 부르지 않고, 그 파일은 Kotlin 이 쓰는 경로만 둔다.
 - 오류: 403(`permission_required`) → "서버 관리자 화면에서 이 기기의 커뮤니티 계정 관리 권한을 허용해야 합니다." / 404 → 미지원 /
   503 `community_disabled`·`community_unconfigured` / 409 `no_pending`·`request_mismatch`·`invalid_state` / 410 `expired` /
   429 `rate_limited` / 502 `relay_unavailable` / 네트워크 → "서버에 연결할 수 없어 요청을 시작하지 못했습니다"(시작 때).
   `code` 는 최상위·`detail.code`·`error.code` 어디서든 읽는다.
-- start/confirm/cancel/disconnect 는 자동 재시도하지 않는다(중복 부작용 방지). 상태 조회만 카드가 보이고 앱이 앞에 있으며
+- start/confirm/cancel 은 자동 재시도하지 않는다(중복 부작용 방지). 상태 조회만 카드가 보이고 앱이 앞에 있으며
   상태가 `pending`/`confirm_required` 일 때 3초마다.
 - `bootstrap_url` 은 1회용 민감 링크: https 일 때만 외부 브라우저로 열고, 화면에 글자로 보이거나 복사·로그·저장하지 않는다.
   화면에는 비교코드(`display_code`)를 크게 보이고 "브라우저에서 비교코드가 같은지 확인하세요".
@@ -146,11 +165,12 @@ flutter build apk --dart-define=COMMUNITY_SUPABASE_URL=https://<project>.supabas
 
 | 키 | 내용 | 지우는 때 |
 |---|---|---|
-| `community_session_v1` | JSON `{v, access_token, refresh_token, expires_at(초), user_id, display_name, has_email, connected_at, state}` | 연결 해제, 모드 변경. 재로그인 필요 시 토큰만 비움 |
+| `community_session_v1` | JSON `{v, access_token, refresh_token, expires_at(초), user_id, display_name, has_email, connected_at, state, kakao_id?}` | 카카오 로그아웃, 모드 변경. 재로그인 필요 시 토큰만 비움 |
 | `community_pending_login_v1` | JSON `{v, attempt_id, verifier, started_at(ms)}` | 복귀 링크 처리(모든 결과), 취소, 모드 변경, 브라우저 열기 실패 |
 | `community_consumed_callback_v1` | 마지막으로 소비한 복귀 링크의 SHA-256 hex(코드 원문 아님) | 모드 변경 |
 
-SharedPreferences·sqflite 에는 아무것도 넣지 않는다(DB 스키마 변경 없음). 백업·DB 내보내기 대상 아님.
+토큰·세션은 SharedPreferences·sqflite 에 넣지 않는다. 백업·DB 내보내기 대상 아님.
+예외(2026-09-27): 자료 주인 카카오 회원번호만 개인 DB `sync_meta['kakao_member_id']` 에 둔다(스키마 변경 없음, 교환 대상).
 
 ## 8. 검증 상태 (2026-09-25)
 

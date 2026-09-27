@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/services/local_db_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import '../support/kakao_owner.dart';
 
 Future<String> _serverDb(
   Directory dir, {
@@ -30,6 +31,7 @@ Future<String> _serverDb(
   await db.execute(
     'CREATE TABLE mysafety_sync_meta (key TEXT PRIMARY KEY, value TEXT)',
   );
+  await stampOwner(db, table: 'mysafety_sync_meta');
   await db.execute('CREATE TABLE mysafety (ID TEXT PRIMARY KEY)');
   for (final (id, number, merged) in [
     ('s1', 'SPP-1', 'Y'),
@@ -76,6 +78,7 @@ Future<Map<String, Object?>> _row(String id) async =>
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory dir;
+  useTestKakaoAccount();
 
   setUpAll(() async {
     sqfliteFfiInit();
@@ -192,6 +195,8 @@ void main() {
       '${parkingFuture != null ? ', 미래열 TEXT' : ''})',
     );
     await db.execute('CREATE TABLE mysafetymerge_other AS SELECT ID, 신고번호, 위반장소 FROM mysafetymerge_traffic WHERE 0');
+    await db.execute('CREATE TABLE mysafety_sync_meta (key TEXT PRIMARY KEY, value TEXT)');
+    await stampOwner(db, table: 'mysafety_sync_meta');
     await db.insert('mysafety', {'ID': 't1', '상태': '수용', '신고번호': 'SPP-T1', '신고명': '신호위반', '신고일': '2026-09-01', '감시목록': 'N'});
     await db.insert('mysafetydetail_traffic', {'ID': 't1', '처리상태': '수용', '위반장소': '서울 강서구 1'});
     await db.insert('mysafetymerge_parking', {

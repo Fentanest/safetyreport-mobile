@@ -9,6 +9,7 @@ import 'package:safetyreport/services/local_db_service.dart';
 import 'package:safetyreport/services/local_geocode_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import '../support/kakao_owner.dart';
 
 Report _report({
   required String id,
@@ -64,6 +65,9 @@ Future<String> _createInvalidServerDb() async {
         'CREATE TABLE invalid_source (id TEXT PRIMARY KEY, value TEXT)',
       );
       await txn.insert('invalid_source', {'id': '1', 'value': 'bad'});
+      // 주인은 맞게 적어 스키마 검사까지 가게 한다
+      await txn.execute('CREATE TABLE mysafety_sync_meta (key TEXT PRIMARY KEY, value TEXT)');
+      await stampOwner(txn, table: 'mysafety_sync_meta');
     },
   );
   await db.close();
@@ -118,6 +122,7 @@ Future<String> _createServerDbWithSyncMeta() async {
         'key': 'preserve_me',
         'value': 'ok',
       });
+      await stampOwner(txn, table: 'mysafety_sync_meta');
     },
   );
   await db.close();
@@ -140,6 +145,7 @@ Future<String> _createMobileBackupWithStaleMapState() async {
     'value': 'queued',
   });
   await db.insert('sync_meta', {'key': 'preserve_me', 'value': 'ok'});
+  await stampOwner(db);
   await LocalDbService.closeDb();
 
   final sourcePath = await LocalDbService.getDbPath();
@@ -153,6 +159,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late Directory tempDbDir;
+  useTestKakaoAccount();
   setUpAll(() async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;

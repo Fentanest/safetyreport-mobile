@@ -38,8 +38,9 @@ class ServerContract {
   static const communityAuthStartPath = '$apiPrefix/community-auth/start';
   static const communityAuthConfirmPath = '$apiPrefix/community-auth/confirm';
   static const communityAuthCancelPath = '$apiPrefix/community-auth/cancel';
-  static const communityAuthDisconnectPath =
-      '$apiPrefix/community-auth/disconnect';
+  // 2026-09-27: 서버 `/api/v1/community-auth/disconnect` 는 없앴다(카카오 로그인 필수, 사용자 결정: 경로 삭제). 필요해지면 되살린다.
+  // static const communityAuthDisconnectPath =
+  //     '$apiPrefix/community-auth/disconnect';
   static const communityAccountCapability = 'community_account';
 
   // 커뮤니티 게이트·초기화 (서버 job 제어, Client 모드).

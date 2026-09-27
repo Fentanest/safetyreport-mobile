@@ -85,6 +85,8 @@ Future<void> main() async {
     return standaloneRebuild(store, reportProvider).required();
   };
   gate.addOnFirstPassed(reportProvider.onGatePassed);
+  // 모드 전환(Client·데모 → Standalone 등) 뒤에는 그 기기 DB 의 주인을 다시 확인한다.
+  reportProvider.addListener(gate.onAppModeChanged);
   if (communityStore != null) {
     CommunityWiring.wire(communityGate: gate, store: communityStore);
   }
@@ -148,6 +150,7 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
               if (!gate.canEnter) {
                 return CommunityOnboardingScreen(
                   gate: gate,
+                  onReportsWiped: provider.refreshAll,
                   onNext: () async {
                     await gate.requireFresh();
                   },

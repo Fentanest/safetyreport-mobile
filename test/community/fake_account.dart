@@ -36,7 +36,19 @@ class StubAuthService extends CommunityAuthService {
 
   @override
   Future<String?> getAccessToken() async => tokenResult;
+
+  /// 로그인한 카카오 회원번호(게이트의 자료 주인 확인·로그아웃 판단용).
+  String? kakaoId = '910001';
+
+  @override
+  Future<String?> currentKakaoId() async => kakaoId;
+
+  @override
+  Future<String?> sessionKakaoId() async => kakaoId;
 }
+
+/// 게이트의 자료 주인 확인 — 시험 기본값은 "이 계정의 자료"(주인 판정 자체는 test/storage/account_owner_test.dart).
+Future<String> ownerOk(String? kakaoId) async => 'ok';
 
 Map<String, Object?> statusJson({
   String consentState = 'active',

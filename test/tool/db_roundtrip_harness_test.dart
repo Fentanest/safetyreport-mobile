@@ -1,6 +1,7 @@
 // 서버↔모바일 DB 왕복 하네스 (PROJECT_RULES §3-1). 서버 레포 scripts/dev/db_roundtrip_check.py 가 환경변수로 호출한다.
 // 환경변수가 없으면 건너뛴다(일반 flutter test 에는 영향 없음).
 //   SR_RT_MODE=import  SR_RT_SERVER_DB=<서버 DB>  SR_RT_MOBILE_OUT=<가져온 모바일 DB 저장 경로>
+//   SR_RT_KAKAO_ID=<로그인한 것으로 둘 카카오 회원번호> — 가져오기는 주인이 같은 DB 만 받는다(2026-09-27).
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -19,6 +20,8 @@ void main() {
     final dir = Directory.systemTemp.createTempSync('sr_roundtrip_');
     await databaseFactory.setDatabasesPath(dir.path);
     SharedPreferences.setMockInitialValues({});
+    final kakaoId = env['SR_RT_KAKAO_ID'];
+    LocalDbService.currentKakaoId = () async => kakaoId;
 
     try {
       final imported = await LocalDbService.importFromServerDb(env['SR_RT_SERVER_DB']!);

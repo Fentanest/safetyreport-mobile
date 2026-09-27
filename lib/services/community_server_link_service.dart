@@ -9,7 +9,7 @@ import 'server_contract.dart';
 ///
 /// 서버가 인증·세션의 주인이다. 폰은 서버 API(`X-API-Key`)만 부르고 Supabase 토큰을 받거나
 /// 저장하지 않는다(M06). 서버에 닿지 못해도 Standalone 로그인으로 바꾸지 않는다(M07).
-/// start/confirm/cancel/disconnect 는 부작용이 있으므로 자동 재시도하지 않는다.
+/// start/confirm/cancel 은 부작용이 있으므로 자동 재시도하지 않는다.
 class CommunityServerLinkService {
   CommunityServerLinkService._();
 
@@ -73,18 +73,20 @@ class CommunityServerLinkService {
     offlineMessage: '서버에 연결할 수 없어 요청을 취소하지 못했습니다.',
   );
 
-  static Future<CommunityServerResult> disconnect({
-    required String baseUrl,
-    required String apiKey,
-    http.Client? client,
-  }) => _call(
-    baseUrl,
-    apiKey,
-    ServerContract.communityAuthDisconnectPath,
-    const <String, Object?>{},
-    client: client,
-    offlineMessage: '서버에 연결할 수 없어 연결을 해제하지 못했습니다.',
-  );
+  // 2026-09-27: 카카오 로그인은 필수(사용자 결정) — 폰에서 서버의 카카오 로그인을 푸는 기능은 쓰지 않는다(서버 경로 삭제).
+  // 서버의 카카오 로그아웃(신고 자료 삭제)은 서버 관리자 화면에서만 한다. 필요해지면 되살린다.
+  // static Future<CommunityServerResult> disconnect({
+  //   required String baseUrl,
+  //   required String apiKey,
+  //   http.Client? client,
+  // }) => _call(
+  //   baseUrl,
+  //   apiKey,
+  //   ServerContract.communityAuthDisconnectPath,
+  //   const <String, Object?>{},
+  //   client: client,
+  //   offlineMessage: '서버에 연결할 수 없어 연결을 해제하지 못했습니다.',
+  // );
 
   /// Client 서버 게이트 조회 (`GET /api/v1/community/gate`).
   /// 403 `COMMUNITY_ONBOARDING_REQUIRED` 면 서버 연결 승인·설정 복구 UI만 보인다.

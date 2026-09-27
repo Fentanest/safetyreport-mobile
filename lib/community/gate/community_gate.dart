@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../services/community_auth_config.dart';
 import '../../services/community_auth_service.dart';
+import '../../services/local_db_service.dart';
 import '../capture/server_completed.dart' show deletionState;
 import '../community_store.dart';
 import '../upload_hooks.dart';
@@ -53,6 +54,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     String Function()? deviceLabel,
     String Function()? platformName,
     String Function()? projectNamespace,
+    Future<String> Function(String? kakaoId)? checkDataOwner,
   })  : _config = config ?? CommunityAuthConfig.fromEnvironment,
         _authOverride = auth,
         _store = store,
@@ -65,7 +67,8 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         _officialAccountId = officialAccountId,
         _deviceLabelOverride = deviceLabel,
         _platformNameOverride = platformName,
-        _projectNamespaceOverride = projectNamespace {
+        _projectNamespaceOverride = projectNamespace,
+        _checkDataOwnerOverride = checkDataOwner {
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -83,12 +86,17 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   final String Function()? _deviceLabelOverride;
   final String Function()? _platformNameOverride;
   final String Function()? _projectNamespaceOverride;
+  final Future<String> Function(String? kakaoId)? _checkDataOwnerOverride;
 
   CommunityAuthService get _auth => _authOverride ?? CommunityAuthService.instance;
 
   GateState _state = const GateState(state: 'verification_required', canEnter: false);
   GateState get state => _state;
-  bool get canEnter => _state.canEnter;
+
+  /// 통과는 그때의 실행 모드에만 유효하다. Client·데모에서 통과한 뒤 실제 Standalone 으로 바꾸면 그 기기 DB 의 주인을
+  /// 확인하지 않았으므로 다시 확인할 때까지 들어가지 않는다([onAppModeChanged]).
+  bool get canEnter => _state.canEnter && _passedMode == appMode;
+  String? _passedMode;
 
   /// 초기 검사가 끝났는가. 검사 중에는 로딩 셸만 보인다(기존 신고 화면 flash 금지).
   bool _checked = false;
@@ -185,6 +193,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   /// 로컬 철회·로그아웃·401/403 수신 뒤 status 를 다시 받기 전까지 진입 불가.
   void invalidate(String reason) {
     _invalidated = true;
+    _passedMode = null;
     _apply(evaluateGate(
       config: configStatus(),
       session: sessionStatus(),
@@ -195,9 +204,19 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     unawaited(_deactivate(reason));
   }
 
+  /// 실행 모드(Standalone·데모·Client)가 바뀌었을 수 있을 때(`ReportProvider` 변경 알림). 바뀌었으면 검사 중 화면을 보이고 다시 확인한다.
+  void onAppModeChanged() {
+    final passed = _passedMode;
+    if (passed == null || passed == appMode) return;
+    _checked = false;
+    invalidate('mode_change');
+    notifyListeners();
+    unawaited(refreshNow());
+  }
+
   Future<GateState> requireFresh({Duration maxAge = communityGateFreshMaxAge}) async {
     final age = _ageSeconds();
-    if (!_invalidated && _lastStatus != null && age != null && age <= maxAge.inSeconds) {
+    if (_passedMode == appMode && !_invalidated && _lastStatus != null && age != null && age <= maxAge.inSeconds) {
       return _state;
     }
     return refreshNow();
@@ -285,6 +304,23 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         return _state;
       }
       if (isWriter) {
+        // 카카오 로그인·동의가 끝나도, 이 기기의 신고 자료가 다른 카카오 계정 것이면 들어가지 않는다(자료를 지우거나 로그아웃할 때까지).
+        // 다른 계정의 자료가 남아 있으면 writer 연결도 만들지 않는다(PC services/community_gate.py _check_owner 와 같은 규칙).
+        final owner = await _checkOwner();
+        if (owner != 'ok') {
+          final blocked = owner == 'mismatch'
+              ? const GateState(state: 'db_owner_mismatch', canEnter: false, reasons: ['db_owner_mismatch'])
+              : GateState(
+                  state: 'verification_required',
+                  canEnter: false,
+                  reasons: ['data_owner_unverified', ?_ownerError],
+                );
+          _apply(blocked);
+          await _deactivate('gate:${blocked.state}');
+          _checked = true;
+          notifyListeners();
+          return _state;
+        }
         // 진입(K·C)과 업로드 연결은 별개다: 연결을 못 얻으면 화면은 쓰되 context 를 끄고 업로드만 멈춘다.
         final blocked = await _ensureWriterConnection(status, token);
         if (blocked == null) {
@@ -297,6 +333,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         await _deactivate(appMode == 'demo' ? 'demo_mode' : 'client_mode');
       }
       _apply(next);
+      _passedMode = appMode;
       _checked = true;
       final store = _store;
       if (store != null && await deletionState(store: store) == 'unconfirmed') {
@@ -317,6 +354,26 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         _checking = false;
         notifyListeners();
       }
+    }
+  }
+
+  String? _ownerError;
+
+  /// 게이트 통과 뒤(Standalone writer): 개인 DB 의 주인 카카오 회원번호를 확인(처음이면 적음). 번호를 못 받으면 'unknown'.
+  Future<String> _checkOwner() async {
+    _ownerError = null;
+    String? kakaoId;
+    try {
+      kakaoId = await _auth.currentKakaoId();
+    } on CommunityKakaoIdUnavailable catch (e) {
+      _ownerError = e.code;
+    } catch (_) {
+      _ownerError = 'auth_unavailable';
+    }
+    try {
+      return await (_checkDataOwnerOverride ?? LocalDbService.checkOwner)(kakaoId);
+    } catch (_) {
+      return 'unknown';
     }
   }
 

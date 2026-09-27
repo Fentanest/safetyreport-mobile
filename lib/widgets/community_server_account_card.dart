@@ -185,36 +185,38 @@ class _CommunityServerAccountCardState extends State<CommunityServerAccountCard>
     ),
   );
 
-  Future<void> _disconnect(String name) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('서버의 커뮤니티 계정 연결 해제'),
-        content: Text(
-          '서버에 연결된 $name 계정을 해제합니다. 서버의 커뮤니티 업로드도 멈춥니다. '
-          '신고 데이터는 지워지지 않습니다.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('연결 해제'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    await _act(
-      () => CommunityServerLinkService.disconnect(
-        baseUrl: widget.baseUrl,
-        apiKey: widget.apiKey,
-        client: widget.client,
-      ),
-    );
-  }
+  // 2026-09-27: 카카오 로그인은 필수(사용자 결정) — 폰에서 서버의 카카오 로그인을 푸는 "연결 해제"는 쓰지 않는다(서버 경로 삭제).
+  // 서버의 카카오 로그아웃(신고 자료 삭제)은 서버 관리자 화면에서만 한다. 필요해지면 되살린다(주석 처리).
+  // Future<void> _disconnect(String name) async {
+  //   final ok = await showDialog<bool>(
+  //     context: context,
+  //     builder: (ctx) => AlertDialog(
+  //       title: const Text('서버의 커뮤니티 계정 연결 해제'),
+  //       content: Text(
+  //         '서버에 연결된 $name 계정을 해제합니다. 서버의 커뮤니티 업로드도 멈춥니다. '
+  //         '신고 데이터는 지워지지 않습니다.',
+  //       ),
+  //       actions: [
+  //         TextButton(
+  //           onPressed: () => Navigator.pop(ctx, false),
+  //           child: const Text('취소'),
+  //         ),
+  //         FilledButton(
+  //           onPressed: () => Navigator.pop(ctx, true),
+  //           child: const Text('연결 해제'),
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  //   if (ok != true) return;
+  //   await _act(
+  //     () => CommunityServerLinkService.disconnect(
+  //       baseUrl: widget.baseUrl,
+  //       apiKey: widget.apiKey,
+  //       client: widget.client,
+  //     ),
+  //   );
+  // }
 
   @override
   Widget build(BuildContext context) {
@@ -473,16 +475,24 @@ class _CommunityServerAccountCardState extends State<CommunityServerAccountCard>
             value: s.uploadEnabled ? '켜짐' : '꺼짐',
           ),
           const SizedBox(height: 12),
+          // "연결 해제" 버튼은 주석 처리(2026-09-27 카카오 로그인 필수) — 서버의 카카오 로그아웃은 서버 관리자 화면에서.
+          // if (manage)
+          //   SizedBox(
+          //     width: double.infinity,
+          //     child: OutlinedButton.icon(
+          //       icon: const Icon(Icons.link_off, size: 18),
+          //       label: const Text('연결 해제'),
+          //       onPressed: _busy
+          //           ? null
+          //           : () => _disconnect(a?.displayName ?? '이'),
+          //     ),
+          //   )
+          // else
+          //   permissionNote(),
           if (manage)
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.link_off, size: 18),
-                label: const Text('연결 해제'),
-                onPressed: _busy
-                    ? null
-                    : () => _disconnect(a?.displayName ?? '이'),
-              ),
+            Text(
+              '서버의 카카오 로그아웃은 서버 관리자 화면에서 할 수 있습니다. 로그아웃하면 서버에 저장된 신고 내역이 지워집니다.',
+              style: TextStyle(color: muted, fontSize: 12, height: 1.4),
             )
           else
             permissionNote(),
@@ -508,12 +518,13 @@ class _CommunityServerAccountCardState extends State<CommunityServerAccountCard>
           if (manage)
             CommunityButtonBar(
               children: [
-                OutlinedButton(
-                  onPressed: _busy
-                      ? null
-                      : () => _disconnect(a?.displayName ?? '이'),
-                  child: const Text('연결 해제'),
-                ),
+                // "연결 해제"는 주석 처리(2026-09-27 카카오 로그인 필수).
+                // OutlinedButton(
+                //   onPressed: _busy
+                //       ? null
+                //       : () => _disconnect(a?.displayName ?? '이'),
+                //   child: const Text('연결 해제'),
+                // ),
                 FilledButton.icon(
                   icon: const Icon(Icons.login, size: 18),
                   label: const Text('다시 연결'),

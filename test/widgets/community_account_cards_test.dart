@@ -116,14 +116,14 @@ void main() {
       '연결됨': (
         () => secure[CommunityAuthService.sessionKey] = _session(),
         true,
-        ['연결됨', '기존연결계정', '연결 해제'],
+        ['연결됨', '기존연결계정', '카카오 로그아웃'],
       ),
       '다시 로그인 필요': (
         () => secure[CommunityAuthService.sessionKey] = _session(
           state: 'reauth_required',
         ),
         true,
-        ['다시 로그인 필요', '다시 로그인'],
+        ['다시 로그인 필요', '다시 로그인', '카카오 로그아웃'],
       ),
       '브라우저 대기': (
         () => secure[CommunityAuthService.pendingLoginKey] = jsonEncode({
@@ -253,7 +253,7 @@ void main() {
         _status('confirm_required'),
         ['연결된 서버를 확인해 주세요.', '서버가확인한아주긴카카오닉네임사용자', '이 계정으로 연결', '바뀝니다'],
       ),
-      'connected': (_status('connected'), ['연결됨', '연결된서버계정', '연결 해제']),
+      'connected': (_status('connected'), ['연결됨', '연결된서버계정', '서버 관리자 화면에서']),
       'reauth_required': (_status('reauth_required'), ['다시 로그인 필요', '다시 연결']),
       'no permission': (
         _status('disconnected', canManage: false),

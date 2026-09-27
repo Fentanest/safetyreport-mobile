@@ -323,6 +323,12 @@ class LocalDbService {
   /// 동기화·지도 변환 중이면 거절(아무것도 지우지 않음). 커뮤니티 dataset 을 먼저 선회전해 지운 자료의 공유 대기 사본이 다음 계정으로 가지 않게 한다.
   static Future<Map<String, Object?>> wipeReportData(String reason, {String? thenOwner}) async {
     _refuseDuringBackgroundWork('신고 내역을 지울');
+    // 백업·복원과 같은 파일 배타 구간: 막 시작한 작업은 끝날 때까지 기다리고, 그동안 새 동기화·화면은 [db] 에서 기다린다
+    // (지우는 도중이나 지운 뒤에 옛 작업이 신고를 다시 쓰지 않게 — Codex 검수 P1).
+    return _withFileExclusive(() => _wipeReportDataLocked(reason, thenOwner));
+  }
+
+  static Future<Map<String, Object?>> _wipeReportDataLocked(String reason, String? thenOwner) async {
     await _rotateCommunityDataset(reason);
     final d = await db;
     final cleared = <String>[];

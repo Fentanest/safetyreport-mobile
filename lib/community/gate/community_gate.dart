@@ -92,7 +92,11 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
 
   GateState _state = const GateState(state: 'verification_required', canEnter: false);
   GateState get state => _state;
-  bool get canEnter => _state.canEnter;
+
+  /// 통과는 그때의 실행 모드에만 유효하다. Client·데모에서 통과한 뒤 실제 Standalone 으로 바꾸면 그 기기 DB 의 주인을
+  /// 확인하지 않았으므로 다시 확인할 때까지 들어가지 않는다([onAppModeChanged]).
+  bool get canEnter => _state.canEnter && _passedMode == appMode;
+  String? _passedMode;
 
   /// 초기 검사가 끝났는가. 검사 중에는 로딩 셸만 보인다(기존 신고 화면 flash 금지).
   bool _checked = false;
@@ -189,6 +193,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   /// 로컬 철회·로그아웃·401/403 수신 뒤 status 를 다시 받기 전까지 진입 불가.
   void invalidate(String reason) {
     _invalidated = true;
+    _passedMode = null;
     _apply(evaluateGate(
       config: configStatus(),
       session: sessionStatus(),
@@ -199,9 +204,19 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     unawaited(_deactivate(reason));
   }
 
+  /// 실행 모드(Standalone·데모·Client)가 바뀌었을 수 있을 때(`ReportProvider` 변경 알림). 바뀌었으면 검사 중 화면을 보이고 다시 확인한다.
+  void onAppModeChanged() {
+    final passed = _passedMode;
+    if (passed == null || passed == appMode) return;
+    _checked = false;
+    invalidate('mode_change');
+    notifyListeners();
+    unawaited(refreshNow());
+  }
+
   Future<GateState> requireFresh({Duration maxAge = communityGateFreshMaxAge}) async {
     final age = _ageSeconds();
-    if (!_invalidated && _lastStatus != null && age != null && age <= maxAge.inSeconds) {
+    if (_passedMode == appMode && !_invalidated && _lastStatus != null && age != null && age <= maxAge.inSeconds) {
       return _state;
     }
     return refreshNow();
@@ -318,6 +333,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         await _deactivate(appMode == 'demo' ? 'demo_mode' : 'client_mode');
       }
       _apply(next);
+      _passedMode = appMode;
       _checked = true;
       final store = _store;
       if (store != null && await deletionState(store: store) == 'unconfirmed') {

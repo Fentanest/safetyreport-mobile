@@ -13,19 +13,15 @@ import 'gate/community_gate.dart';
 class KakaoLogout {
   KakaoLogout._();
 
-  /// 이 로그아웃이 신고 자료를 지우는가.
+  /// 이 로그아웃이 신고 자료를 지우는가. 주인 표시를 읽지 못하면 예외 — 호출자는 로그아웃하지 않는다
+  /// ("주인 없음"으로 보고 남의 자료를 지우지 않게, PC `_logout_wipes` 와 같음).
   static Future<bool> wipesData({
     required CommunityGate? gate,
     required CommunityAuthService auth,
     Future<String?> Function()? dbOwner,
   }) async {
     if (gate != null && !gate.isWriter) return false;
-    String? owner;
-    try {
-      owner = await (dbOwner ?? LocalDbService.dbOwner)();
-    } catch (_) {
-      owner = null;
-    }
+    final owner = await (dbOwner ?? LocalDbService.dbOwner)();
     final kakao = await auth.sessionKakaoId();
     return !(owner != null && kakao != null && owner != kakao);
   }
@@ -40,7 +36,17 @@ class KakaoLogout {
     Future<void> Function(String reason)? wipe,
     Future<void> Function()? afterWipe,
   }) async {
-    final wipes = await wipesData(gate: gate, auth: auth, dbOwner: dbOwner);
+    final bool wipes;
+    try {
+      wipes = await wipesData(gate: gate, auth: auth, dbOwner: dbOwner);
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('저장된 신고 내역을 확인하지 못해 로그아웃하지 않았습니다. 잠시 뒤 다시 시도하세요.'),
+        ));
+      }
+      return false;
+    }
     if (!context.mounted) return false;
     final ok = await showDialog<bool>(
       context: context,

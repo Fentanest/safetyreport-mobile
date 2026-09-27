@@ -26,7 +26,7 @@ class LiveGateCheck implements CommunityGateCheck {
   Future<bool> requireFresh() async => (await gate.requireFresh()).canEnter;
 
   @override
-  String? get blockedState => gate.state.canEnter ? null : gate.state.state;
+  String? get blockedState => gate.canEnter ? null : gate.state.state;
 
   @override
   void invalidate(String reason) => gate.invalidate(reason);

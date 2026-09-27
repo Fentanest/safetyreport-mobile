@@ -80,6 +80,11 @@ void main() {
       );
     }
     auth.kakaoId = '910001';
+    await expectLater(
+      KakaoLogout.wipesData(gate: gate, auth: auth, dbOwner: () async => throw StateError('disk')),
+      throwsStateError,
+      reason: '주인 표시를 읽지 못하면 "주인 없음"으로 보고 지우지 않는다 — 로그아웃하지 않음(Codex 검수 P1)',
+    );
     for (final mode in ['server', 'demo']) {
       expect(
         await KakaoLogout.wipesData(gate: gateWith(ownerOk, mode: mode), auth: auth, dbOwner: () async => '910001'),
@@ -121,6 +126,35 @@ void main() {
       wipe: (_) async => fail('다른 계정의 자료는 지우지 않는다'),
     );
     expect(auth.disconnects, 2);
+  });
+
+  test('a pass in client or demo mode does not let the real standalone DB in until its owner is checked', () async {
+    var mode = 'server';
+    var owner = 'mismatch';
+    final gate = CommunityGate(
+      checkDataOwner: (_) async => owner,
+      config: testAuthConfig(),
+      auth: auth,
+      store: store,
+      accountClient: server.accountClient(),
+      configStatus: () => 'ok',
+      appMode: () => mode,
+      officialAccountId: () async => 'User@Example.com',
+    );
+    addTearDown(gate.dispose);
+    expect((await gate.refreshNow()).canEnter, isTrue, reason: 'Client 는 기기 DB 주인을 보지 않는다');
+    expect(gate.canEnter, isTrue);
+    mode = 'standalone';
+    expect(gate.canEnter, isFalse, reason: '다른 모드에서 받은 통과로 들어가지 않는다(Codex 검수 P1)');
+    expect((await gate.requireFresh()).state, 'db_owner_mismatch', reason: '새 작업 전 확인도 다시 한다');
+    mode = 'demo';
+    expect((await gate.requireFresh()).canEnter, isTrue);
+    mode = 'standalone';
+    owner = 'ok';
+    gate.onAppModeChanged();
+    expect(gate.isChecked, isFalse, reason: '다시 확인하는 동안 신고 화면을 보이지 않는다');
+    await gate.refreshNow();
+    expect(gate.canEnter, isTrue);
   });
 
   test('adopt wipes with the current account as the new owner and re-checks the gate', () async {

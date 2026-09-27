@@ -179,6 +179,19 @@ void main() {
     expect(await LocalDbService.dbOwner(), '910001');
   });
 
+  test('work started while the wipe runs waits and writes after it, never into the half-wiped DB', () async {
+    await LocalDbService.checkOwner('910001');
+    final wipe = LocalDbService.wipeReportData('kakao_logout'); // 파일 배타 잠금은 동기 구간에서 걸린다
+    var ranAfterWipe = false;
+    final work = LocalDbService.runBackgroundWork(() async {
+      ranAfterWipe = await _count('reports') == 0;
+      await LocalDbService.upsertReport(_report(9), 'traffic', '자동차·교통위반-신호위반');
+    });
+    await Future.wait([wipe, work]);
+    expect(ranAfterWipe, isTrue, reason: '지우는 동안 시작한 작업은 끝날 때까지 기다린다(Codex 검수 P1)');
+    expect(await _count('reports'), 1);
+  });
+
   group('import refusal', () {
     setUp(() async => LocalDbService.checkOwner('910001'));
 

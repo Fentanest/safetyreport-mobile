@@ -85,6 +85,8 @@ MainActivity(onCreate/onNewIntent) → 보관함 → MethodChannel community_aut
 - **카카오 로그아웃**(설정 카드·온보딩): 확인 창 "로그아웃하면 이 기기에 저장된 신고 내역이 모두 지워집니다…" → `LocalDbService.wipeReportData('kakao_logout')`
   (커뮤니티 데이터셋 선회전 → 한 트랜잭션에서 `geocode_cache`·`android_metadata`·FTS 보조 표 밖의 모든 표 행 삭제, `sync_meta` 는 `watchlist` 만 남김, 백업 없음)
   → 게이트 무효화 → `disconnect()`. 동기화·지도 변환 중이면 `DbBusyException` 으로 아무것도 지우지 않고 로그인 유지.
+  삭제는 백업·복원과 같은 파일 배타 구간에서 한다(막 시작한 작업은 끝날 때까지 기다리고, 새 작업은 삭제 뒤에 돈다).
+  주인 표시를 읽지 못하면 로그아웃하지 않는다("주인 없음"으로 보고 남의 자료를 지우지 않게).
   지우지 않는 경우: Client·데모 모드, 지금 계정이 주인과 **다르다고 확인된** 경우(남의 자료).
 - **가져오기·복원 거절**: `importFromServerDb`(서버 DB `mysafety_sync_meta`)·`replaceFromBackup`(백업·직전 DB 되돌리기, `sync_meta`)은
   버전 검사 바로 뒤, 무엇이든 바꾸기 전에 `_refuseForeignOwner` — 주인이 없거나 다르거나 로그인 계정 번호를 모르면 `ForeignDatabaseException`.

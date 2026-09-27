@@ -10,6 +10,11 @@
 
 ## 2026-09-27 (버전 변경 없음)
 
+### dev 시험용 APK 자동 빌드
+
+- `dev` 브랜치에 push 하면(문서만 바뀐 경우 제외, 수동 실행 가능) 릴리즈와 같은 셀프호스트 러너·고정 Flutter·업로드 키로 릴리즈 모드 APK 를 만들어
+  GitHub Actions artifact(APK·mapping·SHA-256, 30일 보관)로 올린다(`.github/workflows/build-dev-apk.yml`). 태그·GitHub Release·AAB 는 만들지 않는다.
+
 ### 커뮤니티 동의 정책 2026-09-28.1 (과태료 금액 통계 공개)
 
 - 사용자 승인(2026-09-27)으로 신고 지도가 답변에 적힌 과태료 금액의 통계를 공개한다. 동의문 `assets/community/share-consent-2026-09-28.1.md`(지도 저장소 정본과 같은 바이트), 필수 버전 `communityRequiredPolicyVersion` 변경. 2026-09-26.1 동의자는 다음 상태 확인에서 새 동의 화면을 본다(철회 아님).

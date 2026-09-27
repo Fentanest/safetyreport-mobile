@@ -288,6 +288,10 @@ CI `build-apk.yml`: `workflow_dispatch` 입력 `verify_only` 면 태그 확인·
 정식 실행도 `dist/` 를 artifact(400일)로 올린다. Play 스택(`H2.h.b` 같은 난독화 이름)은 그 빌드의 mapping 으로 되돌린다
 (AAB 는 `BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map` 에도 들어 있다).
 
+CI `build-dev-apk.yml`(2026-09-27): `dev` push(문서만 바뀐 push 제외)·수동 실행 때 같은 셀프호스트 러너에서 `build_test_apk.sh --release` 로
+릴리즈 모드 APK 를 만들어 artifact `mysafetyreport-dev-<VERSION>-<sha8>`(APK·mapping·SHA-256, 30일)로만 올린다. 서명은 러너의 업로드 키
+(GitHub Release APK 와 같은 서명이라 그 위에 덮어 설치된다), 태그·Release·AAB 없음 — 시험용이며 배포에 쓰지 않는다.
+
 기본 키 경로:
 - `~/mysafetyreport-android/key.properties`
 - `~/mysafetyreport-android/upload-keystore.jks`

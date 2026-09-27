@@ -1,0 +1,62 @@
+name: Build dev APK
+
+# dev 브랜치 시험용 APK. 릴리즈 워크플로(build-apk.yml)와 같은 셀프호스트 러너·고정 Flutter·러너의 업로드 키를 쓴다.
+# GitHub Release·태그·AAB 는 만들지 않고 artifact 로만 남긴다(배포용이 아니다 — Play 업로드·릴리즈에 쓰지 않는다).
+on:
+  push:
+    branches:
+      - dev
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+concurrency:
+  group: build-dev-apk
+  cancel-in-progress: false
+
+jobs:
+  build-dev-apk:
+    if: ${{ github.ref == 'refs/heads/dev' }}
+    runs-on: [self-hosted, Linux, X64, 235]
+    permissions:
+      contents: read
+
+    steps:
+    - name: Fix workspace ownership (pre-checkout)
+      run: sudo chown -R $(id -u):$(id -g) "${{ github.workspace }}" 2>/dev/null || true
+
+    - name: Checkout repository
+      uses: actions/checkout@v6
+
+    # Flutter 는 tool/flutter-version 고정(다르면 스크립트가 실패). 서명키는 러너의 ~/mysafetyreport-android/ (없으면 실패 — debug 서명으로 대체하지 않음).
+    - name: Build release-mode APK for dev
+      id: build
+      env:
+        COMMUNITY_SUPABASE_URL: ${{ vars.COMMUNITY_SUPABASE_URL }}
+        COMMUNITY_SUPABASE_PUBLISHABLE_KEY: ${{ vars.COMMUNITY_SUPABASE_PUBLISHABLE_KEY }}
+        FLUTTER_BIN: ${{ vars.FLUTTER_BIN || 'flutter' }}
+      run: |
+        rm -rf -- ./dist-dev ./mysafetyreport-release.apk
+        bash ./build_test_apk.sh --release
+        VERSION=$(tr -d '[:space:]' < VERSION)
+        NAME="mysafetyreport-dev-${VERSION}-${GITHUB_SHA::8}"
+        mkdir -p dist-dev
+        mv mysafetyreport-release.apk "dist-dev/${NAME}.apk"
+        cp build/app/outputs/mapping/release/mapping.txt "dist-dev/${NAME}-mapping.txt"
+        (cd dist-dev && sha256sum "${NAME}.apk" > "${NAME}.apk.sha256")
+        echo "name=${NAME}" >> "$GITHUB_OUTPUT"
+        echo "✅ ${NAME}.apk ($(du -h "dist-dev/${NAME}.apk" | cut -f1))"
+
+    - name: Upload dev APK artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ steps.build.outputs.name }}
+        path: dist-dev/
+        if-no-files-found: error
+        retention-days: 30
+
+    # 스크립트가 끝날 때 지우지만, 중간에 멈춰도 러너 작업 폴더에 서명 설정이 남지 않게 한 번 더 지운다.
+    - name: Remove staged signing config
+      if: ${{ always() }}
+      run: rm -f -- android/key.properties

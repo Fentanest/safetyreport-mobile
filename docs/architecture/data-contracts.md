@@ -11,6 +11,7 @@
 | SQLite `version 8`, 보완 요약 4컬럼 | **version 10**, 보완 컬럼 7개(`보완횟수`, `보완_미응답`, `보완_요청자`, `보완_요청일시`, `보완_완료일시`, `보완_요청_내용`, `보완_신고자_의견`) | `lib/services/local_db_service.dart:62,111-113,216` |
 | errno=104 매트릭스의 "silent 3회 retry", Standalone API "최대 3회 재시도" | 공용 상수 `mobileMaxRetryAttempts = 5`, `mobileRetryDelaySeconds = 1` (같은 문서의 "설정 기본값 / 재시도 정책" 절과 일치) | `lib/services/network_retry_config.dart` |
 | "Client 일반 API retry 없음" | 이번 단계 미재확인 → **미검증** | — |
+| 위반법규 파싱 (2026-09-27) | Standalone은 최신 처리내용에서 `도로교통법 제N조`와 `「자동차관리법」제29조`처럼 꺾쇠 안에 법 이름이 있는 조문을 읽는다. 법 이름·조·항 사이 공백을 허용하고 저장값은 공백을 정리한다. 서버와 합성 입력 계약을 공유한다. | `lib/services/standalone_parser.dart`, `contracts/parser-vectors.json` |
 
 ### 이번 대조에서 새로 발견한 집계 주의점 (코드 미수정, 통계 사양에서 다룸)
 - Standalone `excludeWithdraw` 필터가 SQL `처리상태 != '취하'` 라서 `처리상태` 가 NULL 인 행도 함께 빠진다. → `local_db_service.dart:871-873`

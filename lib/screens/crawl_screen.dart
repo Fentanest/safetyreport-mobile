@@ -446,7 +446,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
         children: [
           // ── 상태 카드 ──
           Expanded(
-            flex: _isRunning ? 2 : 4,
+            flex: 3,
             child: RefreshIndicator(
               onRefresh: _loadStandaloneInfo,
               child: SingleChildScrollView(
@@ -470,7 +470,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
 
           // ── 로그 패널 ──
           const Divider(height: 1),
-          Expanded(flex: _isRunning ? 3 : 2, child: _logPanel()),
+          Expanded(flex: _isRunning ? 2 : 1, child: _logPanel()),
         ],
       ),
     );

@@ -10,6 +10,11 @@
 
 ## 2026-09-27 (버전 변경 없음)
 
+### 동의문 복제본 정리
+
+- 동의문을 중앙에서 받게 되어 이 저장소의 사본(`contracts/community-ingest/consent/`)을 지웠다. 정본은 지도 저장소 `contracts/consent/`(복사하지 않음)와 중앙 DB 다.
+  실제 스택 시험도 동의문 파일 대신 중앙 `policy` 로 받은 버전·해시로 동의한다.
+
 ### 공유 동의문을 중앙에서 받는다, 이미 한 동의는 바로 인정 (PC 와 같은 규칙)
 
 - 동의 정책 버전·동의문을 앱에 넣어 두지 않는다(`communityRequiredPolicyVersion`·`assets/community/` 제거). 필수 설정 화면은 카카오 인증 뒤

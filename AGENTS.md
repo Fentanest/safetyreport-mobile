@@ -23,6 +23,7 @@
 | 테스트 계획/베이스라인 | [docs/testing/ui-test-plan.md](docs/testing/ui-test-plan.md) |
 | 에이전트 위임 절차(agy 호출·권한·검증) | [docs/agent-dispatch-runbook.md](docs/agent-dispatch-runbook.md) |
 | 검수 기록 | [docs/reviews/](docs/reviews/) |
+| 백로그(아직 안 한 일) / 계획 | [docs/plans/backlog.md](docs/plans/backlog.md) · [docs/plans/](docs/plans/) |
 
 ## 문서 원칙
 - 작업/버그/세션 이력은 `CHANGELOG.md`에만 기록한다. 실제로 한 변경만 적는다.

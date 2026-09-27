@@ -7,6 +7,7 @@ import '../community/gate/community_gate.dart';
 import '../community/client_account_notice.dart';
 import '../community/kakao_logout.dart';
 import '../services/community_auth_service.dart';
+import '../widgets/consent_markdown.dart';
 
 /// 필수 게이트 온보딩: `[필수] 카카오 인증` + `[필수] 신고내용 공유 동의`.
 ///
@@ -610,10 +611,7 @@ class _CommunityOnboardingScreenState
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: SingleChildScrollView(
-                  child: Text(
-                    _docText,
-                    style: const TextStyle(fontSize: 12.5, height: 1.5),
-                  ),
+                  child: ConsentMarkdown(text: _docText),
                 ),
               ),
             ],

@@ -14,6 +14,17 @@
 | 부팅 흐름의 `enableEdgeToEdge()` | 제거됨. `WindowCompat.setDecorFitsSystemWindows(window, false)` 사용 (Android 15 메모와 일치) | `MainActivity.kt:46` |
 | 모드별 테마: surface 흰색 강제 | 라이트는 흰 surface 유지, 다크 테마 별도 존재(`_darkSurface` 등), 사용자 테마 선택 `AppThemeMode` system/light/dark | `lib/main.dart:47-54,108`, `lib/models/app_theme_mode.dart` |
 
+## 현재 앱 진입 흐름 (2026-09-27 dev)
+
+이 절이 아래 이관 당시의 부팅·7개 하단 탭 설명보다 우선한다.
+
+1. `main.dart`가 저장소 이관, `ReportProvider.init`, `CommunityGate` 확인을 마칠 때까지 로딩 화면을 보인다. 게이트가 막히면 카카오 로그인·현재 공유 동의 화면을 연다. 두 모드 모두 동의 전 신고 화면 진입은 불가하다.
+2. 새 설치는 공통 OS 권한 화면을 한 번 보여 준 뒤 `SetupScreen`에서 모드를 고른다. Client의 `연결 확인 후 시작하기`는 서버 버전과 API 키를 검사하고 설정을 저장한다. 설정 완료 뒤 권한 화면을 다시 쌓지 않는다.
+3. 저장된 Client 설정으로 다시 열어도 `ServerConnectionService.checkVersion`으로 `/api/v1/server/version`을 확인한다. PC 서버 v3 미만·버전 확인 실패 시 신고 화면 대신 차단 화면을 보여 주고 WebSocket을 멈춘다. 재확인 또는 서버 주소·키 변경으로 복구한다. 카카오 게이트가 먼저이며 서버 버전 확인 결과만으로 신고 화면을 열지 않는다.
+4. 게이트·서버 검사가 끝나면 Client WebSocket을 시작하고, 필요 시 초기화 안내를 거쳐 메인 화면으로 간다. 현재 하단 탭은 대시보드·신고내역·신고관리·통계·알림 5개이며 수집·파일 화면은 별도 경로로 연다.
+
+Android 자동 시작·재연결·알림 전송도 게이트와 서버 버전을 확인한다([android-runtime.md](android-runtime.md)). DB 초기화·계정 주인 검사는 [data-contracts.md](data-contracts.md)를 따른다.
+
 ---
 
 ## 프로젝트 개요

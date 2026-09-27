@@ -15,6 +15,7 @@ import '../capture/server_completed.dart' show deletionState;
 import '../community_store.dart';
 import '../upload_hooks.dart';
 import 'community_account_client.dart';
+import 'community_device_label.dart';
 import 'gate_state.dart';
 
 export 'gate_state.dart';
@@ -537,11 +538,12 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   }) async {
     try {
       final secret = _newConnectionSecret();
+      final deviceLabel = _deviceLabelOverride?.call() ?? await CommunityDeviceLabel.read();
       final result = await _client().registerConnection(
         accessToken: token,
         sourceMode: isStandalone ? 'standalone' : 'client',
         platform: _platformNameOverride?.call() ?? defaultTargetPlatform.name,
-        deviceLabel: _deviceLabelOverride?.call() ?? 'mobile',
+        deviceLabel: deviceLabel,
         datasetKey: datasetKey,
         connectionSecret: secret,
         takeover: takeover,

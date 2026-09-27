@@ -350,6 +350,13 @@ class MainActivity : FlutterFragmentActivity() {
         channel.setMethodCallHandler { call, result ->
                 when (call.method) {
 
+                    "getDeviceName" -> {
+                        val configured = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
+                            Settings.Global.getString(contentResolver, Settings.Global.DEVICE_NAME)
+                        } else null
+                        result.success(configured?.takeIf { it.isNotBlank() } ?: Build.MODEL)
+                    }
+
                     // ── 알림 리스너 권한 ────────────────────────────────────
                     "isNotificationListenerEnabled" -> {
                         val flat = Settings.Secure.getString(

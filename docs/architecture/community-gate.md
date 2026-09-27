@@ -88,6 +88,12 @@
 grant 로 재요청), `공유한 자료 삭제 요청`(확인 문구 입력 → `contributions-delete`
 → T6 `onContributionsDeleted()` + 연결 폐기), 연결 기기(writer) 상태·전환.
 
+연결 기기에는 내부 `writer_epoch` 대신 Android 설정의 기기 이름을 표시한다.
+`MainActivity.getDeviceName`은 `Settings.Global.DEVICE_NAME`을 읽고 없으면 모델명을 쓴다.
+새 Standalone writer 등록 때도 이 이름을 `device_label`로 보낸다. 이미 등록된
+연결의 중앙 `device_label`은 바뀌지 않지만, 이 기기의 설정 화면은 현재 기기명을
+표시한다. 기기명은 표시용이며 연결 판정은 `connection_id`와 비밀로 한다.
+
 ## iOS 복귀 (실기기 미검증 — Xcode 없음)
 
 - `Info.plist` `CFBundleURLTypes` (scheme `com.fentanest.mysafetyreport`).

@@ -7,6 +7,7 @@ import '../community/gate/community_account_client.dart';
 // 공유한 자료 전체 삭제(아직 구현하지 않는 기능)에서만 쓰던 import — 되살릴 때 함께 해제한다.
 // import '../community/upload_hooks.dart';
 import '../community/gate/community_gate.dart';
+import '../community/gate/community_device_label.dart';
 import '../community/kakao_logout.dart';
 import '../providers/report_provider.dart';
 import '../services/community_auth_service.dart';
@@ -443,6 +444,7 @@ class _CommunityShareSection extends StatefulWidget {
 
 class _CommunityShareSectionState extends State<_CommunityShareSection> {
   String? _message;
+  String? _deviceName;
   bool _revokedShown = false;
 
   CommunityGate get _gate => widget.gate;
@@ -451,6 +453,12 @@ class _CommunityShareSectionState extends State<_CommunityShareSection> {
   void initState() {
     super.initState();
     _gate.addListener(_onGate);
+    _loadDeviceName();
+  }
+
+  Future<void> _loadDeviceName() async {
+    final name = await CommunityDeviceLabel.read();
+    if (mounted) setState(() => _deviceName = name);
   }
 
   @override
@@ -642,8 +650,7 @@ class _CommunityShareSectionState extends State<_CommunityShareSection> {
             if (connection != null)
               CommunityInfoRow(
                 label: '연결 기기',
-                value: '${connection['source_app'] ?? ''} · epoch ${connection['writer_epoch'] ?? ''} '
-                    '(${connection['status'] ?? ''})',
+                value: CommunityDeviceLabel.connectionDisplayName(connection, _deviceName),
               ),
             if (_gate.writerConflict != null) ...[
               const SizedBox(height: 8),

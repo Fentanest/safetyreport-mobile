@@ -180,7 +180,8 @@ void main() {
     });
 
     test('an unexpected failure before saving state asks the OS to retry', () async {
-      SharedPreferences.setMockInitialValues({AppPrefsKeys.appMode: AppMode.standalone.name});
+      SharedPreferences.setMockInitialValues(
+          {AppPrefsKeys.appMode: AppMode.standalone.name, AppPrefsKeys.secureStorageV10Migrated: true});
       // 플러그인 없는 테스트 환경: 기본 경로의 community.db 를 열 수 없다 → 저장 전 실패
       expect(await runCommunityUploadTask(communityMidnightTaskName), isFalse);
     });
@@ -189,6 +190,7 @@ void main() {
   test('the hourly task runs recovery even when the midnight key is held by another run', () async {
     SharedPreferences.setMockInitialValues({
       AppPrefsKeys.appMode: AppMode.standalone.name,
+      AppPrefsKeys.secureStorageV10Migrated: true, // 포그라운드 앱이 보안 저장소 이관을 끝낸 설치본
       'community_gate_cache_v1': jsonEncode({'state': 'ok', 'verified_at': DateTime.now().millisecondsSinceEpoch}),
     });
     final now = DateTime.now().toUtc();

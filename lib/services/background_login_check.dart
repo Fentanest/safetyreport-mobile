@@ -10,6 +10,7 @@ import '../community/upload/community_uploader.dart' show UploadRunResult;
 import '../community/upload/upload_background.dart';
 import '../models/app_mode.dart';
 import 'app_prefs_keys.dart';
+import 'secure_storage_migration.dart';
 import 'standalone_auth_service.dart';
 
 /// WorkManager 백그라운드 isolate 진입점(main.dart 가 initialize 에 넘긴다).
@@ -54,6 +55,8 @@ Future<bool> runCommunityUploadTask(
     final mode = AppModeX.fromString(prefs.getString(AppPrefsKeys.appMode));
     if (mode != AppMode.standalone) return true;
     if (prefs.getBool(AppPrefsKeys.standaloneDemoMode) ?? false) return true;
+    // 보안 저장소 v10 이관은 포그라운드 앱만 한다 — 앱이 끝내기 전에는 백그라운드가 보안 저장소를 열지 않는다(다음 기회에).
+    if (!await SecureStorageMigration.isDone(prefs)) return true;
     final store = await (openStore ?? openCommunityStoreForBackground)();
     if (store == null) return false; // community.db 를 열지 못함 — 저장 전 실패
     if (task == communityMidnightTaskName) await registerMidnightTask(now: now);
@@ -95,6 +98,8 @@ class BackgroundLoginCheck {
     final mode = AppModeX.fromString(prefs.getString(AppPrefsKeys.appMode));
     if (mode != AppMode.standalone) return false;
     if (prefs.getBool(AppPrefsKeys.standaloneDemoMode) ?? false) return false;
+    // 보안 저장소 v10 이관은 포그라운드 앱만 한다(비밀번호를 읽기 전에 확인).
+    if (!await SecureStorageMigration.isDone(prefs)) return false;
     // 최근에 앱이 로그인해 둔 토큰이 살아 있으면 점검할 필요가 없다.
     if (await StandaloneAuthService.isTokenValid()) return false;
 

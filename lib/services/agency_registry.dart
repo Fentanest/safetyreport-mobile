@@ -248,8 +248,11 @@ class AgencyRegistrySnapshot {
       table = <String, List<String>>{};
       (index as Map).forEach((code, row) {
         final r = row as List;
-        if (r[0] != null) {
-          (table![r[0] as String] ??= []).add(code as String);
+        for (final key in [r[0], if (r.length > 4) r[4]]) {
+          if (key != null) {
+            final codes = table![key as String] ??= [];
+            if (!codes.contains(code)) codes.add(code as String);
+          }
         }
       });
       (multi as Map).forEach((old, oldName) {

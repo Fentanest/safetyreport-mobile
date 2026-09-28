@@ -251,6 +251,39 @@ void main() {
     expect(gate.writerConflict, isNull);
   });
 
+  // 2026-09-28: 이 기기에서 로그인·동의를 마치면 다른 기기의 업로드 연결을 가져온다. 앱 시작·주기 확인만으로는 가져오지 않는다.
+  test('plain refresh does not take over another device', () async {
+    server = FakeAccountServer()..conflictUnlessTakeover = true;
+    final gate = makeGate();
+    expect((await gate.refreshNow()).canEnter, isTrue);
+    expect(gate.writerConflict, isNotNull);
+    expect(server.registerTakeovers, [false]);
+  });
+
+  test('consent saved on this device takes the upload connection over', () async {
+    server = FakeAccountServer()..conflictUnlessTakeover = true;
+    final gate = makeGate();
+    gate.claimForThisDevice();
+    expect((await gate.refreshNow()).canEnter, isTrue);
+    expect(gate.writerConflict, isNull);
+    expect(server.registerTakeovers, [true]);
+    // 다음 확인에서는 다시 가져오지 않는다(한 번만)
+    server.registerTakeovers.clear();
+    gate.invalidate('test');
+    await gate.refreshNow();
+    expect(server.registerTakeovers.where((t) => t), isEmpty);
+  });
+
+  test('interactive Kakao login on this device takes the connection over', () async {
+    server = FakeAccountServer()..conflictUnlessTakeover = true;
+    auth.setPhase(CommunityAccountPhase.confirmRequired);
+    final gate = makeGate();
+    auth.setPhase(CommunityAccountPhase.connected); // 로그인 확정 → 게이트가 곧바로 다시 확인한다
+    await gate.refreshNow();
+    expect(server.registerTakeovers, [true]);
+    expect(gate.writerConflict, isNull);
+  });
+
   test('F16/F17 client: no writer registration, upload context stays off', () async {
     final gate = makeGate(
       appMode: () => 'server',

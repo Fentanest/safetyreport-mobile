@@ -77,6 +77,13 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
 
   late CommunityAccountPhase _authPhase;
 
+  /// 이 기기에서 카카오 로그인·공유 동의를 방금 마쳤다(2026-09-28): 업로드 연결이 다른 기기에 있으면 이 기기로 가져온다.
+  /// 앱 시작·주기 확인만으로는 세우지 않는다(기기끼리 서로 뺏지 않게). PC `community_gate._claim_requested` 와 같은 규칙.
+  bool _claimRequested = false;
+
+  /// 공유 동의를 이 기기에서 저장한 직후 부른다(다음 확인에서 업로드 연결을 이 기기로).
+  void claimForThisDevice() => _claimRequested = true;
+
   /// 카카오 로그인이 확정되면(다른 상태 → connected) 곧바로 다시 확인한다. 예전엔 60초 poll·앱 복귀 때까지 기다려,
   /// 이미 동의한 계정도 필수 설정 화면에 머물렀다(2026-09-27). 로그아웃·만료도 즉시 반영한다.
   bool _disposed = false;
@@ -101,6 +108,13 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         phase == CommunityAccountPhase.disconnected ||
         phase == CommunityAccountPhase.reauthRequired;
     if (!settled) return;
+    // 이 기기에서 카카오 로그인을 직접 마쳤다(브라우저·교환·계정 확인 단계를 거쳐 연결됨) — 앱 시작 때 세션 복원과 구분한다.
+    if (phase == CommunityAccountPhase.connected &&
+        (was == CommunityAccountPhase.awaitingBrowser ||
+            was == CommunityAccountPhase.exchanging ||
+            was == CommunityAccountPhase.confirmRequired)) {
+      _claimRequested = true;
+    }
     _authGen++;
     invalidate(phase == CommunityAccountPhase.connected ? 'login' : 'logout');
     // 진행 중인 확인이 있으면(이전 세션) 그것이 끝난 뒤 새 세션으로 다시 확인한다 — refreshNow 는 진행 중이면 같은 결과를 돌려준다.
@@ -485,6 +499,8 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
       return 'official_account_required';
     }
     final datasetKey = datasetKeyForOfficialId(officialId);
+    final claim = _claimRequested;
+    _claimRequested = false;
     final stored = await _readStoredConnection();
     // status 는 저장 연결 id 로 요청했고, 그 연결이 이 사용자 것일 때만 connection 을 채운다(계약).
     final conn = (stored != null && stored['dataset_key'] == datasetKey) ? status.connection : null;
@@ -506,11 +522,13 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
             writerEpoch: rebound.writerEpoch,
           );
         }
-      } else if (conn != null && (conn['status'] == 'superseded' || conn['status'] == 'suspended')) {
+      } else if (conn != null &&
+          (conn['status'] == 'suspended' || (conn['status'] == 'superseded' && !claim))) {
         return 'connection_${conn['status']}';
       } else {
-        // 저장 연결 없음·다른 공식 계정·다른 사용자(status 가 null 로 숨김)·폐기됨 → 새 등록
-        final registered = await _registerFresh(token, datasetKey, takeover: false);
+        // 저장 연결 없음·다른 공식 계정·다른 사용자(status 가 null 로 숨김)·폐기됨 → 새 등록.
+        // 방금 이 기기에서 로그인·동의했으면 다른 기기의 연결을 가져온다(takeover). 계정 정지(suspended)는 가져오지 않는다.
+        final registered = await _registerFresh(token, datasetKey, takeover: claim);
         if (registered == null) return 'writer_conflict';
       }
     } on CommunityAccountError catch (e) {

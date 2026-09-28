@@ -182,6 +182,8 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
         consentTextSha256: policy.consentTextSha256,
         via: gate.isStandalone ? 'mobile_standalone' : 'mobile_client',
       );
+      // 이 기기에서 동의했다 — 업로드 연결이 다른 기기에 있으면 이 기기로 가져온다(2026-09-28).
+      gate.claimForThisDevice();
       await gate.refreshNow();
       if (!mounted) return;
       if (gate.lastStatus?.consentState == 'active') {

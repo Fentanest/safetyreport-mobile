@@ -39,8 +39,10 @@ Map<String, dynamic> _resolveAgency(
   final cleanName = (name ?? '').trim();
   final displayName = cleanName.isEmpty ? null : cleanName;
   final byFrom = <String, List<dynamic>>{};
+  final byTo = <String, List<dynamic>>{};
   for (final l in links) {
     (byFrom[l['from_code'] as String] ??= []).add(l);
+    (byTo[l['to_code'] as String] ??= []).add(l);
   }
   final chain = <dynamic>[];
   if (_isSevenAlnum(code)) {
@@ -53,6 +55,22 @@ Map<String, dynamic> _resolveAgency(
       if (seen.contains(next['to_code'])) break;
       chain.add(next);
       seen.add(next['to_code'] as String);
+    }
+    if (chain.isEmpty) {
+      // 정본 resolve.dart 와 동일: 전방 체인이 없으면 유일한 역방향 링크를
+      // 따라가 승계 후 코드도 같은 기관으로 묶는다(합류 대상은 미해결 유지).
+      final back = <dynamic>[];
+      var cursor = code;
+      while (true) {
+        final incoming = byTo[cursor] ?? const [];
+        if (incoming.length != 1) break;
+        final link = incoming.first;
+        if (seen.contains(link['from_code'])) break;
+        back.add(link);
+        seen.add(link['from_code'] as String);
+        cursor = link['from_code'] as String;
+      }
+      chain.addAll(back.reversed);
     }
   }
   if (chain.isEmpty) {

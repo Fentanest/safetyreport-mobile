@@ -16,7 +16,7 @@ export 'canonical_json.dart' show canonicalJson;
 export 'observation_rules.dart' show buildPayload;
 
 /// 공유 payload 버전을 올리지 않고 파서만 구분한다.
-const String mobileParserVersion = 'mobile-parser-1';
+const String mobileParserVersion = 'mobile-parser-2'; // 2026-09-28 observation-v2(violation_law)
 
 /// 공식 상세 응답에서 읽은 좌표. null이면 좌표 없는 관측으로 보낸다.
 class GeocodeHit {
@@ -48,6 +48,8 @@ Map<String, Object?> buildAdapterInput(
   required String location,
   required String penaltyPoints,
   required String entryValue,
+  // observation-v2(2026-09-28): 파서가 처리내용에서 뽑은 법 이름·조항(처리내용 원문은 보내지 않는다).
+  String violationLaw = '',
   GeocodeHit? geo,
   required String progressStatus,
 }) {
@@ -62,6 +64,7 @@ Map<String, Object?> buildAdapterInput(
     'violation_location': location,
     'entry_value': entryValue,
     'penalty_points': penaltyPoints,
+    'violation_law': violationLaw,
     'geocode': geo?.toAdapterGeo(),
     'progress_status': progressStatus,
   };

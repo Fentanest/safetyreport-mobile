@@ -141,7 +141,7 @@ void main() {
         final body = jsonDecode(req.body) as Map<String, dynamic>;
         expect(body['source_app'], equals('safetyreport-mobile'));
         expect(body['source_mode'], equals('standalone'));
-        expect(body['parser_version'], equals('mobile-parser-1'));
+        expect(body['parser_version'], equals('mobile-parser-2'));
         expect((body['events'] as List).length, equals(1));
         return http.Response(
             jsonEncode({

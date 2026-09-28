@@ -282,6 +282,7 @@ Map<String, Object?> buildPayload(Map<String, Object?> input) {
     'status': status,
     'status_raw': statusRaw,
     'vehicle_raw': cleanString(input['car_number'], 64),
+    'violation_law': cleanString(input['violation_law'], 60),
   };
 }
 

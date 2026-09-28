@@ -38,14 +38,19 @@ class FakeTokens implements CommunityTokenSource {
   String? token = 'tok1';
   @override
   Future<CommunityTokenResult> getAccessTokenResult({String? rejected}) async =>
-      CommunityTokenResult(CommunityTokenStatus.ok, rejected != null ? 'tok2' : token); // 강제 갱신은 새 토큰
+      CommunityTokenResult(
+        CommunityTokenStatus.ok,
+        rejected != null ? 'tok2' : token,
+      ); // 강제 갱신은 새 토큰
 }
 
 Future<CommunityStore> openStore() async {
   sqfliteFfiInit();
   final dir = await Directory.systemTemp.createTemp('sr_t6_up_');
   final store = await CommunityStore.open(
-      path: '${dir.path}/community.db', factory: databaseFactoryFfi);
+    path: '${dir.path}/community.db',
+    factory: databaseFactoryFfi,
+  );
   await store.setContext({
     'contributor_fingerprint': 'fp1',
     'connection_id': '11111111-1111-4111-8111-111111111111',
@@ -71,19 +76,19 @@ Future<void> closeStore(CommunityStore store) async {
 }
 
 Map<String, Object?> adapter(String progress) => {
-      'processing_status': '수용',
-      'penalty_amount': '과태료: 40,000원',
-      'report_date': '2026-09-01',
-      'response_date': '2026-09-10',
-      'processing_agency': '서울특별시 중구청',
-      'person_in_charge': '홍길동',
-      'car_number': '12가3456',
-      'violation_location': '서울특별시 중구 세종대로 110',
-      'entry_value': '불법주정차신고',
-      'penalty_points': '',
-      'geocode': {'status': 'pending'},
-      'progress_status': progress,
-    };
+  'processing_status': '수용',
+  'penalty_amount': '과태료: 40,000원',
+  'report_date': '2026-09-01',
+  'response_date': '2026-09-10',
+  'processing_agency': '서울특별시 중구청',
+  'person_in_charge': '홍길동',
+  'car_number': '12가3456',
+  'violation_location': '서울특별시 중구 세종대로 110',
+  'entry_value': '불법주정차신고',
+  'penalty_points': '',
+  'geocode': {'status': 'pending'},
+  'progress_status': progress,
+};
 
 CommunityUploader makeUploader({
   required CommunityStore store,
@@ -92,28 +97,30 @@ CommunityUploader makeUploader({
   required http.Client httpClient,
   AppMode mode = AppMode.standalone,
   void Function(String)? onProgress,
-}) =>
-    CommunityUploader(
-      gate: gate,
-      tokens: tokens,
-      appMode: () async => mode,
-      supabaseUrl: 'https://example.supabase.co',
-      publishableKey: 'sb_publishable_test',
-      clientVersion: '1.3.5',
-      httpClient: httpClient,
-      openStore: () async => store,
-      random: Random(1),
-      onProgress: onProgress,
-    );
+}) => CommunityUploader(
+  gate: gate,
+  tokens: tokens,
+  appMode: () async => mode,
+  supabaseUrl: 'https://example.supabase.co',
+  publishableKey: 'sb_publishable_test',
+  clientVersion: '1.3.5',
+  httpClient: httpClient,
+  openStore: () async => store,
+  random: Random(1),
+  onProgress: onProgress,
+);
 
-Map<String, Object?> ackFor(String eventId, String status,
-    {String projection = 'published'}) => {
-      'event_id': eventId,
-      'status': status,
-      'durable': true,
-      'receipt_id': kReceipt,
-      'projection_status': projection,
-    };
+Map<String, Object?> ackFor(
+  String eventId,
+  String status, {
+  String projection = 'published',
+}) => {
+  'event_id': eventId,
+  'status': status,
+  'durable': true,
+  'receipt_id': kReceipt,
+  'projection_status': projection,
+};
 
 final kNs = projectNamespace('https://example.supabase.co');
 const kReceipt = '11111111-1111-4111-8111-111111111111';
@@ -133,9 +140,13 @@ void main() {
     tearDown(() async => closeStore(store));
 
     test('B01: capture 뒤 realtime 업로드 → accepted 삭제·투영 저장', () async {
-      final c = await capture({...adapter('수용'), 'report_number': 'SPP-2609-8000001'},
-          sourceReportId: 'R1', trigger: 'realtime',
-          store: store, projectNamespace: kNs);
+      final c = await capture(
+        {...adapter('수용'), 'report_number': 'SPP-2609-8000001'},
+        sourceReportId: 'R1',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: kNs,
+      );
       final eventId = c.eventId!;
       final httpClient = MockClient((req) async {
         final body = jsonDecode(req.body) as Map<String, dynamic>;
@@ -143,27 +154,36 @@ void main() {
         expect(body['source_mode'], equals('standalone'));
         expect(body['parser_version'], equals('mobile-parser-1'));
         expect((body['events'] as List).length, equals(1));
-        expect((body['events'] as List).first['report_number'], 'SPP-2609-8000001');
+        expect(
+          (body['events'] as List).first['report_number'],
+          'SPP-2609-8000001',
+        );
         return http.Response(
-            jsonEncode({
-              'protocol': 1,
-              'request_id': 'req1',
-              'results': [ackFor(eventId, 'accepted')],
-            }),
-            200);
+          jsonEncode({
+            'protocol': 1,
+            'request_id': 'req1',
+            'results': [ackFor(eventId, 'accepted')],
+          }),
+          200,
+        );
       });
       final progress = <String>[];
       final u = makeUploader(
-          store: store, gate: gate, tokens: tokens, httpClient: httpClient,
-          onProgress: progress.add);
+        store: store,
+        gate: gate,
+        tokens: tokens,
+        httpClient: httpClient,
+        onProgress: progress.add,
+      );
       final result = await u.requestCommunityUpload('realtime');
       expect(result.result, equals('sent'));
       expect(progress.any((line) => line.contains('확인 1건')), isTrue);
       final outbox = await store.db.rawQuery('SELECT * FROM outbox');
       expect(outbox, isEmpty);
       final journal = await store.db.rawQuery(
-          'SELECT ack_status AS a, projection_status AS p, receipt_id AS r FROM source_journal WHERE event_id=?',
-          [eventId]);
+        'SELECT ack_status AS a, projection_status AS p, receipt_id AS r FROM source_journal WHERE event_id=?',
+        [eventId],
+      );
       expect(journal.first['a'], equals('accepted'));
       expect(journal.first['p'], equals('published'));
       expect(journal.first['r'], equals(kReceipt));
@@ -172,67 +192,201 @@ void main() {
       expect(status.lastProjection, equals('published'));
     });
 
-    test('SOL-01: acked events are never re-sent by manual/midnight/recovery; stale re-enqueued rows are removed', () async {
-      final events = <String>[];
-      for (final id in ['A1', 'A2', 'A3', 'A4']) {
-        final c = await capture({...adapter('수용'), 'person_in_charge': id},
-            sourceReportId: id, trigger: 'realtime', store: store, projectNamespace: kNs);
-        events.add(c.eventId!);
-      }
-      final statuses = ['accepted', 'duplicate', 'no_change', 'quarantined'];
-      var sent = <String>[];
+    test('2026-09-28: 잔여 status_correction 은 보내지 않고 blocked 로 보존', () async {
+      final c = await capture(
+        adapter('수용'),
+        sourceReportId: 'R1',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: kNs,
+      );
+      final goodId = c.eventId!;
+      // 구버전이 적어 둔 잔여 행 흉내.
+      const oldId = 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa';
+      await store.db.insert('source_journal', {
+        'event_id': oldId,
+        'project_namespace': kNs,
+        'local_dataset_id': await store.meta('local_dataset_id'),
+        'dataset_key': 'ds1',
+        'source_report_id': 'R9',
+        'report_number': null,
+        'source_revision': 99,
+        'event_type': 'status_correction',
+        'captured_at': '2026-09-01T00:00:00.000Z',
+        'capture_trigger': 'realtime',
+        'rebuild_run_id': null,
+        'schema_version': 1,
+        'parser_version': 'mobile-parser-1',
+        'payload_json': '{}',
+        'payload_sha256': '00',
+        'eligible': 0,
+        'contributor_fingerprint': 'fp1',
+        'connection_id': '11111111-1111-4111-8111-111111111111',
+        'writer_epoch': 3,
+        'consent_grant_id': '22222222-2222-4222-8222-222222222222',
+        'personal_save_state': 'saved',
+      });
+      await store.db.insert('outbox', {
+        'event_id': oldId,
+        'state': 'pending',
+        'attempt_count': 0,
+        'enqueued_trigger': 'realtime',
+        'enqueued_at': '2026-09-01T00:00:00.000Z',
+      });
+      expect(await blockSupersededCorrections(store: store), 1);
+      final outbox = await store.db.rawQuery(
+        'SELECT state, last_error_code FROM outbox WHERE event_id=?',
+        [oldId],
+      );
+      expect(outbox.single['state'], 'blocked');
+      expect(outbox.single['last_error_code'], 'deprecated_status_correction');
+      final journal = await store.db.rawQuery(
+        'SELECT blocked_reason FROM source_journal WHERE event_id=?',
+        [oldId],
+      );
+      expect(
+        journal.single['blocked_reason'],
+        'blocked:deprecated_status_correction',
+      );
+      // eligible 행은 그대로, 다시 호출해도 0 (멱등).
+      final pending = await store.db.rawQuery(
+        'SELECT state FROM outbox WHERE event_id=?',
+        [goodId],
+      );
+      expect(pending.single['state'], 'pending');
+      expect(await blockSupersededCorrections(store: store), 0);
+      // 업로드 실행: correction 없이 eligible 만 전송한다.
+      final sentTypes = <String>[];
       final httpClient = MockClient((req) async {
         final body = jsonDecode(req.body) as Map<String, dynamic>;
-        final ids = [for (final e in body['events'] as List) (e as Map)['event_id'] as String];
-        sent.addAll(ids);
+        sentTypes.addAll(
+          (body['events'] as List).map(
+            (e) => (e as Map)['event_type'] as String,
+          ),
+        );
         return http.Response(
+          jsonEncode({
+            'protocol': 1,
+            'request_id': 'req1',
+            'results': [ackFor(goodId, 'accepted')],
+          }),
+          200,
+        );
+      });
+      final u = makeUploader(
+        store: store,
+        gate: gate,
+        tokens: tokens,
+        httpClient: httpClient,
+      );
+      final result = await u.requestCommunityUpload('manual');
+      expect(result.result, equals('sent'));
+      expect(sentTypes, isNot(contains('status_correction')));
+      final kept = await store.db.rawQuery(
+        'SELECT state FROM outbox WHERE event_id=?',
+        [oldId],
+      );
+      expect(kept.single['state'], 'blocked');
+    });
+
+    test(
+      'SOL-01: acked events are never re-sent by manual/midnight/recovery; stale re-enqueued rows are removed',
+      () async {
+        final events = <String>[];
+        for (final id in ['A1', 'A2', 'A3', 'A4']) {
+          final c = await capture(
+            {...adapter('수용'), 'person_in_charge': id},
+            sourceReportId: id,
+            trigger: 'realtime',
+            store: store,
+            projectNamespace: kNs,
+          );
+          events.add(c.eventId!);
+        }
+        final statuses = ['accepted', 'duplicate', 'no_change', 'quarantined'];
+        var sent = <String>[];
+        final httpClient = MockClient((req) async {
+          final body = jsonDecode(req.body) as Map<String, dynamic>;
+          final ids = [
+            for (final e in body['events'] as List)
+              (e as Map)['event_id'] as String,
+          ];
+          sent.addAll(ids);
+          return http.Response(
             jsonEncode({
               'protocol': 1,
               'request_id': 'req',
-              'results': [for (final id in ids) ackFor(id, statuses[events.indexOf(id)])],
+              'results': [
+                for (final id in ids) ackFor(id, statuses[events.indexOf(id)]),
+              ],
             }),
-            200);
-      });
-      final u = makeUploader(store: store, gate: gate, tokens: tokens, httpClient: httpClient);
-      await u.requestCommunityUpload('realtime');
-      expect(sent.toSet(), events.toSet());
-      // 예전 버전이 만든 ACK 뒤 대기 행을 흉내 낸다.
-      await store.db.insert('outbox', {
-        'event_id': events[0], 'state': 'pending', 'attempt_count': 0,
-        'enqueued_trigger': 'manual', 'enqueued_at': '2026-09-26T00:00:00.000Z',
-      });
-      for (final trigger in ['manual', 'midnight', 'recovery']) {
+            200,
+          );
+        });
+        final u = makeUploader(
+          store: store,
+          gate: gate,
+          tokens: tokens,
+          httpClient: httpClient,
+        );
+        await u.requestCommunityUpload('realtime');
+        expect(sent.toSet(), events.toSet());
+        // 예전 버전이 만든 ACK 뒤 대기 행을 흉내 낸다.
+        await store.db.insert('outbox', {
+          'event_id': events[0],
+          'state': 'pending',
+          'attempt_count': 0,
+          'enqueued_trigger': 'manual',
+          'enqueued_at': '2026-09-26T00:00:00.000Z',
+        });
+        for (final trigger in ['manual', 'midnight', 'recovery']) {
+          sent = [];
+          await u.requestCommunityUpload(trigger);
+          expect(sent, isEmpty, reason: trigger);
+        }
+        expect(await store.db.rawQuery('SELECT * FROM outbox'), isEmpty);
+        // 미ACK 이벤트는 여전히 보낸다.
+        final c = await capture(
+          {...adapter('수용'), 'person_in_charge': 'U1'},
+          sourceReportId: 'U1',
+          trigger: 'realtime',
+          store: store,
+          projectNamespace: kNs,
+        );
+        events.add(c.eventId!);
+        statuses.add('accepted');
+        await store.db.rawDelete(
+          'DELETE FROM outbox',
+        ); // realtime 경로 없이 수동 보충만으로
         sent = [];
-        await u.requestCommunityUpload(trigger);
-        expect(sent, isEmpty, reason: trigger);
-      }
-      expect(await store.db.rawQuery('SELECT * FROM outbox'), isEmpty);
-      // 미ACK 이벤트는 여전히 보낸다.
-      final c = await capture({...adapter('수용'), 'person_in_charge': 'U1'},
-          sourceReportId: 'U1', trigger: 'realtime', store: store, projectNamespace: kNs);
-      events.add(c.eventId!);
-      statuses.add('accepted');
-      await store.db.rawDelete('DELETE FROM outbox'); // realtime 경로 없이 수동 보충만으로
-      sent = [];
-      await u.requestCommunityUpload('manual');
-      expect(sent, [c.eventId]);
-    });
+        await u.requestCommunityUpload('manual');
+        expect(sent, [c.eventId]);
+      },
+    );
 
     test('B02: 같은 신고 두 이벤트는 앞 ACK 뒤 다음 요청으로', () async {
-      await capture(adapter('수용'),
-          sourceReportId: 'R1', trigger: 'realtime',
-          store: store, projectNamespace: kNs);
-      await capture(adapter('수용'),
-          sourceReportId: 'R1', trigger: 'manual',
-          store: store, projectNamespace: kNs);
+      await capture(
+        adapter('수용'),
+        sourceReportId: 'R1',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: kNs,
+      );
+      await capture(
+        adapter('수용'),
+        sourceReportId: 'R1',
+        trigger: 'manual',
+        store: store,
+        projectNamespace: kNs,
+      );
       // payload 가 같으면 두 번째는 이벤트 없음 → 다른 내용으로 다시.
       await capture(
-          {
-            ...adapter('수용'),
-            'penalty_amount': '과태료: 50,000원',
-          },
-          sourceReportId: 'R1', trigger: 'manual',
-          store: store, projectNamespace: kNs);
+        {...adapter('수용'), 'penalty_amount': '과태료: 50,000원'},
+        sourceReportId: 'R1',
+        trigger: 'manual',
+        store: store,
+        projectNamespace: kNs,
+      );
       var requestCount = 0;
       final seenPerRequest = <List<String>>[];
       final httpClient = MockClient((req) async {
@@ -241,21 +395,29 @@ void main() {
         final events = (body['events'] as List).cast<Map<String, dynamic>>();
         final ids = events.map((e) => e['source_report_id'] as String).toList();
         seenPerRequest.add(ids);
-        expect(ids.toSet().length, equals(ids.length),
-            reason: '한 요청에 같은 신고 하나만');
+        expect(
+          ids.toSet().length,
+          equals(ids.length),
+          reason: '한 요청에 같은 신고 하나만',
+        );
         return http.Response(
-            jsonEncode({
-              'protocol': 1,
-              'request_id': 'req$requestCount',
-              'results': [
-                for (final e in events)
-                  ackFor(e['event_id'] as String, 'accepted'),
-              ],
-            }),
-            200);
+          jsonEncode({
+            'protocol': 1,
+            'request_id': 'req$requestCount',
+            'results': [
+              for (final e in events)
+                ackFor(e['event_id'] as String, 'accepted'),
+            ],
+          }),
+          200,
+        );
       });
       final u = makeUploader(
-          store: store, gate: gate, tokens: tokens, httpClient: httpClient);
+        store: store,
+        gate: gate,
+        tokens: tokens,
+        httpClient: httpClient,
+      );
       final result = await u.requestCommunityUpload('manual');
       expect(result.result, equals('sent'));
       for (final ids in seenPerRequest) {
@@ -266,34 +428,52 @@ void main() {
     });
 
     test('B03: 403 consent_revoked → blocked + 게이트 무효화', () async {
-      final c = await capture(adapter('수용'),
-          sourceReportId: 'R1', trigger: 'realtime',
-          store: store, projectNamespace: kNs);
-      final httpClient = MockClient((_) async => http.Response(
+      final c = await capture(
+        adapter('수용'),
+        sourceReportId: 'R1',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: kNs,
+      );
+      final httpClient = MockClient(
+        (_) async => http.Response(
           jsonEncode({
             'error': {
               'code': 'consent_revoked',
               'message': 'revoked',
               'request_id': 'req1',
               'retryable': false,
-            }
+            },
           }),
-          403));
+          403,
+        ),
+      );
       final u = makeUploader(
-          store: store, gate: gate, tokens: tokens, httpClient: httpClient);
+        store: store,
+        gate: gate,
+        tokens: tokens,
+        httpClient: httpClient,
+      );
       final result = await u.requestCommunityUpload('realtime');
       expect(gate.invalidated, contains('consent_revoked'));
-      final outbox = await store.db
-          .rawQuery('SELECT state FROM outbox WHERE event_id=?', [c.eventId]);
+      final outbox = await store.db.rawQuery(
+        'SELECT state FROM outbox WHERE event_id=?',
+        [c.eventId],
+      );
       expect(outbox.first['state'], equals('blocked'));
       expect(result.result, equals('needs_consent'));
     });
 
     test('B04: 429 → Retry-After 뒤 재시도 예약', () async {
-      await capture(adapter('수용'),
-          sourceReportId: 'R1', trigger: 'realtime',
-          store: store, projectNamespace: kNs);
-      final httpClient = MockClient((_) async => http.Response(
+      await capture(
+        adapter('수용'),
+        sourceReportId: 'R1',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: kNs,
+      );
+      final httpClient = MockClient(
+        (_) async => http.Response(
           jsonEncode({
             'error': {
               'code': 'rate_limited',
@@ -301,41 +481,65 @@ void main() {
               'request_id': 'req1',
               'retryable': true,
               'retry_after_seconds': 60,
-            }
+            },
           }),
-          429));
+          429,
+        ),
+      );
       final u = makeUploader(
-          store: store, gate: gate, tokens: tokens, httpClient: httpClient);
+        store: store,
+        gate: gate,
+        tokens: tokens,
+        httpClient: httpClient,
+      );
       await u.requestCommunityUpload('realtime');
-      final outbox =
-          await store.db.rawQuery('SELECT state, next_retry_at FROM outbox');
+      final outbox = await store.db.rawQuery(
+        'SELECT state, next_retry_at FROM outbox',
+      );
       expect(outbox.first['state'], equals('retry_wait'));
       expect((outbox.first['next_retry_at'] as String).isNotEmpty, isTrue);
     });
 
     test('B05: 500 → 지수 백오프 retry_wait', () async {
-      await capture(adapter('수용'),
-          sourceReportId: 'R1', trigger: 'realtime',
-          store: store, projectNamespace: kNs);
-      final httpClient = MockClient(
-          (_) async => http.Response('boom', 500));
+      await capture(
+        adapter('수용'),
+        sourceReportId: 'R1',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: kNs,
+      );
+      final httpClient = MockClient((_) async => http.Response('boom', 500));
       final u = makeUploader(
-          store: store, gate: gate, tokens: tokens, httpClient: httpClient);
+        store: store,
+        gate: gate,
+        tokens: tokens,
+        httpClient: httpClient,
+      );
       await u.requestCommunityUpload('realtime');
-      final outbox = await store.db
-          .rawQuery('SELECT state, attempt_count FROM outbox');
+      final outbox = await store.db.rawQuery(
+        'SELECT state, attempt_count FROM outbox',
+      );
       expect(outbox.first['state'], equals('retry_wait'));
       expect(outbox.first['attempt_count'], equals(1));
     });
 
     test('B08: conflict → dead_letter, rejected → blocked 보존', () async {
-      final c1 = await capture(adapter('수용'),
-          sourceReportId: 'R1', trigger: 'realtime',
-          store: store, projectNamespace: kNs);
-      final c2 = await capture(adapter('수용'),
-          sourceReportId: 'R2', trigger: 'realtime',
-          store: store, projectNamespace: kNs);
-      final httpClient = MockClient((_) async => http.Response(
+      final c1 = await capture(
+        adapter('수용'),
+        sourceReportId: 'R1',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: kNs,
+      );
+      final c2 = await capture(
+        adapter('수용'),
+        sourceReportId: 'R2',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: kNs,
+      );
+      final httpClient = MockClient(
+        (_) async => http.Response(
           jsonEncode({
             'protocol': 1,
             'request_id': 'req1',
@@ -354,22 +558,36 @@ void main() {
               },
             ],
           }),
-          200));
+          200,
+        ),
+      );
       final u = makeUploader(
-          store: store, gate: gate, tokens: tokens, httpClient: httpClient);
+        store: store,
+        gate: gate,
+        tokens: tokens,
+        httpClient: httpClient,
+      );
       await u.requestCommunityUpload('realtime');
       final o1 = await store.db.rawQuery(
-          'SELECT state FROM outbox WHERE event_id=?', [c1.eventId]);
+        'SELECT state FROM outbox WHERE event_id=?',
+        [c1.eventId],
+      );
       final o2 = await store.db.rawQuery(
-          'SELECT state FROM outbox WHERE event_id=?', [c2.eventId]);
+        'SELECT state FROM outbox WHERE event_id=?',
+        [c2.eventId],
+      );
       expect(o1.first['state'], equals('dead_letter'));
       expect(o2.first['state'], equals('blocked'));
     });
 
     test('B11: 401 → 토큰 갱신 1회 재시도', () async {
-      await capture(adapter('수용'),
-          sourceReportId: 'R1', trigger: 'realtime',
-          store: store, projectNamespace: kNs);
+      await capture(
+        adapter('수용'),
+        sourceReportId: 'R1',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: kNs,
+      );
       var calls = 0;
       String? authed;
       final httpClient = MockClient((req) async {
@@ -377,41 +595,55 @@ void main() {
         authed = req.headers['Authorization'];
         if (calls == 1) {
           return http.Response(
-              jsonEncode({
-                'error': {
-                  'code': 'auth_required',
-                  'message': 'expired',
-                  'request_id': 'req1',
-                  'retryable': false,
-                }
-              }),
-              401);
+            jsonEncode({
+              'error': {
+                'code': 'auth_required',
+                'message': 'expired',
+                'request_id': 'req1',
+                'retryable': false,
+              },
+            }),
+            401,
+          );
         }
         final body = jsonDecode(req.body) as Map<String, dynamic>;
         final events = (body['events'] as List).cast<Map<String, dynamic>>();
         return http.Response(
-            jsonEncode({
-              'protocol': 1,
-              'request_id': 'req2',
-              'results': [
-                for (final e in events)
-                  ackFor(e['event_id'] as String, 'duplicate'),
-              ],
-            }),
-            200);
+          jsonEncode({
+            'protocol': 1,
+            'request_id': 'req2',
+            'results': [
+              for (final e in events)
+                ackFor(e['event_id'] as String, 'duplicate'),
+            ],
+          }),
+          200,
+        );
       });
       final u = makeUploader(
-          store: store, gate: gate, tokens: tokens, httpClient: httpClient);
+        store: store,
+        gate: gate,
+        tokens: tokens,
+        httpClient: httpClient,
+      );
       final result = await u.requestCommunityUpload('realtime');
       expect(calls, equals(2));
-      expect(authed, equals('Bearer tok2'), reason: '거절된 토큰으로 실제 갱신한 새 토큰으로 재전송');
+      expect(
+        authed,
+        equals('Bearer tok2'),
+        reason: '거절된 토큰으로 실제 갱신한 새 토큰으로 재전송',
+      );
       expect(result.result, equals('sent'));
     });
 
     test('C04: 다른 귀속 journal 은 context_mismatch 로 차단·미전송', () async {
-      final c = await capture(adapter('수용'),
-          sourceReportId: 'R1', trigger: 'realtime',
-          store: store, projectNamespace: kNs);
+      final c = await capture(
+        adapter('수용'),
+        sourceReportId: 'R1',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: kNs,
+      );
       // 다른 계정으로 context 교체.
       await store.setContext({
         'contributor_fingerprint': 'fp2',
@@ -428,37 +660,52 @@ void main() {
       final httpClient = MockClient((_) async {
         calls++;
         return http.Response(
-            jsonEncode({'protocol': 1, 'request_id': 'r', 'results': []}), 200);
+          jsonEncode({'protocol': 1, 'request_id': 'r', 'results': []}),
+          200,
+        );
       });
       final u = makeUploader(
-          store: store, gate: gate, tokens: tokens, httpClient: httpClient);
+        store: store,
+        gate: gate,
+        tokens: tokens,
+        httpClient: httpClient,
+      );
       await u.requestCommunityUpload('recovery');
       expect(calls, equals(0));
       final outbox = await store.db.rawQuery(
-          'SELECT state, last_error_code FROM outbox WHERE event_id=?',
-          [c.eventId]);
+        'SELECT state, last_error_code FROM outbox WHERE event_id=?',
+        [c.eventId],
+      );
       expect(outbox.first['state'], equals('blocked'));
       expect(outbox.first['last_error_code'], equals('context_mismatch'));
     });
 
     test('Client 모드에서는 어떤 업로드도 하지 않는다', () async {
-      await capture(adapter('수용'),
-          sourceReportId: 'R1', trigger: 'realtime',
-          store: store, projectNamespace: kNs);
+      await capture(
+        adapter('수용'),
+        sourceReportId: 'R1',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: kNs,
+      );
       var calls = 0;
       final httpClient = MockClient((_) async {
         calls++;
         return http.Response('{}', 200);
       });
       final u = makeUploader(
-          store: store,
-          gate: gate,
-          tokens: tokens,
-          httpClient: httpClient,
-          mode: AppMode.server);
+        store: store,
+        gate: gate,
+        tokens: tokens,
+        httpClient: httpClient,
+        mode: AppMode.server,
+      );
       final result = await u.requestCommunityUpload('manual');
       expect(calls, equals(0));
-      expect((result.result, result.errorCode), ('blocked_gate', 'client_mode'));
+      expect(
+        (result.result, result.errorCode),
+        ('blocked_gate', 'client_mode'),
+      );
     });
 
     test('projection 문구 매핑', () {
@@ -472,99 +719,204 @@ void main() {
 
   group('deletion cleanup (Sol H-03, 2차 H-03a/b, 3차 H-03c/d)', () {
     Future<List<String>> states(CommunityStore store) async => [
-          for (final r in await store.db.rawQuery("SELECT value FROM meta WHERE key LIKE 'deletion_pending:%' ORDER BY value"))
-            (jsonDecode(r['value'] as String) as Map)['state'] as String
-        ];
+      for (final r in await store.db.rawQuery(
+        "SELECT value FROM meta WHERE key LIKE 'deletion_pending:%' ORDER BY value",
+      ))
+        (jsonDecode(r['value'] as String) as Map)['state'] as String,
+    ];
     Future<Map<Object?, Object?>> journal(CommunityStore store) async => {
-          for (final r in await store.db.rawQuery('SELECT source_report_id, blocked_reason FROM source_journal'))
-            r['source_report_id']: r['blocked_reason']
-        };
+      for (final r in await store.db.rawQuery(
+        'SELECT source_report_id, blocked_reason FROM source_journal',
+      ))
+        r['source_report_id']: r['blocked_reason'],
+    };
 
-    test('rows existing at confirmation are blocked by row order even with a future clock', () async {
-      final store = await openStore();
-      addTearDown(() => closeStore(store));
-      await capture(adapter('처리완료'), sourceReportId: 'D1', trigger: 'realtime', store: store, projectNamespace: kNs);
-      await capture(adapter('처리완료'), sourceReportId: 'D2', trigger: 'realtime', store: store, projectNamespace: kNs);
-      await store.db.rawUpdate("UPDATE source_journal SET captured_at='2099-01-01T00:00:00.000Z' WHERE source_report_id='D2'");
-      await beginDeletion(store: store);
-      await confirmDeletion(store: store);
-      expect(await journal(store), {'D1': 'deleted_by_user', 'D2': 'deleted_by_user'});
-      expect(await states(store), isEmpty);
-      await capture(adapter('처리완료'), sourceReportId: 'D3', trigger: 'realtime', store: store, projectNamespace: kNs);
-      expect((await journal(store))['D3'], isNull, reason: '삭제 뒤 새 관측은 막지 않는다');
-    });
+    test(
+      'rows existing at confirmation are blocked by row order even with a future clock',
+      () async {
+        final store = await openStore();
+        addTearDown(() => closeStore(store));
+        await capture(
+          adapter('처리완료'),
+          sourceReportId: 'D1',
+          trigger: 'realtime',
+          store: store,
+          projectNamespace: kNs,
+        );
+        await capture(
+          adapter('처리완료'),
+          sourceReportId: 'D2',
+          trigger: 'realtime',
+          store: store,
+          projectNamespace: kNs,
+        );
+        await store.db.rawUpdate(
+          "UPDATE source_journal SET captured_at='2099-01-01T00:00:00.000Z' WHERE source_report_id='D2'",
+        );
+        await beginDeletion(store: store);
+        await confirmDeletion(store: store);
+        expect(await journal(store), {
+          'D1': 'deleted_by_user',
+          'D2': 'deleted_by_user',
+        });
+        expect(await states(store), isEmpty);
+        await capture(
+          adapter('처리완료'),
+          sourceReportId: 'D3',
+          trigger: 'realtime',
+          store: store,
+          projectNamespace: kNs,
+        );
+        expect(
+          (await journal(store))['D3'],
+          isNull,
+          reason: '삭제 뒤 새 관측은 막지 않는다',
+        );
+      },
+    );
 
-    test('while the center has not answered: uploads and reshare are blocked, nothing is applied or removed', () async {
-      final store = await openStore();
-      addTearDown(() => closeStore(store));
-      await capture(adapter('처리완료'), sourceReportId: 'D1', trigger: 'realtime', store: store, projectNamespace: kNs);
-      var calls = 0;
-      final uploader = makeUploader(store: store, gate: FakeGate(), tokens: FakeTokens(),
-          httpClient: MockClient((req) async { calls++; return http.Response('{}', 500); }));
-      CommunityUploadHooks.beginDeletion = () => beginDeletion(store: store);
-      CommunityUploadHooks.cancelDeletion = (id) => cancelDeletion(id, store: store);
-      CommunityUploadHooks.confirmDeletion = () => confirmDeletion(store: store);
-      addTearDown(() {
-        CommunityUploadHooks.beginDeletion = null;
-        CommunityUploadHooks.cancelDeletion = null;
-        CommunityUploadHooks.confirmDeletion = null;
-      });
-      late UploadRunResult during;
-      final outcome = await CommunityUploadHooks.requestDeletion(() async {
-        await capture(adapter('처리완료'), sourceReportId: 'D9', trigger: 'realtime', store: store, projectNamespace: kNs);
-        during = await uploader.requestCommunityUpload('manual');
-        expect(await issueReshare('D1', store: store), isNull);
-        expect(await deletionCleanupPending(store: store), isTrue);
+    test(
+      'while the center has not answered: uploads and reshare are blocked, nothing is applied or removed',
+      () async {
+        final store = await openStore();
+        addTearDown(() => closeStore(store));
+        await capture(
+          adapter('처리완료'),
+          sourceReportId: 'D1',
+          trigger: 'realtime',
+          store: store,
+          projectNamespace: kNs,
+        );
+        var calls = 0;
+        final uploader = makeUploader(
+          store: store,
+          gate: FakeGate(),
+          tokens: FakeTokens(),
+          httpClient: MockClient((req) async {
+            calls++;
+            return http.Response('{}', 500);
+          }),
+        );
+        CommunityUploadHooks.beginDeletion = () => beginDeletion(store: store);
+        CommunityUploadHooks.cancelDeletion = (id) =>
+            cancelDeletion(id, store: store);
+        CommunityUploadHooks.confirmDeletion = () =>
+            confirmDeletion(store: store);
+        addTearDown(() {
+          CommunityUploadHooks.beginDeletion = null;
+          CommunityUploadHooks.cancelDeletion = null;
+          CommunityUploadHooks.confirmDeletion = null;
+        });
+        late UploadRunResult during;
+        final outcome = await CommunityUploadHooks.requestDeletion(() async {
+          await capture(
+            adapter('처리완료'),
+            sourceReportId: 'D9',
+            trigger: 'realtime',
+            store: store,
+            projectNamespace: kNs,
+          );
+          during = await uploader.requestCommunityUpload('manual');
+          expect(await issueReshare('D1', store: store), isNull);
+          expect(await deletionCleanupPending(store: store), isTrue);
+          expect(await states(store), ['prepared']);
+          expect(await journal(store), {'D1': null, 'D9': null});
+        });
+        expect(outcome, 'done');
+        expect(
+          (during.result, during.errorCode),
+          ('blocked_gate', 'deletion_cleanup_pending'),
+        );
+        expect(calls, 0);
+        expect(await journal(store), {
+          'D1': 'deleted_by_user',
+          'D9': 'deleted_by_user',
+        });
+        expect(await states(store), isEmpty);
+      },
+    );
+
+    test(
+      'unknown outcome keeps the marker; a retry confirms all; a 4xx refusal cancels only its own',
+      () async {
+        final store = await openStore();
+        addTearDown(() => closeStore(store));
+        await capture(
+          adapter('처리완료'),
+          sourceReportId: 'D1',
+          trigger: 'realtime',
+          store: store,
+          projectNamespace: kNs,
+        );
+        CommunityUploadHooks.beginDeletion = () => beginDeletion(store: store);
+        CommunityUploadHooks.cancelDeletion = (id) =>
+            cancelDeletion(id, store: store);
+        CommunityUploadHooks.confirmDeletion = () =>
+            confirmDeletion(store: store);
+        addTearDown(() {
+          CommunityUploadHooks.beginDeletion = null;
+          CommunityUploadHooks.cancelDeletion = null;
+          CommunityUploadHooks.confirmDeletion = null;
+        });
+        expect(
+          await CommunityUploadHooks.requestDeletion(
+            () async => throw TimeoutException('lost'),
+          ),
+          'unconfirmed',
+        );
         expect(await states(store), ['prepared']);
-        expect(await journal(store), {'D1': null, 'D9': null});
-      });
-      expect(outcome, 'done');
-      expect((during.result, during.errorCode), ('blocked_gate', 'deletion_cleanup_pending'));
-      expect(calls, 0);
-      expect(await journal(store), {'D1': 'deleted_by_user', 'D9': 'deleted_by_user'});
-      expect(await states(store), isEmpty);
-    });
+        expect(await deletionState(store: store), 'unconfirmed');
+        await expectLater(
+          CommunityUploadHooks.requestDeletion(
+            () async => throw const CommunityAccountError(
+              code: 'kakao_required',
+              message: 'x',
+              httpStatus: 403,
+            ),
+          ),
+          throwsA(isA<CommunityAccountError>()),
+        );
+        expect(await states(store), [
+          'prepared',
+        ], reason: '거절된 요청의 표시만 지우고 앞선 불명 표시는 남긴다');
+        expect((await journal(store))['D1'], isNull);
+        expect(await CommunityUploadHooks.requestDeletion(() async {}), 'done');
+        expect(await states(store), isEmpty);
+        expect((await journal(store))['D1'], 'deleted_by_user');
+      },
+    );
 
-    test('unknown outcome keeps the marker; a retry confirms all; a 4xx refusal cancels only its own', () async {
-      final store = await openStore();
-      addTearDown(() => closeStore(store));
-      await capture(adapter('처리완료'), sourceReportId: 'D1', trigger: 'realtime', store: store, projectNamespace: kNs);
-      CommunityUploadHooks.beginDeletion = () => beginDeletion(store: store);
-      CommunityUploadHooks.cancelDeletion = (id) => cancelDeletion(id, store: store);
-      CommunityUploadHooks.confirmDeletion = () => confirmDeletion(store: store);
-      addTearDown(() {
-        CommunityUploadHooks.beginDeletion = null;
-        CommunityUploadHooks.cancelDeletion = null;
-        CommunityUploadHooks.confirmDeletion = null;
-      });
-      expect(await CommunityUploadHooks.requestDeletion(() async => throw TimeoutException('lost')), 'unconfirmed');
-      expect(await states(store), ['prepared']);
-      expect(await deletionState(store: store), 'unconfirmed');
-      await expectLater(
-          CommunityUploadHooks.requestDeletion(() async => throw const CommunityAccountError(code: 'kakao_required', message: 'x', httpStatus: 403)),
-          throwsA(isA<CommunityAccountError>()));
-      expect(await states(store), ['prepared'], reason: '거절된 요청의 표시만 지우고 앞선 불명 표시는 남긴다');
-      expect((await journal(store))['D1'], isNull);
-      expect(await CommunityUploadHooks.requestDeletion(() async {}), 'done');
-      expect(await states(store), isEmpty);
-      expect((await journal(store))['D1'], 'deleted_by_user');
-    });
-
-    test('confirmed marker whose apply failed keeps blocking; concurrent applies lose nothing', () async {
-      final store = await openStore();
-      await capture(adapter('처리완료'), sourceReportId: 'D1', trigger: 'realtime', store: store, projectNamespace: kNs);
-      await beginDeletion(store: store);
-      await beginDeletion(store: store);
-      await store.db.rawUpdate("UPDATE meta SET value='{\"state\":\"confirmed\"}' WHERE key LIKE 'deletion_pending:%'");
-      await Future.wait([applyPendingDeletion(store: store), applyPendingDeletion(store: store)]);
-      expect(await states(store), isEmpty);
-      expect((await journal(store))['D1'], 'deleted_by_user');
-      await beginDeletion(store: store);
-      await store.db.rawUpdate("UPDATE meta SET value='{\"state\":\"confirmed\"}' WHERE key LIKE 'deletion_pending:%'");
-      await store.db.close(); // 로컬 쓰기 불가
-      expect(await deletionCleanupPending(store: store), isTrue);
-      expect(await issueReshare('D1', store: store), isNull);
-      await CommunityStore.closeForTest(store.path);
-    });
+    test(
+      'confirmed marker whose apply failed keeps blocking; concurrent applies lose nothing',
+      () async {
+        final store = await openStore();
+        await capture(
+          adapter('처리완료'),
+          sourceReportId: 'D1',
+          trigger: 'realtime',
+          store: store,
+          projectNamespace: kNs,
+        );
+        await beginDeletion(store: store);
+        await beginDeletion(store: store);
+        await store.db.rawUpdate(
+          "UPDATE meta SET value='{\"state\":\"confirmed\"}' WHERE key LIKE 'deletion_pending:%'",
+        );
+        await Future.wait([
+          applyPendingDeletion(store: store),
+          applyPendingDeletion(store: store),
+        ]);
+        expect(await states(store), isEmpty);
+        expect((await journal(store))['D1'], 'deleted_by_user');
+        await beginDeletion(store: store);
+        await store.db.rawUpdate(
+          "UPDATE meta SET value='{\"state\":\"confirmed\"}' WHERE key LIKE 'deletion_pending:%'",
+        );
+        await store.db.close(); // 로컬 쓰기 불가
+        expect(await deletionCleanupPending(store: store), isTrue);
+        expect(await issueReshare('D1', store: store), isNull);
+        await CommunityStore.closeForTest(store.path);
+      },
+    );
   });
 }

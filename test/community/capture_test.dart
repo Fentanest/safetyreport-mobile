@@ -18,28 +18,29 @@ Map<String, Object?> adapter({
   String fine = '과태료: 40,000원',
   String progress = '수용',
   Map<String, Object?>? geo,
-}) =>
-    {
-      'processing_status': status,
-      'penalty_amount': fine,
-      'report_date': '2026-09-01',
-      'response_date': '2026-09-10',
-      'processing_agency': '서울특별시 중구청',
-      'person_in_charge': '홍길동',
-      'car_number': '12가3456',
-      'violation_location': '서울특별시 중구 세종대로 110',
-      'entry_value': '불법주정차신고',
-      'penalty_points': '',
-      'geocode': geo ?? {'status': 'pending'},
-      'progress_status': progress,
-    };
+}) => {
+  'processing_status': status,
+  'penalty_amount': fine,
+  'report_date': '2026-09-01',
+  'response_date': '2026-09-10',
+  'processing_agency': '서울특별시 중구청',
+  'person_in_charge': '홍길동',
+  'car_number': '12가3456',
+  'violation_location': '서울특별시 중구 세종대로 110',
+  'entry_value': '불법주정차신고',
+  'penalty_points': '',
+  'geocode': geo ?? {'status': 'pending'},
+  'progress_status': progress,
+};
 
 Future<CommunityStore> openTestStore() async {
   sqfliteFfiInit();
   final dir = await Directory.systemTemp.createTemp('sr_t6_capture_');
   final path = '${dir.path}/community.db';
   final store = await CommunityStore.open(
-      path: path, factory: databaseFactoryFfi);
+    path: path,
+    factory: databaseFactoryFfi,
+  );
   await store.setContext({
     'contributor_fingerprint': 'fp1',
     'connection_id': '11111111-1111-4111-8111-111111111111',
@@ -66,95 +67,114 @@ Future<void> closeTestStore(CommunityStore store) async {
 
 void main() {
   test('Report 신고번호 reaches the private capture adapter', () {
-    final report = Report.fromJson({'ID': '40871819', '신고번호': 'SPP-2609-8000001', '처리상태': '수용'});
-    expect(buildReportAdapterInput(report, '불법주정차신고')['report_number'], 'SPP-2609-8000001');
+    final report = Report.fromJson({
+      'ID': '40871819',
+      '신고번호': 'SPP-2609-8000001',
+      '처리상태': '수용',
+    });
+    expect(
+      buildReportAdapterInput(report, '불법주정차신고')['report_number'],
+      'SPP-2609-8000001',
+    );
   });
-  test('report number backfill emits one event without changing Observation hash', () async {
-    final store = await openTestStore();
-    try {
-      final first = await capture(adapter(), sourceReportId: 'R1', trigger: 'realtime', store: store);
-      final second = await capture({...adapter(), 'report_number': 'SPP-2609-8000001'},
-          sourceReportId: 'R1', trigger: 'realtime', store: store);
-      expect(second.eventType, 'completed_observation');
-      expect(second.payloadSha256, first.payloadSha256);
-      final rows = await store.db.rawQuery('SELECT report_number FROM source_journal WHERE event_id=?', [second.eventId]);
-      expect(rows.single['report_number'], 'SPP-2609-8000001');
-    } finally {
-      await closeTestStore(store);
-    }
-  });
+  test(
+    'report number backfill emits one event without changing Observation hash',
+    () async {
+      final store = await openTestStore();
+      try {
+        final first = await capture(
+          adapter(),
+          sourceReportId: 'R1',
+          trigger: 'realtime',
+          store: store,
+        );
+        final second = await capture(
+          {...adapter(), 'report_number': 'SPP-2609-8000001'},
+          sourceReportId: 'R1',
+          trigger: 'realtime',
+          store: store,
+        );
+        expect(second.eventType, 'completed_observation');
+        expect(second.payloadSha256, first.payloadSha256);
+        final rows = await store.db.rawQuery(
+          'SELECT report_number FROM source_journal WHERE event_id=?',
+          [second.eventId],
+        );
+        expect(rows.single['report_number'], 'SPP-2609-8000001');
+      } finally {
+        await closeTestStore(store);
+      }
+    },
+  );
   // 삭제 뒤 차단 표시(H-03)가 SharedPreferences 를 쓴다.
   setUp(() => SharedPreferences.setMockInitialValues({}));
   group('decideEvent', () {
     test('첫 eligible 관측은 completed_observation', () {
       expect(
-          decideEvent(
-              eligible: true,
-              prevSha: null,
-              prevEligible: null,
-              payloadSha: 'a',
-              serverCompletedHit: false),
-          equals('completed_observation'));
+        decideEvent(
+          eligible: true,
+          prevSha: null,
+          prevEligible: null,
+          payloadSha: 'a',
+        ),
+        equals('completed_observation'),
+      );
     });
     test('같은 내용이면 이벤트 없음', () {
       expect(
-          decideEvent(
-              eligible: true,
-              prevSha: 'a',
-              prevEligible: true,
-              payloadSha: 'a',
-              serverCompletedHit: false),
-          isNull);
+        decideEvent(
+          eligible: true,
+          prevSha: 'a',
+          prevEligible: true,
+          payloadSha: 'a',
+        ),
+        isNull,
+      );
     });
     test('내용이 바뀌면 completed_observation', () {
       expect(
-          decideEvent(
-              eligible: true,
-              prevSha: 'a',
-              prevEligible: true,
-              payloadSha: 'b',
-              serverCompletedHit: false),
-          equals('completed_observation'));
+        decideEvent(
+          eligible: true,
+          prevSha: 'a',
+          prevEligible: true,
+          payloadSha: 'b',
+        ),
+        equals('completed_observation'),
+      );
     });
-    test('적격→부적격은 status_correction', () {
+    // 2026-09-28: status_correction 발급 중단 — 적격이 아닌 관측은 prev 와 무관하게 이벤트 없음.
+    test('적격→부적격도 이벤트 없음(중앙은 마지막 답변 유지)', () {
       expect(
-          decideEvent(
-              eligible: false,
-              prevSha: 'a',
-              prevEligible: true,
-              payloadSha: 'b',
-              serverCompletedHit: false),
-          equals('status_correction'));
+        decideEvent(
+          eligible: false,
+          prevSha: 'a',
+          prevEligible: true,
+          payloadSha: 'b',
+        ),
+        isNull,
+      );
     });
     test('처음부터 부적격이면 이벤트 없음(detail_status 만)', () {
       expect(
-          decideEvent(
-              eligible: false,
-              prevSha: null,
-              prevEligible: null,
-              payloadSha: 'b',
-              serverCompletedHit: false),
-          isNull);
+        decideEvent(
+          eligible: false,
+          prevSha: null,
+          prevEligible: null,
+          payloadSha: 'b',
+        ),
+        isNull,
+      );
     });
-    test('server_completed 있으면 첫 비적격도 status_correction', () {
+    test('부적격→적격이면 completed_observation', () {
       expect(
-          decideEvent(
-              eligible: false,
-              prevSha: null,
-              prevEligible: null,
-              payloadSha: 'b',
-              serverCompletedHit: true),
-          equals('status_correction'));
-    });
-    test('server_completed 있으면 첫 적격도 completed_observation', () {
-      expect(
-          decideEvent(
-              eligible: true,
-              prevSha: null,
-              prevEligible: null,
-              payloadSha: 'b',
-              serverCompletedHit: true),
-          equals('completed_observation'));
+        decideEvent(
+          eligible: true,
+          prevSha: 'a',
+          prevEligible: false,
+          payloadSha: 'b',
+        ),
+        equals('completed_observation'),
+      );
     });
   });
 
@@ -164,130 +184,220 @@ void main() {
     tearDown(() async => closeTestStore(store));
 
     test('첫 capture: journal+outbox+report_latest+revision', () async {
-      final r = await capture(adapter(), sourceReportId: 'R1',
-          trigger: 'realtime', store: store, projectNamespace: 'ns1');
+      final r = await capture(
+        adapter(),
+        sourceReportId: 'R1',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: 'ns1',
+      );
       expect(r.eventType, equals('completed_observation'));
       expect(r.eventId, isNotNull);
       expect(r.sourceRevision, equals(1));
-      final journals = await store.db
-          .rawQuery('SELECT * FROM source_journal WHERE event_id=?', [r.eventId]);
+      final journals = await store.db.rawQuery(
+        'SELECT * FROM source_journal WHERE event_id=?',
+        [r.eventId],
+      );
       expect(journals.length, equals(1));
       expect(journals.first['personal_save_state'], equals('pending'));
       expect(journals.first['parser_version'], equals('mobile-parser-1'));
       final outbox = await store.db.rawQuery(
-          'SELECT * FROM outbox WHERE event_id=?', [r.eventId]);
+        'SELECT * FROM outbox WHERE event_id=?',
+        [r.eventId],
+      );
       expect(outbox.length, equals(1));
       final latest = await store.db.rawQuery(
-          'SELECT * FROM report_latest WHERE source_report_id=?', ['R1']);
+        'SELECT * FROM report_latest WHERE source_report_id=?',
+        ['R1'],
+      );
       expect(latest.length, equals(1));
       final detail = await store.db.rawQuery(
-          'SELECT * FROM detail_status WHERE source_report_id=?', ['R1']);
+        'SELECT * FROM detail_status WHERE source_report_id=?',
+        ['R1'],
+      );
       expect(detail.first['c_now_label'], equals('수용'));
       expect(await store.meta('next_revision'), equals('2'));
     });
 
     test('이중 capture 없음: 같은 내용 두 번째는 이벤트 없음', () async {
-      final r1 = await capture(adapter(), sourceReportId: 'R1',
-          trigger: 'realtime', store: store, projectNamespace: 'ns1');
-      final r2 = await capture(adapter(), sourceReportId: 'R1',
-          trigger: 'realtime', store: store, projectNamespace: 'ns1');
+      final r1 = await capture(
+        adapter(),
+        sourceReportId: 'R1',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: 'ns1',
+      );
+      final r2 = await capture(
+        adapter(),
+        sourceReportId: 'R1',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: 'ns1',
+      );
       expect(r1.eventId, isNotNull);
       expect(r2.eventId, isNull);
       expect(r2.eventType, isNull);
-      final count = await store.db
-          .rawQuery('SELECT COUNT(*) AS c FROM source_journal');
+      final count = await store.db.rawQuery(
+        'SELECT COUNT(*) AS c FROM source_journal',
+      );
       expect(count.first['c'], equals(1));
     });
 
-    test('상태 변경: 적격→취하는 status_correction', () async {
-      await capture(adapter(), sourceReportId: 'R1',
-          trigger: 'realtime', store: store, projectNamespace: 'ns1');
+    test('상태 변경: 적격→취하도 이벤트 없음(중앙은 마지막 답변 유지)', () async {
+      await capture(
+        adapter(),
+        sourceReportId: 'R1',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: 'ns1',
+      );
       final r = await capture(
-          adapter(status: '취하', fine: '', progress: '취하'),
-          sourceReportId: 'R1', trigger: 'realtime',
-          store: store, projectNamespace: 'ns1');
-      expect(r.eventType, equals('status_correction'));
+        adapter(status: '취하', fine: '', progress: '취하'),
+        sourceReportId: 'R1',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: 'ns1',
+      );
+      expect(r.eventType, isNull);
+      expect(r.eventId, isNull);
       expect(r.eligible, isFalse);
       final detail = await store.db.rawQuery(
-          'SELECT * FROM detail_status WHERE source_report_id=?', ['R1']);
+        'SELECT * FROM detail_status WHERE source_report_id=?',
+        ['R1'],
+      );
       expect(detail.first['c_now_label'], equals('취하'));
+      final journals = await store.db.rawQuery(
+        'SELECT COUNT(*) AS c FROM source_journal',
+      );
+      expect(journals.first['c'], equals(1));
     });
 
     test('무이벤트·무prev: report_latest 안 씀, detail_status 만', () async {
       final r = await capture(
-          adapter(status: '처리중', fine: '', progress: '처리중'),
-          sourceReportId: 'R9', trigger: 'realtime',
-          store: store, projectNamespace: 'ns1');
+        adapter(status: '처리중', fine: '', progress: '처리중'),
+        sourceReportId: 'R9',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: 'ns1',
+      );
       expect(r.eventId, isNull);
       final latest = await store.db.rawQuery(
-          'SELECT * FROM report_latest WHERE source_report_id=?', ['R9']);
+        'SELECT * FROM report_latest WHERE source_report_id=?',
+        ['R9'],
+      );
       expect(latest, isEmpty);
       final detail = await store.db.rawQuery(
-          'SELECT * FROM detail_status WHERE source_report_id=?', ['R9']);
+        'SELECT * FROM detail_status WHERE source_report_id=?',
+        ['R9'],
+      );
       expect(detail.length, equals(1));
     });
 
     test('context inactive 면 outbox 없이 journal 만', () async {
       await store.deactivateContext('test');
-      final r = await capture(adapter(), sourceReportId: 'R2',
-          trigger: 'realtime', store: store, projectNamespace: 'ns1');
+      final r = await capture(
+        adapter(),
+        sourceReportId: 'R2',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: 'ns1',
+      );
       expect(r.eventId, isNotNull);
-      final outbox = await store.db
-          .rawQuery('SELECT * FROM outbox WHERE event_id=?', [r.eventId]);
+      final outbox = await store.db.rawQuery(
+        'SELECT * FROM outbox WHERE event_id=?',
+        [r.eventId],
+      );
       expect(outbox, isEmpty);
     });
 
     test('rebuild: staging 에 쓰고 report_latest 는 그대로', () async {
-      final r = await capture(adapter(), sourceReportId: 'R3',
-          trigger: 'rebuild', rebuildRunId: 'run1',
-          store: store, projectNamespace: 'ns1');
+      final r = await capture(
+        adapter(),
+        sourceReportId: 'R3',
+        trigger: 'rebuild',
+        rebuildRunId: 'run1',
+        store: store,
+        projectNamespace: 'ns1',
+      );
       expect(r.eventType, equals('completed_observation'));
       final staging = await store.db.rawQuery(
-          'SELECT * FROM report_latest_staging WHERE run_id=?', ['run1']);
+        'SELECT * FROM report_latest_staging WHERE run_id=?',
+        ['run1'],
+      );
       expect(staging.length, equals(1));
       final latest = await store.db.rawQuery(
-          'SELECT * FROM report_latest WHERE source_report_id=?', ['R3']);
+        'SELECT * FROM report_latest WHERE source_report_id=?',
+        ['R3'],
+      );
       expect(latest, isEmpty);
       // 무변경 재관측 → 기존 포인터 carry-forward.
-      final r2 = await capture(adapter(), sourceReportId: 'R3',
-          trigger: 'rebuild', rebuildRunId: 'run1',
-          store: store, projectNamespace: 'ns1');
+      final r2 = await capture(
+        adapter(),
+        sourceReportId: 'R3',
+        trigger: 'rebuild',
+        rebuildRunId: 'run1',
+        store: store,
+        projectNamespace: 'ns1',
+      );
       expect(r2.eventId, isNull);
       final staging2 = await store.db.rawQuery(
-          'SELECT * FROM report_latest_staging WHERE run_id=?', ['run1']);
+        'SELECT * FROM report_latest_staging WHERE run_id=?',
+        ['run1'],
+      );
       expect(staging2.length, equals(1));
       expect(staging2.first['event_id'], equals(r.eventId));
     });
 
     test('revision 은 파일 전체 단조 (회전 뒤에도 초기화 안 됨)', () async {
-      await capture(adapter(), sourceReportId: 'R1',
-          trigger: 'realtime', store: store, projectNamespace: 'ns1');
+      await capture(
+        adapter(),
+        sourceReportId: 'R1',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: 'ns1',
+      );
       await store.rotateDataset('test');
-      final r = await capture(adapter(), sourceReportId: 'R2',
-          trigger: 'realtime', store: store, projectNamespace: 'ns1');
+      final r = await capture(
+        adapter(),
+        sourceReportId: 'R2',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: 'ns1',
+      );
       expect(r.sourceRevision, equals(2));
     });
 
     test('markPersonalSave + reconcilePendingSaves', () async {
-      final r = await capture(adapter(), sourceReportId: 'R1',
-          trigger: 'realtime', store: store, projectNamespace: 'ns1');
+      final r = await capture(
+        adapter(),
+        sourceReportId: 'R1',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: 'ns1',
+      );
       await markPersonalSave(r.eventId, true, store: store);
       final row = await store.db.rawQuery(
-          'SELECT personal_save_state AS s FROM source_journal WHERE event_id=?',
-          [r.eventId]);
+        'SELECT personal_save_state AS s FROM source_journal WHERE event_id=?',
+        [r.eventId],
+      );
       expect(row.first['s'], equals('saved'));
       // 10분 지난 pending 행: 개인 DB 원본과 status_raw 가 같으면 saved.
       final old = isoUtcForTest(
-          DateTime.now().toUtc().subtract(const Duration(minutes: 11)));
+        DateTime.now().toUtc().subtract(const Duration(minutes: 11)),
+      );
       await store.db.rawUpdate(
-          "UPDATE source_journal SET personal_save_state='pending', captured_at=? WHERE event_id=?",
-          [old, r.eventId]);
-      final fixed = await reconcilePendingSaves((id) async => '수용',
-          store: store);
+        "UPDATE source_journal SET personal_save_state='pending', captured_at=? WHERE event_id=?",
+        [old, r.eventId],
+      );
+      final fixed = await reconcilePendingSaves(
+        (id) async => '수용',
+        store: store,
+      );
       expect(fixed, equals(1));
       final row2 = await store.db.rawQuery(
-          'SELECT personal_save_state AS s FROM source_journal WHERE event_id=?',
-          [r.eventId]);
+        'SELECT personal_save_state AS s FROM source_journal WHERE event_id=?',
+        [r.eventId],
+      );
       expect(row2.first['s'], equals('saved'));
     });
 
@@ -305,8 +415,10 @@ void main() {
       final file = File('${dir.path}/community_capture_retry.json');
       await CaptureRetryStore.addIntent(file, 'R1', 'capture_pending');
       await CaptureRetryStore.addIntent(file, 'R2', 'capture_pending');
-      expect(await CaptureRetryStore.captureRetryIds(file),
-          equals({'R1', 'R2'}));
+      expect(
+        await CaptureRetryStore.captureRetryIds(file),
+        equals({'R1', 'R2'}),
+      );
       await CaptureRetryStore.removeIntent(file, 'R1');
       expect(await CaptureRetryStore.captureRetryIds(file), equals({'R2'}));
       await dir.delete(recursive: true);
@@ -318,85 +430,126 @@ void main() {
         calls++;
         if (after == null) {
           return const ManifestPage(
-              keys: ['aaaaaaaaaaaaaaaaaaaaaaaa', 'bbbbbbbbbbbbbbbbbbbbbbbb'],
-              manifestToken: '7',
-              after: 'bbbbbbbbbbbbbbbbbbbbbbbb');
+            keys: ['aaaaaaaaaaaaaaaaaaaaaaaa', 'bbbbbbbbbbbbbbbbbbbbbbbb'],
+            manifestToken: '7',
+            after: 'bbbbbbbbbbbbbbbbbbbbbbbb',
+          );
         }
-        return const ManifestPage(keys: ['cccccccccccccccccccccccc'], manifestToken: '7');
+        return const ManifestPage(
+          keys: ['cccccccccccccccccccccccc'],
+          manifestToken: '7',
+        );
       }
 
       final okResult = await refreshServerCompleted(
-          datasetKey: 'ds1', writerEpoch: 1, fetchPage: ok, store: store);
+        datasetKey: 'ds1',
+        writerEpoch: 1,
+        fetchPage: ok,
+        store: store,
+      );
       expect(okResult, isTrue);
       expect(calls, equals(2));
-      final rows = await store.db
-          .rawQuery('SELECT * FROM server_completed WHERE dataset_key=?', ['ds1']);
+      final rows = await store.db.rawQuery(
+        'SELECT * FROM server_completed WHERE dataset_key=?',
+        ['ds1'],
+      );
       expect(rows.length, equals(3));
       expect(await store.meta('manifest_scope'), equals('ds1:1'));
 
       Future<ManifestPage?> flapping(String? after, int limit) async {
         if (after == null) {
           return ManifestPage(
-              keys: const ['dddddddddddddddddddddddd'],
-              manifestToken: '8',
-              after: 'cursor1');
+            keys: const ['dddddddddddddddddddddddd'],
+            manifestToken: '8',
+            after: 'cursor1',
+          );
         }
         return const ManifestPage(
-            keys: ['eeeeeeeeeeeeeeeeeeeeeeee'], manifestToken: '9');
+          keys: ['eeeeeeeeeeeeeeeeeeeeeeee'],
+          manifestToken: '9',
+        );
       }
+
       final fail = await refreshServerCompleted(
-          datasetKey: 'ds1', writerEpoch: 2, fetchPage: flapping, store: store);
+        datasetKey: 'ds1',
+        writerEpoch: 2,
+        fetchPage: flapping,
+        store: store,
+      );
       expect(fail, isFalse);
       // 실패해도 기존 manifest 는 그대로.
-      final rows2 = await store.db
-          .rawQuery('SELECT * FROM server_completed WHERE dataset_key=?', ['ds1']);
+      final rows2 = await store.db.rawQuery(
+        'SELECT * FROM server_completed WHERE dataset_key=?',
+        ['ds1'],
+      );
       expect(rows2.length, equals(3));
     });
 
-    test('onContributionsDeleted: 대기 blocked·이전 journal 표시·manifest 비움',
-        () async {
-      await capture(adapter(), sourceReportId: 'R1',
-          trigger: 'realtime', store: store, projectNamespace: 'ns1');
-      await store.db.insert('server_completed', {
-        'dataset_key': 'ds1',
-        'key_prefix': 'a' * 24,
-        'fetched_at': isoUtcForTest(DateTime.now().toUtc()),
-      });
-      await onContributionsDeleted(
+    test(
+      'onContributionsDeleted: 대기 blocked·이전 journal 표시·manifest 비움',
+      () async {
+        await capture(
+          adapter(),
+          sourceReportId: 'R1',
+          trigger: 'realtime',
+          store: store,
+          projectNamespace: 'ns1',
+        );
+        await store.db.insert('server_completed', {
+          'dataset_key': 'ds1',
+          'key_prefix': 'a' * 24,
+          'fetched_at': isoUtcForTest(DateTime.now().toUtc()),
+        });
+        await onContributionsDeleted(
           deletedAt: DateTime.now().toUtc().add(const Duration(seconds: 1)),
-          store: store);
-      final outbox =
-          await store.db.rawQuery('SELECT state FROM outbox');
-      expect(outbox.first['state'], equals('blocked'));
-      final journal = await store.db
-          .rawQuery('SELECT blocked_reason AS b FROM source_journal');
-      expect(journal.first['b'], equals('deleted_by_user'));
-      final manifest =
-          await store.db.rawQuery('SELECT * FROM server_completed');
-      expect(manifest, isEmpty);
-      // 삭제 뒤 reshare 후보 0.
-      expect(await reshareCandidates(store: store), equals(0));
-    });
+          store: store,
+        );
+        final outbox = await store.db.rawQuery('SELECT state FROM outbox');
+        expect(outbox.first['state'], equals('blocked'));
+        final journal = await store.db.rawQuery(
+          'SELECT blocked_reason AS b FROM source_journal',
+        );
+        expect(journal.first['b'], equals('deleted_by_user'));
+        final manifest = await store.db.rawQuery(
+          'SELECT * FROM server_completed',
+        );
+        expect(manifest, isEmpty);
+        // 삭제 뒤 reshare 후보 0.
+        expect(await reshareCandidates(store: store), equals(0));
+      },
+    );
 
     test('issueReshare: payload·captured_at 유지, 새 revision', () async {
-      final r = await capture(adapter(), sourceReportId: 'R1',
-          trigger: 'realtime', store: store, projectNamespace: 'ns1');
-      final id =
-          await issueReshare('R1', store: store);
+      final r = await capture(
+        adapter(),
+        sourceReportId: 'R1',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: 'ns1',
+      );
+      final id = await issueReshare('R1', store: store);
       expect(id, isNotNull);
       final rows = await store.db.rawQuery(
-          'SELECT * FROM source_journal WHERE event_id=?', [id]);
+        'SELECT * FROM source_journal WHERE event_id=?',
+        [id],
+      );
       final orig = await store.db.rawQuery(
-          'SELECT * FROM source_journal WHERE event_id=?', [r.eventId]);
+        'SELECT * FROM source_journal WHERE event_id=?',
+        [r.eventId],
+      );
       expect(rows.first['event_type'], equals('reshare'));
       expect(rows.first['payload_json'], equals(orig.first['payload_json']));
       expect(rows.first['captured_at'], equals(orig.first['captured_at']));
-      expect(rows.first['source_revision'],
-          equals((r.sourceRevision ?? 0) + 1));
+      expect(
+        rows.first['source_revision'],
+        equals((r.sourceRevision ?? 0) + 1),
+      );
       expect(await reshareCandidates(store: store), equals(1));
     });
 
-    test('server_completed hit: 첫 비적격도 status_correction', () async {
+    // 2026-09-28: server_completed 적중해도 첫 비적격은 이벤트 없음(정정 발급 중단).
+    // 표·manifest 신선도 검사는 그대로 유지한다.
+    test('server_completed hit: 첫 비적격도 이벤트 없음', () async {
       final prefix = sourceReportKeyPrefix('RX');
       await store.db.insert('server_completed', {
         'dataset_key': 'ds1',
@@ -404,10 +557,19 @@ void main() {
         'fetched_at': isoUtcForTest(DateTime.now().toUtc()),
       });
       final r = await capture(
-          adapter(status: '처리중', fine: '', progress: '처리중'),
-          sourceReportId: 'RX', trigger: 'realtime',
-          store: store, projectNamespace: 'ns1');
-      expect(r.eventType, equals('status_correction'));
+        adapter(status: '처리중', fine: '', progress: '처리중'),
+        sourceReportId: 'RX',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: 'ns1',
+      );
+      expect(r.eventType, isNull);
+      expect(r.eventId, isNull);
+      final detail = await store.db.rawQuery(
+        'SELECT * FROM detail_status WHERE source_report_id=?',
+        ['RX'],
+      );
+      expect(detail.length, equals(1));
     });
   });
 }

@@ -7,6 +7,13 @@ PC(safetyreport) 구현과 같은 벡터(같은 결과)다.
 
 2026-09-28: `Report.reportNumber`를 `report_number` private event 필드로 journal v3에 저장해 업로드한다. Observation 해시는 유지한다. 번호가 뒤늦게 확보되면 같은 해시여도 새 이벤트를 만든다. 중앙 `transferred` ACK는 성공, 계정 간 불일치 `rejected`는 재시도하지 않는 blocked 상태이며 지도 패널에 사유를 표시한다. 새 Edge·migration 배포가 앱 업데이트보다 먼저여야 한다.
 
+2026-09-28(같은 날 확정): 답변 완료만 중앙에 올린다. 적격 = status ∈ {accepted, partial, rejected, completed_unknown}.
+처리중·보완요청·취하·이송·other 관측은 이벤트를 만들지 않는다 — `status_correction` 발급 중단, 로컬 `detail_status` 기록만.
+로컬 prev 합성에 `server_completed` 를 쓰지 않는다(표·manifest 신선도 검사는 유지). 구버전 잔여 미전송 `status_correction` 행은
+업로드 실행 시작 때 `blockSupersededCorrections` 가 보내지 않고 `blocked:deprecated_status_correction` 으로 보존한다(PC 동일, drop 없음).
+서버는 비적격 payload·`status_correction` 이벤트를 이벤트 단위 `rejected:non_final_not_accepted`(durable=false)로 거절하며 배치 나머지는 정상 처리한다.
+답변 완료로 올라간 신고가 나중에 비종결 상태로 돌아가면(드묾) 중앙은 마지막 답변 상태를 유지한다.
+
 전체 재동기화는 `SyncEngine`이 `CommunityStore.rotateDataset('full_resync')`으로
 새 로컬 공유 데이터셋을 시작한 뒤 모든 신고를 다시 수집한다. 이전 journal·outbox는
 미전송 수정 사실을 잃지 않도록 남기며, 중앙 manifest와 Supabase 자료도 지우지 않는다.
@@ -34,7 +41,7 @@ manifest 확인 뒤 이전 미전송 공유 자료를 `recovery` 업로드한다
 | `lib/community/capture/reshare.dart` | reshare 발급·location_supplement 후보 |
 | `lib/community/upload/upload_policy.dart` | 업로드 공통 판정 UC-1(응답 해석·오류 분류·Retry-After·백오프) — PC `community_upload_policy.py` 와 같은 벡터 |
 | `lib/community/upload/community_ingest_client.dart` | ingest REST 클라이언트(전송 계층 결과 그대로: 상태·헤더·본문 ≤1MiB, 30초에 요청을 끊음, 리다이렉트 → 502) |
-| `lib/community/upload/community_uploader.dart` | `requestCommunityUpload`·`nextDueAt`·`uploadStatus`·`requestReshare` (UC-1) |
+| `lib/community/upload/community_uploader.dart` | `requestCommunityUpload`·`nextDueAt`·`uploadStatus`·`requestReshare`·`blockSupersededCorrections` (UC-1) |
 | `lib/community/upload/upload_controller.dart` | 앱 isolate 업로드 제어기(깨우기·재실행 표시·재시도 타이머) |
 | `lib/community/upload/community_schedule.dart` | due 키·`registerBackgroundJobs`·`catchUp`·`CacheGateCheck` |
 | `lib/community/upload/upload_defaults.dart` | 앱 기본 uploader 조립 (T5 가 gate 주입) |
@@ -56,7 +63,7 @@ manifest 확인 뒤 이전 미전송 공유 자료를 `recovery` 업로드한다
   수동 `manual`, 자정 `midnight`, 복구 `recovery`, 명시적 재공유 `reshare`.
 - 한 요청에 같은 신고의 이벤트는 하나만. 다음 이벤트는 앞 요청 ACK 뒤 다음 요청으로.
 - ACK `projection_status` 5종을 journal 에 저장하고 패널 문구에 반영한다
-  (published=지도 반영됨, removed=지도에서 빠짐(정정), held=중앙 저장 완료·지도
+  (published=지도 반영됨, removed=지도에서 빠짐, held=중앙 저장 완료·지도
   반영 대기, not_public=중앙 저장(지도 비표시), not_applicable=변경 없음).
 - manifest: 전 페이지 `manifest_token` 일치해야 교체(최대 3회), 실패 시 수집 중단.
 - 삭제(`onContributionsDeleted`): outbox 대기 전부 blocked, 삭제 시각 이전

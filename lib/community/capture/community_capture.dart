@@ -81,7 +81,7 @@ class CaptureResult {
   /// 새 이벤트가 없으면 null.
   final String? eventId;
 
-  /// completed_observation | status_correction | null(새 이벤트 없음).
+  /// completed_observation | null(새 이벤트 없음). 2026-09-28: status_correction 발급 중단.
   final String? eventType;
   final bool eligible;
   final String payloadSha256;
@@ -94,26 +94,22 @@ class CaptureStoreUnavailable extends StateError {
   CaptureStoreUnavailable(super.message);
 }
 
-/// event 결정 (observation.md 4절).
+/// event 결정 (observation.md 4절, 2026-09-28 개정).
 ///
 /// [prevSha]/[prevEligible] = 같은 로컬 데이터셋의 가장 최근 journal 행
-/// (없으면 null). [serverCompletedHit] = prev 가 없는데 그 신고의
-/// source_report_key 앞 24hex 가 server_completed 에 있음 → prev 를
-/// "eligible, 해시 불명"으로 본다.
+/// (없으면 null). [prevEligible] 은 인터페이스 형태 유지용으로 받는다.
+/// 적격(eligible) 관측만 이벤트를 만든다: prev 와 sha 가 같으면 null,
+/// 아니면 'completed_observation'. 적격이 아닌 관측은 prev 와 무관하게
+/// null(`status_correction` 발급 중단 — 중앙은 마지막 답변 상태를 유지).
 String? decideEvent({
   required bool eligible,
   required String? prevSha,
   required bool? prevEligible,
   required String payloadSha,
-  required bool serverCompletedHit,
 }) {
-  if (eligible) {
-    if (prevSha != null && prevSha == payloadSha) return null;
-    return 'completed_observation';
-  }
-  final effectivePrevEligible = prevEligible ?? serverCompletedHit;
-  if (effectivePrevEligible) return 'status_correction';
-  return null;
+  if (!eligible) return null;
+  if (prevSha != null && prevSha == payloadSha) return null;
+  return 'completed_observation';
 }
 
 /// `safetyreport|<sourceReportId>` sha256 앞 24hex (서버 source_report_key 규칙).
@@ -177,16 +173,8 @@ Future<CaptureResult> capture(
     }
     prev ??= await _latestJournal(tx, localDatasetId, sourceReportId);
 
-    var serverCompletedHit = false;
-    if (prev == null && contextDatasetKey != null) {
-      final prefix = sourceReportKeyPrefix(sourceReportId);
-      final rows = await tx.rawQuery(
-        'SELECT 1 FROM server_completed WHERE dataset_key=? AND key_prefix=?',
-        [contextDatasetKey, prefix],
-      );
-      serverCompletedHit = rows.isNotEmpty;
-    }
-
+    // 2026-09-28: server_completed 로 prev 를 합성하지 않는다(비적격 관측은 정정을 발급하지 않음).
+    // server_completed 표·manifest 신선도 검사는 그대로 유지한다.
     final eventType = decideEvent(
       eligible: eligible,
       prevSha: storedReportNumber != null && prev != null && prev['report_number'] != storedReportNumber
@@ -194,7 +182,6 @@ Future<CaptureResult> capture(
       prevEligible:
           prev == null ? null : (prev['eligible'] as int? ?? 0) == 1,
       payloadSha: sha,
-      serverCompletedHit: serverCompletedHit,
     );
 
     // 상세를 받을 때마다 detail_status 를 같은 트랜잭션으로 기록한다.

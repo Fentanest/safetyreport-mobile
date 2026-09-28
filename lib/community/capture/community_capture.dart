@@ -16,7 +16,7 @@ export 'canonical_json.dart' show canonicalJson;
 export 'observation_rules.dart' show buildPayload;
 
 /// 공유 payload 버전을 올리지 않고 파서만 구분한다.
-const String mobileParserVersion = 'mobile-parser-3'; // 2026-09-28 observation-v3(source_agency_code)
+const String mobileParserVersion = 'mobile-parser-4'; // 2026-09-28 observation-v4(rating)
 
 /// 공식 상세 응답에서 읽은 좌표. null이면 좌표 없는 관측으로 보낸다.
 class GeocodeHit {
@@ -53,6 +53,7 @@ Map<String, Object?> buildAdapterInput(
   required String entryValue,
   // observation-v2(2026-09-28): 파서가 처리내용에서 뽑은 법 이름·조항(처리내용 원문은 보내지 않는다).
   String violationLaw = '',
+  int? rating,
   GeocodeHit? geo,
   required String progressStatus,
 }) {
@@ -70,6 +71,7 @@ Map<String, Object?> buildAdapterInput(
     'entry_value': entryValue,
     'penalty_points': penaltyPoints,
     'violation_law': violationLaw,
+    'rating': rating,
     'geocode': geo?.toAdapterGeo(),
     'progress_status': progressStatus,
   };
@@ -207,9 +209,11 @@ Future<CaptureResult> capture(
     // REVIEW4 낮음: 길이 초과 원문 코드는 payload가 직전과 같아도 명시적
     // 거절 이벤트를 만든다(PC와 1:1). 이미 같은 sha·같은 blocked 사유로
     // 기록됐으면 quiet 유지.
-    if (eventType == null && codeBlocked && eligible) {
-      final prevBlocked = prev?['blocked_reason']?.toString();
-      if (prevBlocked != 'blocked:$agencyCodeTooLong') {
+    if (eventType == null && eligible) {
+      final prevBlocked = prev?['blocked_reason']?.toString() == 'blocked:$agencyCodeTooLong';
+      // REVIEW5: 차단된 장문 코드를 null로 고치면 payload 해시가 같더라도
+      // 전송 가능한 새 완료 관측을 발급한다(PC와 1:1).
+      if (codeBlocked != prevBlocked) {
         eventType = 'completed_observation';
       }
     }

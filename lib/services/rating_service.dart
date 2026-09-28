@@ -181,7 +181,7 @@ class RatingService {
               break;
             }
             if (site.score != null && site.score! > 0) {
-              await _saveSiteRating(reportNumber, site);
+              await _saveSiteRating(report, site);
               outcome = posted
                   ? _successItem(report, site, cause)
                   : _skipItem(report, '이미 만족도 조사에 참여한 신고입니다.');
@@ -196,7 +196,7 @@ class RatingService {
             // HTTP 200 만으로는 성공으로 보지 않는다 — 사이트에서 점수를 다시 읽어 확인
             final verify = await fetch(reportNumber);
             if (verify.confirmed && verify.score != null && verify.score! > 0) {
-              await _saveSiteRating(reportNumber, verify);
+              await _saveSiteRating(report, verify);
               outcome = _successItem(report, verify, cause);
               break;
             }
@@ -215,14 +215,19 @@ class RatingService {
   }
 
   static Future<void> _saveSiteRating(
-    String reportNumber,
+    Report report,
     ({int? score, String cause, bool confirmed, bool exists}) site,
-  ) => LocalDbService.updateReportRatingByNumber(
-    reportNumber,
-    pollStatus: '참여 완료',
-    rating: site.score,
-    ratingCause: site.cause,
-  );
+  ) async {
+    await LocalDbService.updateReportRatingByNumber(
+      report.reportNumber,
+      pollStatus: '참여 완료',
+      rating: site.score,
+      ratingCause: site.cause,
+    );
+    if (site.score != null && site.score! >= 1 && site.score! <= 5) {
+      await SyncEngine.queueRatingRecapture(report.id);
+    }
+  }
 
   static RatingBatchItem _successItem(
     Report report,

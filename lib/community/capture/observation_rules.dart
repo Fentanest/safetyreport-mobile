@@ -328,6 +328,7 @@ Map<String, Object?> buildPayload(Map<String, Object?> input) {
     'status_raw': statusRaw,
     'vehicle_raw': cleanString(input['car_number'], 64),
     'violation_law': cleanString(input['violation_law'], 60),
+    'rating': input['rating'] is int && (input['rating'] as int) >= 1 && (input['rating'] as int) <= 5 ? input['rating'] : null,
     // v3: 원문 기관코드 그대로(TEXT·선행 0 보존). 신규 형식도 자르지 않고, 없으면 null.
     // 상한 초과분은 여기서 null 로 두되(전송 형태 안전), capture() 가 명시적
     // 사유(blocked:source_agency_code_too_long)로 기록한다 — 조용히 버리지 않음.

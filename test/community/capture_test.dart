@@ -67,16 +67,35 @@ Future<void> closeTestStore(CommunityStore store) async {
 }
 
 void main() {
+  test('later official rating changes payload hash and emits a new observation without cause', () async {
+    final store = await openTestStore();
+    try {
+      final first = await capture(adapter(), sourceReportId: 'R-rating', trigger: 'realtime', store: store);
+      final rated = {...adapter(), 'rating': 4, 'rating_cause': '비공개 사유'};
+      final second = await capture(rated, sourceReportId: 'R-rating', trigger: 'realtime', store: store);
+      expect(second.eventType, 'completed_observation');
+      expect(second.payloadSha256, isNot(first.payloadSha256));
+      expect((await capture(rated, sourceReportId: 'R-rating', trigger: 'realtime', store: store)).eventId, isNull);
+      expect(buildPayload(rated)['rating'], 4);
+      expect(buildPayload(rated).containsKey('rating_cause'), isFalse);
+      expect(buildPayload({...rated, 'rating': 6})['rating'], isNull);
+    } finally {
+      await closeTestStore(store);
+    }
+  });
   test('Report 신고번호 reaches the private capture adapter', () {
     final report = Report.fromJson({
       'ID': '40871819',
       '신고번호': 'SPP-2609-8000001',
       '처리상태': '수용',
+      '별점': 5,
+      '별점사유': '비공개',
     });
     expect(
       buildReportAdapterInput(report, '불법주정차신고')['report_number'],
       'SPP-2609-8000001',
     );
+    expect(buildPayload(buildReportAdapterInput(report, '불법주정차신고'))['rating'], 5);
   });
   test('Report 원문 기관코드가 공유 payload 에 그대로 실린다 (observation-v3)', () {
     final report = Report.fromJson({
@@ -238,7 +257,7 @@ void main() {
       );
       expect(journals.length, equals(1));
       expect(journals.first['personal_save_state'], equals('pending'));
-      expect(journals.first['parser_version'], equals('mobile-parser-3'));
+      expect(journals.first['parser_version'], equals('mobile-parser-4'));
       final outbox = await store.db.rawQuery(
         'SELECT * FROM outbox WHERE event_id=?',
         [r.eventId],
@@ -506,6 +525,15 @@ void main() {
         projectNamespace: 'ns1',
       );
       expect(again.eventType, isNull);
+      final fixed = await capture(
+        {...adapter(), 'agency_code': null},
+        sourceReportId: 'LONG-SAME',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: 'ns1',
+      );
+      expect(fixed.eventType, 'completed_observation');
+      expect(fixed.payloadSha256, blocked.payloadSha256);
     });
 
     test('rebuild: staging 에 쓰고 report_latest 는 그대로', () async {

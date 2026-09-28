@@ -2,7 +2,7 @@
 //
 // POST {url}/functions/v1/community-ingest — apikey + Bearer.
 // 타임아웃: 전체 30s(초과하면 요청을 끊는다). envelope source_app=safetyreport-mobile,
-// source_mode=standalone, parser_version=mobile-parser-3.
+// source_mode=standalone, parser_version=mobile-parser-4.
 // Client 모드에서는 어떤 업로드·등록도 하지 않는다(호출자가 차단).
 import 'dart:async';
 import 'dart:convert';

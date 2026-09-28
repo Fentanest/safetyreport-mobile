@@ -2,8 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/models/agency_stats.dart';
 import 'package:safetyreport/services/local_db_service.dart';
 
-/// 서버 `tests/test_report_stats_service.py::test_stats_tables_include_assigned_in_progress_rows`
-/// 와 같은 입력·기대값(S-10). 서버는 법규별 표도 만들지만 모바일에는 없어 기관/담당자만 비교한다.
+/// 서버 `tests/test_report_stats_service.py::test_stats_tables_include_only_answered_rows`
+/// 와 같은 입력·기대값(2026-09-28: 표는 답변 완료 신고만 — S-10 대체). 서버는 법규별 표도 만들지만 모바일에는 없어 기관/담당자만 비교한다.
 const _rows = <Map<String, dynamic>>[
   {
     '처리기관': 'A구청',
@@ -74,8 +74,8 @@ const _rows = <Map<String, dynamic>>[
 void main() {
   test('카테고리 과태료 합계는 기관 미지정 신고도 포함하고 추정액은 분리한다', () {
     final rows = <Map<String, dynamic>>[
-      {'처리기관': 'A구청', '담당자': '김', '범칙금_과태료': '과태료: 40,000원'},
-      {'처리기관': '', '담당자': '', '범칙금_과태료': '과태료: 20,000원'},
+      {'처리기관': 'A구청', '담당자': '김', '처리상태': '수용', '범칙금_과태료': '과태료: 40,000원'},
+      {'처리기관': '', '담당자': '', '처리상태': '수용', '범칙금_과태료': '과태료: 20,000원'},
     ];
     final category = LocalDbService.buildStatsCategory(rows, rows, false);
     final agency = (category['by_agency'] as List)
@@ -87,7 +87,7 @@ void main() {
     expect(category['estimated_fine_count'], 0);
   });
 
-  test('S-10: 기관·담당자 값으로 표에 넣고, 배정된 처리중은 in_progress 로 센다', () {
+  test('표는 답변 완료 신고만: 처리중·보완요청·취하는 기관·담당자가 있어도 넣지 않는다', () {
     final result = LocalDbService.buildStatsCategory(_rows, _rows, false);
     final agency = {
       for (final r
@@ -100,26 +100,24 @@ void main() {
         '${r['agency']}/${r['person']}': r,
     };
 
-    // 기관이 비어 있으면 어느 표에도 넣지 않는다.
-    expect(agency.keys.toSet(), {'A구청', 'B경찰서'});
+    // B경찰서는 보완요청 1건뿐이라 표에 없다. 기관이 빈 신고도 없다.
+    expect(agency.keys.toSet(), {'A구청'});
     final a = agency['A구청']!;
-    expect(a['total'], 5);
+    expect(a['total'], 2); // 수용 + 답변완료(담당자 미지정)
     expect(a['fines'], 1);
-    expect(a['in_progress'], 2); // 처리중 + 진행(담당자 없어도 기관표에는 들어간다)
-    expect(a['unconfirmed'], 2); // 답변완료(처분 없음) + 취하
+    expect(a['in_progress'], 0);
+    expect(a['unconfirmed'], 1); // 답변완료(처분 없음)
     expect(a['disposition_unknown'], 0);
     expect(a['no_penalty'], 1);
-    expect(a['unclassified'], 1);
+    expect(a['unclassified'], 0);
     expect(a['estimated_fine_amount'], 0);
     expect(a['estimated_fine_count'], 0);
-    expect(a['in_progress_pct'], 40.0);
-    expect(a['avg_days'], 7.0); // 완료 신고만: 10일, 4일
-    expect(agency['B경찰서']!['in_progress'], 1); // 보완요청도 처리중
+    expect(a['avg_days'], 7.0); // 10일, 4일
+    expect(a['avg_days_count'], 2);
 
-    // 담당자표는 기관과 담당자가 모두 있어야 한다('미지정'·빈 값 제외).
-    expect(person.keys.toSet(), {'A구청/김', 'A구청/이', 'B경찰서/박'});
-    expect(person['A구청/김']!['total'], 2);
-    expect(person['A구청/김']!['in_progress'], 1);
+    // 담당자표: 기관·담당자가 있고('미지정' 제외) 답변 완료 — 취하 '이' 는 빠진다.
+    expect(person.keys.toSet(), {'A구청/김'});
+    expect(person['A구청/김']!['total'], 1);
     expect(person['A구청/김']!['avg_days'], 10.0);
   });
 

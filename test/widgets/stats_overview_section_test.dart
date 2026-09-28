@@ -128,7 +128,7 @@ void main() {
     expect(find.text('처분 분포'), findsNothing);
   });
 
-  testWidgets('펼치면 처분 분포(일곱 항목)와 위반 유형 상위 6개 + 전체 보기가 나온다', (tester) async {
+  testWidgets('펼치면 처분 분포(여섯 항목)와 위반 유형 상위 6개 + 전체 보기가 나온다', (tester) async {
     await pumpThemed(
       tester,
       StatsOverviewSection(
@@ -142,12 +142,17 @@ void main() {
       brightness: Brightness.dark,
       height: 2400,
     );
+    // 처리중(답변 전)은 분포에서 빼고 답변된 신고를 분모로 한다(2026-09-28)
+    expect(find.text('답변된 신고 11,890건 기준'), findsOneWidget);
+    expect(
+      find.textContaining('처리 중(답변 전) 455건은 처분이 없어 뺐습니다'),
+      findsOneWidget,
+    );
     for (final label in [
       '과태료',
       '경고/범칙금',
       '불수용/기타',
-      '처리중',
-      '처분 미확인',
+      '과태료 미확인',
       '처분 대상 아님',
       '기타·미분류',
     ]) {

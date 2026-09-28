@@ -1142,12 +1142,12 @@ class _RowCard extends StatelessWidget {
       ('과태료', row.fines, row.finesPct, serverTrafficFineColor),
       ('경고/범칙금', row.warnings, row.warningsPct, serverTrafficPenaltyColor),
       ('불수용/기타', row.rejects, row.rejectsPct, serverRejectColor),
-      // S-10: 배정된 처리중 신고. 구서버(null)는 숨긴다.
-      if (row.inProgress != null)
+      // 표는 답변 완료 신고만이라 처리중은 없다(2026-09-28). 예전 서버가 처리중을 섞어 보낼 때만 보인다.
+      if ((row.inProgress ?? 0) > 0)
         ('처리중', row.inProgress!, row.inProgressPct ?? 0, serverProcessingColor),
       if (hasSplit) ...[
         (
-          '처분 미확인',
+          '과태료 미확인',
           row.dispositionUnknown!,
           row.dispositionUnknownPct ?? 0,
           serverUnconfirmedColor,

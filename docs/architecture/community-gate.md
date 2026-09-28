@@ -113,3 +113,9 @@ T6 병합 전까지 기본값(no-op/`true`). T6 는 같은 이름·시그니처�
 - `SyncEngine.start` 에는 `rebuildRunId` named 파라미터가 아직 없다(T6 소유).
   rebuild 실행은 `start(fullSync: true)` 로 호출하고 runId 는 checkpoint 기록용이다.
 - (2026-09-27) 동의문 번들 `assets/community/` 는 없앴다 — 동의문은 중앙에서 받는다.
+
+## 업로드 연결 자동 전환 (2026-09-28)
+이 기기에서 카카오 로그인을 직접 마치면(로그인 단계가 awaitingBrowser·exchanging·confirmRequired → connected) 또는 온보딩에서 공유 동의를 저장하면
+`CommunityGate._claimRequested` 가 서고, 다음 writer 확인 한 번에서 `superseded` 연결·`writer_conflict` 를 takeover 로 등록한다.
+앱 시작(세션 복원)·주기 확인만으로는 세우지 않는다(기기끼리 서로 뺏지 않게). `suspended` 는 가져오지 않는다. PC `community_gate.claim_for_this_device` 와 같은 규칙.
+설정의 '이 기기로 업로드 전환' 버튼은 그대로 둔다.

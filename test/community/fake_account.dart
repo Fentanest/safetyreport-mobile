@@ -104,6 +104,12 @@ class FakeAccountServer {
   /// 테스트 중 바꿀 수 있다(충돌 → 해소 흐름).
   Map<String, Object?>? registerThrows;
 
+  /// 다른 기기가 writer 인 상태: takeover 없이 등록하면 writer_conflict, takeover=true 면 성공.
+  bool conflictUnlessTakeover = false;
+
+  /// `/connections` 요청 본문의 takeover 값 기록.
+  final registerTakeovers = <bool>[];
+
   /// consent 실패 주입 (F04). 예: {'code':'policy_mismatch',...} → 409.
   Map<String, Object?>? consentThrows;
 
@@ -179,6 +185,14 @@ class FakeAccountServer {
       );
     }
     if (path.endsWith('/connections')) {
+      final takeover = (jsonDecode(req.body) as Map)['takeover'] == true;
+      registerTakeovers.add(takeover);
+      if (conflictUnlessTakeover && !takeover) {
+        return http.Response.bytes(
+          utf8.encode(jsonEncode({'error': {'code': 'writer_conflict', 'message': 'taken'}})),
+          409,
+        );
+      }
       if (registerThrows != null) {
         final code = registerThrows!['code'];
         final status = code == 'writer_conflict' ? 409 : 400;

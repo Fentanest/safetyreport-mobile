@@ -370,6 +370,11 @@ Report parseJsonToReport(
       entryValue.contains(_trafficEntry) &&
       ['수용', '일부수용', '기타'].contains(processingStatus)) {
     penaltyAmount = '미확인';
+  } else if (penaltyAmount.isEmpty &&
+      processingStatus == '일부수용' &&
+      _parkingFineEntries.any((e) => entryValue.contains(e))) {
+    // 2026-09-28 사용자 결정: 주정차·버스전용차로·쓰레기 메뉴의 일부수용은 보통 과태료가 아니다 → '미확인'(과태료 미확인). 서버 parser 와 같음.
+    penaltyAmount = '미확인';
   }
 
   // 취하 처리

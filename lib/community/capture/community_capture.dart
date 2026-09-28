@@ -175,7 +175,7 @@ Future<CaptureResult> capture(
       );
       if (staging.isNotEmpty) {
         final journals = await tx.rawQuery(
-          'SELECT payload_sha256, eligible, report_number FROM source_journal WHERE event_id=?',
+          'SELECT payload_sha256, eligible, report_number, blocked_reason FROM source_journal WHERE event_id=?',
           [staging.first['event_id']],
         );
         if (journals.isNotEmpty) prev = journals.first;
@@ -195,7 +195,7 @@ Future<CaptureResult> capture(
 
     // 2026-09-28: server_completed 로 prev 를 합성하지 않는다(비적격 관측은 정정을 발급하지 않음).
     // server_completed 표·manifest 신선도 검사는 그대로 유지한다.
-    final eventType = decideEvent(
+    var eventType = decideEvent(
       eligible: eligible,
       prevSha: storedReportNumber != null && prev != null && prev['report_number'] != storedReportNumber
           ? null : prev?['payload_sha256']?.toString(),
@@ -203,6 +203,16 @@ Future<CaptureResult> capture(
           prev == null ? null : (prev['eligible'] as int? ?? 0) == 1,
       payloadSha: sha,
     );
+
+    // REVIEW4 낮음: 길이 초과 원문 코드는 payload가 직전과 같아도 명시적
+    // 거절 이벤트를 만든다(PC와 1:1). 이미 같은 sha·같은 blocked 사유로
+    // 기록됐으면 quiet 유지.
+    if (eventType == null && codeBlocked && eligible) {
+      final prevBlocked = prev?['blocked_reason']?.toString();
+      if (prevBlocked != 'blocked:$agencyCodeTooLong') {
+        eventType = 'completed_observation';
+      }
+    }
 
     // 상세를 받을 때마다 detail_status 를 같은 트랜잭션으로 기록한다.
     await tx.insert('detail_status', {
@@ -327,7 +337,7 @@ Future<Map<String, Object?>?> _latestJournal(
   String? fingerprint,
 }) async {
   final journals = await tx.rawQuery(
-    'SELECT payload_sha256, eligible, report_number FROM source_journal '
+    'SELECT payload_sha256, eligible, report_number, blocked_reason FROM source_journal '
     'WHERE local_dataset_id=? AND source_report_id=? AND dataset_key IS ? '
     'AND contributor_fingerprint IS ? ORDER BY source_revision DESC LIMIT 1',
     [localDatasetId, sourceReportId, datasetKey, fingerprint],

@@ -463,6 +463,51 @@ void main() {
       expect(okOutbox.single['state'], equals('pending'));
     });
 
+    test('원문 코드만 길어진 관측도 명시 기록된다 (REVIEW4 낮음)', () async {
+      // 원문 코드 없음 → 33자: 전송 payload(코드 None)는 같아도 조용히
+      // 버리지 않고 blocked 이벤트로 명시 기록한다(서버·PC와 1:1).
+      final first = await capture(
+        {...adapter(), 'agency_code': null},
+        sourceReportId: 'LONG-SAME',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: 'ns1',
+      );
+      expect(first.eventType, equals('completed_observation'));
+      final blocked = await capture(
+        {...adapter(), 'agency_code': 'N' * 33},
+        sourceReportId: 'LONG-SAME',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: 'ns1',
+      );
+      expect(blocked.eventType, equals('completed_observation'));
+      final journal = await store.db.rawQuery(
+        'SELECT blocked_reason, payload_json FROM source_journal WHERE event_id=?',
+        [blocked.eventId],
+      );
+      expect(journal.single['blocked_reason'],
+          equals('blocked:source_agency_code_too_long'));
+      expect(
+          (journal.single['payload_json'] as String).contains('N' * 33), isFalse);
+      final outbox = await store.db.rawQuery(
+        'SELECT state, last_error_code FROM outbox WHERE event_id=?',
+        [blocked.eventId],
+      );
+      expect(outbox.single['state'], equals('blocked'));
+      expect(outbox.single['last_error_code'],
+          equals('source_agency_code_too_long'));
+      // 같은 장문 반복은 조용히 유지(이미 명시 기록됨).
+      final again = await capture(
+        {...adapter(), 'agency_code': 'N' * 33},
+        sourceReportId: 'LONG-SAME',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: 'ns1',
+      );
+      expect(again.eventType, isNull);
+    });
+
     test('rebuild: staging 에 쓰고 report_latest 는 그대로', () async {
       final r = await capture(
         adapter(),

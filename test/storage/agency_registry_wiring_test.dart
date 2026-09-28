@@ -85,6 +85,22 @@ void main() {
     }
   });
 
+  test('successor codes resolve to the same institution (REVIEW3 높음-2)', () {
+    // 동결 복사본(_resolveAgency)이 후계 코드를 역방향으로 따라가 같은 기관으로
+    // 묶는지 직접 고정한다(표시 fallback 우회가 아니라 실제 해석).
+    final snap = _snapshot();
+    expect(
+      snap.displayCurrentAgency('1812314', '광주광역시경찰청'),
+      equals('광주경찰청'),
+    );
+    expect(
+      snap.displayCurrentAgency('1815198', '광주경찰청'),
+      equals('광주경찰청'),
+    );
+    expect(snap.displayCurrentAgency('9999999', '어딘가구청'), isNull);
+    expect(snap.displayCurrentAgency(null, '어딘가구청'), isNull);
+  });
+
   test('stats group old and new codes under the current name', () {    AgencyRegistry.testInject(_snapshot());
     try {
       final rows = [

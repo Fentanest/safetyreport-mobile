@@ -142,6 +142,10 @@ Future<CaptureResult> capture(
 }) async {
   final s = store ?? await CommunityStore.open();
   final payload = buildPayload(adapterInput);
+  // REVIEW3 낮음-1: 상한 초과 원문 기관코드는 조용히 null 로 버리지 않고 명시적
+  // 거절한다. 원문은 로컬 신고 DB에 그대로 있고, journal/outbox 에 사유를
+  // 기록한다(서버 edge·PC와 동일 사유 문자열).
+  final codeBlocked = isAgencyCodeTooLong(adapterInput['agency_code']);
   final eligible = payloadEligible(payload);
   final canonical = canonicalJson(payload);
   final sha = sha256.convert(utf8.encode(canonical)).toString();
@@ -259,15 +263,29 @@ Future<CaptureResult> capture(
       'consent_grant_id':
           contextActive ? contextRow['consent_grant_id'] : null,
       'personal_save_state': 'pending',
+      'blocked_reason': codeBlocked
+          ? 'blocked:$agencyCodeTooLong'
+          : (contextActive ? null : 'no_active_context'),
     });
     if (contextActive) {
-      await tx.insert('outbox', {
-        'event_id': eventId,
-        'state': 'pending',
-        'attempt_count': 0,
-        'enqueued_trigger': trigger,
-        'enqueued_at': at,
-      });
+      if (codeBlocked) {
+        await tx.insert('outbox', {
+          'event_id': eventId,
+          'state': 'blocked',
+          'attempt_count': 0,
+          'enqueued_trigger': trigger,
+          'enqueued_at': at,
+          'last_error_code': agencyCodeTooLong,
+        });
+      } else {
+        await tx.insert('outbox', {
+          'event_id': eventId,
+          'state': 'pending',
+          'attempt_count': 0,
+          'enqueued_trigger': trigger,
+          'enqueued_at': at,
+        });
+      }
     }
     if (rebuildRunId != null) {
       await tx.insert('report_latest_staging', {

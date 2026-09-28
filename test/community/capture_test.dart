@@ -7,6 +7,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:safetyreport/community/capture/capture_retry_store.dart';
 import 'package:safetyreport/community/capture/community_capture.dart';
+import 'package:safetyreport/community/capture/observation_rules.dart';
 import 'package:safetyreport/community/capture/report_adapter.dart';
 import 'package:safetyreport/community/capture/reshare.dart';
 import 'package:safetyreport/community/capture/server_completed.dart';
@@ -100,7 +101,8 @@ void main() {
       buildPayload({...input, 'agency_code': null})['source_agency_code'],
       isNull,
     );
-    // REVIEW2 낮음: 32자를 넘는 신규 형식은 앞부분만 남기지 않고 null 로 둔다.
+    // REVIEW3 낮음-1: 32자를 넘는 신규 형식은 잘라서 보내지 않는다. 전송 payload
+    // 에는 싣지 않지만(null), capture() 가 journal/outbox 에 명시적 사유로 기록한다.
     expect(
       buildPayload({...input, 'agency_code': 'N' * 33})['source_agency_code'],
       isNull,
@@ -109,6 +111,9 @@ void main() {
       buildPayload({...input, 'agency_code': 'N' * 32})['source_agency_code'],
       equals('N' * 32),
     );
+    expect(isAgencyCodeTooLong('N' * 33), isTrue);
+    expect(isAgencyCodeTooLong('N' * 32), isFalse);
+    expect(isAgencyCodeTooLong(null), isFalse);
   });
   test(
     'report number backfill emits one event without changing Observation hash',
@@ -403,6 +408,59 @@ void main() {
         [r.eventId],
       );
       expect(outbox, isEmpty);
+    });
+
+    test('길이 초과 기관코드는 명시적 사유로 전송 제외된다 (REVIEW3 낮음-1)', () async {
+      final r = await capture(
+        {...adapter(), 'agency_code': 'N' * 33},
+        sourceReportId: 'LONG1',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: 'ns1',
+      );
+      expect(r.eventType, equals('completed_observation'));
+      final journal = await store.db.rawQuery(
+        'SELECT blocked_reason, payload_json FROM source_journal WHERE event_id=?',
+        [r.eventId],
+      );
+      expect(journal.single['blocked_reason'],
+          equals('blocked:source_agency_code_too_long'));
+      expect(
+          (journal.single['payload_json'] as String).contains('N' * 33), isFalse);
+      final outbox = await store.db.rawQuery(
+        'SELECT state, last_error_code FROM outbox WHERE event_id=?',
+        [r.eventId],
+      );
+      expect(outbox.single['state'], equals('blocked'));
+      expect(outbox.single['last_error_code'],
+          equals('source_agency_code_too_long'));
+      // 같은 관측 반복 수집은 조용히 유지된다(저널 폭증 없음).
+      final again = await capture(
+        {...adapter(), 'agency_code': 'N' * 33},
+        sourceReportId: 'LONG1',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: 'ns1',
+      );
+      expect(again.eventType, isNull);
+      // 32자 이내는 정상 pending 전송 후보가 된다.
+      final ok = await capture(
+        {...adapter(), 'agency_code': 'N' * 32},
+        sourceReportId: 'LONG2',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: 'ns1',
+      );
+      final okJournal = await store.db.rawQuery(
+        'SELECT blocked_reason FROM source_journal WHERE event_id=?',
+        [ok.eventId],
+      );
+      expect(okJournal.single['blocked_reason'], isNull);
+      final okOutbox = await store.db.rawQuery(
+        'SELECT state FROM outbox WHERE event_id=?',
+        [ok.eventId],
+      );
+      expect(okOutbox.single['state'], equals('pending'));
     });
 
     test('rebuild: staging 에 쓰고 report_latest 는 그대로', () async {

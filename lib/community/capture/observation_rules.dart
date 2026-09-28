@@ -29,13 +29,49 @@ String? cleanString(Object? value, int n) {
 bool _isControl(int rune) =>
     (rune >= 0x00 && rune <= 0x1F) || rune == 0x7F;
 
-/// 원문 기관코드 정리 (REVIEW2 낮음): 검증되지 않은 신규 형식은 자르지 않는다.
-/// 32자를 넘으면 앞부분만 남기지 않고 null(없음)으로 둔다. 일반 텍스트는
-/// [cleanString] 절단을 그대로 쓴다.
-String? cleanCode(Object? value, int n) {
-  final cleaned = cleanString(value, n + 1);
-  if (cleaned == null) return null;
-  if (cleaned.runes.length > n) return null;
+/// 원문 기관코드 계약 상한(observation.md §3 — 서버 edge·DB·JSON 스키마·PC와 동일, 1:1).
+const int agencyCodeLimit = 32;
+
+/// 길이 초과 원문 기관코드의 명시적 거절 사유(조용히 null 로 버리지 않음 — REVIEW3 낮음-1).
+const String agencyCodeTooLong = 'source_agency_code_too_long';
+
+/// 원문 기관코드 정리: 공백 정리만 하고 자르지 않는다.
+///
+/// 길이 상한 초과여도 여기서 null 로 버리지 않는다(조용한 손실 금지).
+/// 전송 payload 에는 상한 이내일 때만 싣고([payloadAgencyCode]), 초과분은
+/// capture() 가 journal/outbox 에 명시적 사유로 기록한다.
+String? cleanCode(Object? value) {
+  if (value is! String) return null;
+  final out = StringBuffer();
+  var pendingSpace = false;
+  for (final rune in value.runes) {
+    final isWs = _isWhitespace(rune) || _isControl(rune);
+    if (isWs) {
+      pendingSpace = true;
+      continue;
+    }
+    if (pendingSpace && out.isNotEmpty) out.write(' ');
+    pendingSpace = false;
+    out.writeCharCode(rune);
+  }
+  final s = out.toString();
+  return s.isEmpty ? null : s;
+}
+
+/// 정리된 원문 기관코드가 계약 상한을 초과하는지.
+bool isAgencyCodeTooLong(Object? value) {
+  final cleaned = cleanCode(value);
+  if (cleaned == null) return false;
+  return cleaned.runes.length > agencyCodeLimit;
+}
+
+/// 전송 payload 용 기관코드: 상한 이내의 정리 원문, 초과·없음은 null.
+///
+/// 초과분을 null 로 두는 것은 전송 형태 안전장치이며, 명시적 거절 기록은
+/// capture() 가 담당한다(조용한 손실이 아님).
+String? payloadAgencyCode(Object? value) {
+  final cleaned = cleanCode(value);
+  if (cleaned == null || cleaned.runes.length > agencyCodeLimit) return null;
   return cleaned;
 }
 bool _isWhitespace(int rune) {
@@ -293,8 +329,9 @@ Map<String, Object?> buildPayload(Map<String, Object?> input) {
     'vehicle_raw': cleanString(input['car_number'], 64),
     'violation_law': cleanString(input['violation_law'], 60),
     // v3: 원문 기관코드 그대로(TEXT·선행 0 보존). 신규 형식도 자르지 않고, 없으면 null.
-    // 32자를 넘으면 cleanCode 가 null 로 둔다(잘라서 보내지 않음 — REVIEW2 낮음).
-    'source_agency_code': cleanCode(input['agency_code'], 32),
+    // 상한 초과분은 여기서 null 로 두되(전송 형태 안전), capture() 가 명시적
+    // 사유(blocked:source_agency_code_too_long)로 기록한다 — 조용히 버리지 않음.
+    'source_agency_code': payloadAgencyCode(input['agency_code']),
   };
 }
 

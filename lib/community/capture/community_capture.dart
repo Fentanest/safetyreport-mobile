@@ -44,8 +44,8 @@ Map<String, Object?> buildAdapterInput(
   required String date,
   required String responseDate,
   required String agency,
-  // observation-v3(2026-09-28): 선택 답변의 C_MANAGE_ORG 원문(TEXT). 없으면 ''(payload null).
-  String agencyCode = '',
+  // observation-v3(2026-09-28): 선택 답변의 C_MANAGE_ORG 원문(TEXT). 없으면 null(payload null).
+  String? agencyCode,
   required String manager,
   required String carNumber,
   required String location,

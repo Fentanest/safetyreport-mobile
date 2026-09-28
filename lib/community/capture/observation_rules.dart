@@ -29,6 +29,15 @@ String? cleanString(Object? value, int n) {
 bool _isControl(int rune) =>
     (rune >= 0x00 && rune <= 0x1F) || rune == 0x7F;
 
+/// 원문 기관코드 정리 (REVIEW2 낮음): 검증되지 않은 신규 형식은 자르지 않는다.
+/// 32자를 넘으면 앞부분만 남기지 않고 null(없음)으로 둔다. 일반 텍스트는
+/// [cleanString] 절단을 그대로 쓴다.
+String? cleanCode(Object? value, int n) {
+  final cleaned = cleanString(value, n + 1);
+  if (cleaned == null) return null;
+  if (cleaned.runes.length > n) return null;
+  return cleaned;
+}
 bool _isWhitespace(int rune) {
   if (rune == 0x20 || rune == 0x09 || rune == 0x0A || rune == 0x0B ||
       rune == 0x0C || rune == 0x0D) {
@@ -284,7 +293,8 @@ Map<String, Object?> buildPayload(Map<String, Object?> input) {
     'vehicle_raw': cleanString(input['car_number'], 64),
     'violation_law': cleanString(input['violation_law'], 60),
     // v3: 원문 기관코드 그대로(TEXT·선행 0 보존). 신규 형식도 자르지 않고, 없으면 null.
-    'source_agency_code': cleanString(input['agency_code'], 32),
+    // 32자를 넘으면 cleanCode 가 null 로 둔다(잘라서 보내지 않음 — REVIEW2 낮음).
+    'source_agency_code': cleanCode(input['agency_code'], 32),
   };
 }
 

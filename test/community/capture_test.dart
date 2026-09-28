@@ -100,6 +100,15 @@ void main() {
       buildPayload({...input, 'agency_code': null})['source_agency_code'],
       isNull,
     );
+    // REVIEW2 낮음: 32자를 넘는 신규 형식은 앞부분만 남기지 않고 null 로 둔다.
+    expect(
+      buildPayload({...input, 'agency_code': 'N' * 33})['source_agency_code'],
+      isNull,
+    );
+    expect(
+      buildPayload({...input, 'agency_code': 'N' * 32})['source_agency_code'],
+      equals('N' * 32),
+    );
   });
   test(
     'report number backfill emits one event without changing Observation hash',

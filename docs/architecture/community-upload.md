@@ -5,6 +5,8 @@ Standalone 모드가 공식 상세 응답을 받은 순간의 값으로 공유 D
 업로드를 `community-ingest` 로 보낸다. 계약 정본: `contracts/community-ingest/`.
 PC(safetyreport) 구현과 같은 벡터(같은 결과)다.
 
+2026-09-28: `Report.reportNumber`를 `report_number` private event 필드로 journal v3에 저장해 업로드한다. Observation 해시는 유지한다. 번호가 뒤늦게 확보되면 같은 해시여도 새 이벤트를 만든다. 중앙 `transferred` ACK는 성공, 계정 간 불일치 `rejected`는 재시도하지 않는 blocked 상태이며 지도 패널에 사유를 표시한다. 새 Edge·migration 배포가 앱 업데이트보다 먼저여야 한다.
+
 전체 재동기화는 `SyncEngine`이 `CommunityStore.rotateDataset('full_resync')`으로
 새 로컬 공유 데이터셋을 시작한 뒤 모든 신고를 다시 수집한다. 이전 journal·outbox는
 미전송 수정 사실을 잃지 않도록 남기며, 중앙 manifest와 Supabase 자료도 지우지 않는다.

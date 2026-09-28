@@ -58,6 +58,7 @@ Future<String?> issueReshare(
       'local_dataset_id': localDatasetId,
       'dataset_key': context['dataset_key'],
       'source_report_id': sourceReportId,
+      'report_number': journal['report_number'],
       'source_revision': revision,
       'event_type': 'reshare',
       'captured_at': journal['captured_at'],

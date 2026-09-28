@@ -133,7 +133,7 @@ void main() {
     tearDown(() async => closeStore(store));
 
     test('B01: capture 뒤 realtime 업로드 → accepted 삭제·투영 저장', () async {
-      final c = await capture(adapter('수용'),
+      final c = await capture({...adapter('수용'), 'report_number': 'SPP-2609-8000001'},
           sourceReportId: 'R1', trigger: 'realtime',
           store: store, projectNamespace: kNs);
       final eventId = c.eventId!;
@@ -143,6 +143,7 @@ void main() {
         expect(body['source_mode'], equals('standalone'));
         expect(body['parser_version'], equals('mobile-parser-1'));
         expect((body['events'] as List).length, equals(1));
+        expect((body['events'] as List).first['report_number'], 'SPP-2609-8000001');
         return http.Response(
             jsonEncode({
               'protocol': 1,

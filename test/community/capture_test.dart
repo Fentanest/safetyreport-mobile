@@ -7,9 +7,11 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:safetyreport/community/capture/capture_retry_store.dart';
 import 'package:safetyreport/community/capture/community_capture.dart';
+import 'package:safetyreport/community/capture/report_adapter.dart';
 import 'package:safetyreport/community/capture/reshare.dart';
 import 'package:safetyreport/community/capture/server_completed.dart';
 import 'package:safetyreport/community/community_store.dart';
+import 'package:safetyreport/models/report.dart';
 
 Map<String, Object?> adapter({
   String status = '수용',
@@ -63,6 +65,24 @@ Future<void> closeTestStore(CommunityStore store) async {
 }
 
 void main() {
+  test('Report 신고번호 reaches the private capture adapter', () {
+    final report = Report.fromJson({'ID': '40871819', '신고번호': 'SPP-2609-8000001', '처리상태': '수용'});
+    expect(buildReportAdapterInput(report, '불법주정차신고')['report_number'], 'SPP-2609-8000001');
+  });
+  test('report number backfill emits one event without changing Observation hash', () async {
+    final store = await openTestStore();
+    try {
+      final first = await capture(adapter(), sourceReportId: 'R1', trigger: 'realtime', store: store);
+      final second = await capture({...adapter(), 'report_number': 'SPP-2609-8000001'},
+          sourceReportId: 'R1', trigger: 'realtime', store: store);
+      expect(second.eventType, 'completed_observation');
+      expect(second.payloadSha256, first.payloadSha256);
+      final rows = await store.db.rawQuery('SELECT report_number FROM source_journal WHERE event_id=?', [second.eventId]);
+      expect(rows.single['report_number'], 'SPP-2609-8000001');
+    } finally {
+      await closeTestStore(store);
+    }
+  });
   // 삭제 뒤 차단 표시(H-03)가 SharedPreferences 를 쓴다.
   setUp(() => SharedPreferences.setMockInitialValues({}));
   group('decideEvent', () {

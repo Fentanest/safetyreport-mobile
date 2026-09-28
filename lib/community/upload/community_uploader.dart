@@ -960,7 +960,7 @@ OR j.connection_id IS NOT ? OR j.consent_grant_id IS NOT ?)
       CommunityStore store, Map<String, Object?> ctx, String now, int limit, Set<String> exclude) async {
     final rows = await store.db.rawQuery(
       'SELECT o.event_id, o.attempt_count, o.state, j.source_report_id, j.source_revision, j.event_type, j.captured_at,'
-      ' j.payload_sha256, j.eligible, j.writer_epoch FROM source_journal j JOIN outbox o ON o.event_id=j.event_id'
+      ' j.payload_sha256, j.eligible, j.writer_epoch, j.report_number FROM source_journal j JOIN outbox o ON o.event_id=j.event_id'
       ' JOIN (SELECT j2.source_report_id AS rid, MIN(j2.source_revision) AS rev FROM source_journal j2'
       " JOIN outbox o2 ON o2.event_id=j2.event_id WHERE o2.state IN ('pending','retry_wait','in_flight','auth_required')"
       '${_ctxFilter.replaceAll('j.', 'j2.')} GROUP BY j2.source_report_id) f'
@@ -991,6 +991,7 @@ OR j.connection_id IS NOT ? OR j.consent_grant_id IS NOT ?)
         'event_type': row.data['event_type'],
         'source_system': 'safetyreport',
         'source_report_id': row.reportId,
+        'report_number': row.data['report_number'],
         'source_revision': row.data['source_revision'],
         'writer_epoch': row.data['writer_epoch'],
         'captured_at': row.data['captured_at'],

@@ -20,6 +20,7 @@ Map<String, Object?> buildReportAdapterInput(Report report, String entryValue) {
       lng <= 132;
   return buildAdapterInput(
     status: report.status,
+    reportNumber: report.reportNumber,
     fineInfo: report.fineInfo,
     date: report.date,
     responseDate: report.responseDate,

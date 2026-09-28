@@ -39,6 +39,7 @@ Map<String, Object?> buildAdapterInput(
   // Report 타입에 직접 의존하지 않고(테스트에서 가짜를 쓰기 위해) 필드만 받는다.
   {
   required String status,
+  String? reportNumber,
   required String fineInfo,
   required String date,
   required String responseDate,
@@ -53,6 +54,7 @@ Map<String, Object?> buildAdapterInput(
 }) {
   return <String, Object?>{
     'processing_status': status,
+    'report_number': reportNumber,
     'penalty_amount': fineInfo,
     'report_date': date,
     'response_date': responseDate,
@@ -141,6 +143,8 @@ Future<CaptureResult> capture(
   final eligible = payloadEligible(payload);
   final canonical = canonicalJson(payload);
   final sha = sha256.convert(utf8.encode(canonical)).toString();
+  final reportNumber = adapterInput['report_number']?.toString().trim();
+  final storedReportNumber = reportNumber == null || reportNumber.isEmpty ? null : reportNumber;
   final progressStatus =
       adapterInput['progress_status']?.toString() ?? '';
   final at = isoUtc(now ?? DateTime.now());
@@ -165,7 +169,7 @@ Future<CaptureResult> capture(
       );
       if (staging.isNotEmpty) {
         final journals = await tx.rawQuery(
-          'SELECT payload_sha256, eligible FROM source_journal WHERE event_id=?',
+          'SELECT payload_sha256, eligible, report_number FROM source_journal WHERE event_id=?',
           [staging.first['event_id']],
         );
         if (journals.isNotEmpty) prev = journals.first;
@@ -185,7 +189,8 @@ Future<CaptureResult> capture(
 
     final eventType = decideEvent(
       eligible: eligible,
-      prevSha: prev?['payload_sha256']?.toString(),
+      prevSha: storedReportNumber != null && prev != null && prev['report_number'] != storedReportNumber
+          ? null : prev?['payload_sha256']?.toString(),
       prevEligible:
           prev == null ? null : (prev['eligible'] as int? ?? 0) == 1,
       payloadSha: sha,
@@ -233,6 +238,7 @@ Future<CaptureResult> capture(
       'local_dataset_id': localDatasetId,
       'dataset_key': contextDatasetKey,
       'source_report_id': sourceReportId,
+      'report_number': storedReportNumber,
       'source_revision': revision,
       'event_type': eventType,
       'captured_at': at,
@@ -301,7 +307,7 @@ Future<Map<String, Object?>?> _latestJournal(
   );
   if (latest.isEmpty) return null;
   final journals = await tx.rawQuery(
-    'SELECT payload_sha256, eligible FROM source_journal WHERE event_id=?',
+    'SELECT payload_sha256, eligible, report_number FROM source_journal WHERE event_id=?',
     [latest.first['event_id']],
   );
   return journals.isEmpty ? null : journals.first;

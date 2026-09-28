@@ -95,10 +95,10 @@ void main() {
         equals('광주경찰청'),
       );
       expect(registryDisplayAgency('1815198', '광주경찰청'), equals('광주경찰청'));
-      // 미확정 코드는 기존 normalize 로 폴백.
+      // 미확정 코드는 원문 기관명 그대로(경찰기관명 정규화 폐지, PC test_agency_registry 와 같음).
       expect(
         registryDisplayAgency('9999999', '서울특별시 강서경찰서 교통과'),
-        equals('서울특별시 강서경찰서'),
+        equals('서울특별시 강서경찰서 교통과'),
       );
       expect(registryDisplayAgency(null, '서울특별시 중구청'), equals('서울특별시 중구청'));
     } finally {

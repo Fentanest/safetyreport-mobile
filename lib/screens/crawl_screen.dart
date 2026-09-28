@@ -445,36 +445,53 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          // ── 상태 카드 ──
-          Expanded(
-            flex: 3,
-            child: RefreshIndicator(
-              onRefresh: _loadStandaloneInfo,
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const ReloginRequiredBanner(),
-                    _infoCard(),
-                    if (isDemo) ...[SizedBox(height: 12), _demoInfoCard()],
-                    SizedBox(height: 16),
-                    if (_isRunning && _syncTotal > 0) _progressBar(),
-                    SizedBox(height: 16),
-                    _syncButtons(),
-                  ],
-                ),
-              ),
+      body: _withLogPanel(
+        // 상태 카드는 내용 높이만 쓰고 남는 세로 공간은 로그 창이 받는다.
+        topMaxFraction: 0.5,
+        top: RefreshIndicator(
+          onRefresh: _loadStandaloneInfo,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const ReloginRequiredBanner(),
+                _infoCard(),
+                if (isDemo) ...[SizedBox(height: 12), _demoInfoCard()],
+                SizedBox(height: 16),
+                if (_isRunning && _syncTotal > 0) ...[
+                  _progressBar(),
+                  SizedBox(height: 16),
+                ],
+                _syncButtons(),
+              ],
             ),
           ),
+        ),
+      ),
+    );
+  }
 
-          // ── 로그 패널 ──
-          const Divider(height: 1),
-          Expanded(flex: _isRunning ? 2 : 1, child: _logPanel()),
-        ],
+  /// 상단 제어 영역 + 로그 창. 상단은 내용 높이만 차지하되 [topMaxFraction] 을 넘으면 스크롤되고,
+  /// 로그 창은 남은 높이를 모두 쓴다. edge-to-edge 에서 로그 마지막 줄이 시스템 내비게이션 바에
+  /// 가리지 않도록 하단 안전 영역 위에서 끝낸다.
+  Widget _withLogPanel({required Widget top, required double topMaxFraction}) {
+    return SafeArea(
+      top: false,
+      child: LayoutBuilder(
+        builder: (context, constraints) => Column(
+          children: [
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: constraints.maxHeight * topMaxFraction,
+              ),
+              child: top,
+            ),
+            const Divider(height: 1),
+            Expanded(child: _logPanel()),
+          ],
+        ),
       ),
     );
   }
@@ -697,90 +714,85 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            flex: _isRunning ? 2 : 5,
-            child: RefreshIndicator(
-              onRefresh: _init,
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+      body: _withLogPanel(
+        // 크롤링 중에는 제어 영역을 줄이고(넘치면 스크롤) 로그 창을 넓힌다.
+        topMaxFraction: _isRunning ? 0.4 : 0.6,
+        top: RefreshIndicator(
+          onRefresh: _init,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _sectionTitle('1. 크롤링 범위'),
+                RadioGroup<String>(
+                  groupValue: _crawlMode,
+                  onChanged: (v) {
+                    if (v != null) setState(() => _crawlMode = v);
+                  },
+                  child: Column(
+                    children: [
+                      _radioTile('전체 크롤링', 'full', ''),
+                      _radioTile(
+                        'DB 초기화 후 새로 크롤링',
+                        'reset',
+                        '',
+                        isRed: true,
+                      ),
+                    ],
+                  ),
+                ),
+
+                SizedBox(height: 12),
+
+                _sectionTitle('2. 큐 (선택사항)'),
+                if (_unresolved.isNotEmpty) _unresolvedNotice(),
+                TextField(
+                  controller: _queueController,
+                  maxLines: 3,
+                  style: TextStyle(fontSize: 12),
+                  decoration: InputDecoration(
+                    hintText: 'SPP-231120-1234567\nSPP-231121-7654321',
+                    hintStyle: TextStyle(
+                      fontSize: 11,
+                      color: context.sr.textSecondary,
+                    ),
+                  ),
+                ),
+
+                SizedBox(height: 16),
+
+                Row(
                   children: [
-                    _sectionTitle('1. 크롤링 범위'),
-                    RadioGroup<String>(
-                      groupValue: _crawlMode,
-                      onChanged: (v) {
-                        if (v != null) setState(() => _crawlMode = v);
-                      },
-                      child: Column(
-                        children: [
-                          _radioTile('전체 크롤링', 'full', ''),
-                          _radioTile(
-                            'DB 초기화 후 새로 크롤링',
-                            'reset',
-                            '',
-                            isRed: true,
-                          ),
-                        ],
+                    Expanded(
+                      child: FilledButton.icon(
+                        icon: Icon(Icons.play_arrow),
+                        label: const Text('크롤링 시작'),
+                        onPressed: _isRunning ? null : _startCrawl,
                       ),
                     ),
-
-                    SizedBox(height: 12),
-
-                    _sectionTitle('2. 큐 (선택사항)'),
-                    if (_unresolved.isNotEmpty) _unresolvedNotice(),
-                    TextField(
-                      controller: _queueController,
-                      maxLines: 3,
-                      style: TextStyle(fontSize: 12),
-                      decoration: InputDecoration(
-                        hintText: 'SPP-231120-1234567\nSPP-231121-7654321',
-                        hintStyle: TextStyle(
-                          fontSize: 11,
-                          color: context.sr.textSecondary,
-                        ),
+                    SizedBox(width: 8),
+                    FilledButton.icon(
+                      icon: Icon(Icons.stop),
+                      label: const Text('강제 중지'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Theme.of(
+                          context,
+                        ).colorScheme.error,
                       ),
-                    ),
-
-                    SizedBox(height: 16),
-
-                    Row(
-                      children: [
-                        Expanded(
-                          child: FilledButton.icon(
-                            icon: Icon(Icons.play_arrow),
-                            label: const Text('크롤링 시작'),
-                            onPressed: _isRunning ? null : _startCrawl,
-                          ),
-                        ),
-                        SizedBox(width: 8),
-                        FilledButton.icon(
-                          icon: Icon(Icons.stop),
-                          label: const Text('강제 중지'),
-                          style: FilledButton.styleFrom(
-                            backgroundColor: Theme.of(
-                              context,
-                            ).colorScheme.error,
-                          ),
-                          onPressed: _isRunning ? _killCrawl : null,
-                        ),
-                      ],
+                      onPressed: _isRunning ? _killCrawl : null,
                     ),
                   ],
                 ),
-              ),
+              ],
             ),
           ),
-
-          const Divider(height: 1),
-          Expanded(flex: _isRunning ? 3 : 2, child: _logPanel()),
-        ],
+        ),
       ),
     );
   }
+
 
   // ── 공통 로그 패널 ───────────────────────────────────────────────────────────
 

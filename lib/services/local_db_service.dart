@@ -15,6 +15,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../community/community_store.dart';
 import '../models/report.dart';
+import 'agency_registry.dart';
 import 'duplicate_projection_service.dart';
 import 'geocode_utils.dart';
 import 'attachment_policy.dart';
@@ -25,6 +26,19 @@ import 'standalone_parser.dart';
 String normalizePoliceAgency(String agency) {
   final idx = agency.indexOf('경찰서');
   return idx != -1 ? agency.substring(0, idx + 3) : agency;
+}
+
+/// registry 현행 기관 표시(확인된 1:1 승계만). 스냅샷 미로드·미확정이면
+/// 기존 normalize 로 폴백한다 — PC `_apply_registry_agency_display` 와 같은 규칙.
+/// [code] 는 원문 기관코드(TEXT·nullable), [raw] 는 원문 기관명이다.
+String registryDisplayAgency(Object? code, String raw) {
+  final trimmed = raw.trim();
+  final resolved = AgencyRegistry.displayCurrentAgencyOrNull(
+    code?.toString(),
+    trimmed,
+  );
+  if (resolved != null && resolved.trim().isNotEmpty) return resolved;
+  return normalizePoliceAgency(trimmed);
 }
 
 /// 서버 DB 컬럼명(한국어)과 동일한 스키마 사용.
@@ -2150,6 +2164,7 @@ class LocalDbService {
         '처리상태',
         '범칙금_과태료',
         '처리기관',
+        '처리기관코드',
         'category',
         '신고일',
       ],
@@ -2166,7 +2181,7 @@ class LocalDbService {
         .map((row) {
           final raw = _stringify(row['처리기관']).trim();
           if (raw.isEmpty) return '';
-          return normalizePolice ? normalizePoliceAgency(raw) : raw;
+          return normalizePolice ? registryDisplayAgency(row['처리기관코드'], raw) : raw;
         })
         .where((name) => name.isNotEmpty)
         .toSet()
@@ -2220,7 +2235,10 @@ class LocalDbService {
       }
       geocodedReports++;
       if (normalizePolice) {
-        row['처리기관'] = normalizePoliceAgency(_stringify(row['처리기관']));
+        row['처리기관'] = registryDisplayAgency(
+          row['처리기관코드'],
+          _stringify(row['처리기관']),
+        );
       }
       row['위도'] = lat;
       row['경도'] = lng;
@@ -2317,6 +2335,7 @@ class LocalDbService {
         '신고일',
         '답변일',
         '처리기관',
+        '처리기관코드',
         '담당자',
         '처리상태',
         '상태',
@@ -2671,11 +2690,12 @@ class LocalDbService {
     List<Map<String, dynamic>> lawScopeCatRows,
     bool normalizePolice,
   ) {
-    // 경찰기관 정규화: 집계 키 단계에서 처리해 같은 경찰서로 통합
-    String agencyKey(String raw) {
+    // 경찰기관 정규화: 집계 키 단계에서 처리해 같은 경찰서로 통합.
+    // registry 가 로드됐으면 확인된 승계의 현행명으로 묶는다(서버 `_build_stats_tables` 와 같음).
+    String agencyKey(Object? code, String raw) {
       final t = raw.trim();
       if (!normalizePolice) return t;
-      return normalizePoliceAgency(t);
+      return registryDisplayAgency(code, t);
     }
 
     // S-10: 표 포함 여부는 처리상태가 아니라 기관·담당자 값으로 정한다(서버 `_build_stats_tables` 와 동일).
@@ -2690,7 +2710,10 @@ class LocalDbService {
         .toList(growable: false);
     final agencyAgg = <String, _AgencyAgg>{};
     for (final r in answered) {
-      final key = agencyKey((r['처리기관'] as String? ?? ''));
+      final key = agencyKey(
+        r['처리기관코드'],
+        (r['처리기관'] as String? ?? ''),
+      );
       if (key.isEmpty) continue;
       agencyAgg.putIfAbsent(key, () => _AgencyAgg(key, ''));
       agencyAgg[key]!.add(r);
@@ -2701,7 +2724,10 @@ class LocalDbService {
 
     final personAgg = <String, _AgencyAgg>{};
     for (final r in answered) {
-      final agency = agencyKey((r['처리기관'] as String? ?? ''));
+      final agency = agencyKey(
+        r['처리기관코드'],
+        (r['처리기관'] as String? ?? ''),
+      );
       final manager = (r['담당자'] as String? ?? '').trim();
       if (agency.isEmpty || _unassignedPersonValues.contains(manager)) continue;
       final key = '$agency\t$manager';
@@ -3950,7 +3976,9 @@ class LocalDbService {
     bool normalizePolice = false,
   }) {
     var agency = r['처리기관'] as String? ?? '';
-    if (normalizePolice) agency = normalizePoliceAgency(agency);
+    if (normalizePolice) {
+      agency = registryDisplayAgency(r['처리기관코드'], agency);
+    }
     return Report(
       id: r['ID'] as String? ?? '',
       reportNumber: r['신고번호'] as String? ?? '',
@@ -3958,7 +3986,8 @@ class LocalDbService {
       date: r['신고일'] as String? ?? '',
       responseDate: r['답변일'] as String? ?? '',
       agency: agency,
-      agencyCode: r['처리기관코드'] as String? ?? '',
+      // NULL 보존: DB NULL 을 '' 로 바꾸면 다시 저장할 때 '' 가 된다(REVIEW2 중간-3).
+      agencyCode: r['처리기관코드'] as String?,
       manager: r['담당자'] as String? ?? '',
       status: r['처리상태'] as String? ?? '',
       result: r['상태'] as String? ?? '',

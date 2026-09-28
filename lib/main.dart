@@ -21,6 +21,7 @@ import 'models/report.dart';
 import 'providers/report_provider.dart';
 import 'providers/notification_history_provider.dart';
 import 'services/background_login_check.dart';
+import 'services/agency_registry.dart';
 import 'services/community_auth_link_channel.dart';
 import 'services/community_auth_service.dart';
 import 'services/local_db_service.dart';
@@ -63,6 +64,10 @@ Future<void> main() async {
   // 그렇지 않으면 재실행 때 기본 disconnected 상태를 보고 연결 화면을 다시 연다.
   final communityAuth = CommunityAuthService.instance;
   await communityAuth.load();
+  // 기관·지역 registry 스냅샷(통계·표시용 현행명). 실패해도 앱은 기존 normalize 로 동작한다.
+  try {
+    await AgencyRegistry.ensureLoaded();
+  } catch (_) {}
   // 커뮤니티 계정(Standalone) 로그인 복귀 링크 — SetupScreen·설정 등 어느 화면에서든 받도록 앱 시작 때 등록.
   // 게이트 중에도 수신한다(게이트가 끝나면 상태가 반영된다).
   CommunityAuthLinkChannel.start((link) async {

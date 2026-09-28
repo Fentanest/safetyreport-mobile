@@ -239,7 +239,7 @@ CREATE TABLE sync_meta (key TEXT PRIMARY KEY, value TEXT);
   - queued/pending/error 상태의 재시도는 지도 첫 진입뿐 아니라 `ReportProvider.refreshAll()`, setup import 적용 직후, standalone sync 완료 직후에도 자동으로 다시 건다.
 
 ### 주요 쿼리 함수
-- `computeSummary(excludeWithdraw, normalizePolice)` — 대시보드 요약
+- `computeSummary(excludeWithdraw)` — 대시보드 요약
 - `excludeWithdraw=true` 면 summary/원형 그래프 기준 `withdrawCount=0` 으로 내려간다. 실제 로컬 원본 취하 개수는 `withdrawRawCount` 로 별도 보존한다.
 - 최근 답변 정렬은 `synced_at DESC`, 동순위 `신고번호 DESC`
   - `synced_at` 없는 과거 row 는 `답변일 DESC`, `신고번호 DESC` fallback
@@ -463,3 +463,7 @@ PC 저장소 `scripts/debug/extractor.py`가 저장한 `testresults/*_api_raw.js
   바뀌었다(서버와 같은 규칙·같은 동점 정렬). 출력 행·breakdown에 `agency_key` 추가.
   원문 `처리기관`·`처리기관코드`는 덮어쓰지 않으며, 과거 신고는 조회 시 새 registry 로 다시
   계산된다(재크롤링 없음). DB 스키마 변경 없음(version 16 유지).
+
+## 2026-09-29 기관 표시 옵션 폐지
+
+Standalone은 저장된 `standaloneNormalizePolice`를 읽거나 적용하지 않는다. Client는 서버의 호환용 `normalize_police` 값을 무시한다. 기관코드 registry가 신고 표시와 통계의 현행명·통계 키를 항상 계산하며, 미확정 기관은 원문 이름을 유지한다. DB 원문 `처리기관`·`처리기관코드`는 바꾸지 않는다.

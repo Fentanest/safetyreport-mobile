@@ -299,7 +299,7 @@ class AgencyRegistrySnapshot {
         key: resolution['agency_stat_key'] as String,
       );
     }
-    // unresolved → 호출자가 normalize 한 표시를 넘긴다(키는 여기서 단다).
+    // unresolved → 호출자가 원문 표시와 src 키를 적용한다.
     return (display: trimmed, key: '');
   }
 }
@@ -358,7 +358,7 @@ class AgencyRegistry {
   static String? displayCurrentAgencyOrNull(String? code, String? name) =>
       _loaded?.displayCurrentAgency(code, name);
 
-  /// 동기 표시+키: 스냅샷 미로드면 null(호출자가 normalize+src 키로 폴백).
+  /// 동기 표시+키: 스냅샷 미로드면 null(호출자가 원문+src 키로 폴백).
   static ({String display, String key})? resolveKeyedAgencyOrNull(
     String? code,
     String? name,

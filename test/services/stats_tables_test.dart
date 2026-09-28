@@ -77,7 +77,7 @@ void main() {
       {'처리기관': 'A구청', '담당자': '김', '처리상태': '수용', '범칙금_과태료': '과태료: 40,000원'},
       {'처리기관': '', '담당자': '', '처리상태': '수용', '범칙금_과태료': '과태료: 20,000원'},
     ];
-    final category = LocalDbService.buildStatsCategory(rows, rows, false);
+    final category = LocalDbService.buildStatsCategory(rows, rows);
     final agency = (category['by_agency'] as List)
         .cast<Map<String, dynamic>>()
         .single;
@@ -88,7 +88,7 @@ void main() {
   });
 
   test('표는 답변 완료 신고만: 처리중·보완요청·취하는 기관·담당자가 있어도 넣지 않는다', () {
-    final result = LocalDbService.buildStatsCategory(_rows, _rows, false);
+    final result = LocalDbService.buildStatsCategory(_rows, _rows);
     final agency = {
       for (final r
           in (result['by_agency'] as List).cast<Map<String, dynamic>>())

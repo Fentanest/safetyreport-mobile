@@ -122,13 +122,27 @@ void main() {
     expect(snap.displayCurrentAgency(null, '어딘가구청'), isNull);
   });
 
+  test('client JSON reports display current name and preserve source code', () {
+    AgencyRegistry.testInject(_snapshot());
+    try {
+      final report = Report.fromJson({
+        'ID': 'r1', '신고번호': 'SPP-1',
+        '처리기관': '광주광역시경찰청', '처리기관코드': '1812314',
+      });
+      expect(report.agency, '광주경찰청');
+      expect(report.agencyCode, '1812314');
+    } finally {
+      AgencyRegistry.testInject(null);
+    }
+  });
+
   test('stats group old and new codes under the current name', () {    AgencyRegistry.testInject(_snapshot());
     try {
       final rows = [
         _row('c1', '광주광역시경찰청', '1812314'),
         _row('c2', '광주경찰청', '1815198'),
       ];
-      final got = LocalDbService.buildStatsCategory(rows, rows, true);
+      final got = LocalDbService.buildStatsCategory(rows, rows);
       final agencies = {
         for (final r in (got['by_agency'] as List)) (r['agency'] as String): r,
       };
@@ -150,7 +164,7 @@ void main() {
         _row('s1', '어딘가구청', '9999991'),
         _row('s2', '어딘가구청', '9999992'),
       ];
-      final got = LocalDbService.buildStatsCategory(rows, rows, true);
+      final got = LocalDbService.buildStatsCategory(rows, rows);
       final agencies = got['by_agency'] as List;
       expect(agencies.length, equals(2));
       expect(

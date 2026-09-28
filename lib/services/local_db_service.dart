@@ -22,14 +22,8 @@ import 'attachment_policy.dart';
 import 'photo_capture_time.dart';
 import 'standalone_parser.dart';
 
-/// 서버 _normalize_police_agency 동일: '경찰서' 이후 문자열 제거
-String normalizePoliceAgency(String agency) {
-  final idx = agency.indexOf('경찰서');
-  return idx != -1 ? agency.substring(0, idx + 3) : agency;
-}
-
 /// registry 현행 기관 표시(확인된 1:1 승계만). 스냅샷 미로드·미확정이면
-/// 기존 normalize 로 폴백한다 — PC `_apply_registry_agency_display` 와 같은 규칙.
+/// 원문으로 폴백한다 — PC `_apply_registry_agency_display` 와 같은 규칙.
 /// [code] 는 원문 기관코드(TEXT·nullable), [raw] 는 원문 기관명이다.
 String registryDisplayAgency(Object? code, String raw) {
   final trimmed = raw.trim();
@@ -38,10 +32,10 @@ String registryDisplayAgency(Object? code, String raw) {
     trimmed,
   );
   if (resolved != null && resolved.trim().isNotEmpty) return resolved;
-  return normalizePoliceAgency(trimmed);
+  return trimmed;
 }
 
-/// registry 현행 표시 + 통계 키. 스냅샷 미로드면 (normalize 표시, src 키)로
+/// registry 현행 표시 + 통계 키. 스냅샷 미로드면 (원문 표시, src 키)로
 /// 폴백한다 — PC `_apply_registry_agency_display` 와 같은 규칙(키 포함).
 /// 미확정도 항상 값을 낸다(호출자가 비어 제외 판단).
 ({String display, String key}) registryKeyedAgency(Object? code, String raw) {
@@ -50,8 +44,7 @@ String registryDisplayAgency(Object? code, String raw) {
   final c = (codeText == null || codeText.isEmpty) ? null : codeText;
   final keyed = AgencyRegistry.resolveKeyedAgencyOrNull(c, trimmed);
   if (keyed != null && keyed.key.isNotEmpty) return keyed;
-  final legacy = normalizePoliceAgency(trimmed);
-  return (display: legacy, key: 'src:${c ?? '-'}:$legacy');
+  return (display: trimmed, key: 'src:${c ?? '-'}:$trimmed');
 }
 
 /// 서버 DB 컬럼명(한국어)과 동일한 스키마 사용.
@@ -1613,7 +1606,6 @@ class LocalDbService {
   static Future<List<Report>> getReportsByCategory(
     String category, {
     bool excludeWithdraw = false,
-    bool normalizePolice = false,
     bool useRepresentativeRecords = false,
   }) async {
     final d = await db;
@@ -1632,14 +1624,11 @@ class LocalDbService {
       (left, right) =>
           _stringify(right['신고번호']).compareTo(_stringify(left['신고번호'])),
     );
-    return projected
-        .map((r) => _rowToReport(r, normalizePolice: normalizePolice))
-        .toList();
+    return projected.map((r) => _rowToReport(r)).toList();
   }
 
   static Future<List<Report>> getAllReports({
     bool excludeWithdraw = false,
-    bool normalizePolice = false,
     bool useRepresentativeRecords = false,
   }) async {
     final d = await db;
@@ -1656,9 +1645,7 @@ class LocalDbService {
       (left, right) =>
           _stringify(right['신고번호']).compareTo(_stringify(left['신고번호'])),
     );
-    return projected
-        .map((r) => _rowToReport(r, normalizePolice: normalizePolice))
-        .toList();
+    return projected.map((r) => _rowToReport(r)).toList();
   }
 
   /// 동기화 엔진이 다시 받을 신고를 고를 때 쓰는 사이트 원본 상태(수정값 제외, 필요한 열만 — M-17).
@@ -1748,7 +1735,6 @@ class LocalDbService {
 
   static Future<DashboardStats> computeSummary({
     bool excludeWithdraw = false,
-    bool normalizePolice = false,
     bool useRepresentativeRecords = false,
   }) async {
     final d = await db;
@@ -1858,13 +1844,8 @@ class LocalDbService {
       tPenaltyCount: tPenalty,
       tRejectCount: tReject,
       tUnconfirmedCount: tUnconfirmed,
-      recentAnswers: recentRows
-          .take(200)
-          .map((r) => _rowToReport(r, normalizePolice: normalizePolice))
-          .toList(),
-      watchlist: watchlistRows
-          .map((r) => _rowToReport(r, normalizePolice: normalizePolice))
-          .toList(),
+      recentAnswers: recentRows.take(200).map((r) => _rowToReport(r)).toList(),
+      watchlist: watchlistRows.map((r) => _rowToReport(r)).toList(),
       excludeWithdraw: excludeWithdraw,
     );
   }
@@ -1875,7 +1856,6 @@ class LocalDbService {
     String? year,
     String? law,
     bool excludeWithdraw = false,
-    bool normalizePolice = false,
     bool useRepresentativeRecords = false,
   }) async {
     final d = await db;
@@ -1902,7 +1882,7 @@ class LocalDbService {
             excludeWithdraw: excludeWithdraw,
             useRepresentativeRecords: useRepresentativeRecords,
           );
-    return _aggregateStats(rows, allRows, lawScopeRows, normalizePolice);
+    return _aggregateStats(rows, allRows, lawScopeRows);
   }
 
   /// 통계 요약 카드 + 월별 추이 (서버 `get_stats_overview` 와 같은 정의).
@@ -2143,7 +2123,6 @@ class LocalDbService {
     String? year,
     String category = 'all',
     bool excludeWithdraw = false,
-    bool normalizePolice = false,
     bool useRepresentativeRecords = false,
   }) async {
     final d = await db;
@@ -2194,7 +2173,6 @@ class LocalDbService {
         .map((row) {
           final raw = _stringify(row['처리기관']).trim();
           if (raw.isEmpty) return '';
-          if (!normalizePolice) return 'src:-:$raw';
           return registryKeyedAgency(row['처리기관코드'], raw).key;
         })
         .where((key) => key.isNotEmpty)
@@ -2248,14 +2226,12 @@ class LocalDbService {
         continue;
       }
       geocodedReports++;
-      if (normalizePolice) {
-        final keyed = registryKeyedAgency(
-          row['처리기관코드'],
-          _stringify(row['처리기관']),
-        );
-        row['처리기관'] = keyed.display;
-        row['_agency_key'] = keyed.key;
-      }
+      final keyed = registryKeyedAgency(
+        row['처리기관코드'],
+        _stringify(row['처리기관']),
+      );
+      row['처리기관'] = keyed.display;
+      row['_agency_key'] = keyed.key;
       row['위도'] = lat;
       row['경도'] = lng;
       row['주소정규화'] = normalizedAddress;
@@ -2288,7 +2264,7 @@ class LocalDbService {
         'total': total,
         'status_breakdown': _buildMapStatusBreakdown(group),
         'disposition_breakdown': _buildMapDispositionBreakdown(group),
-        'agency_breakdown': _buildMapAgencyBreakdown(group, normalizePolice),
+        'agency_breakdown': _buildMapAgencyBreakdown(group),
         'category_breakdown': [
           _buildMapRatioItem('교통위반', categoryCounts['traffic'] ?? 0, total),
           _buildMapRatioItem('주정차위반', categoryCounts['parking'] ?? 0, total),
@@ -2321,7 +2297,6 @@ class LocalDbService {
     String? year,
     String category = 'all',
     bool excludeWithdraw = false,
-    bool normalizePolice = false,
     bool useRepresentativeRecords = false,
   }) async {
     final d = await db;
@@ -2432,9 +2407,7 @@ class LocalDbService {
       });
 
       final first = groupRows.first;
-      final reports = groupRows
-          .map((row) => _rowToReport(row, normalizePolice: normalizePolice))
-          .toList();
+      final reports = groupRows.map((row) => _rowToReport(row)).toList();
       groups.add({
         'address': _stringify(first['위반장소']).trim().isNotEmpty
             ? _stringify(first['위반장소']).trim()
@@ -2613,7 +2586,6 @@ class LocalDbService {
 
   static List<Map<String, dynamic>> _buildMapAgencyBreakdown(
     List<Map<String, dynamic>> group,
-    bool normalizePolice,
   ) {
     final counts = <String, int>{};
     final labels = <String, String>{};
@@ -2627,16 +2599,10 @@ class LocalDbService {
       if (stored.isNotEmpty) {
         key = stored;
         display = raw;
-      } else if (normalizePolice) {
-        final keyed = registryKeyedAgency(
-          row['처리기관코드'],
-          raw,
-        );
+      } else {
+        final keyed = registryKeyedAgency(row['처리기관코드'], raw);
         key = keyed.key;
         display = keyed.display;
-      } else {
-        key = 'src:-:$raw';
-        display = raw;
       }
       counts[key] = (counts[key] ?? 0) + 1;
       labels.putIfAbsent(key, () => display);
@@ -2662,8 +2628,9 @@ class LocalDbService {
             if (c != 0) return c;
             c = (left['name'] as String).compareTo(right['name'] as String);
             if (c != 0) return c;
-            return (left['agency_key'] as String)
-                .compareTo(right['agency_key'] as String);
+            return (left['agency_key'] as String).compareTo(
+              right['agency_key'] as String,
+            );
           });
     return items;
   }
@@ -2683,7 +2650,6 @@ class LocalDbService {
     List<Map<String, dynamic>> rows,
     List<Map<String, dynamic>> allRows,
     List<Map<String, dynamic>> lawScopeRows,
-    bool normalizePolice,
   ) {
     final traffic = rows.where((r) => r['category'] == 'traffic').toList();
     final parking = rows.where((r) => r['category'] == 'parking').toList();
@@ -2707,17 +2673,14 @@ class LocalDbService {
       'traffic': buildStatsCategory(
         traffic,
         lawScopeRows.where((r) => r['category'] == 'traffic').toList(),
-        normalizePolice,
       ),
       'parking': buildStatsCategory(
         parking,
         lawScopeRows.where((r) => r['category'] == 'parking').toList(),
-        normalizePolice,
       ),
       'other': buildStatsCategory(
         other,
         lawScopeRows.where((r) => r['category'] == 'other').toList(),
-        normalizePolice,
       ),
       'available_years': years,
     };
@@ -2730,15 +2693,12 @@ class LocalDbService {
   static Map<String, dynamic> buildStatsCategory(
     List<Map<String, dynamic>> rows,
     List<Map<String, dynamic>> lawScopeCatRows,
-    bool normalizePolice,
   ) {
-    // 경찰기관 정규화: 집계 키 단계에서 처리해 같은 기관으로 통합.
+    // 기관코드 registry 키로 같은 기관을 통합.
     // registry 가 로드됐으면 확인된 코드의 현행명·통계 키로 묶는다
     // (서버 `_build_stats_tables` 와 같음 — 묶음 기준은 이름이 아니라 agency_stat_key).
-    // normalize OFF 면 원문 표시 그대로 묶는 src 키(서버와 같음).
     ({String display, String key}) agencyKeyed(Object? code, String raw) {
       final t = raw.trim();
-      if (!normalizePolice) return (display: t, key: 'src:-:$t');
       return registryKeyedAgency(code, t);
     }
 
@@ -2754,12 +2714,12 @@ class LocalDbService {
         .toList(growable: false);
     final agencyAgg = <String, _AgencyAgg>{};
     for (final r in answered) {
-      final keyed = agencyKeyed(
-        r['처리기관코드'],
-        (r['처리기관'] as String? ?? ''),
-      );
+      final keyed = agencyKeyed(r['처리기관코드'], (r['처리기관'] as String? ?? ''));
       if (keyed.display.isEmpty) continue;
-      agencyAgg.putIfAbsent(keyed.key, () => _AgencyAgg(keyed.display, '', keyed.key));
+      agencyAgg.putIfAbsent(
+        keyed.key,
+        () => _AgencyAgg(keyed.display, '', keyed.key),
+      );
       agencyAgg[keyed.key]!.add(r);
     }
 
@@ -2774,10 +2734,7 @@ class LocalDbService {
 
     final personAgg = <String, _AgencyAgg>{};
     for (final r in answered) {
-      final keyed = agencyKeyed(
-        r['처리기관코드'],
-        (r['처리기관'] as String? ?? ''),
-      );
+      final keyed = agencyKeyed(r['처리기관코드'], (r['처리기관'] as String? ?? ''));
       final manager = (r['담당자'] as String? ?? '').trim();
       if (keyed.display.isEmpty || _unassignedPersonValues.contains(manager)) {
         continue;
@@ -2872,7 +2829,6 @@ class LocalDbService {
   /// excludeWithdraw 적용 후 단 1건만 남는 차량은 '중복' 의미가 없어 제외.
   static Future<List<Report>> getDuplicateVehicleReports({
     bool excludeWithdraw = false,
-    bool normalizePolice = false,
   }) async {
     final d = await db;
     final withdrawFilter = excludeWithdraw
@@ -2910,17 +2866,12 @@ class LocalDbService {
       if (page.length < _kListChunkSize) break;
       offset += _kListChunkSize;
     }
-    return rows
-        .map((r) => _rowToReportWithCounts(r, normalizePolice: normalizePolice))
-        .toList();
+    return rows.map((r) => _rowToReportWithCounts(r)).toList();
   }
 
-  static Report _rowToReportWithCounts(
-    Map<String, dynamic> r, {
-    bool normalizePolice = false,
-  }) {
+  static Report _rowToReportWithCounts(Map<String, dynamic> r) {
     // 같은 변환 두 벌을 하나로(M-30): 기본 변환 + 중복 건수만 덧붙인다.
-    return _rowToReport(r, normalizePolice: normalizePolice).copyWith(
+    return _rowToReport(r).copyWith(
       totalCount: (r['total_count'] as num?)?.toInt() ?? 0,
       validCount: (r['valid_count'] as num?)?.toInt() ?? 0,
     );
@@ -2980,7 +2931,6 @@ class LocalDbService {
 
   static Future<List<Report>> getWatchlistReports({
     bool excludeWithdraw = false,
-    bool normalizePolice = false,
     bool useRepresentativeRecords = false,
   }) async {
     final numbers = await getWatchlistNumbers();
@@ -3003,9 +2953,7 @@ class LocalDbService {
       (left, right) =>
           _stringify(right['신고번호']).compareTo(_stringify(left['신고번호'])),
     );
-    return projected
-        .map((r) => _rowToReport(r, normalizePolice: normalizePolice))
-        .toList();
+    return projected.map((r) => _rowToReport(r)).toList();
   }
 
   // ── 검색 ─────────────────────────────────────────────────────────────────
@@ -3013,7 +2961,6 @@ class LocalDbService {
   static Future<List<Report>> searchReports(
     String query, {
     bool excludeWithdraw = false,
-    bool normalizePolice = false,
     bool useRepresentativeRecords = false,
   }) async {
     final d = await db;
@@ -3039,9 +2986,7 @@ class LocalDbService {
       (left, right) =>
           _stringify(right['신고번호']).compareTo(_stringify(left['신고번호'])),
     );
-    return projected
-        .map((r) => _rowToReport(r, normalizePolice: normalizePolice))
-        .toList();
+    return projected.map((r) => _rowToReport(r)).toList();
   }
 
   /// 전체 재동기화에서 사이트 목록에 없는 신고를 정리한다. 수정값도 함께 지운다(신고가 사라졌으므로).
@@ -4034,14 +3979,11 @@ class LocalDbService {
 
   // ── 내부 변환 ─────────────────────────────────────────────────────────────
 
-  static Report _rowToReport(
-    Map<String, dynamic> r, {
-    bool normalizePolice = false,
-  }) {
-    var agency = r['처리기관'] as String? ?? '';
-    if (normalizePolice) {
-      agency = registryDisplayAgency(r['처리기관코드'], agency);
-    }
+  static Report _rowToReport(Map<String, dynamic> r) {
+    final agency = registryDisplayAgency(
+      r['처리기관코드'],
+      r['처리기관'] as String? ?? '',
+    );
     return Report(
       id: r['ID'] as String? ?? '',
       reportNumber: r['신고번호'] as String? ?? '',

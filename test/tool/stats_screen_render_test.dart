@@ -34,7 +34,6 @@ class _RenderProvider extends ReportProvider {
   @override
   bool get excludeWithdraw => true;
   @override
-  bool get normalizePolice => true;
   @override
   bool get useRepresentativeRecords => true;
 }

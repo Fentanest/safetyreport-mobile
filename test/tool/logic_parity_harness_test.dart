@@ -51,14 +51,10 @@ void main() {
               'tRejectCount': s.tRejectCount,
               'tUnconfirmedCount': s.tUnconfirmedCount,
             };
-            for (final np in [false, true]) {
-              out['stats|ew=$ew|rep=$rep|np=$np'] =
-                  await LocalDbService.computeStats(
-                    excludeWithdraw: ew,
-                    useRepresentativeRecords: rep,
-                    normalizePolice: np,
-                  );
-            }
+            out['stats|ew=$ew|rep=$rep'] = await LocalDbService.computeStats(
+              excludeWithdraw: ew,
+              useRepresentativeRecords: rep,
+            );
             out['overview|ew=$ew|rep=$rep'] =
                 await LocalDbService.computeStatsOverview(
                   excludeWithdraw: ew,

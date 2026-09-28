@@ -10,6 +10,13 @@
 
 ## 2026-09-29 (dev 미배포)
 
+### 경찰기관명 정규화 옵션 폐지
+
+- 설정 토글과 Provider·로컬 DB·지도·파일·감시목록의 옵션 전달을 제거했다. 기관코드 registry를 항상 사용하며 미확정 기관명은 원문 그대로 표시한다. 예전 Standalone 저장 키와 Client 서버 응답의 호환 필드는 무시한다.
+- 서버와 공유하는 parity 하네스에서 정규화 옵션 축을 제거했다.
+
+
+
 ### 기관코드 전체자료 대조: registry 2026-09-29.1과 통계 키 전환
 
 - 공통 자료 `shared/agency-region-registry`(registry `2026-09-29.1`, 스키마 v2: 현존 색인·폐지 전달·경계 링크·기관 ID 맵)를 PC와 같은 바이트로 받아 asset 으로 번들한다(pubspec에 index/legacy/institutions 추가, vectors·provenance·data-sources는 제외).

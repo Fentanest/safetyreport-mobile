@@ -8,6 +8,17 @@
 
 ---
 
+## 2026-09-29 (dev 미배포)
+
+### 기관코드 전체자료 대조: registry 2026-09-29.1과 통계 키 전환
+
+- 공통 자료 `shared/agency-region-registry`(registry `2026-09-29.1`, 스키마 v2: 현존 색인·폐지 전달·경계 링크·기관 ID 맵)를 PC와 같은 바이트로 받아 asset 으로 번들한다(pubspec에 index/legacy/institutions 추가, vectors·provenance·data-sources는 제외).
+- 통계(기관·담당자 표, 지도 브레이크다운·기관수)의 묶음 기준을 표시 이름에서 `agency_stat_key` 로 바꿨다(서버와 같은 규칙·같은 정렬). 출력 행·breakdown 항목에 `agency_key` 를 추가한다. 원문 `처리기관` 은 덮어쓰지 않는다. 과거 신고는 조회 시 새 registry 로 다시 계산된다(재크롤링 없음).
+- `lib/services/agency_registry.dart` 벤더 리졸버를 새 포트에 맞게 갱신하고, parity 하네스가 asset 번들 registry 를 로드하도록 했다(`AgencyRegistry.ensureLoaded`).
+- 검증: `flutter test` 802건 통과(skip 14, 골든 자동 skip 포함), 공용 벡터 25건·벤더 parity 통과, 서버 `logic_parity_check` 48조합 diff 0.
+
+---
+
 ## 2026-09-28 (dev 미배포)
 
 ### 커뮤니티 공유: 답변 완료만, 계정별 기여, 원문 기관코드, 숫자 별점 (observation-v4)

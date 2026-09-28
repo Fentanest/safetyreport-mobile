@@ -25,7 +25,16 @@ const _links = [
 
 AgencyRegistrySnapshot _snapshot() => AgencyRegistrySnapshot(
   links: _links,
-  events: const [],
+  index: {
+    '1812314': ['광주광역시경찰청', '1812314', null, null],
+    '1815198': ['광주경찰청', '1815198', null, null],
+  },
+  forward: const {},
+  multi: const {},
+  institutions: {
+    '1812314': 'ag-gwangju-police-hq',
+    '1815198': 'ag-gwangju-police-hq',
+  },
   registryVersion: '2026-09-28.1-test',
   asOfDate: '2026-09-28',
 );
@@ -52,6 +61,18 @@ void main() {
     expect(
       pubspec,
       contains('shared/agency-region-registry/data/agency_links.json'),
+    );
+    expect(
+      pubspec,
+      contains('shared/agency-region-registry/data/agency_index.json'),
+    );
+    expect(
+      pubspec,
+      contains('shared/agency-region-registry/data/agency_legacy.json'),
+    );
+    expect(
+      pubspec,
+      contains('shared/agency-region-registry/data/agency_institutions.json'),
     );
     expect(
       pubspec,
@@ -113,6 +134,29 @@ void main() {
       };
       expect(agencies.keys, equals({'광주경찰청'}));
       expect(agencies['광주경찰청']!['total'], equals(2));
+      expect(
+        agencies['광주경찰청']!['agency_key'],
+        equals('inst:ag-gwangju-police-hq'),
+      );
+    } finally {
+      AgencyRegistry.testInject(null);
+    }
+  });
+
+  test('stats split the same display with different codes (stat keys)', () {
+    AgencyRegistry.testInject(_snapshot());
+    try {
+      final rows = [
+        _row('s1', '어딘가구청', '9999991'),
+        _row('s2', '어딘가구청', '9999992'),
+      ];
+      final got = LocalDbService.buildStatsCategory(rows, rows, true);
+      final agencies = got['by_agency'] as List;
+      expect(agencies.length, equals(2));
+      expect(
+        {for (final r in agencies) r['agency_key']},
+        equals({'src:9999991:어딘가구청', 'src:9999992:어딘가구청'}),
+      );
     } finally {
       AgencyRegistry.testInject(null);
     }
@@ -145,28 +189,39 @@ void main() {
   test('vendored resolver matches the shared port on all agency vectors', () {
     // lib/ 는 shared/ 를 import 할 수 없어 동결 복사본을 쓴다.
     // 정본이 바뀌면 이 테스트가 깨져 복사본 갱신을 강제한다.
-    final manifest =
-        jsonDecode(File('shared/agency-region-registry/manifest.json').readAsStringSync())
-            as Map<String, dynamic>;
+    Map<String, dynamic> load(String name) => jsonDecode(
+      File('shared/agency-region-registry/$name').readAsStringSync(),
+    );
+    final manifest = load('manifest.json') as Map<String, dynamic>;
     final links =
-        (jsonDecode(
-              File(
-                'shared/agency-region-registry/data/agency_links.json',
-              ).readAsStringSync(),
-            )
-            as Map<String, dynamic>)['links'] as List;
+        (load('data/agency_links.json')['links'] as List);
+    final rows = (load('data/agency_index.json')['rows'] as List);
+    final index = <String, dynamic>{
+      for (final r in rows) (r as List).first as String: (r as List).sublist(1),
+    };
+    final legacy = load('data/agency_legacy.json') as Map<String, dynamic>;
+    final institutions =
+        (load('data/agency_institutions.json')['institutions'] as Map)
+            .cast<String, dynamic>();
     final version = manifest['registry_version'] as String;
     final asOf = manifest['as_of_date'] as String;
     final cases =
-        (jsonDecode(
-              File(
-                'shared/agency-region-registry/vectors/resolve_cases.json',
-              ).readAsStringSync(),
-            )
-            as Map<String, dynamic>)['cases'] as List;
+        (load('vectors/resolve_cases.json')['cases'] as List);
     final vendored = AgencyRegistrySnapshot(
       links: links,
-      events: const [],
+      index: index,
+      forward: (legacy['forward'] as Map).cast<String, dynamic>(),
+      multi: (legacy['multi'] as Map).cast<String, dynamic>(),
+      institutions: institutions,
+      registryVersion: version,
+      asOfDate: asOf,
+    );
+    final shared = shared_resolve.AgencySnapshot(
+      links: links,
+      index: index,
+      forward: (legacy['forward'] as Map).cast<String, dynamic>(),
+      multi: (legacy['multi'] as Map).cast<String, dynamic>(),
+      institutions: institutions,
       registryVersion: version,
       asOfDate: asOf,
     );
@@ -175,28 +230,18 @@ void main() {
       if (c['kind'] != 'agency') continue;
       agencyCases++;
       final input = Map<String, dynamic>.from(c['input'] as Map);
-      final expected = shared_resolve.resolveAgency(
+      final want = shared_resolve.resolveAgency(
         input['code'] as String?,
         input['name'] as String?,
-        asOf,
-        links,
-        version,
+        input['answered_at'] as String?,
+        shared,
       );
-      final wantDisplay = shared_resolve.displayAgency(
+      final got = vendored.resolveForTest(
+        input['code'] as String?,
         input['name'] as String?,
-        expected,
+        input['answered_at'] as String?,
       );
-      final wantCurrent = expected['resolution_status'] == 'resolved'
-          ? wantDisplay
-          : null;
-      expect(
-        vendored.displayCurrentAgency(
-          input['code'] as String?,
-          input['name'] as String?,
-        ),
-        equals(wantCurrent),
-        reason: '${c['name']}',
-      );
+      expect(got, equals(want), reason: '${c['name']}');
     }
     expect(agencyCases, greaterThan(0));
   });

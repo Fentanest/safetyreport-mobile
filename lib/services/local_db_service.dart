@@ -41,6 +41,19 @@ String registryDisplayAgency(Object? code, String raw) {
   return normalizePoliceAgency(trimmed);
 }
 
+/// registry 현행 표시 + 통계 키. 스냅샷 미로드면 (normalize 표시, src 키)로
+/// 폴백한다 — PC `_apply_registry_agency_display` 와 같은 규칙(키 포함).
+/// 미확정도 항상 값을 낸다(호출자가 비어 제외 판단).
+({String display, String key}) registryKeyedAgency(Object? code, String raw) {
+  final trimmed = raw.trim();
+  final codeText = code?.toString().trim();
+  final c = (codeText == null || codeText.isEmpty) ? null : codeText;
+  final keyed = AgencyRegistry.resolveKeyedAgencyOrNull(c, trimmed);
+  if (keyed != null && keyed.key.isNotEmpty) return keyed;
+  final legacy = normalizePoliceAgency(trimmed);
+  return (display: legacy, key: 'src:${c ?? '-'}:$legacy');
+}
+
 /// 서버 DB 컬럼명(한국어)과 동일한 스키마 사용.
 /// mobile-only 추가 컬럼: category, entry_value, synced_at
 /// raw payload 는 report_raw 사이드카 테이블에 저장한다.
@@ -2181,9 +2194,10 @@ class LocalDbService {
         .map((row) {
           final raw = _stringify(row['처리기관']).trim();
           if (raw.isEmpty) return '';
-          return normalizePolice ? registryDisplayAgency(row['처리기관코드'], raw) : raw;
+          if (!normalizePolice) return 'src:-:$raw';
+          return registryKeyedAgency(row['처리기관코드'], raw).key;
         })
-        .where((name) => name.isNotEmpty)
+        .where((key) => key.isNotEmpty)
         .toSet()
         .length;
 
@@ -2235,10 +2249,12 @@ class LocalDbService {
       }
       geocodedReports++;
       if (normalizePolice) {
-        row['처리기관'] = registryDisplayAgency(
+        final keyed = registryKeyedAgency(
           row['처리기관코드'],
           _stringify(row['처리기관']),
         );
+        row['처리기관'] = keyed.display;
+        row['_agency_key'] = keyed.key;
       }
       row['위도'] = lat;
       row['경도'] = lng;
@@ -2272,7 +2288,7 @@ class LocalDbService {
         'total': total,
         'status_breakdown': _buildMapStatusBreakdown(group),
         'disposition_breakdown': _buildMapDispositionBreakdown(group),
-        'agency_breakdown': _buildMapAgencyBreakdown(group),
+        'agency_breakdown': _buildMapAgencyBreakdown(group, normalizePolice),
         'category_breakdown': [
           _buildMapRatioItem('교통위반', categoryCounts['traffic'] ?? 0, total),
           _buildMapRatioItem('주정차위반', categoryCounts['parking'] ?? 0, total),
@@ -2597,19 +2613,41 @@ class LocalDbService {
 
   static List<Map<String, dynamic>> _buildMapAgencyBreakdown(
     List<Map<String, dynamic>> group,
+    bool normalizePolice,
   ) {
     final counts = <String, int>{};
+    final labels = <String, String>{};
     for (final row in group) {
-      final name = _stringify(row['처리기관']).trim();
-      if (name.isEmpty) continue;
-      counts[name] = (counts[name] ?? 0) + 1;
+      final raw = _stringify(row['처리기관']).trim();
+      if (raw.isEmpty) continue;
+      // 표시 변환된 행이면 _agency_key 를 쓰고, 아니면 그 자리에서 계산한다.
+      final stored = _stringify(row['_agency_key']);
+      final String key;
+      final String display;
+      if (stored.isNotEmpty) {
+        key = stored;
+        display = raw;
+      } else if (normalizePolice) {
+        final keyed = registryKeyedAgency(
+          row['처리기관코드'],
+          raw,
+        );
+        key = keyed.key;
+        display = keyed.display;
+      } else {
+        key = 'src:-:$raw';
+        display = raw;
+      }
+      counts[key] = (counts[key] ?? 0) + 1;
+      labels.putIfAbsent(key, () => display);
     }
     final total = group.length;
     final items =
         counts.entries
             .map(
               (entry) => {
-                'name': entry.key,
+                'name': labels[entry.key] ?? entry.key,
+                'agency_key': entry.key,
                 'count': entry.value,
                 'pct': total > 0
                     ? double.parse(
@@ -2619,10 +2657,14 @@ class LocalDbService {
               },
             )
             .toList()
-          ..sort(
-            (left, right) =>
-                (right['count'] as int).compareTo(left['count'] as int),
-          );
+          ..sort((left, right) {
+            var c = (right['count'] as int).compareTo(left['count'] as int);
+            if (c != 0) return c;
+            c = (left['name'] as String).compareTo(right['name'] as String);
+            if (c != 0) return c;
+            return (left['agency_key'] as String)
+                .compareTo(right['agency_key'] as String);
+          });
     return items;
   }
 
@@ -2690,12 +2732,14 @@ class LocalDbService {
     List<Map<String, dynamic>> lawScopeCatRows,
     bool normalizePolice,
   ) {
-    // 경찰기관 정규화: 집계 키 단계에서 처리해 같은 경찰서로 통합.
-    // registry 가 로드됐으면 확인된 승계의 현행명으로 묶는다(서버 `_build_stats_tables` 와 같음).
-    String agencyKey(Object? code, String raw) {
+    // 경찰기관 정규화: 집계 키 단계에서 처리해 같은 기관으로 통합.
+    // registry 가 로드됐으면 확인된 코드의 현행명·통계 키로 묶는다
+    // (서버 `_build_stats_tables` 와 같음 — 묶음 기준은 이름이 아니라 agency_stat_key).
+    // normalize OFF 면 원문 표시 그대로 묶는 src 키(서버와 같음).
+    ({String display, String key}) agencyKeyed(Object? code, String raw) {
       final t = raw.trim();
-      if (!normalizePolice) return t;
-      return registryDisplayAgency(code, t);
+      if (!normalizePolice) return (display: t, key: 'src:-:$t');
+      return registryKeyedAgency(code, t);
     }
 
     // S-10: 표 포함 여부는 처리상태가 아니라 기관·담당자 값으로 정한다(서버 `_build_stats_tables` 와 동일).
@@ -2710,33 +2754,52 @@ class LocalDbService {
         .toList(growable: false);
     final agencyAgg = <String, _AgencyAgg>{};
     for (final r in answered) {
-      final key = agencyKey(
+      final keyed = agencyKeyed(
         r['처리기관코드'],
         (r['처리기관'] as String? ?? ''),
       );
-      if (key.isEmpty) continue;
-      agencyAgg.putIfAbsent(key, () => _AgencyAgg(key, ''));
-      agencyAgg[key]!.add(r);
+      if (keyed.display.isEmpty) continue;
+      agencyAgg.putIfAbsent(keyed.key, () => _AgencyAgg(keyed.display, '', keyed.key));
+      agencyAgg[keyed.key]!.add(r);
     }
 
     final allAgency = agencyAgg.values.map((a) => a.toJson()).toList()
-      ..sort((a, b) => (b['total'] as int).compareTo(a['total'] as int));
+      ..sort((a, b) {
+        var c = (b['total'] as int).compareTo(a['total'] as int);
+        if (c != 0) return c;
+        c = (a['agency'] as String).compareTo(b['agency'] as String);
+        if (c != 0) return c;
+        return (a['agency_key'] as String).compareTo(b['agency_key'] as String);
+      });
 
     final personAgg = <String, _AgencyAgg>{};
     for (final r in answered) {
-      final agency = agencyKey(
+      final keyed = agencyKeyed(
         r['처리기관코드'],
         (r['처리기관'] as String? ?? ''),
       );
       final manager = (r['담당자'] as String? ?? '').trim();
-      if (agency.isEmpty || _unassignedPersonValues.contains(manager)) continue;
-      final key = '$agency\t$manager';
-      personAgg.putIfAbsent(key, () => _AgencyAgg(agency, manager));
+      if (keyed.display.isEmpty || _unassignedPersonValues.contains(manager)) {
+        continue;
+      }
+      final key = '${keyed.key}\t$manager';
+      personAgg.putIfAbsent(
+        key,
+        () => _AgencyAgg(keyed.display, manager, keyed.key),
+      );
       personAgg[key]!.add(r);
     }
 
     final allPerson = personAgg.values.map((a) => a.toJson()).toList()
-      ..sort((a, b) => (b['total'] as int).compareTo(a['total'] as int));
+      ..sort((a, b) {
+        var c = (b['total'] as int).compareTo(a['total'] as int);
+        if (c != 0) return c;
+        c = (a['agency'] as String).compareTo(b['agency'] as String);
+        if (c != 0) return c;
+        c = (a['person'] as String).compareTo(b['person'] as String);
+        if (c != 0) return c;
+        return (a['agency_key'] as String).compareTo(b['agency_key'] as String);
+      });
 
     final policeAgency = allAgency
         .where((r) => (r['agency'] as String).contains('경찰'))
@@ -4025,6 +4088,7 @@ class LocalDbService {
 class _AgencyAgg {
   final String name;
   final String person;
+  final String agencyKey;
   int total = 0, fines = 0, warn = 0, reject = 0, unconfirmed = 0;
 
   /// S-10: 완료도 취하도 아닌 상태(처리중·진행·검토중·보완요청·이송·빈 값 등). 미분류와 따로 센다.
@@ -4042,7 +4106,7 @@ class _AgencyAgg {
   final List<int> responseDays = [];
   final List<int> ratings = []; // 1~5 별점 표본
 
-  _AgencyAgg(this.name, this.person);
+  _AgencyAgg(this.name, this.person, [this.agencyKey = '']);
 
   void add(Map<String, dynamic> r) {
     total++;
@@ -4132,6 +4196,7 @@ class _AgencyAgg {
           );
     return {
       'agency': name,
+      'agency_key': agencyKey,
       'person': person,
       'total': total,
       'fines': fines,

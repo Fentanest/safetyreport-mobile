@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:safetyreport/services/agency_registry.dart';
 import 'package:safetyreport/services/local_db_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -22,6 +23,8 @@ void main() {
       final dir = Directory.systemTemp.createTempSync('sr_logic_parity_');
       await databaseFactory.setDatabasesPath(dir.path);
       SharedPreferences.setMockInitialValues({});
+      // 서버와 같은 registry 바이트로 계산해야 parity 가 유효하다(asset 번들).
+      await AgencyRegistry.ensureLoaded();
       File(
         env['SR_LP_MOBILE_DB']!,
       ).copySync('${dir.path}/standalone_reports.db');

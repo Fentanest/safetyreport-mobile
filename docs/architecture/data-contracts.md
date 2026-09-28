@@ -454,3 +454,12 @@ PC 저장소 `scripts/debug/extractor.py`가 저장한 `testresults/*_api_raw.js
 - `주소정규화`는 공식 주소의 공백 정리값, `행정구역`은 빈 문자열, `지오코딩상태`는 좌표가 있으면 `ok`, 주소만 있으면 `not_found`다. 이 열 이름은 서버와 DB를 교환하기 위해 유지한다.
 - 재동기화는 같은 주소여도 좌표를 덮어쓴다. 사용자가 고친 표시 주소는 공식 좌표를 바꾸지 않는다. Client·Standalone 지도는 저장된 좌표를 읽고, 커뮤니티 공유는 저장 전 공식 상세 응답 좌표를 읽는다.
 - 커뮤니티 wire `location.source="geocode"`는 기존 입력 계약의 좌표 있음 표시값이다. 보완으로 바뀐 좌표는 재동기화할 때 새 `completed_observation`으로 전달된다. 카카오 REST 주소 변환 키는 필요하지 않다.
+
+## registry 2026-09-29.1과 통계 키 전환 (2026-09-29)
+
+- `shared/agency-region-registry`(스키마 v2, PC·지도와 바이트 동일)를 asset 으로 번들한다:
+  manifest·links·index·legacy·institutions·region_events(vectors·provenance·data-sources 제외).
+- 통계(기관·담당자 표, 지도 브레이크다운·기관수)의 묶음 기준이 표시 이름에서 `agency_stat_key` 로
+  바뀌었다(서버와 같은 규칙·같은 동점 정렬). 출력 행·breakdown에 `agency_key` 추가.
+  원문 `처리기관`·`처리기관코드`는 덮어쓰지 않으며, 과거 신고는 조회 시 새 registry 로 다시
+  계산된다(재크롤링 없음). DB 스키마 변경 없음(version 16 유지).

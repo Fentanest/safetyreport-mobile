@@ -15,13 +15,31 @@ void main() {
   final registryVersion = manifest['registry_version'] as String;
   final links =
       (_load('data/agency_links.json')['links'] as List).cast<Map<String, dynamic>>();
+  final rows = (_load('data/agency_index.json')['rows'] as List);
+  final index = <String, dynamic>{
+    for (final r in rows) (r as List).first as String: (r as List).sublist(1),
+  };
+  final legacy =
+      _load('data/agency_legacy.json') as Map<String, dynamic>;
+  final institutions =
+      (_load('data/agency_institutions.json')['institutions'] as Map)
+          .cast<String, dynamic>();
+  final snap = AgencySnapshot(
+    links: links,
+    index: index,
+    forward: (legacy['forward'] as Map).cast<String, dynamic>(),
+    multi: (legacy['multi'] as Map).cast<String, dynamic>(),
+    institutions: institutions,
+    registryVersion: registryVersion,
+    asOfDate: manifest['as_of_date'] as String?,
+  );
   final events =
       (_load('data/region_events.json')['events'] as List).cast<Map<String, dynamic>>();
   final cases =
       (_load('vectors/resolve_cases.json')['cases'] as List).cast<Map<String, dynamic>>();
 
   test('registry version matches the snapshot', () {
-    expect(registryVersion, equals('2026-09-28.1'));
+    expect(registryVersion, equals('2026-09-29.1'));
   });
 
   for (final c in cases) {
@@ -33,8 +51,7 @@ void main() {
           input['code'] as String?,
           input['name'] as String?,
           input['answered_at'] as String?,
-          links,
-          registryVersion,
+          snap,
         );
       } else {
         got = resolveRegionGap(
@@ -56,8 +73,7 @@ void main() {
       '9999999',
       '어딘가구청',
       '2026-09-01',
-      links,
-      registryVersion,
+      snap,
     );
     expect(displayAgency('어딘가구청', agency), equals('어딘가구청'));
     final region = resolveRegionGap(

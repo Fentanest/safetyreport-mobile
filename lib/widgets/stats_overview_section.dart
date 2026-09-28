@@ -648,8 +648,7 @@ class StatsDisposition {
     StatsDisposition('fines', '과태료', serverTrafficFineColor),
     StatsDisposition('warnings', '경고/범칙금', serverTrafficPenaltyColor),
     StatsDisposition('rejects', '불수용/기타', serverRejectColor),
-    StatsDisposition('in_progress', '처리중', serverProcessingColor),
-    StatsDisposition('disposition_unknown', '처분 미확인', serverUnconfirmedColor),
+    StatsDisposition('disposition_unknown', '과태료 미확인', serverUnconfirmedColor),
     StatsDisposition('no_penalty', '처분 대상 아님', serverWithdrawColor),
     StatsDisposition('unclassified', '기타·미분류', serverUnconfirmedColor),
   ];
@@ -800,15 +799,15 @@ class _DispositionCard extends StatelessWidget {
       'fines': d.fines,
       'warnings': d.warnings,
       'rejects': d.rejects,
-      'in_progress': d.inProgress,
       'disposition_unknown': d.dispositionUnknown,
       'no_penalty': d.noPenalty,
       'unclassified': d.unclassified,
     };
-    final total = summary.total;
+    // 처리중(답변 전)은 처분이 없으니 빼고 답변된 신고를 분모로 한다(2026-09-28, PC 와 같음).
+    final total = math.max(0, summary.total - d.inProgress);
     return _ChartCard(
       title: '처분 분포',
-      subtitle: '신고 ${_comma(total)}건 기준',
+      subtitle: '답변된 신고 ${_comma(total)}건 기준',
       children: [
         for (final item in StatsDisposition.all)
           _HBar(
@@ -820,9 +819,12 @@ class _DispositionCard extends StatelessWidget {
           ),
         const SizedBox(height: 4),
         Text(
-          d.overlap > 0
-              ? '과태료·경고/범칙금·불수용이 함께 적힌 신고 ${_comma(d.overlap)}건은 두 항목에 모두 세어, 항목 합이 총 건수보다 많습니다.'
-              : '일곱 항목은 서로 겹치지 않으며 합계가 총 건수와 같습니다.',
+          [
+            if (d.inProgress > 0) '처리 중(답변 전) ${_comma(d.inProgress)}건은 처분이 없어 뺐습니다.',
+            d.overlap > 0
+                ? '과태료·경고/범칙금·불수용이 함께 적힌 신고 ${_comma(d.overlap)}건은 두 항목에 모두 세어, 항목 합이 기준 건수보다 많습니다.'
+                : '여섯 항목은 서로 겹치지 않으며 합계가 기준 건수와 같습니다.',
+          ].join(' '),
           style: TextStyle(fontSize: 11, color: sr.textSecondary, height: 1.4),
         ),
       ],

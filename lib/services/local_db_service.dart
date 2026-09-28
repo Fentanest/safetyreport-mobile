@@ -2677,8 +2677,16 @@ class LocalDbService {
 
     // S-10: 표 포함 여부는 처리상태가 아니라 기관·담당자 값으로 정한다(서버 `_build_stats_tables` 와 동일).
     // 배정된 처리중 신고도 들어가고 `in_progress` 로 따로 센다. 기관이 비면 어느 표에도 넣지 않는다.
+    // 2026-09-28 사용자 결정(S-10 대체): 표는 답변 완료 신고만(처리중·보완요청·이송·취하 제외). 서버 `_build_stats_tables` 와 같음.
+    final answered = rows
+        .where(
+          (r) => _overviewCompletedStatuses.contains(
+            (r['처리상태'] as String? ?? '').trim(),
+          ),
+        )
+        .toList(growable: false);
     final agencyAgg = <String, _AgencyAgg>{};
-    for (final r in rows) {
+    for (final r in answered) {
       final key = agencyKey((r['처리기관'] as String? ?? ''));
       if (key.isEmpty) continue;
       agencyAgg.putIfAbsent(key, () => _AgencyAgg(key, ''));
@@ -2689,7 +2697,7 @@ class LocalDbService {
       ..sort((a, b) => (b['total'] as int).compareTo(a['total'] as int));
 
     final personAgg = <String, _AgencyAgg>{};
-    for (final r in rows) {
+    for (final r in answered) {
       final agency = agencyKey((r['처리기관'] as String? ?? ''));
       final manager = (r['담당자'] as String? ?? '').trim();
       if (agency.isEmpty || _unassignedPersonValues.contains(manager)) continue;
@@ -4031,7 +4039,16 @@ class _AgencyAgg {
             entry.contains('불법주정차신고') ||
             entry.contains('쓰레기, 폐기물');
 
-        final isUnknown = fine.trim() == '미확인';
+        // 과태료 미확인(2026-09-28 이름 변경): '미확인' 이거나, 저장된 주정차·버스전용차로·쓰레기 메뉴의 일부수용 + 처분 없음.
+        // 서버 `_stats_row_disposition_counts` 와 같은 규칙.
+        final partialMenu =
+            category == 'parking' ||
+            entry.contains('불법주정차신고') ||
+            entry.contains('버스전용차로 위반') ||
+            entry.contains('쓰레기, 폐기물');
+        final isUnknown =
+            fine.trim() == '미확인' ||
+            (status == '일부수용' && fine.trim().isEmpty && partialMenu);
         if (isUnknown) {
           dispositionUnknown++;
         } else if (!eligible && completed) {

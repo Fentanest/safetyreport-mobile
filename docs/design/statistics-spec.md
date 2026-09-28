@@ -141,3 +141,5 @@ monthly_reported[{month:"YYYY-MM",count}](신고일 기준), monthly_answered[�
 - 카드의 순위 원(금·은·동)을 없애고 정렬 기준을 문구로 알린다(평가 순위 오해 방지). 목록은 자르지 않는다.
 - 지도는 통계 안에 넣지 않고 기존 `ReportMapScreen(initialYear, initialCategory)`을 연다(위반법규는 지도에서 지원하지 않는다고 안내). 탭 화면은 IndexedStack 이라 돌아오면 상태가 그대로다.
 - 렌더 검수 도구: `test/tool/stats_screen_render_test.dart`(환경변수 있을 때만, Standalone = 서버 fixture 를 가져온 DB, Client = fixture 서버).
+
+- **2026-09-28 추가 결정**(서버 statistics-spec §9-7): 기관·담당자 카드는 답변 완료 신고만(처리중 칸 없음), '처분 미확인' → '과태료 미확인'(주정차·버스전용차로·쓰레기 일부수용 포함, 파서 '미확인'), 처분 분포 분모 = 답변된 신고.

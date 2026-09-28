@@ -178,7 +178,8 @@ void main() {
 
         final raw = await LocalDbService.computeStats(excludeWithdraw: true);
         final row = (raw['traffic']['by_agency'] as List).single as Map;
-        expect(row['total'], 3); // d(취하) 제외, c(처리상태 NULL) 유지
+        // d(취하) 제외. c(처리상태 NULL)는 요약에는 남지만 답변 완료가 아니라 기관표에서는 빠진다(2026-09-28).
+        expect(row['total'], 2);
         expect(row['avg_days'], 1.5); // 1일, 2일 — 역전 c 제외
         expect(row['total_fine_amount'], 40000);
         expect(row['fine_amount_unknown'], 1);

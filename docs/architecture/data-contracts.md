@@ -188,12 +188,13 @@ v1 파일은 열 때 번호 단계(`_migrations`)로 올리며 앱·백그라운
 2026-05-06부터 raw payload 의 정본은 `report_raw` 사이드카 테이블에 둔다.
 2026-05-07부터 중복군 hash는 서버와 동일한 SHA-256 기준을 사용하고, version 7부터 `duplicate_group.apply_globally` 컬럼을 가진다.
 version 8 부터 보완요청 마지막 round 요약 4컬럼(`보완횟수`, `보완_미응답`, `보완_요청_내용`, `보완_신고자_의견`) 이 `reports` 테이블에 들어간다. 잠시 존재했던 `report_supplement_history` 다회차 테이블은 `_addSupplementColumns()` 마이그레이션에서 DROP 처리된다.
+version 16 부터 `처리기관코드`(TEXT, 선택 답변의 `C_MANAGE_ORG` 원문, 없으면 NULL)가 `reports` 에 들어간다. 서버 스키마 5와 함께 교환·백업 왕복한다(서버 detail·merge `처리기관코드`와 같은 열).
 
 ```sql
 CREATE TABLE reports (
   ID TEXT PRIMARY KEY, 상태 TEXT, 신고번호 TEXT, 신고명 TEXT, 신고일 TEXT,
   만족도조사여부 TEXT, 감시목록 TEXT DEFAULT 'N', 처리상태 TEXT, 차량번호 TEXT,
-  위반법규 TEXT, 범칙금_과태료 TEXT, 벌점 TEXT, 처리기관 TEXT, 담당자 TEXT,
+  위반법규 TEXT, 범칙금_과태료 TEXT, 벌점 TEXT, 처리기관 TEXT, 처리기관코드 TEXT, 담당자 TEXT,
   답변일 TEXT, 발생일자 TEXT, 발생시각 TEXT, 위반장소 TEXT,
   종결여부 TEXT DEFAULT 'N', 신고내용 TEXT, 처리내용 TEXT, 지도 TEXT,
   첨부사진 TEXT, 첨부파일 TEXT,

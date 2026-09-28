@@ -272,6 +272,7 @@ Report parseJsonToReport(
   // ── 처리 기관 답변 파싱 ──────────────────────────────────────────────────
   var processingStatus = '';
   var processingAgency = '';
+  var processingAgencyCode = '';
   var personInCharge = '';
   var responseDate = '';
   var processingContent = '';
@@ -301,6 +302,8 @@ Report parseJsonToReport(
     processingAgency =
         (latest['C_MANAGE_ORG_NAME'] ?? latest['C_MANAGER_TYPE_NM'] ?? '')
             as String;
+    // 원문 기관코드(TEXT): 같은 선택 답변의 C_MANAGE_ORG. 7자리 영숫자·선행 0 보존, 정수 변환 금지.
+    processingAgencyCode = (latest['C_MANAGE_ORG']?.toString() ?? '').trim();
     personInCharge =
         (latest['C_MANAGE_MAN'] ?? latest['C_R_MOD_ID'] ?? '') as String;
     final rd = (latest['C_DATE'] ?? latest['C_R_MOD_DATE'] ?? '') as String;
@@ -493,6 +496,7 @@ Report parseJsonToReport(
     date: date,
     responseDate: responseDate,
     agency: processingAgency,
+    agencyCode: processingAgencyCode,
     manager: personInCharge,
     status: processingStatus,
     result: rawStatus,

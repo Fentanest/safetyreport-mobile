@@ -203,11 +203,11 @@ class LocalDbService {
   }
 
   /// 앱 DB 스키마 버전. contracts/storage-contract.json 의 schema_version.mobile 과 같아야 한다(테스트가 확인).
-  static const dbVersion = 15;
+  static const dbVersion = 16;
 
   /// 서버 DB 스키마 버전(PRAGMA user_version). contracts/storage-contract.json 의 schema_version.server 와 같아야 한다(테스트가 확인).
   /// 서버 DB 가져오기는 정확히 이 버전만 받는다(이전 버전 서버 DB 는 거절).
-  static const serverSchemaVersion = 4;
+  static const serverSchemaVersion = 5;
 
   static Future<Database> _open() async {
     final path = await getDbPath();
@@ -1092,6 +1092,7 @@ class LocalDbService {
         범칙금_과태료      TEXT,
         벌점             TEXT,
         처리기관          TEXT,
+        처리기관코드        TEXT,
         담당자            TEXT,
         답변일            TEXT,
         발생일자          TEXT,
@@ -1326,6 +1327,7 @@ class LocalDbService {
     '범칙금_과태료',
     '벌점',
     '처리기관',
+    '처리기관코드',
     '담당자',
     '답변일',
     '발생일자',
@@ -1430,6 +1432,7 @@ class LocalDbService {
         '범칙금_과태료': r.fineInfo,
         '벌점': r.penaltyPoints,
         '처리기관': r.agency,
+        '처리기관코드': r.agencyCode,
         '담당자': r.manager,
         '답변일': r.responseDate,
         '발생일자': r.occurrenceDate,
@@ -3955,6 +3958,7 @@ class LocalDbService {
       date: r['신고일'] as String? ?? '',
       responseDate: r['답변일'] as String? ?? '',
       agency: agency,
+      agencyCode: r['처리기관코드'] as String? ?? '',
       manager: r['담당자'] as String? ?? '',
       status: r['처리상태'] as String? ?? '',
       result: r['상태'] as String? ?? '',

@@ -9,14 +9,36 @@ import '../community_store.dart';
 import 'server_completed.dart' show deletionCleanupPending;
 import 'community_capture.dart';
 
-/// reshare 후보 수 (최신 journal 행이 eligible 이고 차단되지 않은 신고).
+/// reshare 후보 수 (현 계정의 최신 journal 행이 eligible 이고 차단되지 않은 신고).
+/// 2026-09-28 계정 규칙: 타 계정 행은 후보가 아니며 현 연결로 rebind하지 않는다(PC와 같음).
 Future<int> reshareCandidates({CommunityStore? store}) async {
   final s = store ?? await CommunityStore.open();
+  final contextRows =
+      await s.db.rawQuery('SELECT * FROM context WHERE id=1');
+  if (contextRows.isEmpty || contextRows.first['state'] != 'active') {
+    return 0;
+  }
+  final context = contextRows.first;
+  final localDatasetId = await s.meta('local_dataset_id') ?? '';
+  // 후보 정의는 기존과 같다(현 계정의 최신 eligible·미차단 행). 계정 범위만 좁힌다.
   final rows = await s.db.rawQuery('''
-SELECT COUNT(*) AS cnt FROM report_latest rl
-JOIN source_journal j ON j.event_id = rl.event_id
-WHERE j.eligible = 1 AND j.blocked_reason IS NULL
-''');
+SELECT COUNT(*) AS cnt FROM (
+  SELECT source_report_id, MAX(source_revision) AS rev FROM source_journal
+  WHERE local_dataset_id=? AND eligible = 1 AND dataset_key IS ?
+    AND contributor_fingerprint IS ?
+  GROUP BY source_report_id
+) scoped
+JOIN source_journal j ON j.local_dataset_id=? AND j.source_report_id = scoped.source_report_id
+  AND j.source_revision = scoped.rev AND j.dataset_key IS ? AND j.contributor_fingerprint IS ?
+WHERE j.blocked_reason IS NULL
+''', [
+    localDatasetId,
+    context['dataset_key'],
+    context['contributor_fingerprint'],
+    localDatasetId,
+    context['dataset_key'],
+    context['contributor_fingerprint'],
+  ]);
   return int.tryParse('${rows.first['cnt']}') ?? 0;
 }
 
@@ -37,18 +59,20 @@ Future<String?> issueReshare(
     }
     final context = contextRows.first;
     final localDatasetId = await s.meta('local_dataset_id', tx) ?? '';
-    final latest = await tx.rawQuery(
-      'SELECT event_id FROM report_latest WHERE local_dataset_id=? AND source_report_id=?',
-      [localDatasetId, sourceReportId],
-    );
-    if (latest.isEmpty) return null;
+    // 현 계정의 최신 eligible 행만 재발급한다(타 계정 행 rebind 금지).
     final journals = await tx.rawQuery(
-      'SELECT * FROM source_journal WHERE event_id=?',
-      [latest.first['event_id']],
+      'SELECT * FROM source_journal WHERE local_dataset_id=? AND source_report_id=? '
+      'AND eligible = 1 AND dataset_key IS ? AND contributor_fingerprint IS ? '
+      'ORDER BY source_revision DESC LIMIT 1',
+      [
+        localDatasetId,
+        sourceReportId,
+        context['dataset_key'],
+        context['contributor_fingerprint'],
+      ],
     );
     if (journals.isEmpty) return null;
     final journal = journals.first;
-    if ((journal['eligible'] as int? ?? 0) != 1) return null;
     if (journal['blocked_reason'] != null) return null;
     final revision = await s.nextRevision(tx);
     final eventId = newUuidV4();

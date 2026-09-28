@@ -77,6 +77,30 @@ void main() {
       'SPP-2609-8000001',
     );
   });
+  test('Report 원문 기관코드가 공유 payload 에 그대로 실린다 (observation-v3)', () {
+    final report = Report.fromJson({
+      'ID': '40871819',
+      '처리상태': '수용',
+      '처리기관': '서울특별시 중구청',
+      '처리기관코드': 'B410002',
+    });
+    final input = buildReportAdapterInput(report, '불법주정차신고');
+    expect(input['agency_code'], equals('B410002'));
+    expect(buildPayload(input)['source_agency_code'], equals('B410002'));
+    // 선행 0 보존·신규 형식 유지·없으면 null
+    expect(
+      buildPayload({...input, 'agency_code': '0123456'})['source_agency_code'],
+      equals('0123456'),
+    );
+    expect(
+      buildPayload({...input, 'agency_code': 'X-12'})['source_agency_code'],
+      equals('X-12'),
+    );
+    expect(
+      buildPayload({...input, 'agency_code': null})['source_agency_code'],
+      isNull,
+    );
+  });
   test(
     'report number backfill emits one event without changing Observation hash',
     () async {
@@ -200,7 +224,7 @@ void main() {
       );
       expect(journals.length, equals(1));
       expect(journals.first['personal_save_state'], equals('pending'));
-      expect(journals.first['parser_version'], equals('mobile-parser-2'));
+      expect(journals.first['parser_version'], equals('mobile-parser-3'));
       final outbox = await store.db.rawQuery(
         'SELECT * FROM outbox WHERE event_id=?',
         [r.eventId],
@@ -241,6 +265,68 @@ void main() {
         'SELECT COUNT(*) AS c FROM source_journal',
       );
       expect(count.first['c'], equals(1));
+    });
+
+    test('같은 신고를 다른 계정이 제출하면 별도 이벤트를 만든다 (2026-09-28 계정 규칙)', () async {
+      // A의 제출 뒤 B로 context 전환: 파일 단위 포인터 때문에 B가 건너뛰면 안 된다.
+      final r1 = await capture(
+        adapter(),
+        sourceReportId: 'R1',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: 'ns1',
+      );
+      expect(r1.eventType, equals('completed_observation'));
+      await store.setContext({
+        'contributor_fingerprint': 'fp2',
+        'connection_id': '22222222-2222-4222-8222-222222222222',
+        'writer_epoch': 1,
+        'dataset_key': 'ds2',
+        'consent_grant_id': '33333333-3333-4333-8333-333333333333',
+        'policy_version': '2026-09-28.1',
+        'consent_text_sha256': 'def',
+        'source_app': 'safetyreport-mobile',
+        'source_mode': 'standalone',
+      });
+      final r2 = await capture(
+        adapter(),
+        sourceReportId: 'R1',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: 'ns1',
+      );
+      expect(r2.eventType, equals('completed_observation'));
+      expect(r2.eventId, isNot(equals(r1.eventId)));
+      final rows = await store.db.rawQuery(
+        'SELECT contributor_fingerprint, dataset_key FROM source_journal ORDER BY source_revision',
+      );
+      expect(rows.length, equals(2));
+      expect(rows[0]['contributor_fingerprint'], equals('fp1'));
+      expect(rows[1]['contributor_fingerprint'], equals('fp2'));
+      expect(rows[1]['dataset_key'], equals('ds2'));
+      // 타 계정 행은 reshare 후보가 아니다 (현 연결로 rebind 금지).
+      expect(await reshareCandidates(store: store), equals(1));
+      expect(await issueReshare('R1', store: store), isNotNull);
+      // A 계정으로 돌아가면 A의 최신 행이 기준이 된다.
+      await store.setContext({
+        'contributor_fingerprint': 'fp1',
+        'connection_id': '11111111-1111-4111-8111-111111111111',
+        'writer_epoch': 1,
+        'dataset_key': 'ds1',
+        'consent_grant_id': '22222222-2222-4222-8222-222222222222',
+        'policy_version': '2026-09-28.1',
+        'consent_text_sha256': 'abc',
+        'source_app': 'safetyreport-mobile',
+        'source_mode': 'standalone',
+      });
+      final r3 = await capture(
+        adapter(),
+        sourceReportId: 'R1',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: 'ns1',
+      );
+      expect(r3.eventId, isNull); // A는 이미 같은 내용을 냈다
     });
 
     test('상태 변경: 적격→취하도 이벤트 없음(중앙은 마지막 답변 유지)', () async {

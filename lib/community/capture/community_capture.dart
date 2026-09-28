@@ -16,7 +16,7 @@ export 'canonical_json.dart' show canonicalJson;
 export 'observation_rules.dart' show buildPayload;
 
 /// 공유 payload 버전을 올리지 않고 파서만 구분한다.
-const String mobileParserVersion = 'mobile-parser-2'; // 2026-09-28 observation-v2(violation_law)
+const String mobileParserVersion = 'mobile-parser-3'; // 2026-09-28 observation-v3(source_agency_code)
 
 /// 공식 상세 응답에서 읽은 좌표. null이면 좌표 없는 관측으로 보낸다.
 class GeocodeHit {
@@ -44,6 +44,8 @@ Map<String, Object?> buildAdapterInput(
   required String date,
   required String responseDate,
   required String agency,
+  // observation-v3(2026-09-28): 선택 답변의 C_MANAGE_ORG 원문(TEXT). 없으면 ''(payload null).
+  String agencyCode = '',
   required String manager,
   required String carNumber,
   required String location,
@@ -61,6 +63,7 @@ Map<String, Object?> buildAdapterInput(
     'report_date': date,
     'response_date': responseDate,
     'processing_agency': agency,
+    'agency_code': agencyCode,
     'person_in_charge': manager,
     'car_number': carNumber,
     'violation_location': location,
@@ -174,7 +177,17 @@ Future<CaptureResult> capture(
         if (journals.isNotEmpty) prev = journals.first;
       }
     }
-    prev ??= await _latestJournal(tx, localDatasetId, sourceReportId);
+    prev ??= await _latestJournal(
+      tx,
+      localDatasetId,
+      sourceReportId,
+      datasetKey: contextActive
+          ? contextRow['dataset_key']?.toString()
+          : null,
+      fingerprint: contextActive
+          ? contextRow['contributor_fingerprint']?.toString()
+          : null,
+    );
 
     // 2026-09-28: server_completed 로 prev 를 합성하지 않는다(비적격 관측은 정정을 발급하지 않음).
     // server_completed 표·manifest 신선도 검사는 그대로 유지한다.
@@ -286,19 +299,20 @@ Future<CaptureResult> capture(
   });
 }
 
+/// 2026-09-28 계정 규칙: prev 는 현 계정(dataset_key·fingerprint)의 최신 journal 행이다.
+/// 파일 단위 report_latest 포인터를 그대로 쓰면 계정 전환 뒤 B의 제출이 건너뛰어진다(PC와 같음).
 Future<Map<String, Object?>?> _latestJournal(
   DatabaseExecutor tx,
   String localDatasetId,
-  String sourceReportId,
-) async {
-  final latest = await tx.rawQuery(
-    'SELECT event_id FROM report_latest WHERE local_dataset_id=? AND source_report_id=?',
-    [localDatasetId, sourceReportId],
-  );
-  if (latest.isEmpty) return null;
+  String sourceReportId, {
+  String? datasetKey,
+  String? fingerprint,
+}) async {
   final journals = await tx.rawQuery(
-    'SELECT payload_sha256, eligible, report_number FROM source_journal WHERE event_id=?',
-    [latest.first['event_id']],
+    'SELECT payload_sha256, eligible, report_number FROM source_journal '
+    'WHERE local_dataset_id=? AND source_report_id=? AND dataset_key IS ? '
+    'AND contributor_fingerprint IS ? ORDER BY source_revision DESC LIMIT 1',
+    [localDatasetId, sourceReportId, datasetKey, fingerprint],
   );
   return journals.isEmpty ? null : journals.first;
 }

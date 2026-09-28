@@ -19,6 +19,7 @@ Map<String, Object?> _asColumns(Map<String, dynamic> detail) {
     '처리상태': r.status,
     '종결여부': r.processingFinish,
     '처리기관': r.agency,
+    '처리기관코드': r.agencyCode,
     '담당자': r.manager,
     '답변일': r.responseDate,
     '처리내용': r.processContent,

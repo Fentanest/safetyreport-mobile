@@ -25,6 +25,7 @@ Map<String, Object?> buildReportAdapterInput(Report report, String entryValue) {
     date: report.date,
     responseDate: report.responseDate,
     agency: report.agency,
+    agencyCode: report.agencyCode,
     manager: report.manager,
     carNumber: report.carNumber,
     location: report.location,

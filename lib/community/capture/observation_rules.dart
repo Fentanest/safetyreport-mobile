@@ -230,8 +230,8 @@ double? parseGeoDouble(Object? value) {
 /// observation.md 3절 — 어댑터 입력 → 공유 payload (순수 함수).
 ///
 /// 어댑터 입력 키: processing_status, penalty_amount, report_date, response_date,
-/// processing_agency, person_in_charge, car_number, violation_location,
-/// entry_value, penalty_points, geocode{status, lat, lng}.
+/// processing_agency, agency_code, person_in_charge, car_number, violation_location,
+/// entry_value, penalty_points, violation_law, geocode{status, lat, lng}.
 Map<String, Object?> buildPayload(Map<String, Object?> input) {
   final statusRaw = cleanString(input['processing_status'], 40);
   final status = mapStatus(statusRaw);
@@ -283,6 +283,8 @@ Map<String, Object?> buildPayload(Map<String, Object?> input) {
     'status_raw': statusRaw,
     'vehicle_raw': cleanString(input['car_number'], 64),
     'violation_law': cleanString(input['violation_law'], 60),
+    // v3: 원문 기관코드 그대로(TEXT·선행 0 보존). 신규 형식도 자르지 않고, 없으면 null.
+    'source_agency_code': cleanString(input['agency_code'], 32),
   };
 }
 

@@ -66,7 +66,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // 기타 데이터 필터 세팅
   bool _excludeWithdraw = true;
-  bool _normalizePolice = true;
   bool _useRepresentativeRecords = true;
   bool _autoExportExcel = true;
   bool _autoExportSheet = false;
@@ -137,7 +136,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (mounted) {
         setState(() {
           _excludeWithdraw = p.excludeWithdraw;
-          _normalizePolice = p.normalizePolice;
           _useRepresentativeRecords = p.useRepresentativeRecords;
           // 자동 Excel/Sheet 내보내기는 서버 기능이므로 standalone에서는 비활성
           _autoExportExcel = false;
@@ -153,7 +151,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (mounted) {
         setState(() {
           _excludeWithdraw = cfg['exclude_withdraw'] as bool? ?? true;
-          _normalizePolice = cfg['normalize_police'] as bool? ?? true;
           _useRepresentativeRecords =
               cfg['use_representative_records'] as bool? ?? true;
           _autoExportExcel = cfg['auto_export_excel'] as bool? ?? true;
@@ -171,8 +168,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await p.setStandaloneFilter(excludeWithdraw: value);
       } else if (key == 'use_representative_records') {
         await p.setStandaloneFilter(useRepresentativeRecords: value);
-      } else if (key == 'normalize_police') {
-        await p.setStandaloneFilter(normalizePolice: value);
       }
       // auto_export_excel/auto_export_sheet 은 standalone 무관
     } else {
@@ -1715,24 +1710,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       style: TextStyle(color: mutedColor, fontSize: 12),
                     ),
                     const SizedBox(height: 12),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text(
-                        '경찰 기관명 정규화',
-                        style: TextStyle(fontSize: 14),
-                      ),
-                      subtitle: const Text(
-                        '처리기관명을 "XX경찰서" 형태로 통일합니다.',
-                        style: TextStyle(fontSize: 12),
-                      ),
-                      value: _normalizePolice,
-                      onChanged: _filterLoading
-                          ? null
-                          : (v) {
-                              setState(() => _normalizePolice = v);
-                              _toggleFilter('normalize_police', v);
-                            },
-                    ),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text(

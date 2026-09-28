@@ -110,7 +110,6 @@ class _ReportMapScreenState extends State<ReportMapScreen>
             year: _selectedYear == 'all' ? null : _selectedYear,
             category: _selectedCategory,
             excludeWithdraw: provider.excludeWithdraw,
-            normalizePolice: provider.normalizePolice,
             useRepresentativeRecords: provider.useRepresentativeRecords,
           ),
         );
@@ -408,7 +407,6 @@ class _ReportMapScreenState extends State<ReportMapScreen>
           year: _selectedYear == 'all' ? null : _selectedYear,
           category: _selectedCategory,
           excludeWithdraw: provider.excludeWithdraw,
-          normalizePolice: provider.normalizePolice,
           useRepresentativeRecords: provider.useRepresentativeRecords,
         ),
       );

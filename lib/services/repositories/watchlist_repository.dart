@@ -13,7 +13,6 @@ abstract class WatchlistRepository {
     if (provider.appMode == AppMode.standalone) {
       return _StandaloneWatchlistRepository(
         excludeWithdraw: provider.excludeWithdraw,
-        normalizePolice: provider.normalizePolice,
         useRepresentativeRecords: provider.useRepresentativeRecords,
       );
     }
@@ -26,21 +25,18 @@ abstract class WatchlistRepository {
 
 class _StandaloneWatchlistRepository implements WatchlistRepository {
   final bool excludeWithdraw;
-  final bool normalizePolice;
   final bool useRepresentativeRecords;
 
   _StandaloneWatchlistRepository({
     required this.excludeWithdraw,
-    required this.normalizePolice,
     required this.useRepresentativeRecords,
   });
 
   @override
   Future<List<Report>> getReports() => LocalDbService.getWatchlistReports(
-        excludeWithdraw: excludeWithdraw,
-        normalizePolice: normalizePolice,
-        useRepresentativeRecords: useRepresentativeRecords,
-      );
+    excludeWithdraw: excludeWithdraw,
+    useRepresentativeRecords: useRepresentativeRecords,
+  );
 }
 
 class _ServerWatchlistRepository implements WatchlistRepository {

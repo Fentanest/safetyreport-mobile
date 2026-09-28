@@ -96,6 +96,9 @@ flutter:
     # vectors·provenance·data-sources 는 검증용이라 번들에 넣지 않는다.
     - shared/agency-region-registry/manifest.json
     - shared/agency-region-registry/data/agency_links.json
+    - shared/agency-region-registry/data/agency_index.json
+    - shared/agency-region-registry/data/agency_legacy.json
+    - shared/agency-region-registry/data/agency_institutions.json
     - shared/agency-region-registry/data/region_events.json
 
   # An image asset can refer to one or more resolution-specific "variants", see

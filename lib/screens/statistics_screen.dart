@@ -101,7 +101,6 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           year: year,
           law: law,
           excludeWithdraw: p.excludeWithdraw,
-          normalizePolice: p.normalizePolice,
           useRepresentativeRecords: p.useRepresentativeRecords,
         );
         stats = AgencyStats.fromJson(raw);

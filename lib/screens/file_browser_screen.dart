@@ -275,21 +275,17 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
 
     try {
       final ew = p.excludeWithdraw;
-      final np = p.normalizePolice;
       final tReports = await LocalDbService.getReportsByCategory(
         'traffic',
         excludeWithdraw: ew,
-        normalizePolice: np,
       );
       final pReports = await LocalDbService.getReportsByCategory(
         'parking',
         excludeWithdraw: ew,
-        normalizePolice: np,
       );
       final oReports = await LocalDbService.getReportsByCategory(
         'other',
         excludeWithdraw: ew,
-        normalizePolice: np,
       );
       final watchlist = await LocalDbService.getWatchlistNumbers();
 

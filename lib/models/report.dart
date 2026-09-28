@@ -1,3 +1,5 @@
+import '../services/agency_registry.dart';
+
 /// JSON 값을 int?로 안전하게 변환.
 /// 서버는 NaN을 빈 문자열('')로 직렬화할 수 있어 `as num?` 직접 캐스팅이 실패함.
 int? _toIntOrNull(dynamic v) {
@@ -206,7 +208,13 @@ class Report {
       name: json['신고명']?.toString() ?? '',
       date: json['신고일']?.toString() ?? '',
       responseDate: json['답변일']?.toString() ?? '',
-      agency: json['처리기관']?.toString() ?? '',
+      agency:
+          AgencyRegistry.displayCurrentAgencyOrNull(
+            json['처리기관코드']?.toString(),
+            json['처리기관']?.toString(),
+          ) ??
+          json['처리기관']?.toString() ??
+          '',
       // NULL 보존: DB NULL 을 '' 로 바꾸면 다시 저장할 때 '' 가 된다(REVIEW2 중간-3).
       agencyCode: json['처리기관코드']?.toString(),
       manager: json['담당자']?.toString() ?? '',

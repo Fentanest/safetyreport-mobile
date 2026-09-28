@@ -47,7 +47,7 @@ void main() {
     if ((c['rows'] as List).isEmpty) continue;
     test('기관표 행 벡터 ${c['name']}', () {
       final rows = rowsOf(c);
-      final category = LocalDbService.buildStatsCategory(rows, rows, false);
+      final category = LocalDbService.buildStatsCategory(rows, rows);
       final agency =
           (category['by_agency'] as List)
               .cast<Map<String, dynamic>>()

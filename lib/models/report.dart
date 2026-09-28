@@ -24,6 +24,7 @@ class Report {
   final String date;
   final String responseDate;
   final String agency;
+  final String? agencyCode; // 원문 기관코드(C_MANAGE_ORG, TEXT·선행 0 보존, 없으면 null)
   final String manager;
   final String status; // 처리상태
   final String result; // 상태 (원본 진행상황)
@@ -65,6 +66,7 @@ class Report {
     required this.date,
     required this.responseDate,
     required this.agency,
+    this.agencyCode,
     required this.manager,
     required this.status,
     required this.result,
@@ -108,6 +110,7 @@ class Report {
     String? date,
     String? responseDate,
     String? agency,
+    String? agencyCode,
     String? manager,
     String? status,
     String? result,
@@ -141,6 +144,7 @@ class Report {
     String? supplementRequest,
     String? supplementOpinion,
     bool clearRating = false,
+    bool clearAgencyCode = false,
   }) {
     return Report(
       id: id ?? this.id,
@@ -149,6 +153,7 @@ class Report {
       date: date ?? this.date,
       responseDate: responseDate ?? this.responseDate,
       agency: agency ?? this.agency,
+      agencyCode: clearAgencyCode ? null : (agencyCode ?? this.agencyCode),
       manager: manager ?? this.manager,
       status: status ?? this.status,
       result: result ?? this.result,
@@ -202,6 +207,8 @@ class Report {
       date: json['신고일']?.toString() ?? '',
       responseDate: json['답변일']?.toString() ?? '',
       agency: json['처리기관']?.toString() ?? '',
+      // NULL 보존: DB NULL 을 '' 로 바꾸면 다시 저장할 때 '' 가 된다(REVIEW2 중간-3).
+      agencyCode: json['처리기관코드']?.toString(),
       manager: json['담당자']?.toString() ?? '',
       status: (json['처리상태'] ?? json['상태'])?.toString() ?? '',
       result: (json['상태'] ?? json['결과'])?.toString() ?? '',

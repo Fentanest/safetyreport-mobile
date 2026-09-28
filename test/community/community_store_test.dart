@@ -97,6 +97,7 @@ void main() {
                                 'connection_required','offline','failed','deferred')),
   counts_json TEXT NOT NULL DEFAULT '{}', request_ids TEXT NOT NULL DEFAULT '[]', error_code TEXT)''');
       await raw.execute('DROP INDEX IF EXISTS journal_ack');
+      await raw.execute('ALTER TABLE source_journal DROP COLUMN report_number');
       await raw.execute("UPDATE meta SET value='1' WHERE key='schema_version'");
       await raw.execute("UPDATE meta SET value='ds-1' WHERE key='local_dataset_id'");
       await raw.execute("INSERT INTO source_journal(event_id, project_namespace, local_dataset_id, source_report_id,"
@@ -112,7 +113,7 @@ void main() {
           throwsA(anything), reason: 'v1 은 새 결과 코드를 받지 않는다(재생성이 필요한 이유)');
       await raw.close();
       store = await CommunityStore.open(path: path, factory: databaseFactoryFfi);
-      expect(await store.meta('schema_version'), '2');
+      expect(await store.meta('schema_version'), '3');
       expect(await store.localDatasetId(), 'ds-1');
       final row = (await store.db.rawQuery('SELECT * FROM outbox')).single;
       expect((row['state'], row['attempt_count'], row['next_retry_at']), ('retry_wait', 3, '2026-09-26T01:00:00.000Z'));

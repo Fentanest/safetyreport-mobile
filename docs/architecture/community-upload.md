@@ -5,6 +5,20 @@ Standalone 모드가 공식 상세 응답을 받은 순간의 값으로 공유 D
 업로드를 `community-ingest` 로 보낸다. 계약 정본: `contracts/community-ingest/`.
 PC(safetyreport) 구현과 같은 벡터(같은 결과)다.
 
+2026-09-28: `Report.reportNumber`를 `report_number` private event 필드로 journal v3에 저장해 업로드한다. Observation 해시는 유지한다. 번호가 뒤늦게 확보되면 같은 해시여도 새 이벤트를 만든다.
+2026-09-28 개정2(계정별 기여, 소유 이전 대체): 같은 신고의 타 계정 업로드는 중앙이 `accepted`로 정상 수신한다(각자의 기여로 남고 전체는 고유 1건).
+중앙 `transferred`·`cross_account_mismatch`·`report_identity_mismatch`·`ambiguous_existing_owners` ACK는 더 발급되지 않는다
+(`durableStatuses`의 `transferred`는 구버전 수신분 호환용으로 유지). 새 Edge·migration 배포가 앱 업데이트보다 먼저여야 한다.
+2026-09-28 개정2(계정별 전송 분리): capture prev·reshare 후보·발급은 현 계정(dataset_key·fingerprint) 범위로만 본다.
+A의 제출·큐가 B의 제출을 건너뛰게 하거나 B로 rebind되지 않는다. 같은 계정의 두 dataset도 개인 집계에서 1건으로 합친다(중앙 대표 선출과 같은 규칙).
+
+2026-09-28(같은 날 확정): 답변 완료만 중앙에 올린다. 적격 = status ∈ {accepted, partial, rejected, completed_unknown}.
+처리중·보완요청·취하·이송·other 관측은 이벤트를 만들지 않는다 — `status_correction` 발급 중단, 로컬 `detail_status` 기록만.
+로컬 prev 합성에 `server_completed` 를 쓰지 않는다(표·manifest 신선도 검사는 유지). 구버전 잔여 미전송 `status_correction` 행은
+업로드 실행 시작 때 `blockSupersededCorrections` 가 보내지 않고 `blocked:deprecated_status_correction` 으로 보존한다(PC 동일, drop 없음).
+서버는 비적격 payload·`status_correction` 이벤트를 이벤트 단위 `rejected:non_final_not_accepted`(durable=false)로 거절하며 배치 나머지는 정상 처리한다.
+답변 완료로 올라간 신고가 나중에 비종결 상태로 돌아가면(드묾) 중앙은 마지막 답변 상태를 유지한다.
+
 전체 재동기화는 `SyncEngine`이 `CommunityStore.rotateDataset('full_resync')`으로
 새 로컬 공유 데이터셋을 시작한 뒤 모든 신고를 다시 수집한다. 이전 journal·outbox는
 미전송 수정 사실을 잃지 않도록 남기며, 중앙 manifest와 Supabase 자료도 지우지 않는다.
@@ -32,7 +46,7 @@ manifest 확인 뒤 이전 미전송 공유 자료를 `recovery` 업로드한다
 | `lib/community/capture/reshare.dart` | reshare 발급·location_supplement 후보 |
 | `lib/community/upload/upload_policy.dart` | 업로드 공통 판정 UC-1(응답 해석·오류 분류·Retry-After·백오프) — PC `community_upload_policy.py` 와 같은 벡터 |
 | `lib/community/upload/community_ingest_client.dart` | ingest REST 클라이언트(전송 계층 결과 그대로: 상태·헤더·본문 ≤1MiB, 30초에 요청을 끊음, 리다이렉트 → 502) |
-| `lib/community/upload/community_uploader.dart` | `requestCommunityUpload`·`nextDueAt`·`uploadStatus`·`requestReshare` (UC-1) |
+| `lib/community/upload/community_uploader.dart` | `requestCommunityUpload`·`nextDueAt`·`uploadStatus`·`requestReshare`·`blockSupersededCorrections` (UC-1) |
 | `lib/community/upload/upload_controller.dart` | 앱 isolate 업로드 제어기(깨우기·재실행 표시·재시도 타이머) |
 | `lib/community/upload/community_schedule.dart` | due 키·`registerBackgroundJobs`·`catchUp`·`CacheGateCheck` |
 | `lib/community/upload/upload_defaults.dart` | 앱 기본 uploader 조립 (T5 가 gate 주입) |
@@ -54,7 +68,7 @@ manifest 확인 뒤 이전 미전송 공유 자료를 `recovery` 업로드한다
   수동 `manual`, 자정 `midnight`, 복구 `recovery`, 명시적 재공유 `reshare`.
 - 한 요청에 같은 신고의 이벤트는 하나만. 다음 이벤트는 앞 요청 ACK 뒤 다음 요청으로.
 - ACK `projection_status` 5종을 journal 에 저장하고 패널 문구에 반영한다
-  (published=지도 반영됨, removed=지도에서 빠짐(정정), held=중앙 저장 완료·지도
+  (published=지도 반영됨, removed=지도에서 빠짐, held=중앙 저장 완료·지도
   반영 대기, not_public=중앙 저장(지도 비표시), not_applicable=변경 없음).
 - manifest: 전 페이지 `manifest_token` 일치해야 교체(최대 3회), 실패 시 수집 중단.
 - 삭제(`onContributionsDeleted`): outbox 대기 전부 blocked, 삭제 시각 이전
@@ -132,8 +146,21 @@ release 에서 비었거나 자리표시자(`<`·`...`·`PROJECT_REF`·`example.
   `community_gate_cache_v1`(게이트가 기록, ok·600초 이내만)를 쓴다.
 - 실제 로컬 스택 확인: `COMMUNITY_STACK=1 COMMUNITY_PUBLISHABLE_KEY=… flutter test --no-pub test/community/live_stack_test.dart`.
 
+## 원문 기관코드 수집 (observation-v3, 2026-09-28)
+
+- Standalone 파서가 선택 답변의 `C_MANAGE_ORG` 원문을 `Report.agencyCode`(TEXT, reports `처리기관코드`·교환·백업 동일)로 저장한다.
+  7자리 영숫자·선행 0 보존, 정수 변환 금지, 없으면 빈 값(NULL). `처리기관`(원문 기관명)은 덮어쓰지 않는다.
+- payload `source_agency_code`(v3, null 가능): 같은 답변의 코드·기관명·담당자를 함께 보낸다. 서버는 저장만 하고 공개 projection에 내보내지 않는다(동의 범위 미확정 — 보고).
+  v1/v2 payload 도 계속 받는다. 코드가 새로 확보되면 같은 해시여도 새 이벤트를 발급한다.
+- 앱 DB 스키마 16, 서버 스키마 5(레거시 거부·초기화 후 재수집은 기존 정책 유지). 교환 계약 `storage-contract.json` 동일.
+- parser_version `mobile-parser-3`/`pc-parser-3`.
+
 ## 위반법규 공유 (observation-v2, 2026-09-28)
 - payload 에 `violation_law` 를 추가했다: 파서가 처리내용에서 뽑아 저장하는 위반법규 열(법 이름·조항, 60자 이내)만 보내고 처리내용 원문은 보내지 않는다. 비어 있으면 null.
-- 계약 `observation-v2`(`contracts/community-ingest`, 지도 레포 정본 사본), 필수 동의 정책 `2026-09-28.2`(위반법규 공개 항목 추가). parser_version `pc-parser-2`/`mobile-parser-2`.
+- 계약 `observation-v2`(`contracts/community-ingest`, 지도 레포 정본 사본), 필수 동의 정책 `2026-09-28.2`(위반법규 공개 항목 추가). 당시 parser_version `pc-parser-2`/`mobile-parser-2`(현행 v3는 위 절).
 - 중앙은 v1(12키) payload 도 받는다. 기존 공유 자료에는 위반법규가 없으므로, 배포 때 사용자 결정으로 중앙 공유 자료를 초기화하고 다시 올린다(초기화는 배포 절차, 코드에서 자동 실행하지 않음).
 - 배포 순서: 중앙 SQL·auth 정책 migration → Edge Function → 앱. 앱이 먼저 나가면 중앙이 v2 를 몰라 422 로 보류된다(잃지 않음).
+
+## 숫자 별점 공유 (observation-v4, 2026-09-28)
+- 상세에서 확인한 별점 정수 1..5만 `rating`으로 캡처하고, 없거나 범위 밖이면 null로 보낸다. 별점사유 자유 텍스트는 전송하지 않는다. Standalone에서 사이트 별점 확인 뒤 capture 재조회 의도(rating_confirmed_refetch)를 기록해 다음 증분 동기화의 공식 상세를 다시 읽는다. 점수가 바뀌면 payload SHA-256이 달라져 `completed_observation`이 발급된다.
+- 동의 정책 2026-09-28.3에서 별점 평균·건수를 공개한다. 기존 .1/.2 계보는 별점을 공개하지 않는다. DB 교환 스키마는 그대로다.

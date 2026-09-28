@@ -10,7 +10,7 @@ import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 
-const int communityStoreSchemaVersion = 2;
+const int communityStoreSchemaVersion = 3;
 const String communityStoreFileName = 'community.db';
 
 const List<String> _schema = [
@@ -86,6 +86,7 @@ const String _uploadRunResults =
     "'offline','failed','deferred','sent','no_pending','not_due','cooldown','busy_other_run',"
     "'needs_auth','needs_consent','blocked_gate','more_pending'";
 const Map<int, List<String>> _migrations = {
+  3: ['ALTER TABLE source_journal ADD COLUMN report_number TEXT'],
   // v2 (2026-09-27 업로드 장애 대응 UC-1): 영속 전송 제어 표, upload_runs 결과 코드 확장(표 재생성·행 보존)
   2: [
     "CREATE TABLE IF NOT EXISTS upload_control (scope TEXT PRIMARY KEY,"

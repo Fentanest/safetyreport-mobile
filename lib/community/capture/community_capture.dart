@@ -16,7 +16,7 @@ export 'canonical_json.dart' show canonicalJson;
 export 'observation_rules.dart' show buildPayload;
 
 /// 공유 payload 버전을 올리지 않고 파서만 구분한다.
-const String mobileParserVersion = 'mobile-parser-2'; // 2026-09-28 observation-v2(violation_law)
+const String mobileParserVersion = 'mobile-parser-4'; // 2026-09-28 observation-v4(rating)
 
 /// 공식 상세 응답에서 읽은 좌표. null이면 좌표 없는 관측으로 보낸다.
 class GeocodeHit {
@@ -39,10 +39,13 @@ Map<String, Object?> buildAdapterInput(
   // Report 타입에 직접 의존하지 않고(테스트에서 가짜를 쓰기 위해) 필드만 받는다.
   {
   required String status,
+  String? reportNumber,
   required String fineInfo,
   required String date,
   required String responseDate,
   required String agency,
+  // observation-v3(2026-09-28): 선택 답변의 C_MANAGE_ORG 원문(TEXT). 없으면 null(payload null).
+  String? agencyCode,
   required String manager,
   required String carNumber,
   required String location,
@@ -50,21 +53,25 @@ Map<String, Object?> buildAdapterInput(
   required String entryValue,
   // observation-v2(2026-09-28): 파서가 처리내용에서 뽑은 법 이름·조항(처리내용 원문은 보내지 않는다).
   String violationLaw = '',
+  int? rating,
   GeocodeHit? geo,
   required String progressStatus,
 }) {
   return <String, Object?>{
     'processing_status': status,
+    'report_number': reportNumber,
     'penalty_amount': fineInfo,
     'report_date': date,
     'response_date': responseDate,
     'processing_agency': agency,
+    'agency_code': agencyCode,
     'person_in_charge': manager,
     'car_number': carNumber,
     'violation_location': location,
     'entry_value': entryValue,
     'penalty_points': penaltyPoints,
     'violation_law': violationLaw,
+    'rating': rating,
     'geocode': geo?.toAdapterGeo(),
     'progress_status': progressStatus,
   };
@@ -82,7 +89,7 @@ class CaptureResult {
   /// 새 이벤트가 없으면 null.
   final String? eventId;
 
-  /// completed_observation | status_correction | null(새 이벤트 없음).
+  /// completed_observation | null(새 이벤트 없음). 2026-09-28: status_correction 발급 중단.
   final String? eventType;
   final bool eligible;
   final String payloadSha256;
@@ -95,26 +102,22 @@ class CaptureStoreUnavailable extends StateError {
   CaptureStoreUnavailable(super.message);
 }
 
-/// event 결정 (observation.md 4절).
+/// event 결정 (observation.md 4절, 2026-09-28 개정).
 ///
 /// [prevSha]/[prevEligible] = 같은 로컬 데이터셋의 가장 최근 journal 행
-/// (없으면 null). [serverCompletedHit] = prev 가 없는데 그 신고의
-/// source_report_key 앞 24hex 가 server_completed 에 있음 → prev 를
-/// "eligible, 해시 불명"으로 본다.
+/// (없으면 null). [prevEligible] 은 인터페이스 형태 유지용으로 받는다.
+/// 적격(eligible) 관측만 이벤트를 만든다: prev 와 sha 가 같으면 null,
+/// 아니면 'completed_observation'. 적격이 아닌 관측은 prev 와 무관하게
+/// null(`status_correction` 발급 중단 — 중앙은 마지막 답변 상태를 유지).
 String? decideEvent({
   required bool eligible,
   required String? prevSha,
   required bool? prevEligible,
   required String payloadSha,
-  required bool serverCompletedHit,
 }) {
-  if (eligible) {
-    if (prevSha != null && prevSha == payloadSha) return null;
-    return 'completed_observation';
-  }
-  final effectivePrevEligible = prevEligible ?? serverCompletedHit;
-  if (effectivePrevEligible) return 'status_correction';
-  return null;
+  if (!eligible) return null;
+  if (prevSha != null && prevSha == payloadSha) return null;
+  return 'completed_observation';
 }
 
 /// `safetyreport|<sourceReportId>` sha256 앞 24hex (서버 source_report_key 규칙).
@@ -141,9 +144,15 @@ Future<CaptureResult> capture(
 }) async {
   final s = store ?? await CommunityStore.open();
   final payload = buildPayload(adapterInput);
+  // REVIEW3 낮음-1: 상한 초과 원문 기관코드는 조용히 null 로 버리지 않고 명시적
+  // 거절한다. 원문은 로컬 신고 DB에 그대로 있고, journal/outbox 에 사유를
+  // 기록한다(서버 edge·PC와 동일 사유 문자열).
+  final codeBlocked = isAgencyCodeTooLong(adapterInput['agency_code']);
   final eligible = payloadEligible(payload);
   final canonical = canonicalJson(payload);
   final sha = sha256.convert(utf8.encode(canonical)).toString();
+  final reportNumber = adapterInput['report_number']?.toString().trim();
+  final storedReportNumber = reportNumber == null || reportNumber.isEmpty ? null : reportNumber;
   final progressStatus =
       adapterInput['progress_status']?.toString() ?? '';
   final at = isoUtc(now ?? DateTime.now());
@@ -168,32 +177,46 @@ Future<CaptureResult> capture(
       );
       if (staging.isNotEmpty) {
         final journals = await tx.rawQuery(
-          'SELECT payload_sha256, eligible FROM source_journal WHERE event_id=?',
+          'SELECT payload_sha256, eligible, report_number, blocked_reason FROM source_journal WHERE event_id=?',
           [staging.first['event_id']],
         );
         if (journals.isNotEmpty) prev = journals.first;
       }
     }
-    prev ??= await _latestJournal(tx, localDatasetId, sourceReportId);
+    prev ??= await _latestJournal(
+      tx,
+      localDatasetId,
+      sourceReportId,
+      datasetKey: contextActive
+          ? contextRow['dataset_key']?.toString()
+          : null,
+      fingerprint: contextActive
+          ? contextRow['contributor_fingerprint']?.toString()
+          : null,
+    );
 
-    var serverCompletedHit = false;
-    if (prev == null && contextDatasetKey != null) {
-      final prefix = sourceReportKeyPrefix(sourceReportId);
-      final rows = await tx.rawQuery(
-        'SELECT 1 FROM server_completed WHERE dataset_key=? AND key_prefix=?',
-        [contextDatasetKey, prefix],
-      );
-      serverCompletedHit = rows.isNotEmpty;
-    }
-
-    final eventType = decideEvent(
+    // 2026-09-28: server_completed 로 prev 를 합성하지 않는다(비적격 관측은 정정을 발급하지 않음).
+    // server_completed 표·manifest 신선도 검사는 그대로 유지한다.
+    var eventType = decideEvent(
       eligible: eligible,
-      prevSha: prev?['payload_sha256']?.toString(),
+      prevSha: storedReportNumber != null && prev != null && prev['report_number'] != storedReportNumber
+          ? null : prev?['payload_sha256']?.toString(),
       prevEligible:
           prev == null ? null : (prev['eligible'] as int? ?? 0) == 1,
       payloadSha: sha,
-      serverCompletedHit: serverCompletedHit,
     );
+
+    // REVIEW4 낮음: 길이 초과 원문 코드는 payload가 직전과 같아도 명시적
+    // 거절 이벤트를 만든다(PC와 1:1). 이미 같은 sha·같은 blocked 사유로
+    // 기록됐으면 quiet 유지.
+    if (eventType == null && eligible) {
+      final prevBlocked = prev?['blocked_reason']?.toString() == 'blocked:$agencyCodeTooLong';
+      // REVIEW5: 차단된 장문 코드를 null로 고치면 payload 해시가 같더라도
+      // 전송 가능한 새 완료 관측을 발급한다(PC와 1:1).
+      if (codeBlocked != prevBlocked) {
+        eventType = 'completed_observation';
+      }
+    }
 
     // 상세를 받을 때마다 detail_status 를 같은 트랜잭션으로 기록한다.
     await tx.insert('detail_status', {
@@ -236,6 +259,7 @@ Future<CaptureResult> capture(
       'local_dataset_id': localDatasetId,
       'dataset_key': contextDatasetKey,
       'source_report_id': sourceReportId,
+      'report_number': storedReportNumber,
       'source_revision': revision,
       'event_type': eventType,
       'captured_at': at,
@@ -253,15 +277,29 @@ Future<CaptureResult> capture(
       'consent_grant_id':
           contextActive ? contextRow['consent_grant_id'] : null,
       'personal_save_state': 'pending',
+      'blocked_reason': codeBlocked
+          ? 'blocked:$agencyCodeTooLong'
+          : (contextActive ? null : 'no_active_context'),
     });
     if (contextActive) {
-      await tx.insert('outbox', {
-        'event_id': eventId,
-        'state': 'pending',
-        'attempt_count': 0,
-        'enqueued_trigger': trigger,
-        'enqueued_at': at,
-      });
+      if (codeBlocked) {
+        await tx.insert('outbox', {
+          'event_id': eventId,
+          'state': 'blocked',
+          'attempt_count': 0,
+          'enqueued_trigger': trigger,
+          'enqueued_at': at,
+          'last_error_code': agencyCodeTooLong,
+        });
+      } else {
+        await tx.insert('outbox', {
+          'event_id': eventId,
+          'state': 'pending',
+          'attempt_count': 0,
+          'enqueued_trigger': trigger,
+          'enqueued_at': at,
+        });
+      }
     }
     if (rebuildRunId != null) {
       await tx.insert('report_latest_staging', {
@@ -293,19 +331,20 @@ Future<CaptureResult> capture(
   });
 }
 
+/// 2026-09-28 계정 규칙: prev 는 현 계정(dataset_key·fingerprint)의 최신 journal 행이다.
+/// 파일 단위 report_latest 포인터를 그대로 쓰면 계정 전환 뒤 B의 제출이 건너뛰어진다(PC와 같음).
 Future<Map<String, Object?>?> _latestJournal(
   DatabaseExecutor tx,
   String localDatasetId,
-  String sourceReportId,
-) async {
-  final latest = await tx.rawQuery(
-    'SELECT event_id FROM report_latest WHERE local_dataset_id=? AND source_report_id=?',
-    [localDatasetId, sourceReportId],
-  );
-  if (latest.isEmpty) return null;
+  String sourceReportId, {
+  String? datasetKey,
+  String? fingerprint,
+}) async {
   final journals = await tx.rawQuery(
-    'SELECT payload_sha256, eligible FROM source_journal WHERE event_id=?',
-    [latest.first['event_id']],
+    'SELECT payload_sha256, eligible, report_number, blocked_reason FROM source_journal '
+    'WHERE local_dataset_id=? AND source_report_id=? AND dataset_key IS ? '
+    'AND contributor_fingerprint IS ? ORDER BY source_revision DESC LIMIT 1',
+    [localDatasetId, sourceReportId, datasetKey, fingerprint],
   );
   return journals.isEmpty ? null : journals.first;
 }

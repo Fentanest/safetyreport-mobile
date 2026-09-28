@@ -693,6 +693,14 @@ class SyncEngine {
     return (store: store, retryFile: retryFile, projectNamespace: ns);
   }
 
+  /// 사이트가 숫자 별점을 확인한 신고는 다음 증분 동기화에서 공식 상세를 다시 읽는다.
+  /// 개인 DB의 별점사유를 공유하지 않고 상세 파서의 숫자만 캡처한다.
+  static Future<void> queueRatingRecapture(String sourceReportId) async {
+    final file = retryFileForTest ?? File(p.join(
+      (await getApplicationDocumentsDirectory()).path, 'community_capture_retry.json'));
+    await CaptureRetryStore.addIntent(file, sourceReportId, 'rating_confirmed_refetch');
+  }
+
   /// manifest scope 검사. context 가 없으면(journal-only) true.
   /// scope 가 다르면 [ensureManifestFresh](T5 연결)로 새로 받는다.
   static Future<bool> communityCaptureReady(CommunityStore store) =>

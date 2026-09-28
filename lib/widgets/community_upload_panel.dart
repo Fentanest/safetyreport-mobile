@@ -32,6 +32,7 @@ class CommunityPanelData {
     required this.clientMode,
     this.pending = 0,
     this.blocked = 0,
+    this.blockedReasons = const {},
     this.deadLetter = 0,
     this.lastResult,
     this.lastFinishedAt,
@@ -55,6 +56,7 @@ class CommunityPanelData {
   final bool clientMode;
   final int pending;
   final int blocked;
+  final Map<String, int> blockedReasons;
   final int deadLetter;
   final String? lastResult;
   final String? lastFinishedAt;
@@ -100,6 +102,7 @@ Future<CommunityPanelData> loadCommunityPanelData({
       clientMode: false,
       pending: status.pending,
       blocked: status.blocked,
+      blockedReasons: status.blockedReasons,
       deadLetter: status.deadLetter,
       lastResult: status.lastResult,
       lastFinishedAt: status.lastFinishedAt,
@@ -164,6 +167,9 @@ String uploadErrorText(String? code) {
     'invalid_ack': '서버 응답 형식 이상',
     'ack_missing': '일부 응답 누락',
     'auth_unavailable': '인증 서버 연결 실패',
+    'blocked:cross_account_mismatch': '다른 계정의 같은 신고와 처리상태 외 내용이 달라 이전할 수 없음',
+    'blocked:report_identity_mismatch': '같은 링크 ID의 신고번호가 다르거나 이전 계정에 신고번호가 없어 이전할 수 없음',
+    'blocked:ambiguous_existing_owners': '기존 소유 계정이 여럿이라 자동 이전할 수 없음',
   };
   final hit = known[code];
   if (hit != null) return hit;
@@ -451,6 +457,8 @@ class CommunityUploadPanel extends StatelessWidget {
       if (data.lastProjection != null)
         '최근: ${projectionMessage(data.lastProjection)}',
       if (data.blocked > 0) '보류 ${data.blocked}건(사유 확인 필요)',
+      for (final entry in data.blockedReasons.entries)
+        if (entry.value > 0) '${uploadErrorText(entry.key)} ${entry.value}건',
       if (data.deadLetter > 0) '전송 불가 ${data.deadLetter}건',
       if (data.lastFinishedAt != null)
         '마지막 전송: ${kstLabel(data.lastFinishedAt)}'

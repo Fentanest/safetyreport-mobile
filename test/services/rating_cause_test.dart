@@ -7,6 +7,8 @@ import 'package:safetyreport/models/rating_batch_result.dart';
 import 'package:safetyreport/models/report.dart';
 import 'package:safetyreport/services/local_db_service.dart';
 import 'package:safetyreport/services/rating_service.dart';
+import 'package:safetyreport/services/sync_engine.dart';
+import 'package:safetyreport/community/capture/capture_retry_store.dart';
 import 'package:safetyreport/services/standalone_api_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -85,11 +87,14 @@ void main() {
       sqfliteFfiInit();
       databaseFactory = databaseFactoryFfi;
       dir = Directory.systemTemp.createTempSync('sr_rating_cause_');
+      SyncEngine.retryFileForTest = File('${dir.path}/community_capture_retry.json');
       await databaseFactory.setDatabasesPath(dir.path);
     });
     setUp(() async {
       SharedPreferences.setMockInitialValues({});
       await LocalDbService.closeDb();
+      SyncEngine.retryFileForTest = File('${dir.path}/community_capture_retry.json');
+      if (await SyncEngine.retryFileForTest!.exists()) await SyncEngine.retryFileForTest!.delete();
       await deleteDatabase(await LocalDbService.getDbPath());
       await LocalDbService.upsertReport(
         _report('SPP-9'),
@@ -99,6 +104,7 @@ void main() {
     });
     tearDownAll(() async {
       await LocalDbService.closeDb();
+      SyncEngine.retryFileForTest = null;
       dir.deleteSync(recursive: true);
     });
 
@@ -140,6 +146,7 @@ void main() {
         expect(r['별점'], 4);
         expect(r['별점사유'], '감사합니다');
         expect(r['만족도조사여부'], '참여 완료');
+        expect(await CaptureRetryStore.captureRetryIds(File('${dir.path}/community_capture_retry.json')), contains(_report('SPP-9').id));
       },
     );
 

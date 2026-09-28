@@ -92,6 +92,11 @@ flutter:
     - assets/branding/logo_lockup_light.png
     - assets/branding/logo_lockup_dark.png
     # 공유 동의문은 앱에 넣지 않고 중앙 `policy` 로 받는다(2026-09-27).
+    # 기관·지역 registry 런타임 스냅샷(읽기 전용, AgencyRegistry.ensureLoaded).
+    # vectors·provenance·data-sources 는 검증용이라 번들에 넣지 않는다.
+    - shared/agency-region-registry/manifest.json
+    - shared/agency-region-registry/data/agency_links.json
+    - shared/agency-region-registry/data/region_events.json
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

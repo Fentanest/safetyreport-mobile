@@ -18,7 +18,7 @@ Future<String> _serverDb(
   await db.setVersion(LocalDbService.serverSchemaVersion); // 지금 서버 버전(이전 버전 서버 DB 는 거절된다)
   await db.execute(
     '''CREATE TABLE mysafetymerge_traffic (ID TEXT PRIMARY KEY, 상태 TEXT, 신고번호 TEXT, 신고명 TEXT, 신고일 TEXT,
-    만족도조사여부 TEXT, 별점 INTEGER, 별점사유 TEXT, 감시목록 TEXT, 처리상태 TEXT, 처리기관 TEXT, 담당자 TEXT, 위반장소 TEXT,
+    만족도조사여부 TEXT, 별점 INTEGER, 별점사유 TEXT, 감시목록 TEXT, 처리상태 TEXT, 처리기관 TEXT, 처리기관코드 TEXT, 담당자 TEXT, 위반장소 TEXT,
     주소정규화 TEXT, 행정구역 TEXT, 위도 REAL, 경도 REAL, 지오코딩상태 TEXT, 종결여부 TEXT, synced_at INTEGER, 보완횟수 INTEGER)''',
   );
   await db.execute(
@@ -46,6 +46,7 @@ Future<String> _serverDb(
       '감시목록': merged,
       '처리상태': '수용',
       '처리기관': '기관',
+      '처리기관코드': id == 's1' ? 'B410002' : null,
       '담당자': null,
       '위반장소': '서울 강서구 1',
       '주소정규화': null,
@@ -129,12 +130,15 @@ void main() {
       expect(row['담당자'], isNull);
       expect(row['주소정규화'], isNull);
       expect(row['보완횟수'], isNull);
+      // 원문 기관코드는 값이 있으면 그대로, 없으면 NULL 로 왕복한다(§3-1).
+      expect(row['처리기관코드'], 'B410002');
+      expect((await _row('s2'))['처리기관코드'], isNull);
     },
   );
 
   // ── 2026-09-26 초기화 크롤링 릴리스: 이전(또는 더 새) 버전 서버 DB 는 가져오지 않는다 (PC exchange.refuse_other_version) ──
 
-  for (final version in [0, 1, 2, 3, 5]) {
+  for (final version in [0, 1, 2, 3, 4, 6]) {
     test('server DB of schema $version is refused before replacing the DB', () async {
       await LocalDbService.importFromServerDb(await _serverDb(dir, watchlist: []));
       final path = await _serverDb(dir, watchlist: []);

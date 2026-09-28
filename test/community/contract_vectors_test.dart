@@ -38,6 +38,14 @@ void main() {
         expect(sha, equals(c['payload_sha256']));
       });
     }
+    test('report number transport leaves the Observation hash unchanged', () {
+      final transport = Map<String, Object?>.from(doc['report_number_transport'] as Map);
+      final source = cases.firstWhere((c) => c['name'] == transport['observation_case']);
+      final input = Map<String, Object?>.from(source['input'] as Map);
+      input['report_number'] = transport['report_number'];
+      final hash = sha256.convert(utf8.encode(canonicalJson(buildPayload(input)))).toString();
+      expect(hash, transport['payload_sha256']);
+    });
   });
 
   group('canonical-json', () {

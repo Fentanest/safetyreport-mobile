@@ -5,7 +5,7 @@
 import '../../models/report.dart';
 import 'community_capture.dart';
 
-/// 개인 DB 에 저장하기 전(override·별점 보강 전) 공식 값으로 어댑터 입력을 만든다.
+/// 개인 DB 에 저장하기 전 공식 상세의 숫자 별점만 어댑터 입력에 넣는다.
 Map<String, Object?> buildReportAdapterInput(Report report, String entryValue) {
   final lat = report.latitude;
   final lng = report.longitude;
@@ -20,16 +20,19 @@ Map<String, Object?> buildReportAdapterInput(Report report, String entryValue) {
       lng <= 132;
   return buildAdapterInput(
     status: report.status,
+    reportNumber: report.reportNumber,
     fineInfo: report.fineInfo,
     date: report.date,
     responseDate: report.responseDate,
     agency: report.agency,
+    agencyCode: report.agencyCode,
     manager: report.manager,
     carNumber: report.carNumber,
     location: report.location,
     penaltyPoints: report.penaltyPoints,
     entryValue: entryValue,
     violationLaw: report.law,
+    rating: report.rating,
     geo: located ? GeocodeHit(status: 'ok', lat: lat, lng: lng) : null,
     progressStatus: report.result,
   );

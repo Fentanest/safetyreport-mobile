@@ -7,6 +7,19 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/community/upload/upload_policy.dart' as policy;
 
 void main() {
+  test('owner transfer ACK succeeds and mismatch is a terminal block', () {
+    const receipt = '11111111-1111-4111-8111-111111111111';
+    final accepted = policy.interpretAck(['e1'], {'protocol': 1, 'request_id': 'r', 'results': [
+      {'event_id': 'e1', 'status': 'transferred', 'durable': true, 'receipt_id': receipt, 'projection_status': 'published'}
+    ]});
+    expect(accepted.events['e1']?.outcome, 'done');
+    final denied = policy.interpretAck(['e1'], {'protocol': 1, 'request_id': 'r', 'results': [
+      {'event_id': 'e1', 'status': 'rejected', 'durable': false, 'receipt_id': null,
+       'projection_status': 'not_applicable', 'error': {'code': 'cross_account_mismatch', 'retryable': false}}
+    ]});
+    expect(denied.events['e1']?.outcome, 'blocked');
+    expect(denied.events['e1']?.errorCode, 'cross_account_mismatch');
+  });
   final folder = Directory('contracts/upload-control');
   final vectors = jsonDecode(File('${folder.path}/vectors.json').readAsStringSync()) as Map<String, dynamic>;
   final now = DateTime.parse(vectors['now'] as String);

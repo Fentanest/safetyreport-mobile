@@ -15,7 +15,7 @@ const double backoffBaseSeconds = 5;
 const double backoffCapSeconds = 300;
 const int serverHintCapSeconds = 24 * 3600;
 
-const Set<String> durableStatuses = {'accepted', 'duplicate', 'no_change', 'stale_ignored', 'quarantined'};
+const Set<String> durableStatuses = {'accepted', 'transferred', 'duplicate', 'no_change', 'stale_ignored', 'quarantined'};
 const Set<String> nonDurableStatuses = {'rejected', 'conflict'};
 const Set<String> projections = {'published', 'removed', 'held', 'not_public', 'not_applicable'};
 final RegExp _uuid = RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$');

@@ -50,12 +50,8 @@ class CommunityWiring {
     // Standalone writer(데모 제외)로 게이트를 통과했을 때만 불린다(ReportProvider.onGatePassed).
     CommunityUploadHooks.registerBackgroundJobs = () async {
       await schedule.registerBackgroundJobs();
-      CommunityUploadController.instance.start(() => buildDefaultUploader(
-            gate: gateCheck(),
-            onProgress: (message) {
-              if (SyncEngine.runningListenable.value) SyncEngine.emitLog('[Supabase] $message');
-            },
-          ));
+      // 업로더의 배치별 진행 문구는 동기화 로그에 싣지 않는다 — 동기화가 10건 단위로 'N/M건 전송'을 따로 적는다.
+      CommunityUploadController.instance.start(() => buildDefaultUploader(gate: gateCheck()));
     };
     CommunityUploadHooks.cancelBackgroundJobs = () async {
       CommunityUploadController.instance.stop();
@@ -63,12 +59,7 @@ class CommunityWiring {
     };
     CommunityUploadHooks.wakeUpload = CommunityUploadController.instance.wake;
     CommunityUploadHooks.uploadBeforeSync = () async {
-      final uploader = await buildDefaultUploader(
-        gate: gateCheck(),
-        onProgress: (message) {
-          if (SyncEngine.runningListenable.value) SyncEngine.emitLog('[Supabase] $message');
-        },
-      );
+      final uploader = await buildDefaultUploader(gate: gateCheck());
       final run = await uploader.requestCommunityUpload('recovery');
       final status = await uploader.uploadStatus();
       return (run: run, remaining: status.pending + status.authRequired);

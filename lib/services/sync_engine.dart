@@ -259,7 +259,7 @@ class SyncEngine {
       // 새 로컬 사본에서 전 건을 다시 capture 한다. 이전 journal/outbox 는 이미 보낸 사실과
       // 미전송 수정 기록을 잃지 않도록 보존하고, 중앙 manifest 도 그대로 둔다.
       await community.store!.rotateDataset('full_resync');
-      _log('로컬 공유 사본을 새로 시작합니다. 이전 전송 기록과 Supabase 자료는 유지합니다.');
+      _log('로컬 공유 사본을 새로 시작합니다. 이전 전송 기록과 서버에 공유한 자료는 유지합니다.');
     }
 
     if (totalCount == 0) {
@@ -409,6 +409,8 @@ class SyncEngine {
     int done = 0;
     int errors = 0;
     final cStore = community.store;
+    // 이번 실행에서 캡처한 공유 이벤트 — 10건 단위 '전송' 진행 표시용.
+    final capturedEventIds = <String>[];
 
     for (final item in toSync) {
       if (_stopping) {
@@ -448,10 +450,13 @@ class SyncEngine {
         if (!fullSync && !isRebuild) {
           _trackChange(existingStatus[cNo], saved.report, saved.saved);
         }
+        final eventId = saved.capture?.eventId;
+        if (eventId != null) capturedEventIds.add(eventId);
         done++;
 
         if (done % 10 == 0) {
           _log('$done/${toSync.length}건 완료');
+          await logUploadProgress(cStore, capturedEventIds);
         }
       } on TokenExpiredException {
         // API 계층이 이미 자동 재로그인을 해 봤고 실패했다(비밀번호 거부·로그인 정보 없음) — 동기화를 멈추고 안내.
@@ -546,6 +551,7 @@ class SyncEngine {
     final msg =
         '${_stopping ? '동기화 중지' : '동기화 완료'}: $done건 저장${errors > 0 ? ', $errors건 오류' : ''}';
     await _uploadCaptured();
+    await logUploadProgress(cStore, capturedEventIds);
     _log(msg);
     _emit(
       SyncEvent(
@@ -566,18 +572,18 @@ class SyncEngine {
   static Future<void> flushPendingUploadBeforeSync() async {
     final uploadBeforeSync = CommunityUploadHooks.uploadBeforeSync;
     if (uploadBeforeSync == null) return;
-    _log('[Supabase] 이전 공유 자료 업로드 확인 중...');
+    _log('이전 공유 자료 업로드 확인 중...');
     final leaseDeadline = DateTime.now().add(const Duration(seconds: 125));
     var waitingForLease = false;
     while (true) {
       final upload = await uploadBeforeSync();
       if (upload.remaining == 0) {
-        _log('[Supabase] 대기 중인 공유 자료가 없습니다.');
+        _log('대기 중인 공유 자료가 없습니다.');
         return;
       }
       if (upload.run.result == 'busy_other_run' && DateTime.now().isBefore(leaseDeadline) && !_stopping) {
         if (!waitingForLease) {
-          _log('[Supabase] 다른 업로드의 저장소 잠금이 풀리기를 기다립니다.');
+          _log('다른 업로드의 저장소 잠금이 풀리기를 기다립니다.');
           waitingForLease = true;
         }
         await Future<void>.delayed(const Duration(seconds: 2));
@@ -595,38 +601,66 @@ class SyncEngine {
       CommunityUploadHooks.wakeUploadNow('recovery');
       return;
     }
-    _log('[Supabase] 수집한 공유 자료 업로드 중...');
+    _log('수집한 공유 자료 업로드 중...');
     final leaseDeadline = DateTime.now().add(const Duration(seconds: 125));
     var waitingForLease = false;
     try {
       while (true) {
         final outcome = await upload();
         if (outcome.remaining == 0) {
-          _log('[Supabase] 대기 중인 공유 자료가 없습니다.');
+          _log('대기 중인 공유 자료가 없습니다.');
           return;
         }
         if (outcome.run.result == 'busy_other_run' && DateTime.now().isBefore(leaseDeadline) && !_stopping) {
           if (!waitingForLease) {
-            _log('[Supabase] 다른 업로드의 저장소 잠금이 풀리기를 기다립니다.');
+            _log('다른 업로드의 저장소 잠금이 풀리기를 기다립니다.');
             waitingForLease = true;
           }
           await Future<void>.delayed(const Duration(seconds: 2));
           continue;
         }
         if (outcome.run.result == 'more_pending' && _stopping) {
-          _log('[Supabase] ${outcome.remaining}건은 다음 실행에서 이어서 업로드합니다.');
+          _log('${outcome.remaining}건은 다음 실행에서 이어서 업로드합니다.');
           CommunityUploadHooks.wakeUploadNow('recovery');
           return;
         }
         if (outcome.run.result != 'more_pending') {
-          _log('[Supabase] ${outcome.remaining}건 업로드 대기 중 (${outcome.run.errorCode ?? outcome.run.result}).');
+          _log('${outcome.remaining}건 업로드 대기 중 (${outcome.run.errorCode ?? outcome.run.result}).');
           return;
         }
       }
     } catch (e) {
-      _log('[Supabase] 업로드 확인 실패: $e');
+      _log('업로드 확인 실패: $e');
       CommunityUploadHooks.wakeUploadNow('recovery');
     }
+  }
+
+  /// 'N/M건 전송' 한 줄: 이번 실행 이벤트 중 서버가 확인(ACK)한 수 / 업로드 대상(outbox 에 들어간) 수.
+  /// 업로드 대상이 없으면 출력하지 않는다. 집계 실패가 동기화를 막지 않게 한다.
+  @visibleForTesting
+  static Future<void> logUploadProgress(
+      CommunityStore? store, List<String> eventIds) async {
+    if (store == null || eventIds.isEmpty) return;
+    try {
+      var acked = 0;
+      var queued = 0;
+      for (var i = 0; i < eventIds.length; i += 500) {
+        final end = i + 500 > eventIds.length ? eventIds.length : i + 500;
+        final chunk = eventIds.sublist(i, end);
+        final marks = List.filled(chunk.length, '?').join(',');
+        final row = (await store.db.rawQuery(
+          'SELECT COALESCE(SUM(j.acked_at IS NOT NULL), 0) AS acked,'
+          ' COALESCE(SUM(j.acked_at IS NOT NULL OR o.event_id IS NOT NULL), 0) AS queued'
+          ' FROM source_journal j LEFT JOIN outbox o ON o.event_id = j.event_id'
+          ' WHERE j.event_id IN ($marks)',
+          chunk,
+        ))
+            .first;
+        acked += (row['acked'] as num?)?.toInt() ?? 0;
+        queued += (row['queued'] as num?)?.toInt() ?? 0;
+      }
+      if (queued > 0) _log('$acked/$queued건 전송');
+    } catch (_) {}
   }
 
   /// 알림 큐의 개별 동기화도 일반 동기화와 같은 완료 업로드를 사용한다.

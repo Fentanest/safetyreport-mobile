@@ -200,6 +200,73 @@ void main() {
     expect(kept.agencyCode, equals('B410002'));
   });
 
+  test('stats group abolished dept codes under answer-time agencies (2026-09-29.3)', () {
+    // 실제 스냅샷: 폐지 부서 코드는 재크롤링 없이 파생 재계산으로 집계기관에 묶인다.
+    Map<String, dynamic> load(String name) => jsonDecode(
+      File('shared/agency-region-registry/$name').readAsStringSync(),
+    );
+    final manifest = load('manifest.json') as Map<String, dynamic>;
+    final links =
+        (load('data/agency_links.json')['links'] as List);
+    final rows = (load('data/agency_index.json')['rows'] as List);
+    final index = <String, dynamic>{
+      for (final r in rows) (r as List).first as String: (r as List).sublist(1),
+    };
+    final legacy = load('data/agency_legacy.json') as Map<String, dynamic>;
+    final institutions =
+        (load('data/agency_institutions.json')['institutions'] as Map)
+            .cast<String, dynamic>();
+    AgencyRegistry.testInject(AgencyRegistrySnapshot(
+      links: links,
+      index: index,
+      forward: (legacy['forward'] as Map).cast<String, dynamic>(),
+      multi: (legacy['multi'] as Map).cast<String, dynamic>(),
+      institutions: institutions,
+      registryVersion: manifest['registry_version'] as String,
+      asOfDate: manifest['as_of_date'] as String,
+    ));
+    try {
+      Map<String, dynamic> row(String id, String agency, String code, String answered) => {
+        ..._row(id, agency, code),
+        '답변일': answered,
+      };
+      final traffic = [
+        row('a1', '경찰청 서울특별시경찰청 서울강서경찰서 교통과', '1810341', '2023-06-02'),
+        row('a2', '경찰청 경기도남부경찰청 김포경찰서 교통과', '1814146', '2025-01-02'),
+        row('a3', '서울특별시 동작구 생활경제국 주차관리과', '3190275', '2024-07-16'),
+        row('a4', '서울특별시 동작구 행정자치국 주차관리과', '3190287', '2026-08-02'),
+        row('a5', '경기도 파주시 안전건설교통국 도시경관과', '4060425', '2022-06-02'),
+        row('a6', '경기도 김포시 교통건설국 교통과', '4090416', '2024-06-02'),
+        row('a7', '전라남도 여수시 교통도로국 주차차량과', '4810475', '2025-01-02'),
+        row('a8', '경기도 화성시 교통국 주차화물과', '5530626', '2025-01-02'),
+      ];
+      final got = LocalDbService.buildStatsCategory(traffic, traffic);
+      final agencies = {
+        for (final r in (got['by_agency'] as List)) (r['agency_key'] as String): r,
+      };
+      // 8건 모두 확정 키로 묶인다(미확정 src: 없음). 동작구 2건은 한 키로 합쳐진다.
+      expect(
+        agencies.keys,
+        equals({
+          'inst:ag-c1321068',
+          'inst:ag-c1811029',
+          'inst:ag-c3190000',
+          'inst:ag-c4060316',
+          'inst:ag-c4090000',
+          'inst:ag-c4810000',
+          'inst:ag-c4120000',
+        }),
+      );
+      expect((agencies['inst:ag-c3190000']!['total'] as int), equals(2));
+      expect(
+        agencies['inst:ag-c4810000']!['agency'],
+        equals('전라남도 여수시'),
+      );
+    } finally {
+      AgencyRegistry.testInject(null);
+    }
+  });
+
   test('vendored resolver matches the shared port on all agency vectors', () {
     // lib/ 는 shared/ 를 import 할 수 없어 동결 복사본을 쓴다.
     // 정본이 바뀌면 이 테스트가 깨져 복사본 갱신을 강제한다.

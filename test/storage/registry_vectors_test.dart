@@ -39,7 +39,7 @@ void main() {
       (_load('vectors/resolve_cases.json')['cases'] as List).cast<Map<String, dynamic>>();
 
   test('registry version matches the snapshot', () {
-    expect(registryVersion, equals('2026-09-29.2'));
+    expect(registryVersion, equals('2026-09-29.3'));
   });
 
   for (final c in cases) {

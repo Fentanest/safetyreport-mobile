@@ -44,6 +44,10 @@ Map<String, dynamic> _resolveAgency(
     if (row != null) {
       return _resolveBoundary(row[1] as String, displayName, answeredAt, snap, c);
     }
+    final compactAgg = snap.compact[c] as String?;
+    if (compactAgg != null) {
+      return _resolveBoundary(compactAgg, displayName, answeredAt, snap, c);
+    }
     final target = snap.forward[c] as String?;
     if (target != null) {
       return _resolveBoundary(target, displayName, answeredAt, snap, c);
@@ -224,6 +228,7 @@ class AgencyRegistrySnapshot {
   AgencyRegistrySnapshot({
     required this.links,
     required this.index,
+    this.compact = const {},
     required this.forward,
     required this.multi,
     required this.institutions,
@@ -233,6 +238,7 @@ class AgencyRegistrySnapshot {
 
   final List<dynamic> links;
   final Map<String, dynamic> index;
+  final Map<String, dynamic> compact;
   final Map<String, dynamic> forward;
   final Map<String, dynamic> multi;
   final Map<String, dynamic> institutions;
@@ -324,14 +330,18 @@ class AgencyRegistry {
                 'shared/agency-region-registry/data/agency_links.json',
               ))
               as Map<String, dynamic>)['links'] as List;
-      final rows =
-          (jsonDecode(await rootBundle.loadString(
+      final indexBlob =
+          jsonDecode(await rootBundle.loadString(
                 'shared/agency-region-registry/data/agency_index.json',
               ))
-              as Map<String, dynamic>)['rows'] as List;
+              as Map<String, dynamic>;
+      final rows = indexBlob['rows'] as List;
       // resolve.dart 규격: index 행은 [name, agg, type, created](코드 제외).
       final index = <String, dynamic>{
         for (final r in rows) (r as List).first as String: (r as List).sublist(1),
+      };
+      final compact = <String, dynamic>{
+        for (final r in indexBlob['compact_rows'] as List) (r as List)[0] as String: r[1],
       };
       final legacy =
           jsonDecode(await rootBundle.loadString(
@@ -346,6 +356,7 @@ class AgencyRegistry {
       _loaded = AgencyRegistrySnapshot(
         links: links,
         index: index,
+        compact: compact,
         forward: Map<String, dynamic>.from(legacy['forward'] as Map),
         multi: Map<String, dynamic>.from(legacy['multi'] as Map),
         institutions: Map<String, dynamic>.from(institutions),

@@ -208,9 +208,13 @@ void main() {
     final manifest = load('manifest.json') as Map<String, dynamic>;
     final links =
         (load('data/agency_links.json')['links'] as List);
-    final rows = (load('data/agency_index.json')['rows'] as List);
+    final indexBlob = load('data/agency_index.json');
+    final rows = indexBlob['rows'] as List;
     final index = <String, dynamic>{
       for (final r in rows) (r as List).first as String: (r as List).sublist(1),
+    };
+    final compact = <String, dynamic>{
+      for (final r in indexBlob['compact_rows'] as List) (r as List)[0] as String: r[1],
     };
     final legacy = load('data/agency_legacy.json') as Map<String, dynamic>;
     final institutions =
@@ -219,6 +223,7 @@ void main() {
     AgencyRegistry.testInject(AgencyRegistrySnapshot(
       links: links,
       index: index,
+      compact: compact,
       forward: (legacy['forward'] as Map).cast<String, dynamic>(),
       multi: (legacy['multi'] as Map).cast<String, dynamic>(),
       institutions: institutions,
@@ -239,19 +244,21 @@ void main() {
         row('a6', '경기도 김포시 교통건설국 교통과', '4090416', '2024-06-02'),
         row('a7', '전라남도 여수시 교통도로국 주차차량과', '4810475', '2025-01-02'),
         row('a8', '경기도 화성시 교통국 주차화물과', '5530626', '2025-01-02'),
+        row('a9', '서울특별시 종로구 행정국 총무과', '3000188', '2020-06-02'),
       ];
       final got = LocalDbService.buildStatsCategory(traffic, traffic);
       final agencies = {
         for (final r in (got['by_agency'] as List)) (r['agency_key'] as String): r,
       };
-      // 8건 모두 확정 키로 묶인다(미확정 src: 없음). 동작구 2건은 한 키로 합쳐진다.
+      // 폐지 부서 9건 모두 확정 키로 묶인다. 동작구 2건은 한 키로 합쳐진다.
       expect(
         agencies.keys,
         equals({
           'inst:ag-c1321068',
           'inst:ag-c1811029',
           'inst:ag-c3190000',
-          'inst:ag-c4060316',
+          'inst:ag-c4060000',
+          'inst:ag-c3000000',
           'inst:ag-c4090000',
           'inst:ag-c4810000',
           'inst:ag-c4120000',
@@ -276,9 +283,13 @@ void main() {
     final manifest = load('manifest.json') as Map<String, dynamic>;
     final links =
         (load('data/agency_links.json')['links'] as List);
-    final rows = (load('data/agency_index.json')['rows'] as List);
+    final indexBlob = load('data/agency_index.json');
+    final rows = indexBlob['rows'] as List;
     final index = <String, dynamic>{
       for (final r in rows) (r as List).first as String: (r as List).sublist(1),
+    };
+    final compact = <String, dynamic>{
+      for (final r in indexBlob['compact_rows'] as List) (r as List)[0] as String: r[1],
     };
     final legacy = load('data/agency_legacy.json') as Map<String, dynamic>;
     final institutions =
@@ -291,6 +302,7 @@ void main() {
     final vendored = AgencyRegistrySnapshot(
       links: links,
       index: index,
+      compact: compact,
       forward: (legacy['forward'] as Map).cast<String, dynamic>(),
       multi: (legacy['multi'] as Map).cast<String, dynamic>(),
       institutions: institutions,
@@ -300,6 +312,7 @@ void main() {
     final shared = shared_resolve.AgencySnapshot(
       links: links,
       index: index,
+      compact: compact,
       forward: (legacy['forward'] as Map).cast<String, dynamic>(),
       multi: (legacy['multi'] as Map).cast<String, dynamic>(),
       institutions: institutions,

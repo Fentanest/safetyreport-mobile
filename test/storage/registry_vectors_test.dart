@@ -15,9 +15,13 @@ void main() {
   final registryVersion = manifest['registry_version'] as String;
   final links =
       (_load('data/agency_links.json')['links'] as List).cast<Map<String, dynamic>>();
-  final rows = (_load('data/agency_index.json')['rows'] as List);
+  final indexBlob = _load('data/agency_index.json');
+  final rows = indexBlob['rows'] as List;
   final index = <String, dynamic>{
     for (final r in rows) (r as List).first as String: (r as List).sublist(1),
+  };
+  final compact = <String, dynamic>{
+    for (final r in indexBlob['compact_rows'] as List) (r as List)[0] as String: r[1],
   };
   final legacy =
       _load('data/agency_legacy.json') as Map<String, dynamic>;
@@ -27,6 +31,7 @@ void main() {
   final snap = AgencySnapshot(
     links: links,
     index: index,
+    compact: compact,
     forward: (legacy['forward'] as Map).cast<String, dynamic>(),
     multi: (legacy['multi'] as Map).cast<String, dynamic>(),
     institutions: institutions,
@@ -39,7 +44,7 @@ void main() {
       (_load('vectors/resolve_cases.json')['cases'] as List).cast<Map<String, dynamic>>();
 
   test('registry version matches the snapshot', () {
-    expect(registryVersion, equals('2026-09-29.2'));
+    expect(registryVersion, equals('2026-09-29.3'));
   });
 
   for (final c in cases) {

@@ -463,6 +463,11 @@ PC 저장소 `scripts/debug/extractor.py`가 저장한 `testresults/*_api_raw.js
   바뀌었다(서버와 같은 규칙·같은 동점 정렬). 출력 행·breakdown에 `agency_key` 추가.
   원문 `처리기관`·`처리기관코드`는 덮어쓰지 않으며, 과거 신고는 조회 시 새 registry 로 다시
   계산된다(재크롤링 없음). DB 스키마 변경 없음(version 16 유지).
+- 성능 주의(2026-09-30): registry 해석은 신고 행마다 UI isolate 에서 불린다. 벤더 복사본
+  (`lib/services/agency_registry.dart`)은 링크 색인과 (코드, 이름)별 결과를 스냅샷 객체에 캐시한다.
+  정본 `resolve.dart` 처럼 호출마다 links 전체로 색인을 만들면 신고 3천 건에서 ANR 이 난다.
+  캐시는 스냅샷 수명과 같다(asset 번들이라 실행 중 불변). 실행 중 registry 를 교체하는 기능을
+  만들면 새 스냅샷 객체로 바꿔 캐시가 함께 버려지게 한다. 시작 때 JSON 해석은 `compute` 로 한다.
 
 ## 2026-09-29 기관 표시 옵션 폐지
 

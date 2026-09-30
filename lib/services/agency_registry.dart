@@ -14,7 +14,7 @@
 // 테스트가 벡터 전건으로 강제한다. 정본을 고치면 여기도 같이 고친다.
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show compute, visibleForTesting;
 import 'package:flutter/services.dart';
 
 bool _isSevenAlnum(String? code) {
@@ -93,12 +93,11 @@ Map<String, dynamic> _resolveAgency(
 }
 
 List<dynamic> _walkChain(String start, AgencyRegistrySnapshot snap) {
-  final byFrom = <String, List<dynamic>>{};
-  final byTo = <String, List<dynamic>>{};
-  for (final l in snap.links) {
-    (byFrom[l['from_code'] as String] ??= []).add(l);
-    (byTo[l['to_code'] as String] ??= []).add(l);
-  }
+  // 정본은 호출마다 links 전체(약 9천 건)로 byFrom/byTo 를 새로 만든다.
+  // 앱에서는 신고 행마다 불려 3천 건이면 UI 가 수 초 멈췄다(ANR) —
+  // 같은 내용의 색인을 스냅샷에 한 번만 만들어 재사용한다(결과 동일).
+  final byFrom = snap._linksByFrom;
+  final byTo = snap._linksByTo;
   final chain = <dynamic>[];
   final seen = <String>{start};
   while (true) {
@@ -246,6 +245,37 @@ class AgencyRegistrySnapshot {
   final String asOfDate;
 
   Map<String, List<String>>? _aliasAll;
+  Map<String, List<dynamic>>? _byFrom;
+  Map<String, List<dynamic>>? _byTo;
+
+  // 스냅샷은 앱 실행 중 바뀌지 않는다(번들 asset, 새 스냅샷 = 새 객체).
+  // 캐시는 이 객체에 붙어 있어 스냅샷을 바꾸면 함께 버려진다.
+  final Map<String, String?> _displayCache = {};
+  final Map<String, ({String display, String key})> _keyedCache = {};
+
+  Map<String, List<dynamic>> get _linksByFrom {
+    if (_byFrom == null) _indexLinks();
+    return _byFrom!;
+  }
+
+  Map<String, List<dynamic>> get _linksByTo {
+    if (_byTo == null) _indexLinks();
+    return _byTo!;
+  }
+
+  void _indexLinks() {
+    final byFrom = <String, List<dynamic>>{};
+    final byTo = <String, List<dynamic>>{};
+    for (final l in links) {
+      (byFrom[l['from_code'] as String] ??= []).add(l);
+      (byTo[l['to_code'] as String] ??= []).add(l);
+    }
+    _byFrom = byFrom;
+    _byTo = byTo;
+  }
+
+  static String _cacheKey(String? code, String? name) =>
+      '${code ?? '\u0000'}\u0001${name ?? '\u0000'}';
 
   /// 스냅샷별 별칭 캐시: 8만 행 스캔을 매 신고마다 반복하지 않는다.
   List<String> aliasAll(String name) {
@@ -278,7 +308,14 @@ class AgencyRegistrySnapshot {
     String? answeredAt,
   ) => _resolveAgency(code, name, answeredAt, this);
 
-  String? displayCurrentAgency(String? code, String? name) {    final resolution = _resolveAgency(
+  String? displayCurrentAgency(String? code, String? name) {
+    final cacheKey = _cacheKey(code, name);
+    if (_displayCache.containsKey(cacheKey)) return _displayCache[cacheKey];
+    return _displayCache[cacheKey] = _computeDisplayCurrentAgency(code, name);
+  }
+
+  String? _computeDisplayCurrentAgency(String? code, String? name) {
+    final resolution = _resolveAgency(
       code,
       name,
       asOfDate,
@@ -292,7 +329,10 @@ class AgencyRegistrySnapshot {
 
   /// 현행 표시명 + 통계 키. 스냅샷 미로드가 아니라면 항상 값을 낸다
   /// (미확정은 원문 표시 + src 키 — PC `_apply_registry_agency_display` 와 같은 규칙).
-  ({String display, String key}) resolveKeyedAgency(String? code, String? name) {
+  ({String display, String key}) resolveKeyedAgency(String? code, String? name) =>
+      _keyedCache[_cacheKey(code, name)] ??= _computeKeyedAgency(code, name);
+
+  ({String display, String key}) _computeKeyedAgency(String? code, String? name) {
     final trimmed = (name ?? '').trim();
     final resolution = _resolveAgency(code, trimmed, asOfDate, this);
     final status = resolution['resolution_status'];
@@ -320,49 +360,17 @@ class AgencyRegistry {
   static Future<void> ensureLoaded() async {
     if (_loaded != null) return;
     try {
-      final manifest = jsonDecode(
-        await rootBundle.loadString(
-          'shared/agency-region-registry/manifest.json',
-        ),
-      ) as Map<String, dynamic>;
-      final links =
-          (jsonDecode(await rootBundle.loadString(
-                'shared/agency-region-registry/data/agency_links.json',
-              ))
-              as Map<String, dynamic>)['links'] as List;
-      final indexBlob =
-          jsonDecode(await rootBundle.loadString(
-                'shared/agency-region-registry/data/agency_index.json',
-              ))
-              as Map<String, dynamic>;
-      final rows = indexBlob['rows'] as List;
-      // resolve.dart 규격: index 행은 [name, agg, type, created](코드 제외).
-      final index = <String, dynamic>{
-        for (final r in rows) (r as List).first as String: (r as List).sublist(1),
+      Future<String> read(String file) =>
+          rootBundle.loadString('shared/agency-region-registry/$file');
+      final sources = <String, String>{
+        'manifest': await read('manifest.json'),
+        'links': await read('data/agency_links.json'),
+        'index': await read('data/agency_index.json'),
+        'legacy': await read('data/agency_legacy.json'),
+        'institutions': await read('data/agency_institutions.json'),
       };
-      final compact = <String, dynamic>{
-        for (final r in indexBlob['compact_rows'] as List) (r as List)[0] as String: r[1],
-      };
-      final legacy =
-          jsonDecode(await rootBundle.loadString(
-                'shared/agency-region-registry/data/agency_legacy.json',
-              ))
-              as Map<String, dynamic>;
-      final institutions =
-          (jsonDecode(await rootBundle.loadString(
-                'shared/agency-region-registry/data/agency_institutions.json',
-              ))
-              as Map<String, dynamic>)['institutions'] as Map;
-      _loaded = AgencyRegistrySnapshot(
-        links: links,
-        index: index,
-        compact: compact,
-        forward: Map<String, dynamic>.from(legacy['forward'] as Map),
-        multi: Map<String, dynamic>.from(legacy['multi'] as Map),
-        institutions: Map<String, dynamic>.from(institutions),
-        registryVersion: manifest['registry_version'] as String,
-        asOfDate: manifest['as_of_date'] as String,
-      );
+      // 약 11.7MB JSON 해석과 9만 행 색인을 UI isolate 밖에서 한다(시작 멈춤 방지).
+      _loaded = await compute(_buildSnapshot, sources);
     } catch (_) {
       _loaded = null;
     }
@@ -386,4 +394,34 @@ class AgencyRegistry {
   static void testInject(AgencyRegistrySnapshot? snapshot) {
     _loaded = snapshot;
   }
+}
+
+/// [AgencyRegistry.ensureLoaded] 가 별도 isolate 에서 실행한다.
+AgencyRegistrySnapshot _buildSnapshot(Map<String, String> sources) {
+  final manifest = jsonDecode(sources['manifest']!) as Map<String, dynamic>;
+  final links =
+      (jsonDecode(sources['links']!) as Map<String, dynamic>)['links'] as List;
+  final indexBlob = jsonDecode(sources['index']!) as Map<String, dynamic>;
+  final rows = indexBlob['rows'] as List;
+  // resolve.dart 규격: index 행은 [name, agg, type, created](코드 제외).
+  final index = <String, dynamic>{
+    for (final r in rows) (r as List).first as String: r.sublist(1),
+  };
+  final compact = <String, dynamic>{
+    for (final r in indexBlob['compact_rows'] as List) (r as List)[0] as String: r[1],
+  };
+  final legacy = jsonDecode(sources['legacy']!) as Map<String, dynamic>;
+  final institutions =
+      (jsonDecode(sources['institutions']!) as Map<String, dynamic>)['institutions']
+          as Map;
+  return AgencyRegistrySnapshot(
+    links: links,
+    index: index,
+    compact: compact,
+    forward: Map<String, dynamic>.from(legacy['forward'] as Map),
+    multi: Map<String, dynamic>.from(legacy['multi'] as Map),
+    institutions: Map<String, dynamic>.from(institutions),
+    registryVersion: manifest['registry_version'] as String,
+    asOfDate: manifest['as_of_date'] as String,
+  );
 }

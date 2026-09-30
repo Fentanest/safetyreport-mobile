@@ -339,4 +339,76 @@ void main() {
     }
     expect(agencyCases, greaterThan(0));
   });
+
+  // 성능 수정(링크 색인·결과 캐시)이 결과를 바꾸지 않는지: 실제 스냅샷의
+  // 링크 양끝 코드 전건 + 색인 코드 표본을 정본과 대조하고, 캐시된 공개
+  // API 가 두 번째 호출에도 첫 호출과 같은 값을 내는지 본다.
+  test('cached vendored resolver matches shared resolver on real codes', () {
+    Map<String, dynamic> load(String name) => jsonDecode(
+      File('shared/agency-region-registry/$name').readAsStringSync(),
+    );
+    final manifest = load('manifest.json');
+    final links = load('data/agency_links.json')['links'] as List;
+    final indexBlob = load('data/agency_index.json');
+    final index = <String, dynamic>{
+      for (final r in indexBlob['rows'] as List)
+        (r as List).first as String: r.sublist(1),
+    };
+    final compact = <String, dynamic>{
+      for (final r in indexBlob['compact_rows'] as List)
+        (r as List)[0] as String: r[1],
+    };
+    final legacy = load('data/agency_legacy.json');
+    final institutions =
+        (load('data/agency_institutions.json')['institutions'] as Map)
+            .cast<String, dynamic>();
+    final forward = (legacy['forward'] as Map).cast<String, dynamic>();
+    final multi = (legacy['multi'] as Map).cast<String, dynamic>();
+    final version = manifest['registry_version'] as String;
+    final asOf = manifest['as_of_date'] as String;
+    final vendored = AgencyRegistrySnapshot(
+      links: links,
+      index: index,
+      compact: compact,
+      forward: forward,
+      multi: multi,
+      institutions: institutions,
+      registryVersion: version,
+      asOfDate: asOf,
+    );
+    final shared = shared_resolve.AgencySnapshot(
+      links: links,
+      index: index,
+      compact: compact,
+      forward: forward,
+      multi: multi,
+      institutions: institutions,
+      registryVersion: version,
+      asOfDate: asOf,
+    );
+    final codes = <String>{
+      for (final l in links) ...[
+        l['from_code'] as String,
+        l['to_code'] as String,
+      ],
+      ...index.keys.where((k) => k.hashCode % 97 == 0),
+      ...compact.keys.take(200),
+      ...forward.keys.take(200),
+      ...multi.keys.take(200),
+    };
+    for (final code in codes) {
+      final name = (index[code] as List?)?[0] as String? ?? '원문기관';
+      final want = shared_resolve.resolveAgency(code, name, asOf, shared);
+      expect(vendored.resolveForTest(code, name, asOf), equals(want),
+          reason: code);
+      final display = vendored.displayCurrentAgency(code, name);
+      final keyed = vendored.resolveKeyedAgency(code, name);
+      expect(vendored.displayCurrentAgency(code, name), display, reason: code);
+      expect(vendored.resolveKeyedAgency(code, name), keyed, reason: code);
+      if (want['resolution_status'] == 'resolved') {
+        expect(display, want['current_agency_name'], reason: code);
+      }
+    }
+    expect(codes.length, greaterThan(1000));
+  });
 }

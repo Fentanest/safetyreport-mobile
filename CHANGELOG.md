@@ -10,12 +10,16 @@
 
 ## 2026-09-30 (dev 미배포)
 
+### 공유 resolver(resolve.ts·resolve.dart) 링크 색인 캐시 반영
+
+- 앱 벤더 복사본과 같은 결함을 공유 정본 `resolve.ts`·`resolve.dart` 에서도 고쳤다(커뮤니티 지도 ingest 에서 `resolveAgency` 3,000회 12,622ms → 3ms). 스냅샷별 링크 색인 캐시(TS `WeakMap`, Dart `Expando`). `shared/agency-region-registry` 의 manifest 해시 2개·resolver 2개를 PC·지도와 바이트 동일로 받았다. registry 데이터·버전(`2026-09-29.3`) 변경 없음. `test/storage` registry 테스트 50건 통과.
+
 ### 기관 registry 해석 성능: 신고 3천 건에서 앱 무응답(ANR) 수정
 
 - 결함: 사용자 실기기(dev 빌드, 신고 약 3,000건)에서 화면 반응이 멈추고 "앱이 응답하지 않음" 팝업이 반복됐다. 원인은 registry 벤더 복사본 `_walkChain` 이 호출마다 links 9,185건 전체로 `byFrom`/`byTo` 색인을 새로 만든 것. 신고 행마다(`_rowToReport`·`Report.fromJson`·통계 기관 키) UI isolate 에서 불려 목록·대시보드·통계를 열 때마다 수 초~수십 초 멈췄다.
 - 수정(`lib/services/agency_registry.dart`, 결과 불변): 링크 색인을 스냅샷에 한 번만 만들고, `displayCurrentAgency`·`resolveKeyedAgency` 결과를 (코드, 이름)별로 스냅샷 객체에 캐시한다. 스냅샷은 번들 asset 이라 실행 중 바뀌지 않고, 새 registry 는 새 앱 빌드 = 새 스냅샷 객체라 캐시도 같이 새로 만들어진다. DB 에는 원문만 저장되므로 계산 결과가 굳지 않는다.
 - 앱 시작 때 registry JSON(약 11.7MB) 해석·색인 구축을 `compute` 로 UI isolate 밖에서 한다.
-- 정본 `shared/agency-region-registry/resolvers/resolve.dart` 는 3개 레포 공통 바이트라 건드리지 않았다(테스트 전용). `resolve.ts` 도 같은 호출마다 색인 구축 패턴이다 — 커뮤니티 지도 쪽 확인 필요. PC `resolve.py` 는 이미 한 번만 색인한다.
+- 정본 `resolve.dart`·`resolve.ts` 는 같은 날 별도 변경(위 항목)으로 고쳤다. PC `resolve.py` 는 이미 한 번만 색인한다.
 - 측정(`flutter test`, 호스트 VM): 실제 스냅샷으로 `displayCurrentAgency` 3,000회(기관 60곳 반복) 25,436ms → 30ms.
 - 테스트: 실제 스냅샷의 링크 양끝 코드 전건 + 색인·압축·legacy 표본을 정본 resolver 와 대조하고 캐시된 공개 API 의 재호출 일치를 검사하는 테스트 추가. `flutter test` 813 통과(18 skip), `flutter analyze` warning 10 → 9 · info 15(변경 전과 같음). 실기기 확인은 NOT_RUN.
 

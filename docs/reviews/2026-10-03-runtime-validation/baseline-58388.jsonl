@@ -1,0 +1,4 @@
+{"stage": "summary", "phase": "cold", "rows": 58388, "total": 58271, "ms": 10496, "rss": 540610560}
+{"stage": "stats_bundle", "phase": "cold", "rows": 58388, "ms": 41299, "rss": 638607360, "peak_rss": 780214272}
+{"stage": "summary", "phase": "warm", "rows": 58388, "total": 58271, "ms": 5465, "rss": 537092096}
+{"stage": "stats_bundle", "phase": "warm", "rows": 58388, "ms": 37918, "rss": 586903552, "peak_rss": 780214272}

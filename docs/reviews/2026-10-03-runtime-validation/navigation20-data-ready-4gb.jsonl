@@ -1,0 +1,22 @@
+{"stage": "actual_navigation", "cycle": 1, "data_ready_required": true, "elapsed_s": 24.13}
+{"stage": "actual_navigation", "cycle": 2, "data_ready_required": true, "elapsed_s": 51.0}
+{"stage": "actual_navigation", "cycle": 3, "data_ready_required": true, "elapsed_s": 76.4}
+{"stage": "actual_navigation", "cycle": 4, "data_ready_required": true, "elapsed_s": 100.94}
+{"stage": "actual_navigation", "cycle": 5, "data_ready_required": true, "elapsed_s": 123.57}
+{"stage": "actual_navigation", "cycle": 6, "data_ready_required": true, "elapsed_s": 148.15}
+{"stage": "actual_navigation", "cycle": 7, "data_ready_required": true, "elapsed_s": 171.06}
+{"stage": "actual_navigation", "cycle": 8, "data_ready_required": true, "elapsed_s": 194.3}
+{"stage": "actual_navigation", "cycle": 9, "data_ready_required": true, "elapsed_s": 214.7}
+{"stage": "actual_navigation", "cycle": 10, "data_ready_required": true, "elapsed_s": 233.54}
+{"stage": "actual_navigation", "cycle": 11, "data_ready_required": true, "elapsed_s": 261.19}
+{"stage": "actual_navigation", "cycle": 12, "data_ready_required": true, "elapsed_s": 285.07}
+{"stage": "actual_navigation", "cycle": 13, "data_ready_required": true, "elapsed_s": 307.75}
+{"stage": "actual_navigation", "cycle": 14, "data_ready_required": true, "elapsed_s": 328.01}
+{"stage": "actual_navigation", "cycle": 15, "data_ready_required": true, "elapsed_s": 347.69}
+{"stage": "actual_navigation", "cycle": 16, "data_ready_required": true, "elapsed_s": 372.34}
+{"stage": "actual_navigation", "cycle": 17, "data_ready_required": true, "elapsed_s": 394.93}
+{"stage": "actual_navigation", "cycle": 18, "data_ready_required": true, "elapsed_s": 422.13}
+{"stage": "actual_navigation", "cycle": 19, "data_ready_required": true, "elapsed_s": 447.57}
+{"stage": "actual_navigation", "cycle": 20, "data_ready_required": true, "elapsed_s": 469.69}
+Warning: Activity not started, its current task has been brought to the front
+{"stage": "background_resume", "completed_cycles": 20}

@@ -1,3 +1,7 @@
+export '../models/report_filter.dart';
+import '../models/report_filter.dart';
+import '../services/client_compatibility.dart';
+import '../services/performance_trace.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -43,203 +47,7 @@ String _canonicalStatusLabel(String status) {
   return trimmed;
 }
 
-const kEmptyLawFilterValue = '__없음__';
 const _recentAnswerStatuses = <String>{'수용', '일부수용', '불수용', '기타', '답변완료'};
-
-class ReportFilter {
-  final String name;
-  final String reportNumber;
-  final String id;
-  final List<String> ratings;
-  final String ratingCause;
-  final String agency;
-  final String manager;
-  final String carNumber;
-  final String law;
-  final String location;
-  final String fine;
-  final String supplementCount;
-  final String reportContent;
-  final String processContent;
-  final List<String> statuses;
-  final String reportDateStart;
-  final String reportDateEnd;
-  final String occurDateStart;
-  final String occurDateEnd;
-  final String responseDateStart;
-  final String responseDateEnd;
-  final String occurTimeStart;
-  final String occurTimeEnd;
-  final bool excludePolice;
-  final bool onlyPolice;
-  final String pollStatus;
-
-  const ReportFilter({
-    this.name = '',
-    this.reportNumber = '',
-    this.id = '',
-    this.ratings = const [],
-    this.ratingCause = '',
-    this.agency = '',
-    this.manager = '',
-    this.carNumber = '',
-    this.law = '',
-    this.location = '',
-    this.fine = '',
-    this.supplementCount = '',
-    this.reportContent = '',
-    this.processContent = '',
-    this.statuses = const [],
-    this.reportDateStart = '',
-    this.reportDateEnd = '',
-    this.occurDateStart = '',
-    this.occurDateEnd = '',
-    this.responseDateStart = '',
-    this.responseDateEnd = '',
-    this.occurTimeStart = '',
-    this.occurTimeEnd = '',
-    this.excludePolice = false,
-    this.onlyPolice = false,
-    this.pollStatus = '',
-  });
-
-  ReportFilter copyWith({
-    String? name,
-    String? reportNumber,
-    String? id,
-    List<String>? ratings,
-    String? ratingCause,
-    String? agency,
-    String? manager,
-    String? carNumber,
-    String? law,
-    String? location,
-    String? fine,
-    String? supplementCount,
-    String? reportContent,
-    String? processContent,
-    List<String>? statuses,
-    String? reportDateStart,
-    String? reportDateEnd,
-    String? occurDateStart,
-    String? occurDateEnd,
-    String? responseDateStart,
-    String? responseDateEnd,
-    String? occurTimeStart,
-    String? occurTimeEnd,
-    bool? excludePolice,
-    bool? onlyPolice,
-    String? pollStatus,
-  }) {
-    return ReportFilter(
-      name: name ?? this.name,
-      reportNumber: reportNumber ?? this.reportNumber,
-      id: id ?? this.id,
-      ratings: ratings ?? this.ratings,
-      ratingCause: ratingCause ?? this.ratingCause,
-      agency: agency ?? this.agency,
-      manager: manager ?? this.manager,
-      carNumber: carNumber ?? this.carNumber,
-      law: law ?? this.law,
-      location: location ?? this.location,
-      fine: fine ?? this.fine,
-      supplementCount: supplementCount ?? this.supplementCount,
-      reportContent: reportContent ?? this.reportContent,
-      processContent: processContent ?? this.processContent,
-      statuses: statuses ?? this.statuses,
-      reportDateStart: reportDateStart ?? this.reportDateStart,
-      reportDateEnd: reportDateEnd ?? this.reportDateEnd,
-      occurDateStart: occurDateStart ?? this.occurDateStart,
-      occurDateEnd: occurDateEnd ?? this.occurDateEnd,
-      responseDateStart: responseDateStart ?? this.responseDateStart,
-      responseDateEnd: responseDateEnd ?? this.responseDateEnd,
-      occurTimeStart: occurTimeStart ?? this.occurTimeStart,
-      occurTimeEnd: occurTimeEnd ?? this.occurTimeEnd,
-      excludePolice: excludePolice ?? this.excludePolice,
-      onlyPolice: onlyPolice ?? this.onlyPolice,
-      pollStatus: pollStatus ?? this.pollStatus,
-    );
-  }
-
-  ReportFilter withoutRatingStateFilters() {
-    return copyWith(ratings: const [], ratingCause: '', pollStatus: '');
-  }
-
-  bool get isEmpty =>
-      name.isEmpty &&
-      reportNumber.isEmpty &&
-      id.isEmpty &&
-      ratings.isEmpty &&
-      ratingCause.isEmpty &&
-      agency.isEmpty &&
-      manager.isEmpty &&
-      carNumber.isEmpty &&
-      law.isEmpty &&
-      location.isEmpty &&
-      fine.isEmpty &&
-      supplementCount.isEmpty &&
-      reportContent.isEmpty &&
-      processContent.isEmpty &&
-      statuses.isEmpty &&
-      reportDateStart.isEmpty &&
-      reportDateEnd.isEmpty &&
-      occurDateStart.isEmpty &&
-      occurDateEnd.isEmpty &&
-      responseDateStart.isEmpty &&
-      responseDateEnd.isEmpty &&
-      occurTimeStart.isEmpty &&
-      occurTimeEnd.isEmpty &&
-      !excludePolice &&
-      !onlyPolice &&
-      pollStatus.isEmpty;
-
-  /// 활성 필터 항목 요약 (Chip 표시용)
-  List<String> get activeLabels {
-    final list = <String>[];
-    if (name.isNotEmpty) list.add('신고명: $name');
-    if (reportNumber.isNotEmpty) list.add('신고번호: $reportNumber');
-    if (id.isNotEmpty) list.add('ID: $id');
-    if (ratings.isNotEmpty) {
-      list.add(
-        '별점: ${ratings.map((rating) => rating == '__none__' ? '없음' : '$rating점').join(', ')}',
-      );
-    }
-    if (ratingCause.isNotEmpty) list.add('별점사유: $ratingCause');
-    if (agency.isNotEmpty) list.add('기관: $agency');
-    if (manager.isNotEmpty) list.add('담당자: $manager');
-    if (carNumber.isNotEmpty) list.add('차량: $carNumber');
-    if (law == kEmptyLawFilterValue) {
-      list.add('위반법규: 없음');
-    } else if (law.isNotEmpty) {
-      list.add('위반법규: $law');
-    }
-    if (location.isNotEmpty) list.add('위반장소: $location');
-    if (fine.isNotEmpty) list.add('범칙금/과태료: $fine');
-    if (supplementCount.isNotEmpty) list.add('보완횟수: $supplementCount');
-    if (reportContent.isNotEmpty) list.add('신고내용: $reportContent');
-    if (processContent.isNotEmpty) list.add('처리내용: $processContent');
-    if (statuses.isNotEmpty) list.add('상태: ${statuses.join(', ')}');
-    if (reportDateStart.isNotEmpty || reportDateEnd.isNotEmpty) {
-      list.add('신고일: $reportDateStart~$reportDateEnd');
-    }
-    if (occurDateStart.isNotEmpty || occurDateEnd.isNotEmpty) {
-      list.add('발생일: $occurDateStart~$occurDateEnd');
-    }
-    if (responseDateStart.isNotEmpty || responseDateEnd.isNotEmpty) {
-      list.add('답변일: $responseDateStart~$responseDateEnd');
-    }
-    if (occurTimeStart.isNotEmpty || occurTimeEnd.isNotEmpty) {
-      list.add('발생시각: $occurTimeStart~$occurTimeEnd');
-    }
-    if (excludePolice) list.add('경찰기관 제외');
-    if (onlyPolice) list.add('경찰기관만');
-    if (pollStatus.isNotEmpty) list.add('만족도: $pollStatus');
-    return list;
-  }
-
-  String get rating => ratings.join(',');
-  String get status => statuses.join(',');
-}
 
 class ReportProvider with ChangeNotifier {
   AppMode _appMode = AppMode.server;
@@ -249,6 +57,8 @@ class ReportProvider with ChangeNotifier {
   bool _isStandaloneDemo = false;
   String _baseUrl = '';
   String _apiKey = '';
+  int _datasetEpoch = 0;
+  int get datasetEpoch => _datasetEpoch;
   bool _isLoading = false;
   bool _isInitialized = false;
   String? _errorMessage;
@@ -673,8 +483,10 @@ class ReportProvider with ChangeNotifier {
   }
 
   Future<void> _fetchAppConfigImpl() async {
+    final epoch = _datasetEpoch;
     if (_appMode == AppMode.standalone) {
       final prefs = await SharedPreferences.getInstance();
+      if (epoch != _datasetEpoch) return;
       _excludeWithdraw = prefs.getBool('standaloneExcludeWithdraw') ?? true;
       _useRepresentativeRecords =
           prefs.getBool('standaloneUseRepresentativeRecords') ?? true;
@@ -683,6 +495,7 @@ class ReportProvider with ChangeNotifier {
     }
     try {
       final cfg = await _api.getAppConfig();
+      if (epoch != _datasetEpoch) return;
       _excludeWithdraw = cfg['exclude_withdraw'] as bool? ?? false;
       _useRepresentativeRecords =
           cfg['use_representative_records'] as bool? ?? true;
@@ -698,6 +511,12 @@ class ReportProvider with ChangeNotifier {
     bool? excludeWithdraw,
     bool? useRepresentativeRecords,
   }) async {
+    if ((excludeWithdraw != null && excludeWithdraw != _excludeWithdraw) ||
+        (useRepresentativeRecords != null &&
+            useRepresentativeRecords != _useRepresentativeRecords)) {
+      _datasetEpoch++;
+      _resetDatasetView();
+    }
     final prefs = await SharedPreferences.getInstance();
     if (excludeWithdraw != null) {
       _excludeWithdraw = excludeWithdraw;
@@ -755,11 +574,36 @@ class ReportProvider with ChangeNotifier {
   static Future<void> Function()? drainAndRefreshHook;
   static Future<bool> Function()? startWsServiceHook;
 
+  String ratingCauseDraft = '';
+  final _ratingInFlight = <String>{};
   bool _gatePassed = false;
+
+  void _resetDatasetView() {
+    _stats = null;
+    _trafficReports = [];
+    _parkingReports = [];
+    _otherReports = [];
+    _duplicateReports = [];
+    _watchlistNumbers = {};
+    _loadedCategories.clear();
+    _summaryLoadFuture = null;
+    _categoryLoadFutures.clear();
+    _duplicateLoadFuture = null;
+    _watchlistLoadFuture = null;
+  }
 
   /// 카카오 인증·동의가 풀리면 Client의 백그라운드 서버 연결도 끊는다.
   void onGateBlocked() {
+    _datasetEpoch++;
+    _resetDatasetView();
     _gatePassed = false;
+    _stats = null;
+    _trafficReports = [];
+    _parkingReports = [];
+    _otherReports = [];
+    _duplicateReports = [];
+    _loadedCategories.clear();
+    notifyListeners();
     if (_appMode == AppMode.server) {
       unawaited(PermissionService.stopWsService());
     }
@@ -867,6 +711,10 @@ class ReportProvider with ChangeNotifier {
       CommunityUploadHooks.cancelBackgroundJobsNow(),
     ); // Client·데모·초기화: 공유 업로드 작업 해제
     final cleanUrl = url.endsWith('/') ? url.substring(0, url.length - 1) : url;
+    _datasetEpoch++;
+    _resetDatasetView();
+    ratingCauseDraft = '';
+    ClientCompatibility.invalidate();
     _appMode = AppMode.server;
     _isStandaloneDemo = false;
     _baseUrl = cleanUrl;
@@ -908,6 +756,10 @@ class ReportProvider with ChangeNotifier {
         StandaloneAuthService.startKeepAlive();
       }
     }
+    _datasetEpoch++;
+    _resetDatasetView();
+    ratingCauseDraft = '';
+    ClientCompatibility.invalidate();
     _appMode = AppMode.standalone;
     _standaloneUsername = username;
     _standalonePhoneNumber = isDemoMode
@@ -949,6 +801,10 @@ class ReportProvider with ChangeNotifier {
     unawaited(
       CommunityUploadHooks.cancelBackgroundJobsNow(),
     ); // Client·데모·초기화: 공유 업로드 작업 해제
+    _datasetEpoch++;
+    _resetDatasetView();
+    ratingCauseDraft = '';
+    ClientCompatibility.invalidate();
     _appMode = AppMode.server;
     _baseUrl = '';
     _apiKey = '';
@@ -1011,24 +867,22 @@ class ReportProvider with ChangeNotifier {
   }
 
   Future<void> _fetchSummaryImpl() async {
+    final epoch = _datasetEpoch;
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
     try {
+      DashboardStats result;
       if (_appMode == AppMode.standalone) {
-        _stats = _normalizeSummaryForFilters(
+        result = _normalizeSummaryForFilters(
           await LocalDbService.computeSummary(
             excludeWithdraw: _excludeWithdraw,
             useRepresentativeRecords: _useRepresentativeRecords,
-          ).timeout(
-            const Duration(seconds: 5),
-            onTimeout: () {
-              throw Exception('로컬 DB 응답 지연 (데드락 의심)');
-            },
+            isCancelled: () => epoch != _datasetEpoch,
           ),
         );
       } else {
-        _stats = _normalizeSummaryForFilters(
+        result = _normalizeSummaryForFilters(
           await _api.getSummary().timeout(
             const Duration(seconds: 5),
             onTimeout: () {
@@ -1037,19 +891,35 @@ class ReportProvider with ChangeNotifier {
           ),
         );
       }
+      if (epoch != _datasetEpoch) return;
+      PerformanceTrace.sync('summary.provider_update', () => _stats = result);
     } catch (e) {
+      if (epoch != _datasetEpoch) return;
       _errorMessage = _appMode == AppMode.standalone
           ? '로컬 DB 오류: $e'
           : '서버 연결 실패: $e';
       _stats = null;
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      if (epoch == _datasetEpoch) {
+        _isLoading = false;
+        notifyListeners();
+      }
     }
   }
 
   /// 카테고리 별 fetch 공통 경로 — 모드 분기와 결과 저장만 다르고 형태는 동일.
   /// `traffic` / `parking` / `other` 만 정식 카테고리. 알 수 없는 값은 무시.
+  Future<({List<Report> reports, int total})> readServerPage(
+    String category, {
+    int offset = 0,
+    int limit = 200,
+  }) => _api.getReportsPage(
+    category,
+    offset: offset,
+    limit: limit,
+    dedupe: _useRepresentativeRecords ? 'canonical' : 'raw',
+  );
+
   Future<void> fetchCategoryReports(String category) {
     if (!isConfigured || !_kCoreCategories.contains(category)) {
       return Future.value();
@@ -1066,6 +936,7 @@ class ReportProvider with ChangeNotifier {
   }
 
   Future<void> _fetchCategoryReportsImpl(String category) async {
+    final epoch = _datasetEpoch;
     _isLoading = true;
     notifyListeners();
     try {
@@ -1076,6 +947,7 @@ class ReportProvider with ChangeNotifier {
               useRepresentativeRecords: _useRepresentativeRecords,
             )
           : await _api.getReports(category);
+      if (epoch != _datasetEpoch) return;
       switch (category) {
         case 'traffic':
           _trafficReports = reports;
@@ -1089,11 +961,14 @@ class ReportProvider with ChangeNotifier {
       }
       _loadedCategories.add(category);
     } catch (e) {
+      if (epoch != _datasetEpoch) return;
       _errorMessage = '${_categoryLabel(category)} 내역 로드 실패: $e';
       ReviewPromptService.markSessionError();
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      if (epoch == _datasetEpoch) {
+        _isLoading = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -1129,22 +1004,30 @@ class ReportProvider with ChangeNotifier {
   }
 
   Future<void> _fetchDuplicateReportsImpl() async {
+    final epoch = _datasetEpoch;
     _isLoading = true;
     notifyListeners();
     try {
       if (_appMode == AppMode.standalone) {
-        _duplicateReports = await LocalDbService.getDuplicateVehicleReports(
+        final loaded = await LocalDbService.getDuplicateVehicleReports(
           excludeWithdraw: _excludeWithdraw,
         );
+        if (epoch != _datasetEpoch) return;
+        _duplicateReports = loaded;
       } else {
-        _duplicateReports = await _api.getReports('duplicates');
+        final loaded = await _api.getReports('duplicates');
+        if (epoch != _datasetEpoch) return;
+        _duplicateReports = loaded;
       }
     } catch (e) {
+      if (epoch != _datasetEpoch) return;
       _errorMessage = '중복차량 내역 로드 실패: $e';
       ReviewPromptService.markSessionError();
     } finally {
-      _isLoading = false;
-      notifyListeners();
+      if (epoch == _datasetEpoch) {
+        _isLoading = false;
+        notifyListeners();
+      }
     }
   }
 
@@ -1162,11 +1045,15 @@ class ReportProvider with ChangeNotifier {
   }
 
   Future<void> _fetchWatchlistNumbersImpl() async {
+    final epoch = _datasetEpoch;
     try {
       if (_appMode == AppMode.standalone) {
-        _watchlistNumbers = await LocalDbService.getWatchlistNumbers();
+        final numbers = await LocalDbService.getWatchlistNumbers();
+        if (epoch != _datasetEpoch) return;
+        _watchlistNumbers = numbers;
       } else {
         final reports = await _api.getWatchlist();
+        if (epoch != _datasetEpoch) return;
         _watchlistNumbers = reports.map((r) => r.reportNumber).toSet();
       }
       notifyListeners();
@@ -1224,7 +1111,6 @@ class ReportProvider with ChangeNotifier {
   Future<void> refreshSummaryAndRecentAnswers() async {
     if (!isConfigured) return;
     await fetchSummary();
-    await ensureCategoryReportsLoaded(forceRefresh: true);
   }
 
   Future<void> startCrawlQueue(List<String> reportNumbers) async {
@@ -1240,44 +1126,70 @@ class ReportProvider with ChangeNotifier {
     required int score,
     String cause = '',
   }) async {
-    final result = await RatingService.submit(
-      appMode: _appMode,
-      selectedReports: reports,
-      score: score,
-      cause: ratingCauseSupported ? cause : '',
-      api: _appMode == AppMode.server ? _api : null,
-      isStandaloneDemo: _isStandaloneDemo,
-    );
-
-    try {
-      await refreshAll();
-      final reportLookup = <String, Report>{};
-      for (final report in [
-        ..._trafficReports,
-        ..._parkingReports,
-        ..._otherReports,
-        ..._duplicateReports,
-      ]) {
-        reportLookup[report.reportNumber] = report;
-      }
-      return result.enrichWithReports(reportLookup);
-    } catch (_) {
-      return result;
+    final numbers = reports.map((r) => r.reportNumber).toSet();
+    if (numbers.any(_ratingInFlight.contains)) {
+      throw StateError('이미 별점을 처리 중인 신고가 있습니다. 완료 후 다시 시도하세요.');
     }
+    _ratingInFlight.addAll(numbers);
+    final epoch = _datasetEpoch;
+    try {
+      final result = await RatingService.submit(
+        appMode: _appMode,
+        selectedReports: reports,
+        score: score,
+        cause: ratingCauseSupported ? cause : '',
+        api: _appMode == AppMode.server ? _api : null,
+        isStandaloneDemo: _isStandaloneDemo,
+      );
+
+      if (epoch != _datasetEpoch) return result;
+      if (result.failureCount == 0 && ratingCauseDraft == cause) {
+        ratingCauseDraft = '';
+      }
+      try {
+        await refreshAll();
+        final reportLookup = <String, Report>{};
+        for (final report in [
+          ..._trafficReports,
+          ..._parkingReports,
+          ..._otherReports,
+          ..._duplicateReports,
+        ]) {
+          reportLookup[report.reportNumber] = report;
+        }
+        return result.enrichWithReports(reportLookup);
+      } catch (_) {
+        return result;
+      }
+    } finally {
+      _ratingInFlight.removeAll(numbers);
+    }
+  }
+
+  Future<void> _refreshSummaryAfterMutation(int epoch) async {
+    final pending = _summaryLoadFuture;
+    if (pending != null) await pending;
+    if (epoch != _datasetEpoch) return;
+    if (identical(_summaryLoadFuture, pending)) {
+      _summaryLoadFuture = null;
+    }
+    // A pre-mutation read may have completed after sync/filter refresh began.
+    // Read again; unchanged revisions hit the compact cache.
+    await fetchSummary();
   }
 
   Future<void> refreshAll() async {
     if (!isConfigured) return;
+    final epoch = _datasetEpoch;
     _errorMessage = null;
     if (_appMode == AppMode.standalone) {
       // sqflite 는 단일 connection 으로 모든 작업을 직렬화하므로
-      // Future.wait 로 동시에 던지면 큐만 가득 차서 fetchSummary 의
-      // 5초 timeout 이 발동 (실제 deadlock 아님). 순차 실행으로 변경.
-      await fetchSummary();
-      for (final c in _kCoreCategories) {
+      // 병렬 읽기는 같은 native 큐에서 서로 기다리므로 순차 실행한다.
+      await _refreshSummaryAfterMutation(epoch);
+      for (final c in _loadedCategories.toList()) {
         await fetchCategoryReports(c);
       }
-      await fetchDuplicateReports();
+      if (_duplicateReports.isNotEmpty) await fetchDuplicateReports();
       await fetchWatchlistNumbers();
       // 업데이트 뒤 한 번 훑기: 촬영 시각을 아직 못 읽은 주정차 사진(6개월 이내). 대상이 없으면 바로 끝난다.
       if (!_isStandaloneDemo) {
@@ -1285,17 +1197,21 @@ class ReportProvider with ChangeNotifier {
       }
     } else {
       await Future.wait([
-        fetchSummary(),
-        ..._kCoreCategories.map(fetchCategoryReports),
+        _refreshSummaryAfterMutation(epoch),
+        ..._loadedCategories.toList().map(fetchCategoryReports),
         fetchWatchlistNumbers(),
         fetchAppConfig(),
       ]);
     }
+    if (epoch == _datasetEpoch) bumpStatsRefresh();
   }
 
   /// Client 모드 하단 표시줄용: 서버의 한 번 훑기 작업 진행. 구서버·오류면 null.
   Future<Map<String, dynamic>?> fetchMaintenanceStatus() =>
       _api.fetchMaintenanceStatus();
+
+  bool matchesFilter(Report report, {ReportFilter? filter}) =>
+      _applyFilter([report], filter: filter).isNotEmpty;
 
   List<Report> applyFilterToReports(List<Report> reports) =>
       _applyFilter(reports);

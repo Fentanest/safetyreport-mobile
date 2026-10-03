@@ -1,3 +1,5 @@
+import '../models/app_mode.dart';
+import '../widgets/local_paged_report_list.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -21,14 +23,6 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
   final Set<String> _selected = <String>{};
 
   bool get _selectionMode => _selected.isNotEmpty;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<ReportProvider>().ensureCategoryReportsLoaded();
-    });
-  }
 
   void _toggleSelect(String reportNumber) {
     setState(() {
@@ -76,6 +70,27 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
   Widget build(BuildContext context) {
     final provider = context.watch<ReportProvider>();
     final effectiveFilter = provider.filter.withoutRatingStateFilters();
+    if (provider.appMode == AppMode.standalone ||
+        provider.appMode == AppMode.server) {
+      return Column(
+        children: [
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: () => _showSearchPopup(context),
+              icon: const Icon(Icons.filter_list),
+              label: const Text('검색/필터'),
+            ),
+          ),
+          Expanded(
+            child: LocalPagedReportList(
+              scope: 'rating',
+              filter: effectiveFilter,
+            ),
+          ),
+        ],
+      );
+    }
     final reports = provider.filteredRatingEligibleReports;
     final activeLabels = effectiveFilter.activeLabels;
     final hasApplicableFilter = !effectiveFilter.isEmpty;

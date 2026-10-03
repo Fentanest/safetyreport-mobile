@@ -1,0 +1,1 @@
+{"stage": "dart_heap", "name": "main", "memoryUsage": {"type": "MemoryUsage", "heapUsage": 84808752, "heapCapacity": 89714688, "externalUsage": 548528}, "error": null}

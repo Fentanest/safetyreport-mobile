@@ -1,7 +1,8 @@
 import '../services/attachment_policy.dart';
 import 'dart:async';
 import 'dart:io';
-import 'package:flutter/foundation.dart' show ValueListenable, visibleForTesting;
+import 'package:flutter/foundation.dart'
+    show ValueListenable, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -19,6 +20,23 @@ import '../server_palette.dart';
 import '../screens/report_list_screen.dart';
 import '../services/review_prompt_service.dart';
 import '../services/standalone_auth_service.dart';
+import '../models/app_mode.dart';
+import '../services/client_media_access.dart';
+import '../services/client_compatibility.dart';
+
+Future<Map<String, String>?> _clientMediaHeaders(
+  BuildContext context,
+  String url,
+) async {
+  ReportProvider? p;
+  try {
+    p = context.read<ReportProvider>();
+  } catch (_) {
+    return null;
+  }
+  if (p.appMode != AppMode.server) return null;
+  return ClientMediaAccess.headers(url, baseUrl: p.baseUrl, apiKey: p.apiKey);
+}
 
 const _officialSafetyReportUrl = 'https://www.safetyreport.go.kr/';
 
@@ -74,6 +92,10 @@ class ReportDetailSheet extends StatelessWidget {
   @visibleForTesting
   static VideoPlayerController Function(Uri url) videoControllerFactory =
       VideoPlayerController.networkUrl;
+  @visibleForTesting
+  static VideoPlayerController Function(Uri url, Map<String, String> headers)
+  videoWithHeadersControllerFactory = (url, headers) =>
+      VideoPlayerController.networkUrl(url, httpHeaders: headers);
 
   String _ratingLabel() {
     final rating = report.rating;
@@ -556,12 +578,26 @@ class ReportDetailSheet extends StatelessWidget {
     );
 
     try {
+      final headers = await _clientMediaHeaders(context, url);
       final dir = await getTemporaryDirectory();
       final file = File('${dir.path}/$fileName');
 
       // 이미 캐시에 있으면 재사용
       if (!await file.exists()) {
-        final response = await http.get(uri);
+        final response = await http.get(uri, headers: headers);
+        if (response.statusCode == 409 && headers != null) {
+          if (context.mounted) {
+            final p = context.read<ReportProvider>();
+            ClientCompatibility.reject(
+              p.baseUrl,
+              p.apiKey,
+              '앱과 PC 서버의 protocol 3 지원을 확인하고 업데이트하세요.',
+            );
+          }
+        }
+        if (response.statusCode != 200) {
+          throw HttpException('첨부 다운로드 실패: ${response.statusCode}');
+        }
         await file.writeAsBytes(response.bodyBytes);
       }
 
@@ -1002,17 +1038,30 @@ class _RetryableImageState extends State<_RetryableImage> {
   bool _retrying = false; // 재시도 대기 중 (스피너 표시)
   Timer? _retryTimer;
   Map<String, String>? _headers;
+  bool _headersReady = false;
 
   @override
   void initState() {
     super.initState();
-    // 안전신문고 직접 URL은 Bearer 토큰이 필요
-    if (widget.url.contains('safetyreport.go.kr')) {
-      StandaloneAuthService.getStoredToken().then((token) {
-        if (token != null && mounted) {
-          setState(() => _headers = {'Authorization': 'BEARER $token'});
-        }
-      });
+    _prepareHeaders();
+  }
+
+  Future<void> _prepareHeaders() async {
+    try {
+      _headers = await _clientMediaHeaders(context, widget.url);
+      // 안전신문고 직접 URL은 Bearer 토큰이 필요
+      if (widget.url.contains('safetyreport.go.kr')) {
+        final token = await StandaloneAuthService.getStoredToken();
+        if (token != null) _headers = {'Authorization': 'BEARER $token'};
+      }
+      if (mounted) setState(() => _headersReady = true);
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _failed = true;
+          _headersReady = true;
+        });
+      }
     }
   }
 
@@ -1022,8 +1071,27 @@ class _RetryableImageState extends State<_RetryableImage> {
     super.dispose();
   }
 
-  void _onError() {
+  void _onError(Object error) {
     if (!mounted) return;
+    if (error is NetworkImageLoadException &&
+        (error.statusCode == 409 ||
+            error.statusCode == 401 ||
+            error.statusCode == 403)) {
+      if (error.statusCode == 409 &&
+          _headers?.containsKey('X-SafetyReport-Protocol') == true) {
+        final p = context.read<ReportProvider>();
+        ClientCompatibility.block(
+          p.baseUrl,
+          p.apiKey,
+          '앱과 PC 서버의 protocol 3 지원을 확인하고 업데이트하세요.',
+        );
+      }
+      setState(() {
+        _failed = true;
+        _retrying = false;
+      });
+      return;
+    }
     if (_attempt < _maxAutoRetry) {
       setState(() => _retrying = true);
       _retryTimer = Timer(_retryDelay, () {
@@ -1047,11 +1115,19 @@ class _RetryableImageState extends State<_RetryableImage> {
       _attempt++;
       _failed = false;
       _retrying = false;
+      _headersReady = false;
     });
+    _prepareHeaders();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (!_headersReady) {
+      return const SizedBox(
+        height: 160,
+        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
     if (_failed) {
       return Container(
         height: 80,
@@ -1120,9 +1196,9 @@ class _RetryableImageState extends State<_RetryableImage> {
             ),
           );
         },
-        errorBuilder: (_, _, _) {
+        errorBuilder: (_, error, _) {
           // errorBuilder는 동기적으로 호출되므로 addPostFrameCallback으로 상태 변경
-          WidgetsBinding.instance.addPostFrameCallback((_) => _onError());
+          WidgetsBinding.instance.addPostFrameCallback((_) => _onError(error));
           return Container(
             height: 80,
             color: context.sr.surfaceAlt,
@@ -1213,9 +1289,16 @@ class _VideoPlayerState extends State<_VideoPlayer>
   void _initController() {
     _VideoLoadQueue.run(() async {
       if (!mounted) return; // 차례가 오기 전에 시트가 닫혔다
-      _ctrl = ReportDetailSheet.videoControllerFactory(Uri.parse(widget.url));
-      _ctrlCreated = true;
       try {
+        final headers = await _clientMediaHeaders(context, widget.url);
+        if (!mounted) return;
+        _ctrl = headers == null
+            ? ReportDetailSheet.videoControllerFactory(Uri.parse(widget.url))
+            : ReportDetailSheet.videoWithHeadersControllerFactory(
+                Uri.parse(widget.url),
+                headers,
+              );
+        _ctrlCreated = true;
         await _ctrl.initialize();
         if (mounted) setState(() => _initialized = true);
       } catch (_) {

@@ -12,6 +12,7 @@ import 'package:safetyreport/widgets/community_account_card.dart';
 import 'package:safetyreport/widgets/community_server_account_card.dart';
 
 import '../support/ui_harness.dart';
+import '../support/selfhost_client_fixture.dart';
 
 const _supabase = 'https://proj.supabase.test';
 final _now = DateTime(2026, 9, 25, 10);
@@ -101,6 +102,7 @@ void main() {
   late Map<String, String> secure;
 
   setUp(() {
+    resetSelfhostFixture();
     secure = <String, String>{};
     FlutterSecureStorage.setMockInitialValues(secure);
   });
@@ -238,7 +240,7 @@ void main() {
 
   group('Client 서버의 커뮤니티 계정 카드', () {
     MockClient serverWith(Map<String, dynamic> status) =>
-        MockClient((req) async {
+        selfhostMockClient((req) async {
           expect(req.url.host, 'nas.example.test', reason: 'Supabase 호출 금지');
           return _json({'data': status});
         });
@@ -313,7 +315,7 @@ void main() {
       }
 
       await pumpWith(
-        MockClient(
+        selfhostMockClient(
           (_) async => _json({
             'detail': '서버 관리자 화면에서 이 기기의 커뮤니티 계정 관리 권한을 허용해야 합니다.',
             'code': 'permission_required',
@@ -322,13 +324,15 @@ void main() {
       );
       expect(find.textContaining('관리 권한을 허용해야 합니다'), findsOneWidget);
 
-      await pumpWith(MockClient((_) async => _json({'detail': 'x'}, 404)));
+      await pumpWith(
+        selfhostMockClient((_) async => _json({'detail': 'x'}, 404)),
+      );
       expect(find.text('서버가 이 기능을 아직 지원하지 않습니다.'), findsOneWidget);
 
       // 상태는 읽혔지만 시작 요청 때 서버가 꺼짐 → Standalone 으로 바꾸지 않고 오류만.
       var calls = 0;
       await pumpWith(
-        MockClient((req) async {
+        selfhostMockClient((req) async {
           calls++;
           if (req.url.path.endsWith('/status')) {
             return _json({'data': _status('disconnected')});
@@ -347,7 +351,7 @@ void main() {
       tester,
     ) async {
       var n = 0;
-      final client = MockClient((req) async {
+      final client = selfhostMockClient((req) async {
         n++;
         return _json({'data': _status(n < 3 ? 'pending' : 'connected')});
       });

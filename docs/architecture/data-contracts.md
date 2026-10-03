@@ -6,6 +6,8 @@
 
 ## 코드 대조 정정 (2026-09-24, base `c64be69a`)
 
+대용량 SQL/페이지·revision 캐시, protocol 3, 키보드 사유 입력 및 공유 DB 저장의 현재 구조는 [bounded-reads.md](bounded-reads.md)를 우선한다. Client의 추가 서버 계약은 [client-read-handoff.md](client-read-handoff.md), 실행 증거/한계는 [검증 기록](../reviews/2026-10-03-runtime-validation.md)을 따른다.
+
 | 원문 기술 | 현재 코드 | 근거 |
 |---|---|---|
 | SQLite `version 8`, 보완 요약 4컬럼 | **version 10**, 보완 컬럼 7개(`보완횟수`, `보완_미응답`, `보완_요청자`, `보완_요청일시`, `보완_완료일시`, `보완_요청_내용`, `보완_신고자_의견`) | `lib/services/local_db_service.dart:62,111-113,216` |

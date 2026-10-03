@@ -1,0 +1,17 @@
+{"stage": "registry.cold_load", "ms": 5148}
+{"stage": "frames", "count": 1, "max_build_us": 8, "max_raster_us": 1005843}
+{"stage": "frames", "count": 3, "max_build_us": 45785, "max_raster_us": 1005843}
+{"stage": "frames", "count": 4, "max_build_us": 45785, "max_raster_us": 1005843}
+{"rows": 500000, "stage": "fixture.seed", "ms": 7431}
+{"rows": 500000, "phase": "cold", "stage": "summary", "ms": 19586, "total": 499000, "rss": 150454272}
+{"rows": 500000, "phase": "cold", "stage": "stats", "ms": 46751, "total": 499000, "rss": 453644288}
+{"rows": 500000, "phase": "cold", "stage": "map", "ms": 9844, "points": 2, "rss": 445698048}
+{"rows": 500000, "phase": "warm", "stage": "summary", "ms": 6, "total": 499000, "rss": 445829120}
+{"rows": 500000, "phase": "warm", "stage": "stats", "ms": 1, "total": 499000, "rss": 445829120}
+{"rows": 500000, "phase": "warm", "stage": "map", "ms": 1, "points": 2, "rss": 445829120}
+{"rows": 500000, "stage": "stages", "values": {"summary.sql_counts": {"us": 2807344, "returned_rows": 1}, "summary.sql_recent": {"us": 1188431, "returned_rows": 158}, "summary.sql_watch_count": {"us": 5691648, "returned_rows": 1}, "summary.sql_watchlist": {"us": 9699657, "returned_rows": 200}, "summary.report_objects": {"us": 163592, "returned_rows": 0}, "summary.watch_objects": {"us": 532, "returned_rows": 0}, "summary.total": {"us": 19559647, "returned_rows": 0}, "stats.sql_group": {"us": 13357941, "returned_rows": 0}, "stats.sql_page": {"us": 13413132, "returned_rows": 499000}, "stats.registry_and_tables": {"us": 5616345, "returned_rows": 0}, "stats.chart_data": {"us": 10657393, "returned_rows": 0}, "stats.total": {"us": 46748655, "returned_rows": 0}, "map.sql_meta": {"us": 4614611, "returned_rows": 1}, "map.sql_page": {"us": 221394, "returned_rows": 8610}, "map.cell_data": {"us": 19791, "returned_rows": 0}, "map.total": {"us": 3468184, "returned_rows": 2}}, "peak_rss": 536842240}
+{"rows": 500000, "stage": "repeat20", "rss": 446615552, "peak_rss": 536842240}
+{"stage": "complete"}
+{"stage": "frames", "count": 9, "max_build_us": 97966, "max_raster_us": 1005843}
+{"stage": "frames", "count": 15, "max_build_us": 97966, "max_raster_us": 1005843}
+{"stage": "frames", "count": 17, "max_build_us": 97966, "max_raster_us": 1005843}

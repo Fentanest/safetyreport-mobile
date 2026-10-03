@@ -1,15 +1,20 @@
+import '../support/selfhost_client_fixture.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:safetyreport/services/server_connection_service.dart';
 
 void main() {
+  setUp(resetSelfhostFixture);
   group('ServerConnectionService.checkVersion', () {
     test('accepts a configured v3 server before other API calls', () async {
       final client = MockClient((request) async {
         expect(request.url.path, '/api/v1/server/version');
         expect(request.headers['X-API-Key'], 'secret');
-        return http.Response('{"version":"3.0.0.0"}', 200);
+        return http.Response(
+          '{"version":"3.0.0.0","protocol_version":3,"supported_client_protocols":[3]}',
+          200,
+        );
       });
       final result = await ServerConnectionService.checkVersion(
         baseUrl: 'https://example.com',
@@ -52,7 +57,10 @@ void main() {
             return http.Response('{"data":{"total":7}}', 200);
           }
           expect(request.url.path, '/api/v1/server/version');
-          return http.Response('{"version":"3.0.0.0"}', 200);
+          return http.Response(
+            '{"version":"3.0.0.0","protocol_version":3,"supported_client_protocols":[3]}',
+            200,
+          );
         });
 
         final result = await ServerConnectionService.testConnection(
@@ -130,7 +138,10 @@ void main() {
     test('returns networkError for malformed 200 response body', () async {
       final client = MockClient(
         (request) async => request.url.path.endsWith('/version')
-            ? http.Response('{"version":"3.0.0.0"}', 200)
+            ? http.Response(
+                '{"version":"3.0.0.0","protocol_version":3,"supported_client_protocols":[3]}',
+                200,
+              )
             : http.Response('<html>', 200),
       );
 

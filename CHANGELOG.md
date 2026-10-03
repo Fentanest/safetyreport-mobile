@@ -8,6 +8,18 @@
 
 ---
 
+## 2026-10-03 (로컬 작업, 미배포)
+
+### 대용량 조회·사유 입력·self-host protocol 3·DB 저장 위치
+
+- dev의 기관 registry compute/캐시가 실제 호출 경로에 적용됨을 확인했다. 남아 있던 요약/통계 전체 Report·행 리스트와 반복 계산을 SQL COUNT/조건 집계, 원문 제외 TEMP GROUP BY, 1,000행 소비로 바꿨다. 전체 건수와 200개 미리보기를 분리하고 Standalone 목록/감시/중복/별점/주소 상세는 페이지 조회한다. 지도는 전체 메타와 현재 화면의 최대 1,024셀을 구분한다. 캐시는 쓰기 revision·DB 연결·계정 epoch·필터·중복 모드·registry에 따라 갱신한다.
+- 빠른 통계 진입/취소 때 폐기된 CTAS가 native 실행 큐에 누적되는 문제를 검증 중 발견해 Dart 조회 진입을 직렬화하고 대기 후 취소를 재확인했다. 공통 필터 변경은 dataset epoch를 증가시키고 요약도 대기 후 취소한다. 변경 후 refresh는 진행 중이던 이전 요약 다음에 현재 revision을 다시 조회한다. 상태/감시 건수와 미리보기 ID 선택은 covering index로 원문 읽기를 피한다. 인덱스 준비 비용은 별도 기록한다. SQL/JSON/Report/registry/차트/Provider/마커/build·RSS 계측과 0/1/3천/58,388/10만/50만 합성 fixture를 추가했다.
+- 별점 사유 dialog 내용과 actions를 분리하고 가로/큰 글꼴/IME에서는 입력과 버튼을 좌우 배치한다. 입력 포커스·draft·기존 1,000 rune/개행 규칙을 보존한다. 취소/중복 확인/오류 보존을 fixture로 검사했다. Android profile에서 실제 키보드 1.0/1.3/2.0를 확인했다.
+- PC `contracts/selfhost-compat/` 정본/벡터를 동일하게 복사했다. Dart HTTP/WS·첨부 미디어·DB 다운로드와 Kotlin native HTTP/WS/background에 실제 제품 버전 2.0.0+31과 독립된 protocol 3을 전달한다. 실제 서버 major≥3/프로토콜 필드 확인 전 Client 기능을 차단하고 409/4406은 정확한 업데이트 안내와 재시도 중단으로 처리한다. Standalone은 이 검사로 막지 않는다. 서버 측 기존 1.5.3 차단/운영 서버 연동은 이 작업에서 검증하지 않았다.
+- Client 다운로드/Standalone 정상 내보내기를 공유 Downloads 또는 SAF 문서에 스트리밍 저장한다. MediaStore pending·실패 삭제·크기 확인 뒤 파일명/실제 위치/완료 및 저장 위치 열기·파일 열기·공유를 제공한다. 포그라운드는 기본 Files 위치 안내, 백그라운드는 완료 알림 탭으로 안내한다. Android 15에서 50만 건 769,716,224 bytes 내보내기와 파일 앱 전환·파일명·quick_check를 확인했다. 삼성 내 파일/SAF28/백그라운드 실제 탭은 미검증이다.
+- 검증: 전체 Flutter 860 passed/14 skipped, analyze error 0/warning 9/info 10(기존 진단, dev 24→19), Kotlin 4 passed, 50만 건 포함 host fixture 7 passed, 동시 snapshot/취소 burst/대기 요약 취소/수정값 감시 건수/year NULL 6 passed, DB 양방향 교환 diff 0, 공통 통계 44조합 diff 0. 4GB profile에서 데이터 준비·뒤로가기를 매번 확인한 대시보드↔통계↔지도 20회와 백그라운드 복귀, 연도 필터 연속 변경 후 복귀도 통과했다. 회전의 스크롤 위치를 보존하는 UI는 화면 밖 차트 oracle 실패와 실제 표시 확인을 검증 기록에서 구분했다. profile 에뮬레이터의 58,388건 요약은 dev 10,496 ms→SQL 전환 557 ms였다. 최종 4GB Android profile의 50만 건 요약 cold/warm 972/1 ms, 통계 35,194/3 ms였고 DB/인덱스 준비 13,633 ms는 별도다. 2GB 이전 cold 목표는 안정적으로 충족하지 못했으며 같은 환경의 개선률로 계산하지 않는다. 50만 건 cold와 최초 인덱스 준비는 여전히 부하 영향을 받는다. 실기기 S24 종료 원인은 미확정이며 실기기 성능 확인으로 주장하지 않는다.
+- 상세 측정·실제 화면 증거·제한은 [검증 기록](docs/reviews/2026-10-03-runtime-validation.md), 현재 구조는 [bounded reads](docs/architecture/bounded-reads.md), 서버의 summary watchlist/복합 필터·감시·중복·주소 페이지 계약 인계는 [client read handoff](docs/architecture/client-read-handoff.md)에 있다. 서버 계약이 부족한 Client 전량 경로와 50만 건 cold 목표의 미달을 완료로 위장하지 않았다. 제품 VERSION 변경/push/배포/실제 제출은 하지 않았다.
+
 ## 2026-09-30 (dev 미배포)
 
 ### 공유 resolver(resolve.ts·resolve.dart) 링크 색인 캐시 반영

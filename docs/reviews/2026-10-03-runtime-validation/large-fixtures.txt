@@ -1,0 +1,17 @@
+00:00 +0: loading /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart
+00:00 +0: (setUpAll)
+00:00 +0: 0 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+SR_HOST rows=0 ms=127 rss=179310592
+00:00 +1: 1 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+SR_HOST rows=1 ms=156 rss=184139776
+00:00 +2: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+SR_HOST rows=3000 ms=1670 rss=205144064
+00:02 +3: 58388 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+SR_HOST rows=58388 ms=21973 rss=261128192
+00:26 +4: 100000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+SR_HOST rows=100000 ms=38506 rss=253923328
+01:09 +5: 500000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+SR_HOST rows=500000 ms=192747 rss=450113536
+04:49 +6: SQL list filtering agrees with the existing ReportFilter predicate
+04:55 +7: (tearDownAll)
+04:55 +7: All tests passed!

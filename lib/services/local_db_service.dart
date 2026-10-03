@@ -1,3 +1,6 @@
+import '../models/report_filter.dart';
+import 'report_query.dart';
+import 'performance_trace.dart';
 import 'app_prefs_keys.dart';
 import 'community_auth_service.dart';
 import '../models/editor_schema.dart';
@@ -217,6 +220,12 @@ class LocalDbService {
       _db = null;
       _initFuture = null;
       await open?.close();
+      _statsCache.clear();
+      _summaryCache.clear();
+      _mapCache.clear();
+      _mapMetaCache.clear();
+      _agencyLookupKey = null;
+      _missingLookupKey = null;
     } finally {
       _closeRequested = false;
     }
@@ -382,11 +391,13 @@ class LocalDbService {
       for (final name in tables) {
         if (name == 'geocode_cache' ||
             name == 'android_metadata' ||
-            name == 'sync_meta')
+            name == 'sync_meta') {
           continue;
+        }
         // 가상 표(FTS)의 보조 표는 가상 표를 비우면 함께 비워진다 — 직접 건드리지 않는다
-        if (virtualTables.any((v) => name != v && name.startsWith('${v}_')))
+        if (virtualTables.any((v) => name != v && name.startsWith('${v}_'))) {
           continue;
+        }
         await txn.delete(name);
         cleared.add(name);
       }
@@ -597,8 +608,9 @@ class LocalDbService {
           // 인덱스 → 보기 → 트리거(보기에 다는 INSTEAD OF 트리거는 보기가 있어야 한다, Sol 재검증 5). 데이터를 다 넣은 뒤라 트리거가 복사 중에 발동하지 않는다.
           for (final type in const ['index', 'view', 'trigger']) {
             for (final o in objects.where((o) => o['type'] == type)) {
-              if (await existsInCopy(o['name'] as String))
+              if (await existsInCopy(o['name'] as String)) {
                 continue; // 가상 표가 이미 만든 것
+              }
               await copy.execute(o['sql'] as String);
             }
           }
@@ -616,8 +628,9 @@ class LocalDbService {
             final b = Sqflite.firstIntValue(
               await copy.rawQuery('SELECT count(*) FROM main."$t"'),
             );
-            if (a != b)
+            if (a != b) {
               throw LegacyDatabaseException('DB 사본의 $t 행 수가 다릅니다($a → $b).');
+            }
           }
           await copy.execute('COMMIT');
         } catch (_) {
@@ -632,8 +645,9 @@ class LocalDbService {
       final result = (await copy.rawQuery(
         'PRAGMA integrity_check',
       )).first.values.first.toString();
-      if (result != 'ok')
+      if (result != 'ok') {
         throw LegacyDatabaseException('DB 사본 무결성 검사 실패: $result');
+      }
       ok = true;
     } finally {
       await copy.close();
@@ -882,6 +896,49 @@ class LocalDbService {
           return 'r."$c" AS "$c"';
         })
         .join(', ');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS sr_report_category_number ON reports(category, 신고번호 DESC, ID DESC)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS sr_report_answer ON reports(답변일)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS sr_duplicate_report ON duplicate_member(report_id, group_id, is_representative)',
+    );
+    final indexTimer = Stopwatch()..start();
+    final summaryIndex = await db.rawQuery(
+      'PRAGMA index_info(sr_summary_cover)',
+    );
+    if (summaryIndex.isNotEmpty &&
+        !summaryIndex.any((r) => r['name'] == '신고번호')) {
+      await db.execute('DROP INDEX sr_summary_cover');
+    }
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS sr_summary_cover ON reports(ID,category,처리상태,범칙금_과태료,감시목록,신고번호)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS sr_report_watch ON reports(감시목록,ID)',
+    );
+    PerformanceTrace.record('db.read_index_prepare', indexTimer);
+    await db.execute(
+      'CREATE TEMP TABLE IF NOT EXISTS sr_read_revision(value INTEGER NOT NULL)',
+    );
+    await db.execute(
+      'INSERT INTO temp.sr_read_revision SELECT 0 WHERE NOT EXISTS (SELECT 1 FROM temp.sr_read_revision)',
+    );
+    for (final table in [
+      'reports',
+      'report_override',
+      'duplicate_group',
+      'duplicate_member',
+      'sync_meta',
+    ]) {
+      for (final operation in ['INSERT', 'UPDATE', 'DELETE']) {
+        await db.execute(
+          'CREATE TEMP TRIGGER IF NOT EXISTS sr_revision_${table}_$operation AFTER $operation ON main.$table BEGIN UPDATE sr_read_revision SET value = value + 1; END',
+        );
+      }
+    }
     await db.execute('DROP VIEW IF EXISTS $effectiveReportsView');
     await db.execute(
       'CREATE VIEW $effectiveReportsView AS SELECT $select FROM reports r',
@@ -1245,96 +1302,24 @@ class LocalDbService {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  static const _kProjectRowsCacheLimit = 16;
-  static final Map<String, List<Map<String, dynamic>>> _projectRowsCache = {};
-  static void _invalidateProjectRowsCache() => _projectRowsCache.clear();
-
-  static String _buildProjectRowsCacheKey(
-    List<Map<String, dynamic>> rows,
-    bool useRepresentativeRecords,
-    int projectionVersion,
-  ) {
-    var signature = rows.length;
-    for (final row in rows) {
-      signature = Object.hash(
-        signature,
-        row['ID']?.toString() ?? '',
-        row['synced_at'],
-        row['신고일']?.toString() ?? '',
-        row['신고번호']?.toString() ?? '',
-        row['감시목록']?.toString() ?? '',
-        row['위반장소']?.toString() ?? '',
-        row['차량번호']?.toString() ?? '',
-        row['처리기관']?.toString() ?? '',
-        row['담당자']?.toString() ?? '',
-        row['위반법규']?.toString() ?? '',
-        row['category']?.toString() ?? '',
-        row['entry_value']?.toString() ?? '',
-        row['범칙금_과태료']?.toString() ?? '',
-      );
-    }
-    return '${useRepresentativeRecords ? 1 : 0}|$projectionVersion|$signature';
+  static void _invalidateProjectRowsCache() {
+    _statsCache.clear();
+    _summaryCache.clear();
+    _mapCache.clear();
+    _mapMetaCache.clear();
   }
 
-  static Future<int> _currentDuplicateProjectionVersion(
-    DatabaseExecutor db,
-  ) async {
-    var version = 0;
-    try {
-      final rows = await db.rawQuery(
-        'SELECT MAX(IFNULL(updated_at, 0)) AS v FROM ${DuplicateProjectionService.groupTable}',
-      );
-      version = int.tryParse(rows.first['v']?.toString() ?? '') ?? 0;
-    } catch (_) {}
-    try {
-      final rows = await db.rawQuery(
-        'SELECT MAX(IFNULL(updated_at, 0)) AS v FROM ${DuplicateProjectionService.memberTable}',
-      );
-      final memberVersion =
-          int.tryParse(rows.first['v']?.toString() ?? '') ?? 0;
-      if (memberVersion > version) version = memberVersion;
-    } catch (_) {}
-    return version;
-  }
-
+  // Legacy export/detail callers still project originals. Retaining copies of
+  // their full rows in a cache duplicated memory and missed status-only changes.
   static Future<List<Map<String, dynamic>>> _projectRows(
     DatabaseExecutor db,
     List<Map<String, dynamic>> rows, {
     required bool useRepresentativeRecords,
-  }) async {
-    final normalized = rows
-        .map((row) => Map<String, dynamic>.from(row))
-        .toList();
-    if (normalized.isEmpty) return normalized;
-    if (!useRepresentativeRecords) {
-      return normalized;
-    }
-
-    final projectionVersion = await _currentDuplicateProjectionVersion(db);
-    final cacheKey = _buildProjectRowsCacheKey(
-      normalized,
-      useRepresentativeRecords,
-      projectionVersion,
-    );
-    final cached = _projectRowsCache[cacheKey];
-    if (cached != null) {
-      return cached.map((row) => Map<String, dynamic>.from(row)).toList();
-    }
-
-    if (_projectRowsCache.length >= _kProjectRowsCacheLimit) {
-      _projectRowsCache.clear();
-    }
-
-    final projected = await DuplicateProjectionService.projectReportRows(
-      db,
-      normalized,
-      useRepresentativeRecords: useRepresentativeRecords,
-    );
-    _projectRowsCache[cacheKey] = projected
-        .map((row) => Map<String, dynamic>.from(row))
-        .toList();
-    return projected.map((row) => Map<String, dynamic>.from(row)).toList();
-  }
+  }) => DuplicateProjectionService.projectReportRows(
+    db,
+    rows,
+    useRepresentativeRecords: useRepresentativeRecords,
+  );
 
   /// 계약 `change_tracked.columns` + category·entry_value(따로 비교) — 서버 CHANGE_TRACKED_COLUMNS 와 같아야 한다(테스트).
   @visibleForTesting
@@ -1603,6 +1588,155 @@ class LocalDbService {
     return all;
   }
 
+  static String? _agencyLookupKey;
+  static Future<void> _ensureAgencyLookup(Database d) async {
+    final key =
+        '${identityHashCode(d)}:${await _readRevision(d)}:${identityHashCode(AgencyRegistry.cacheVersion)}';
+    if (_agencyLookupKey == key) return;
+    await d.execute(
+      'CREATE TEMP TABLE IF NOT EXISTS sr_agencies(code TEXT, raw TEXT, display TEXT, PRIMARY KEY(code,raw))',
+    );
+    await d.delete('sr_agencies');
+    final rows = await d.rawQuery(
+      'SELECT DISTINCT IFNULL(처리기관코드,\'\') AS code, IFNULL(처리기관,\'\') AS raw FROM $effectiveReportsView',
+    );
+    final batch = d.batch();
+    for (final row in rows) {
+      batch.insert('sr_agencies', {
+        'code': row['code'],
+        'raw': row['raw'],
+        'display': registryDisplayAgency(row['code'], row['raw'] as String),
+      });
+    }
+    await batch.commit(noResult: true);
+    _agencyLookupKey = key;
+  }
+
+  static Future<({List<Report> reports, int total})> getReportPage({
+    String category = 'all',
+    String scope = '',
+    String? metric,
+    String? missingAddress,
+    String? answerYear,
+    ReportFilter filter = const ReportFilter(),
+    int page = 0,
+    int pageSize = 200,
+    bool excludeWithdraw = false,
+    bool useRepresentativeRecords = false,
+  }) => runBackgroundWork(() async {
+    if (page < 0 || pageSize < 1 || pageSize > 200) {
+      throw ArgumentError('잘못된 페이지');
+    }
+    final d = await db;
+    var agencyExpression = "trim(IFNULL(처리기관,''))";
+    if (filter.agency.isNotEmpty || filter.onlyPolice || filter.excludePolice) {
+      await _ensureAgencyLookup(d);
+      agencyExpression =
+          "(SELECT display FROM temp.sr_agencies a WHERE a.code = IFNULL(r.처리기관코드,'') AND a.raw = IFNULL(r.처리기관,''))";
+    }
+    final q = ReportQuery(filter, agencyExpression: agencyExpression);
+    if (answerYear != null && answerYear != 'all') {
+      q.clauses.add('r.답변일 LIKE ?');
+      q.args.add('$answerYear%');
+    }
+    if (scope == 'duplicates') {
+      return _getDuplicatePage(d, page, pageSize, excludeWithdraw, q);
+    }
+    if (metric != null) {
+      final condition = switch (metric) {
+        '전체' => '1=1',
+        '보완 요청' => "처리상태 = '보완요청'",
+        '처리 중' => "처리상태 IN ('처리중','진행','진행중','검토중')",
+        '수용' => "처리상태 = '수용'",
+        '일부수용' => "처리상태 = '일부수용'",
+        '불수용/기타' => "처리상태 IN ('불수용','기타')",
+        '취하' => "처리상태 = '취하'",
+        'traffic:과태료' => "instr(IFNULL(범칙금_과태료,''),'과태료') > 0",
+        'traffic:경고/범칙금' =>
+          "(instr(IFNULL(범칙금_과태료,''),'경고') > 0 OR instr(IFNULL(범칙금_과태료,''),'범칙금') > 0)",
+        'traffic:불수용' => "(instr(IFNULL(처리상태,''),'불수용') > 0 OR 처리상태 = '기타')",
+        'traffic:과태료 미확인' =>
+          "범칙금_과태료 = '미확인' AND instr(IFNULL(처리상태,''),'불수용') = 0 AND IFNULL(처리상태,'') != '기타'",
+        _ => throw ArgumentError('알 수 없는 요약 항목'),
+      };
+      q.clauses.add(condition);
+    }
+    q.clauses.add(_representativeWhere(useRepresentativeRecords));
+    if (scope == 'watchlist') {
+      q.clauses.add(_watchWhere(useRepresentativeRecords));
+    }
+    if (scope == 'missing') {
+      await _ensureMissingLookup(d);
+      q.clauses.add(
+        'EXISTS (SELECT 1 FROM temp.sr_missing_addresses m WHERE m.ID=r.ID${missingAddress == null ? "" : " AND m.address_key = ?"})',
+      );
+      if (missingAddress != null) q.args.add(missingAddress);
+    }
+    if (scope == 'rating') {
+      q.clauses.add("trim(IFNULL(만족도조사여부,'')) NOT IN ('참여 완료','참여 불가')");
+      q.clauses.add(
+        "trim(IFNULL(처리상태,'')) NOT IN ('취하','답변 대기','처리중','진행','진행중','검토중')",
+      );
+    }
+    if (category != 'all') {
+      q.clauses.add('category = ?');
+      q.args.add(category);
+    }
+    if (excludeWithdraw) q.clauses.add("IFNULL(처리상태,'') != '취하'");
+    final count = await PerformanceTrace.sql(
+      'list.sql_count',
+      () => d.rawQuery(
+        'SELECT COUNT(*) AS n FROM $effectiveReportsView r WHERE ${q.where}',
+        q.args,
+      ),
+    );
+    final rows = await PerformanceTrace.sql(
+      'list.sql_page',
+      () => d.rawQuery(
+        'SELECT r.* FROM $effectiveReportsView r WHERE ${q.where} ORDER BY 신고번호 DESC, ID DESC LIMIT ? OFFSET ?',
+        [...q.args, pageSize, page * pageSize],
+      ),
+    );
+    return (
+      reports: PerformanceTrace.sync(
+        'list.report_objects',
+        () => rows.map(_rowToReport).toList(),
+      ),
+      total: count.first['n'] as int,
+    );
+  });
+
+  static Future<({List<Report> reports, int total})> _getDuplicatePage(
+    Database d,
+    int page,
+    int pageSize,
+    bool excludeWithdraw,
+    ReportQuery q,
+  ) async {
+    final withdraw = excludeWithdraw ? "AND IFNULL(처리상태,'') != '취하'" : '';
+    final cte =
+        """
+      WITH dv AS (SELECT 차량번호, COUNT(*) AS total_count,
+        SUM(CASE WHEN IFNULL(처리상태,'') != '취하' THEN 1 ELSE 0 END) AS valid_count,
+        MAX(신고번호) AS max_report_no FROM $effectiveReportsView
+        WHERE 차량번호 != '' $withdraw GROUP BY 차량번호 HAVING COUNT(*) >= 2)
+    """;
+    final count = await d.rawQuery(
+      '$cte SELECT COUNT(*) AS n FROM $effectiveReportsView r JOIN dv ON r.차량번호=dv.차량번호 WHERE ${q.where} $withdraw',
+      q.args,
+    );
+    final rows = await d.rawQuery(
+      '$cte SELECT r.*, dv.total_count, dv.valid_count FROM $effectiveReportsView r '
+      'JOIN dv ON r.차량번호 = dv.차량번호 WHERE ${q.where} $withdraw '
+      'ORDER BY dv.max_report_no DESC, r.차량번호 ASC, r.신고번호 DESC, r.ID DESC LIMIT ? OFFSET ?',
+      [...q.args, pageSize, page * pageSize],
+    );
+    return (
+      reports: rows.map(_rowToReportWithCounts).toList(),
+      total: (count.first['n'] as int?) ?? 0,
+    );
+  }
+
   static Future<List<Report>> getReportsByCategory(
     String category, {
     bool excludeWithdraw = false,
@@ -1733,122 +1867,138 @@ class LocalDbService {
 
   // ── 대시보드 요약 ─────────────────────────────────────────────────────────
 
+  static final _summaryCache = <String, DashboardStats>{};
+
   static Future<DashboardStats> computeSummary({
     bool excludeWithdraw = false,
     bool useRepresentativeRecords = false,
-  }) async {
-    final d = await db;
-    final rows = await _projectRows(
-      d,
-      await _queryReportsChunked(d),
-      useRepresentativeRecords: useRepresentativeRecords,
-    );
-
-    int accept = 0,
-        partial = 0,
-        reject = 0,
-        supplement = 0,
-        processing = 0,
-        completed = 0,
-        withdraw = 0;
-    int tFine = 0, tPenalty = 0, tReject = 0, tUnconfirmed = 0;
-
-    // 서버 get_dashboard_stats 로직과 정확히 동일
-    for (final r in rows) {
-      final status = r['처리상태'] as String? ?? '';
-      final cat = r['category'] as String? ?? '';
-      final fine = r['범칙금_과태료'] as String? ?? '';
-
-      if (status == '수용') accept++;
-      if (status == '일부수용') partial++;
-      if (status == '불수용' || status == '기타') reject++;
-      if (status == '보완요청') supplement++;
-      if (status == '처리중' ||
-          status == '진행' ||
-          status == '진행중' ||
-          status == '검토중') {
-        processing++;
-      }
-      if (['수용', '불수용', '일부수용', '기타', '답변완료'].contains(status)) completed++;
-      if (status == '취하') withdraw++;
-
-      if (cat == 'traffic') {
-        if (fine.contains('과태료')) tFine++;
-        if (fine.contains('경고') || fine.contains('범칙금')) tPenalty++;
-        if (status == '불수용' || status == '기타') tReject++;
-        if (fine == '미확인' && status != '불수용' && status != '기타') tUnconfirmed++;
-      }
+    bool Function()? isCancelled,
+  }) => runBackgroundWork(() async {
+    if (isCancelled?.call() == true) throw const QueryCancelled();
+    final connection = await db;
+    if (isCancelled?.call() == true) throw const QueryCancelled();
+    final revision = await _readRevision(connection);
+    final now = DateTime.now();
+    final key =
+        '${identityHashCode(connection)}:$revision:${identityHashCode(AgencyRegistry.cacheVersion)}:$excludeWithdraw:$useRepresentativeRecords:${now.year}-${now.month}-${now.day}';
+    if (_summaryCache[key] != null) return _summaryCache[key]!;
+    final result = await connection.transaction((d) async {
+      if (isCancelled?.call() == true) throw const QueryCancelled();
+      final representative = _representativeWhere(useRepresentativeRecords);
+      final timer = Stopwatch()..start();
+      final fields = <String, String>{
+        'accept': "처리상태 = '수용'",
+        'partial': "처리상태 = '일부수용'",
+        'reject': "처리상태 IN ('불수용','기타')",
+        'supplement': "처리상태 = '보완요청'",
+        'processing': "처리상태 IN ('처리중','진행','진행중','검토중')",
+        'completed': "처리상태 IN ('수용','불수용','일부수용','기타','답변완료')",
+        'withdraw': "처리상태 = '취하'",
+        'fine': "category = 'traffic' AND instr(IFNULL(범칙금_과태료,''),'과태료') > 0",
+        'penalty':
+            "category = 'traffic' AND (instr(IFNULL(범칙금_과태료,''),'경고') > 0 OR instr(IFNULL(범칙금_과태료,''),'범칙금') > 0)",
+        'traffic_reject': "category = 'traffic' AND 처리상태 IN ('불수용','기타')",
+        'unconfirmed':
+            "category = 'traffic' AND 범칙금_과태료 = '미확인' AND IFNULL(처리상태,'') NOT IN ('불수용','기타')",
+      };
+      final sums = fields.entries
+          .map((e) => 'COUNT(CASE WHEN ${e.value} THEN 1 END) AS ${e.key}')
+          .join(',');
+      final counts = await PerformanceTrace.sql(
+        'summary.sql_counts',
+        () => d.rawQuery(
+          'SELECT COUNT(*) AS total, $sums FROM ('
+          'SELECT r.ID, r.category, COALESCE(s.value,r.처리상태) AS 처리상태, '
+          'COALESCE(f.value,r.범칙금_과태료) AS 범칙금_과태료 FROM reports r '
+          "LEFT JOIN report_override s ON s.ID=r.ID AND s.column_name='처리상태' "
+          "LEFT JOIN report_override f ON f.ID=r.ID AND f.column_name='범칙금_과태료') r "
+          'WHERE $representative',
+        ),
+      );
+      int n(String field) => counts.first[field] as int;
+      final today = DateTime.now();
+      String date(DateTime t) =>
+          '${t.year.toString().padLeft(4, '0')}-${t.month.toString().padLeft(2, '0')}-${t.day.toString().padLeft(2, '0')}';
+      final lower = date(today.subtract(const Duration(days: 3))),
+          upper = '${date(today)} 99';
+      final recent = await PerformanceTrace.sql(
+        'summary.sql_recent',
+        () => d.rawQuery(
+          "SELECT r.* FROM $effectiveReportsView r WHERE $representative AND "
+          "r.ID IN (SELECT ID FROM reports WHERE 답변일 >= ? AND 답변일 <= ? UNION SELECT ID FROM report_override WHERE column_name='답변일' AND value >= ? AND value <= ?) AND "
+          "처리상태 IN ('수용','일부수용','불수용','기타','답변완료') AND 답변일 >= ? AND 답변일 <= ? "
+          'ORDER BY CAST(synced_at AS INTEGER) DESC, 답변일 DESC, 신고번호 DESC LIMIT 200',
+          [lower, upper, lower, upper, lower, upper],
+        ),
+      );
+      // The watch flag of ANY confirmed member applies to its representative.
+      final watch = _watchWhere(useRepresentativeRecords);
+      final watchWhere =
+          '$representative AND $watch${excludeWithdraw ? " AND IFNULL(COALESCE(s.value,r.처리상태),'') != '취하'" : ''}';
+      final watchCount = await PerformanceTrace.sql(
+        'summary.sql_watch_count',
+        () => d.rawQuery(
+          'SELECT COUNT(*) AS n FROM reports r INDEXED BY sr_summary_cover '
+          "LEFT JOIN report_override s ON s.ID=r.ID AND s.column_name='처리상태' "
+          'WHERE $representative AND $watch'
+          '${excludeWithdraw ? " AND IFNULL(COALESCE(s.value,r.처리상태),'') != '취하'" : ""}',
+        ),
+      );
+      final watched = await PerformanceTrace.sql(
+        'summary.sql_watchlist',
+        () => d.rawQuery(
+          'SELECT r.* FROM $effectiveReportsView r WHERE r.ID IN '
+          '(SELECT r.ID FROM reports r INDEXED BY sr_summary_cover '
+          "LEFT JOIN report_override s ON s.ID=r.ID AND s.column_name='처리상태' "
+          'WHERE $watchWhere ORDER BY 신고번호 DESC LIMIT 200) '
+          'ORDER BY 신고번호 DESC',
+        ),
+      );
+      final recentReports = PerformanceTrace.sync(
+        'summary.report_objects',
+        () => recent.map(_rowToReport).toList(),
+      );
+      final watchReports = PerformanceTrace.sync(
+        'summary.watch_objects',
+        () => watched.map(_rowToReport).toList(),
+      );
+      PerformanceTrace.record('summary.total', timer);
+      return DashboardStats(
+        lastCrawlTime:
+            (await d.query(
+                  'sync_meta',
+                  columns: ['value'],
+                  where: 'key=?',
+                  whereArgs: ['last_sync'],
+                )).firstOrNull?['value']
+                as String? ??
+            '',
+        total: n('total'),
+        acceptCount: n('accept'),
+        partialCount: n('partial'),
+        rejectCount: n('reject'),
+        supplementCount: n('supplement'),
+        processingCount: n('processing'),
+        completedCount: n('completed'),
+        withdrawCount: n('withdraw'),
+        withdrawRawCount: n('withdraw'),
+        withdrawGraphCount: excludeWithdraw ? 0 : n('withdraw'),
+        tFineCount: n('fine'),
+        tPenaltyCount: n('penalty'),
+        tRejectCount: n('traffic_reject'),
+        tUnconfirmedCount: n('unconfirmed'),
+        recentAnswers: recentReports,
+        watchlist: watchReports,
+        watchlistTotal: watchCount.first['n'] as int,
+        excludeWithdraw: excludeWithdraw,
+      );
+    }, exclusive: false);
+    if (await _readRevision(connection) == revision) {
+      if (_summaryCache.length >= 4) _summaryCache.clear();
+      _summaryCache[key] = result;
     }
-
-    // 최근 답변: 서버 get_dashboard_stats 와 동일하게 답변일이 최근 3일 이내인
-    // 항목만 골라온다 (취하 제외 옵션도 함께 반영). 한도는 서버와 같이 200건.
-    final today = DateTime.now();
-    final threeDaysAgo = today.subtract(const Duration(days: 3));
-    String two(int v) => v.toString().padLeft(2, '0');
-    String fmtDate(DateTime t) => '${t.year}-${two(t.month)}-${two(t.day)}';
-    final lowerBound = fmtDate(threeDaysAgo);
-    final upperBound = '${fmtDate(today)} 99';
-    final recentRows =
-        rows.where((row) {
-          final status = _stringify(row['처리상태']);
-          if (!const {'수용', '일부수용', '불수용', '기타', '답변완료'}.contains(status)) {
-            return false;
-          }
-          if (excludeWithdraw && status == '취하') return false;
-          final responseDate = _stringify(row['답변일']);
-          if (responseDate.isEmpty) return false;
-          return responseDate.compareTo(lowerBound) >= 0 &&
-              responseDate.compareTo(upperBound) <= 0;
-        }).toList()..sort((left, right) {
-          final leftSynced = _toEpochMillis(left['synced_at']) ?? -1;
-          final rightSynced = _toEpochMillis(right['synced_at']) ?? -1;
-          if (leftSynced != rightSynced) {
-            return rightSynced.compareTo(leftSynced);
-          }
-          final leftAnswer = _stringify(left['답변일']);
-          final rightAnswer = _stringify(right['답변일']);
-          final answerComp = rightAnswer.compareTo(leftAnswer);
-          if (answerComp != 0) return answerComp;
-          return _stringify(right['신고번호']).compareTo(_stringify(left['신고번호']));
-        });
-
-    final watchlistRows =
-        rows.where((row) {
-          if (_stringify(row['감시목록']) != 'Y') return false;
-          if (excludeWithdraw && _stringify(row['처리상태']) == '취하') {
-            return false;
-          }
-          return true;
-        }).toList()..sort(
-          (left, right) =>
-              _stringify(right['신고번호']).compareTo(_stringify(left['신고번호'])),
-        );
-
-    final lastSync = await getMeta('last_sync') ?? '';
-
-    final effectiveWithdraw = excludeWithdraw ? 0 : withdraw;
-
-    return DashboardStats(
-      lastCrawlTime: lastSync,
-      total: rows.length,
-      acceptCount: accept,
-      partialCount: partial,
-      rejectCount: reject,
-      supplementCount: supplement,
-      processingCount: processing,
-      completedCount: completed,
-      withdrawCount: withdraw,
-      withdrawRawCount: withdraw,
-      withdrawGraphCount: effectiveWithdraw,
-      tFineCount: tFine,
-      tPenaltyCount: tPenalty,
-      tRejectCount: tReject,
-      tUnconfirmedCount: tUnconfirmed,
-      recentAnswers: recentRows.take(200).map((r) => _rowToReport(r)).toList(),
-      watchlist: watchlistRows.map((r) => _rowToReport(r)).toList(),
-      excludeWithdraw: excludeWithdraw,
-    );
-  }
+    return result;
+  });
 
   // ── 통계 집계 ─────────────────────────────────────────────────────────────
 
@@ -1857,100 +2007,230 @@ class LocalDbService {
     String? law,
     bool excludeWithdraw = false,
     bool useRepresentativeRecords = false,
-  }) async {
-    final d = await db;
-    final rows = await _queryStatsRows(
-      d,
-      year: year,
-      law: law,
-      excludeWithdraw: excludeWithdraw,
-      useRepresentativeRecords: useRepresentativeRecords,
-    );
-
-    // available_years 는 필터와 무관하게 전체에서(서버 _load_stats_frames 와 같음).
-    var allRows = await d.query(
-      effectiveReportsView,
-      columns: ['답변일', '위반법규', 'category'],
-    );
-    // available_laws 는 서버 get_agency_stats 처럼 연도·취하 제외·대표건을 적용한 뒤, 법규 필터는 빼고 만든다
-    // (2026-09-25 서버↔모바일 계산 동등성 검사에서 발견 — 예전엔 전체 행에서 만들어 필터와 어긋났다).
-    final lawScopeRows = law == null
-        ? rows
-        : await _queryStatsRows(
-            d,
+  }) async =>
+      (await computeStatsBundle(
             year: year,
+            law: law,
             excludeWithdraw: excludeWithdraw,
             useRepresentativeRecords: useRepresentativeRecords,
-          );
-    return _aggregateStats(rows, allRows, lawScopeRows);
-  }
+          ))['stats']
+          as Map<String, dynamic>;
 
-  /// 통계 요약 카드 + 월별 추이 (서버 `get_stats_overview` 와 같은 정의).
-  /// [computeStats] 와 같은 행(연도·법규·취하 제외·대표건)을 사용한다.
   static Future<Map<String, dynamic>> computeStatsOverview({
     String? year,
     String? law,
     bool excludeWithdraw = false,
     bool useRepresentativeRecords = false,
-  }) async {
-    final d = await db;
-    final rows = await _queryStatsRows(
-      d,
-      year: year,
-      law: law,
-      excludeWithdraw: excludeWithdraw,
-      useRepresentativeRecords: useRepresentativeRecords,
-    );
-    List<Map<String, dynamic>> byCategory(String category) =>
-        rows.where((r) => r['category'] == category).toList(growable: false);
-    return {
-      'all': summarizeOverviewRows(rows),
-      'traffic': summarizeOverviewRows(byCategory('traffic')),
-      'parking': summarizeOverviewRows(byCategory('parking')),
-      'other': summarizeOverviewRows(byCategory('other')),
-      'year_basis': '답변일',
-      'exclude_withdraw': excludeWithdraw,
-    };
+  }) async =>
+      (await computeStatsBundle(
+            year: year,
+            law: law,
+            excludeWithdraw: excludeWithdraw,
+            useRepresentativeRecords: useRepresentativeRecords,
+          ))['overview']
+          as Map<String, dynamic>;
+
+  // sqflite cannot interrupt a running CTAS. Serialize acquisition in Dart so
+  // rapidly abandoned screens never enqueue another large native query each.
+  static Future<void> _statsReadTail = Future<void>.value();
+
+  static Future<T> _serializeStatsRead<T>(
+    Future<T> Function() work,
+    bool Function()? isCancelled,
+  ) async {
+    final predecessor = _statsReadTail;
+    final released = Completer<void>();
+    _statsReadTail = released.future;
+    try {
+      await predecessor;
+      if (isCancelled?.call() == true || closeRequested) {
+        throw const QueryCancelled();
+      }
+      return await work();
+    } finally {
+      released.complete();
+    }
   }
 
-  static Future<List<Map<String, dynamic>>> _queryStatsRows(
-    Database d, {
+  static int _statsQuerySerial = 0;
+  static final _statsCache = <String, Map<String, dynamic>>{};
+
+  /// Projection is evaluated in SQL, before grouping, with the same confirmed
+  /// member selection as projectReportRows. No raw-content fingerprinting here.
+  static String _representativeWhere(bool useRepresentativeRecords) =>
+      !useRepresentativeRecords
+      ? '1=1'
+      : """
+        r.ID NOT IN (
+          SELECT m.report_id FROM duplicate_member m JOIN duplicate_group g USING (group_id)
+          WHERE m.report_id IS NOT NULL AND g.status = 'confirmed_duplicate'
+            AND IFNULL(m.is_representative, 0) != 1
+        )
+      """;
+
+  static String _watchWhere(bool representative) => !representative
+      ? "r.감시목록 = 'Y'"
+      : """
+    r.ID IN (
+      SELECT ID FROM reports WHERE 감시목록 = 'Y'
+      UNION
+      SELECT me.report_id FROM duplicate_member me JOIN duplicate_group g USING(group_id)
+      JOIN duplicate_member other USING(group_id) JOIN reports watched ON watched.ID = other.report_id
+      WHERE g.status = 'confirmed_duplicate' AND watched.감시목록 = 'Y'
+    )
+  """;
+
+  static const _statsColumns = [
+    'category',
+    '처리상태',
+    '범칙금_과태료',
+    '처리기관',
+    '처리기관코드',
+    '담당자',
+    '별점',
+    '신고일',
+    '답변일',
+    '신고명',
+    '위반법규',
+    'entry_value',
+    '차량번호',
+    '발생시각',
+    '사진_첫촬영',
+    '사진_끝촬영',
+  ];
+
+  static Future<String> _readRevision(DatabaseExecutor d) async {
+    final v = await d.rawQuery('PRAGMA data_version');
+    final c = await d.rawQuery('SELECT value AS n FROM temp.sr_read_revision');
+    return '${v.first.values.first}:${c.first['n']}';
+  }
+
+  /// One native GROUP BY, one bounded stream, one result for both statistics views.
+  /// TEMP data never changes the exchange schema and is dropped even on cancel.
+  static Future<Map<String, dynamic>> computeStatsBundle({
     String? year,
     String? law,
-    required bool excludeWithdraw,
-    required bool useRepresentativeRecords,
-  }) async {
-    String where = '1=1';
-    final args = <dynamic>[];
-
-    if (year != null) {
-      // S-08: 연도는 답변일 기준(서버 /stats 와 동일).
-      where += ' AND 답변일 LIKE ?';
-      args.add('$year%');
-    }
-    if (law != null) {
-      if (law == '__없음__') {
-        where += ' AND (위반법규 IS NULL OR 위반법규 = \'\')';
-      } else {
-        where += ' AND 위반법규 = ?';
-        args.add(law);
+    bool excludeWithdraw = false,
+    bool useRepresentativeRecords = false,
+    bool Function()? isCancelled,
+  }) => _serializeStatsRead(
+    () => runBackgroundWork(() async {
+      final d = await db;
+      final revision = await _readRevision(d);
+      final key =
+          '${identityHashCode(d)}:$revision:${identityHashCode(AgencyRegistry.cacheVersion)}:$year:$law:$excludeWithdraw:$useRepresentativeRecords';
+      if (isCancelled?.call() == true) throw const QueryCancelled();
+      final cached = _statsCache[key];
+      if (cached != null) return cached;
+      void checkCancel() {
+        if (isCancelled?.call() == true) throw const QueryCancelled();
       }
-    }
-    if (excludeWithdraw) {
-      where += " AND IFNULL(처리상태, '') != '취하'";
-    }
 
-    final rows = await d.query(
-      effectiveReportsView,
-      where: where,
-      whereArgs: args.isEmpty ? null : args,
-    );
-    return _projectRows(
-      d,
-      rows,
-      useRepresentativeRecords: useRepresentativeRecords,
-    );
-  }
+      checkCancel();
+      final table = 'sr_stats_${++_statsQuerySerial}';
+      final args = <Object?>[];
+      final clauses = [_representativeWhere(useRepresentativeRecords)];
+      if (year != null) {
+        clauses.add('답변일 LIKE ?');
+        args.add('$year%');
+      }
+      if (excludeWithdraw) clauses.add("IFNULL(처리상태, '') != '취하'");
+      final columns = _statsColumns.map((c) => '"$c"').join(',');
+      final cats = {
+        for (final c in ['traffic', 'parking', 'other'])
+          c: _StatsCategoryAccumulator(),
+      };
+      final overview = {
+        for (final c in ['all', 'traffic', 'parking', 'other'])
+          c: _OverviewAccumulator(),
+      };
+      final timer = Stopwatch()..start();
+      try {
+        // CTAS captures a consistent snapshot on the native SQLite worker. CPU and
+        // the full result remain outside the UI isolate; only <=1000 groups cross.
+        await d.execute(
+          'CREATE TEMP TABLE $table AS SELECT $columns, COUNT(*) AS _weight '
+          'FROM $effectiveReportsView r WHERE ${clauses.join(' AND ')} GROUP BY $columns',
+          args,
+        );
+        PerformanceTrace.record('stats.sql_group', timer);
+        var last = 0;
+        while (true) {
+          checkCancel();
+          final rows = await PerformanceTrace.sql(
+            'stats.sql_page',
+            () => d.rawQuery(
+              'SELECT rowid AS _cursor, * FROM $table WHERE rowid > ? ORDER BY rowid LIMIT 1000',
+              [last],
+            ),
+          );
+          if (rows.isEmpty) break;
+          PerformanceTrace.sync('stats.registry_and_tables', () {
+            for (final row in rows) {
+              final cat = cats[row['category']];
+              if (cat == null) continue;
+              cat.addLaw(row);
+              final rowLaw = row['위반법규']?.toString() ?? '';
+              if (law != null &&
+                  (law == '__없음__' ? rowLaw.isNotEmpty : rowLaw != law)) {
+                continue;
+              }
+              cat.add(row);
+            }
+          });
+          PerformanceTrace.sync('stats.chart_data', () {
+            final selected = rows
+                .where((r) {
+                  final value = r['위반법규']?.toString() ?? '';
+                  return law == null ||
+                      (law == '__없음__' ? value.isEmpty : value == law);
+                })
+                .toList(growable: false);
+            overview['all']!.add(selected);
+            for (final c in cats.keys) {
+              overview[c]!.add(
+                selected
+                    .where((r) => r['category'] == c)
+                    .toList(growable: false),
+              );
+            }
+          });
+          last = rows.last['_cursor'] as int;
+          await Future<void>.delayed(Duration.zero);
+        }
+        checkCancel();
+        final years = await d.rawQuery(
+          'SELECT DISTINCT substr(답변일,1,4) AS y FROM $effectiveReportsView ORDER BY y DESC',
+        );
+        final result = <String, dynamic>{
+          'stats': {
+            for (final c in cats.keys) c: cats[c]!.toJson(),
+            'available_years': years
+                .map((r) => r['y'])
+                .whereType<String>()
+                .where((y) => RegExp(r'^\d{4}$').hasMatch(y))
+                .toList(),
+          },
+          'overview': {
+            for (final c in overview.keys) c: overview[c]!.toJson(),
+            'year_basis': '답변일',
+            'exclude_withdraw': excludeWithdraw,
+          },
+        };
+        if (await _readRevision(d) == revision) {
+          if (_statsCache.length >= 4) _statsCache.clear();
+          _statsCache[key] = result;
+        }
+        return result;
+      } finally {
+        await d.execute('DROP TABLE IF EXISTS temp.$table');
+        PerformanceTrace.record('stats.total', timer);
+        // TEMP writes contribute to total_changes. Cache only a completed result
+        // below, never a row list, and never while a dataset has changed.
+      }
+    }),
+    isCancelled,
+  );
 
   static const _overviewCompletedStatuses = {'수용', '불수용', '일부수용', '기타', '답변완료'};
   static const _overviewProcessingStatuses = {'처리중', '진행', '진행중', '검토중'};
@@ -1978,8 +2258,9 @@ class LocalDbService {
   /// 완료 상태이면서 두 날짜가 모두 유효하고 차이 >= 0 인 신고만으로 직접 계산하며 표본 수를 함께 돌려준다.
   @visibleForTesting
   static Map<String, dynamic> summarizeOverviewRows(
-    List<Map<String, dynamic>> rows,
-  ) {
+    List<Map<String, dynamic>> rows, {
+    bool includeInternal = false,
+  }) {
     var completed = 0, accept = 0, partial = 0, reject = 0;
     var supplement = 0, processing = 0, withdraw = 0;
     var reversed = 0, undated = 0, daySum = 0, dayCount = 0;
@@ -1987,26 +2268,27 @@ class LocalDbService {
     final answeredByMonth = <String, int>{};
 
     for (final r in rows) {
+      final weight = (r['_weight'] as int?) ?? 1;
       final status = (r['처리상태']?.toString() ?? '').trim();
-      if (_overviewCompletedStatuses.contains(status)) completed++;
-      if (status == '수용') accept++;
-      if (status == '일부수용') partial++;
-      if (status == '불수용' || status == '기타') reject++;
-      if (status == '보완요청') supplement++;
-      if (_overviewProcessingStatuses.contains(status)) processing++;
-      if (status == '취하') withdraw++;
+      if (_overviewCompletedStatuses.contains(status)) completed += weight;
+      if (status == '수용') accept += weight;
+      if (status == '일부수용') partial += weight;
+      if (status == '불수용' || status == '기타') reject += weight;
+      if (status == '보완요청') supplement += weight;
+      if (_overviewProcessingStatuses.contains(status)) processing += weight;
+      if (status == '취하') withdraw += weight;
 
       final reported = _parseOverviewDate(r['신고일']);
       final answered = _parseOverviewDate(r['답변일']);
       if (reported == null) {
-        undated++;
+        undated += weight;
       } else {
         final key = _monthKey(reported);
-        reportedByMonth[key] = (reportedByMonth[key] ?? 0) + 1;
+        reportedByMonth[key] = (reportedByMonth[key] ?? 0) + weight;
       }
       if (answered != null) {
         final key = _monthKey(answered);
-        answeredByMonth[key] = (answeredByMonth[key] ?? 0) + 1;
+        answeredByMonth[key] = (answeredByMonth[key] ?? 0) + weight;
       }
       // S-10: 평균 처리기간은 완료 신고만(기관표와 같은 기준).
       if (_overviewCompletedStatuses.contains(status) &&
@@ -2014,10 +2296,10 @@ class LocalDbService {
           answered != null) {
         final days = answered.difference(reported).inDays;
         if (days < 0) {
-          reversed++;
+          reversed += weight;
         } else {
-          daySum += days;
-          dayCount++;
+          daySum += days * weight;
+          dayCount += weight;
         }
       }
     }
@@ -2033,16 +2315,21 @@ class LocalDbService {
     // 답변월 기준 과태료 건수: 월별 처리 추이 보조 계열(같은 답변일 기준).
     final answeredFineByMonth = <String, int>{};
     for (final r in rows) {
+      final weight = (r['_weight'] as int?) ?? 1;
       final answered = _parseOverviewDate(r['답변일']);
       final fine = r['범칙금_과태료']?.toString() ?? '';
       if (answered != null && fine.contains('과태료')) {
         final key = _monthKey(answered);
-        answeredFineByMonth[key] = (answeredFineByMonth[key] ?? 0) + 1;
+        answeredFineByMonth[key] = (answeredFineByMonth[key] ?? 0) + weight;
       }
     }
 
     return {
-      'total': rows.length,
+      'total': rows.fold<int>(
+        0,
+        (sum, r) => sum + ((r['_weight'] as int?) ?? 1),
+      ),
+      if (includeInternal) '_day_sum': daySum,
       'completed': completed,
       'accept': accept,
       'partial': partial,
@@ -2070,7 +2357,10 @@ class LocalDbService {
     var decided = 0;
     var confirmedCount = 0;
     final typeCounts = <String, int>{};
+    final lawCounts = <String, int>{};
+    var resultUnknown = 0;
     for (final r in rows) {
+      final weight = (r['_weight'] as int?) ?? 1;
       agg.add(r);
       final fine = r['범칙금_과태료']?.toString() ?? '';
       final status = (r['처리상태']?.toString() ?? '').trim();
@@ -2079,13 +2369,16 @@ class LocalDbService {
           fine.contains('범칙금') ||
           status == '불수용' ||
           status == '기타') {
-        decided++;
+        decided += weight;
       }
       if (fine.contains('과태료') && extractFineAmount(fine) > 0) {
-        confirmedCount++;
+        confirmedCount += weight;
       }
       final name = (r['신고명']?.toString() ?? '').trim();
-      typeCounts[name] = (typeCounts[name] ?? 0) + 1;
+      typeCounts[name] = (typeCounts[name] ?? 0) + weight;
+      final law = (r['위반법규']?.toString() ?? '').trim();
+      lawCounts[law] = (lawCounts[law] ?? 0) + weight;
+      if (status == '답변완료') resultUnknown += weight;
     }
     final types = typeCounts.entries.toList()
       ..sort((a, b) {
@@ -2093,6 +2386,35 @@ class LocalDbService {
         return byCount != 0 ? byCount : a.key.compareTo(b.key);
       });
     return {
+      'result_distribution': {
+        'accept': rows
+            .where((r) => (r['처리상태']?.toString() ?? '').trim() == '수용')
+            .fold<int>(0, (n, r) => n + ((r['_weight'] as int?) ?? 1)),
+        'partial': rows
+            .where((r) => (r['처리상태']?.toString() ?? '').trim() == '일부수용')
+            .fold<int>(0, (n, r) => n + ((r['_weight'] as int?) ?? 1)),
+        'reject': rows
+            .where(
+              (r) => const {
+                '불수용',
+                '기타',
+              }.contains((r['처리상태']?.toString() ?? '').trim()),
+            )
+            .fold<int>(0, (n, r) => n + ((r['_weight'] as int?) ?? 1)),
+        'unknown': resultUnknown,
+      },
+      'violation_laws': [
+        for (final e
+            in lawCounts.entries.toList()..sort((a, b) {
+              final c = b.value.compareTo(a.value);
+              return c != 0 ? c : a.key.compareTo(b.key);
+            }))
+          {
+            'name': e.key,
+            'filter': e.key.isEmpty ? '__없음__' : e.key,
+            'count': e.value,
+          },
+      ],
       // overlap = 과태료+경고/범칙금+불수용 합 − 셋 중 하나 이상인 신고 수(한 신고에 겹친 수)
       'disposition': {
         'fines': agg.fines,
@@ -2119,178 +2441,259 @@ class LocalDbService {
     };
   }
 
+  static final _mapCache = <String, Map<String, dynamic>>{};
+  static final _mapMetaCache = <String, Map<String, dynamic>>{};
   static Future<Map<String, dynamic>> computeReportMapStats({
     String? year,
     String category = 'all',
     bool excludeWithdraw = false,
     bool useRepresentativeRecords = false,
-  }) async {
+    List<double>? bounds,
+    double zoom = 7,
+    bool Function()? isCancelled,
+  }) => runBackgroundWork(() async {
     final d = await db;
-    final normalizedCategory = _normalizeMapCategory(category);
-
-    String where = '1=1';
-    final args = <dynamic>[];
-    if (normalizedCategory != 'all') {
-      where += ' AND category = ?';
-      args.add(normalizedCategory);
+    if (isCancelled?.call() == true || closeRequested) {
+      throw const QueryCancelled();
     }
-    if (year != null && year != 'all' && year.isNotEmpty) {
-      // S-08: 서버 지도 통계와 같은 답변일 기준.
-      where += ' AND 답변일 LIKE ?';
-      args.add('$year%');
-    }
-    if (excludeWithdraw) {
-      where += " AND IFNULL(처리상태, '') != '취하'";
-    }
-
-    var rows = await d.query(
-      effectiveReportsView,
-      columns: [
-        'ID',
-        '위반장소',
-        '주소정규화',
-        '행정구역',
-        '위도',
-        '경도',
-        '지오코딩상태',
-        '처리상태',
-        '범칙금_과태료',
-        '처리기관',
-        '처리기관코드',
-        'category',
-        '신고일',
-      ],
-      where: where,
-      whereArgs: args.isEmpty ? null : args,
-    );
-    rows = await _projectRows(
-      d,
-      rows,
-      useRepresentativeRecords: useRepresentativeRecords,
-    );
-
-    final agencyCount = rows
-        .map((row) {
-          final raw = _stringify(row['처리기관']).trim();
-          if (raw.isEmpty) return '';
-          return registryKeyedAgency(row['처리기관코드'], raw).key;
-        })
-        .where((key) => key.isNotEmpty)
-        .toSet()
-        .length;
-
-    var allYearRows = await d.query(effectiveReportsView, columns: ['답변일']);
-    final availableYears =
-        allYearRows
-            .map((row) => _stringify(row['답변일']))
-            .where((value) => value.length >= 4)
-            .map((value) => value.substring(0, 4))
-            .toSet()
-            .toList()
-          ..sort((a, b) => b.compareTo(a));
-
-    if (rows.isEmpty) {
-      return {
-        'points': const <Map<String, dynamic>>[],
-        'meta': {
-          'available_years': availableYears,
-          'current_year': year ?? 'all',
-          'selected_category': normalizedCategory,
-          'dedupe_mode': useRepresentativeRecords ? 'canonical' : 'raw',
-          'total_reports': 0,
-          'geocoded_reports': 0,
-          'missing_reports': 0,
-          'address_groups': 0,
-          'agency_count': 0,
-        },
-      };
-    }
-
-    final pointsByKey = <String, List<Map<String, dynamic>>>{};
-    var geocodedReports = 0;
-    var missingReports = 0;
-
-    for (final rawRow in rows) {
-      final row = Map<String, dynamic>.from(rawRow);
-      final lat = parseGeoDouble(row['위도']);
-      final lng = parseGeoDouble(row['경도']);
-      final normalizedAddress =
-          normalizeGeocodeAddress(row['주소정규화']?.toString()) == ''
-          ? normalizeGeocodeAddress(row['위반장소']?.toString())
-          : normalizeGeocodeAddress(row['주소정규화']?.toString());
-      final address = _stringify(row['위반장소']).trim();
-      if (lat == null || lng == null) {
-        if (address.isNotEmpty) {
-          missingReports++;
+    final revision = await _readRevision(d);
+    final metaKey =
+        '${identityHashCode(d)}:$revision:${identityHashCode(AgencyRegistry.cacheVersion)}:$year:$category:$excludeWithdraw:$useRepresentativeRecords';
+    final cacheKey = '$metaKey:${bounds?.join(',')}:$zoom';
+    final cached = _mapCache[cacheKey];
+    if (cached != null) return cached;
+    // Metadata and cell weights share a read snapshot, including while a sync
+    // writer is queued. Pages still yield to navigation on the Dart isolate.
+    return d.transaction((d) async {
+      // The transaction may have waited behind a native statistics snapshot.
+      if (isCancelled?.call() == true || closeRequested) {
+        throw const QueryCancelled();
+      }
+      final normalizedCategory = _normalizeMapCategory(category);
+      final args = <Object?>[];
+      final clauses = [_representativeWhere(useRepresentativeRecords)];
+      if (normalizedCategory != 'all') {
+        clauses.add('category = ?');
+        args.add(normalizedCategory);
+      }
+      if (year != null && year != 'all' && year.isNotEmpty) {
+        clauses.add('답변일 LIKE ?');
+        args.add('$year%');
+      }
+      if (excludeWithdraw) clauses.add("IFNULL(처리상태,'') != '취하'");
+      final scope = clauses.join(' AND ');
+      const valid =
+          "typeof(위도) IN ('integer','real') AND typeof(경도) IN ('integer','real') AND CAST(위도 AS REAL) BETWEEN -90 AND 90 AND CAST(경도 AS REAL) BETWEEN -180 AND 180";
+      // Full population metadata is independent of the viewport. Retain this
+      // small result even if a later viewport read is abandoned.
+      final meta =
+          _mapMetaCache[metaKey] ??
+          await (() async {
+            final metaRows = await PerformanceTrace.sql(
+              'map.sql_meta',
+              () => d.rawQuery(
+                "SELECT COUNT(*) AS total, COUNT(CASE WHEN $valid THEN 1 END) AS geo, "
+                "COUNT(DISTINCT CASE WHEN $valid THEN COALESCE(NULLIF(trim(주소정규화),''),trim(위반장소)) END) AS address_groups, "
+                "COUNT(CASE WHEN NOT ($valid) AND trim(IFNULL(위반장소,'')) != '' THEN 1 END) AS missing "
+                'FROM $effectiveReportsView r WHERE $scope',
+                args,
+              ),
+            );
+            final agencyRows = await d.rawQuery(
+              'SELECT DISTINCT 처리기관코드, 처리기관 FROM $effectiveReportsView r WHERE $scope',
+              args,
+            );
+            final agencyCount = agencyRows
+                .map(
+                  (r) => registryKeyedAgency(
+                    r['처리기관코드'],
+                    r['처리기관']?.toString() ?? '',
+                  ),
+                )
+                .where((a) => a.display.isNotEmpty)
+                .map((a) => a.key)
+                .toSet()
+                .length;
+            final years = await d.rawQuery(
+              'SELECT DISTINCT substr(답변일,1,4) AS y FROM $effectiveReportsView ORDER BY y DESC',
+            );
+            final meta = <String, dynamic>{
+              'available_years': years
+                  .map((r) => r['y'])
+                  .whereType<String>()
+                  .where((y) => y.isNotEmpty)
+                  .toList(),
+              'current_year': year ?? 'all',
+              'selected_category': normalizedCategory,
+              'dedupe_mode': useRepresentativeRecords ? 'canonical' : 'raw',
+              'total_reports': metaRows.first['total'],
+              'geocoded_reports': metaRows.first['geo'],
+              'missing_reports': metaRows.first['missing'],
+              'address_groups': metaRows.first['address_groups'],
+              'agency_count': agencyCount,
+            };
+            if (await _readRevision(d) == revision) {
+              if (_mapMetaCache.length >= 4) _mapMetaCache.clear();
+              _mapMetaCache[metaKey] = meta;
+            }
+            return meta;
+          })();
+      if (isCancelled?.call() == true || closeRequested) {
+        throw const QueryCancelled();
+      }
+      // All coordinates remain unmodified. Cell centroids are presentation only.
+      final box = bounds ?? const [-90.0, -180.0, 90.0, 180.0];
+      if (box.length != 4 ||
+          box.any((n) => !n.isFinite) ||
+          box[0] >= box[2] ||
+          box[1] >= box[3]) {
+        throw ArgumentError('잘못된 지도 범위');
+      }
+      final latStep = (box[2] - box[0]) / 32;
+      final lngStep = (box[3] - box[1]) / 32;
+      final table = 'sr_map_${++_statsQuerySerial}';
+      final cells = <String, _MapCellAccumulator>{};
+      final timer = Stopwatch()..start();
+      try {
+        await d.execute(
+          'CREATE TEMP TABLE $table AS SELECT '
+          'CAST((CAST(위도 AS REAL)-?)/? AS INTEGER) AS cy, CAST((CAST(경도 AS REAL)-?)/? AS INTEGER) AS cx, '
+          'AVG(CAST(위도 AS REAL)) AS lat, AVG(CAST(경도 AS REAL)) AS lng, COUNT(*) AS _weight, '
+          '처리상태, 범칙금_과태료, 처리기관, 처리기관코드, category, MIN(위반장소) AS address, '
+          'COUNT(DISTINCT 위반장소) AS addresses, MIN(CAST(위도 AS REAL)) AS min_lat, MAX(CAST(위도 AS REAL)) AS max_lat, MIN(CAST(경도 AS REAL)) AS min_lng, MAX(CAST(경도 AS REAL)) AS max_lng '
+          'FROM $effectiveReportsView r WHERE $scope AND $valid AND '
+          'CAST(위도 AS REAL) >= ? AND CAST(위도 AS REAL) < ? AND CAST(경도 AS REAL) >= ? AND CAST(경도 AS REAL) < ? '
+          'GROUP BY cy, cx, 처리상태, 범칙금_과태료, 처리기관, 처리기관코드, category',
+          [
+            box[0],
+            latStep,
+            box[1],
+            lngStep,
+            ...args,
+            box[0],
+            box[2],
+            box[1],
+            box[3],
+          ],
+        );
+        var last = 0;
+        while (true) {
+          if (isCancelled?.call() == true || closeRequested) {
+            throw const QueryCancelled();
+          }
+          final rows = await PerformanceTrace.sql(
+            'map.sql_page',
+            () => d.rawQuery(
+              'SELECT rowid AS cursor, * FROM $table WHERE rowid > ? ORDER BY rowid LIMIT 1000',
+              [last],
+            ),
+          );
+          if (rows.isEmpty) break;
+          PerformanceTrace.sync('map.cell_data', () {
+            for (final row in rows) {
+              cells
+                  .putIfAbsent(
+                    '${row['cy']}:${row['cx']}',
+                    _MapCellAccumulator.new,
+                  )
+                  .add(row);
+            }
+          });
+          last = rows.last['cursor'] as int;
+          await Future<void>.delayed(Duration.zero);
         }
-        continue;
+        final points = cells.values.map((c) => c.toJson()).toList()
+          ..sort((a, b) => (b['total'] as int).compareTo(a['total'] as int));
+        final result = <String, dynamic>{
+          'points': points,
+          'meta': {
+            ...meta,
+            'rendered_cells': cells.length,
+            'point_mode': 'spatial_cells',
+            'viewport_reports': cells.values.fold<int>(
+              0,
+              (n, c) => n + c.total,
+            ),
+          },
+        };
+        if (isCancelled?.call() == true || closeRequested) {
+          throw const QueryCancelled();
+        }
+        if (await _readRevision(d) == revision) {
+          if (_mapCache.length >= 8) _mapCache.clear();
+          _mapCache[cacheKey] = result;
+        }
+        return result;
+      } finally {
+        await d.execute('DROP TABLE IF EXISTS temp.$table');
+        PerformanceTrace.record('map.total', timer, rows: cells.length);
       }
-      geocodedReports++;
-      final keyed = registryKeyedAgency(
-        row['처리기관코드'],
-        _stringify(row['처리기관']),
-      );
-      row['처리기관'] = keyed.display;
-      row['_agency_key'] = keyed.key;
-      row['위도'] = lat;
-      row['경도'] = lng;
-      row['주소정규화'] = normalizedAddress;
-      final key = '$lat|$lng|$normalizedAddress';
-      pointsByKey.putIfAbsent(key, () => <Map<String, dynamic>>[]).add(row);
+    }, exclusive: false);
+  });
+
+  static String? _missingLookupKey;
+  static Future<void>? _missingLookupPending;
+  static Future<void> _ensureMissingLookup(Database d) async {
+    if (_missingLookupPending != null) await _missingLookupPending;
+    final key = '${identityHashCode(d)}:${await _readRevision(d)}';
+    if (key == _missingLookupKey) return;
+    final work = _buildMissingLookup(d, key);
+    _missingLookupPending = work;
+    try {
+      await work;
+    } finally {
+      if (identical(_missingLookupPending, work)) _missingLookupPending = null;
     }
+  }
 
-    final points = <Map<String, dynamic>>[];
-    for (final group in pointsByKey.values) {
-      final first = group.first;
-      final total = group.length;
-      final categoryCounts = <String, int>{};
-      for (final item in group) {
-        final itemCategory = _stringify(item['category']).trim();
-        if (itemCategory.isEmpty) continue;
-        categoryCounts[itemCategory] = (categoryCounts[itemCategory] ?? 0) + 1;
-      }
-
-      points.add({
-        'lat': first['위도'],
-        'lng': first['경도'],
-        'address':
-            _firstNonEmptyMapValue(group, '위반장소') ??
-            _firstNonEmptyMapValue(group, '주소정규화') ??
-            '',
-        'region':
-            _firstNonEmptyMapValue(group, '행정구역') ??
-            _firstNonEmptyMapValue(group, '위반장소') ??
-            '',
-        'total': total,
-        'status_breakdown': _buildMapStatusBreakdown(group),
-        'disposition_breakdown': _buildMapDispositionBreakdown(group),
-        'agency_breakdown': _buildMapAgencyBreakdown(group),
-        'category_breakdown': [
-          _buildMapRatioItem('교통위반', categoryCounts['traffic'] ?? 0, total),
-          _buildMapRatioItem('주정차위반', categoryCounts['parking'] ?? 0, total),
-          _buildMapRatioItem('기타위반', categoryCounts['other'] ?? 0, total),
-        ].where((item) => (item['count'] as int) > 0).toList(),
-      });
-    }
-
-    points.sort(
-      (left, right) => (right['total'] as int).compareTo(left['total'] as int),
+  static Future<void> _buildMissingLookup(Database d, String key) async {
+    final snapshot = 'sr_missing_${++_statsQuerySerial}';
+    await d.execute(
+      'CREATE TEMP TABLE IF NOT EXISTS sr_missing_addresses(ID TEXT PRIMARY KEY, address_key TEXT NOT NULL)',
     );
-
-    return {
-      'points': points,
-      'meta': {
-        'available_years': availableYears,
-        'current_year': year ?? 'all',
-        'selected_category': normalizedCategory,
-        'dedupe_mode': useRepresentativeRecords ? 'canonical' : 'raw',
-        'total_reports': rows.length,
-        'geocoded_reports': geocodedReports,
-        'missing_reports': missingReports,
-        'address_groups': points.length,
-        'agency_count': agencyCount,
-      },
-    };
+    await d.execute(
+      'CREATE INDEX IF NOT EXISTS temp.sr_missing_address_key ON sr_missing_addresses(address_key)',
+    );
+    await d.execute('DELETE FROM temp.sr_missing_addresses');
+    try {
+      await d.execute(
+        'CREATE TEMP TABLE $snapshot AS SELECT ID, 주소정규화, 위반장소, 위도, 경도 FROM $effectiveReportsView',
+      );
+      var last = 0;
+      while (true) {
+        if (closeRequested) throw const QueryCancelled();
+        final rows = await d.rawQuery(
+          'SELECT rowid AS cursor,* FROM $snapshot WHERE rowid > ? ORDER BY rowid LIMIT 1000',
+          [last],
+        );
+        if (rows.isEmpty) break;
+        final batch = d.batch();
+        for (final row in rows) {
+          if (parseGeoDouble(row['위도']) != null &&
+              parseGeoDouble(row['경도']) != null) {
+            continue;
+          }
+          final normalized = normalizeGeocodeAddress(row['주소정규화']?.toString());
+          final address = normalized.isEmpty
+              ? normalizeGeocodeAddress(row['위반장소']?.toString())
+              : normalized;
+          if (address.isNotEmpty) {
+            batch.insert('sr_missing_addresses', {
+              'ID': row['ID'],
+              'address_key': address,
+            });
+          }
+        }
+        await batch.commit(noResult: true);
+        last = rows.last['cursor'] as int;
+        await Future<void>.delayed(Duration.zero);
+      }
+      if (key == '${identityHashCode(d)}:${await _readRevision(d)}') {
+        _missingLookupKey = key;
+      }
+    } finally {
+      await d.execute('DROP TABLE IF EXISTS temp.$snapshot');
+    }
   }
 
   static Future<Map<String, dynamic>> computeReportMapMissingGroups({
@@ -2298,392 +2701,65 @@ class LocalDbService {
     String category = 'all',
     bool excludeWithdraw = false,
     bool useRepresentativeRecords = false,
-  }) async {
+    int page = 0,
+  }) => runBackgroundWork(() async {
+    if (page < 0) throw ArgumentError('잘못된 페이지');
     final d = await db;
-    final normalizedCategory = _normalizeMapCategory(category);
-
-    String where = '1=1';
-    final args = <dynamic>[];
-    if (normalizedCategory != 'all') {
-      where += ' AND category = ?';
-      args.add(normalizedCategory);
+    await _ensureMissingLookup(d);
+    final q = ReportQuery(const ReportFilter(), agencyExpression: '처리기관');
+    q.clauses.add(_representativeWhere(useRepresentativeRecords));
+    if (category != 'all') {
+      q.clauses.add('r.category = ?');
+      q.args.add(category);
     }
-    if (year != null && year != 'all' && year.isNotEmpty) {
-      // S-08: 서버 지도 통계와 같은 답변일 기준.
-      where += ' AND 답변일 LIKE ?';
-      args.add('$year%');
+    if (year != null && year != 'all') {
+      q.clauses.add('r.답변일 LIKE ?');
+      q.args.add('$year%');
     }
-    if (excludeWithdraw) {
-      where += " AND IFNULL(처리상태, '') != '취하'";
-    }
-
-    var rows = await d.query(
-      effectiveReportsView,
-      columns: [
-        'ID',
-        '신고번호',
-        '신고명',
-        '신고일',
-        '답변일',
-        '처리기관',
-        '처리기관코드',
-        '담당자',
-        '처리상태',
-        '상태',
-        '범칙금_과태료',
-        '벌점',
-        '차량번호',
-        '위반법규',
-        '위반장소',
-        '발생일자',
-        '발생시각',
-        '신고내용',
-        '처리내용',
-        '첨부사진',
-        '첨부파일',
-        '지도',
-        '만족도조사여부',
-        '종결여부',
-        '별점',
-        '별점사유',
-        'synced_at',
-        '보완횟수',
-        '보완_미응답',
-        '보완_요청자',
-        '보완_요청일시',
-        '보완_완료일시',
-        '보완_요청_내용',
-        '보완_신고자_의견',
-        '주소정규화',
-        '행정구역',
-        '위도',
-        '경도',
-        'category',
-      ],
-      where: where,
-      whereArgs: args.isEmpty ? null : args,
+    if (excludeWithdraw) q.clauses.add("IFNULL(r.처리상태,'') != '취하'");
+    final source =
+        '$effectiveReportsView r JOIN temp.sr_missing_addresses m ON m.ID=r.ID WHERE ${q.where}';
+    final totals = await d.rawQuery(
+      'SELECT COUNT(*) AS n, COUNT(DISTINCT m.address_key) AS groups FROM $source',
+      q.args,
     );
-    rows = await _projectRows(
-      d,
-      rows,
-      useRepresentativeRecords: useRepresentativeRecords,
+    final groupRows = await d.rawQuery(
+      'SELECT m.address_key,COUNT(*) AS n FROM $source GROUP BY m.address_key ORDER BY n DESC,m.address_key LIMIT 100 OFFSET ?',
+      [...q.args, page * 100],
     );
-
-    final groupsByKey = <String, List<Map<String, dynamic>>>{};
-    for (final rawRow in rows) {
-      final row = Map<String, dynamic>.from(rawRow);
-      final lat = parseGeoDouble(row['위도']);
-      final lng = parseGeoDouble(row['경도']);
-      final normalizedAddress =
-          normalizeGeocodeAddress(row['주소정규화']?.toString()) == ''
-          ? normalizeGeocodeAddress(row['위반장소']?.toString())
-          : normalizeGeocodeAddress(row['주소정규화']?.toString());
-      final address = _stringify(row['위반장소']).trim();
-      final addressKey = normalizedAddress.isNotEmpty
-          ? normalizedAddress
-          : address;
-      final hasValidCoordinates = lat != null && lng != null;
-
-      if (addressKey.isEmpty || hasValidCoordinates) {
-        continue;
-      }
-      row['위도'] = lat;
-      row['경도'] = lng;
-      row['주소정규화'] = normalizedAddress;
-      groupsByKey
-          .putIfAbsent(addressKey, () => <Map<String, dynamic>>[])
-          .add(row);
-    }
-
     final groups = <Map<String, dynamic>>[];
-    for (final entry in groupsByKey.entries) {
-      final groupRows = entry.value;
-      groupRows.sort((left, right) {
-        final leftDate = _stringify(left['신고일']);
-        final rightDate = _stringify(right['신고일']);
-        final dateCompare = rightDate.compareTo(leftDate);
-        if (dateCompare != 0) return dateCompare;
-        return _stringify(left['신고번호']).compareTo(_stringify(right['신고번호']));
-      });
-
-      final first = groupRows.first;
-      final reports = groupRows.map((row) => _rowToReport(row)).toList();
+    for (final group in groupRows) {
+      final rows = await d.rawQuery(
+        'SELECT r.* FROM $source AND m.address_key = ? ORDER BY r.신고일 DESC,r.신고번호 LIMIT 10',
+        [...q.args, group['address_key']],
+      );
+      final first = rows.first;
       groups.add({
-        'address': _stringify(first['위반장소']).trim().isNotEmpty
-            ? _stringify(first['위반장소']).trim()
-            : entry.key,
-        'normalized_address': entry.key,
+        'address': _stringify(first['위반장소']).trim().isEmpty
+            ? group['address_key']
+            : _stringify(first['위반장소']).trim(),
+        'normalized_address': group['address_key'],
         'region': _stringify(first['행정구역']).trim(),
-        'report_count': reports.length,
-        'reports': reports
-            .map(
-              (report) => {
-                'ID': report.id,
-                '신고번호': report.reportNumber,
-                '신고명': report.name,
-                '신고일': report.date,
-                '답변일': report.responseDate,
-                '처리기관': report.agency,
-                '담당자': report.manager,
-                '처리상태': report.status,
-                '상태': report.result,
-                '범칙금_과태료': report.fineInfo,
-                '벌점': report.penaltyPoints,
-                '차량번호': report.carNumber,
-                '위반법규': report.law,
-                '위반장소': report.location,
-                '발생일자': report.occurrenceDate,
-                '발생시각': report.occurrenceTime,
-                '신고내용': report.reportContent,
-                '처리내용': report.processContent,
-                '첨부사진': report.attachedPhotos,
-                '첨부파일': report.attachedFiles,
-                '지도': report.mapImage,
-                '만족도조사여부': report.pollStatus,
-                '종결여부': report.processingFinish,
-                '별점': report.rating,
-                '별점사유': report.ratingCause,
-                'category': report.category,
-                'synced_at': report.syncedAt,
-                '보완횟수': report.supplementCount,
-                '보완_미응답': report.supplementOpen ? 'Y' : 'N',
-                '보완_요청자': report.supplementRequester,
-                '보완_요청일시': report.supplementRequestedAt,
-                '보완_완료일시': report.supplementCompletedAt,
-                '보완_요청_내용': report.supplementRequest,
-                '보완_신고자_의견': report.supplementOpinion,
-              },
-            )
-            .toList(),
+        'report_count': group['n'],
+        'reports': rows,
       });
     }
-
-    groups.sort((left, right) {
-      final countCompare = (right['report_count'] as int).compareTo(
-        left['report_count'] as int,
-      );
-      if (countCompare != 0) return countCompare;
-      return _stringify(
-        left['address'],
-      ).compareTo(_stringify(right['address']));
-    });
-
     return {
       'groups': groups,
       'meta': {
-        'group_count': groups.length,
-        'report_count': groups.fold<int>(
-          0,
-          (sum, group) => sum + ((group['report_count'] as int?) ?? 0),
-        ),
+        'group_count': totals.first['groups'],
+        'report_count': totals.first['n'],
+        'page': page,
+        'page_size': 100,
       },
     };
-  }
+  });
 
   static String _normalizeMapCategory(String value) {
     final normalized = value.trim().toLowerCase();
     return {'all', 'traffic', 'parking', 'other'}.contains(normalized)
         ? normalized
         : 'all';
-  }
-
-  static Map<String, dynamic> _buildMapRatioItem(
-    String label,
-    int count,
-    int total,
-  ) {
-    final safeCount = count < 0 ? 0 : count;
-    final safeTotal = total < 0 ? 0 : total;
-    return {
-      'label': label,
-      'count': safeCount,
-      'pct': safeTotal > 0
-          ? double.parse(((safeCount / safeTotal) * 100).toStringAsFixed(1))
-          : 0.0,
-    };
-  }
-
-  static List<Map<String, dynamic>> _buildMapStatusBreakdown(
-    List<Map<String, dynamic>> group,
-  ) {
-    final statuses = group
-        .map((row) => _stringify(row['처리상태']).trim())
-        .toList();
-    final total = group.length;
-    final processingCount = statuses
-        .where((value) => {'', '진행', '진행중', '검토중', '처리중'}.contains(value))
-        .length;
-    final ordered = [
-      _buildMapRatioItem(
-        '수용',
-        statuses.where((value) => value == '수용').length,
-        total,
-      ),
-      _buildMapRatioItem(
-        '일부수용',
-        statuses.where((value) => value == '일부수용').length,
-        total,
-      ),
-      _buildMapRatioItem(
-        '불수용',
-        statuses.where((value) => value == '불수용').length,
-        total,
-      ),
-      _buildMapRatioItem(
-        '기타',
-        statuses.where((value) => value == '기타').length,
-        total,
-      ),
-      _buildMapRatioItem(
-        '답변완료',
-        statuses.where((value) => value == '답변완료').length,
-        total,
-      ),
-      _buildMapRatioItem(
-        '보완요청',
-        statuses.where((value) => value == '보완요청').length,
-        total,
-      ),
-      _buildMapRatioItem('처리중', processingCount, total),
-      _buildMapRatioItem(
-        '취하',
-        statuses.where((value) => value == '취하').length,
-        total,
-      ),
-      _buildMapRatioItem(
-        '이송',
-        statuses.where((value) => value == '이송').length,
-        total,
-      ),
-    ];
-    return ordered.where((item) => (item['count'] as int) > 0).toList();
-  }
-
-  static List<Map<String, dynamic>> _buildMapDispositionBreakdown(
-    List<Map<String, dynamic>> group,
-  ) {
-    final total = group.length;
-    final fineCount = group
-        .where((row) => _stringify(row['범칙금_과태료']).contains('과태료'))
-        .length;
-    final warningCount = group.where((row) {
-      final text = _stringify(row['범칙금_과태료']);
-      return text.contains('경고') || text.contains('범칙금');
-    }).length;
-    final rejectCount = group.where((row) {
-      final status = _stringify(row['처리상태']);
-      return status == '불수용' || status == '기타';
-    }).length;
-    final pendingCount = total - fineCount - warningCount - rejectCount;
-    final ordered = [
-      _buildMapRatioItem('과태료', fineCount, total),
-      _buildMapRatioItem('경고/범칙금', warningCount, total),
-      _buildMapRatioItem('불수용/기타', rejectCount, total),
-      _buildMapRatioItem('미확인', pendingCount, total),
-    ];
-    return ordered.where((item) => (item['count'] as int) > 0).toList();
-  }
-
-  static List<Map<String, dynamic>> _buildMapAgencyBreakdown(
-    List<Map<String, dynamic>> group,
-  ) {
-    final counts = <String, int>{};
-    final labels = <String, String>{};
-    for (final row in group) {
-      final raw = _stringify(row['처리기관']).trim();
-      if (raw.isEmpty) continue;
-      // 표시 변환된 행이면 _agency_key 를 쓰고, 아니면 그 자리에서 계산한다.
-      final stored = _stringify(row['_agency_key']);
-      final String key;
-      final String display;
-      if (stored.isNotEmpty) {
-        key = stored;
-        display = raw;
-      } else {
-        final keyed = registryKeyedAgency(row['처리기관코드'], raw);
-        key = keyed.key;
-        display = keyed.display;
-      }
-      counts[key] = (counts[key] ?? 0) + 1;
-      labels.putIfAbsent(key, () => display);
-    }
-    final total = group.length;
-    final items =
-        counts.entries
-            .map(
-              (entry) => {
-                'name': labels[entry.key] ?? entry.key,
-                'agency_key': entry.key,
-                'count': entry.value,
-                'pct': total > 0
-                    ? double.parse(
-                        ((entry.value / total) * 100).toStringAsFixed(1),
-                      )
-                    : 0.0,
-              },
-            )
-            .toList()
-          ..sort((left, right) {
-            var c = (right['count'] as int).compareTo(left['count'] as int);
-            if (c != 0) return c;
-            c = (left['name'] as String).compareTo(right['name'] as String);
-            if (c != 0) return c;
-            return (left['agency_key'] as String).compareTo(
-              right['agency_key'] as String,
-            );
-          });
-    return items;
-  }
-
-  static String? _firstNonEmptyMapValue(
-    List<Map<String, dynamic>> group,
-    String column,
-  ) {
-    for (final row in group) {
-      final value = _stringify(row[column]).trim();
-      if (value.isNotEmpty) return value;
-    }
-    return null;
-  }
-
-  static Map<String, dynamic> _aggregateStats(
-    List<Map<String, dynamic>> rows,
-    List<Map<String, dynamic>> allRows,
-    List<Map<String, dynamic>> lawScopeRows,
-  ) {
-    final traffic = rows.where((r) => r['category'] == 'traffic').toList();
-    final parking = rows.where((r) => r['category'] == 'parking').toList();
-    final other = rows.where((r) => r['category'] == 'other').toList();
-
-    // 연도 목록은 항상 전체에서 추출 (필터 변경 시 다른 연도 선택지 유지). S-08: 답변일 기준.
-    final years =
-        allRows
-            .map(
-              (r) => (r['답변일'] as String? ?? '').length >= 4
-                  ? (r['답변일'] as String).substring(0, 4)
-                  : '',
-            )
-            .where((y) => RegExp(r'^\d{4}$').hasMatch(y))
-            .where((y) => y.isNotEmpty)
-            .toSet()
-            .toList()
-          ..sort((a, b) => b.compareTo(a));
-
-    return {
-      'traffic': buildStatsCategory(
-        traffic,
-        lawScopeRows.where((r) => r['category'] == 'traffic').toList(),
-      ),
-      'parking': buildStatsCategory(
-        parking,
-        lawScopeRows.where((r) => r['category'] == 'parking').toList(),
-      ),
-      'other': buildStatsCategory(
-        other,
-        lawScopeRows.where((r) => r['category'] == 'other').toList(),
-      ),
-      'available_years': years,
-    };
   }
 
   static const _unassignedPersonValues = {'', '미지정'};
@@ -2884,6 +2960,18 @@ class LocalDbService {
     if (raw.isEmpty) return {};
     return raw.split(',').where((s) => s.isNotEmpty).toSet();
   }
+
+  /// Existing "clear all" action needs identities, never full Report bodies.
+  static Future<List<String>> getDisplayedWatchlistNumbers({
+    bool excludeWithdraw = false,
+    bool useRepresentativeRecords = false,
+  }) => runBackgroundWork(() async {
+    final d = await db;
+    final rows = await d.rawQuery(
+      'SELECT r.신고번호 FROM $effectiveReportsView r WHERE ${_representativeWhere(useRepresentativeRecords)} AND ${_watchWhere(useRepresentativeRecords)}${excludeWithdraw ? " AND IFNULL(r.처리상태,'') != '취하'" : ""}',
+    );
+    return rows.map((r) => _stringify(r['신고번호'])).toList(growable: false);
+  });
 
   static Future<void> setWatchlistNumbers(Set<String> numbers) async {
     final d = await db;
@@ -4045,18 +4133,19 @@ class _AgencyAgg {
   int estimatedFineAmount = 0;
   int estimatedFineCount = 0;
 
-  final List<int> responseDays = [];
-  final List<int> ratings = []; // 1~5 별점 표본
+  int responseDaySum = 0, responseDayCount = 0;
+  int ratingSum = 0, ratingCount = 0;
 
   _AgencyAgg(this.name, this.person, [this.agencyKey = '']);
 
   void add(Map<String, dynamic> r) {
-    total++;
+    final weight = (r['_weight'] as int?) ?? 1;
+    total += weight;
     final status = (r['처리상태'] as String? ?? '').trim();
     final fine = (r['범칙금_과태료'] as String? ?? '');
-    if (fine.contains('과태료')) fines++;
-    if (fine.contains('경고') || fine.contains('범칙금')) warn++;
-    if (status == '불수용' || status == '기타') reject++;
+    if (fine.contains('과태료')) fines += weight;
+    if (fine.contains('경고') || fine.contains('범칙금')) warn += weight;
+    if (status == '불수용' || status == '기타') reject += weight;
     final completed = LocalDbService._overviewCompletedStatuses.contains(
       status,
     );
@@ -4066,9 +4155,9 @@ class _AgencyAgg {
         status != '불수용' &&
         status != '기타') {
       if (!completed && status != '취하') {
-        inProgress++;
+        inProgress += weight;
       } else {
-        unconfirmed++;
+        unconfirmed += weight;
         final category = (r['category'] as String? ?? '').trim();
         final entry = (r['entry_value'] as String? ?? '').trim();
         final eligible =
@@ -4089,22 +4178,22 @@ class _AgencyAgg {
             fine.trim() == '미확인' ||
             (status == '일부수용' && fine.trim().isEmpty && partialMenu);
         if (isUnknown) {
-          dispositionUnknown++;
+          dispositionUnknown += weight;
         } else if (!eligible && completed) {
-          noPenalty++;
+          noPenalty += weight;
         } else {
-          unclassified++;
+          unclassified += weight;
         }
       }
     }
     final fineAmount = extractFineAmount(fine);
-    totalFine += fineAmount;
+    totalFine += fineAmount * weight;
     if (fine.contains('과태료') && fineAmount == 0) {
-      fineAmountUnknown++;
+      fineAmountUnknown += weight;
       final est = fine_estimate.estimate(r);
       if (est != null) {
-        estimatedFineAmount += est['amount'] as int;
-        estimatedFineCount++;
+        estimatedFineAmount += (est['amount'] as int) * weight;
+        estimatedFineCount += weight;
       }
     }
 
@@ -4117,25 +4206,25 @@ class _AgencyAgg {
         final rd = DateTime.parse(resp.substring(0, 10));
         final days = rd.difference(d).inDays;
         // S-01: 서버와 같이 날짜가 뒤바뀐(음수) 건은 평균에서 제외.
-        if (days >= 0) responseDays.add(days);
+        if (days >= 0) {
+          responseDaySum += days * weight;
+          responseDayCount += weight;
+        }
       } catch (_) {}
     }
 
     final rating = (r['별점'] as num?)?.toInt();
     if (rating != null && rating >= 1 && rating <= 5) {
-      ratings.add(rating);
+      ratingSum += rating * weight;
+      ratingCount += weight;
     }
   }
 
   Map<String, dynamic> toJson() {
     final t = total > 0 ? total.toDouble() : 1.0;
-    final avgRating = ratings.isEmpty
+    final avgRating = ratingCount == 0
         ? null
-        : double.parse(
-            (ratings.reduce((a, b) => a + b) / ratings.length).toStringAsFixed(
-              2,
-            ),
-          );
+        : double.parse((ratingSum / ratingCount).toStringAsFixed(2));
     return {
       'agency': name,
       'agency_key': agencyKey,
@@ -4170,16 +4259,296 @@ class _AgencyAgg {
       'estimated_fine_amount': estimatedFineAmount,
       'estimated_fine_count': estimatedFineCount,
       'avg_rating': avgRating,
-      'rating_count': ratings.length,
+      'rating_count': ratingCount,
       // 2026-09-28: 평균 처리기간 표본 수(서버 `avg_days_count`). 표 합계가 행 평균을 이 수로 가중한다.
-      'avg_days_count': responseDays.length,
+      'avg_days_count': responseDayCount,
       // S-01: 서버 _calc_avg_days 와 같이 소수 1자리.
-      'avg_days': responseDays.isEmpty
+      'avg_days': responseDayCount == 0
           ? null
           : double.parse(
-              (responseDays.reduce((a, b) => a + b) / responseDays.length)
-                  .toStringAsFixed(1),
+              (responseDaySum / responseDayCount).toStringAsFixed(1),
             ),
+    };
+  }
+}
+
+/// Incremental table aggregation: memory grows with institutions/persons, never reports.
+class _StatsCategoryAccumulator {
+  final agencies = <String, _AgencyAgg>{};
+  final persons = <String, _AgencyAgg>{};
+  final laws = <String>{};
+  bool emptyLaw = false;
+  int fine = 0, estimated = 0, estimatedCount = 0;
+
+  void addLaw(Map<String, dynamic> r) {
+    final law = r['위반법규']?.toString() ?? '';
+    if (law.isEmpty) {
+      emptyLaw = true;
+    } else {
+      laws.add(law);
+    }
+  }
+
+  void add(Map<String, dynamic> r) {
+    final weight = (r['_weight'] as int?) ?? 1;
+    final amount = extractFineAmount(r['범칙금_과태료']?.toString() ?? '');
+    fine += amount * weight;
+    if ((r['범칙금_과태료']?.toString() ?? '').contains('과태료') && amount == 0) {
+      final est = fine_estimate.estimate(r);
+      if (est != null) {
+        estimated += (est['amount'] as int) * weight;
+        estimatedCount += weight;
+      }
+    }
+    if (!LocalDbService._overviewCompletedStatuses.contains(
+      (r['처리상태']?.toString() ?? '').trim(),
+    )) {
+      return;
+    }
+    final keyed = registryKeyedAgency(r['처리기관코드'], r['처리기관']?.toString() ?? '');
+    if (keyed.display.isEmpty) return;
+    agencies
+        .putIfAbsent(keyed.key, () => _AgencyAgg(keyed.display, '', keyed.key))
+        .add(r);
+    final person = (r['담당자']?.toString() ?? '').trim();
+    if (LocalDbService._unassignedPersonValues.contains(person)) return;
+    persons
+        .putIfAbsent(
+          '${keyed.key}\t$person',
+          () => _AgencyAgg(keyed.display, person, keyed.key),
+        )
+        .add(r);
+  }
+
+  Map<String, dynamic> toJson() {
+    List<Map<String, dynamic>> sorted(Iterable<_AgencyAgg> aggs) =>
+        aggs.map((a) => a.toJson()).toList()..sort((a, b) {
+          var c = (b['total'] as int).compareTo(a['total'] as int);
+          if (c == 0) {
+            c = (a['agency'] as String).compareTo(b['agency'] as String);
+          }
+          if (c == 0) {
+            c = (a['person'] as String).compareTo(b['person'] as String);
+          }
+          if (c == 0) {
+            c = (a['agency_key'] as String).compareTo(
+              b['agency_key'] as String,
+            );
+          }
+          return c;
+        });
+    final byAgency = sorted(agencies.values), byPerson = sorted(persons.values);
+    bool police(Map<String, dynamic> r) =>
+        (r['agency'] as String).contains('경찰');
+    return {
+      'by_agency': byAgency,
+      'by_person': byPerson,
+      'police_by_agency': byAgency.where(police).toList(),
+      'police_by_person': byPerson.where(police).toList(),
+      'other_by_agency': byAgency.where((r) => !police(r)).toList(),
+      'other_by_person': byPerson.where((r) => !police(r)).toList(),
+      'available_laws': laws.toList()..sort(),
+      'has_empty_law': emptyLaw,
+      'total_fine_amount': fine,
+      'estimated_fine_amount': estimated,
+      'estimated_fine_count': estimatedCount,
+    };
+  }
+}
+
+/// Merge exact counts and sums; round once after the final page.
+class _OverviewAccumulator {
+  final counts = <String, int>{};
+  final series = <String, Map<String, int>>{};
+  final types = <String, int>{};
+  final lawCounts = <String, int>{};
+  final resultDistribution = <String, int>{};
+  final disposition = <String, int>{};
+  final fine = <String, int>{};
+
+  void add(List<Map<String, dynamic>> rows) {
+    final json = LocalDbService.summarizeOverviewRows(
+      rows,
+      includeInternal: true,
+    );
+    for (final e in json.entries) {
+      if (e.value is int) {
+        counts[e.key] = (counts[e.key] ?? 0) + (e.value as int);
+      }
+      if (e.key.startsWith('monthly_')) {
+        final target = series.putIfAbsent(e.key, () => {});
+        for (final row in e.value as List) {
+          final month = row['month'] as String;
+          target[month] = (target[month] ?? 0) + (row['count'] as int);
+        }
+      }
+    }
+    for (final row in json['report_types'] as List) {
+      final name = row['name'] as String;
+      types[name] = (types[name] ?? 0) + (row['count'] as int);
+    }
+    for (final row in json['violation_laws'] as List) {
+      final name = row['name'] as String;
+      lawCounts[name] = (lawCounts[name] ?? 0) + (row['count'] as int);
+    }
+    for (final pair in [
+      ('disposition', disposition),
+      ('fine_amount', fine),
+      ('result_distribution', resultDistribution),
+    ]) {
+      for (final e in (json[pair.$1] as Map<String, dynamic>).entries) {
+        pair.$2[e.key] = (pair.$2[e.key] ?? 0) + (e.value as int);
+      }
+    }
+  }
+
+  Map<String, dynamic> toJson() {
+    // Add an empty page to provide all zero-valued fields even for 0 reports.
+    if (counts.isEmpty) add(const []);
+    final typeRows = types.entries.toList()
+      ..sort((a, b) {
+        final c = b.value.compareTo(a.value);
+        return c != 0 ? c : a.key.compareTo(b.key);
+      });
+    final n = counts['avg_days_count'] ?? 0;
+    return {
+      for (final e in counts.entries)
+        if (e.key != '_day_sum') e.key: e.value,
+      'avg_days': n == 0
+          ? null
+          : double.parse(((counts['_day_sum'] ?? 0) / n).toStringAsFixed(1)),
+      for (final e in series.entries)
+        e.key: [
+          for (final month in e.value.keys.toList()..sort())
+            {'month': month, 'count': e.value[month]},
+        ],
+      'disposition': disposition,
+      'fine_amount': fine,
+      'result_distribution': resultDistribution,
+      'violation_laws': [
+        for (final e
+            in lawCounts.entries.toList()..sort((a, b) {
+              final c = b.value.compareTo(a.value);
+              return c != 0 ? c : a.key.compareTo(b.key);
+            }))
+          {
+            'name': e.key,
+            'filter': e.key.isEmpty ? '__없음__' : e.key,
+            'count': e.value,
+          },
+      ],
+      'report_types': [
+        for (final e in typeRows) {'name': e.key, 'count': e.value},
+      ],
+    };
+  }
+}
+
+class _MapCellAccumulator {
+  int total = 0;
+  double latSum = 0, lngSum = 0;
+  String address = '';
+  bool multipleAddresses = false;
+  final statuses = <String, int>{},
+      dispositions = <String, int>{},
+      categories = <String, int>{},
+      agencies = <String, int>{};
+  final agencyNames = <String, String>{};
+  void add(Map<String, dynamic> r) {
+    final n = r['_weight'] as int;
+    if ((r['addresses'] as int? ?? 0) > 1 ||
+        r['min_lat'] != r['max_lat'] ||
+        r['min_lng'] != r['max_lng']) {
+      multipleAddresses = true;
+    }
+    total += n;
+    latSum += (r['lat'] as num).toDouble() * n;
+    lngSum += (r['lng'] as num).toDouble() * n;
+    final text = (r['address']?.toString() ?? '').trim();
+    if (address.isEmpty) {
+      address = text;
+    } else if (address != text) {
+      multipleAddresses = true;
+    }
+    void count(Map<String, int> target, String label) =>
+        target[label] = (target[label] ?? 0) + n;
+    final status = (r['처리상태']?.toString() ?? '').trim();
+    final label = const {'', '진행', '진행중', '검토중', '처리중'}.contains(status)
+        ? '처리중'
+        : status;
+    if (const {
+      '수용',
+      '일부수용',
+      '불수용',
+      '기타',
+      '답변완료',
+      '보완요청',
+      '처리중',
+      '취하',
+      '이송',
+    }.contains(label)) {
+      count(statuses, label);
+    }
+    final fine = r['범칙금_과태료']?.toString() ?? '';
+    var decided = false;
+    if (fine.contains('과태료')) {
+      count(dispositions, '과태료');
+      decided = true;
+    }
+    if (fine.contains('경고') || fine.contains('범칙금')) {
+      count(dispositions, '경고/범칙금');
+      decided = true;
+    }
+    if (status == '불수용' || status == '기타') {
+      count(dispositions, '불수용/기타');
+      decided = true;
+    }
+    if (!decided) count(dispositions, '미확인');
+    count(categories, switch (r['category']) {
+      'traffic' => '교통위반',
+      'parking' => '주정차위반',
+      'other' => '기타위반',
+      _ => '',
+    });
+    final keyed = registryKeyedAgency(r['처리기관코드'], r['처리기관']?.toString() ?? '');
+    if (keyed.display.isNotEmpty) {
+      count(agencies, keyed.key);
+      agencyNames[keyed.key] = keyed.display;
+    }
+  }
+
+  Map<String, dynamic> toJson() {
+    List<Map<String, dynamic>> series(Map<String, int> source) => [
+      for (final e in source.entries)
+        if (e.key.isNotEmpty)
+          {
+            'label': e.key,
+            'count': e.value,
+            'pct': double.parse((e.value / total * 100).toStringAsFixed(1)),
+          },
+    ];
+    dispositions.remove('미확인');
+    final pending = total - dispositions.values.fold<int>(0, (n, c) => n + c);
+    if (pending > 0) dispositions['미확인'] = pending;
+    return {
+      'lat': latSum / total,
+      'lng': lngSum / total,
+      'total': total,
+      'cluster': multipleAddresses,
+      'address': multipleAddresses ? '지도 구역 집계 · 확대하여 주소 확인' : address,
+      'region': '',
+      'status_breakdown': series(statuses),
+      'disposition_breakdown': series(dispositions),
+      'category_breakdown': series(categories),
+      'agency_breakdown': [
+        for (final e in agencies.entries)
+          {
+            'agency_key': e.key,
+            'name': agencyNames[e.key],
+            'count': e.value,
+            'pct': double.parse((e.value / total * 100).toStringAsFixed(1)),
+          },
+      ],
     };
   }
 }

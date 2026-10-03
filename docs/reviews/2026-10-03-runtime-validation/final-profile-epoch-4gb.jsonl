@@ -1,0 +1,28 @@
+{"stage": "registry.cold_load", "ms": 2655}
+{"stage": "frames", "count": 1, "max_build_us": 4, "max_raster_us": 403706}
+{"rows": 500000, "stage": "fixture.seed", "ms": 614}
+{"stage": "frames", "count": 2, "max_build_us": 4233, "max_raster_us": 403706}
+{"stage": "frames", "count": 4, "max_build_us": 4233, "max_raster_us": 403706}
+{"stage": "summary.sql_counts", "us": 1583679, "rows": 1, "rss_bytes": 360202240, "peak_rss_bytes": 370102272}
+{"stage": "summary.sql_recent", "us": 102924, "rows": 158, "rss_bytes": 357634048, "peak_rss_bytes": 370102272}
+{"stage": "summary.sql_watch_count", "us": 36760, "rows": 1, "rss_bytes": 357765120, "peak_rss_bytes": 370102272}
+{"stage": "summary.sql_watchlist", "us": 96930, "rows": 200, "rss_bytes": 358572032, "peak_rss_bytes": 370102272}
+{"stage": "summary.report_objects", "us": 37905, "rows": null, "rss_bytes": 359854080, "peak_rss_bytes": 370102272}
+{"stage": "summary.watch_objects", "us": 620, "rows": null, "rss_bytes": 359854080, "peak_rss_bytes": 370102272}
+{"stage": "summary.total", "us": 1860511, "rows": null, "rss_bytes": 359854080, "peak_rss_bytes": 370102272}
+{"rows": 500000, "phase": "cold", "stage": "summary", "ms": 1875, "total": 499000, "rss": 359854080}
+{"stage": "stats.sql_group", "us": 13279200, "rows": null, "rss_bytes": 458092544, "peak_rss_bytes": 586997760}
+{"stage": "stats.total", "us": 37519323, "rows": null, "rss_bytes": 539570176, "peak_rss_bytes": 586997760}
+{"rows": 500000, "phase": "cold", "stage": "stats", "ms": 37521, "total": 443555, "rss": 539570176}
+{"stage": "map.total", "us": 3767410, "rows": 2, "rss_bytes": 539783168, "peak_rss_bytes": 626470912}
+{"rows": 500000, "phase": "cold", "stage": "map", "ms": 5976, "points": 2, "rss": 539783168}
+{"rows": 500000, "phase": "warm", "stage": "summary", "ms": 1, "total": 499000, "rss": 539783168}
+{"rows": 500000, "phase": "warm", "stage": "stats", "ms": 1, "total": 443555, "rss": 539783168}
+{"rows": 500000, "phase": "warm", "stage": "map", "ms": 1, "points": 2, "rss": 539783168}
+{"rows": 500000, "stage": "stages", "values": {"summary.sql_counts": {"us": 1583679, "returned_rows": 1}, "summary.sql_recent": {"us": 102924, "returned_rows": 158}, "summary.sql_watch_count": {"us": 36760, "returned_rows": 1}, "summary.sql_watchlist": {"us": 96930, "returned_rows": 200}, "summary.report_objects": {"us": 37905, "returned_rows": 0}, "summary.watch_objects": {"us": 620, "returned_rows": 0}, "summary.total": {"us": 1860511, "returned_rows": 0}, "stats.sql_group": {"us": 13279200, "returned_rows": 0}, "stats.sql_page": {"us": 10649340, "returned_rows": 443555}, "stats.registry_and_tables": {"us": 4649149, "returned_rows": 0}, "stats.chart_data": {"us": 8321813, "returned_rows": 0}, "stats.total": {"us": 37519323, "returned_rows": 0}, "map.sql_meta": {"us": 1409871, "returned_rows": 1}, "map.sql_page": {"us": 368167, "returned_rows": 7654}, "map.cell_data": {"us": 18111, "returned_rows": 0}, "map.total": {"us": 3767410, "returned_rows": 2}}, "peak_rss": 626470912}
+{"rows": 500000, "stage": "repeat20", "rss": 540045312, "peak_rss": 626470912}
+{"stage": "complete"}
+{"stage": "frames", "count": 11, "max_build_us": 4233, "max_raster_us": 403706}
+{"stage": "frames", "count": 19, "max_build_us": 4233, "max_raster_us": 403706}
+{"stage": "frames", "count": 25, "max_build_us": 4799, "max_raster_us": 403706}
+{"stage": "frames", "count": 28, "max_build_us": 4799, "max_raster_us": 403706}

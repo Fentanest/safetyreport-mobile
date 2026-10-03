@@ -1,3 +1,4 @@
+import 'rating_dialog.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -115,9 +116,11 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
     if (_busy) return;
     final reportProvider = context.read<ReportProvider>();
     final historyProvider = context.read<NotificationHistoryProvider>();
+    setState(() => _busy = true);
     final picked = await _showRatingDialog(
       causeSupported: reportProvider.ratingCauseSupported,
     );
+    if (mounted) setState(() => _busy = false);
     if (picked == null) return;
     if (!mounted) return;
     final pickedScore = picked.score;
@@ -173,98 +176,19 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
   Future<({int score, String cause})?> _showRatingDialog({
     required bool causeSupported,
   }) async {
-    var selectedScore = 5;
-    final causeController = TextEditingController();
-    final eligibleCount = reports
-        .where((report) => RatingService.ineligibleReason(report) == null)
-        .length;
-    final skippedCount = count - eligibleCount;
-
-    final picked = await showDialog<({int score, String cause})>(
+    final provider = context.read<ReportProvider>();
+    return showDialog<({int score, String cause})>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setStateDialog) => AlertDialog(
-          title: const Text('별점 주기'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('선택한 $count건에 대해 부여할 별점을 선택하세요.'),
-              const SizedBox(height: 8),
-              Text(
-                '진행 가능 $eligibleCount건, 자동 스킵 $skippedCount건',
-                style: TextStyle(fontSize: 12, color: ctx.sr.textSecondary),
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: List.generate(5, (index) {
-                  final score = index + 1;
-                  final selected = selectedScore == score;
-                  return ChoiceChip(
-                    selected: selected,
-                    label: Text('$score점'),
-                    avatar: Icon(
-                      Icons.star,
-                      size: 18,
-                      color: selected
-                          ? Theme.of(ctx).colorScheme.primary
-                          : ctx.sr.textDisabled,
-                    ),
-                    onSelected: (_) => setStateDialog(() {
-                      selectedScore = score;
-                    }),
-                  );
-                }),
-              ),
-              const SizedBox(height: 16),
-              if (causeSupported)
-                TextField(
-                  key: const Key('rating-cause-field'),
-                  controller: causeController,
-                  minLines: 1,
-                  maxLines: 4,
-                  onChanged: (_) => setStateDialog(() {}),
-                  decoration: InputDecoration(
-                    labelText: '공통 사유 (선택)',
-                    hintText: '예: 신속하게 처리해 주셔서 감사합니다.',
-                    helperText: '선택한 모든 건에 같은 사유를 함께 제출합니다.',
-                    // 서버·웹과 같게 코드포인트로 센다(TextField maxLength 는 쓰지 않음)
-                    counterText:
-                        '${RatingService.normalizeCause(causeController.text).runes.length} / ${RatingService.ratingCauseMax}자',
-                    errorText: RatingService.causeError(causeController.text),
-                  ),
-                )
-              else
-                Text(
-                  '서버를 업데이트하면 사유도 함께 보낼 수 있습니다.',
-                  style: TextStyle(fontSize: 12, color: ctx.sr.textSecondary),
-                ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('취소'),
-            ),
-            FilledButton(
-              onPressed: RatingService.causeError(causeController.text) != null
-                  ? null
-                  : () => Navigator.pop(ctx, (
-                      score: selectedScore,
-                      cause: causeSupported
-                          ? RatingService.normalizeCause(causeController.text)
-                          : '',
-                    )),
-              child: const Text('확인'),
-            ),
-          ],
-        ),
+      builder: (_) => RatingDialog(
+        count: count,
+        eligibleCount: reports
+            .where((r) => RatingService.ineligibleReason(r) == null)
+            .length,
+        causeSupported: causeSupported,
+        initialCause: provider.ratingCauseDraft,
+        onDraftChanged: (value) => provider.ratingCauseDraft = value,
       ),
     );
-    causeController.dispose();
-    return picked;
   }
 
   Future<void> _pushRatingNotification(RatingBatchResult result) async {

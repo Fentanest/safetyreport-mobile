@@ -6,6 +6,8 @@
 
 ## 코드 대조 정정 (2026-09-24, base `c64be69a`)
 
+대용량 SQL/페이지·revision 캐시, protocol 3, 키보드 사유 입력 및 공유 DB 저장의 현재 구조는 [bounded-reads.md](bounded-reads.md)를 우선한다. Client의 추가 서버 계약은 [client-read-handoff.md](client-read-handoff.md), 실행 증거/한계는 [검증 기록](../reviews/2026-10-03-runtime-validation.md)을 따른다.
+
 | 원문 기술 | 현재 코드 | 근거 |
 |---|---|---|
 | 디렉토리 구조(2026-05-06 기준) | 누락 파일 존재: `lib/server_palette.dart`, `models/app_theme_mode.dart`, `screens/rating_management_panel.dart`, `services/app_prefs_keys.dart`, `app_storage_paths.dart`, `pending_changes_store.dart`, `pending_db_import_action.dart`, `server_connection_service.dart`, `standalone_pending_queue_store.dart`, `services/repositories/{duplicate,sunwi,watchlist}_repository.dart` | `git ls-files lib` |

@@ -39,6 +39,10 @@ class SafetyReportApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        @Suppress("DEPRECATION")
+        val info = packageManager.getPackageInfo(packageName, 0)
+        val code = if (android.os.Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
+        ServerContract.productVersion = "${info.versionName}+$code"
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .registerOnSharedPreferenceChangeListener(authAlertListener)
     }

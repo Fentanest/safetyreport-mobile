@@ -1,0 +1,25 @@
+{"stage": "registry.cold_load", "ms": 2558}
+{"stage": "frames", "count": 1, "max_build_us": 6, "max_raster_us": 425898}
+{"stage": "frames", "count": 2, "max_build_us": 6549, "max_raster_us": 425898}
+{"stage": "frames", "count": 4, "max_build_us": 6549, "max_raster_us": 425898}
+{"rows": 500000, "stage": "fixture.seed", "ms": 25744}
+{"rows": 500000, "phase": "cold", "stage": "summary", "ms": 4653, "total": 499000, "rss": 373256192}
+{"rows": 500000, "phase": "cold", "stage": "stats", "ms": 54105, "total": 499000, "rss": 494153728}
+{"rows": 500000, "phase": "cold", "stage": "map", "ms": 10555, "points": 2, "rss": 432762880}
+{"rows": 500000, "phase": "warm", "stage": "summary", "ms": 16, "total": 499000, "rss": 429654016}
+{"rows": 500000, "phase": "warm", "stage": "stats", "ms": 2, "total": 499000, "rss": 429654016}
+{"rows": 500000, "phase": "warm", "stage": "map", "ms": 6643, "points": 2, "rss": 431493120}
+{"rows": 500000, "stage": "stages", "values": {"summary.sql_counts": {"us": 2382516, "returned_rows": 1}, "summary.sql_recent": {"us": 228774, "returned_rows": 158}, "summary.sql_watchlist": {"us": 1256750, "returned_rows": 200}, "summary.report_objects": {"us": 35084, "returned_rows": 0}, "summary.watch_objects": {"us": 753, "returned_rows": 0}, "summary.total": {"us": 4638509, "returned_rows": 0}, "stats.sql_group": {"us": 16456566, "returned_rows": 0}, "stats.sql_page": {"us": 14000459, "returned_rows": 499000}, "stats.registry_and_tables": {"us": 5882575, "returned_rows": 0}, "stats.chart_data": {"us": 10849821, "returned_rows": 0}, "stats.total": {"us": 54099460, "returned_rows": 0}, "map.sql_meta": {"us": 7101618, "returned_rows": 2}, "map.sql_page": {"us": 466924, "returned_rows": 17220}, "map.cell_data": {"us": 48177, "returned_rows": 0}, "map.total": {"us": 8370138, "returned_rows": 4}}, "peak_rss": 518049792}
+{"stage": "frames", "count": 5, "max_build_us": 27875, "max_raster_us": 425898}
+{"stage": "frames", "count": 6, "max_build_us": 27875, "max_raster_us": 425898}
+{"stage": "frames", "count": 7, "max_build_us": 27875, "max_raster_us": 425898}
+{"rows": 500000, "stage": "repeat20", "rss": 487165952, "peak_rss": 518049792}
+{"stage": "complete"}
+{"stage": "frames", "count": 14, "max_build_us": 46873, "max_raster_us": 425898}
+{"stage": "frames", "count": 21, "max_build_us": 46873, "max_raster_us": 425898}
+{"stage": "frames", "count": 26, "max_build_us": 46873, "max_raster_us": 425898}
+{"stage": "frames", "count": 33, "max_build_us": 46873, "max_raster_us": 425898}
+{"stage": "frames", "count": 39, "max_build_us": 46873, "max_raster_us": 425898}
+{"stage": "frames", "count": 43, "max_build_us": 46873, "max_raster_us": 425898}
+{"stage": "frames", "count": 46, "max_build_us": 155641, "max_raster_us": 425898}
+{"stage": "frames", "count": 47, "max_build_us": 155641, "max_raster_us": 425898}

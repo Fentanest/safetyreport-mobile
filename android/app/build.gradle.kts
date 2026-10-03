@@ -28,7 +28,8 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.fentanest.mysafetyreport"
+        // Fixture/profile APK uses a separate sandbox on the test emulator.
+        applicationId = System.getenv("SR_TEST_APPLICATION_ID") ?: "com.fentanest.mysafetyreport"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -90,6 +91,8 @@ flutter {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
     // WebSocket 클라이언트 (WsService용)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }

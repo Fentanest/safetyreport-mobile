@@ -271,6 +271,7 @@ class DashboardStats {
   final int tUnconfirmedCount;
   final List<Report> recentAnswers;
   final List<Report> watchlist;
+  final int? watchlistTotal;
   final bool? excludeWithdraw;
 
   DashboardStats({
@@ -291,6 +292,7 @@ class DashboardStats {
     required this.tUnconfirmedCount,
     required this.recentAnswers,
     required this.watchlist,
+    this.watchlistTotal,
     this.excludeWithdraw,
   });
 
@@ -312,6 +314,7 @@ class DashboardStats {
     int? tUnconfirmedCount,
     List<Report>? recentAnswers,
     List<Report>? watchlist,
+    int? watchlistTotal,
     bool? excludeWithdraw,
   }) {
     return DashboardStats(
@@ -332,6 +335,7 @@ class DashboardStats {
       tUnconfirmedCount: tUnconfirmedCount ?? this.tUnconfirmedCount,
       recentAnswers: recentAnswers ?? this.recentAnswers,
       watchlist: watchlist ?? this.watchlist,
+      watchlistTotal: watchlistTotal ?? this.watchlistTotal,
       excludeWithdraw: excludeWithdraw ?? this.excludeWithdraw,
     );
   }
@@ -373,6 +377,7 @@ class DashboardStats {
       watchlist: watchList
           .map((i) => Report.fromJson(i as Map<String, dynamic>))
           .toList(),
+      watchlistTotal: _toIntOrNull(json['watchlist_total']) ?? watchList.length,
       excludeWithdraw: excludeWithdraw,
     );
   }

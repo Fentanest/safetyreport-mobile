@@ -1,3 +1,6 @@
+import 'client_compatibility.dart';
+import 'performance_trace.dart';
+import 'server_connection_service.dart';
 import 'app_prefs_keys.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:math';
@@ -74,10 +77,20 @@ class ApiService {
     Future<http.Response> Function() request, {
     Duration timeout = const Duration(seconds: 20),
   }) async {
+    await ClientCompatibility.ensure(baseUrl, apiKey);
     Object? lastError;
     for (var attempt = 1; attempt <= mobileMaxRetryAttempts; attempt++) {
       try {
-        return await request().timeout(timeout);
+        final networkTimer = Stopwatch()..start();
+        final response = await request().timeout(timeout);
+        PerformanceTrace.record('client.http_request_and_buffer', networkTimer);
+        if (response.statusCode == 409) {
+          final message = ServerConnectionService.upgradeMessage(response.body);
+          if (message != null) {
+            ClientCompatibility.reject(baseUrl, apiKey, message);
+          }
+        }
+        return response;
       } on SocketException catch (e) {
         lastError = e;
       } on http.ClientException catch (e) {
@@ -96,6 +109,7 @@ class ApiService {
     Uri uri,
     String filePath,
   ) async {
+    await ClientCompatibility.ensure(baseUrl, apiKey);
     Object? lastError;
     for (var attempt = 1; attempt <= mobileMaxRetryAttempts; attempt++) {
       try {
@@ -104,7 +118,20 @@ class ApiService {
           ServerContract.apiHeaders(apiKey, includeJsonContentType: false),
         );
         req.files.add(await http.MultipartFile.fromPath('file', filePath));
-        return await req.send().timeout(const Duration(minutes: 5));
+        final response = await req.send().timeout(const Duration(minutes: 5));
+        if (response.statusCode == 409) {
+          final body = await http.Response.fromStream(response);
+          final message = ServerConnectionService.upgradeMessage(body.body);
+          if (message != null) {
+            ClientCompatibility.reject(baseUrl, apiKey, message);
+          }
+          return http.StreamedResponse(
+            Stream.value(body.bodyBytes),
+            body.statusCode,
+            headers: body.headers,
+          );
+        }
+        return response;
       } on SocketException catch (e) {
         lastError = e;
       } on http.ClientException catch (e) {
@@ -136,6 +163,14 @@ class ApiService {
     return Uri.decodeComponent(match.group(1) ?? fallback);
   }
 
+  dynamic _decodeResponse(http.Response response) {
+    final body = PerformanceTrace.sync(
+      'client.http_body_utf8',
+      () => utf8.decode(response.bodyBytes),
+    );
+    return PerformanceTrace.sync('client.json_decode', () => jsonDecode(body));
+  }
+
   Future<DashboardStats> getSummary() async {
     final response = await _sendWithRetry(
       () => http.get(
@@ -144,11 +179,67 @@ class ApiService {
       ),
     );
     if (response.statusCode == 200) {
-      final json = jsonDecode(response.body);
-      return DashboardStats.fromJson(json['data']);
+      final json = _decodeResponse(response);
+      return PerformanceTrace.sync(
+        'client.report_objects',
+        () => DashboardStats.fromJson(json['data']),
+      );
     } else {
       throw Exception('Failed to load summary');
     }
+  }
+
+  Future<({List<Report> reports, int total})> getReportsPage(
+    String category, {
+    int offset = 0,
+    int limit = 200,
+    String dedupe = 'canonical',
+  }) async {
+    if (!['traffic', 'parking', 'other'].contains(category) ||
+        offset < 0 ||
+        limit < 1 ||
+        limit > 200) {
+      throw ArgumentError('잘못된 페이지');
+    }
+    final uri = ServerContract.apiUri(
+      baseUrl,
+      '${ServerContract.reportsPath(category)}/page',
+      queryParameters: {
+        'offset': '$offset',
+        'limit': '$limit',
+        'dedupe': dedupe,
+      },
+    );
+    final response = await _sendWithRetry(
+      () => http.get(uri, headers: _headers),
+    );
+    if (response.statusCode == 404) {
+      throw const ApiFeatureUnavailableException(
+        'PC 서버에 페이지 조회 기능이 없습니다. PC 서버를 업데이트하세요.',
+      );
+    }
+    if (response.statusCode != 200) {
+      throw Exception('페이지 조회 실패: ${response.statusCode}');
+    }
+    final body = _decodeResponse(response) as Map;
+    final data = body['data'] as List;
+    if (data.length > limit || body['total'] is! int) {
+      throw const FormatException('페이지 계약과 다른 서버 응답');
+    }
+    return (
+      reports: PerformanceTrace.sync(
+        'client.report_objects',
+        () => data
+            .map(
+              (r) => Report.fromJson({
+                ...Map<String, dynamic>.from(r as Map),
+                'category': category,
+              }),
+            )
+            .toList(),
+      ),
+      total: body['total'] as int,
+    );
   }
 
   Future<List<Report>> getReports(String category, {String? dedupe}) async {
@@ -163,7 +254,7 @@ class ApiService {
       () => http.get(uri, headers: _headers),
     );
     if (response.statusCode == 200) {
-      final json = jsonDecode(response.body);
+      final json = _decodeResponse(response);
       var list = json['data'] as List? ?? [];
       final fallbackCategory = switch (category) {
         'traffic' || 'parking' || 'other' => category,
@@ -203,7 +294,7 @@ class ApiService {
     if (response.statusCode != 200) {
       throw Exception('중복 신고 그룹 조회 실패: ${response.statusCode}');
     }
-    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    final json = _decodeResponse(response) as Map<String, dynamic>;
     final list = json['data'] as List? ?? const [];
     return list
         .map(
@@ -255,7 +346,7 @@ class ApiService {
     if (response.statusCode != 200) {
       throw Exception('데이터 수정 스키마 조회 실패: ${response.statusCode}');
     }
-    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    final json = _decodeResponse(response) as Map<String, dynamic>;
     return Map<String, dynamic>.from(json['data'] as Map);
   }
 
@@ -280,7 +371,7 @@ class ApiService {
     if (response.statusCode != 200) {
       throw Exception('수정 대상 조회 실패: ${response.statusCode}');
     }
-    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    final json = _decodeResponse(response) as Map<String, dynamic>;
     return Map<String, dynamic>.from(json['data'] as Map);
   }
 
@@ -319,7 +410,7 @@ class ApiService {
       () => http.get(uri, headers: _headers),
     );
     if (response.statusCode == 200) {
-      final json = jsonDecode(response.body);
+      final json = _decodeResponse(response);
       final list = json['data'] as List? ?? [];
       return list.map((i) => FileItem.fromJson(i)).toList();
     } else {
@@ -399,7 +490,7 @@ class ApiService {
     if (response.statusCode != 200) {
       throw Exception('파일 삭제 실패: ${response.statusCode}');
     }
-    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    final json = _decodeResponse(response) as Map<String, dynamic>;
     final rawErrors = json['errors'] as List? ?? const [];
     return DeleteFilesResult(
       deletedCount: (json['deleted_count'] as num?)?.toInt() ?? 0,
@@ -426,7 +517,7 @@ class ApiService {
       );
     }
     if (response.statusCode == 200) {
-      final json = jsonDecode(response.body);
+      final json = _decodeResponse(response);
       return StatsOverview.fromJson(json['data'] as Map<String, dynamic>);
     }
     throw Exception('통계 요약 로드 실패: ${response.statusCode}');
@@ -445,7 +536,7 @@ class ApiService {
       () => http.get(uri, headers: _headers),
     );
     if (response.statusCode == 200) {
-      final json = jsonDecode(response.body);
+      final json = _decodeResponse(response);
       return AgencyStats.fromJson(json['data'] as Map<String, dynamic>);
     } else {
       throw Exception('통계 로드 실패: ${response.statusCode}');
@@ -455,22 +546,41 @@ class ApiService {
   Future<ReportMapPayload> getReportMapStats({
     String? year,
     String category = 'all',
+    List<double>? bounds,
+    double zoom = 7,
+    String dedupe = 'canonical',
   }) async {
-    final params = <String, String>{};
+    final params = <String, String>{
+      'max_points': '1024',
+      'zoom': '${zoom.round().clamp(0, 19)}',
+      'dedupe': dedupe,
+    };
+    if (bounds != null) params['bounds'] = bounds.join(',');
     if (year != null && year != 'all') params['year'] = year;
     if (category != 'all') params['category'] = category;
     final uri = ServerContract.apiUri(
       baseUrl,
-      ServerContract.statsMapPath,
+      ServerContract.statsMapPointsPath,
       queryParameters: params.isNotEmpty ? params : null,
     );
     final response = await _sendWithRetry(
       () => http.get(uri, headers: _headers),
       timeout: const Duration(minutes: 2),
     );
+    if (response.statusCode == 404) {
+      throw const ApiFeatureUnavailableException(
+        'PC 서버에 범위 지도 조회 기능이 없습니다. PC 서버를 업데이트하세요.',
+      );
+    }
     if (response.statusCode == 200) {
-      final json = jsonDecode(response.body) as Map<String, dynamic>;
-      return ReportMapPayload.fromJson(json['data'] as Map<String, dynamic>);
+      final json = _decodeResponse(response) as Map<String, dynamic>;
+      final payload = ReportMapPayload.fromJson(
+        json['data'] as Map<String, dynamic>,
+      );
+      if (payload.points.length > 1024) {
+        throw const FormatException('지도 점 수 제한을 지키지 않은 서버 응답');
+      }
+      return payload;
     }
     throw Exception('지도 통계 로드 실패: ${response.statusCode}');
   }
@@ -484,7 +594,7 @@ class ApiService {
       timeout: const Duration(minutes: 2),
     );
     if (response.statusCode == 200) {
-      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      final json = _decodeResponse(response) as Map<String, dynamic>;
       final data = json['data'] is Map
           ? Map<String, dynamic>.from(json['data'] as Map)
           : const <String, dynamic>{};
@@ -510,7 +620,7 @@ class ApiService {
       timeout: const Duration(minutes: 2),
     );
     if (response.statusCode == 200) {
-      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      final json = _decodeResponse(response) as Map<String, dynamic>;
       final data = json['data'] is Map
           ? Map<String, dynamic>.from(json['data'] as Map)
           : const <String, dynamic>{};
@@ -528,7 +638,7 @@ class ApiService {
       timeout: const Duration(minutes: 2),
     );
     if (response.statusCode == 200) {
-      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      final json = _decodeResponse(response) as Map<String, dynamic>;
       return SunwiPayload.fromJson(json['data'] as Map<String, dynamic>);
     }
     throw Exception('신고현황 로드 실패: ${response.statusCode}');
@@ -543,7 +653,7 @@ class ApiService {
       timeout: const Duration(minutes: 2),
     );
     if (response.statusCode == 200) {
-      return jsonDecode(response.body) as Map<String, dynamic>;
+      return _decodeResponse(response) as Map<String, dynamic>;
     }
     throw Exception('신고현황 CSV 생성 실패: ${response.statusCode}');
   }
@@ -556,7 +666,7 @@ class ApiService {
       ),
     );
     if (response.statusCode == 200) {
-      final json = jsonDecode(response.body);
+      final json = _decodeResponse(response);
       final list = json['data'] as List? ?? [];
       return list.map((i) => Report.fromJson(i)).toList();
     } else {
@@ -595,8 +705,10 @@ class ApiService {
       // 서버가 이유를 주면 그대로 보인다(예: 여러 신고에 걸리는 번호 400 — 서버 감사 R8-02).
       String? detail;
       try {
-        final body = jsonDecode(response.body);
-        if (body is Map && body['detail'] != null) detail = body['detail'].toString();
+        final body = _decodeResponse(response);
+        if (body is Map && body['detail'] != null) {
+          detail = body['detail'].toString();
+        }
       } catch (_) {}
       throw Exception(detail ?? 'Failed to enqueue crawl');
     }
@@ -610,7 +722,7 @@ class ApiService {
       ),
     );
     if (response.statusCode == 200) {
-      return jsonDecode(response.body) as Map<String, dynamic>;
+      return _decodeResponse(response) as Map<String, dynamic>;
     }
     throw Exception('상태 확인 실패');
   }
@@ -623,7 +735,7 @@ class ApiService {
       ),
     );
     if (response.statusCode == 200) {
-      return jsonDecode(response.body) as Map<String, dynamic>;
+      return _decodeResponse(response) as Map<String, dynamic>;
     }
     throw Exception('완료 확인 실패');
   }
@@ -641,7 +753,7 @@ class ApiService {
           )
           .timeout(const Duration(seconds: 8));
       if (response.statusCode != 200) return null;
-      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      final json = _decodeResponse(response) as Map<String, dynamic>;
       return json['data'] as Map<String, dynamic>?;
     } catch (_) {
       return null;
@@ -662,7 +774,7 @@ class ApiService {
       ),
     );
     if (response.statusCode == 200) {
-      final json = jsonDecode(response.body);
+      final json = _decodeResponse(response);
       return (json['data'] as List? ?? []).cast<Map<String, dynamic>>();
     }
     throw Exception('결과 조회 실패');
@@ -676,7 +788,7 @@ class ApiService {
       ),
     );
     if (response.statusCode == 200) {
-      final json = jsonDecode(response.body);
+      final json = _decodeResponse(response);
       return json['data'] as Map<String, dynamic>;
     }
     throw Exception('설정 조회 실패');
@@ -696,7 +808,7 @@ class ApiService {
       timeout: const Duration(minutes: 10), // 이전 공유 자료 업로드를 마친 뒤 서버 크롤링을 시작한다.
     );
     if (response.statusCode != 200) {
-      final msg = jsonDecode(response.body)['detail'] ?? '크롤링 시작 실패';
+      final msg = _decodeResponse(response)['detail'] ?? '크롤링 시작 실패';
       throw Exception(msg);
     }
   }
@@ -709,7 +821,7 @@ class ApiService {
       ),
     );
     if (response.statusCode != 200) {
-      final msg = jsonDecode(response.body)['detail'] ?? '중지 실패';
+      final msg = _decodeResponse(response)['detail'] ?? '중지 실패';
       throw Exception(msg);
     }
   }
@@ -722,7 +834,7 @@ class ApiService {
       ),
     );
     if (response.statusCode == 200) {
-      final json = jsonDecode(response.body);
+      final json = _decodeResponse(response);
       return json['data'] as Map<String, dynamic>;
     }
     throw Exception('앱 설정 조회 실패');
@@ -750,6 +862,7 @@ class ApiService {
     var received = 0;
     try {
       if (cancel?.isCancelled ?? false) throw const DownloadCancelled();
+      await ClientCompatibility.ensure(baseUrl, apiKey, client: c);
       final request = http.Request(
         'GET',
         ServerContract.apiUri(baseUrl, ServerContract.settingsDbPath),
@@ -758,9 +871,17 @@ class ApiService {
       if (response.statusCode != 200) {
         var detail = '';
         try {
-          final body = await response.stream.bytesToString().timeout(idleTimeout);
+          final body = await response.stream.bytesToString().timeout(
+            idleTimeout,
+          );
           final j = jsonDecode(body);
+          final message = ServerConnectionService.upgradeMessage(body);
+          if (response.statusCode == 409 && message != null) {
+            ClientCompatibility.reject(baseUrl, apiKey, message);
+          }
           if (j is Map && j['detail'] != null) detail = ' ${j['detail']}';
+        } on ClientCompatibilityException {
+          rethrow;
         } catch (_) {}
         throw Exception('DB 다운로드 실패: ${response.statusCode}$detail');
       }
@@ -776,7 +897,9 @@ class ApiService {
       await sink.close();
       sink = null;
       if (total != null && received != total) {
-        throw Exception('DB 다운로드가 중간에 끊겼습니다(${_mb(received)} / ${_mb(total)}). 다시 시도해 주세요.');
+        throw Exception(
+          'DB 다운로드가 중간에 끊겼습니다(${_mb(received)} / ${_mb(total)}). 다시 시도해 주세요.',
+        );
       }
       await part.rename(targetPath);
       return received;
@@ -855,7 +978,7 @@ class ApiService {
       timeout: const Duration(seconds: 30),
     );
     try {
-      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      final json = _decodeResponse(response) as Map<String, dynamic>;
       final ok =
           response.statusCode == 200 && json['status']?.toString() == 'success';
       final message =

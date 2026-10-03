@@ -74,6 +74,7 @@ class WsService : Service() {
             }
             else -> {
                 if (!running.get()) {
+                    ServerVersionCompatibility.reset()
                     startForegroundCompat("서버에 연결 중...")
                     running.set(true)
                     startWsLoop()
@@ -120,8 +121,12 @@ class WsService : Service() {
                 }
 
                 if (!ServerVersionCompatibility.check(baseUrl, apiKey)) {
-                    updateForegroundNotif("PC 서버 v3 이상 확인 필요")
+                    updateForegroundNotif(ServerVersionCompatibility.failureMessage)
                     Log.w(TAG, "서버 버전 확인 실패 또는 v3 미만. WebSocket 연결 차단")
+                    if (ServerVersionCompatibility.failure != ServerVersionCompatibility.Failure.NETWORK) {
+                        shutdownService(ServerVersionCompatibility.failureMessage)
+                        break
+                    }
                     try { Thread.sleep(60_000) } catch (_: InterruptedException) { break }
                     continue
                 }
@@ -176,6 +181,9 @@ class WsService : Service() {
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 Log.i(TAG, "WS 종료 중: $code $reason")
+                if (code == 4406) {
+                    shutdownService(ServerVersionCompatibility.upgradeMessage(reason))
+                }
                 webSocket.close(1000, null)
             }
 
@@ -185,6 +193,12 @@ class WsService : Service() {
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (response?.code == 409) {
+                    val code = runCatching { org.json.JSONObject(response.body?.string() ?: "{}").optString("code") }.getOrDefault("")
+                    shutdownService(ServerVersionCompatibility.upgradeMessage(code))
+                } else if (response?.code == 401 || response?.code == 403) {
+                    shutdownService("서버 API 키를 확인하세요.")
+                }
                 Log.w(TAG, "WS 오류: ${t.message}")
                 latch.countDown()
             }

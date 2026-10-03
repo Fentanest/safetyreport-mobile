@@ -108,12 +108,13 @@ class NotificationService : NotificationListenerService() {
                     .openConnection() as java.net.HttpURLConnection
                 conn.requestMethod = "POST"
                 conn.setRequestProperty("Content-Type", "application/json")
-                conn.setRequestProperty(ServerContract.API_KEY_HEADER, apiKey)
+                ServerContract.headers(apiKey).forEach { (name, value) -> conn.setRequestProperty(name, value) }
                 conn.doOutput = true
 
                 val body = "{\"report_number\": \"$reportNumber\"}"
                 conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
 
+                if (conn.responseCode == 409) ServerVersionCompatibility.block(baseUrl, apiKey)
                 Log.i(TAG, "큐 전송 응답: ${conn.responseCode}")
                 conn.disconnect()
             } catch (e: Exception) {

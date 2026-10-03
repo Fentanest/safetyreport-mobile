@@ -1,0 +1,8 @@
+Warning: Activity not started, its current task has been brought to the front
+{"stage": "background_resume", "completed_cycles": 0}
+{"stage": "filter_burst20_leave_resume", "elapsed_s": 15.83}
+Traceback (most recent call last):
+  File "<stdin>", line 16, in <module>
+  File "tool/android_fixture_ui.py", line 38, in wait_content
+    raise RuntimeError('Data never became ready: '+label)
+RuntimeError: Data never became ready: 월별 처리 추이

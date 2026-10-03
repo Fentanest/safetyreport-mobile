@@ -1,4 +1,15 @@
+import 'package:package_info_plus/package_info_plus.dart';
+
 class ServerContract {
+  static const protocolVersion = 3;
+  static String productVersion = '';
+
+  static Future<void> loadProductVersion() async {
+    if (productVersion.isNotEmpty) return;
+    final info = await PackageInfo.fromPlatform();
+    productVersion = '${info.version}+${info.buildNumber}';
+  }
+
   static const apiPrefix = '/api/v1';
   static const apiKeyHeader = 'X-API-Key';
   static const wsEventsPath = '/ws/events';
@@ -9,6 +20,7 @@ class ServerContract {
   static const statsPath = '$apiPrefix/stats';
   static const statsOverviewPath = '$apiPrefix/stats/overview';
   static const statsMapPath = '$apiPrefix/stats/map';
+  static const statsMapPointsPath = '$apiPrefix/stats/map/points';
   static const statsMapMissingPath = '$apiPrefix/stats/map/missing';
   static const statsMapProgressPath = '$apiPrefix/stats/map/progress';
   static const maintenanceStatusPath = '$apiPrefix/maintenance/status';
@@ -50,7 +62,8 @@ class ServerContract {
   static const communityGatePath = '$apiPrefix/community/gate';
   static const communityRebuildPath = '$apiPrefix/community/rebuild';
   static const communityRebuildStartPath = '$apiPrefix/community/rebuild/start';
-  static const communityRebuildResumePath = '$apiPrefix/community/rebuild/resume';
+  static const communityRebuildResumePath =
+      '$apiPrefix/community/rebuild/resume';
 
   static String normalizeBaseUrl(String baseUrl) =>
       baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
@@ -80,7 +93,12 @@ class ServerContract {
     String apiKey, {
     bool includeJsonContentType = true,
   }) {
-    final headers = <String, String>{apiKeyHeader: apiKey};
+    final headers = <String, String>{
+      apiKeyHeader: apiKey,
+      'X-SafetyReport-Client': 'mobile',
+      'X-SafetyReport-Version': productVersion,
+      'X-SafetyReport-Protocol': '$protocolVersion',
+    };
     if (includeJsonContentType) {
       headers['Content-Type'] = 'application/json';
     }
@@ -97,9 +115,18 @@ class ServerContract {
     );
   }
 
-  static Uri wsEventsUri(String baseUrl, String apiKey) {
-    return wsBaseUri(
-      baseUrl,
-    ).replace(path: wsEventsPath, queryParameters: {wsApiKeyQuery: apiKey});
+  static Uri wsEventsUri(String baseUrl, String apiKey) =>
+      wsClientUri(baseUrl, apiKey, wsEventsPath);
+
+  static Uri wsClientUri(String baseUrl, String apiKey, String path) {
+    return wsBaseUri(baseUrl).replace(
+      path: path,
+      queryParameters: {
+        wsApiKeyQuery: apiKey,
+        'client_type': 'mobile',
+        'client_version': productVersion,
+        'client_protocol': '$protocolVersion',
+      },
+    );
   }
 }

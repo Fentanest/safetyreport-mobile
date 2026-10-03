@@ -1,0 +1,21 @@
+10-03 12:11:12.739   602  5383 I DropBoxManagerService: add tag=system_server_watchdog isTagEnabled=true flags=0x6
+10-03 12:11:12.749   602   630 W Watchdog: *** WATCHDOG KILLING SYSTEM PROCESS: Blocked in handler on foreground thread (android.fg) for 69s
+10-03 12:11:12.750   602   630 W Watchdog: android.fg annotated stack trace:
+10-03 12:11:12.750   602   630 W Watchdog:     at com.android.server.location.gnss.hal.GnssNative.native_stop(Native Method)
+10-03 12:11:12.750   602   630 W Watchdog:     at com.android.server.location.gnss.hal.GnssNative.-$$Nest$smnative_stop(GnssNative.java:0)
+10-03 12:11:12.750   602   630 W Watchdog:     at com.android.server.location.gnss.hal.GnssNative$GnssHal.stop(GnssNative.java:1382)
+10-03 12:11:12.750   602   630 W Watchdog:     at com.android.server.location.gnss.hal.GnssNative.stop(GnssNative.java:611)
+10-03 12:11:12.750   602   630 W Watchdog:     at com.android.server.location.gnss.GnssLocationProvider.stopNavigating(GnssLocationProvider.java:1303)
+10-03 12:11:12.750   602   630 W Watchdog:     at com.android.server.location.gnss.GnssLocationProvider.updateRequirements(GnssLocationProvider.java:1060)
+10-03 12:11:12.750   602   630 W Watchdog:     at com.android.server.location.gnss.GnssLocationProvider.onSetRequest(GnssLocationProvider.java:1019)
+10-03 12:11:12.750   602   630 W Watchdog:     at com.android.server.location.provider.AbstractLocationProvider$Controller.lambda$setRequest$1(AbstractLocationProvider.java:396)
+10-03 12:11:12.750   602   630 W Watchdog:     at com.android.server.location.provider.AbstractLocationProvider$Controller.$r8$lambda$LeNcBraXlYCSFuemITl6ZhAWq-s(AbstractLocationProvider.java:0)
+10-03 12:11:12.750   602   630 W Watchdog:     at com.android.server.location.provider.AbstractLocationProvider$Controller$$ExternalSyntheticLambda1.run(R8$$SyntheticClass:0)
+10-03 12:11:12.750   602   630 W Watchdog:     at android.os.Handler.handleCallback(Handler.java:959)
+10-03 12:11:12.750   602   630 W Watchdog:     at android.os.Handler.dispatchMessage(Handler.java:100)
+10-03 12:11:12.750   602   630 W Watchdog:     at android.os.Looper.loopOnce(Looper.java:232)
+10-03 12:11:12.750   602   630 W Watchdog:     at android.os.Looper.loop(Looper.java:317)
+10-03 12:11:12.750   602   630 W Watchdog:     at android.os.HandlerThread.run(HandlerThread.java:85)
+10-03 12:11:12.750   602   630 W Watchdog:     at com.android.server.ServiceThread.run(ServiceThread.java:46)
+10-03 12:11:12.750   602   630 W Watchdog: *** GOODBYE!
+10-03 12:11:12.750   602   630 I Process : Sending signal. PID: 602 SIG: 9

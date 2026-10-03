@@ -1,13 +1,14 @@
+import '../support/selfhost_client_fixture.dart';
 // 서버 대기 큐에서 처리하지 못한 번호 표시·요청 거부 이유 전달(서버 감사 R7-03·R8-02).
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
-import 'package:http/testing.dart';
 import 'package:safetyreport/services/api_service.dart';
 import 'package:safetyreport/services/crawl_unresolved.dart';
 
 void main() {
+  setUp(resetSelfhostFixture);
   test(
     'reads unresolved numbers from /crawl/status and tolerates old servers',
     () {
@@ -44,7 +45,7 @@ void main() {
           throwsA(predicate((e) => e.toString().contains('정확한 신고번호로 요청하세요'))),
         );
       },
-      () => MockClient(
+      () => selfhostMockClient(
         (req) async => http.Response.bytes(
           utf8.encode(
             jsonEncode({

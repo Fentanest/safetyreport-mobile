@@ -1,3 +1,4 @@
+import '../services/performance_trace.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/agency_stats.dart';
@@ -54,6 +55,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   /// 조건을 빠르게 바꿀 때 늦게 온 이전 응답이 최신 화면을 덮지 않게 요청 번호를 비교한다.
   int _loadSeq = 0;
   int _lastRefreshNonce = 0;
+  bool? _wasActive;
+  String? _datasetScope;
 
   @override
   void initState() {
@@ -63,6 +66,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
 
   @override
   void dispose() {
+    _loadSeq++;
     _searchController.dispose();
     super.dispose();
   }
@@ -70,15 +74,29 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // 탭 전환 시 ReportProvider.bumpStatsRefresh() 로 nonce 가 변경되면 재로드
-    final nonce = context.watch<ReportProvider>().statsRefreshNonce;
+    final active = TickerMode.valuesOf(context).enabled;
+    final p = context.watch<ReportProvider>();
+    final scope =
+        '${p.datasetEpoch}:${p.excludeWithdraw}:${p.useRepresentativeRecords}';
+    var reload = _wasActive == false && active && _loading;
+    if (_datasetScope != null && _datasetScope != scope) {
+      reload = true;
+      _stats = null;
+      _overview = null;
+      _loading = true;
+    }
+    _datasetScope = scope;
+    _wasActive = active;
+    final nonce = p.statsRefreshNonce;
     if (nonce != _lastRefreshNonce) {
       _lastRefreshNonce = nonce;
-      if (nonce != 0) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _load();
-        });
-      }
+      reload = reload || nonce != 0;
+    }
+    if (reload) {
+      _loadSeq++;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _load();
+      });
     }
   }
 
@@ -92,36 +110,49 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       _overviewNotice = null;
     });
     final p = context.read<ReportProvider>();
+    final epoch = p.datasetEpoch;
     final year = _year == 'all' ? null : _year;
     final law = _law;
     try {
       AgencyStats stats;
+      StatsOverview? localOverview;
       if (p.appMode == AppMode.standalone) {
-        final raw = await LocalDbService.computeStats(
+        final raw = await LocalDbService.computeStatsBundle(
+          isCancelled: () =>
+              !mounted ||
+              seq != _loadSeq ||
+              epoch != p.datasetEpoch ||
+              !TickerMode.valuesOf(context).enabled,
           year: year,
           law: law,
           excludeWithdraw: p.excludeWithdraw,
           useRepresentativeRecords: p.useRepresentativeRecords,
         );
-        stats = AgencyStats.fromJson(raw);
+        stats = AgencyStats.fromJson(raw['stats']);
+        localOverview = StatsOverview.fromJson(raw['overview']);
       } else {
         final api = ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
         stats = await api.getStats(year: year, law: law);
       }
-      if (!mounted || seq != _loadSeq) return;
+      if (!mounted || seq != _loadSeq || epoch != p.datasetEpoch) return;
       setState(() {
         _stats = stats;
+        if (localOverview != null) _overview = localOverview;
         _loading = false;
       });
+    } on QueryCancelled {
+      return;
     } catch (e) {
-      if (!mounted || seq != _loadSeq) return;
+      if (!mounted || seq != _loadSeq || epoch != p.datasetEpoch) return;
       setState(() {
         _error = e.toString();
         _loading = false;
       });
       return;
     }
-    await _loadOverview(p, year, law, seq);
+    if (p.appMode == AppMode.server) {
+      await _loadOverview(p, year, law, seq, epoch);
+    }
   }
 
   Future<void> _loadOverview(
@@ -129,6 +160,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     String? year,
     String? law,
     int seq,
+    int epoch,
   ) async {
     if (mounted) setState(() => _overviewLoading = true);
     StatsOverview? overview;
@@ -153,7 +185,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     } catch (e) {
       notice = '요약을 불러오지 못했습니다: $e';
     }
-    if (!mounted || seq != _loadSeq) return;
+    if (!mounted || seq != _loadSeq || epoch != p.datasetEpoch) return;
     setState(() {
       _overview = overview;
       _overviewNotice = notice;
@@ -163,7 +195,13 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
 
   void _retryOverview() {
     final p = context.read<ReportProvider>();
-    _loadOverview(p, _year == 'all' ? null : _year, _law, _loadSeq);
+    _loadOverview(
+      p,
+      _year == 'all' ? null : _year,
+      _law,
+      _loadSeq,
+      p.datasetEpoch,
+    );
   }
 
   static const _catLabels = {
@@ -417,7 +455,12 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => PerformanceTrace.sync(
+    'statistics.screen_build',
+    () => _buildMeasured(context),
+  );
+
+  Widget _buildMeasured(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('통계'),

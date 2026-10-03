@@ -1,3 +1,4 @@
+import '../services/db_export_location.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -512,23 +513,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (_isBackingUpDb) return;
     setState(() => _isBackingUpDb = true);
 
+    File? staged;
     try {
-      if (Platform.isAndroid) {
-        final status = await Permission.storage.status;
-        if (!status.isGranted) {
-          await Permission.storage.request();
-        }
-      }
-
-      final targetDir = AppStoragePaths.exportsRoot();
-
       if (!mounted) return;
       final p = context.read<ReportProvider>();
       final isStandalone = p.appMode == AppMode.standalone;
 
       final fileName =
           'backup_data_${DateTime.now().millisecondsSinceEpoch}.db';
-      final targetFile = File('${targetDir.path}/$fileName');
+      final targetFile = await DbExportLocation.stage(fileName);
+      staged = targetFile;
 
       if (isStandalone) {
         await LocalDbService.exportBackup(targetFile.path);
@@ -546,13 +540,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       }
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('DB 백업 완료: ${targetFile.path}'),
-            backgroundColor: srSnackSuccess,
-          ),
-        );
+      final saved = await DbExportLocation.publish(targetFile);
+      if (saved != null) {
+        if (mounted) {
+          await DbExportLocation.completed(context, saved);
+        } else {
+          await DbExportLocation.notify(saved);
+        }
+      }
+      if (saved == null && mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('DB 저장을 취소했습니다.')));
       }
     } on DownloadCancelled {
       if (mounted) {
@@ -570,6 +569,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       }
     } finally {
+      if (staged != null && await staged.exists()) await staged.delete();
       _dbDownloadCancel = null;
       if (mounted) setState(() => _isBackingUpDb = false);
     }

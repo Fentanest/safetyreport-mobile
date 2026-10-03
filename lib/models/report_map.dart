@@ -75,6 +75,7 @@ class ReportMapAgencyItem {
 }
 
 class ReportMapPoint {
+  final bool isCluster;
   final double lat;
   final double lng;
   final String address;
@@ -86,6 +87,7 @@ class ReportMapPoint {
   final List<ReportMapBreakdownItem> categoryBreakdown;
 
   const ReportMapPoint({
+    this.isCluster = false,
     required this.lat,
     required this.lng,
     required this.address,
@@ -115,6 +117,7 @@ class ReportMapPoint {
     final categoryList = json['category_breakdown'] as List? ?? const [];
 
     return ReportMapPoint(
+      isCluster: json['cluster'] == true,
       lat: _toDoubleOrNull(json['lat']) ?? double.nan,
       lng: _toDoubleOrNull(json['lng']) ?? double.nan,
       address: json['address']?.toString() ?? '',

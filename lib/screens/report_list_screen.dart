@@ -1,3 +1,5 @@
+import '../models/app_mode.dart';
+import '../widgets/local_paged_report_list.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/report_provider.dart';
@@ -42,8 +44,8 @@ class _ReportListScreenState extends State<ReportListScreen>
     _tabController.addListener(_handleTabChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final provider = context.read<ReportProvider>();
-      provider.ensureCategoryReportsLoaded();
-      if (provider.duplicateReports.isEmpty) {
+      if (provider.appMode == AppMode.standalone) return;
+      if (_tabController.index == 3 && provider.duplicateReports.isEmpty) {
         provider.fetchDuplicateReports();
       }
     });
@@ -58,6 +60,12 @@ class _ReportListScreenState extends State<ReportListScreen>
 
   void _handleTabChanged() {
     if (!mounted || _tabController.indexIsChanging) return;
+    final p = context.read<ReportProvider>();
+    if (_tabController.index == 3 &&
+        p.appMode == AppMode.server &&
+        p.duplicateReports.isEmpty) {
+      p.fetchDuplicateReports();
+    }
     setState(() {});
   }
 
@@ -278,16 +286,19 @@ class _ReportListScreenState extends State<ReportListScreen>
                         provider,
                         provider.filteredTrafficReports,
                         provider.fetchTrafficReports,
+                        category: 'traffic',
                       ),
                       _buildTab(
                         provider,
                         provider.filteredParkingReports,
                         provider.fetchParkingReports,
+                        category: 'parking',
                       ),
                       _buildTab(
                         provider,
                         provider.filteredOtherReports,
                         provider.fetchOtherReports,
+                        category: 'other',
                       ),
                       _buildDuplicateTab(provider),
                     ],
@@ -315,87 +326,20 @@ class _ReportListScreenState extends State<ReportListScreen>
   Widget _buildTab(
     ReportProvider provider,
     List<Report> reports,
-    Future<void> Function() onRefresh,
-  ) {
-    if (provider.isLoading && reports.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (reports.isEmpty) {
-      return LayoutBuilder(
-        builder: (context, constraints) => RefreshIndicator(
-          onRefresh: onRefresh,
-          child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: constraints.maxHeight),
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (provider.errorMessage != null) ...[
-                      Icon(
-                        Icons.cloud_off_rounded,
-                        size: 56,
-                        color: context.sr.textDisabled,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        '데이터를 불러오지 못했습니다.',
-                        style: TextStyle(
-                          color: context.sr.textSecondary,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        '아래로 당겨 다시 시도하거나\n설정에서 서버 상태를 확인하세요.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: context.sr.textSecondary,
-                          fontSize: 13,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      FilledButton.icon(
-                        icon: const Icon(Icons.refresh, size: 16),
-                        label: const Text('다시 시도'),
-                        onPressed: onRefresh,
-                      ),
-                    ] else ...[
-                      Icon(
-                        Icons.inbox_rounded,
-                        size: 56,
-                        color: context.sr.textDisabled,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        provider.hasFilter ? '검색 결과가 없습니다.' : '신고 내역이 없습니다.',
-                        style: TextStyle(
-                          color: context.sr.textSecondary,
-                          fontSize: 15,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-    return RefreshIndicator(
-      onRefresh: onRefresh,
-      child: ListView.builder(
-        padding: EdgeInsets.fromLTRB(12, 10, 12, _selectionMode ? 100 : 20),
-        itemCount: reports.length,
-        itemBuilder: (context, index) => _buildReportCard(reports[index]),
-      ),
+    Future<void> Function() onRefresh, {
+    required String category,
+  }) {
+    return LocalPagedReportList(
+      key: ValueKey('page-$category'),
+      category: category,
+      filter: provider.filter,
     );
   }
 
   Widget _buildDuplicateTab(ReportProvider provider) {
+    if (provider.appMode == AppMode.standalone) {
+      return LocalPagedReportList(scope: 'duplicates', filter: provider.filter);
+    }
     final reports = provider.filteredDuplicateReports;
     if (provider.isLoading && reports.isEmpty) {
       return const Center(child: CircularProgressIndicator());
@@ -485,29 +429,6 @@ class _ReportListScreenState extends State<ReportListScreen>
       ),
       builder: (_) =>
           SearchFilterSheet(provider: context.read<ReportProvider>()),
-    );
-  }
-
-  Widget _buildReportCard(Report report) {
-    final isSelected = _selected.contains(report.reportNumber);
-
-    return ReportListCard(
-      report: report,
-      selectionMode: _selectionMode,
-      isSelected: isSelected,
-      onTap: _selectionMode
-          ? () => _toggleSelect(report.reportNumber)
-          : () => showReportDetailSheet(context, report),
-      onLongPress: () {
-        if (!_selectionMode) {
-          setState(() => _selected.add(report.reportNumber));
-        }
-      },
-      metaItems: _buildMetaItems(
-        report,
-        includeLocation: true,
-        includeOccurrence: true,
-      ),
     );
   }
 

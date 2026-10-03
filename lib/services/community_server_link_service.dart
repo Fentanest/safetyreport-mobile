@@ -1,9 +1,11 @@
+import 'client_compatibility.dart';
 import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
 import 'server_contract.dart';
+import 'server_connection_service.dart';
 
 /// Client 모드: 연결된 safetyreport 서버의 커뮤니티 계정 관리.
 ///
@@ -170,10 +172,11 @@ class CommunityServerLinkService {
     final uri = ServerContract.apiUri(baseUrl, path);
     final owned = client ?? http.Client();
     try {
+      await ClientCompatibility.ensure(baseUrl, apiKey, client: owned);
       final http.Response res;
       if (body == null) {
         res = await owned
-            .get(uri, headers: {ServerContract.apiKeyHeader: apiKey})
+            .get(uri, headers: ServerContract.apiHeaders(apiKey))
             .timeout(const Duration(seconds: 10));
       } else {
         final headers = ServerContract.apiHeaders(apiKey);
@@ -184,9 +187,20 @@ class CommunityServerLinkService {
             .post(uri, headers: headers, body: jsonEncode(body))
             .timeout(const Duration(seconds: 10));
       }
+      if (res.statusCode == 409) {
+        final message = ServerConnectionService.upgradeMessage(res.body);
+        if (message != null) {
+          ClientCompatibility.reject(baseUrl, apiKey, message);
+        }
+      }
       return CommunityGateLinkResult.parse(
         res.statusCode,
         utf8.decode(res.bodyBytes, allowMalformed: true),
+      );
+    } on ClientCompatibilityException catch (e) {
+      return CommunityGateLinkResult.failure(
+        code: 'server_incompatible',
+        message: e.toString(),
       );
     } catch (_) {
       return CommunityGateLinkResult.failure(
@@ -220,6 +234,7 @@ class CommunityServerLinkService {
     final owned = client ?? http.Client();
     http.Response res;
     try {
+      await ClientCompatibility.ensure(baseUrl, apiKey, client: owned);
       if (body == null) {
         res = await owned
             .get(
@@ -239,6 +254,19 @@ class CommunityServerLinkService {
             )
             .timeout(_timeout);
       }
+      if (res.statusCode == 409) {
+        final message = ServerConnectionService.upgradeMessage(res.body);
+        if (message != null) {
+          ClientCompatibility.reject(baseUrl, apiKey, message);
+        }
+      }
+    } on ClientCompatibilityException catch (e) {
+      return CommunityServerResult.failure(
+        CommunityServerError(
+          CommunityServerErrorKind.offline,
+          message: e.toString(),
+        ),
+      );
     } catch (_) {
       return CommunityServerResult.failure(
         CommunityServerError(
@@ -256,7 +284,8 @@ class CommunityServerLinkService {
   }
 
   /// 응답 해석(테스트용으로 공개).
-  static CommunityServerResult parseResponse(int statusCode, String body) {    Object? json;
+  static CommunityServerResult parseResponse(int statusCode, String body) {
+    Object? json;
     try {
       json = jsonDecode(body);
     } catch (_) {
@@ -646,5 +675,3 @@ class CommunityGateLinkResult {
     );
   }
 }
-
-

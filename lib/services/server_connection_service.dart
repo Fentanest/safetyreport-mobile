@@ -22,19 +22,29 @@ class ServerConnectionService {
     final cleanUrl = ServerContract.normalizeBaseUrl(baseUrl);
     final ownedClient = client ?? http.Client();
     try {
+      await ServerContract.loadProductVersion();
       final response = await ownedClient
           .get(
             ServerContract.apiUri(cleanUrl, ServerContract.serverVersionPath),
             headers: ServerContract.apiHeaders(apiKey),
           )
           .timeout(timeout);
-      if (response.statusCode == 401) {
+      if (const [401, 403].contains(response.statusCode)) {
         return ServerConnectionResult.unauthorized(normalizedUrl: cleanUrl);
       }
       if (response.statusCode == 404) {
         return ServerConnectionResult.incompatibleServer(
           normalizedUrl: cleanUrl,
         );
+      }
+      if (response.statusCode == 409) {
+        final message = upgradeMessage(response.body);
+        if (message != null) {
+          return ServerConnectionResult.incompatibleServer(
+            normalizedUrl: cleanUrl,
+            message: message,
+          );
+        }
       }
       if (response.statusCode != 200) {
         return ServerConnectionResult.httpError(
@@ -51,12 +61,22 @@ class ServerConnectionService {
         );
       }
       final version = body is Map<String, dynamic> ? body['version'] : null;
-      if (version is! String || !supportsServerVersion(version)) {
+      if (version is! String ||
+          !supportsServerVersion(version) ||
+          body is! Map ||
+          body['protocol_version'] != 3 ||
+          body['supported_client_protocols'] is! List ||
+          !(body['supported_client_protocols'] as List).contains(3)) {
         return ServerConnectionResult.incompatibleServer(
           normalizedUrl: cleanUrl,
         );
       }
       return ServerConnectionResult.ok(normalizedUrl: cleanUrl);
+    } on HandshakeException {
+      return ServerConnectionResult.networkError(
+        normalizedUrl: cleanUrl,
+        message: 'TLS 인증서 확인에 실패했습니다. 서버 인증서와 주소를 확인하세요.',
+      );
     } on SocketException catch (e) {
       return ServerConnectionResult.networkError(
         normalizedUrl: cleanUrl,
@@ -135,6 +155,15 @@ class ServerConnectionService {
         );
       }
 
+      if (response.statusCode == 409) {
+        final message = upgradeMessage(response.body);
+        if (message != null) {
+          return ServerConnectionResult.incompatibleServer(
+            normalizedUrl: cleanUrl,
+            message: message,
+          );
+        }
+      }
       if (response.statusCode == 200) {
         try {
           jsonDecode(response.body);
@@ -146,7 +175,7 @@ class ServerConnectionService {
           );
         }
       }
-      if (response.statusCode == 401) {
+      if (const [401, 403].contains(response.statusCode)) {
         return ServerConnectionResult.unauthorized(normalizedUrl: cleanUrl);
       }
       return ServerConnectionResult.httpError(
@@ -163,10 +192,30 @@ class ServerConnectionService {
   /// 서버 릴리스 버전의 major가 3 이상인지 확인한다. 알 수 없는 버전은 거절한다.
   static bool supportsServerVersion(String version) {
     final match = RegExp(
-      r'^v?([0-9]+)(?:\.[0-9]+){2,3}(?:[-+][0-9A-Za-z.-]+)?$',
+      r'^v?([0-9]+)\.[0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-(?:dev|alpha|beta|rc)[.\w-]*)?(?:\+[\w.-]+)?$',
     ).firstMatch(version.trim());
     if (match == null) return false;
     return (int.tryParse(match.group(1)!) ?? 0) >= 3;
+  }
+
+  static String? upgradeMessage(String body) {
+    try {
+      final json = jsonDecode(body);
+      final detail = json is Map ? json['detail'] : null;
+      final code = json is Map
+          ? (json['code'] ?? (detail is Map ? detail['code'] : detail))
+          : null;
+      if (code == 'SERVER_UPGRADE_REQUIRED') {
+        return 'PC 서버를 v3 이상으로 업데이트하세요.';
+      }
+      if (code == 'CLIENT_UPGRADE_REQUIRED') {
+        return '모바일 앱을 최신 버전으로 업데이트하세요.';
+      }
+      if (code == 'CLIENT_PROTOCOL_UNSUPPORTED') {
+        return '앱과 PC 서버의 통신 규약이 맞지 않습니다. protocol 3을 지원하는 앱과 서버로 업데이트하세요.';
+      }
+    } catch (_) {}
+    return null;
   }
 
   /// `/api/v1/server/version` 호출 → 서버 버전 정보. 실패 시 [ServerVersionInfo.empty].
@@ -249,10 +298,11 @@ class ServerConnectionResult {
 
   factory ServerConnectionResult.incompatibleServer({
     required String normalizedUrl,
+    String? message,
   }) => ServerConnectionResult._(
     status: ServerConnectionStatus.incompatibleServer,
     normalizedUrl: normalizedUrl,
-    message: '이 PC 서버 버전은 모바일 앱 v2와 호환되지 않습니다. PC 앱을 v3 이상으로 업데이트하세요.',
+    message: message ?? 'PC 서버를 v3 이상으로 업데이트하고 self-host protocol 3 지원을 확인하세요.',
   );
 
   factory ServerConnectionResult.httpError({

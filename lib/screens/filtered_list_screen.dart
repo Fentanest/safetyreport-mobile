@@ -1,3 +1,5 @@
+import '../models/app_mode.dart';
+import '../widgets/local_paged_report_list.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/report_provider.dart';
@@ -10,6 +12,7 @@ import '../widgets/selection_action_bar.dart';
 /// 대시보드/통계 카드 탭 시 해당 조건에 맞는 신고만 보여주는 화면
 class FilteredListScreen extends StatefulWidget {
   final String title;
+  final String? metric;
 
   /// 'all', 'traffic', 'parking', 'other'
   final String category;
@@ -18,6 +21,7 @@ class FilteredListScreen extends StatefulWidget {
   const FilteredListScreen({
     super.key,
     required this.title,
+    this.metric,
     required this.category,
     required this.filter,
   });
@@ -29,17 +33,6 @@ class FilteredListScreen extends StatefulWidget {
 class _FilteredListScreenState extends State<FilteredListScreen> {
   final Set<String> _selected = {};
   bool get _selectionMode => _selected.isNotEmpty;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final p = context.read<ReportProvider>();
-      if (p.trafficReports.isEmpty) p.fetchTrafficReports();
-      if (p.parkingReports.isEmpty) p.fetchParkingReports();
-      if (p.otherReports.isEmpty) p.fetchOtherReports();
-    });
-  }
 
   void _toggleSelect(String rn) => setState(() {
     _selected.contains(rn) ? _selected.remove(rn) : _selected.add(rn);
@@ -68,6 +61,20 @@ class _FilteredListScreenState extends State<FilteredListScreen> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<ReportProvider>();
+    if (provider.appMode == AppMode.standalone ||
+        provider.appMode == AppMode.server) {
+      return Scaffold(
+        appBar: AppBar(title: Text(widget.title)),
+        body: LocalPagedReportList(
+          category: widget.category,
+          metric: widget.metric,
+          predicate:
+              (provider.appMode == AppMode.server || widget.metric == null)
+              ? widget.filter
+              : null,
+        ),
+      );
+    }
     final reports = _getReports(provider);
     final selectedReports = reports
         .where((r) => _selected.contains(r.reportNumber))

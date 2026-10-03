@@ -1,4 +1,7 @@
-import 'dart:async' show TimeoutException;
+import '../services/performance_trace.dart';
+import '../services/map_presentation.dart';
+import '../widgets/local_paged_report_list.dart';
+import 'dart:async' show TimeoutException, Timer;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -59,6 +62,11 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     with WidgetsBindingObserver {
   final MapController _mapController = MapController();
   ReportMapPayload? _payload;
+  int _loadSeq = 0;
+  Timer? _viewportTimer;
+  List<double>? _viewport;
+  double _viewportZoom = 7;
+  String? _datasetScope;
   bool _loading = true;
   bool _locating = false;
   String? _error;
@@ -80,8 +88,27 @@ class _ReportMapScreenState extends State<ReportMapScreen>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final p = context.watch<ReportProvider>();
+    final scope =
+        '${p.datasetEpoch}:${p.statsRefreshNonce}:${p.excludeWithdraw}:${p.useRepresentativeRecords}';
+    if (_datasetScope != null && _datasetScope != scope) {
+      _loadSeq++;
+      _payload = null;
+      _loading = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _loadMap();
+      });
+    }
+    _datasetScope = scope;
+  }
+
+  @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _viewportTimer?.cancel();
+    _loadSeq++;
     _mapController.dispose();
     super.dispose();
   }
@@ -94,6 +121,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
   }
 
   Future<void> _loadMap({bool silent = false}) async {
+    final seq = ++_loadSeq;
     if (!silent) {
       setState(() {
         _loading = true;
@@ -102,11 +130,16 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     }
 
     final provider = context.read<ReportProvider>();
+    final epoch = provider.datasetEpoch;
     try {
       ReportMapPayload payload;
       if (provider.appMode == AppMode.standalone) {
         payload = ReportMapPayload.fromJson(
           await LocalDbService.computeReportMapStats(
+            bounds: _viewport,
+            zoom: _viewportZoom,
+            isCancelled: () =>
+                !mounted || seq != _loadSeq || epoch != provider.datasetEpoch,
             year: _selectedYear == 'all' ? null : _selectedYear,
             category: _selectedCategory,
             excludeWithdraw: provider.excludeWithdraw,
@@ -119,19 +152,24 @@ class _ReportMapScreenState extends State<ReportMapScreen>
           apiKey: provider.apiKey,
         );
         payload = await api.getReportMapStats(
+          bounds: _viewport,
+          zoom: _viewportZoom,
+          dedupe: provider.useRepresentativeRecords ? 'canonical' : 'raw',
           year: _selectedYear == 'all' ? null : _selectedYear,
           category: _selectedCategory,
         );
       }
 
-      if (!mounted) return;
+      if (!mounted || seq != _loadSeq || epoch != provider.datasetEpoch) return;
       setState(() {
         _payload = payload;
         _loading = false;
         _error = null;
       });
+    } on QueryCancelled {
+      return;
     } catch (exc) {
-      if (!mounted) return;
+      if (!mounted || seq != _loadSeq || epoch != provider.datasetEpoch) return;
       setState(() {
         _loading = false;
         _error = '$exc';
@@ -277,7 +315,10 @@ class _ReportMapScreenState extends State<ReportMapScreen>
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      PerformanceTrace.sync('map.screen_build', () => _buildMeasured(context));
+
+  Widget _buildMeasured(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final payload = _payload;
     final points = (payload?.points ?? const <ReportMapPoint>[])
@@ -399,11 +440,14 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     );
   }
 
-  Future<ReportMapMissingPayload> _loadMissingAddressGroups() async {
+  Future<ReportMapMissingPayload> _loadMissingAddressGroups({
+    int page = 0,
+  }) async {
     final provider = context.read<ReportProvider>();
     if (provider.appMode == AppMode.standalone) {
       return ReportMapMissingPayload.fromJson(
         await LocalDbService.computeReportMapMissingGroups(
+          page: page,
           year: _selectedYear == 'all' ? null : _selectedYear,
           category: _selectedCategory,
           excludeWithdraw: provider.excludeWithdraw,
@@ -420,100 +464,83 @@ class _ReportMapScreenState extends State<ReportMapScreen>
   }
 
   void _showMissingAddressSheet() {
-    final future = _loadMissingAddressGroups();
+    var page = 0;
+    var future = _loadMissingAddressGroups();
+    final local = context.read<ReportProvider>().appMode == AppMode.standalone;
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.84,
-          minChildSize: 0.45,
-          maxChildSize: 0.96,
-          builder: (context, scrollController) =>
-              FutureBuilder<ReportMapMissingPayload>(
-                future: future,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState != ConnectionState.done) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  if (snapshot.hasError) {
-                    return ListView(
-                      controller: scrollController,
-                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (ctx, setSheet) => SafeArea(
+          child: SizedBox(
+            height: MediaQuery.sizeOf(ctx).height * .8,
+            child: FutureBuilder<ReportMapMissingPayload>(
+              future: future,
+              builder: (ctx, snapshot) {
+                if (snapshot.connectionState != ConnectionState.done) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return Center(child: Text('${snapshot.error}'));
+                }
+                final payload = snapshot.data!;
+                return ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: payload.groups.length + 1,
+                  itemBuilder: (ctx, index) {
+                    if (index > 0) {
+                      return _buildMissingAddressGroupCard(
+                        payload.groups[index - 1],
+                      );
+                    }
+                    return Column(
                       children: [
-                        const Text(
-                          '공식 좌표 없는 신고 목록',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        const Text('공식 좌표 없는 신고 목록'),
+                        Text(
+                          '주소 ${payload.groupCount}곳 · 신고 ${payload.reportCount}건',
                         ),
-                        const SizedBox(height: 12),
-                        _buildErrorCard('${snapshot.error}'),
+                        if (local)
+                          Wrap(
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              Text('${page + 1}페이지 · 주소당 최근 10건 미리보기'),
+                              IconButton(
+                                tooltip: '이전 페이지',
+                                icon: const Icon(Icons.chevron_left),
+                                onPressed: page == 0
+                                    ? null
+                                    : () => setSheet(() {
+                                        page--;
+                                        future = _loadMissingAddressGroups(
+                                          page: page,
+                                        );
+                                      }),
+                              ),
+                              IconButton(
+                                tooltip: '다음 페이지',
+                                icon: const Icon(Icons.chevron_right),
+                                onPressed:
+                                    (page + 1) * 100 >= payload.groupCount
+                                    ? null
+                                    : () => setSheet(() {
+                                        page++;
+                                        future = _loadMissingAddressGroups(
+                                          page: page,
+                                        );
+                                      }),
+                              ),
+                            ],
+                          ),
+                        if (payload.groups.isEmpty)
+                          const Text('현재 조건에서 공식 좌표 없는 신고가 없습니다.'),
                       ],
                     );
-                  }
-
-                  final payload =
-                      snapshot.data ??
-                      const ReportMapMissingPayload(
-                        groups: <ReportMapMissingGroup>[],
-                        groupCount: 0,
-                        reportCount: 0,
-                      );
-
-                  return ListView(
-                    controller: scrollController,
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                    children: [
-                      const Text(
-                        '공식 좌표 없는 신고 목록',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        '좌표가 아직 없는 주소 ${payload.groupCount}곳 · 신고 ${payload.reportCount}건',
-                        style: TextStyle(
-                          color: context.sr.textSecondary,
-                          height: 1.4,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      if (payload.groups.isEmpty)
-                        Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(20),
-                            child: Column(
-                              children: [
-                                Icon(
-                                  Icons.task_alt,
-                                  size: 42,
-                                  color: _tone(serverAcceptColor).foreground,
-                                ),
-                                const SizedBox(height: 10),
-                                const Text(
-                                  '현재 조건에서 공식 좌표 없는 신고가 없습니다.',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        )
-                      else
-                        ...payload.groups.map(_buildMissingAddressGroupCard),
-                    ],
-                  );
-                },
-              ),
+                  },
+                );
+              },
+            ),
+          ),
         ),
       ),
     );
@@ -549,9 +576,27 @@ class _ReportMapScreenState extends State<ReportMapScreen>
             ),
           ),
         ),
-        children: group.reports
-            .map((report) => _buildMissingReportCard(report))
-            .toList(),
+        children: [
+          ...group.reports.map(_buildMissingReportCard),
+          if (context.read<ReportProvider>().appMode == AppMode.standalone)
+            TextButton(
+              child: const Text('이 주소의 전체 신고 보기'),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => Scaffold(
+                    appBar: AppBar(title: Text(title)),
+                    body: LocalPagedReportList(
+                      scope: 'missing',
+                      missingAddress: group.normalizedAddress,
+                      category: _selectedCategory,
+                      answerYear: _selectedYear,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -736,32 +781,49 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     );
   }
 
-  Widget _buildMap(List<ReportMapPoint> points) {
+  Widget _buildMap(List<ReportMapPoint> sourcePoints) {
+    final points = visibleMapCells(sourcePoints, _viewport);
     final currentLocation = _currentLocation;
     final center = currentLocation ?? _computeCenter(points);
     final zoom = currentLocation != null ? 15.0 : _suggestZoom(points);
     final markerLookup = <Marker, ReportMapPoint>{};
-    final markers = points.map((point) {
-      final marker = Marker(
-        point: LatLng(point.lat, point.lng),
-        width: _kMapMarkerWidth,
-        height: _kMapMarkerHeight,
-        child: _MapPointMarker(point: point),
-      );
-      markerLookup[marker] = point;
-      return marker;
-    }).toList();
+    final markers = PerformanceTrace.sync(
+      'map.marker_creation',
+      () => points.map((point) {
+        final marker = Marker(
+          point: LatLng(point.lat, point.lng),
+          width: _kMapMarkerWidth,
+          height: _kMapMarkerHeight,
+          child: _MapPointMarker(point: point),
+        );
+        markerLookup[marker] = point;
+        return marker;
+      }).toList(),
+    );
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: Stack(
         children: [
           FlutterMap(
-            key: ValueKey(
-              '${_selectedYear}_${_selectedCategory}_${points.length}',
-            ),
+            key: ValueKey('${_selectedYear}_$_selectedCategory'),
             mapController: _mapController,
             options: MapOptions(
+              onPositionChanged: (camera, hasGesture) {
+                if (!hasGesture) return;
+                final bounds = camera.visibleBounds;
+                _viewport = [
+                  bounds.south,
+                  bounds.west,
+                  bounds.north,
+                  bounds.east,
+                ];
+                _viewportZoom = camera.zoom;
+                _viewportTimer?.cancel();
+                _viewportTimer = Timer(const Duration(milliseconds: 250), () {
+                  if (mounted) _loadMap(silent: true);
+                });
+              },
               initialCenter: center,
               initialZoom: zoom,
               maxZoom: 18,
@@ -904,6 +966,17 @@ class _ReportMapScreenState extends State<ReportMapScreen>
   }
 
   void _showPointBottomSheet(ReportMapPoint point) {
+    if (point.isCluster) {
+      _mapController.move(
+        LatLng(point.lat, point.lng),
+        (_mapController.camera.zoom + 2).clamp(4, 18),
+      );
+      final b = _mapController.camera.visibleBounds;
+      _viewport = [b.south, b.west, b.north, b.east];
+      _viewportZoom = _mapController.camera.zoom;
+      _loadMap(silent: true);
+      return;
+    }
     final title = point.region.isNotEmpty ? point.region : point.address;
     final subtitle = point.address.trim().isNotEmpty && point.address != title
         ? point.address

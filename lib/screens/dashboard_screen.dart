@@ -1,3 +1,4 @@
+import '../services/performance_trace.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -38,7 +39,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => PerformanceTrace.sync(
+    'dashboard.screen_build',
+    () => _buildMeasured(context),
+  );
+
+  Widget _buildMeasured(BuildContext context) {
     final provider = context.watch<ReportProvider>();
     final stats = provider.stats;
 
@@ -191,7 +197,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
           _buildChartCard(stats),
           const SizedBox(height: 16),
-          _buildWatchlistSection(context, stats.watchlist),
+          _buildWatchlistSection(
+            context,
+            stats.watchlist,
+            stats.watchlistTotal,
+          ),
           const SizedBox(height: 16),
           _buildRecentSection(context, provider.recentAnswerReports),
           // 전국 신고현황(Sunwi)은 2026-09-28 통계 탭 아래로 옮겼다.
@@ -291,6 +301,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   builder: (_) => FilteredListScreen(
                     title: label,
                     category: 'all',
+                    metric: label,
                     filter: filter,
                   ),
                 ),
@@ -434,6 +445,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   builder: (_) => FilteredListScreen(
                     title: '교통위반 — $label',
                     category: 'traffic',
+                    metric: 'traffic:$label',
                     filter: filter,
                   ),
                 ),
@@ -614,7 +626,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   // ── 감시 목록 섹션 ────────────────────────────────
-  Widget _buildWatchlistSection(BuildContext context, List<Report> items) {
+  Widget _buildWatchlistSection(
+    BuildContext context,
+    List<Report> items,
+    int? total,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -649,6 +665,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ],
         ),
+        if (total != null && total > items.length)
+          Text('전체 $total건 · 최근 ${items.length}건 표시 (관리에서 전체 조회)'),
         const SizedBox(height: 8),
         if (items.isEmpty)
           Container(

@@ -355,6 +355,7 @@ class AgencyRegistrySnapshot {
 
 class AgencyRegistry {
   static AgencyRegistrySnapshot? _loaded;
+  static Object? get cacheVersion => _loaded;
 
   /// 앱 시작 때 한 번 로드한다(main). 실패하면 null 로 두고 호출자가 폴백한다.
   static Future<void> ensureLoaded() async {

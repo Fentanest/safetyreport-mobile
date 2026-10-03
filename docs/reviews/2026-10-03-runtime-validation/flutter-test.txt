@@ -1,0 +1,1003 @@
+00:00 +0: loading /home/better0101/projects/safetyreport-mobile/test/theme/theme_contrast_test.dart
+00:00 +0: /home/better0101/projects/safetyreport-mobile/test/theme/theme_contrast_test.dart: contrastRatio 는 반투명 전경을 배경에 합성해 계산한다
+00:00 +1: /home/better0101/projects/safetyreport-mobile/test/theme/dark_palette_contract_test.dart: SrColors.dark and AppTheme dark roles use the shared palette
+00:00 +2: /home/better0101/projects/safetyreport-mobile/test/theme/dark_palette_contract_test.dart: SrColors.dark and AppTheme dark roles use the shared palette
+00:00 +3: /home/better0101/projects/safetyreport-mobile/test/theme/dark_palette_contract_test.dart: SrColors.dark and AppTheme dark roles use the shared palette
+00:00 +4: /home/better0101/projects/safetyreport-mobile/test/theme/dark_palette_contract_test.dart: SrColors.dark and AppTheme dark roles use the shared palette
+00:00 +5: /home/better0101/projects/safetyreport-mobile/test/theme/dark_palette_contract_test.dart: SrColors.dark and AppTheme dark roles use the shared palette
+00:00 +6: /home/better0101/projects/safetyreport-mobile/test/theme/dark_palette_contract_test.dart: SrColors.dark and AppTheme dark roles use the shared palette
+00:00 +7: /home/better0101/projects/safetyreport-mobile/test/theme/dark_palette_contract_test.dart: SrColors.dark and AppTheme dark roles use the shared palette
+00:00 +8: /home/better0101/projects/safetyreport-mobile/test/theme/dark_palette_contract_test.dart: SrColors.dark and AppTheme dark roles use the shared palette
+00:00 +9: /home/better0101/projects/safetyreport-mobile/test/theme/dark_palette_contract_test.dart: SrColors.dark and AppTheme dark roles use the shared palette
+00:00 +10: /home/better0101/projects/safetyreport-mobile/test/theme/dark_palette_contract_test.dart: SrColors.dark and AppTheme dark roles use the shared palette
+00:00 +11: /home/better0101/projects/safetyreport-mobile/test/theme/dark_palette_contract_test.dart: SrColors.dark and AppTheme dark roles use the shared palette
+00:00 +12: /home/better0101/projects/safetyreport-mobile/test/theme/dark_palette_contract_test.dart: SrColors.dark and AppTheme dark roles use the shared palette
+00:00 +13: /home/better0101/projects/safetyreport-mobile/test/theme/dark_palette_contract_test.dart: SrColors.dark and AppTheme dark roles use the shared palette
+00:00 +14: /home/better0101/projects/safetyreport-mobile/test/theme/dark_palette_contract_test.dart: SrColors.dark and AppTheme dark roles use the shared palette
+00:00 +15: /home/better0101/projects/safetyreport-mobile/test/theme/dark_palette_contract_test.dart: SrColors.dark and AppTheme dark roles use the shared palette
+00:00 +16: /home/better0101/projects/safetyreport-mobile/test/theme/dark_palette_contract_test.dart: SrColors.dark and AppTheme dark roles use the shared palette
+00:00 +17: /home/better0101/projects/safetyreport-mobile/test/theme/dark_palette_contract_test.dart: SrColors.dark and AppTheme dark roles use the shared palette
+00:00 +18: /home/better0101/projects/safetyreport-mobile/test/theme/dark_palette_contract_test.dart: SrColors.dark and AppTheme dark roles use the shared palette
+00:00 +19: /home/better0101/projects/safetyreport-mobile/test/theme/dark_palette_contract_test.dart: SrColors.dark and AppTheme dark roles use the shared palette
+00:00 +20: /home/better0101/projects/safetyreport-mobile/test/theme/theme_contrast_test.dart: light 테마 primary 글자·채움 버튼 대비
+00:00 +21: /home/better0101/projects/safetyreport-mobile/test/theme/theme_contrast_test.dart: light 테마 상태 배지 보완요청: 틴트 배경 위 글자 AA
+00:00 +22: /home/better0101/projects/safetyreport-mobile/test/theme/theme_contrast_test.dart: light 테마 상태 배지 처리중: 틴트 배경 위 글자 AA
+00:00 +23: /home/better0101/projects/safetyreport-mobile/test/theme/theme_contrast_test.dart: light 테마 상태 배지 답변완료: 틴트 배경 위 글자 AA
+00:00 +24: /home/better0101/projects/safetyreport-mobile/test/theme/theme_contrast_test.dart: light 테마 상태 배지 불수용/기타: 틴트 배경 위 글자 AA
+00:00 +25: /home/better0101/projects/safetyreport-mobile/test/theme/theme_contrast_test.dart: light 테마 상태 배지 수용: 틴트 배경 위 글자 AA
+00:00 +26: /home/better0101/projects/safetyreport-mobile/test/theme/theme_contrast_test.dart: light 테마 상태 배지 일부수용: 틴트 배경 위 글자 AA
+00:00 +27: /home/better0101/projects/safetyreport-mobile/test/theme/theme_contrast_test.dart: light 테마 상태 배지 취하: 틴트 배경 위 글자 AA
+00:00 +28: /home/better0101/projects/safetyreport-mobile/test/theme/theme_contrast_test.dart: light 테마 상태 배지 과태료: 틴트 배경 위 글자 AA
+00:00 +29: /home/better0101/projects/safetyreport-mobile/test/theme/theme_contrast_test.dart: light 테마 상태 배지 경고/범칙금: 틴트 배경 위 글자 AA
+00:00 +30: /home/better0101/projects/safetyreport-mobile/test/theme/theme_contrast_test.dart: light 테마 상태 배지 미확인: 틴트 배경 위 글자 AA
+00:00 +31: /home/better0101/projects/safetyreport-mobile/test/theme/theme_contrast_test.dart: light 테마 모드 배지(Client/Standalone) 글자 AA
+00:00 +32: /home/better0101/projects/safetyreport-mobile/test/tool/logic_parity_harness_test.dart: compute stats on an imported mobile db (parity harness)
+  Skip: logic parity harness: SR_LP_MOBILE_DB 가 있을 때만 실행
+00:01 +32 ~1: /home/better0101/projects/safetyreport-mobile/test/tool/db_roundtrip_harness_test.dart: server db -> mobile import (roundtrip harness)
+  Skip: roundtrip harness: SR_RT_MODE=import 일 때만 실행
+00:01 +32 ~2: /home/better0101/projects/safetyreport-mobile/test/tool/stats_screen_render_test.dart: (setUpAll)
+00:01 +32 ~2: /home/better0101/projects/safetyreport-mobile/test/tool/stats_screen_render_test.dart: 통계 화면 렌더 standalone-360-dark-x1.0
+00:01 +32 ~3: /home/better0101/projects/safetyreport-mobile/test/tool/stats_screen_render_test.dart: 통계 화면 렌더 standalone-360-light-x1.0
+00:01 +32 ~4: /home/better0101/projects/safetyreport-mobile/test/tool/stats_screen_render_test.dart: 통계 화면 렌더 standalone-390-dark-x1.0
+00:01 +32 ~5: /home/better0101/projects/safetyreport-mobile/test/tool/stats_screen_render_test.dart: 통계 화면 렌더 standalone-390-light-x1.0
+00:01 +32 ~6: /home/better0101/projects/safetyreport-mobile/test/tool/stats_screen_render_test.dart: 통계 화면 렌더 standalone-430-dark-x1.0
+00:01 +32 ~7: /home/better0101/projects/safetyreport-mobile/test/tool/stats_screen_render_test.dart: 통계 화면 렌더 standalone-430-light-x1.0
+00:01 +32 ~8: /home/better0101/projects/safetyreport-mobile/test/tool/stats_screen_render_test.dart: 통계 화면 렌더 standalone-360-light-x1.3
+00:01 +32 ~9: /home/better0101/projects/safetyreport-mobile/test/tool/stats_screen_render_test.dart: 통계 화면 렌더 standalone-360-dark-x2.0
+00:01 +32 ~10: /home/better0101/projects/safetyreport-mobile/test/tool/stats_screen_render_test.dart: (tearDownAll)
+00:01 +32 ~10: /home/better0101/projects/safetyreport-mobile/test/widgets_rating_dialog_test.dart: rating Size(360.0, 640.0) scale=1.0 Brightness.dark keyboard transitions keep actions reachable
+00:01 +32 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets_rating_dialog_test.dart: rating Size(360.0, 640.0) scale=1.0 Brightness.dark keyboard transitions keep actions reachable
+00:03 +33 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets_rating_dialog_test.dart: rating Size(360.0, 640.0) scale=1.0 Brightness.dark keyboard transitions keep actions reachable
+00:03 +34 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets_rating_dialog_test.dart: rating Size(360.0, 640.0) scale=1.0 Brightness.dark keyboard transitions keep actions reachable
+00:03 +35 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets_rating_dialog_test.dart: rating Size(360.0, 640.0) scale=1.0 Brightness.dark keyboard transitions keep actions reachable
+00:03 +36 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/community_onboarding_flow_test.dart: F02: consent checkbox defaults to unchecked; [필수] tags present
+00:03 +37 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/search_filter_sheet_order_keyboard_test.dart: 차량번호·신고번호·ID 다음에 통계표 공통 항목이 나온다
+00:03 +38 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/search_filter_sheet_order_keyboard_test.dart: 차량번호·신고번호·ID 다음에 통계표 공통 항목이 나온다
+00:03 +39 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/search_filter_sheet_order_keyboard_test.dart: 차량번호·신고번호·ID 다음에 통계표 공통 항목이 나온다
+00:03 +40 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/search_filter_sheet_order_keyboard_test.dart: 차량번호·신고번호·ID 다음에 통계표 공통 항목이 나온다
+00:03 +41 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/search_filter_sheet_order_keyboard_test.dart: 차량번호·신고번호·ID 다음에 통계표 공통 항목이 나온다
+00:04 +42 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/search_filter_sheet_order_keyboard_test.dart: 차량번호·신고번호·ID 다음에 통계표 공통 항목이 나온다
+00:04 +43 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/search_filter_sheet_order_keyboard_test.dart: 차량번호·신고번호·ID 다음에 통계표 공통 항목이 나온다
+00:04 +44 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/search_filter_sheet_order_keyboard_test.dart: 차량번호·신고번호·ID 다음에 통계표 공통 항목이 나온다
+00:04 +45 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/search_filter_sheet_order_keyboard_test.dart: 차량번호·신고번호·ID 다음에 통계표 공통 항목이 나온다
+00:04 +46 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/search_filter_sheet_order_keyboard_test.dart: 차량번호·신고번호·ID 다음에 통계표 공통 항목이 나온다
+00:04 +47 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/search_filter_sheet_order_keyboard_test.dart: 차량번호·신고번호·ID 다음에 통계표 공통 항목이 나온다
+00:04 +48 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/search_filter_sheet_order_keyboard_test.dart: 차량번호·신고번호·ID 다음에 통계표 공통 항목이 나온다
+00:04 +49 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/search_filter_sheet_order_keyboard_test.dart: 차량번호·신고번호·ID 다음에 통계표 공통 항목이 나온다
+00:04 +50 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/search_filter_sheet_order_keyboard_test.dart: 차량번호·신고번호·ID 다음에 통계표 공통 항목이 나온다
+00:04 +51 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/search_filter_sheet_order_keyboard_test.dart: 차량번호·신고번호·ID 다음에 통계표 공통 항목이 나온다
+00:04 +52 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/duplicate_editor_radio_test.dart: picking a representative switches the mode dropdown to manual
+00:04 +53 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/duplicate_editor_radio_test.dart: picking a representative switches the mode dropdown to manual
+00:04 +54 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/duplicate_editor_radio_test.dart: picking a representative switches the mode dropdown to manual
+00:04 +55 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/duplicate_editor_radio_test.dart: picking a representative switches the mode dropdown to manual
+00:04 +56 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/duplicate_editor_radio_test.dart: picking a representative switches the mode dropdown to manual
+00:04 +57 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/duplicate_editor_radio_test.dart: picking a representative switches the mode dropdown to manual
+00:05 +58 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/duplicate_editor_radio_test.dart: picking a representative switches the mode dropdown to manual
+00:05 +59 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/duplicate_editor_radio_test.dart: picking a representative switches the mode dropdown to manual
+00:05 +60 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/community_onboarding_flow_test.dart: consent is saved through the gate account client, the way main.dart wires it
+00:05 +61 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/stats_overview_section_test.dart: 통계 요약: overflow 없음 (dark, x1.0, 360dp)
+00:05 +62 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/stats_overview_section_test.dart: 통계 요약: overflow 없음 (dark, x1.0, 360dp)
+00:05 +63 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/stats_overview_section_test.dart: 통계 요약: overflow 없음 (dark, x1.0, 360dp)
+00:05 +64 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/stats_overview_section_test.dart: 통계 요약: overflow 없음 (dark, x1.0, 360dp)
+00:05 +65 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/stats_overview_section_test.dart: 통계 요약: overflow 없음 (dark, x1.0, 360dp)
+00:05 +66 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/stats_overview_section_test.dart: 통계 요약: overflow 없음 (dark, x1.0, 360dp)
+00:06 +67 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/stats_overview_section_test.dart: 통계 요약: overflow 없음 (dark, x1.0, 360dp)
+00:06 +68 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/stats_overview_section_test.dart: 통계 요약: overflow 없음 (dark, x1.0, 360dp)
+00:06 +69 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/stats_overview_section_test.dart: 통계 요약: overflow 없음 (dark, x1.0, 360dp)
+00:06 +70 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/community_account_cards_test.dart: Standalone 커뮤니티 계정 카드 설정되지 않음 · dark · x1.0
+00:06 +71 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/stats_fine_breakdown_test.dart: 좁은 화면에서도 확정·미확인·추정 금액과 각 건수가 모두 보인다
+00:06 +72 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +73 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +74 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +75 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +76 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +77 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +78 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +79 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +80 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +81 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +82 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +83 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +84 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +85 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +86 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +87 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +88 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +89 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +90 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +91 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +92 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +93 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +94 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +95 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +96 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:06 +97 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:07 +98 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:07 +99 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:07 +100 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:07 +101 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:07 +102 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:07 +103 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:07 +104 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:07 +105 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:07 +106 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:07 +107 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:07 +108 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:07 +109 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/report_detail_video_test.dart: 첨부 동영상은 보이고 스크롤이 멈췄을 때 하나씩 자동으로 불러온다
+00:07 +110 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/sync_exit_guard_test.dart: 동기화 중 뒤로 가기를 여러 번 눌러도 실행 화면이 닫히지 않는다
+00:07 +111 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/sync_exit_guard_test.dart: 동기화 중 뒤로 가기를 여러 번 눌러도 실행 화면이 닫히지 않는다
+00:07 +112 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/sync_exit_guard_test.dart: 동기화 중 뒤로 가기를 여러 번 눌러도 실행 화면이 닫히지 않는다
+00:07 +113 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/community_account_cards_test.dart: Standalone 커뮤니티 계정 카드 브라우저 대기 · dark · x2.0
+00:07 +114 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/stats_overview_section_test.dart: 통계 요약: overflow 없음 (light, x1.3, 430dp)
+00:07 +115 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/stats_overview_section_test.dart: 통계 요약: overflow 없음 (light, x1.3, 430dp)
+00:07 +116 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/community_account_cards_test.dart: Standalone 커뮤니티 계정 카드 브라우저 대기 · light · x2.0
+00:07 +117 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/stats_overview_section_test.dart: 통계 요약: overflow 없음 (light, x2.0, 360dp)
+00:07 +118 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/community_account_cards_test.dart: Standalone 커뮤니티 계정 카드 로그인 복귀 → 전역 확인 창 → "이 계정으로 연결" 로 저장 (교체 경고)
+00:07 +119 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/community_account_cards_test.dart: Standalone 커뮤니티 계정 카드 로그인 복귀 → 전역 확인 창 → "이 계정으로 연결" 로 저장 (교체 경고)
+00:07 +120 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/community_account_cards_test.dart: Standalone 커뮤니티 계정 카드 로그인 복귀 → 전역 확인 창 → "이 계정으로 연결" 로 저장 (교체 경고)
+00:07 +121 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/community_account_cards_test.dart: Standalone 커뮤니티 계정 카드 로그인 복귀 → 전역 확인 창 → "이 계정으로 연결" 로 저장 (교체 경고)
+00:08 +122 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:08 +123 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:08 +124 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:08 +125 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:08 +126 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:08 +127 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:08 +128 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:08 +129 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:08 +130 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:08 +131 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:08 +132 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:08 +133 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:08 +134 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:08 +135 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:08 +136 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:08 +137 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:08 +138 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:08 +139 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:08 +140 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +141 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +142 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +143 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +144 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +145 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +146 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +147 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +148 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +149 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +150 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +151 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +152 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +153 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +154 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +155 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +156 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +157 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +158 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +159 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +160 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +161 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +162 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +163 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +164 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +165 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +166 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +167 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +168 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +169 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +170 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +171 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +172 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +173 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +174 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +175 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +175 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/photo_decode_memory_test.dart: decoded bytes for a 4000x3000 photo on a 411x891dp @2.625 phone
+MEASURE 4000x3000 before=48000000 after=3491644
+00:09 +176 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:09 +177 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:10 +178 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:10 +179 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:10 +180 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:10 +181 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:10 +182 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:10 +183 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:10 +184 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:10 +185 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:10 +186 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:10 +187 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:10 +188 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:10 +189 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:10 +190 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:10 +191 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:10 +192 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:10 +193 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:10 +194 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:10 +195 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:11 +196 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:11 +197 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:11 +197 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/photo_decode_memory_test.dart: decoded bytes for a 1080x20000 photo on a 411x891dp @2.625 phone
+MEASURE 1080x20000 before=86400000 after=14483456
+00:11 +198 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:11 +199 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:11 +200 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:11 +201 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:11 +202 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +203 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +204 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +204 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/db_copy_test.dart: virtual tables with their shadow tables and a trigger on a view are copied (Sol re-check 5)
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:12 +205 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +206 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +207 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +207 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/db_copy_test.dart: a copy over an existing file replaces it (a retried run reuses the name)
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:12 +208 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +209 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +210 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +211 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +211 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/db_copy_test.dart: app code does not run VACUUM INTO (fails on Android 7-10)
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:12 +212 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +213 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +214 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +215 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +216 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +217 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +218 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +219 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +220 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +221 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +222 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +223 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +224 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +225 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +226 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +227 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +228 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +229 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +230 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +231 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +232 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +233 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +234 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +235 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +236 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +237 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +238 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +239 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +240 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +241 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +242 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +243 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +244 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:12 +245 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +246 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +247 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +248 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +249 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +250 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +251 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +252 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +253 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +254 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +255 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +256 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +257 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +258 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +259 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +260 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +261 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +262 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +263 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +264 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +265 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +266 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +267 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +268 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +269 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +270 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +271 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +272 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +273 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +274 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +275 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +276 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +277 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +278 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +279 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +280 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +281 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +282 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +283 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +284 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +285 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +286 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +287 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +288 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +289 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +290 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +291 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +292 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +293 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:13 +294 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:14 +295 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:14 +296 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:14 +297 ~11: /home/better0101/projects/safetyreport-mobile/test/widgets/settings_revert_button_test.dart: shows the revert only for a DB that has a pre-import copy, follows demo switches, and reverts
+00:14 +298 ~11: /home/better0101/projects/safetyreport-mobile/test/golden/renewal_golden_test.dart: 신고 카드 골든 (dark)
+00:14 +299 ~11: /home/better0101/projects/safetyreport-mobile/test/golden/renewal_golden_test.dart: 신고 카드 골든 (dark)
+00:14 +300 ~11: /home/better0101/projects/safetyreport-mobile/test/golden/renewal_golden_test.dart: 신고 카드 골든 (dark)
+00:14 +301 ~11: /home/better0101/projects/safetyreport-mobile/test/golden/renewal_golden_test.dart: 신고 카드 골든 (dark)
+00:14 +302 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/migration_test.dart: the backup keeps a write that is still only in the WAL (checkpoint blocked by a reader)
+00:14 +303 ~11: /home/better0101/projects/safetyreport-mobile/test/community/community_store_test.dart: CommunityStore schema, meta and WAL
+00:14 +304 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: server DB of schema 0 is refused before replacing the DB
+00:15 +305 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: server DB of schema 0 is refused before replacing the DB
+00:15 +306 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: server DB of schema 0 is refused before replacing the DB
+00:15 +307 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: server DB of schema 0 is refused before replacing the DB
+00:15 +308 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: server DB of schema 0 is refused before replacing the DB
+00:15 +308 ~11: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_fresh_install_test.dart: a fresh install without an official account is not announced and records nothing
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:15 +309 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: server DB of schema 0 is refused before replacing the DB
+00:15 +310 ~11: /home/better0101/projects/safetyreport-mobile/test/community/community_store_test.dart: CommunityStore context active / inactive and unknown fields
+00:15 +311 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/migration_test.dart: a write attempted while the old DB is being emptied fails instead of being lost
+00:15 +312 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/migration_test.dart: a write attempted while the old DB is being emptied fails instead of being lost
+00:15 +312 ~11: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_fresh_install_test.dart: existing reports still require the rebuild
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:15 +313 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/migration_test.dart: a write attempted while the old DB is being emptied fails instead of being lost
+00:15 +314 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/migration_test.dart: a write attempted while the old DB is being emptied fails instead of being lost
+00:15 +315 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/migration_test.dart: a write attempted while the old DB is being emptied fails instead of being lost
+00:15 +316 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/migration_test.dart: a write attempted while the old DB is being emptied fails instead of being lost
+00:15 +317 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/migration_test.dart: a write attempted while the old DB is being emptied fails instead of being lost
+00:15 +317 ~11: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_fresh_install_test.dart: a legacy-reset user is guided even with an empty DB
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:15 +318 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/migration_test.dart: a write attempted while the old DB is being emptied fails instead of being lost
+00:15 +319 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/migration_test.dart: a write attempted while the old DB is being emptied fails instead of being lost
+00:15 +320 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/migration_test.dart: a write attempted while the old DB is being emptied fails instead of being lost
+00:15 +321 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:15 +322 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:15 +323 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:15 +323 ~11: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_fresh_install_test.dart: unreadable personal DB or no facts at all is not a fresh install
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:15 +324 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:15 +325 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:15 +326 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:15 +326 ~11: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_fresh_install_test.dart: retrying a failed run makes a new backup instead of failing on the old copy
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:16 +327 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:16 +328 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:16 +329 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:16 +329 ~11: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_fresh_install_test.dart: a rebuild that is required blocks a normal sync before any network call
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:16 +330 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:16 +330 ~11: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_fresh_install_test.dart: a failing rebuild check also blocks a normal sync (fail-closed)
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:16 +331 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:16 +332 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:16 +333 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:16 +334 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:16 +335 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:16 +336 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:16 +337 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:16 +338 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:16 +338 ~11: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_fresh_install_test.dart: an empty site list marks the rebuild list as complete
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:16 +339 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:16 +340 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:16 +341 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:16 +342 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:16 +343 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:16 +344 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:16 +345 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:16 +346 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:16 +347 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:17 +348 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:17 +349 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:17 +350 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F01: fresh install selects mode before onboarding, zero permission calls
+00:17 +351 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: server DB of schema 4 is refused before replacing the DB
+00:17 +352 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: server DB of schema 4 is refused before replacing the DB
+00:17 +353 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/migration_test.dart: a failing step before the reset leaves the old DB as it was
+00:17 +354 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/migration_test.dart: a failing step before the reset leaves the old DB as it was
+00:17 +355 ~11: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_state_test.dart: G01: no completed row means required; success completes
+00:17 +356 ~11: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_state_test.dart: G01: no completed row means required; success completes
+00:17 +357 ~11: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_state_test.dart: G01: no completed row means required; success completes
+00:17 +358 ~11: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_state_test.dart: G01: no completed row means required; success completes
+00:17 +359 ~11: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_state_test.dart: G01: no completed row means required; success completes
+00:17 +360 ~11: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_state_test.dart: G01: no completed row means required; success completes
+00:17 +361 ~11: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_state_test.dart: G01: no completed row means required; success completes
+00:17 +362 ~11: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_state_test.dart: G01: no completed row means required; success completes
+00:17 +363 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: server DB of schema 6 is refused before replacing the DB
+00:17 +364 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: server DB of schema 6 is refused before replacing the DB
+00:17 +365 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: server DB of schema 6 is refused before replacing the DB
+00:17 +366 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: server DB of schema 6 is refused before replacing the DB
+00:17 +367 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: server DB of schema 6 is refused before replacing the DB
+00:17 +368 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: server DB of schema 6 is refused before replacing the DB
+00:17 +369 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: server DB of schema 6 is refused before replacing the DB
+00:17 +370 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: server DB of schema 6 is refused before replacing the DB
+00:17 +371 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: server DB of schema 6 is refused before replacing the DB
+00:17 +372 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: server DB of schema 6 is refused before replacing the DB
+00:17 +373 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: server DB of schema 6 is refused before replacing the DB
+00:17 +374 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: server DB of schema 6 is refused before replacing the DB
+00:17 +375 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: server DB of schema 6 is refused before replacing the DB
+00:17 +376 ~11: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: server DB of schema 6 is refused before replacing the DB
+00:17 +377 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: S-21: mode selection precedes common permissions
+00:17 +378 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: S-21: mode selection precedes common permissions
+00:17 +379 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: S-21: mode selection precedes common permissions
+00:17 +380 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: S-21: mode selection precedes common permissions
+00:17 +381 ~11: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: S-21: mode selection precedes common permissions
+00:17 +381 ~11: /home/better0101/projects/safetyreport-mobile/test/community/live_stack_test.dart: standalone capture → upload ACK → public → manifest → remote revoke blocks
+  Skip: COMMUNITY_STACK=1 과 COMMUNITY_PUBLISHABLE_KEY 가 필요하다(실제 로컬 스택)
+00:17 +381 ~12: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: S-21: mode selection precedes common permissions
+00:17 +381 ~12: /home/better0101/projects/safetyreport-mobile/test/community/live_stack_test.dart: consent text from the real center, consent with its hash, then the gate passes
+  Skip: COMMUNITY_STACK=1 과 COMMUNITY_PUBLISHABLE_KEY 가 필요하다(실제 로컬 스택)
+00:17 +381 ~13: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: S-21: mode selection precedes common permissions
+00:17 +381 ~13: /home/better0101/projects/safetyreport-mobile/test/community/live_stack_test.dart: kakao member id comes from the real GoTrue identity and backfills an old session
+  Skip: COMMUNITY_STACK=1 과 COMMUNITY_PUBLISHABLE_KEY 가 필요하다(실제 로컬 스택)
+00:17 +381 ~14: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: S-21: mode selection precedes common permissions
+00:18 +382 ~14: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: S-21: mode selection precedes common permissions
+00:18 +383 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: unknown server column with a value refuses before replacing the DB (SOL-02)
+00:18 +384 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: unknown server column with a value refuses before replacing the DB (SOL-02)
+00:18 +385 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: unknown server column with a value refuses before replacing the DB (SOL-02)
+00:18 +386 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: unknown server column with a value refuses before replacing the DB (SOL-02)
+00:18 +387 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: unknown server column with a value refuses before replacing the DB (SOL-02)
+00:18 +388 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: unknown server column with a value refuses before replacing the DB (SOL-02)
+00:18 +389 ~14: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: S-21: standalone configured skips to main when store unavailable
+00:18 +390 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_test.dart: capture transaction 길이 초과 기관코드는 명시적 사유로 전송 제외된다 (REVIEW3 낮음-1)
+00:18 +391 ~14: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_state_test.dart: G16: revoke during run pauses; resume continues
+00:18 +392 ~14: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_state_test.dart: G16: revoke during run pauses; resume continues
+00:18 +393 ~14: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_state_test.dart: G16: revoke during run pauses; resume continues
+00:18 +394 ~14: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_state_test.dart: G16: revoke during run pauses; resume continues
+00:18 +395 ~14: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_state_test.dart: G16: revoke during run pauses; resume continues
+00:18 +396 ~14: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_state_test.dart: G16: revoke during run pauses; resume continues
+00:18 +397 ~14: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_state_test.dart: G16: revoke during run pauses; resume continues
+00:18 +398 ~14: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_state_test.dart: G16: revoke during run pauses; resume continues
+00:18 +399 ~14: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_state_test.dart: G16: revoke during run pauses; resume continues
+00:18 +400 ~14: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_state_test.dart: G16: revoke during run pauses; resume continues
+00:18 +401 ~14: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_state_test.dart: G16: revoke during run pauses; resume continues
+00:18 +402 ~14: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_state_test.dart: G16: revoke during run pauses; resume continues
+00:18 +403 ~14: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_state_test.dart: G16: revoke during run pauses; resume continues
+00:18 +404 ~14: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_state_test.dart: G16: revoke during run pauses; resume continues
+00:18 +405 ~14: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_state_test.dart: G16: revoke during run pauses; resume continues
+00:18 +406 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +407 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +408 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +409 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +410 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +411 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +412 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +413 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +414 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +415 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +416 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +417 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +418 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +419 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +420 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +421 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +422 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +423 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +424 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +425 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +426 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +427 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +428 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +429 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +430 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +431 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +432 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +433 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +434 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +435 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +436 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +437 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +438 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)
+00:18 +439 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +440 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +441 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +442 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +443 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +444 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +445 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +446 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +447 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +448 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +449 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +450 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +451 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +452 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +453 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +454 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +455 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +456 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +457 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +458 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +459 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +460 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +461 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +462 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +463 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +464 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +465 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +466 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +467 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +468 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +469 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +470 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +471 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +472 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +473 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +474 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +475 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +476 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +477 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +478 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +479 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +480 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +481 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +482 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +483 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +484 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +485 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +486 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:18 +487 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: intent file cannot be written → CaptureStoreUnavailable, personal DB and community.db unchanged
+00:19 +488 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout: an unknown value in the merge table actually read for parking is refused (SOL-02 recheck)
+00:19 +489 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout: an unknown value in the merge table actually read for parking is refused (SOL-02 recheck)
+00:19 +490 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout: an unknown value in the merge table actually read for parking is refused (SOL-02 recheck)
+00:19 +491 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: mixed layout: an unknown value in the merge table actually read for parking is refused (SOL-02 recheck)
+00:19 +492 ~14: /home/better0101/projects/safetyreport-mobile/test/community/integration_contract_test.dart: manifest contract replaces only when every rule holds; failures keep the old list
+00:19 +493 ~14: /home/better0101/projects/safetyreport-mobile/test/community/kakao_logout_test.dart: logout keeps the data only when it is known to belong to another account
+00:19 +494 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: positive control: a writable intent file saves the same report and removes the intent
+00:19 +495 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: positive control: a writable intent file saves the same report and removes the intent
+00:19 +496 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: positive control: a writable intent file saves the same report and removes the intent
+00:19 +497 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: positive control: a writable intent file saves the same report and removes the intent
+00:19 +498 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: positive control: a writable intent file saves the same report and removes the intent
+00:19 +499 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: positive control: a writable intent file saves the same report and removes the intent
+00:19 +500 ~14: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F06: navigation allowed again after gate passes
+00:19 +501 ~14: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F06: navigation allowed again after gate passes
+00:19 +502 ~14: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F06: navigation allowed again after gate passes
+00:19 +503 ~14: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F06: navigation allowed again after gate passes
+00:19 +504 ~14: /home/better0101/projects/safetyreport-mobile/test/community/entry_order_test.dart: F06: navigation allowed again after gate passes
+00:19 +505 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: 업로더는 개인 저장 완료 표시 뒤에 깨운다
+00:19 +506 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: 업로더는 개인 저장 완료 표시 뒤에 깨운다
+00:19 +507 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: 업로더는 개인 저장 완료 표시 뒤에 깨운다
+00:19 +508 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: 업로더는 개인 저장 완료 표시 뒤에 깨운다
+00:19 +509 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: 업로더는 개인 저장 완료 표시 뒤에 깨운다
+00:19 +510 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: 업로더는 개인 저장 완료 표시 뒤에 깨운다
+00:19 +511 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: 업로더는 개인 저장 완료 표시 뒤에 깨운다
+00:19 +512 ~14: /home/better0101/projects/safetyreport-mobile/test/community/capture_intent_failure_test.dart: 업로더는 개인 저장 완료 표시 뒤에 깨운다
+00:19 +513 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: entry_value: no server row is NULL, an empty or filled row is kept as is (SOL-03)
+00:19 +514 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: entry_value: no server row is NULL, an empty or filled row is kept as is (SOL-03)
+00:20 +515 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: entry_value: no server row is NULL, an empty or filled row is kept as is (SOL-03)
+00:20 +516 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: entry_value: no server row is NULL, an empty or filled row is kept as is (SOL-03)
+00:20 +517 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: entry_value: no server row is NULL, an empty or filled row is kept as is (SOL-03)
+00:20 +518 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: entry_value: no server row is NULL, an empty or filled row is kept as is (SOL-03)
+00:20 +519 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: entry_value: no server row is NULL, an empty or filled row is kept as is (SOL-03)
+00:20 +520 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: entry_value: no server row is NULL, an empty or filled row is kept as is (SOL-03)
+00:20 +521 ~14: /home/better0101/projects/safetyreport-mobile/test/community/kakao_logout_test.dart: onboarding shows the mismatch box with adopt and keep-data logout
+00:20 +522 ~14: /home/better0101/projects/safetyreport-mobile/test/community/kakao_logout_test.dart: onboarding shows the mismatch box with adopt and keep-data logout
+00:20 +523 ~14: /home/better0101/projects/safetyreport-mobile/test/community/kakao_logout_test.dart: onboarding shows the mismatch box with adopt and keep-data logout
+00:20 +524 ~14: /home/better0101/projects/safetyreport-mobile/test/community/kakao_logout_test.dart: onboarding shows the mismatch box with adopt and keep-data logout
+00:20 +525 ~14: /home/better0101/projects/safetyreport-mobile/test/community/kakao_logout_test.dart: onboarding shows the mismatch box with adopt and keep-data logout
+00:20 +526 ~14: /home/better0101/projects/safetyreport-mobile/test/community/kakao_logout_test.dart: onboarding shows the mismatch box with adopt and keep-data logout
+00:20 +527 ~14: /home/better0101/projects/safetyreport-mobile/test/community/kakao_logout_test.dart: onboarding shows the mismatch box with adopt and keep-data logout
+00:20 +528 ~14: /home/better0101/projects/safetyreport-mobile/test/community/kakao_logout_test.dart: onboarding shows the mismatch box with adopt and keep-data logout
+00:21 +529 ~14: /home/better0101/projects/safetyreport-mobile/test/community/kakao_logout_test.dart: onboarding shows the mismatch box with adopt and keep-data logout
+00:21 +530 ~14: /home/better0101/projects/safetyreport-mobile/test/community/kakao_logout_test.dart: onboarding shows the mismatch box with adopt and keep-data logout
+00:21 +531 ~14: /home/better0101/projects/safetyreport-mobile/test/community/kakao_logout_test.dart: onboarding shows the mismatch box with adopt and keep-data logout
+00:21 +532 ~14: /home/better0101/projects/safetyreport-mobile/test/community/kakao_logout_test.dart: onboarding shows the mismatch box with adopt and keep-data logout
+00:21 +533 ~14: /home/better0101/projects/safetyreport-mobile/test/community/kakao_logout_test.dart: onboarding shows the mismatch box with adopt and keep-data logout
+00:21 +534 ~14: /home/better0101/projects/safetyreport-mobile/test/community/kakao_logout_test.dart: onboarding shows the mismatch box with adopt and keep-data logout
+00:21 +535 ~14: /home/better0101/projects/safetyreport-mobile/test/community/kakao_logout_test.dart: onboarding shows the mismatch box with adopt and keep-data logout
+00:21 +536 ~14: /home/better0101/projects/safetyreport-mobile/test/community/kakao_logout_test.dart: onboarding shows the mismatch box with adopt and keep-data logout
+00:21 +537 ~14: /home/better0101/projects/safetyreport-mobile/test/community/kakao_logout_test.dart: onboarding shows the mismatch box with adopt and keep-data logout
+00:21 +538 ~14: /home/better0101/projects/safetyreport-mobile/test/community/kakao_logout_test.dart: onboarding shows the mismatch box with adopt and keep-data logout
+00:21 +539 ~14: /home/better0101/projects/safetyreport-mobile/test/community/kakao_logout_test.dart: onboarding shows the mismatch box with adopt and keep-data logout
+00:21 +540 ~14: /home/better0101/projects/safetyreport-mobile/test/community/kakao_logout_test.dart: onboarding shows the mismatch box with adopt and keep-data logout
+00:21 +541 ~14: /home/better0101/projects/safetyreport-mobile/test/community/kakao_logout_test.dart: onboarding shows the mismatch box with adopt and keep-data logout
+00:21 +542 ~14: /home/better0101/projects/safetyreport-mobile/test/community/kakao_logout_test.dart: onboarding shows the mismatch box with adopt and keep-data logout
+00:21 +543 ~14: /home/better0101/projects/safetyreport-mobile/test/community/kakao_logout_test.dart: onboarding shows the mismatch box with adopt and keep-data logout
+00:21 +544 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: retry sends the same captured copy and event id
+00:21 +545 ~14: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_hook_test.dart: rotate hook replaceFromBackup 전에 rotateDataset(restore) 호출
+00:22 +546 ~14: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_hook_test.dart: rotate hook replaceFromBackup 전에 rotateDataset(restore) 호출
+00:22 +547 ~14: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_hook_test.dart: rotate hook replaceFromBackup 전에 rotateDataset(restore) 호출
+00:22 +548 ~14: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_hook_test.dart: rotate hook replaceFromBackup 전에 rotateDataset(restore) 호출
+00:22 +549 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: the settings revert brings back the DB from before the last import, and can be undone (SOL-05 recheck)
+00:22 +550 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: the settings revert brings back the DB from before the last import, and can be undone (SOL-05 recheck)
+00:22 +551 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: the settings revert brings back the DB from before the last import, and can be undone (SOL-05 recheck)
+00:22 +552 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: the settings revert brings back the DB from before the last import, and can be undone (SOL-05 recheck)
+00:22 +553 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: the settings revert brings back the DB from before the last import, and can be undone (SOL-05 recheck)
+00:22 +553 ~14: /home/better0101/projects/safetyreport-mobile/test/community/rebuild_hook_test.dart: build config 회전 실패면 복원하지 않고 현재 DB 를 그대로 둔다 (Sol H-02)
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:22 +554 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: the settings revert brings back the DB from before the last import, and can be undone (SOL-05 recheck)
+00:22 +555 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: the settings revert brings back the DB from before the last import, and can be undone (SOL-05 recheck)
+00:22 +556 ~14: /home/better0101/projects/safetyreport-mobile/test/storage/server_import_test.dart: the settings revert brings back the DB from before the last import, and can be undone (SOL-05 recheck)
+00:22 +557 ~14: /home/better0101/projects/safetyreport-mobile/test/community/uploader_test.dart: uploader B02: 같은 신고 두 이벤트는 앞 ACK 뒤 다음 요청으로
+00:22 +558 ~14: /home/better0101/projects/safetyreport-mobile/test/community/uploader_test.dart: uploader B02: 같은 신고 두 이벤트는 앞 ACK 뒤 다음 요청으로
+00:22 +559 ~14: /home/better0101/projects/safetyreport-mobile/test/community/uploader_test.dart: uploader B02: 같은 신고 두 이벤트는 앞 ACK 뒤 다음 요청으로
+00:22 +560 ~14: /home/better0101/projects/safetyreport-mobile/test/community/uploader_test.dart: uploader B02: 같은 신고 두 이벤트는 앞 ACK 뒤 다음 요청으로
+00:22 +561 ~14: /home/better0101/projects/safetyreport-mobile/test/community/uploader_test.dart: uploader B02: 같은 신고 두 이벤트는 앞 ACK 뒤 다음 요청으로
+00:23 +562 ~14: /home/better0101/projects/safetyreport-mobile/test/community/uploader_test.dart: uploader B02: 같은 신고 두 이벤트는 앞 ACK 뒤 다음 요청으로
+00:23 +563 ~14: /home/better0101/projects/safetyreport-mobile/test/community/uploader_test.dart: uploader B02: 같은 신고 두 이벤트는 앞 ACK 뒤 다음 요청으로
+00:23 +564 ~14: /home/better0101/projects/safetyreport-mobile/test/community/uploader_test.dart: uploader B02: 같은 신고 두 이벤트는 앞 ACK 뒤 다음 요청으로
+00:23 +565 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:23 +566 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:23 +567 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:23 +568 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:23 +569 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:23 +570 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:23 +571 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:23 +572 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:23 +573 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:23 +574 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:23 +575 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:23 +576 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:23 +577 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:23 +578 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:23 +579 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:24 +580 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:24 +581 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:24 +582 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:24 +583 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:24 +584 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:24 +585 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:24 +586 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:24 +587 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:24 +588 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:24 +589 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:24 +590 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:24 +591 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:24 +592 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:24 +593 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +594 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +595 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +596 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +597 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +598 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +599 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +600 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +601 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +602 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +603 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +604 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +605 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +606 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +607 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +608 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +609 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +610 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +611 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +612 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +613 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +614 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +615 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +616 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +617 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +618 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +619 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +620 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:25 +621 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +622 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +623 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +624 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +625 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +626 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +627 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +628 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +629 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +630 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +631 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +632 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +633 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +634 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +635 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +636 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +637 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +638 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +639 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +640 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +641 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +642 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +643 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +644 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +645 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +646 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +647 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +648 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +649 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +650 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +651 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +652 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +653 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +654 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +655 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +656 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +657 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +658 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +659 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +660 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +661 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +662 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +663 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +664 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +665 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +666 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +667 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:26 +668 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:27 +669 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:27 +670 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:27 +671 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:27 +672 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:27 +673 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:27 +674 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:27 +675 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:27 +676 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:27 +677 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:27 +678 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:27 +679 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:28 +680 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:28 +681 ~14: /home/better0101/projects/safetyreport-mobile/test/community/sync_upload_progress_log_test.dart: SQLite 변수 한도를 넘는 이벤트 수도 나눠서 센다
+00:28 +682 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: recovery runs when the retry time comes without a new capture
+00:28 +683 ~14: /home/better0101/projects/safetyreport-mobile/test/services/maintenance_service_test.dart: MaintenanceStatusBar shows server progress, then 완료 briefly, then hides
+00:28 +684 ~14: /home/better0101/projects/safetyreport-mobile/test/services/maintenance_service_test.dart: MaintenanceStatusBar shows server progress, then 완료 briefly, then hides
+00:28 +685 ~14: /home/better0101/projects/safetyreport-mobile/test/services/maintenance_service_test.dart: MaintenanceStatusBar shows server progress, then 완료 briefly, then hides
+00:28 +686 ~14: /home/better0101/projects/safetyreport-mobile/test/services/maintenance_service_test.dart: MaintenanceStatusBar shows server progress, then 완료 briefly, then hides
+00:28 +687 ~14: /home/better0101/projects/safetyreport-mobile/test/services/maintenance_service_test.dart: MaintenanceStatusBar shows server progress, then 완료 briefly, then hides
+00:28 +688 ~14: /home/better0101/projects/safetyreport-mobile/test/services/maintenance_service_test.dart: MaintenanceStatusBar shows server progress, then 완료 briefly, then hides
+00:28 +689 ~14: /home/better0101/projects/safetyreport-mobile/test/services/maintenance_service_test.dart: MaintenanceStatusBar shows server progress, then 완료 briefly, then hides
+00:28 +690 ~14: /home/better0101/projects/safetyreport-mobile/test/services/maintenance_service_test.dart: MaintenanceStatusBar shows server progress, then 완료 briefly, then hides
+00:28 +691 ~14: /home/better0101/projects/safetyreport-mobile/test/services/maintenance_service_test.dart: MaintenanceStatusBar shows server progress, then 완료 briefly, then hides
+00:28 +692 ~14: /home/better0101/projects/safetyreport-mobile/test/services/maintenance_service_test.dart: MaintenanceStatusBar shows server progress, then 완료 briefly, then hides
+00:28 +693 ~14: /home/better0101/projects/safetyreport-mobile/test/services/maintenance_service_test.dart: MaintenanceStatusBar shows server progress, then 완료 briefly, then hides
+00:28 +694 ~14: /home/better0101/projects/safetyreport-mobile/test/services/maintenance_service_test.dart: MaintenanceStatusBar shows server progress, then 완료 briefly, then hides
+00:28 +695 ~14: /home/better0101/projects/safetyreport-mobile/test/services/maintenance_service_test.dart: MaintenanceStatusBar shows server progress, then 완료 briefly, then hides
+00:28 +696 ~14: /home/better0101/projects/safetyreport-mobile/test/services/maintenance_service_test.dart: MaintenanceStatusBar shows server progress, then 완료 briefly, then hides
+00:28 +697 ~14: /home/better0101/projects/safetyreport-mobile/test/services/map_presentation_test.dart: 500000 reports retain all counts in bounded cells; viewport only changes display
+00:28 +698 ~14: /home/better0101/projects/safetyreport-mobile/test/services/map_presentation_test.dart: 500000 reports retain all counts in bounded cells; viewport only changes display
+00:28 +699 ~14: /home/better0101/projects/safetyreport-mobile/test/services/map_presentation_test.dart: 500000 reports retain all counts in bounded cells; viewport only changes display
+00:28 +700 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: midnight is not succeeded while rows wait
+00:28 +701 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: midnight is not succeeded while rows wait
+00:28 +702 ~14: /home/better0101/projects/safetyreport-mobile/test/services/api_service_db_download_test.dart: stops when no byte arrives for the idle timeout, closes the request, and does not retry
+00:28 +703 ~14: /home/better0101/projects/safetyreport-mobile/test/services/api_service_db_download_test.dart: stops when no byte arrives for the idle timeout, closes the request, and does not retry
+00:28 +704 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: losing the lease mid-run stops new batches
+00:28 +705 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: losing the lease mid-run stops new batches
+00:28 +706 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: losing the lease mid-run stops new batches
+00:28 +707 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: losing the lease mid-run stops new batches
+00:28 +708 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: losing the lease mid-run stops new batches
+00:28 +709 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: losing the lease mid-run stops new batches
+00:28 +710 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: losing the lease mid-run stops new batches
+00:29 +711 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: losing the lease mid-run stops new batches
+00:29 +712 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: losing the lease mid-run stops new batches
+00:29 +713 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: losing the lease mid-run stops new batches
+00:29 +714 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: losing the lease mid-run stops new batches
+00:29 +715 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: losing the lease mid-run stops new batches
+00:29 +716 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: losing the lease mid-run stops new batches
+00:29 +717 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: losing the lease mid-run stops new batches
+00:29 +718 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: losing the lease mid-run stops new batches
+00:29 +719 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: losing the lease mid-run stops new batches
+00:29 +720 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: losing the lease mid-run stops new batches
+00:29 +721 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: losing the lease mid-run stops new batches
+00:29 +722 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: losing the lease mid-run stops new batches
+00:29 +723 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: losing the lease mid-run stops new batches
+00:29 +724 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: losing the lease mid-run stops new batches
+00:29 +725 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: two runners drain once
+00:29 +726 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: two runners drain once
+00:29 +727 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: two runners drain once
+00:29 +728 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: two runners drain once
+00:29 +729 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: two runners drain once
+00:29 +730 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: two runners drain once
+00:29 +731 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: two runners drain once
+00:29 +732 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: two runners drain once
+00:30 +733 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: two runners drain once
+00:30 +734 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: two runners drain once
+00:30 +735 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: two runners drain once
+00:30 +736 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: two runners drain once
+00:30 +737 ~14: /home/better0101/projects/safetyreport-mobile/test/services/local_db_service_regression_test.dart: LocalDbService regressions representative projection cache is invalidated after watchlist updates
+00:30 +738 ~14: /home/better0101/projects/safetyreport-mobile/test/services/local_db_service_regression_test.dart: LocalDbService regressions representative projection cache is invalidated after watchlist updates
+00:30 +739 ~14: /home/better0101/projects/safetyreport-mobile/test/services/local_db_service_regression_test.dart: LocalDbService regressions representative projection cache is invalidated after watchlist updates
+00:30 +740 ~14: /home/better0101/projects/safetyreport-mobile/test/services/local_db_service_regression_test.dart: LocalDbService regressions representative projection cache is invalidated after watchlist updates
+00:30 +741 ~14: /home/better0101/projects/safetyreport-mobile/test/services/local_db_service_regression_test.dart: LocalDbService regressions representative projection cache is invalidated after watchlist updates
+00:30 +742 ~14: /home/better0101/projects/safetyreport-mobile/test/services/local_db_service_regression_test.dart: LocalDbService regressions representative projection cache is invalidated after watchlist updates
+00:30 +743 ~14: /home/better0101/projects/safetyreport-mobile/test/services/local_db_service_regression_test.dart: LocalDbService regressions representative projection cache is invalidated after watchlist updates
+00:30 +744 ~14: /home/better0101/projects/safetyreport-mobile/test/services/local_db_service_regression_test.dart: LocalDbService regressions representative projection cache is invalidated after watchlist updates
+00:30 +745 ~14: /home/better0101/projects/safetyreport-mobile/test/services/local_db_service_regression_test.dart: LocalDbService regressions representative projection cache is invalidated after watchlist updates
+00:30 +746 ~14: /home/better0101/projects/safetyreport-mobile/test/services/local_db_service_regression_test.dart: LocalDbService regressions representative projection cache is invalidated after watchlist updates
+00:30 +747 ~14: /home/better0101/projects/safetyreport-mobile/test/services/local_db_service_regression_test.dart: LocalDbService regressions representative projection cache is invalidated after watchlist updates
+00:30 +748 ~14: /home/better0101/projects/safetyreport-mobile/test/services/local_db_service_regression_test.dart: LocalDbService regressions representative projection cache is invalidated after watchlist updates
+00:30 +749 ~14: /home/better0101/projects/safetyreport-mobile/test/services/local_db_service_regression_test.dart: LocalDbService regressions representative projection cache is invalidated after watchlist updates
+00:30 +750 ~14: /home/better0101/projects/safetyreport-mobile/test/services/local_db_service_regression_test.dart: LocalDbService regressions representative projection cache is invalidated after watchlist updates
+00:30 +751 ~14: /home/better0101/projects/safetyreport-mobile/test/services/local_db_service_regression_test.dart: LocalDbService regressions representative projection cache is invalidated after watchlist updates
+00:30 +752 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 0 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:30 +753 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 0 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:30 +754 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 0 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:30 +755 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 0 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:30 +756 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 0 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:30 +757 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 0 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:30 +758 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 0 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:30 +759 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 0 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:30 +760 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 0 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+SR_HOST rows=0 ms=156 rss=202076160
+00:30 +761 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 0 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:30 +762 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: the resend after 401 keeps the interval and the lease
+00:30 +763 ~14: /home/better0101/projects/safetyreport-mobile/test/services/local_db_service_regression_test.dart: LocalDbService regressions failed server db import preserves existing standalone data
+00:30 +764 ~14: /home/better0101/projects/safetyreport-mobile/test/services/stats_overview_test.dart: computeStatsOverview (로컬 DB) 기관표: S-01 음수 제외·소수 1자리, S-03 처리상태 NULL 유지, S-05 금액 미확인, S-08 답변일 연도
+00:30 +765 ~14: /home/better0101/projects/safetyreport-mobile/test/services/stats_overview_test.dart: computeStatsOverview (로컬 DB) 기관표: S-01 음수 제외·소수 1자리, S-03 처리상태 NULL 유지, S-05 금액 미확인, S-08 답변일 연도
+00:30 +765 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 1 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+SR_HOST rows=1 ms=228 rss=206606336
+00:30 +766 ~14: /home/better0101/projects/safetyreport-mobile/test/services/stats_overview_test.dart: computeStatsOverview (로컬 DB) 기관표: S-01 음수 제외·소수 1자리, S-03 처리상태 NULL 유지, S-05 금액 미확인, S-08 답변일 연도
+00:31 +767 ~14: /home/better0101/projects/safetyreport-mobile/test/services/stats_overview_test.dart: computeStatsOverview (로컬 DB) 기관표: S-01 음수 제외·소수 1자리, S-03 처리상태 NULL 유지, S-05 금액 미확인, S-08 답변일 연도
+00:31 +768 ~14: /home/better0101/projects/safetyreport-mobile/test/services/local_db_service_regression_test.dart: LocalDbService regressions server db import drops stale map backfill sync state
+00:31 +769 ~14: /home/better0101/projects/safetyreport-mobile/test/services/local_db_service_regression_test.dart: LocalDbService regressions server db import drops stale map backfill sync state
+00:31 +770 ~14: /home/better0101/projects/safetyreport-mobile/test/services/local_db_service_regression_test.dart: LocalDbService regressions server db import drops stale map backfill sync state
+00:31 +771 ~14: /home/better0101/projects/safetyreport-mobile/test/services/local_db_service_regression_test.dart: LocalDbService regressions server db import drops stale map backfill sync state
+00:31 +772 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:31 +773 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:31 +774 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:31 +775 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:31 +776 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:31 +777 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:31 +778 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:31 +779 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:31 +780 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:31 +781 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:31 +782 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:31 +783 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:31 +784 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:31 +785 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:31 +786 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:31 +787 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:31 +788 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:31 +789 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:31 +790 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:31 +791 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:31 +792 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:31 +793 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:31 +794 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +795 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +796 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +797 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +798 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +799 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +800 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +801 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +802 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +803 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +804 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +805 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +806 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +807 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +808 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +809 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +810 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +811 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +812 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +813 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +814 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +815 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +816 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +817 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +818 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +819 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:32 +820 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+SR_HOST rows=3000 ms=1694 rss=229662720
+00:33 +821 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: consent revoked blocks and another account never sends old rows
+00:33 +822 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: SQL list filtering agrees with the existing ReportFilter predicate
+00:33 +823 ~14: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: SQL list filtering agrees with the existing ReportFilter predicate
+00:33 +824 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: batches are split by the exact UTF-8 size of the whole envelope
+00:33 +825 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: batches are split by the exact UTF-8 size of the whole envelope
+00:33 +826 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: batches are split by the exact UTF-8 size of the whole envelope
+00:33 +827 ~14: /home/better0101/projects/safetyreport-mobile/test/services/read_snapshot_test.dart: statistics reads a native snapshot while a same-count sync writer commits; next read invalidates
+00:33 +828 ~14: /home/better0101/projects/safetyreport-mobile/test/services/read_snapshot_test.dart: statistics reads a native snapshot while a same-count sync writer commits; next read invalidates
+00:33 +829 ~14: /home/better0101/projects/safetyreport-mobile/test/services/read_snapshot_test.dart: statistics reads a native snapshot while a same-count sync writer commits; next read invalidates
+00:33 +830 ~14: /home/better0101/projects/safetyreport-mobile/test/services/read_snapshot_test.dart: statistics reads a native snapshot while a same-count sync writer commits; next read invalidates
+00:33 +831 ~14: /home/better0101/projects/safetyreport-mobile/test/services/read_snapshot_test.dart: statistics reads a native snapshot while a same-count sync writer commits; next read invalidates
+00:33 +832 ~14: /home/better0101/projects/safetyreport-mobile/test/services/read_snapshot_test.dart: statistics reads a native snapshot while a same-count sync writer commits; next read invalidates
+00:33 +833 ~14: /home/better0101/projects/safetyreport-mobile/test/services/read_snapshot_test.dart: statistics reads a native snapshot while a same-count sync writer commits; next read invalidates
+00:33 +834 ~14: /home/better0101/projects/safetyreport-mobile/test/services/read_snapshot_test.dart: statistics reads a native snapshot while a same-count sync writer commits; next read invalidates
+00:33 +835 ~14: /home/better0101/projects/safetyreport-mobile/test/services/read_snapshot_test.dart: statistics reads a native snapshot while a same-count sync writer commits; next read invalidates
+00:33 +836 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: 413 halves the batch with the same events
+00:33 +837 ~14: /home/better0101/projects/safetyreport-mobile/test/services/read_snapshot_test.dart: queued old-filter summary skips SQL after cancellation
+00:33 +838 ~14: /home/better0101/projects/safetyreport-mobile/test/services/read_snapshot_test.dart: queued old-filter summary skips SQL after cancellation
+00:33 +839 ~14: /home/better0101/projects/safetyreport-mobile/test/services/read_snapshot_test.dart: queued old-filter summary skips SQL after cancellation
+00:33 +840 ~14: /home/better0101/projects/safetyreport-mobile/test/services/read_snapshot_test.dart: queued old-filter summary skips SQL after cancellation
+00:33 +841 ~14: /home/better0101/projects/safetyreport-mobile/test/services/read_snapshot_test.dart: queued old-filter summary skips SQL after cancellation
+00:33 +842 ~14: /home/better0101/projects/safetyreport-mobile/test/services/read_snapshot_test.dart: queued old-filter summary skips SQL after cancellation
+00:33 +843 ~14: /home/better0101/projects/safetyreport-mobile/test/services/read_snapshot_test.dart: queued old-filter summary skips SQL after cancellation
+00:33 +844 ~14: /home/better0101/projects/safetyreport-mobile/test/services/read_snapshot_test.dart: queued old-filter summary skips SQL after cancellation
+00:33 +845 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: an ambiguous 422 is pinned on one event by a control request
+00:33 +846 ~14: /home/better0101/projects/safetyreport-mobile/test/services/read_snapshot_test.dart: covering watch count preserves overrides and canonical membership
+00:33 +847 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: a 422 for every event is held, not dead-lettered
+00:34 +848 ~14: /home/better0101/projects/safetyreport-mobile/test/services/read_snapshot_test.dart: abandoned navigation burst skips native statistics snapshots
+00:34 +849 ~14: /home/better0101/projects/safetyreport-mobile/test/services/read_snapshot_test.dart: abandoned navigation burst skips native statistics snapshots
+00:34 +850 ~14: /home/better0101/projects/safetyreport-mobile/test/services/read_snapshot_test.dart: abandoned navigation burst skips native statistics snapshots
+00:34 +851 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: an old in-flight row without a lease is recovered
+00:34 +852 ~14: /home/better0101/projects/safetyreport-mobile/test/services/read_snapshot_test.dart: viewport changes reuse full metadata; same-count coordinate edits invalidate
+00:34 +853 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: an old ack without a receipt is confirmed again with the same event
+00:34 +854 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: an old ack without a receipt is confirmed again with the same event
+00:34 +855 ~14: /home/better0101/projects/safetyreport-mobile/test/services/read_snapshot_test.dart: (tearDownAll)
+00:34 +855 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: a resend keeps the stored writer epoch
+00:34 +856 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: a run stopped by its budget is more_pending and midnight is not succeeded
+00:35 +857 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: idle runs are not recorded and failures do not touch the rebuild
+00:35 +858 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: status shows wait reason, times and central store
+00:35 +859 ~14: /home/better0101/projects/safetyreport-mobile/test/community/upload_control_test.dart: client and demo modes never send or record
+00:35 +860 ~14: All tests passed!

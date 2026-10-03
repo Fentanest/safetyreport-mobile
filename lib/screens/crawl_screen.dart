@@ -1,10 +1,14 @@
+import '../services/client_compatibility.dart';
+import '../services/server_contract.dart';
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/app_mode.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
+import '../services/server_connection_service.dart';
 import '../services/crawl_unresolved.dart';
 import '../services/local_db_service.dart';
 import '../services/sync_engine.dart';
@@ -281,9 +285,14 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
   void _connectWs(ApiService api) async {
     if (_ws != null) return;
     try {
+      await ClientCompatibility.ensure(api.baseUrl, api.apiKey);
       // 서버는 2026-09-26 부터 로그 WS 에 API 키(또는 관리자 세션)와 커뮤니티 게이트를 요구한다(미충족 4403).
       _ws = await WebSocket.connect(
-        '${api.wsBaseUrl}/crawl/ws/logs?api_key=${Uri.encodeQueryComponent(api.apiKey)}',
+        ServerContract.wsClientUri(
+          api.baseUrl,
+          api.apiKey,
+          '/crawl/ws/logs',
+        ).toString(),
       );
       _ws!.listen(
         (data) {
@@ -306,6 +315,17 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
           });
         },
         onDone: () {
+          if (_ws?.closeCode == 4406) {
+            _statusTimer?.cancel();
+            ClientCompatibility.block(
+              api.baseUrl,
+              api.apiKey,
+              ServerConnectionService.upgradeMessage(
+                    jsonEncode({'code': _ws?.closeReason}),
+                  ) ??
+                  '앱과 PC 서버의 protocol 3 지원을 확인하고 업데이트하세요.',
+            );
+          }
           _ws = null;
           if (mounted) _setRunning(false);
         },
@@ -423,8 +443,8 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
       child: _loading
           ? const Scaffold(body: Center(child: CircularProgressIndicator()))
           : _isStandalone
-              ? _buildStandalone()
-              : _buildServer(),
+          ? _buildStandalone()
+          : _buildServer(),
     );
   }
 
@@ -734,12 +754,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
                   child: Column(
                     children: [
                       _radioTile('전체 크롤링', 'full', ''),
-                      _radioTile(
-                        'DB 초기화 후 새로 크롤링',
-                        'reset',
-                        '',
-                        isRed: true,
-                      ),
+                      _radioTile('DB 초기화 후 새로 크롤링', 'reset', '', isRed: true),
                     ],
                   ),
                 ),
@@ -777,9 +792,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
                       icon: Icon(Icons.stop),
                       label: const Text('강제 중지'),
                       style: FilledButton.styleFrom(
-                        backgroundColor: Theme.of(
-                          context,
-                        ).colorScheme.error,
+                        backgroundColor: Theme.of(context).colorScheme.error,
                       ),
                       onPressed: _isRunning ? _killCrawl : null,
                     ),
@@ -792,7 +805,6 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
       ),
     );
   }
-
 
   // ── 공통 로그 패널 ───────────────────────────────────────────────────────────
 

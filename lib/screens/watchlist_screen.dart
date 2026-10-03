@@ -1,3 +1,6 @@
+import '../models/app_mode.dart';
+import '../services/local_db_service.dart';
+import '../widgets/local_paged_report_list.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/report.dart';
@@ -31,6 +34,7 @@ class WatchlistPanel extends StatefulWidget {
 class _WatchlistPanelState extends State<WatchlistPanel> {
   List<Report> _items = [];
   bool _loading = true;
+  bool _clearing = false;
   String? _error;
 
   @override
@@ -40,6 +44,7 @@ class _WatchlistPanelState extends State<WatchlistPanel> {
   }
 
   Future<void> _load() async {
+    if (context.read<ReportProvider>().appMode == AppMode.standalone) return;
     setState(() {
       _loading = true;
       _error = null;
@@ -108,33 +113,42 @@ class _WatchlistPanelState extends State<WatchlistPanel> {
   }
 
   Future<void> _removeAll() async {
-    if (_items.isEmpty) return;
+    if (_clearing) return;
     final provider = context.read<ReportProvider>();
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('전체 해제'),
-        content: Text('감시 목록 ${_items.length}건을 모두 해제하시겠습니까?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-            child: const Text('전체 해제'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
+    final epoch = provider.datasetEpoch;
+    setState(() => _clearing = true);
     try {
-      final rnums = _items.map((r) => r.reportNumber).toList();
+      final rnums = provider.appMode == AppMode.standalone
+          ? await LocalDbService.getDisplayedWatchlistNumbers(
+              excludeWithdraw: provider.excludeWithdraw,
+              useRepresentativeRecords: provider.useRepresentativeRecords,
+            )
+          : _items.map((r) => r.reportNumber).toList();
+      if (!mounted || rnums.isEmpty || epoch != provider.datasetEpoch) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('전체 해제'),
+          content: Text('감시 목록 ${rnums.length}건을 모두 해제하시겠습니까?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('취소'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error,
+              ),
+              child: const Text('전체 해제'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || epoch != provider.datasetEpoch) return;
       await provider.removeFromWatchlist(rnums);
-      setState(() => _items.clear());
+      provider.bumpStatsRefresh();
+      if (mounted) setState(() => _items.clear());
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -146,11 +160,30 @@ class _WatchlistPanelState extends State<WatchlistPanel> {
           context,
         ).showSnackBar(SnackBar(content: Text('오류: $e')));
       }
+    } finally {
+      if (mounted) setState(() => _clearing = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (context.watch<ReportProvider>().appMode == AppMode.standalone) {
+      return Column(
+        children: [
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              icon: const Icon(Icons.delete_sweep, size: 18),
+              label: const Text('전체 해제'),
+              onPressed: _clearing ? null : _removeAll,
+            ),
+          ),
+          Expanded(
+            child: LocalPagedReportList(scope: 'watchlist', onRemove: _remove),
+          ),
+        ],
+      );
+    }
     return Column(
       children: [
         Padding(

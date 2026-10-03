@@ -32,6 +32,9 @@ class MainActivity : FlutterFragmentActivity() {
     private val QUICK_ACTION_ID = "mode_primary_action"
     private val EVENT_QUICK_SYNC = "quick_sync"
     private val EVENT_QUICK_CRAWL = "quick_crawl"
+    private var exportResult: MethodChannel.Result? = null
+    private var exportSource: java.io.File? = null
+    private val EXPORT_REQUEST = 9136
     private var methodChannel: MethodChannel? = null
     private var communityAuthChannel: MethodChannel? = null
     /** Dart 가 `takePendingLink` 를 한 번이라도 불렀으면(핸들러 등록 완료) 새 링크 때 신호를 보낸다. */
@@ -168,6 +171,10 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun handleNavIntent(intent: Intent) {
+        intent.getStringExtra("db_export_uri")?.let { raw ->
+            intent.removeExtra("db_export_uri")
+            DbExportLocation.open(this, android.net.Uri.parse(raw), intent.getBooleanExtra("db_export_downloads", true), "location")
+        }
         val navTab = intent.getIntExtra("nav_tab", -1)
         val navSubTab = intent.getIntExtra("nav_subtab", -1)
         val eventType = intent.getStringExtra("nav_event_type") ?: ""
@@ -318,6 +325,34 @@ class MainActivity : FlutterFragmentActivity() {
         -1
     }
 
+    @Deprecated("Activity callback required by the existing MethodChannel")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != EXPORT_REQUEST) return
+        val result = exportResult ?: return
+        val source = exportSource
+        exportResult = null; exportSource = null
+        val uri = data?.data
+        if (resultCode != RESULT_OK || uri == null || source == null) { result.success(null); return }
+        Thread {
+            try {
+                DbExportLocation.copy(this, source, uri)
+                try { contentResolver.takePersistableUriPermission(uri,
+                    (data.flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)))
+                } catch (_: Exception) { }
+                var filename = source.name
+                contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+                    if (it.moveToFirst()) filename = it.getString(0)
+                }
+                val saved = mapOf("uri" to uri.toString(), "filename" to filename, "location" to "선택한 문서 위치: $uri", "downloads" to false)
+                runOnUiThread { result.success(saved) }
+            } catch (e: Exception) {
+                try { android.provider.DocumentsContract.deleteDocument(contentResolver, uri) } catch (_: Exception) { }
+                runOnUiThread { result.error("DB_EXPORT", e.message, null) }
+            }
+        }.start()
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
@@ -349,6 +384,44 @@ class MainActivity : FlutterFragmentActivity() {
         methodChannel = channel
         channel.setMethodCallHandler { call, result ->
                 when (call.method) {
+
+                    "publishDbExport" -> {
+                        try {
+                            val source = DbExportLocation.source(this, call.argument<String>("path") ?: "")
+                            val filename = call.argument<String>("filename") ?: source.name
+                            if (Build.VERSION.SDK_INT >= 29) {
+                                Thread {
+                                    try {
+                                        val data = DbExportLocation.publish(this, source, filename)
+                                        runOnUiThread { result.success(data) }
+                                    } catch (e: Exception) { runOnUiThread { result.error("DB_EXPORT", e.message, null) } }
+                                }.start()
+                            } else {
+                                check(exportResult == null) { "저장 위치를 선택 중입니다." }
+                                exportResult = result; exportSource = source
+                                val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                                    addCategory(Intent.CATEGORY_OPENABLE)
+                                    type = "application/octet-stream"
+                                    putExtra(Intent.EXTRA_TITLE, filename)
+                                }
+                                startActivityForResult(intent, EXPORT_REQUEST)
+                            }
+                        } catch (e: Exception) {
+                            exportResult = null; exportSource = null
+                            result.error("DB_EXPORT", e.message, null)
+                        }
+                    }
+                    "openDbExport" -> result.success(DbExportLocation.open(this,
+                        android.net.Uri.parse(call.argument<String>("uri") ?: ""),
+                        call.argument<Boolean>("downloads") == true,
+                        call.argument<String>("action") ?: "location"))
+                    "notifyDbExport" -> {
+                        try {
+                            @Suppress("UNCHECKED_CAST")
+                            DbExportLocation.notifyCompleted(this, call.arguments as Map<String, Any>)
+                            result.success(null)
+                        } catch (e: Exception) { result.error("DB_NOTIFY", e.message, null) }
+                    }
 
                     "getDeviceName" -> {
                         val configured = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {

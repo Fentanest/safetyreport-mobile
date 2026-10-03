@@ -53,6 +53,15 @@ Report _report(String number) => Report(
 );
 
 class _FixedReportProvider extends ReportProvider {
+  @override
+  Future<({List<Report> reports, int total})> readServerPage(
+    String category, {
+    int offset = 0,
+    int limit = 200,
+  }) async => (
+    reports: category == 'traffic' && offset == 0 ? traffic : <Report>[],
+    total: category == 'traffic' ? traffic.length : 0,
+  );
   final List<Report> traffic = [_report('SPP-2608-0000001')];
 
   @override
@@ -155,7 +164,7 @@ void main() {
     expect(find.byType(SelectionActionBar), findsOneWidget);
     expect(
       find.descendant(
-        of: find.byType(AppBar),
+        of: find.byType(SelectionActionBar),
         matching: find.byTooltip('선택 취소'),
       ),
       findsOneWidget,

@@ -249,6 +249,7 @@ void main() {
         isDemoMode: true,
       );
       await provider.refreshAll();
+      await provider.ensureCategoryReportsLoaded();
       expect(
         provider.trafficReports.length +
             provider.parkingReports.length +

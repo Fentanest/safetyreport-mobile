@@ -1,0 +1,175 @@
+{"stage": "registry.cold_load", "ms": 2608}
+{"rows": 0, "stage": "fixture.seed", "ms": 384}
+{"rows": 0, "phase": "cold", "stage": "summary", "ms": 22, "total": 0, "rss": 326270976}
+{"rows": 0, "phase": "cold", "stage": "stats", "ms": 33, "total": 0, "rss": 326270976}
+{"rows": 0, "phase": "cold", "stage": "map", "ms": 23, "points": 0, "rss": 326270976}
+{"rows": 0, "phase": "warm", "stage": "summary", "ms": 15, "total": 0, "rss": 326402048}
+{"rows": 0, "phase": "warm", "stage": "stats", "ms": 5, "total": 0, "rss": 326402048}
+{"rows": 0, "phase": "warm", "stage": "map", "ms": 525, "points": 0, "rss": 328220672}
+{"rows": 0, "stage": "stages", "values": {"summary.sql_counts": {"us": 9190, "returned_rows": 2}, "summary.sql_recent": {"us": 5496, "returned_rows": 0}, "summary.sql_watchlist": {"us": 5249, "returned_rows": 0}, "summary.report_objects": {"us": 30, "returned_rows": 0}, "summary.watch_objects": {"us": 7, "returned_rows": 0}, "summary.total": {"us": 33572, "returned_rows": 0}, "stats.sql_group": {"us": 4685, "returned_rows": 0}, "stats.sql_page": {"us": 5379, "returned_rows": 0}, "stats.total": {"us": 25355, "returned_rows": 0}, "map.sql_meta": {"us": 10536, "returned_rows": 2}, "map.sql_page": {"us": 5522, "returned_rows": 0}, "map.total": {"us": 22480, "returned_rows": 0}}, "peak_rss": 330989568}
+{"rows": 1, "stage": "fixture.seed", "ms": 580}
+{"rows": 1, "phase": "cold", "stage": "summary", "ms": 393, "total": 1, "rss": 326258688}
+{"rows": 1, "phase": "cold", "stage": "stats", "ms": 91, "total": 1, "rss": 324546560}
+{"rows": 1, "phase": "cold", "stage": "map", "ms": 61, "points": 0, "rss": 324546560}
+{"rows": 1, "phase": "warm", "stage": "summary", "ms": 218, "total": 1, "rss": 324939776}
+{"rows": 1, "phase": "warm", "stage": "stats", "ms": 7, "total": 1, "rss": 324939776}
+{"rows": 1, "phase": "warm", "stage": "map", "ms": 48, "points": 0, "rss": 325070848}
+{"rows": 1, "stage": "stages", "values": {"summary.sql_counts": {"us": 133732, "returned_rows": 2}, "summary.sql_recent": {"us": 93798, "returned_rows": 0}, "summary.sql_watchlist": {"us": 127228, "returned_rows": 2}, "summary.report_objects": {"us": 41, "returned_rows": 0}, "summary.watch_objects": {"us": 14207, "returned_rows": 0}, "summary.total": {"us": 557818, "returned_rows": 0}, "stats.sql_group": {"us": 36806, "returned_rows": 0}, "stats.sql_page": {"us": 16155, "returned_rows": 1}, "stats.registry_and_tables": {"us": 12033, "returned_rows": 0}, "stats.chart_data": {"us": 340, "returned_rows": 0}, "stats.total": {"us": 80724, "returned_rows": 0}, "map.sql_meta": {"us": 13183, "returned_rows": 2}, "map.sql_page": {"us": 38578, "returned_rows": 0}, "map.total": {"us": 75907, "returned_rows": 0}}, "peak_rss": 333856768}
+{"rows": 3000, "stage": "fixture.seed", "ms": 1311}
+{"rows": 3000, "phase": "cold", "stage": "summary", "ms": 147, "total": 2994, "rss": 326918144}
+{"rows": 3000, "phase": "cold", "stage": "stats", "ms": 1125, "total": 2994, "rss": 331259904}
+{"rows": 3000, "phase": "cold", "stage": "map", "ms": 459, "points": 2, "rss": 335032320}
+{"rows": 3000, "phase": "warm", "stage": "summary", "ms": 104, "total": 2994, "rss": 335294464}
+{"rows": 3000, "phase": "warm", "stage": "stats", "ms": 4, "total": 2994, "rss": 335294464}
+{"rows": 3000, "phase": "warm", "stage": "map", "ms": 643, "points": 2, "rss": 333955072}
+{"rows": 3000, "stage": "stages", "values": {"summary.sql_counts": {"us": 52601, "returned_rows": 2}, "summary.sql_recent": {"us": 24962, "returned_rows": 2}, "summary.sql_watchlist": {"us": 69758, "returned_rows": 62}, "summary.report_objects": {"us": 74036, "returned_rows": 0}, "summary.watch_objects": {"us": 188, "returned_rows": 0}, "summary.total": {"us": 245272, "returned_rows": 0}, "stats.sql_group": {"us": 89411, "returned_rows": 0}, "stats.sql_page": {"us": 561521, "returned_rows": 2994}, "stats.registry_and_tables": {"us": 96227, "returned_rows": 0}, "stats.chart_data": {"us": 252952, "returned_rows": 0}, "stats.total": {"us": 1111773, "returned_rows": 0}, "map.sql_meta": {"us": 24190, "returned_rows": 2}, "map.sql_page": {"us": 735025, "returned_rows": 5674}, "map.cell_data": {"us": 48736, "returned_rows": 0}, "map.total": {"us": 1019794, "returned_rows": 4}}, "peak_rss": 339488768}
+{"rows": 58388, "stage": "fixture.seed", "ms": 10295}
+{"rows": 58388, "phase": "cold", "stage": "summary", "ms": 982, "total": 58271, "rss": 334008320}
+{"rows": 58388, "phase": "cold", "stage": "stats", "ms": 5287, "total": 58271, "rss": 372203520}
+{"rows": 58388, "phase": "cold", "stage": "map", "ms": 693, "points": 2, "rss": 381714432}
+{"rows": 58388, "phase": "warm", "stage": "summary", "ms": 668, "total": 58271, "rss": 382623744}
+{"rows": 58388, "phase": "warm", "stage": "stats", "ms": 2, "total": 58271, "rss": 382623744}
+{"rows": 58388, "phase": "warm", "stage": "map", "ms": 730, "points": 2, "rss": 375328768}
+{"rows": 58388, "stage": "stages", "values": {"summary.sql_counts": {"us": 795083, "returned_rows": 2}, "summary.sql_recent": {"us": 206928, "returned_rows": 36}, "summary.sql_watchlist": {"us": 375046, "returned_rows": 400}, "summary.report_objects": {"us": 334, "returned_rows": 0}, "summary.watch_objects": {"us": 1214, "returned_rows": 0}, "summary.total": {"us": 1643144, "returned_rows": 0}, "stats.sql_group": {"us": 1388433, "returned_rows": 0}, "stats.sql_page": {"us": 1758101, "returned_rows": 58271}, "stats.registry_and_tables": {"us": 702371, "returned_rows": 0}, "stats.chart_data": {"us": 1303375, "returned_rows": 0}, "stats.total": {"us": 5279945, "returned_rows": 0}, "map.sql_meta": {"us": 161557, "returned_rows": 2}, "map.sql_page": {"us": 318276, "returned_rows": 12882}, "map.cell_data": {"us": 44995, "returned_rows": 0}, "map.total": {"us": 1004090, "returned_rows": 4}}, "peak_rss": 388751360}
+{"rows": 100000, "stage": "fixture.seed", "ms": 160264}
+{"rows": 100000, "phase": "cold", "stage": "summary", "ms": 1096, "total": 99800, "rss": 334188544}
+{"rows": 100000, "phase": "cold", "stage": "stats", "ms": 8204, "total": 99800, "rss": 386039808}
+{"rows": 100000, "phase": "cold", "stage": "map", "ms": 1113, "points": 2, "rss": 382029824}
+{"rows": 100000, "phase": "warm", "stage": "summary", "ms": 1015, "total": 99800, "rss": 382521344}
+{"rows": 100000, "phase": "warm", "stage": "stats", "ms": 2, "total": 99800, "rss": 382521344}
+{"rows": 100000, "phase": "warm", "stage": "map", "ms": 1069, "points": 2, "rss": 382173184}
+{"rows": 100000, "stage": "stages", "values": {"summary.sql_counts": {"us": 980337, "returned_rows": 2}, "summary.sql_recent": {"us": 363191, "returned_rows": 64}, "summary.sql_watchlist": {"us": 503868, "returned_rows": 400}, "summary.report_objects": {"us": 247, "returned_rows": 0}, "summary.watch_objects": {"us": 781, "returned_rows": 0}, "summary.total": {"us": 2107565, "returned_rows": 0}, "stats.sql_group": {"us": 1640446, "returned_rows": 0}, "stats.sql_page": {"us": 2931851, "returned_rows": 99800}, "stats.registry_and_tables": {"us": 1161915, "returned_rows": 0}, "stats.chart_data": {"us": 2288436, "returned_rows": 0}, "stats.total": {"us": 8200617, "returned_rows": 0}, "map.sql_meta": {"us": 286793, "returned_rows": 2}, "map.sql_page": {"us": 264250, "returned_rows": 14730}, "map.cell_data": {"us": 44949, "returned_rows": 0}, "map.total": {"us": 1522698, "returned_rows": 4}}, "peak_rss": 401727488}
+{"stage": "registry.cold_load", "ms": 1940}
+{"stage": "frames", "count": 1, "max_build_us": 6, "max_raster_us": 788678}
+{"stage": "frames", "count": 2, "max_build_us": 41976, "max_raster_us": 788678}
+{"stage": "frames", "count": 3, "max_build_us": 41976, "max_raster_us": 788678}
+{"stage": "frames", "count": 4, "max_build_us": 41976, "max_raster_us": 788678}
+{"rows": 0, "stage": "fixture.seed", "ms": 21986}
+{"rows": 0, "phase": "cold", "stage": "summary", "ms": 17, "total": 0, "rss": 317386752}
+{"rows": 0, "phase": "cold", "stage": "stats", "ms": 18, "total": 0, "rss": 317517824}
+{"rows": 0, "phase": "cold", "stage": "map", "ms": 12, "points": 0, "rss": 317648896}
+{"rows": 0, "phase": "warm", "stage": "summary", "ms": 6, "total": 0, "rss": 317779968}
+{"rows": 0, "phase": "warm", "stage": "stats", "ms": 1, "total": 0, "rss": 317779968}
+{"rows": 0, "phase": "warm", "stage": "map", "ms": 8, "points": 0, "rss": 317779968}
+{"rows": 0, "stage": "stages", "values": {"summary.sql_counts": {"us": 4800, "returned_rows": 2}, "summary.sql_recent": {"us": 6262, "returned_rows": 0}, "summary.sql_watchlist": {"us": 4776, "returned_rows": 0}, "summary.report_objects": {"us": 31, "returned_rows": 0}, "summary.watch_objects": {"us": 5, "returned_rows": 0}, "summary.total": {"us": 20051, "returned_rows": 0}, "stats.sql_group": {"us": 3942, "returned_rows": 0}, "stats.sql_page": {"us": 953, "returned_rows": 0}, "stats.total": {"us": 16145, "returned_rows": 0}, "map.sql_meta": {"us": 3371, "returned_rows": 2}, "map.sql_page": {"us": 2758, "returned_rows": 0}, "map.total": {"us": 11028, "returned_rows": 0}}, "peak_rss": 334147584}
+{"rows": 1, "stage": "fixture.seed", "ms": 64}
+{"rows": 1, "phase": "cold", "stage": "summary", "ms": 22, "total": 1, "rss": 318173184}
+{"rows": 1, "phase": "cold", "stage": "stats", "ms": 21, "total": 1, "rss": 318173184}
+{"stage": "frames", "count": 9, "max_build_us": 41976, "max_raster_us": 788678}
+{"rows": 1, "phase": "cold", "stage": "map", "ms": 33, "points": 0, "rss": 318566400}
+{"rows": 1, "phase": "warm", "stage": "summary", "ms": 28, "total": 1, "rss": 319221760}
+{"rows": 1, "phase": "warm", "stage": "stats", "ms": 2, "total": 1, "rss": 319221760}
+{"rows": 1, "phase": "warm", "stage": "map", "ms": 19, "points": 0, "rss": 312745984}
+{"rows": 1, "stage": "stages", "values": {"summary.sql_counts": {"us": 20043, "returned_rows": 2}, "summary.sql_recent": {"us": 4656, "returned_rows": 0}, "summary.sql_watchlist": {"us": 4838, "returned_rows": 2}, "summary.report_objects": {"us": 16, "returned_rows": 0}, "summary.watch_objects": {"us": 5731, "returned_rows": 0}, "summary.total": {"us": 39767, "returned_rows": 0}, "stats.sql_group": {"us": 2029, "returned_rows": 0}, "stats.sql_page": {"us": 4147, "returned_rows": 1}, "stats.registry_and_tables": {"us": 1085, "returned_rows": 0}, "stats.chart_data": {"us": 256, "returned_rows": 0}, "stats.total": {"us": 18457, "returned_rows": 0}, "map.sql_meta": {"us": 7105, "returned_rows": 2}, "map.sql_page": {"us": 2668, "returned_rows": 0}, "map.total": {"us": 16663, "returned_rows": 0}}, "peak_rss": 334147584}
+{"stage": "frames", "count": 15, "max_build_us": 41976, "max_raster_us": 788678}
+{"stage": "frames", "count": 21, "max_build_us": 41976, "max_raster_us": 788678}
+{"rows": 3000, "stage": "fixture.seed", "ms": 406}
+{"stage": "frames", "count": 26, "max_build_us": 41976, "max_raster_us": 788678}
+{"stage": "frames", "count": 28, "max_build_us": 41976, "max_raster_us": 788678}
+{"rows": 3000, "phase": "cold", "stage": "summary", "ms": 182, "total": 2994, "rss": 317968384}
+{"rows": 3000, "phase": "cold", "stage": "stats", "ms": 314, "total": 2994, "rss": 321056768}
+{"rows": 3000, "phase": "cold", "stage": "map", "ms": 105, "points": 2, "rss": 324726784}
+{"rows": 3000, "phase": "warm", "stage": "summary", "ms": 36, "total": 2994, "rss": 324857856}
+{"rows": 3000, "phase": "warm", "stage": "stats", "ms": 4, "total": 2994, "rss": 324857856}
+{"rows": 3000, "phase": "warm", "stage": "map", "ms": 108, "points": 2, "rss": 323952640}
+{"rows": 3000, "stage": "stages", "values": {"summary.sql_counts": {"us": 72652, "returned_rows": 2}, "summary.sql_recent": {"us": 21765, "returned_rows": 2}, "summary.sql_watchlist": {"us": 44459, "returned_rows": 62}, "summary.report_objects": {"us": 37816, "returned_rows": 0}, "summary.watch_objects": {"us": 437, "returned_rows": 0}, "summary.total": {"us": 189810, "returned_rows": 0}, "stats.sql_group": {"us": 42310, "returned_rows": 0}, "stats.sql_page": {"us": 145768, "returned_rows": 2994}, "stats.registry_and_tables": {"us": 44832, "returned_rows": 0}, "stats.chart_data": {"us": 57150, "returned_rows": 0}, "stats.total": {"us": 305835, "returned_rows": 0}, "map.sql_meta": {"us": 16851, "returned_rows": 2}, "map.sql_page": {"us": 120955, "returned_rows": 5674}, "map.cell_data": {"us": 11776, "returned_rows": 0}, "map.total": {"us": 181448, "returned_rows": 4}}, "peak_rss": 334147584}
+{"stage": "frames", "count": 34, "max_build_us": 41976, "max_raster_us": 788678}
+{"stage": "frames", "count": 41, "max_build_us": 41976, "max_raster_us": 788678}
+{"stage": "frames", "count": 47, "max_build_us": 41976, "max_raster_us": 788678}
+{"stage": "frames", "count": 48, "max_build_us": 41976, "max_raster_us": 788678}
+{"rows": 58388, "stage": "fixture.seed", "ms": 2835}
+{"rows": 58388, "phase": "cold", "stage": "summary", "ms": 557, "total": 58271, "rss": 325242880}
+{"rows": 58388, "phase": "cold", "stage": "stats", "ms": 4156, "total": 58271, "rss": 359649280}
+{"rows": 58388, "phase": "cold", "stage": "map", "ms": 709, "points": 2, "rss": 367980544}
+{"rows": 58388, "phase": "warm", "stage": "summary", "ms": 524, "total": 58271, "rss": 369029120}
+{"rows": 58388, "phase": "warm", "stage": "stats", "ms": 1, "total": 58271, "rss": 369029120}
+{"rows": 58388, "phase": "warm", "stage": "map", "ms": 602, "points": 2, "rss": 361820160}
+{"rows": 58388, "stage": "stages", "values": {"summary.sql_counts": {"us": 481625, "returned_rows": 2}, "summary.sql_recent": {"us": 189875, "returned_rows": 36}, "summary.sql_watchlist": {"us": 271245, "returned_rows": 400}, "summary.report_objects": {"us": 232, "returned_rows": 0}, "summary.watch_objects": {"us": 1003, "returned_rows": 0}, "summary.total": {"us": 1078345, "returned_rows": 0}, "stats.sql_group": {"us": 797123, "returned_rows": 0}, "stats.sql_page": {"us": 1515137, "returned_rows": 58271}, "stats.registry_and_tables": {"us": 586641, "returned_rows": 0}, "stats.chart_data": {"us": 1154249, "returned_rows": 0}, "stats.total": {"us": 4150576, "returned_rows": 0}, "map.sql_meta": {"us": 284148, "returned_rows": 2}, "map.sql_page": {"us": 236404, "returned_rows": 12882}, "map.cell_data": {"us": 34506, "returned_rows": 0}, "map.total": {"us": 833865, "returned_rows": 4}}, "peak_rss": 373940224}
+{"stage": "frames", "count": 55, "max_build_us": 41976, "max_raster_us": 788678}
+{"stage": "frames", "count": 62, "max_build_us": 41976, "max_raster_us": 788678}
+{"stage": "frames", "count": 69, "max_build_us": 41976, "max_raster_us": 788678}
+{"rows": 100000, "stage": "fixture.seed", "ms": 122488}
+{"rows": 100000, "phase": "cold", "stage": "summary", "ms": 922, "total": 99800, "rss": 363184128}
+{"rows": 100000, "phase": "cold", "stage": "stats", "ms": 6954, "total": 99800, "rss": 398462976}
+{"rows": 100000, "phase": "cold", "stage": "map", "ms": 966, "points": 2, "rss": 410562560}
+{"rows": 100000, "phase": "warm", "stage": "summary", "ms": 885, "total": 99800, "rss": 411680768}
+{"rows": 100000, "phase": "warm", "stage": "stats", "ms": 1, "total": 99800, "rss": 411680768}
+{"rows": 100000, "phase": "warm", "stage": "map", "ms": 1053, "points": 2, "rss": 392589312}
+{"rows": 100000, "stage": "stages", "values": {"summary.sql_counts": {"us": 797830, "returned_rows": 2}, "summary.sql_recent": {"us": 363166, "returned_rows": 64}, "summary.sql_watchlist": {"us": 408444, "returned_rows": 400}, "summary.report_objects": {"us": 807, "returned_rows": 0}, "summary.watch_objects": {"us": 908, "returned_rows": 0}, "summary.total": {"us": 1804995, "returned_rows": 0}, "stats.sql_group": {"us": 1401190, "returned_rows": 0}, "stats.sql_page": {"us": 2492840, "returned_rows": 99800}, "stats.registry_and_tables": {"us": 978163, "returned_rows": 0}, "stats.chart_data": {"us": 1894704, "returned_rows": 0}, "stats.total": {"us": 6947364, "returned_rows": 0}, "map.sql_meta": {"us": 425683, "returned_rows": 2}, "map.sql_page": {"us": 258411, "returned_rows": 14730}, "map.cell_data": {"us": 33946, "returned_rows": 0}, "map.total": {"us": 1301101, "returned_rows": 4}}, "peak_rss": 414609408}
+{"stage": "frames", "count": 74, "max_build_us": 41976, "max_raster_us": 788678}
+{"stage": "frames", "count": 80, "max_build_us": 41976, "max_raster_us": 788678}
+{"stage": "frames", "count": 85, "max_build_us": 41976, "max_raster_us": 788678}
+{"stage": "frames", "count": 88, "max_build_us": 41976, "max_raster_us": 788678}
+{"stage": "registry.cold_load", "ms": 3222}
+{"stage": "frames", "count": 1, "max_build_us": 6, "max_raster_us": 536221}
+{"stage": "frames", "count": 2, "max_build_us": 13731, "max_raster_us": 536221}
+{"stage": "frames", "count": 4, "max_build_us": 13731, "max_raster_us": 536221}
+{"rows": 500000, "stage": "fixture.seed", "ms": 44106}
+{"rows": 500000, "phase": "cold", "stage": "summary", "ms": 8399, "total": 499000, "rss": 251981824}
+{"rows": 500000, "phase": "cold", "stage": "stats", "ms": 36778, "total": 499000, "rss": 486522880}
+{"rows": 500000, "phase": "cold", "stage": "map", "ms": 5556, "points": 2, "rss": 488677376}
+{"rows": 500000, "phase": "warm", "stage": "summary", "ms": 6042, "total": 499000, "rss": 482525184}
+{"rows": 500000, "phase": "warm", "stage": "stats", "ms": 2, "total": 499000, "rss": 482525184}
+{"rows": 500000, "phase": "warm", "stage": "map", "ms": 5592, "points": 2, "rss": 486469632}
+{"rows": 500000, "stage": "stages", "values": {"summary.sql_counts": {"us": 8558756, "returned_rows": 2}, "summary.sql_recent": {"us": 1741636, "returned_rows": 316}, "summary.sql_watchlist": {"us": 2172260, "returned_rows": 400}, "summary.report_objects": {"us": 81584, "returned_rows": 0}, "summary.watch_objects": {"us": 1198, "returned_rows": 0}, "summary.total": {"us": 14429811, "returned_rows": 0}, "stats.sql_group": {"us": 8447537, "returned_rows": 0}, "stats.sql_page": {"us": 12540891, "returned_rows": 499000}, "stats.registry_and_tables": {"us": 5200613, "returned_rows": 0}, "stats.chart_data": {"us": 9844747, "returned_rows": 0}, "stats.total": {"us": 36769804, "returned_rows": 0}, "map.sql_meta": {"us": 2858284, "returned_rows": 2}, "map.sql_page": {"us": 431737, "returned_rows": 17220}, "map.cell_data": {"us": 45640, "returned_rows": 0}, "map.total": {"us": 6708777, "returned_rows": 4}}, "peak_rss": 576499712}
+{"stage": "frames", "count": 8, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 11, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 15, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 20, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 25, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 29, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 33, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 37, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 42, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 47, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 52, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 55, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 59, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 63, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 67, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 72, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 77, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 82, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 86, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 91, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 95, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 100, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 104, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 108, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 113, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 118, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 122, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 126, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 130, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 134, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 138, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 143, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 148, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 152, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 157, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 161, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 165, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 170, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 174, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 177, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 182, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 188, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 193, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 197, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 201, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 206, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 211, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 216, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 221, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 226, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 231, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 234, "max_build_us": 174756, "max_raster_us": 536221}
+{"stage": "frames", "count": 235, "max_build_us": 999621, "max_raster_us": 536221}
+{"stage": "frames", "count": 236, "max_build_us": 999621, "max_raster_us": 536221}
+{"rows": 500000, "stage": "repeat20", "rss": 409493504, "peak_rss": 576499712}
+{"stage": "complete"}
+{"stage": "frames", "count": 240, "max_build_us": 999621, "max_raster_us": 536221}
+{"stage": "frames", "count": 245, "max_build_us": 999621, "max_raster_us": 536221}
+{"stage": "frames", "count": 250, "max_build_us": 999621, "max_raster_us": 536221}
+{"stage": "frames", "count": 251, "max_build_us": 999621, "max_raster_us": 536221}
+{"stage": "frames", "count": 253, "max_build_us": 999621, "max_raster_us": 536221}

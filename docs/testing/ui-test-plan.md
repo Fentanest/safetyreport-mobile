@@ -2,6 +2,8 @@
 
 작성 2026-09-24, base `c64be69a`. 상태 표기: PASS / FAIL / BLOCKED / NOT_RUN. 실행하지 않은 것을 PASS로 쓰지 않는다.
 
+현행 SDK 3.47.5 및 50만 건 profile/키보드/파일 앱 검증은 [2026-10-03 검증 기록](../reviews/2026-10-03-runtime-validation.md)을 참조한다. 아래 수치는 이관 당시 baseline이다.
+
 ## 1. 환경 (실측)
 
 | 항목 | 값 | 확인 방법 |

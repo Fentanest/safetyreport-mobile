@@ -1,3 +1,5 @@
+import 'services/client_compatibility.dart';
+import 'services/server_contract.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
@@ -49,6 +51,7 @@ import 'widgets/sync_exit_guard.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await ServerContract.loadProductVersion();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   // 보안 저장소 v9 → v10 이관을 앱 시작 때 끝낸다(다른 코드가 보안 저장소를 열기 전에, 백그라운드 작업은 이 표시 뒤에만 연다).
   // 확인되지 않으면 평소 화면으로 들어가지 않는다 — 로그인·토큰 갱신·연결 등록·설정 초기화가 폴백 상태의 저장소에 쓰지 않게.
@@ -173,6 +176,7 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
   }
 
   void _retryServerVersion() {
+    ClientCompatibility.invalidate();
     setState(() => _serverVersionFuture = null);
   }
 
@@ -184,6 +188,22 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
         navigator!.popUntil((route) => route.isFirst);
       }
     });
+  }
+
+  void _onCompatibilityFailure() {
+    final failure = ClientCompatibility.failure.value;
+    final provider = context.read<ReportProvider>();
+    if (!mounted ||
+        failure == null ||
+        provider.appMode != AppMode.server ||
+        failure.normalizedUrl !=
+            ServerContract.normalizeBaseUrl(provider.baseUrl)) {
+      return;
+    }
+    provider.onGateBlocked();
+    unawaited(PermissionService.stopWsService());
+    _returnToRoot();
+    setState(() => _serverVersionFuture = Future.value(failure));
   }
 
   void _onGateChanged() {
@@ -202,6 +222,7 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
     _gate = context.read<CommunityGate>();
     _gateWasOpen = _gate.canEnter;
     _gate.addListener(_onGateChanged);
+    ClientCompatibility.failure.addListener(_onCompatibilityFailure);
     _gate.startPolling();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_gate.refreshNow());
@@ -211,6 +232,7 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
   @override
   void dispose() {
     _gate.removeListener(_onGateChanged);
+    ClientCompatibility.failure.removeListener(_onCompatibilityFailure);
     super.dispose();
   }
 
@@ -693,11 +715,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
         if (p.isConfigured) p.fetchSummary();
         break;
       case 1:
-        if (p.isConfigured) {
-          p.fetchTrafficReports();
-          p.fetchParkingReports();
-          p.fetchOtherReports();
-          p.fetchDuplicateReports();
+        if (p.isConfigured && p.appMode == AppMode.server) {
           p.fetchWatchlistNumbers();
         }
         break;

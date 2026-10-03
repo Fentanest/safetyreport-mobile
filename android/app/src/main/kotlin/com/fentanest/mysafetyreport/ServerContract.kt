@@ -3,6 +3,15 @@ package com.fentanest.mysafetyreport
 import android.net.Uri
 
 object ServerContract {
+    const val PROTOCOL_VERSION = 3
+    var productVersion: String = ""
+    fun headers(apiKey: String): Map<String, String> = mapOf(
+        API_KEY_HEADER to apiKey,
+        "X-SafetyReport-Client" to "mobile",
+        "X-SafetyReport-Version" to productVersion,
+        "X-SafetyReport-Protocol" to PROTOCOL_VERSION.toString(),
+    )
+
     const val API_PREFIX = "/api/v1"
     const val API_KEY_HEADER = "X-API-Key"
     const val WS_EVENTS_PATH = "/ws/events"
@@ -29,6 +38,9 @@ object ServerContract {
             )
             .path(WS_EVENTS_PATH)
             .appendQueryParameter(WS_API_KEY_QUERY, apiKey)
+            .appendQueryParameter("client_type", "mobile")
+            .appendQueryParameter("client_version", productVersion)
+            .appendQueryParameter("client_protocol", PROTOCOL_VERSION.toString())
             .build()
             .toString()
     }

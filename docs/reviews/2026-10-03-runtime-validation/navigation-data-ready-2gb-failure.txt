@@ -1,0 +1,19 @@
+Traceback (most recent call last):
+  File "/home/better0101/projects/safetyreport-mobile/tool/android_fixture_ui.py", line 48, in <module>
+    if a.wait_data: wait_content('좌표화')
+                    ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/better0101/projects/safetyreport-mobile/tool/android_fixture_ui.py", line 35, in wait_content
+    if any(label in (n.get('text','')+n.get('content-desc','')) for n in nodes()): return
+                                                                         ^^^^^^^
+  File "/home/better0101/projects/safetyreport-mobile/tool/android_fixture_ui.py", line 18, in nodes
+    result=adb('shell','uiautomator','dump','/sdcard/sr_fixture_ui.xml')
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/better0101/projects/safetyreport-mobile/tool/android_fixture_ui.py", line 16, in adb
+    return subprocess.check_output([a.adb,'-s',a.serial,*args],timeout=30).decode(errors='replace')
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/subprocess.py", line 466, in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/subprocess.py", line 571, in run
+    raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['/home/better0101/Android/Sdk/platform-tools/adb', '-s', 'emulator-5580', 'shell', 'uiautomator', 'dump', '/sdcard/sr_fixture_ui.xml']' returned non-zero exit status 137.

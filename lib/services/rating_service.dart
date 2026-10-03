@@ -7,6 +7,7 @@ import '../models/app_mode.dart';
 import '../models/rating_batch_result.dart';
 import '../models/report.dart';
 import 'api_service.dart';
+import 'client_compatibility.dart';
 import 'local_db_service.dart';
 import 'standalone_api_service.dart';
 import 'sync_engine.dart';
@@ -303,6 +304,8 @@ class RatingService {
               parsed: parsed,
             );
           }
+        } on ClientCompatibilityException {
+          rethrow;
         } catch (e) {
           lastError = e;
         }

@@ -1,10 +1,10 @@
+import '../support/selfhost_client_fixture.dart';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
-import 'package:http/testing.dart';
 import 'package:safetyreport/services/community_server_link_service.dart';
 import 'package:safetyreport/services/server_contract.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -50,11 +50,12 @@ http.Response jsonResponse(Object body, int status) => http.Response.bytes(
 );
 
 void main() {
+  setUp(resetSelfhostFixture);
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test('status: X-API-Key 헤더로 GET, data 해석', () async {
     late http.Request seen;
-    final client = MockClient((req) async {
+    final client = selfhostMockClient((req) async {
       seen = req;
       return jsonResponse({'data': statusJson('connected')}, 200);
     });
@@ -127,7 +128,7 @@ void main() {
   });
 
   test('403 permission_required → 권한 안내', () async {
-    final client = MockClient(
+    final client = selfhostMockClient(
       (_) async => jsonResponse({
         'detail': '서버 관리자 화면에서 이 기기의 커뮤니티 계정 관리 권한을 허용해야 합니다.',
         'code': 'permission_required',
@@ -144,7 +145,7 @@ void main() {
   });
 
   test('404 → 서버가 아직 지원하지 않음', () async {
-    final client = MockClient(
+    final client = selfhostMockClient(
       (_) async => jsonResponse({'detail': 'Not Found'}, 404),
     );
     final r = await CommunityServerLinkService.fetchStatus(
@@ -196,7 +197,7 @@ void main() {
 
   test('POST 본문과 경로 — 자동 재시도 없음', () async {
     final seen = <http.Request>[];
-    final client = MockClient((req) async {
+    final client = selfhostMockClient((req) async {
       seen.add(req);
       return jsonResponse({'error': 'boom'}, 500);
     });
@@ -240,7 +241,7 @@ void main() {
       FlutterSecureStorage.setMockInitialValues(secure);
       SharedPreferences.setMockInitialValues({});
       final hosts = <String>[];
-      final client = MockClient((req) async {
+      final client = selfhostMockClient((req) async {
         hosts.add(req.url.host);
         throw const SocketException('Connection refused');
       });

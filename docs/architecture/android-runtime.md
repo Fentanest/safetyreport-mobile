@@ -6,6 +6,8 @@
 
 ## 코드 대조 정정 (2026-09-24, base `c64be69a`)
 
+대용량 SQL/페이지·revision 캐시, protocol 3, 키보드 사유 입력 및 공유 DB 저장의 현재 구조는 [bounded-reads.md](bounded-reads.md)를 우선한다. Client의 추가 서버 계약은 [client-read-handoff.md](client-read-handoff.md), 실행 증거/한계는 [검증 기록](../reviews/2026-10-03-runtime-validation.md)을 따른다.
+
 - 이 파일로 옮긴 절에서 코드와 충돌하는 기술은 이번 대조에서 발견되지 않았다. 다만 부팅 흐름(`overview.md`)의 `enableEdgeToEdge()` 표기는 구버전이다(`MainActivity.kt:46` 은 `WindowCompat.setDecorFitsSystemWindows`).
 - 알림 채널/FGS/SharedPreferences 키 표는 이번 단계에서 Kotlin 코드와 줄 단위로 재대조하지 않았다 → **미검증**. UI 리뉴얼로 이 영역을 수정할 때 먼저 대조한다.
 

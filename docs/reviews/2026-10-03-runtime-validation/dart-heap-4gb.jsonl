@@ -1,0 +1,2 @@
+{"stage": "dart_heap", "name": "main", "memoryUsage": {"type": "MemoryUsage", "heapUsage": 133049008, "heapCapacity": 138215424, "externalUsage": 577408}, "error": null}
+{"stage": "dart_heap", "name": "[flutter_map: cache] Tile & Size Monitor Writer", "memoryUsage": {"type": "MemoryUsage", "heapUsage": 133049648, "heapCapacity": 138215424, "externalUsage": 577408}, "error": null}

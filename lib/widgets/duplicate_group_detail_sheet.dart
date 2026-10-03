@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../models/app_mode.dart';
+import '../providers/report_provider.dart';
+import '../services/repositories/duplicate_repository.dart';
 
 import '../models/duplicate_group.dart';
 import '../widgets/report_detail_sheet.dart';
@@ -7,20 +11,80 @@ import '../widgets/status_badge.dart';
 import '../theme/sr_colors.dart';
 
 void showDuplicateGroupDetailSheet(BuildContext context, DuplicateGroup group) {
+  final provider = Provider.of<ReportProvider?>(context, listen: false);
+  final epoch = provider?.datasetEpoch;
+  final repository = provider?.appMode == AppMode.standalone
+      ? DuplicateRepository.fromProvider(provider!)
+      : null;
+  final loader = repository != null
+      ? (int page) async {
+          if (provider!.datasetEpoch != epoch) {
+            throw StateError('자료/계정이 바뀌었습니다. 화면을 다시 열어 주세요.');
+          }
+          final members = await repository.getMembers(
+            group.groupId,
+            page: page,
+          );
+          if (provider.datasetEpoch != epoch) {
+            throw StateError('자료/계정이 바뀌었습니다. 화면을 다시 열어 주세요.');
+          }
+          return members;
+        }
+      : null;
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
-    builder: (_) => _DuplicateGroupDetailSheet(group: group),
+    builder: (_) => _DuplicateGroupDetailSheet(group: group, loadPage: loader),
   );
 }
 
-class _DuplicateGroupDetailSheet extends StatelessWidget {
+class _DuplicateGroupDetailSheet extends StatefulWidget {
   final DuplicateGroup group;
+  final Future<List<DuplicateMember>> Function(int)? loadPage;
+  const _DuplicateGroupDetailSheet({required this.group, this.loadPage});
+  @override
+  State<_DuplicateGroupDetailSheet> createState() =>
+      _DuplicateGroupDetailSheetState();
+}
 
-  const _DuplicateGroupDetailSheet({required this.group});
+class _DuplicateGroupDetailSheetState
+    extends State<_DuplicateGroupDetailSheet> {
+  DuplicateGroup get group => widget.group;
+  late List<DuplicateMember> _members;
+  int _page = 0;
+  bool _loading = false;
+  String? _error;
+  @override
+  void initState() {
+    super.initState();
+    _members = group.members;
+    if (_members.isEmpty && widget.loadPage != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _load(0));
+    }
+  }
+
+  Future<void> _load(int page) async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final rows = await widget.loadPage!(page);
+      if (mounted) {
+        setState(() {
+          _members = rows;
+          _page = page;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
 
   Color _statusColor(BuildContext context, String value) {
     switch (value) {
@@ -104,7 +168,7 @@ class _DuplicateGroupDetailSheet extends StatelessWidget {
           ],
           _sectionTitle('멤버 목록'),
           const SizedBox(height: 6),
-          ...group.members.map(
+          ..._members.map(
             (member) => Card(
               margin: const EdgeInsets.only(bottom: 8),
               child: ListTile(
@@ -167,6 +231,34 @@ class _DuplicateGroupDetailSheet extends StatelessWidget {
               ),
             ),
           ),
+          if (_loading) const LinearProgressIndicator(),
+          if (_error != null)
+            Text(
+              _error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          if (widget.loadPage != null && group.memberCount > 50) ...[
+            Text(
+              '${_page * 50 + 1}–${_page * 50 + _members.length} / 전체 ${group.memberCount}건',
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                TextButton(
+                  onPressed: !_loading && _page > 0
+                      ? () => _load(_page - 1)
+                      : null,
+                  child: const Text('이전 멤버'),
+                ),
+                TextButton(
+                  onPressed: !_loading && (_page + 1) * 50 < group.memberCount
+                      ? () => _load(_page + 1)
+                      : null,
+                  child: const Text('다음 멤버'),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );

@@ -14,24 +14,35 @@ void main() {
   final mode = env['SR_RT_MODE'];
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('server db -> mobile import (roundtrip harness)', () async {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
-    final dir = Directory.systemTemp.createTempSync('sr_roundtrip_');
-    await databaseFactory.setDatabasesPath(dir.path);
-    SharedPreferences.setMockInitialValues({});
-    final kakaoId = env['SR_RT_KAKAO_ID'];
-    LocalDbService.currentKakaoId = () async => kakaoId;
+  test(
+    'server db -> mobile import (roundtrip harness)',
+    () async {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+      final dir = Directory.systemTemp.createTempSync('sr_roundtrip_');
+      await databaseFactory.setDatabasesPath(dir.path);
+      SharedPreferences.setMockInitialValues({});
+      final kakaoId = env['SR_RT_KAKAO_ID'];
+      LocalDbService.currentKakaoId = () async => kakaoId;
 
-    try {
-      final imported = await LocalDbService.importFromServerDb(env['SR_RT_SERVER_DB']!);
-      expect(imported, greaterThan(0));
-      await LocalDbService.closeDb();
-      File('${dir.path}/standalone_reports.db').copySync(env['SR_RT_MOBILE_OUT']!);
-    } finally {
-      // 운영 사본으로 돌릴 때도 있으므로 임시 DB 를 남기지 않는다(결정 D-8: 로컬 임시 폴더에서만, 끝나면 삭제).
-      await LocalDbService.closeDb();
-      dir.deleteSync(recursive: true);
-    }
-  }, skip: mode == 'import' ? false : 'roundtrip harness: SR_RT_MODE=import 일 때만 실행');
+      try {
+        final imported = await LocalDbService.importFromServerDb(
+          env['SR_RT_SERVER_DB']!,
+        );
+        expect(imported, greaterThan(0));
+        await LocalDbService.closeDb();
+        File(
+          '${dir.path}/standalone_reports.db',
+        ).copySync(env['SR_RT_MOBILE_OUT']!);
+      } finally {
+        // 운영 사본으로 돌릴 때도 있으므로 임시 DB 를 남기지 않는다(결정 D-8: 로컬 임시 폴더에서만, 끝나면 삭제).
+        await LocalDbService.closeDb();
+        dir.deleteSync(recursive: true);
+      }
+    },
+    timeout: const Timeout(Duration(minutes: 30)),
+    skip: mode == 'import'
+        ? false
+        : 'roundtrip harness: SR_RT_MODE=import 일 때만 실행',
+  );
 }

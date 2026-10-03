@@ -1,0 +1,69 @@
+Applications Memory Usage (in Kilobytes):
+Uptime: 4244404 Realtime: 4244404
+
+** MEMINFO in pid 5944 [com.fentanest.mysafetyreport.fixture2] **
+                   Pss  Private  Private  SwapPss      Rss     Heap     Heap     Heap
+                 Total    Dirty    Clean    Dirty    Total     Size    Alloc     Free
+                ------   ------   ------   ------   ------   ------   ------   ------
+  Native Heap   137300   137200        0        0   141164   455160   137849   313141
+  Dalvik Heap     6785     6572        0        0    14236     8949     4475     4474
+ Dalvik Other     9097     3752        0        0    15028
+        Stack     1484     1484        0        0     1492
+       Ashmem       19        0        0        0      592
+    Other dev       21        0       20        0      328
+     .so mmap     4608      320     1680        8    36628
+    .jar mmap     4200        0     1204        0    44352
+    .apk mmap    27565      420    26932        0    28968
+    .ttf mmap    10388        0    10140        0    11224
+    .dex mmap       24        0        0        0      896
+    .oat mmap       45        0        0        0     1628
+    .art mmap     8641     8008        0        0    29536
+   Other mmap     8934        4     5448        0    13968
+      Unknown   135865   135856        0        0   136628
+        TOTAL   354984   293616    45424        8   476668   464109   142324   317615
+
+ App Summary
+                       Pss(KB)                        Rss(KB)
+                        ------                         ------
+           Java Heap:    14580                          43772
+         Native Heap:   137200                         141164
+                Code:    40912                         134580
+               Stack:     1484                           1492
+            Graphics:        0                              0
+       Private Other:   144864
+              System:    15944
+             Unknown:                                  155660
+
+           TOTAL PSS:   354984            TOTAL RSS:   476668       TOTAL SWAP PSS:        8
+
+ Objects
+               Views:        7         ViewRootImpl:        1
+         AppContexts:        6           Activities:        1
+              Assets:       29        AssetManagers:        0
+       Local Binders:       45        Proxy Binders:       69
+       Parcel memory:       10         Parcel count:       40
+    Death Recipients:        1             WebViews:        0
+
+ SQL
+         MEMORY_USED:    78523
+  PAGECACHE_OVERFLOW:    77695          MALLOC_SIZE:      256
+
+ DATABASES
+      pgsz     dbsz   Lookaside(b) cache hits cache misses cache size  Dbname
+PER CONNECTION STATS
+         4      152             85    59    58     4  /data/user/0/com.fentanest.mysafetyreport.fixture2/databases/community.db
+         4      104            116    20    61    13  /data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+         4        8                    0     0     0    (attached) temp
+         4      104             56     7    24     6  /data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb (1)
+         4  1116656            123  1198   341    15  /data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db
+         4    72804                    0     0     0    (attached) temp
+POOL STATS
+     cache hits  cache misses    cache size  Dbname
+             59            59           118  /data/user/0/com.fentanest.mysafetyreport.fixture2/databases/community.db
+             27            89           116  /data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+           1196           346          1542  /data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db
+
+ Asset Allocations
+    : 21K
+    : 23K
+    : 17K

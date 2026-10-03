@@ -1,0 +1,3 @@
+Warning: Activity not started, intent has been delivered to currently running top-most instance.
+{"stage": "notification_handler_without_files_app", "filename": "fixture_1791013157905.db", "location": "Download/mysafetyreport/", "actions_visible": true, "failed_file_open_keeps_dialog": true, "app_alive": true}
+Package com.google.android.documentsui new state: enabled

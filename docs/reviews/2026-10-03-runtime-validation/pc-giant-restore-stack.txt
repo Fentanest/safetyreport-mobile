@@ -1,0 +1,20 @@
+Process 2132360: /home/better0101/projects/safetyreport/.venv/bin/python -c
+import sys
+from services import db_backup
+from core.storage import exchange
+from core.utils import logger
+logger.LoggerFactory.create_logger()
+exchange._current_kakao_id = lambda: sys.argv[2]  # 로그인한 카카오 계정(검사용 fixture 계정)
+db_backup.restore_from_mobile_db(sys.argv[1])
+ /tmp/sr_exchange_500k_source.db 910001
+Python v3.14.6 (/usr/bin/python3.14)
+
+Thread 2132360 (active+gil)
+    refresh_duplicate_groups (duplicate_group_service.py:299)
+    _refresh_duplicate_groups (core/database/database.py:56)
+    merge_final (core/database/database.py:1019)
+    apply_mobile_snapshot (core/storage/exchange.py:319)
+    _restore_exclusive (core/storage/exchange.py:465)
+    restore (core/storage/exchange.py:440)
+    restore_from_mobile_db (db_backup.py:122)
+    <module> (<string>:8)

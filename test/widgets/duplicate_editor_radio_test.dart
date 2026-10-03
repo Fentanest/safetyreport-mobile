@@ -55,15 +55,29 @@ void main() {
     dir.deleteSync(recursive: true);
   });
 
-  testWidgets('picking a representative switches the mode dropdown to manual', (tester) async {
+  testWidgets('picking a representative switches the mode dropdown to manual', (
+    tester,
+  ) async {
     SharedPreferences.setMockInitialValues({});
     await tester.runAsync(() async {
       await LocalDbService.closeDb();
       await deleteDatabase(await LocalDbService.getDbPath());
       const body = '같은 신고 본문입니다 — 편집 시트 시험';
-      await LocalDbService.upsertReport(_report('d1', 'SPP-1'), 'traffic', '자동차·교통위반-신호위반', rawContent: body);
-      await LocalDbService.upsertReport(_report('d2', 'SPP-2'), 'traffic', '자동차·교통위반-신호위반', rawContent: body);
-      await DuplicateProjectionService.refreshDuplicateGroups(await LocalDbService.db);
+      await LocalDbService.upsertReport(
+        _report('d1', 'SPP-1'),
+        'traffic',
+        '자동차·교통위반-신호위반',
+        rawContent: body,
+      );
+      await LocalDbService.upsertReport(
+        _report('d2', 'SPP-2'),
+        'traffic',
+        '자동차·교통위반-신호위반',
+        rawContent: body,
+      );
+      await DuplicateProjectionService.refreshDuplicateGroups(
+        await LocalDbService.db,
+      );
     });
     final provider = _StandaloneProvider();
     addTearDown(provider.dispose);
@@ -72,10 +86,21 @@ void main() {
     await tester.pumpWidget(
       ChangeNotifierProvider<ReportProvider>.value(
         value: provider,
-        child: const MaterialApp(home: Scaffold(body: DuplicateManagementPanel())),
+        child: const MaterialApp(
+          home: Scaffold(body: DuplicateManagementPanel()),
+        ),
       ),
     );
-    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
+    for (
+      var i = 0;
+      i < 50 && find.textContaining('SPP-').evaluate().isEmpty;
+      i++
+    ) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 100)),
+      );
+      await tester.pump();
+    }
     await tester.pumpAndSettle();
 
     await tester.tap(find.textContaining('SPP-').first);
@@ -87,13 +112,20 @@ void main() {
     expect(radios, findsNWidgets(2));
     // 현재 대표가 아닌 쪽을 고른다.
     final tiles = tester.widgetList<RadioListTile<String>>(radios).toList();
-    final group = tester.widget<RadioGroup<String>>(find.byType(RadioGroup<String>));
+    final group = tester.widget<RadioGroup<String>>(
+      find.byType(RadioGroup<String>),
+    );
     final other = tiles.indexWhere((t) => t.value != group.groupValue);
     expect(other, isNonNegative);
     await tester.tap(radios.at(other));
     await tester.pumpAndSettle();
 
-    expect(tester.widget<RadioGroup<String>>(find.byType(RadioGroup<String>)).groupValue, tiles[other].value);
+    expect(
+      tester
+          .widget<RadioGroup<String>>(find.byType(RadioGroup<String>))
+          .groupValue,
+      tiles[other].value,
+    );
     expect(find.text('수동 고정'), findsOneWidget);
     expect(find.text('자동 선정'), findsNothing);
   });

@@ -1,0 +1,12 @@
+{
+  "kind": "synthetic_Android_profile_export_content_validation",
+  "bytes": 1143455744,
+  "quick_check": "ok",
+  "rows": {
+    "reports": 500000,
+    "report_raw": 500000,
+    "duplicate_group": 2,
+    "duplicate_member": 500000,
+    "sr_duplicate_input_v1": 500000
+  }
+}

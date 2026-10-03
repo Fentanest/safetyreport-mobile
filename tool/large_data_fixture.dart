@@ -2,7 +2,11 @@ import 'package:sqflite/sqflite.dart';
 
 /// Synthetic and deterministic. Never calls a crawler, rating service or upload.
 /// Intended for a fresh test database or the isolated profile probe's demo DB.
-Future<void> seedLargeDataFixture(Database db, int count) async {
+Future<void> seedLargeDataFixture(
+  Database db,
+  int count, {
+  bool giantRawGroups = false,
+}) async {
   if (count < 0) throw ArgumentError.value(count);
   await db.transaction((t) async {
     for (final table in [
@@ -51,7 +55,8 @@ Future<void> seedLargeDataFixture(Database db, int count) async {
       );
       await t.rawInsert(
         '''INSERT INTO report_raw(ID,raw_content,raw_type,saved_at)
-        SELECT ID, CASE WHEN CAST(substr(ID,9) AS INTEGER)%13=0 THEN hex(zeroblob(4096)) ELSE '합성 원문' END,
+        SELECT ID,
+          ${giantRawGroups ? "CASE WHEN CAST(substr(ID,9) AS INTEGER)%13=0 THEN hex(zeroblob(4096)) ELSE '합성 원문' END" : "'합성 원문 ' || printf('%09d',CASE WHEN CAST(substr(ID,9) AS INTEGER)%250<2 THEN (CAST(substr(ID,9) AS INTEGER)/250)*250 ELSE CAST(substr(ID,9) AS INTEGER) END) || CASE WHEN (CASE WHEN CAST(substr(ID,9) AS INTEGER)%250<2 THEN (CAST(substr(ID,9) AS INTEGER)/250)*250 ELSE CAST(substr(ID,9) AS INTEGER) END)%13=0 THEN char(10)||hex(zeroblob(4096)) ELSE '' END"},
         'report_body', 0 FROM reports WHERE ID >= ? AND ID < ?''',
         [
           'fixture-${start.toString().padLeft(9, '0')}',

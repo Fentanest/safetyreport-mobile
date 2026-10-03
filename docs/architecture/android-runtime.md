@@ -303,3 +303,8 @@ CI `build-dev-apk.yml`(2026-09-27): `dev` push(문서만 바뀐 push 제외)·�
 기본 키 경로:
 - `~/mysafetyreport-android/key.properties`
 - `~/mysafetyreport-android/upload-keystore.jks`
+
+
+### DB 완료 알림의 파일 앱 fallback
+
+`DbExportLocation.notifyCompleted`는 finalize한 실제 content URI·파일명·위치를 PendingIntent에 넣는다. foreground 완료는 Dart에서 위치를 열고, background 완료는 알림 탭의 MainActivity만 위치 앱을 연다. location intent를 처리할 앱이 없으면 native Activity dialog로 정확한 파일명/위치와 파일 열기·공유·닫기를 제공한다. 파일 열기/공유도 실패하면 dialog를 유지한다. 오래된 알림 metadata는 content provider에서 조회하며 SAF URI나 document ID를 조립하지 않는다. intent extras는 한 번 소비해 회전/재생성에서 자동 반복 실행하지 않는다.

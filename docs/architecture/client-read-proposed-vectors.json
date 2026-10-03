@@ -5,47 +5,184 @@
     {
       "id": "summary-count-independent-of-preview",
       "fixture_rows": 500000,
-      "query": {"dedupe": "canonical", "excludeWithdraw": false},
-      "expected": {"total": 499000, "watchlist_total": 5155, "maximum_watchlist_preview": 200, "maximum_recent_answers_preview": 200},
-      "must_not_return": ["all report bodies", "all raw_content"]
+      "query": {
+        "dedupe": "canonical",
+        "excludeWithdraw": false
+      },
+      "expected": {
+        "total": 499000,
+        "watchlist_total": 5155,
+        "maximum_watchlist_preview": 200,
+        "maximum_recent_answers_preview": 200
+      },
+      "must_not_return": [
+        "all report bodies",
+        "all raw_content"
+      ]
     },
     {
       "id": "confirmed-member-watch-inheritance",
       "reports": [
-        {"ID": "rep", "category": "traffic", "감시목록": "N", "처리상태": "수용"},
-        {"ID": "member", "category": "traffic", "감시목록": "Y", "처리상태": "수용"}
+        {
+          "ID": "rep",
+          "category": "traffic",
+          "감시목록": "N",
+          "처리상태": "수용"
+        },
+        {
+          "ID": "member",
+          "category": "traffic",
+          "감시목록": "Y",
+          "처리상태": "수용"
+        }
       ],
-      "group": {"status": "confirmed_duplicate", "representative_id": "rep", "members": ["rep", "member"]},
-      "query": {"scope": "watchlist", "dedupe": "canonical"},
-      "expected": {"total": 1, "report_ids": ["rep"]}
+      "group": {
+        "status": "confirmed_duplicate",
+        "representative_id": "rep",
+        "members": [
+          "rep",
+          "member"
+        ]
+      },
+      "query": {
+        "scope": "watchlist",
+        "dedupe": "canonical"
+      },
+      "expected": {
+        "total": 1,
+        "report_ids": [
+          "rep"
+        ]
+      }
     },
     {
       "id": "year-and-null-drilldown",
       "reports": [
-        {"ID": "dated", "답변일": "2026-03-03", "위반장소": "합성 주소", "위도": null, "경도": null},
-        {"ID": "null-date", "답변일": null, "위반장소": "합성 주소", "위도": null, "경도": null}
+        {
+          "ID": "dated",
+          "답변일": "2026-03-03",
+          "위반장소": "합성 주소",
+          "위도": null,
+          "경도": null
+        },
+        {
+          "ID": "null-date",
+          "답변일": null,
+          "위반장소": "합성 주소",
+          "위도": null,
+          "경도": null
+        }
       ],
-      "query": {"scope": "missing", "year": "2026", "missingAddress": "합성 주소"},
-      "expected": {"group_report_total": 1, "page_total": 1, "report_ids": ["dated"]}
+      "query": {
+        "scope": "missing",
+        "year": "2026",
+        "missingAddress": "합성 주소"
+      },
+      "expected": {
+        "group_report_total": 1,
+        "page_total": 1,
+        "report_ids": [
+          "dated"
+        ]
+      }
     },
     {
       "id": "same-count-status-edit",
       "fixture_rows": 58388,
-      "mutation": {"ID": "fixture-000000000", "처리상태": "불수용"},
-      "expected": {"total_delta": 0, "accept_delta": -1, "reject_delta": 1, "revision_must_change": true}
+      "mutation": {
+        "ID": "fixture-000000000",
+        "처리상태": "불수용"
+      },
+      "expected": {
+        "total_delta": 0,
+        "accept_delta": -1,
+        "reject_delta": 1,
+        "revision_must_change": true
+      }
     },
     {
       "id": "page-response-consistency",
-      "query": {"offset": 0, "limit": 1},
-      "response_fragment": {"total": 827, "offset": 0, "limit": 1, "count": 1, "next_offset": 1, "data": [{"ID": "fixture-000000054"}]},
-      "expected": {"count_equals_data_length": true, "count_and_total_share_snapshot": true}
+      "query": {
+        "offset": 0,
+        "limit": 1
+      },
+      "response_fragment": {
+        "total": 827,
+        "offset": 0,
+        "limit": 1,
+        "count": 1,
+        "next_offset": 1,
+        "data": [
+          {
+            "ID": "fixture-000000054"
+          }
+        ]
+      },
+      "expected": {
+        "count_equals_data_length": true,
+        "count_and_total_share_snapshot": true
+      }
     },
     {
       "id": "restored-dataset-and-account-switch",
-      "first": {"dataset_id": "fixture-a", "data_revision": "r100", "total": 500000},
-      "second": {"dataset_id": "fixture-b", "data_revision": "r100", "total": 500000},
-      "restore": {"dataset_id": "fixture-b", "data_revision": "r101", "total": 500000},
-      "expected": {"invalidate_on_account": true, "invalidate_on_restore": true, "discard_previous_account_response": true}
+      "first": {
+        "dataset_id": "fixture-a",
+        "data_revision": "r100",
+        "total": 500000
+      },
+      "second": {
+        "dataset_id": "fixture-b",
+        "data_revision": "r100",
+        "total": 500000
+      },
+      "restore": {
+        "dataset_id": "fixture-b",
+        "data_revision": "r101",
+        "total": 500000
+      },
+      "expected": {
+        "invalidate_on_account": true,
+        "invalidate_on_restore": true,
+        "discard_previous_account_response": true
+      }
+    },
+    {
+      "id": "distinct-metadata-outside-first-page",
+      "reports": [
+        {
+          "ID": "outside-first-200",
+          "처리상태": "사용자 상태",
+          "위반법규": "페이지 밖 법규"
+        }
+      ],
+      "expected": {
+        "metadata_contains_all_statuses_and_laws": true,
+        "must_not_download_report_bodies": true
+      }
+    },
+    {
+      "id": "giant-duplicate-group-member-pages",
+      "member_total": 461538,
+      "query": {
+        "offset": 50,
+        "limit": 50
+      },
+      "expected": {
+        "count": 50,
+        "total": 461538,
+        "manual_representative_outside_initial_page_preserved": true
+      }
+    },
+    {
+      "id": "pc-restore-giant-raw-group",
+      "fixture_rows": 500000,
+      "giantRawGroups": true,
+      "expected": {
+        "same_normalization_and_field_match": true,
+        "count_field_hashes_once": true,
+        "preserve_existing_tie_rule": true,
+        "no_all_report_or_raw_payloads_in_mobile_ui": true
+      }
     }
   ]
 }

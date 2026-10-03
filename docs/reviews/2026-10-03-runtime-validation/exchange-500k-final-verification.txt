@@ -1,0 +1,259 @@
+{"stage": "compare_A:mysafety_entry_value", "seconds": 2.702}
+{"stage": "compare_A:mysafety_raw_content", "seconds": 6.524}
+{"stage": "compare_A:mysafety_watchlist", "seconds": 0.015}
+{"stage": "compare_A:mysafety_sync_meta", "seconds": 0.001}
+{"stage": "compare_A:mysafety_geocode_cache", "seconds": 0.002}
+{"stage": "compare_A:mysafety_report_override", "seconds": 0.003}
+{"stage": "compare_A:mysafety_duplicate_decision", "seconds": 0.006}
+{"stage": "compare_A:mysafety_duplicate_group", "seconds": 0.024}
+{"stage": "compare_A:mysafety_duplicate_member", "seconds": 0.072}
+{"stage": "compare_A:mysafety", "seconds": 4.976}
+{"stage": "compare_A:mysafetydetail_traffic", "seconds": 4.944}
+{"stage": "compare_A:mysafetydetail_parking", "seconds": 4.177}
+{"stage": "compare_A:mysafetydetail_other", "seconds": 3.237}
+{"stage": "compare_A:mysafetymerge_traffic", "seconds": 5.429}
+{"stage": "compare_A:mysafetymerge_parking", "seconds": 5.865}
+{"stage": "compare_A:mysafetymerge_other", "seconds": 5.951}
+{"stage": "compare_B:reports", "seconds": 31.387}
+{"stage": "compare_B:report_raw", "seconds": 3.369}
+{"stage": "compare_B:sync_meta", "seconds": 0.01}
+{"stage": "compare_B:geocode_cache", "seconds": 0.002}
+{"stage": "compare_B:report_override", "seconds": 0.001}
+{"stage": "compare_B:duplicate_decision", "seconds": 0.001}
+{"stage": "compare_B:duplicate_group", "seconds": 0.083}
+{"stage": "compare_B:duplicate_member", "seconds": 0.05}
+{"stage": "compare_M0_to_M1_exchange_columns", "seconds": 13.196}
+{
+  "kind": "synthetic_host_exchange_not_device_performance",
+  "rows": 500000,
+  "diff_count": 0,
+  "results": {
+    "A:mysafety_entry_value": {
+      "before": 500000,
+      "after": 500000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafety_raw_content": {
+      "before": 500000,
+      "after": 500000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafety_watchlist": {
+      "before": 5155,
+      "after": 5155,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafety_sync_meta": {
+      "before": 3,
+      "after": 3,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafety_geocode_cache": {
+      "before": 1,
+      "after": 1,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafety_report_override": {
+      "before": 2,
+      "after": 2,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafety_duplicate_decision": {
+      "before": 2,
+      "after": 2,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafety_duplicate_group": {
+      "before": 2000,
+      "after": 2000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafety_duplicate_member": {
+      "before": 4000,
+      "after": 4000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafety": {
+      "before": 500000,
+      "after": 500000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafetydetail_traffic": {
+      "before": 166667,
+      "after": 166667,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafetydetail_parking": {
+      "before": 166667,
+      "after": 166667,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafetydetail_other": {
+      "before": 166666,
+      "after": 166666,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafetymerge_traffic": {
+      "before": 166667,
+      "after": 166667,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafetymerge_parking": {
+      "before": 166667,
+      "after": 166667,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafetymerge_other": {
+      "before": 166666,
+      "after": 166666,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "B:reports": {
+      "before": 500000,
+      "after": 500000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "B:report_raw": {
+      "before": 500000,
+      "after": 500000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "B:sync_meta": {
+      "before": 4,
+      "after": 4,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "B:geocode_cache": {
+      "before": 1,
+      "after": 1,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "B:report_override": {
+      "before": 2,
+      "after": 2,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "B:duplicate_decision": {
+      "before": 2,
+      "after": 2,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "B:duplicate_group": {
+      "before": 2000,
+      "after": 2000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "B:duplicate_member": {
+      "before": 4000,
+      "after": 4000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "initial_exchange_reports": {
+      "before": 500000,
+      "after": 500000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "initial_exchange_report_raw": {
+      "before": 500000,
+      "after": 500000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "initial_exchange_geocode_cache": {
+      "before": 1,
+      "after": 1,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "initial_exchange_report_override": {
+      "before": 2,
+      "after": 2,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "initial_exchange_duplicate_decision": {
+      "before": 2,
+      "after": 2,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "initial_exchange_duplicate_group": {
+      "before": 2000,
+      "after": 2000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "initial_exchange_duplicate_member": {
+      "before": 4000,
+      "after": 4000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    }
+  },
+  "contracts_identical": {
+    "storage-contract.json": true,
+    "parser-vectors.json": true,
+    "exif-vectors.json": true,
+    "rating-eligibility-vectors.json": true,
+    "dark-palette.json": true,
+    "selfhost-compat/README.md": true,
+    "selfhost-compat/vectors.json": true
+  },
+  "work_dir": "/tmp/sr_exchange_large_rl93eu40"
+}

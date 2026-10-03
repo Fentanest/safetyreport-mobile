@@ -741,23 +741,29 @@ class LocalDbService {
     return updated;
   }
 
-  /// 촬영 시각을 아직 못 읽은 주정차 신고 (ID, 첨부사진, 신고번호). 신고일 6개월 이내(첨부 URL 만료 전)만, 최신 ID 부터.
-  /// 서버 photo_capture_time.pending_photo_rows 와 같은 조건.
+  static const _pendingPhotoWhere =
+      "(category = 'parking' OR COALESCE(entry_value, '') LIKE '%불법주정차신고%') AND 사진_촬영수 IS NULL AND COALESCE(첨부사진, '') LIKE 'http%' AND COALESCE(신고일, '') >= ?";
+
+  static Future<int> pendingPhotoCount({String? cutoff}) async =>
+      Sqflite.firstIntValue(
+        await (await db).rawQuery(
+          'SELECT COUNT(*) FROM reports WHERE $_pendingPhotoWhere',
+          [cutoff ?? attachmentCutoff(DateTime.now())],
+        ),
+      )!;
+
+  /// 같은 날짜 조건/내림차순을 사용하며 백그라운드 작업은 ID keyset으로
+  /// 128건씩 읽는다. 한 번의 동기화 종료 재시도는 기존 30건 제한을 유지한다.
   static Future<List<({String id, String photos, String reportNumber})>>
-  pendingPhotoRows({int? limit}) async {
+  pendingPhotoRows({int? limit, String? beforeId, String? cutoff}) async {
     final d = await db;
-    final cutoffText = attachmentCutoff(DateTime.now());
-    final rows = await d.rawQuery(
-      '''
-      SELECT ID, 첨부사진, 신고번호 FROM reports
-      WHERE (category = 'parking' OR COALESCE(entry_value, '') LIKE '%불법주정차신고%')
-        AND 사진_촬영수 IS NULL
-        AND COALESCE(첨부사진, '') LIKE 'http%'
-        AND COALESCE(신고일, '') >= ?
-      ORDER BY ID DESC
-      ${limit == null ? '' : 'LIMIT $limit'}
-      ''',
-      [cutoffText],
+    final rows = await PerformanceTrace.sql(
+      'maintenance.photo_page',
+      () => d.rawQuery(
+        'SELECT ID,첨부사진,신고번호 FROM reports WHERE $_pendingPhotoWhere '
+        '${beforeId == null ? '' : 'AND ID<?'} ORDER BY ID DESC ${limit == null ? '' : 'LIMIT ?'}',
+        [cutoff ?? attachmentCutoff(DateTime.now()), ?beforeId, ?limit],
+      ),
     );
     return [
       for (final r in rows)
@@ -1611,6 +1617,22 @@ class LocalDbService {
     await batch.commit(noResult: true);
     _agencyLookupKey = key;
   }
+
+  /// Only distinct short metadata; raw_content and report bodies are not read.
+  static Future<({List<String> statuses, List<String> laws})>
+  getFilterOptions() => runBackgroundWork(() async {
+    final d = await db;
+    final statuses = await d.rawQuery(
+      "SELECT DISTINCT trim(IFNULL(처리상태,'')) AS value FROM $effectiveReportsView",
+    );
+    final laws = await d.rawQuery(
+      "SELECT DISTINCT trim(IFNULL(위반법규,'')) AS value FROM $effectiveReportsView",
+    );
+    return (
+      statuses: statuses.map((r) => r['value'] as String).toList(),
+      laws: laws.map((r) => r['value'] as String).toList(),
+    );
+  });
 
   static Future<({List<Report> reports, int total})> getReportPage({
     String category = 'all',
@@ -3371,6 +3393,16 @@ class LocalDbService {
       backupPath =
           '$dbPath.before_import.${DateTime.now().millisecondsSinceEpoch}.bak';
       await target.copy(backupPath);
+      // A closed WAL database has all values in the main file, but its WAL
+      // header makes read-only backup consumers create sidecars. Finalize the
+      // copied snapshot as a portable standalone SQLite file.
+      final portable = await openDatabase(backupPath, singleInstance: false);
+      try {
+        await portable.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+        await portable.rawQuery('PRAGMA journal_mode=DELETE');
+      } finally {
+        await portable.close();
+      }
     }
 
     try {
@@ -3533,27 +3565,72 @@ class LocalDbService {
   /// 서버 화면용 표(merge)에는 사용자 수정값과 "6개월 초과" 첨부 가림이 덮여 있어서, 그걸 앱 원본으로 저장하면
   /// 다시 서버로 복원할 때 사이트 원본이 사라진다(저장 계층 재설계 R2). 수정값은 report_override 로 따로 온다.
   /// 원본 표가 없는 옛 서버 DB 만 merge 를 읽는다.
-  static Future<List<Map<String, Object?>>> _readServerReportRows(
+  static Stream<List<Map<String, Object?>>> _readServerTablePages(
+    Database serverDb,
+    Set<String> serverTables,
+    String table,
+  ) async* {
+    if (!serverTables.contains(table)) return;
+    var cursor = 0;
+    while (true) {
+      final rows = await PerformanceTrace.sql(
+        'exchange.table_page',
+        () => serverDb.rawQuery(
+          'SELECT rowid AS _sr_cursor, * FROM "$table" WHERE rowid>? ORDER BY rowid LIMIT 128',
+          [cursor],
+        ),
+      );
+      if (rows.isEmpty) return;
+      cursor = rows.last['_sr_cursor'] as int;
+      yield rows
+          .map((r) => Map<String, Object?>.from(r)..remove('_sr_cursor'))
+          .toList();
+    }
+  }
+
+  static Stream<List<Map<String, Object?>>> _readServerReportRows(
     Database serverDb,
     Set<String> serverTables, {
     required String mergeTable,
     required String category,
-  }) async {
+  }) async* {
     final detailTable = 'mysafetydetail_$category';
-    if (!serverTables.contains('mysafety') ||
-        !serverTables.contains(detailTable)) {
-      return _readServerTable(serverDb, serverTables, mergeTable);
+    final originals =
+        serverTables.contains('mysafety') && serverTables.contains(detailTable);
+    final source = originals ? detailTable : mergeTable;
+    if (!serverTables.contains(source)) return;
+    final titleColumns = originals
+        ? (await serverDb.rawQuery('PRAGMA table_info("mysafety")'))
+              .map((r) => r['name'] as String)
+              .where((name) => name != 'ID')
+              .map((name) => 't."$name" AS "$name"')
+              .join(', ')
+        : '';
+    final hasEntry = serverTables.contains('mysafety_entry_value');
+    final hasRaw = serverTables.contains('mysafety_raw_content');
+    var cursor = 0;
+    while (true) {
+      final rows = await PerformanceTrace.sql(
+        'exchange.report_page',
+        () => serverDb.rawQuery(
+          'SELECT d.rowid AS _sr_cursor,d.* ${originals ? ', $titleColumns' : ''}, '
+          '${hasEntry ? 'e.entry_value' : 'NULL'} AS _sr_entry_value, '
+          '${hasRaw ? 'rr.ID' : 'NULL'} AS _sr_raw_present, '
+          '${hasRaw ? 'rr.raw_content' : 'NULL'} AS _sr_raw_content, '
+          '${hasRaw ? 'rr.raw_type' : 'NULL'} AS _sr_raw_type, '
+          '${hasRaw ? 'rr.saved_at' : 'NULL'} AS _sr_saved_at '
+          'FROM "$source" d '
+          '${originals ? 'JOIN mysafety t ON t.ID=d.ID ' : ''}'
+          '${hasEntry ? 'LEFT JOIN mysafety_entry_value e ON e.ID=d.ID ' : ''}'
+          '${hasRaw ? 'LEFT JOIN mysafety_raw_content rr ON rr.ID=d.ID ' : ''}'
+          'WHERE d.rowid>? ORDER BY d.rowid LIMIT 128',
+          [cursor],
+        ),
+      );
+      if (rows.isEmpty) return;
+      cursor = rows.last['_sr_cursor'] as int;
+      yield rows;
     }
-    final titleColumns =
-        (await serverDb.rawQuery('PRAGMA table_info("mysafety")'))
-            .map((r) => r['name'] as String)
-            .where((name) => name != 'ID')
-            .map((name) => 't."$name" AS "$name"')
-            .join(', ');
-    return serverDb.rawQuery(
-      'SELECT d.*, $titleColumns FROM "$detailTable" d '
-      'JOIN "mysafety" t ON t.ID = d.ID',
-    );
   }
 
   /// 계약 타입(integer/real)에 맞춘다. 숫자 문자열은 숫자로, 빈 문자열은 NULL 로(숫자 열에 '' 는 잘못된 값).
@@ -3687,22 +3764,6 @@ class LocalDbService {
       )).map((r) => r['name'] as String).toSet();
       final reportTypes = await _columnTypes(localDb, 'reports');
 
-      final entryValueById = <String, Object?>{
-        for (final r in await _readServerTable(
-          serverDb,
-          serverTables,
-          'mysafety_entry_value',
-        ))
-          r['ID'] as String: r['entry_value'],
-      };
-      final rawPayloadById = <String, Map<String, Object?>>{
-        for (final r in await _readServerTable(
-          serverDb,
-          serverTables,
-          'mysafety_raw_content',
-        ))
-          r['ID'] as String: r,
-      };
       // 서버 sync_meta 의 'watchlist' 는 구서버의 낡은 사본일 수 있어 쓰지 않는다(S-15). 원천은 mysafety_watchlist.
       final syncMetaRows =
           (await _readServerTable(serverDb, serverTables, 'mysafety_sync_meta'))
@@ -3715,8 +3776,7 @@ class LocalDbService {
           (await _readServerTable(serverDb, serverTables, 'mysafety_watchlist'))
               .map((r) => r['신고번호']?.toString() ?? '')
               .where((s) => s.isNotEmpty)
-              .toSet()
-              .toList();
+              .toSet();
 
       const sourceTableMap = {
         'mysafetymerge_traffic': 'traffic',
@@ -3748,45 +3808,49 @@ class LocalDbService {
         }
 
         for (final entry in sourceTableMap.entries) {
-          final rows = await _readServerReportRows(
+          await for (final rows in _readServerReportRows(
             serverDb,
             serverTables,
             mergeTable: entry.key,
             category: entry.value,
-          );
-          for (final row in rows) {
-            final reportId = row['ID']?.toString() ?? '';
-            if (reportId.isEmpty) continue;
-            // 값은 바꾸지 않는다(NULL 은 NULL). 모바일에 있는 열만, 계약 타입에 맞춰.
-            final importedRow = <String, Object?>{
-              for (final e in row.entries)
-                if (reportTypes.containsKey(e.key))
-                  e.key: _coerceForColumn(e.value, reportTypes[e.key]),
-              'category': entry.value,
-              // 서버 행 없음 = 모름(NULL), 행의 값(빈 문자열 포함)은 그대로 — PC exchange 와 같은 규칙(감사 SOL-03).
-              'entry_value': entryValueById[reportId],
-              'raw_content': '',
-            };
-            // 구서버에 지오코딩 열이 없을 때만 주소에서 계산한다(계산값, owner=derived).
-            if (!geoColumns.any(row.containsKey)) {
-              importedRow.addAll(
-                officialGeoPayload(importedRow['위반장소']?.toString(), null, null),
-              );
+          )) {
+            for (final row in rows) {
+              final reportId = row['ID']?.toString() ?? '';
+              if (reportId.isEmpty) continue;
+              // 값은 바꾸지 않는다(NULL 은 NULL). 모바일에 있는 열만, 계약 타입에 맞춰.
+              final importedRow = <String, Object?>{
+                for (final e in row.entries)
+                  if (reportTypes.containsKey(e.key))
+                    e.key: _coerceForColumn(e.value, reportTypes[e.key]),
+                'category': entry.value,
+                // 서버 행 없음 = 모름(NULL), 행의 값(빈 문자열 포함)은 그대로 — PC exchange 와 같은 규칙(감사 SOL-03).
+                'entry_value': row['_sr_entry_value'],
+                'raw_content': '',
+              };
+              // 구서버에 지오코딩 열이 없을 때만 주소에서 계산한다(계산값, owner=derived).
+              if (!geoColumns.any(row.containsKey)) {
+                importedRow.addAll(
+                  officialGeoPayload(
+                    importedRow['위반장소']?.toString(),
+                    null,
+                    null,
+                  ),
+                );
+              }
+              importedRow['감시목록'] = watchNumbers.contains(importedRow['신고번호'])
+                  ? 'Y'
+                  : 'N';
+              await put('reports', importedRow);
+              if (row['_sr_raw_present'] != null) {
+                await put('report_raw', {
+                  'ID': reportId,
+                  'raw_content': row['_sr_raw_content'],
+                  'raw_type': row['_sr_raw_type'],
+                  'saved_at': row['_sr_saved_at'],
+                });
+              }
+              imported++;
             }
-            importedRow['감시목록'] = watchNumbers.contains(importedRow['신고번호'])
-                ? 'Y'
-                : 'N';
-            await put('reports', importedRow);
-            final raw = rawPayloadById[reportId];
-            if (raw != null) {
-              await put('report_raw', {
-                'ID': reportId,
-                'raw_content': raw['raw_content'],
-                'raw_type': raw['raw_type'],
-                'saved_at': raw['saved_at'],
-              });
-            }
-            imported++;
           }
         }
 
@@ -3808,16 +3872,18 @@ class LocalDbService {
         };
         for (final pair in copied.entries) {
           final types = await _columnTypes(txn, pair.value);
-          for (final row in await _readServerTable(
+          await for (final rows in _readServerTablePages(
             serverDb,
             serverTables,
             pair.key,
           )) {
-            await put(pair.value, {
-              for (final e in row.entries)
-                if (types.containsKey(e.key))
-                  e.key: _coerceForColumn(e.value, types[e.key]),
-            });
+            for (final row in rows) {
+              await put(pair.value, {
+                for (final e in row.entries)
+                  if (types.containsKey(e.key))
+                    e.key: _coerceForColumn(e.value, types[e.key]),
+              });
+            }
           }
         }
         await flush();

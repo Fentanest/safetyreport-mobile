@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "/home/better0101/projects/safetyreport-mobile/tool/android_fixture_ui.py", line 47, in <module>
+    if a.wait_data: wait_content('월별 처리 추이')
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/better0101/projects/safetyreport-mobile/tool/android_fixture_ui.py", line 39, in wait_content
+    raise RuntimeError('Data never became ready: '+label)
+RuntimeError: Data never became ready: 월별 처리 추이

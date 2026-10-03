@@ -1,0 +1,23 @@
+Analyzing safetyreport-mobile...
+
+   info • Statements in an if should be enclosed in a block. Try wrapping the statement in a block • lib/community/upload/community_uploader.dart:328:7 • curly_braces_in_flow_control_structures
+   info • Statements in an if should be enclosed in a block. Try wrapping the statement in a block • lib/community/upload/community_uploader.dart:356:9 • curly_braces_in_flow_control_structures
+   info • Statements in an if should be enclosed in a block. Try wrapping the statement in a block • lib/community/upload/community_uploader.dart:575:7 • curly_braces_in_flow_control_structures
+   info • Statements in an if should be enclosed in a block. Try wrapping the statement in a block • lib/community/upload/community_uploader.dart:644:7 • curly_braces_in_flow_control_structures
+   info • Statements in an if should be enclosed in a block. Try wrapping the statement in a block • lib/community/upload/community_uploader.dart:847:11 • curly_braces_in_flow_control_structures
+   info • Statements in an if should be enclosed in a block. Try wrapping the statement in a block • lib/community/upload/community_uploader.dart:864:9 • curly_braces_in_flow_control_structures
+   info • Statements in an if should be enclosed in a block. Try wrapping the statement in a block • lib/community/upload/community_uploader.dart:960:7 • curly_braces_in_flow_control_structures
+   info • Statements in an if should be enclosed in a block. Try wrapping the statement in a block • lib/community/upload/community_uploader.dart:1000:11 • curly_braces_in_flow_control_structures
+   info • Statements in an if should be enclosed in a block. Try wrapping the statement in a block • lib/screens/community_onboarding_screen.dart:110:9 • curly_braces_in_flow_control_structures
+   info • Statements in an if should be enclosed in a block. Try wrapping the statement in a block • lib/screens/community_onboarding_screen.dart:143:7 • curly_braces_in_flow_control_structures
+warning • Unnecessary cast. Try removing the cast • test/storage/agency_registry_wiring_test.dart:208:22 • unnecessary_cast
+warning • Unnecessary cast. Try removing the cast • test/storage/agency_registry_wiring_test.dart:214:59 • unnecessary_cast
+warning • Unnecessary cast. Try removing the cast • test/storage/agency_registry_wiring_test.dart:219:20 • unnecessary_cast
+warning • Unnecessary cast. Try removing the cast • test/storage/agency_registry_wiring_test.dart:283:22 • unnecessary_cast
+warning • Unnecessary cast. Try removing the cast • test/storage/agency_registry_wiring_test.dart:289:59 • unnecessary_cast
+warning • Unnecessary cast. Try removing the cast • test/storage/agency_registry_wiring_test.dart:294:20 • unnecessary_cast
+warning • Unnecessary cast. Try removing the cast • test/storage/registry_vectors_test.dart:14:20 • unnecessary_cast
+warning • Unnecessary cast. Try removing the cast • test/storage/registry_vectors_test.dart:21:57 • unnecessary_cast
+warning • Unnecessary cast. Try removing the cast • test/storage/registry_vectors_test.dart:27:7 • unnecessary_cast
+
+19 issues found. (ran in 10.2s)

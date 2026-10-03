@@ -9,6 +9,7 @@ p.add_argument('--serial',default='emulator-5580')
 p.add_argument('--application-id',default='com.fentanest.mysafetyreport.fixture2')
 p.add_argument('--cycles',type=int,default=20)
 p.add_argument('--wait-data',action='store_true',help='Require full population data and charts, not just navigation controls')
+p.add_argument('--expected-total',default='499000')
 a=p.parse_args()
 assert a.serial.startswith('emulator-') and '.fixture' in a.application_id
 
@@ -28,11 +29,11 @@ def tap(label):
   except (RuntimeError,subprocess.TimeoutExpired,subprocess.CalledProcessError): pass
   time.sleep(.5)
  raise RuntimeError('Fixture action missing: '+label)
-def wait_content(label,timeout=180):
+def wait_content(label,timeout=180,exact=False):
  deadline=time.monotonic()+timeout
  while time.monotonic()<deadline:
   try:
-   if any(label in (n.get('text','')+n.get('content-desc','')) for n in nodes()): return
+   if any(((label in (n.get('text',''),n.get('content-desc','')) or n.get('content-desc','').splitlines()==['전체',label]) if exact else label in (n.get('text','')+n.get('content-desc',''))) for n in nodes()): return
   except (RuntimeError,subprocess.TimeoutExpired,subprocess.CalledProcessError): pass
   time.sleep(.3)
  raise RuntimeError('Data never became ready: '+label)
@@ -41,7 +42,7 @@ for permission in ['android.permission.ACCESS_FINE_LOCATION','android.permission
 started=time.monotonic()
 for i in range(a.cycles):
  tap('대시보드');time.sleep(.25)
- if a.wait_data: wait_content('499000건')
+ if a.wait_data: wait_content(a.expected_total+'건',exact=True)
  tap('통계');time.sleep(.25)
  if a.wait_data: wait_content('월별 처리 추이')
  tap('지도');time.sleep(.5)

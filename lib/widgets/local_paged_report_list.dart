@@ -20,6 +20,7 @@ class LocalPagedReportList extends StatefulWidget {
   final ReportFilter filter;
   final bool Function(Report)? predicate;
   final Future<void> Function(Report)? onRemove;
+  final Widget Function(BuildContext, Report)? itemBuilder;
   const LocalPagedReportList({
     super.key,
     this.category = 'all',
@@ -30,6 +31,7 @@ class LocalPagedReportList extends StatefulWidget {
     this.filter = const ReportFilter(),
     this.predicate,
     this.onRemove,
+    this.itemBuilder,
   });
   @override
   State<LocalPagedReportList> createState() => _LocalPagedReportListState();
@@ -231,6 +233,9 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
                   );
                 }
                 final r = _reports[index];
+                if (widget.itemBuilder != null) {
+                  return widget.itemBuilder!(context, r);
+                }
                 return ReportListCard(
                   report: r,
                   selectionMode: _selected.isNotEmpty,

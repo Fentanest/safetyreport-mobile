@@ -1,11 +1,18 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:isolate';
+import 'dart:io';
 
 import 'package:crypto/crypto.dart' as crypto;
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show compute, visibleForTesting;
 import 'package:sqflite/sqflite.dart';
 
 import '../models/duplicate_group.dart';
 import '../storage/schema_utils.dart';
+import 'performance_trace.dart';
+import 'local_db_service.dart';
+
+part 'bounded_duplicate_rebuild.dart';
 
 class DuplicateProjectionService {
   static const groupTable = 'duplicate_group';
@@ -179,301 +186,12 @@ class DuplicateProjectionService {
     return 0;
   }
 
-  static Map<String, dynamic> _chooseRepresentative(
-    List<Map<String, dynamic>> records,
-  ) {
-    final ranked = [...records]
-      ..sort((a, b) => _compareTuple(_priorityTuple(b), _priorityTuple(a)));
-    return ranked.first;
-  }
-
-  static Future<List<Map<String, dynamic>>> _loadInventory(
-    DatabaseExecutor db,
-  ) async {
-    final rows = await db.rawQuery('''
-      SELECT
-        r.*,
-        COALESCE(rr.raw_content, '') AS raw_content,
-        COALESCE(rr.raw_type, '') AS raw_type,
-        rr.saved_at AS saved_at
-      FROM reports r
-      LEFT JOIN report_raw rr ON rr.ID = r.ID
-    ''');
-    return rows.map((row) {
-      final item = Map<String, dynamic>.from(row);
-      final normalized = normalizeRawContent(item['raw_content']);
-      item['payload_normalized'] = normalized;
-      item['payload_hash'] = normalized.isEmpty ? '' : _payloadHash(normalized);
-      item['payload_hash_legacy'] = normalized.isEmpty
-          ? ''
-          : _legacyPayloadHash(normalized);
-      return item;
-    }).toList();
-  }
-
   static Future<Map<String, dynamic>> refreshDuplicateGroups(
     Database db, {
     bool trackChanges = false,
-  }) async {
-    final inventory = await _loadInventory(db);
-    final existingGroups = <String, Map<String, dynamic>>{};
-    final existingGroupsByLegacyId = <String, Map<String, dynamic>>{};
-    final existingGroupRows = await db.query(groupTable);
-    for (final row in existingGroupRows) {
-      final normalized = Map<String, dynamic>.from(row);
-      final groupId = row['group_id']?.toString() ?? '';
-      if (groupId.isNotEmpty) {
-        existingGroups[groupId] = normalized;
-      }
-      final legacyKey = row['fingerprint']?.toString() ?? '';
-      if (legacyKey.isNotEmpty) {
-        existingGroupsByLegacyId[legacyKey] = normalized;
-      }
-    }
-
-    // 사용자 판단(duplicate_decision)이 기존 그룹 행보다 우선한다 — 그룹이 사라졌다 다시 생겨도 유지(결정 D-6, M-18).
-    for (final decision in await db.query('duplicate_decision')) {
-      final groupId = decision['group_id']?.toString() ?? '';
-      if (groupId.isEmpty) continue;
-      existingGroups[groupId] = {
-        ...?existingGroups[groupId],
-        for (final key in const [
-          'status',
-          'representative_mode',
-          'representative_id',
-          'note',
-        ])
-          key: decision[key],
-      };
-    }
-
-    final existingMembersByGroup = <String, Set<String>>{};
-    final memberCreatedAt = <String, Object?>{};
-    for (final row in await db.query(memberTable)) {
-      final groupId = row['group_id']?.toString() ?? '';
-      final reportId = row['report_id']?.toString() ?? '';
-      if (groupId.isEmpty || reportId.isEmpty) continue;
-      existingMembersByGroup
-          .putIfAbsent(groupId, () => <String>{})
-          .add(reportId);
-      memberCreatedAt['$groupId|$reportId'] = row['created_at'];
-    }
-
-    final duplicateCandidates = inventory
-        .where((item) => _text(item['payload_hash']).isNotEmpty)
-        .toList();
-    final counts = <String, int>{};
-    for (final row in duplicateCandidates) {
-      final key = row['payload_hash']?.toString() ?? '';
-      counts[key] = (counts[key] ?? 0) + 1;
-    }
-
-    final groups = <Map<String, dynamic>>[];
-    final members = <Map<String, dynamic>>[];
-    final alerts = <Map<String, dynamic>>[];
-    final currentTs = _nowMs();
-
-    final grouped = <String, List<Map<String, dynamic>>>{};
-    for (final row in duplicateCandidates) {
-      final key = row['payload_hash']?.toString() ?? '';
-      if ((counts[key] ?? 0) <= 1) continue;
-      grouped.putIfAbsent(key, () => <Map<String, dynamic>>[]).add(row);
-    }
-
-    for (final entry in grouped.entries) {
-      final groupId = entry.key;
-      final records = entry.value;
-      if (records.length <= 1) continue;
-
-      final recommendedRepresentative = _chooseRepresentative(records);
-      final recommendedRepresentativeId = _text(
-        recommendedRepresentative['ID'],
-      );
-      final legacyGroupId = _text(records.first['payload_hash_legacy']);
-      final existing =
-          existingGroups[groupId] ??
-          (legacyGroupId.isEmpty
-              ? null
-              : existingGroupsByLegacyId[legacyGroupId]);
-      final preservedStatus = normalizeDuplicateStatus(existing?['status']);
-      final preservedMode = existing == null
-          ? ''
-          : normalizeRepresentativeMode(
-              existing['representative_mode'],
-              existingStatus: existing['status'],
-            );
-      final preservedRep = _text(existing?['representative_id']);
-      final createdAt =
-          int.tryParse(existing?['created_at']?.toString() ?? '') ?? currentTs;
-
-      final representativeMode = preservedMode == RepresentativeModes.manual
-          ? RepresentativeModes.manual
-          : RepresentativeModes.auto;
-
-      final carValues = records
-          .map((row) => _text(row['차량번호']))
-          .where((value) => value.isNotEmpty)
-          .toSet();
-      final categoryValues = records
-          .map((row) => _text(row['category']))
-          .where((value) => value.isNotEmpty)
-          .toSet();
-      final entryValues = records
-          .map((row) => _text(row['entry_value']))
-          .where((value) => value.isNotEmpty)
-          .toSet();
-      final hasConflict =
-          carValues.length > 1 ||
-          categoryValues.length > 1 ||
-          entryValues.length > 1;
-
-      final defaultStatus = hasConflict
-          ? DuplicateStatuses.reviewRequired
-          : DuplicateStatuses.confirmedDuplicate;
-      final status =
-          {
-            DuplicateStatuses.reviewRequired,
-            DuplicateStatuses.confirmedDuplicate,
-            DuplicateStatuses.notDuplicate,
-          }.contains(preservedStatus)
-          ? preservedStatus
-          : defaultStatus;
-
-      final memberIds = records.map((row) => _text(row['ID'])).toSet();
-      var representativeId = recommendedRepresentativeId;
-      if (representativeMode == RepresentativeModes.manual &&
-          preservedRep.isNotEmpty &&
-          memberIds.contains(preservedRep)) {
-        representativeId = preservedRep;
-      }
-
-      groups.add({
-        'group_id': groupId,
-        'fingerprint': groupId,
-        'match_type': 'payload_exact',
-        'status': status,
-        'representative_mode': representativeMode,
-        'representative_id': representativeId,
-        'member_count': records.length,
-        'apply_globally': status == DuplicateStatuses.confirmedDuplicate
-            ? 1
-            : 0,
-        'note': existing?['note']?.toString() ?? '',
-        'created_at': createdAt,
-        'updated_at': currentTs,
-      });
-
-      final fingerprints = records.map(_fieldFingerprint).toList();
-      var majorityFingerprint = '';
-      if (fingerprints.isNotEmpty) {
-        final freq = <String, int>{};
-        for (final fingerprint in fingerprints) {
-          freq[fingerprint] = (freq[fingerprint] ?? 0) + 1;
-        }
-        majorityFingerprint =
-            (freq.entries.toList()..sort((a, b) => b.value.compareTo(a.value)))
-                .first
-                .key;
-      }
-
-      final ranked = [...records]
-        ..sort((a, b) => _compareTuple(_priorityTuple(b), _priorityTuple(a)));
-      final memberPayloads = <Map<String, dynamic>>[];
-      for (var index = 0; index < ranked.length; index++) {
-        final record = ranked[index];
-        final isRepresentative = _text(record['ID']) == representativeId;
-        final payload = {
-          'group_id': groupId,
-          'report_id': _text(record['ID']),
-          'report_number': _text(record['신고번호']),
-          'category': _text(record['category']),
-          'is_representative': isRepresentative ? 1 : 0,
-          'priority_score': ranked.length - index,
-          'raw_match': 1,
-          'field_match': _fieldFingerprint(record) == majorityFingerprint
-              ? 1
-              : 0,
-          'created_at':
-              memberCreatedAt['$groupId|${_text(record['ID'])}'] ??
-              currentTs, // 처음 묶인 시각 유지
-          'updated_at': currentTs,
-        };
-        members.add(payload);
-        memberPayloads.add({...Map<String, dynamic>.from(record), ...payload});
-      }
-
-      if (trackChanges) {
-        final previousMemberIds = existingMembersByGroup[groupId] ?? <String>{};
-        final currentMemberIds = ranked.map((row) => _text(row['ID'])).toSet();
-        final autoRepresentativeChanged =
-            existing != null &&
-            representativeMode == RepresentativeModes.auto &&
-            _text(existing['representative_id']) != representativeId;
-        final membersChanged =
-            existing != null &&
-                previousMemberIds.length == currentMemberIds.length
-            ? previousMemberIds.difference(currentMemberIds).isNotEmpty
-            : existing != null &&
-                  previousMemberIds.length != currentMemberIds.length;
-
-        String changeKind = '';
-        if (existing == null) {
-          changeKind = 'group_added';
-        } else if (membersChanged) {
-          changeKind = 'members_changed';
-        } else if (autoRepresentativeChanged) {
-          changeKind = 'representative_changed';
-        }
-
-        if (changeKind.isNotEmpty) {
-          final representative = memberPayloads.firstWhere(
-            (member) => (member['is_representative'] as int? ?? 0) == 1,
-            orElse: () => <String, dynamic>{},
-          );
-          alerts.add(
-            _buildDuplicateAlertPayload(
-              changeKind: changeKind,
-              groupId: groupId,
-              status: status,
-              representativeMode: representativeMode,
-              memberCount: memberPayloads.length,
-              representative: representative,
-              members: memberPayloads,
-            ),
-          );
-        }
-      }
-    }
-
-    await db.transaction((txn) async {
-      await txn.delete(memberTable);
-      await txn.delete(groupTable);
-      if (groups.isNotEmpty) {
-        final batch = txn.batch();
-        for (final row in groups) {
-          batch.insert(
-            groupTable,
-            row,
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
-        }
-        for (final row in members) {
-          batch.insert(
-            memberTable,
-            row,
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
-        }
-        await batch.commit(noResult: true);
-      }
-    });
-
-    return {
-      'group_count': groups.length,
-      'member_count': members.length,
-      'changes': alerts,
-    };
-  }
+  }) => LocalDbService.runBackgroundWork(
+    () => _BoundedDuplicateRebuild.run(db, trackChanges: trackChanges),
+  );
 
   static Map<String, dynamic> _buildDuplicateAlertPayload({
     required String changeKind,
@@ -529,64 +247,73 @@ class DuplicateProjectionService {
     };
   }
 
+  static Future<bool> hasCompletedProjection(DatabaseExecutor db) async {
+    if ((await db.rawQuery("SELECT 1 FROM sqlite_master WHERE name=?", [
+      _BoundedDuplicateRebuild.meta,
+    ])).isEmpty) {
+      return false;
+    }
+    final columns = await db.rawQuery(
+      'PRAGMA table_info(${_BoundedDuplicateRebuild.meta})',
+    );
+    if (!columns.any((r) => r['name'] == 'built_revision')) return false;
+    return (await db.rawQuery(
+      'SELECT 1 FROM ${_BoundedDuplicateRebuild.meta} WHERE id=1 AND built_revision>=0',
+    )).isNotEmpty;
+  }
+
+  static Future<List<DuplicateMember>> getDuplicateMembers(
+    DatabaseExecutor db,
+    String groupId, {
+    int page = 0,
+    int pageSize = 50,
+  }) async {
+    final size = pageSize.clamp(1, 100);
+    final rows = await PerformanceTrace.sql(
+      'duplicate.member_page',
+      () => db.rawQuery(
+        '''
+      SELECT r.*,m.* FROM duplicate_member m JOIN reports r ON r.ID=m.report_id
+      WHERE m.group_id=? ORDER BY m.is_representative DESC,m.report_number DESC,m.report_id DESC
+      LIMIT ? OFFSET ?
+    ''',
+        [groupId, size, page.clamp(0, 1 << 30) * size],
+      ),
+    );
+    return rows.map(DuplicateMember.fromJson).toList();
+  }
+
   static Future<List<DuplicateGroup>> getDuplicateGroups(
     DatabaseExecutor db, {
     String? status,
+    int page = 0,
+    int pageSize = 50,
   }) async {
     final normalizedStatus = _text(status);
-    final groupRows = await db.query(
-      groupTable,
-      where: normalizedStatus.isEmpty ? null : 'status = ?',
-      whereArgs: normalizedStatus.isEmpty ? null : [normalizedStatus],
-      orderBy: 'updated_at DESC, group_id DESC',
+    final size = pageSize.clamp(1, 100);
+    // Sorting and COUNT apply to the complete population, before pagination.
+    final rows = await db.rawQuery(
+      '''
+      SELECT g.* FROM duplicate_group g LEFT JOIN reports r ON r.ID=g.representative_id
+      ${normalizedStatus.isEmpty ? '' : 'WHERE g.status=?'}
+      ORDER BY COALESCE(r.신고번호,'') DESC,g.member_count DESC,g.group_id DESC LIMIT ? OFFSET ?
+    ''',
+      [
+        if (normalizedStatus.isNotEmpty) normalizedStatus,
+        size,
+        page.clamp(0, 1 << 30) * size,
+      ],
     );
-    if (groupRows.isEmpty) return const [];
-
-    final memberRows = await db.query(
-      memberTable,
-      orderBy: 'report_number DESC, report_id DESC',
-    );
-    final inventory = await _loadInventory(db);
-    final inventoryById = {
-      for (final row in inventory)
-        _text(row['ID']): Map<String, dynamic>.from(row),
-    };
-
-    final membersByGroup = <String, List<Map<String, dynamic>>>{};
-    for (final row in memberRows) {
-      final reportId = _text(row['report_id']);
-      final base = Map<String, dynamic>.from(
-        inventoryById[reportId] ?? const {},
-      );
-      final merged = {...base, ...Map<String, dynamic>.from(row)};
-      membersByGroup
-          .putIfAbsent(_text(row['group_id']), () => <Map<String, dynamic>>[])
-          .add(merged);
-    }
-
     final groups = <DuplicateGroup>[];
-    for (final row in groupRows) {
-      final groupId = _text(row['group_id']);
-      final members = membersByGroup[groupId] ?? const <Map<String, dynamic>>[];
+    for (final row in rows) {
+      final members = await getDuplicateMembers(db, row['group_id'] as String);
       groups.add(
         DuplicateGroup.fromJson({
           ...row,
-          'members': members,
-          'representative': members.firstWhere(
-            (member) => (member['is_representative'] as int? ?? 0) == 1,
-            orElse: () => <String, dynamic>{},
-          ),
+          'members': members.map((m) => m.toJson()).toList(),
         }),
       );
     }
-
-    groups.sort((a, b) {
-      final left = a.representative?.report.reportNumber ?? '';
-      final right = b.representative?.report.reportNumber ?? '';
-      final first = right.compareTo(left);
-      if (first != 0) return first;
-      return b.memberCount.compareTo(a.memberCount);
-    });
     return groups;
   }
 
@@ -645,17 +372,19 @@ class DuplicateProjectionService {
 
     final members = await db.query(
       memberTable,
+      columns: ['report_id'],
       where: 'group_id = ?',
       whereArgs: [normalizedGroupId],
+      limit: 1,
     );
     if (members.isEmpty) return false;
 
-    final records = await _loadInventory(db);
-    final inventoryById = {for (final row in records) _text(row['ID']): row};
-    final groupRecords = members
-        .map((row) => inventoryById[_text(row['report_id'])])
-        .whereType<Map<String, dynamic>>()
-        .toList();
+    Future<bool> containsMember(String id) async =>
+        id.isNotEmpty &&
+        (await db.rawQuery(
+          'SELECT 1 FROM duplicate_member m JOIN reports r ON r.ID=m.report_id WHERE m.group_id=? AND m.report_id=? LIMIT 1',
+          [normalizedGroupId, id],
+        )).isNotEmpty;
 
     final nextStatus =
         {
@@ -672,23 +401,54 @@ class DuplicateProjectionService {
         : currentMode;
 
     final requestedRepresentativeId = _text(representativeId);
-    final autoRepresentativeId = _text(
-      _chooseRepresentative(groupRecords)['ID'],
+    final requestedValid = await containsMember(requestedRepresentativeId);
+    final currentValid = await containsMember(
+      _text(currentGroup['representative_id']),
     );
-    final memberIds = groupRecords.map((row) => _text(row['ID'])).toSet();
+    // Rank only narrow keys in bounded pages, never all member originals.
+    Map<String, dynamic>? recommended;
+    var cursor = '';
+    if (nextMode == RepresentativeModes.auto ||
+        !requestedValid && !currentValid) {
+      while (true) {
+        final page = await db.rawQuery(
+          '''
+        SELECT r.ID,r.범칙금_과태료,r.처리상태,r.답변일,r.synced_at,r.신고번호,m.priority_score
+        FROM duplicate_member m JOIN reports r ON r.ID=m.report_id
+        WHERE m.group_id=? AND m.report_id>? ORDER BY m.report_id LIMIT 128
+      ''',
+          [normalizedGroupId, cursor],
+        );
+        if (page.isEmpty) break;
+        for (final row in page) {
+          final comparison = recommended == null
+              ? 1
+              : _compareTuple(_priorityTuple(row), _priorityTuple(recommended));
+          if (comparison > 0 ||
+              comparison == 0 &&
+                  (row['priority_score'] as int) >
+                      (recommended!['priority_score'] as int)) {
+            recommended = Map<String, dynamic>.from(row);
+          }
+        }
+        cursor = page.last['ID'] as String;
+        await Future<void>.delayed(Duration.zero);
+      }
+      if (recommended == null) return false;
+    }
+    final autoRepresentativeId = _text(recommended?['ID']);
     if (nextMode == RepresentativeModes.auto &&
         requestedRepresentativeId.isNotEmpty &&
-        memberIds.contains(requestedRepresentativeId) &&
+        requestedValid &&
         requestedRepresentativeId != autoRepresentativeId) {
       nextMode = RepresentativeModes.manual;
     }
 
     String resolvedRepresentativeId = _text(currentGroup['representative_id']);
     if (nextMode == RepresentativeModes.manual) {
-      if (requestedRepresentativeId.isNotEmpty &&
-          memberIds.contains(requestedRepresentativeId)) {
+      if (requestedRepresentativeId.isNotEmpty && requestedValid) {
         resolvedRepresentativeId = requestedRepresentativeId;
-      } else if (!memberIds.contains(resolvedRepresentativeId)) {
+      } else if (!currentValid) {
         resolvedRepresentativeId = autoRepresentativeId;
       }
     } else {

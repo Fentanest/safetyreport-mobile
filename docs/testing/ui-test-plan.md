@@ -117,3 +117,13 @@
 - 캡처 드라이버: 앱 포커스·기대 라벨을 확인하고 찍는다(세션 스크래치 `render/shoot.py`, uiautomator 덤프 기반). 좌표 대신 라벨로 탭한다.
 - **발견된 기존 동작(이번 변경 전부터)**: 신고내역에서 길게 눌러 선택 모드에 들어간 뒤 안드로이드 뒤로가기를 누르면 선택 해제가 아니라 앱이 나간다(`PopScope` 없음, base `c64be69a` 동일). 범위 밖이라 미수정 — 결정 필요. → **2026-09-24 사용자 결정으로 수정**: 신고내역·별점 패널 모두 뒤로가기 = 선택 취소(`lib/widgets/selection_back_scope.dart`). 위젯 테스트 4건 통과, 에뮬레이터 확인은 NOT_RUN.
 - 선택 모드 닫기(X) 버튼에 접근성 라벨(tooltip)이 없다. 기존 동작, 미수정.
+
+## 대용량·사유·DB 위치 재현 절차
+
+- 고정 SDK는 `tool/flutter-version`의 Flutter 3.47.5이다. 전체 `flutter test`, `flutter analyze`와 `SR_LARGE_TEST=1 flutter test test/services/large_data_queries_test.dart test/services/duplicate_rebuild_bounded_test.dart`를 실행한다. 0/1/3천/58,388/10만/50만을 모두 사용하고 host debug 시간과 Android profile 시간을 구분한다.
+- `test/widgets/bounded_screen_entry_test.dart`는 대시보드/검색 전량 로딩 금지, local DISTINCT와 200행 밖 필터, 수정 화면 전체 COUNT/다음 페이지/취소를 검사한다. duplicate legacy oracle은 test 전용이며 운영 raw inventory를 사용하지 않는다.
+- `SR_EXCHANGE_FIXTURE_OUT=/tmp/sr_exchange_realistic_500k_source.db flutter test test/tool/large_exchange_fixture_test.dart`로 fake owner 910001/50만 건 fixture를 생성한다. `tool/large_db_exchange_check.py --help`의 실제 PC restore/mobile import 명령을 사용한다. PC 저장소는 읽기 전용이고 결과 DB는 자체 `/tmp` 폴더에만 쓴다. `--verify-work-dir`는 완료된 4단계 DB의 모든 SQL 비교를 재검사한다.
+- 별도 `.fixture2` applicationId/profile의 `tool/performance_probe.dart`를 전용 `emulator-5580`에 설치한다. HttpOverrides가 운영 네트워크를 차단한다. 초기 DB 준비/registry/요약/통계/지도와 heap/native RSS/PSS를 분리해 기록한다. `tool/android_fixture_ui.py --help`의 `--wait-data --expected-total`로 실제 전체 카드(상단 완료 라벨 제외), 차트, 지도 메타와 20회 뒤로가기를 확인한다. fixture의 중복 결정에 따라 전체 값이 달라지므로 SQL 값을 oracle로 쓴다.
+- 실제 IME/font1.0/1.3/2.0, 가로/작은 화면, 여러 줄→키보드 닫기/재열기/회전/스크롤을 검사한다. 취소만 실행하고 실제 제출은 하지 않는다. 입력 내용과 buttons enabled/visible, controller 보존을 확인한다.
+- 공유 저장 위치는 실제 MediaStore/provider metadata와 완료 파일 크기/SQLite quick_check로 확인한다. foreground Files 안내와 background Launcher 유지→완료 알림 탭을 별도 검사한다. 파일 앱이 없는 테스트는 전용 AVD에서만 DocumentsUI를 일시 disable하고 반드시 enable로 복구한다. fallback의 정확한 파일명/위치·파일 열기/공유 실패에도 앱 생존을 확인한다. 파일 형식 열기와 폴더 표시/파일 강조를 구분한다.
+- 전용 fixture에도 광범위 권한을 추가하지 않는다. device/font/orientation 변경은 원복하고 VM service token/DB/APK/인증 자료는 commit하지 않는다. 실제 결과/미달·미검증 범위는 [검증 기록](../reviews/2026-10-03-runtime-validation.md)에 있다.

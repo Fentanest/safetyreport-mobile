@@ -109,4 +109,40 @@ void main() {
       ]);
     },
   );
+  test(
+    'filter laws use the compact overview rather than downloading reports',
+    () async {
+      final paths = <String>[];
+      await http.runWithClient(
+        () async {
+          final options = await ApiService(
+            baseUrl: 'https://fixture.test',
+            apiKey: 'fixture',
+          ).getFilterOptions();
+          expect(options.laws, ['도로교통법', '__없음__']);
+          expect(options.statuses, containsAll(['일부수용', '답변완료', '취하']));
+        },
+        () => selfhostMockClient((r) async {
+          paths.add(r.url.path);
+          expect(r.headers['X-SafetyReport-Protocol'], '3');
+          return http.Response(
+            jsonEncode({
+              'status': 'success',
+              'data': {
+                'all': {
+                  'violation_laws': [
+                    {'name': '도로교통법', 'filter': '도로교통법', 'count': 499999},
+                    {'name': '', 'filter': '__없음__', 'count': 1},
+                  ],
+                },
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }),
+      );
+      expect(paths, ['/api/v1/stats/overview']);
+    },
+  );
 }

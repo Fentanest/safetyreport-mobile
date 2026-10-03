@@ -1,0 +1,3 @@
+{"stage": "background_export_completed", "filename": "fixture_1791013157905.db", "bytes": 1143455744, "is_pending": 0, "location": "Download/mysafetyreport/", "elapsed_s": 41.46, "file_app_not_forced": true}
+ERROR: null root node returned by UiTestAutomationBridge.
+{"stage": "completion_notification_tap_opened_system_files", "filename": "fixture_1791013157905.db"}

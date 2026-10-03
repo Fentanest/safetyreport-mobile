@@ -25,6 +25,10 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
   String? _infoMessage;
   String _statusFilter = '';
   List<DuplicateGroup> _groups = const [];
+  Map<String, int> _statusCounts = {};
+  int _page = 0;
+  int _request = 0;
+  bool _paged = false;
 
   @override
   void initState() {
@@ -32,33 +36,49 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
-  Future<void> _load() async {
+  Future<void> _load({int page = 0}) async {
+    final request = ++_request;
     setState(() {
       _loading = true;
       _error = null;
       _infoMessage = null;
     });
+    final provider = context.read<ReportProvider>();
+    final epoch = provider.datasetEpoch;
     try {
-      final provider = context.read<ReportProvider>();
       final repo = DuplicateRepository.fromProvider(provider);
-      final groups = await repo.getGroups();
-      if (!mounted) return;
+      final paged = provider.appMode == AppMode.standalone;
+      final groups = await repo.getGroups(
+        status: paged ? _statusFilter : null,
+        page: page,
+      );
+      final counts = paged ? await repo.getStatusCounts() : <String, int>{};
+      if (!mounted || request != _request || epoch != provider.datasetEpoch) {
+        return;
+      }
       setState(() {
         _groups = groups;
+        _statusCounts = counts;
+        _page = page;
+        _paged = paged;
         if (provider.appMode == AppMode.server && groups.isEmpty) {
           _infoMessage = '현재 표시할 중복 신고 그룹이 없습니다.';
         }
         _loading = false;
       });
     } on ApiFeatureUnavailableException catch (e) {
-      if (!mounted) return;
+      if (!mounted || request != _request || epoch != provider.datasetEpoch) {
+        return;
+      }
       setState(() {
         _groups = const [];
         _infoMessage = e.message;
         _loading = false;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || request != _request || epoch != provider.datasetEpoch) {
+        return;
+      }
       setState(() {
         _error = e.toString();
         _loading = false;
@@ -67,13 +87,24 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
   }
 
   List<DuplicateGroup> get _filteredGroups {
-    if (_statusFilter.isEmpty) return _groups;
+    if (_paged || _statusFilter.isEmpty) return _groups;
     return _groups.where((group) => group.status == _statusFilter).toList();
   }
 
   int _countByStatus(String? status) {
+    if (_paged) {
+      if (status == null || status.isEmpty) {
+        return _statusCounts.values.fold(0, (a, b) => a + b);
+      }
+      return _statusCounts[status] ?? 0;
+    }
     if (status == null || status.isEmpty) return _groups.length;
     return _groups.where((group) => group.status == status).length;
+  }
+
+  void _filter(String value) {
+    setState(() => _statusFilter = value);
+    if (_paged) _load();
   }
 
   Future<void> _saveGroup(
@@ -82,8 +113,12 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
     required String representativeMode,
     required String representativeId,
     required String note,
+    required int expectedEpoch,
   }) async {
     final provider = context.read<ReportProvider>();
+    if (provider.datasetEpoch != expectedEpoch) {
+      throw StateError('자료/계정이 바뀌었습니다. 중복 신고 화면을 다시 열어 주세요.');
+    }
     final repo = DuplicateRepository.fromProvider(provider);
     await repo.updateGroup(
       group.groupId,
@@ -92,6 +127,7 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
       representativeId: representativeId,
       note: note,
     );
+    if (provider.datasetEpoch != expectedEpoch) return;
     await provider.refreshAll();
     await _load();
   }
@@ -104,6 +140,17 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
         ? group.representativeId
         : (group.representative?.reportId ?? '');
     var saving = false;
+    String? saveError;
+    final provider = context.read<ReportProvider>();
+    final epoch = provider.datasetEpoch;
+    var candidates = group.members;
+    var candidatePage = 0;
+    var candidateLoading = false;
+    String? candidateError;
+    final repo = DuplicateRepository.fromProvider(
+      context.read<ReportProvider>(),
+    );
+    final paged = context.read<ReportProvider>().appMode == AppMode.standalone;
 
     await showModalBottomSheet(
       context: context,
@@ -231,7 +278,7 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
                 },
                 child: Column(
                   children: [
-                    for (final member in group.members)
+                    for (final member in candidates)
                       Card(
                         margin: const EdgeInsets.only(bottom: 8),
                         child: RadioListTile<String>(
@@ -272,12 +319,81 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
                   ],
                 ),
               ),
+              if (paged && group.memberCount > 50) ...[
+                Text(
+                  '대표 후보 ${candidatePage * 50 + 1}–${candidatePage * 50 + candidates.length} / 전체 ${group.memberCount}건 · 선택 $representativeId',
+                ),
+                if (candidateError != null)
+                  Text(
+                    candidateError!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    for (final step in [-1, 1])
+                      TextButton(
+                        onPressed:
+                            candidateLoading ||
+                                saving ||
+                                candidatePage + step < 0 ||
+                                (candidatePage + step) * 50 >= group.memberCount
+                            ? null
+                            : () async {
+                                setSheetState(() {
+                                  candidateLoading = true;
+                                  candidateError = null;
+                                });
+                                try {
+                                  if (provider.datasetEpoch != epoch) {
+                                    throw StateError(
+                                      '자료/계정이 바뀌었습니다. 화면을 다시 열어 주세요.',
+                                    );
+                                  }
+                                  final rows = await repo.getMembers(
+                                    group.groupId,
+                                    page: candidatePage + step,
+                                  );
+                                  if (sheetCtx.mounted &&
+                                      provider.datasetEpoch == epoch) {
+                                    setSheetState(() {
+                                      candidates = rows;
+                                      candidatePage += step;
+                                    });
+                                  }
+                                } catch (e) {
+                                  if (sheetCtx.mounted) {
+                                    setSheetState(() => candidateError = '$e');
+                                  }
+                                } finally {
+                                  if (sheetCtx.mounted) {
+                                    setSheetState(
+                                      () => candidateLoading = false,
+                                    );
+                                  }
+                                }
+                              },
+                        child: Text(step < 0 ? '이전 후보' : '다음 후보'),
+                      ),
+                  ],
+                ),
+              ],
+              if (saveError != null)
+                Text(
+                  saveError!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
               const SizedBox(height: 8),
               FilledButton.icon(
-                onPressed: saving
+                onPressed: saving || candidateLoading
                     ? null
                     : () async {
-                        setSheetState(() => saving = true);
+                        setSheetState(() {
+                          saving = true;
+                          saveError = null;
+                        });
                         try {
                           await _saveGroup(
                             group,
@@ -285,6 +401,7 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
                             representativeMode: representativeMode,
                             representativeId: representativeId,
                             note: noteCtrl.text.trim(),
+                            expectedEpoch: epoch,
                           );
                           if (sheetCtx.mounted) Navigator.pop(sheetCtx);
                         } catch (e) {
@@ -362,7 +479,7 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
                   label: '전체',
                   count: _countByStatus(null),
                   selected: _statusFilter.isEmpty,
-                  onTap: () => setState(() => _statusFilter = ''),
+                  onTap: () => _filter(''),
                 ),
               ),
               const SizedBox(width: 8),
@@ -371,9 +488,7 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
                   label: '검토 필요',
                   count: _countByStatus(DuplicateStatuses.reviewRequired),
                   selected: _statusFilter == DuplicateStatuses.reviewRequired,
-                  onTap: () => setState(
-                    () => _statusFilter = DuplicateStatuses.reviewRequired,
-                  ),
+                  onTap: () => _filter(DuplicateStatuses.reviewRequired),
                 ),
               ),
             ],
@@ -387,9 +502,7 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
                   count: _countByStatus(DuplicateStatuses.confirmedDuplicate),
                   selected:
                       _statusFilter == DuplicateStatuses.confirmedDuplicate,
-                  onTap: () => setState(
-                    () => _statusFilter = DuplicateStatuses.confirmedDuplicate,
-                  ),
+                  onTap: () => _filter(DuplicateStatuses.confirmedDuplicate),
                 ),
               ),
               const SizedBox(width: 8),
@@ -398,9 +511,7 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
                   label: '중복 아님',
                   count: _countByStatus(DuplicateStatuses.notDuplicate),
                   selected: _statusFilter == DuplicateStatuses.notDuplicate,
-                  onTap: () => setState(
-                    () => _statusFilter = DuplicateStatuses.notDuplicate,
-                  ),
+                  onTap: () => _filter(DuplicateStatuses.notDuplicate),
                 ),
               ),
             ],
@@ -423,6 +534,25 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
                 group: group,
                 onTap: () => _openEditor(group),
               ),
+            ),
+          if (_paged && _countByStatus(_statusFilter) > 50)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                TextButton(
+                  onPressed: _page > 0 ? () => _load(page: _page - 1) : null,
+                  child: const Text('이전 그룹'),
+                ),
+                Text(
+                  '${_page + 1} / ${(_countByStatus(_statusFilter) + 49) ~/ 50}',
+                ),
+                TextButton(
+                  onPressed: (_page + 1) * 50 < _countByStatus(_statusFilter)
+                      ? () => _load(page: _page + 1)
+                      : null,
+                  child: const Text('다음 그룹'),
+                ),
+              ],
             ),
         ],
       ),

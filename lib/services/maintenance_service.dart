@@ -10,6 +10,7 @@ import 'package:flutter/foundation.dart';
 
 import 'local_db_service.dart';
 import 'photo_capture_time.dart';
+import 'attachment_policy.dart';
 import 'standalone_auto_sync_service.dart';
 import 'sync_engine.dart';
 
@@ -85,25 +86,32 @@ class MaintenanceService {
     }
     if (_starting) return;
     _starting = true;
-    final List<({String id, String photos, String reportNumber})> rows;
+    final cutoff = attachmentCutoff(DateTime.now());
+    final int total;
     try {
-      rows = await LocalDbService.pendingPhotoRows();
+      total = await LocalDbService.pendingPhotoCount(cutoff: cutoff);
     } catch (_) {
       return; // DB 를 닫는 중(백업·복원) 등 — 다음 새로고침 때 다시
     } finally {
       _starting = false;
     }
-    if (rows.isEmpty) return;
+    if (total == 0) return;
     photoJob.value = MaintenanceJob(
       key: photoJobKey,
       label: photoJobLabel,
       state: 'running',
-      total: rows.length,
+      total: total,
     );
     final future =
         LocalDbService.runBackgroundWork(
-          () =>
-              _run(rows, fetch, interval, syncWait, syncing ?? () => _syncing),
+          () => _run(
+            total,
+            cutoff,
+            fetch,
+            interval,
+            syncWait,
+            syncing ?? () => _syncing,
+          ),
         ).catchError((Object _) {
           photoJob.value = null; // DB 를 닫는 중이면 다음 새로고침 때 다시
         });
@@ -113,7 +121,8 @@ class MaintenanceService {
   }
 
   static Future<void> _run(
-    List<({String id, String photos, String reportNumber})> rows,
+    int total,
+    String cutoff,
     Future<String?> Function(String url)? fetch,
     Duration interval,
     Duration syncWait,
@@ -121,44 +130,55 @@ class MaintenanceService {
   ) async {
     var filled = 0;
     var failed = 0;
-    for (var i = 0; i < rows.length; i++) {
-      if (LocalDbService.closeRequested) {
-        photoJob.value = null; // 백업·복원이 DB 를 닫는다 — 다음에 열 때 남은 것부터
-        return;
-      }
-      while (syncing() && !LocalDbService.closeRequested) {
+    var done = 0;
+    String? cursor;
+    while (true) {
+      final rows = await LocalDbService.pendingPhotoRows(
+        limit: 128,
+        beforeId: cursor,
+        cutoff: cutoff,
+      );
+      if (rows.isEmpty) break;
+      for (final row in rows) {
+        if (LocalDbService.closeRequested) {
+          photoJob.value = null; // 백업·복원이 DB 를 닫는다 — 다음에 열 때 남은 것부터
+          return;
+        }
+        while (syncing() && !LocalDbService.closeRequested) {
+          photoJob.value = MaintenanceJob(
+            key: photoJobKey,
+            label: photoJobLabel,
+            state: 'paused',
+            total: total,
+            done: done,
+            message: '동기화가 끝나면 이어서 합니다',
+          );
+          await Future<void>.delayed(syncWait);
+        }
         photoJob.value = MaintenanceJob(
           key: photoJobKey,
           label: photoJobLabel,
-          state: 'paused',
-          total: rows.length,
-          done: i,
-          message: '동기화가 끝나면 이어서 합니다',
+          state: 'running',
+          total: total,
+          done: done,
+          current: row.reportNumber.isEmpty ? row.id : row.reportNumber,
         );
-        await Future<void>.delayed(syncWait);
+        if (await _fillOne(row.id, row.photos, fetch)) {
+          filled++;
+        } else {
+          failed++;
+        }
+        done++;
+        if (interval > Duration.zero) await Future<void>.delayed(interval);
       }
-      final row = rows[i];
-      photoJob.value = MaintenanceJob(
-        key: photoJobKey,
-        label: photoJobLabel,
-        state: 'running',
-        total: rows.length,
-        done: i,
-        current: row.reportNumber.isEmpty ? row.id : row.reportNumber,
-      );
-      if (await _fillOne(row.id, row.photos, fetch)) {
-        filled++;
-      } else {
-        failed++;
-      }
-      if (interval > Duration.zero) await Future<void>.delayed(interval);
+      cursor = rows.last.id;
     }
     photoJob.value = MaintenanceJob(
       key: photoJobKey,
       label: photoJobLabel,
       state: 'completed',
-      total: rows.length,
-      done: rows.length,
+      total: total,
+      done: done,
       message: '$filled건 채움${failed > 0 ? ', $failed건은 다음에 다시' : ''}',
     );
   }

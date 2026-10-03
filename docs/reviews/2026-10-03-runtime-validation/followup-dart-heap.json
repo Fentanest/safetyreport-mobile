@@ -1,0 +1,9 @@
+{
+  "kind": "Android_profile_heap_during_actual_navigation_no_forced_gc",
+  "main": {
+    "heapUsage": 85692528,
+    "heapCapacity": 90767360,
+    "externalUsage": 10432
+  },
+  "worker_values_not_added_to_main": true
+}

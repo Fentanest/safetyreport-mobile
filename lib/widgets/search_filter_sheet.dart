@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../providers/report_provider.dart';
@@ -119,10 +120,17 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     _onlyPolice = f.onlyPolice;
     _selectedLaw = f.law;
     _pollStatus = widget.ratingManagementMode ? '' : f.pollStatus;
+    widget.provider.addListener(_metadataChanged);
+    unawaited(widget.provider.fetchFilterOptions().catchError((Object _) {}));
+  }
+
+  void _metadataChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    widget.provider.removeListener(_metadataChanged);
     for (final c in [
       _nameCtrl,
       _numCtrl,
@@ -844,16 +852,10 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
           child: Text('~'),
         ),
         Expanded(
-          child: _dateTap(
-            context,
-            end.isEmpty ? '종료일' : end,
-            color,
-            () async {
-              final d = await _pickDate(end);
-              if (d != null) onEnd(d);
-            },
-            end.isNotEmpty ? () => onEnd('') : null,
-          ),
+          child: _dateTap(context, end.isEmpty ? '종료일' : end, color, () async {
+            final d = await _pickDate(end);
+            if (d != null) onEnd(d);
+          }, end.isNotEmpty ? () => onEnd('') : null),
         ),
       ],
     );

@@ -1,0 +1,5 @@
+Flutter 3.47.5, profile, target tool/performance_probe.dart
+SR_TEST_APPLICATION_ID=com.fentanest.mysafetyreport.fixture2
+SR_ROWS=500000 SR_REUSE_FIXTURE=true
+Running Gradle task 'assembleProfile'...                           92.5s
+✓ Built build/app/outputs/flutter-apk/app-profile.apk (133.6MB)

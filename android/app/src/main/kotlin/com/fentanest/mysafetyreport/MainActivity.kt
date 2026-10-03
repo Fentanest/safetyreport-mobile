@@ -172,8 +172,17 @@ class MainActivity : FlutterFragmentActivity() {
 
     private fun handleNavIntent(intent: Intent) {
         intent.getStringExtra("db_export_uri")?.let { raw ->
+            val uri = android.net.Uri.parse(raw)
+            val downloads = intent.getBooleanExtra("db_export_downloads", true)
+            val filename = intent.getStringExtra("db_export_filename")
+            val location = intent.getStringExtra("db_export_location")
             intent.removeExtra("db_export_uri")
-            DbExportLocation.open(this, android.net.Uri.parse(raw), intent.getBooleanExtra("db_export_downloads", true), "location")
+            intent.removeExtra("db_export_downloads")
+            intent.removeExtra("db_export_filename")
+            intent.removeExtra("db_export_location")
+            if (!DbExportLocation.open(this, uri, downloads, "location")) {
+                DbExportLocation.showUnavailable(this, uri, downloads, filename, location)
+            }
         }
         val navTab = intent.getIntExtra("nav_tab", -1)
         val navSubTab = intent.getIntExtra("nav_subtab", -1)

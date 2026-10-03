@@ -365,7 +365,7 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
   - 채우는 곳은 서버와 1:1 로 같은 세 군데(동작 로직을 항상 같게):
     1. 상세 저장 때 — `SyncEngine`·`StandaloneAutoSyncService._tryFetchSingle` 이 `upsertReport` 직전에 `MaintenanceService.prefetchForSave`(서버 `reports_repo._prefetch_derived`): 주정차이고 아직 없는 신고(새 신고 포함)면 사진을 읽어 `upsertReport(photoCapture:)` 로 함께 저장. 이미 값이 있으면 이어받는다.
     2. 동기화 끝 — 중지되지 않은 `SyncEngine` 동기화와 큐 지정 동기화(drain, 증분 fallback 을 안 탔을 때) 끝에 `MaintenanceService.backfillMissing(limit: 30)`(서버 `_process_and_save_results` 의 `backfill_missing`).
-    3. 한 번 훑기 — `MaintenanceService.startPhotoBackfill()` 이 `refreshAll()`(앱 시작·동기화 뒤·설정 변경 뒤) 때마다 남은 대상 전체(서버 기동 때 `maintenance_service`). 0.4초 간격, 동기화 중이면 기다렸다 이어 가고, 백업·복원이 DB 를 닫으려 하면 멈춘다(`runBackgroundWork`). 데모 모드는 하지 않는다.
+    3. 한 번 훑기 — `MaintenanceService.startPhotoBackfill()` 이 `refreshAll()`(앱 시작·동기화 뒤·설정 변경 뒤) 때마다 남은 대상 전체를 COUNT 후 128행 ID cursor로 처리한다(서버 기동 때 `maintenance_service`). 0.4초 간격, 동기화 중이면 기다렸다 이어 가고, 백업·복원이 DB 를 닫으려 하면 멈춘다(`runBackgroundWork`). 데모 모드는 하지 않는다.
   - 대상(2·3): 주정차, `사진_촬영수 IS NULL`, `첨부사진` URL, 신고일 ≥ `attachmentCutoff`(오늘 − 6개월, 서버 `relativedelta` 처럼 말일로 맞춤 — 8/31 → 2/28), 최신 ID 부터.
   - 진행 표시: `lib/widgets/maintenance_status_bar.dart` 가 탭 바 바로 위 한 줄 박스(작업 없으면 높이 0)로 그린다. Standalone 은 `MaintenanceService.localJobs()`(사진 작업 + `LocalGeocodeService` 지도 좌표 채우기), Client 는 서버 `GET /api/v1/maintenance/status` 를 작업 중 2초·평소 30초마다 읽는다(구서버·오류면 표시 안 함). 끝나면 "… 완료"를 6초 보여 주고 숨김. 서버 웹 `base.html` `#srJobBar` 와 같은 문구·모양.
 - **서버↔모바일 DB 왕복 검사**(PROJECT_RULES §3-1): 서버 레포 `scripts/dev/db_roundtrip_check.py --mobile-repo <이 작업트리>` 가
@@ -474,3 +474,7 @@ PC 저장소 `scripts/debug/extractor.py`가 저장한 `testresults/*_api_raw.js
 ## 2026-09-29 기관 표시 옵션 폐지
 
 Standalone은 저장된 `standaloneNormalizePolice`를 읽거나 적용하지 않는다. Client는 서버의 호환용 `normalize_police` 값을 무시한다. 기관코드 registry가 신고 표시와 통계의 현행명·통계 키를 항상 계산하며, 미확정 기관은 원문 이름을 유지한다. DB 원문 `처리기관`·`처리기관코드`는 바꾸지 않는다.
+
+### 코드 대조 정정 — 대용량 가져오기/중복
+
+서버 title/detail 또는 legacy merge, raw/entry는 128행 native JOIN 페이지로 읽는다. 가져오기 전체 raw Map과 중복 inventory 전량 보관을 제거했다. 교환 컬럼/NULL/수정값은 그대로이며 파생 digest/revision 표는 원문을 보관하지 않는다. 중복 staging·원자적 교체·백업 수명은 [bounded reads](bounded-reads.md)를 따른다.

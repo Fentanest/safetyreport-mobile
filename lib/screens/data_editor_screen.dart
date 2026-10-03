@@ -9,6 +9,7 @@ import '../services/api_service.dart';
 import '../services/repositories/editor_repository.dart';
 import '../theme/sr_colors.dart';
 import '../widgets/search_filter_sheet.dart';
+import '../widgets/local_paged_report_list.dart';
 import '../widgets/status_badge.dart';
 
 class DataEditorPanel extends StatefulWidget {
@@ -21,34 +22,6 @@ class DataEditorPanel extends StatefulWidget {
 class _DataEditorPanelState extends State<DataEditorPanel> {
   static const _categories = <String>['traffic', 'parking', 'other'];
   String _selectedCategory = _categories.first;
-  bool _preparing = true;
-  String? _loadError;
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _prepare());
-  }
-
-  Future<void> _prepare({bool forceRefresh = false}) async {
-    if (!mounted) return;
-    setState(() {
-      _preparing = true;
-      _loadError = null;
-    });
-    try {
-      await context.read<ReportProvider>().ensureCategoryReportsLoaded(
-        forceRefresh: forceRefresh,
-      );
-    } catch (e) {
-      _loadError = e.toString();
-    } finally {
-      if (mounted) {
-        setState(() => _preparing = false);
-      }
-    }
-  }
-
   void _openSearchPopup() {
     showModalBottomSheet(
       context: context,
@@ -72,33 +45,20 @@ class _DataEditorPanelState extends State<DataEditorPanel> {
     }
   }
 
-  List<Report> _reportsForCategory(ReportProvider provider) {
-    final source = switch (_selectedCategory) {
-      'parking' => provider.filteredParkingReports,
-      'other' => provider.filteredOtherReports,
-      _ => provider.filteredTrafficReports,
-    };
-    final items = List<Report>.from(source);
-    items.sort((left, right) {
-      final reportNumberCompare = right.reportNumber.compareTo(
-        left.reportNumber,
-      );
-      if (reportNumberCompare != 0) return reportNumberCompare;
-      return right.id.compareTo(left.id);
-    });
-    return items;
-  }
-
   Future<void> _openEditor(Report report) async {
+    final provider = context.read<ReportProvider>();
+    final epoch = provider.datasetEpoch;
     final saved = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (_) =>
-          _EditableRecordSheet(report: report, category: _selectedCategory),
+      builder: (_) => _EditableRecordSheet(
+        report: report,
+        category: report.category.isEmpty ? _selectedCategory : report.category,
+      ),
     );
-    if (saved != true || !mounted) return;
-    await context.read<ReportProvider>().refreshAll();
+    if (saved != true || !mounted || epoch != provider.datasetEpoch) return;
+    await provider.refreshAll();
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
@@ -108,41 +68,11 @@ class _DataEditorPanelState extends State<DataEditorPanel> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<ReportProvider>();
-    final reports = _reportsForCategory(provider);
-    final activeLabels = provider.filter.activeLabels;
-
-    if (_preparing && reports.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (_loadError != null && reports.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.error_outline,
-              size: 48,
-              color: Theme.of(context).colorScheme.error,
-            ),
-            const SizedBox(height: 12),
-            Text(_loadError!, textAlign: TextAlign.center),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: () => _prepare(forceRefresh: true),
-              icon: const Icon(Icons.refresh),
-              label: const Text('다시 시도'),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return RefreshIndicator(
-      onRefresh: () => _prepare(forceRefresh: true),
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
-        children: [
-          Row(
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
             children: [
               Expanded(
                 child: Column(
@@ -176,74 +106,49 @@ class _DataEditorPanelState extends State<DataEditorPanel> {
               ),
             ],
           ),
-          if (provider.hasFilter && activeLabels.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: activeLabels
-                    .map(
-                      (label) => Padding(
-                        padding: const EdgeInsets.only(right: 6),
-                        child: Chip(
-                          label: Text(
-                            label,
-                            style: const TextStyle(fontSize: 11),
-                          ),
-                          padding: EdgeInsets.zero,
-                          materialTapTargetSize:
-                              MaterialTapTargetSize.shrinkWrap,
-                        ),
-                      ),
-                    )
-                    .toList(),
-              ),
-            ),
-          ],
-          const SizedBox(height: 12),
+        ),
+        if (provider.hasFilter)
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
-              children: _categories
-                  .map(
-                    (category) => Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
-                        label: Text(_categoryLabel(category)),
-                        selected: _selectedCategory == category,
-                        onSelected: (_) {
-                          setState(() => _selectedCategory = category);
-                        },
-                      ),
-                    ),
-                  )
-                  .toList(),
+              children: [
+                for (final label in provider.filter.activeLabels)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Chip(label: Text(label)),
+                  ),
+              ],
             ),
           ),
-          const SizedBox(height: 12),
-          if (reports.isEmpty)
-            Padding(
-              padding: const EdgeInsets.all(24),
-              child: Center(
-                child: Text(
-                  provider.hasFilter
-                      ? '현재 검색 조건에 맞는 신고가 없습니다.'
-                      : '수정 가능한 신고가 없습니다.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: context.sr.textSecondary),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final category in _categories)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ChoiceChip(
+                    label: Text(_categoryLabel(category)),
+                    selected: _selectedCategory == category,
+                    onSelected: (_) =>
+                        setState(() => _selectedCategory = category),
+                  ),
                 ),
-              ),
-            )
-          else
-            ...reports.map(
-              (report) => _EditableReportCard(
-                report: report,
-                categoryLabel: _categoryLabel(_selectedCategory),
-                onTap: report.id.isEmpty ? null : () => _openEditor(report),
-              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: LocalPagedReportList(
+            category: _selectedCategory,
+            filter: provider.filter,
+            itemBuilder: (context, report) => _EditableReportCard(
+              report: report,
+              categoryLabel: _categoryLabel(_selectedCategory),
+              onTap: report.id.isEmpty ? null : () => _openEditor(report),
             ),
-        ],
-      ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -396,6 +301,15 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
     '취하',
     '이송',
   ];
+  late final ReportProvider _provider;
+  late final int _datasetEpoch;
+
+  void _checkDataset() {
+    if (_provider.datasetEpoch != _datasetEpoch) {
+      throw StateError('계정이나 자료가 바뀌었습니다. 수정 화면을 다시 열어 주세요.');
+    }
+  }
+
   static const _finishOptions = <String>['', 'Y', 'N'];
   static const _multilineFields = <String>{'신고내용', '처리내용', '첨부사진', '첨부파일'};
   static const _dateFields = <String>{'답변일', '발생일자'};
@@ -403,7 +317,9 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
   @override
   void initState() {
     super.initState();
-    _repository = EditorRepository.fromProvider(context.read<ReportProvider>());
+    _provider = context.read<ReportProvider>();
+    _datasetEpoch = _provider.datasetEpoch;
+    _repository = EditorRepository.fromProvider(_provider);
     _load();
   }
 
@@ -421,7 +337,9 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
       _error = null;
     });
     try {
+      _checkDataset();
       final schema = await _repository.getSchema();
+      _checkDataset();
       final record = await _repository.getRecord(
         widget.category,
         widget.report.id,
@@ -433,6 +351,8 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
         widget.category,
         widget.report.id,
       );
+      if (!mounted) return;
+      _checkDataset();
       for (final controller in _controllers.values) {
         controller.dispose();
       }
@@ -479,6 +399,7 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
     if (_saving) return;
     setState(() => _saving = true);
     try {
+      _checkDataset();
       final values = <String, dynamic>{
         for (final field in _schema.detailFields)
           field: _controllers[field]?.text.trim() ?? '',
@@ -488,6 +409,7 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
         widget.report.id,
         values,
       );
+      _checkDataset();
       if (!updated) {
         throw Exception('저장 대상이 존재하지 않습니다.');
       }

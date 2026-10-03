@@ -1,6 +1,8 @@
 package com.fentanest.mysafetyreport
 
 import android.app.DownloadManager
+import android.app.Activity
+import android.app.AlertDialog
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -12,6 +14,8 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.provider.DocumentsContract
+import android.provider.OpenableColumns
+import android.widget.Toast
 import java.io.File
 
 /** Only finalized export snapshots in the app cache can be published. */
@@ -102,6 +106,8 @@ object DbExportLocation {
         val intent = Intent(context, MainActivity::class.java).apply {
             putExtra("db_export_uri", uri.toString())
             putExtra("db_export_downloads", data["downloads"] == true)
+            putExtra("db_export_filename", data["filename"] as? String)
+            putExtra("db_export_location", data["location"] as? String)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         }
         val id = uri.toString().hashCode()
@@ -111,5 +117,39 @@ object DbExportLocation {
         manager.notify(id, Notification.Builder(context, "db_exports")
             .setSmallIcon(R.drawable.ic_stat_logo).setContentTitle("DB 저장 완료: ${data["filename"]}")
             .setContentText("${data["location"]} · 눌러 저장 위치 열기").setContentIntent(pi).setAutoCancel(true).build())
+    }
+
+    /** Notification taps must retain useful completion details even without a file browser. */
+    fun showUnavailable(activity: Activity, uri: Uri, downloads: Boolean, filename: String?, location: String?) {
+        var actualName = filename
+        var actualLocation = location
+        // Older completion notifications did not include these fields. Read the real provider.
+        try {
+            val columns = if (downloads) arrayOf(OpenableColumns.DISPLAY_NAME, MediaStore.Downloads.RELATIVE_PATH)
+                else arrayOf(OpenableColumns.DISPLAY_NAME)
+            activity.contentResolver.query(uri, columns, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    actualName = cursor.getString(0) ?: actualName
+                    if (downloads) actualLocation = cursor.getString(1) ?: actualLocation
+                }
+            }
+        } catch (_: Exception) { /* Completed notification metadata remains available. */ }
+        val detail = "${actualName ?: "DB 내보내기 파일"}\n${actualLocation ?: uri.toString()}"
+        val dialog = AlertDialog.Builder(activity)
+            .setTitle("DB 저장 완료")
+            .setMessage("저장 위치를 열 수 있는 파일 앱이 없습니다.\n\n$detail")
+            .setPositiveButton("파일 열기", null)
+            .setNegativeButton("공유", null)
+            .setNeutralButton("닫기", null)
+            .create()
+        dialog.setOnShowListener {
+            for ((button, action) in listOf(AlertDialog.BUTTON_POSITIVE to "file", AlertDialog.BUTTON_NEGATIVE to "share")) {
+                dialog.getButton(button).setOnClickListener {
+                    if (open(activity, uri, downloads, action)) dialog.dismiss()
+                    else Toast.makeText(activity, "처리할 앱이 없습니다.\n$detail", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+        dialog.show()
     }
 }

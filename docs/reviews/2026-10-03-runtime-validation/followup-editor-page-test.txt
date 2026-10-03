@@ -1,0 +1,13 @@
+00:00 +0: loading /home/better0101/projects/safetyreport-mobile/test/widgets/bounded_screen_entry_test.dart
+00:00 +0: dashboard and empty search never preload category Report bodies
+00:00 +1: legacy category refresh is bounded and filter metadata includes rows beyond its page
+00:01 +2: editor renders native pages and retains record editing without category preloading
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:03 +3: All tests passed!

@@ -1,0 +1,129 @@
+Applications Database Info:
+
+** Database info for pid 3937 [com.fentanest.mysafetyreport.fixture2] **
+Connection pool for /data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db:
+  Open: true
+  Max connections: 1
+  Total execution time (ms): 949890
+  Total statements executed: 1017062
+  Average time per statement (ms): 0
+  Configuration: openFlags=268435456, isLegacyCompatibilityWalEnabled=false, journalMode=TRUNCATE, syncMode=FULL
+  IsReadOnlyDatabase=false
+  Available primary connection:
+    <none>
+  Available non-primary connections:
+    <none>
+  Acquired connections:
+    Connection #0:
+      isPrimaryConnection: true
+      onlyAllowReadOnlyOperations: true
+      Most recently executed operations:
+        0: [2026-10-03 15:53:46.944] executeForCursorWindow started 1526ms ago - running, sql="SELECT * FROM reports_effective WHERE (category = ? AND IFNULL(처리상태, '') != '취하') AND ID > ? ORDER BY ID LIMIT 1000", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db
+        1: [2026-10-03 15:53:46.944] prepare took 0ms - succeeded, sql="SELECT * FROM reports_effective WHERE (category = ? AND IFNULL(처리상태, '') != '취하') AND ID > ? ORDER BY ID LIMIT 1000", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db
+        2: [2026-10-03 15:53:46.900] executeForCursorWindow took 10ms - succeeded, sql="SELECT rowid AS _cursor, * FROM sr_stats_1 WHERE rowid > ? ORDER BY rowid LIMIT 1000", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db
+        3: [2026-10-03 15:53:46.900] prepare took 0ms - succeeded, sql="SELECT rowid AS _cursor, * FROM sr_stats_1 WHERE rowid > ? ORDER BY rowid LIMIT 1000", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db
+        4: [2026-10-03 15:53:43.262] executeForCursorWindow took 3583ms - succeeded, sql="SELECT * FROM reports_effective WHERE (category = ? AND IFNULL(처리상태, '') != '취하') AND ID > ? ORDER BY ID LIMIT 1000", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db
+        5: [2026-10-03 15:53:43.262] prepare took 0ms - succeeded, sql="SELECT * FROM reports_effective WHERE (category = ? AND IFNULL(처리상태, '') != '취하') AND ID > ? ORDER BY ID LIMIT 1000", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db
+        6: [2026-10-03 15:53:43.117] executeForCursorWindow took 28ms - succeeded, sql="SELECT rowid AS _cursor, * FROM sr_stats_1 WHERE rowid > ? ORDER BY rowid LIMIT 1000", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db
+        7: [2026-10-03 15:53:43.117] prepare took 0ms - succeeded, sql="SELECT rowid AS _cursor, * FROM sr_stats_1 WHERE rowid > ? ORDER BY rowid LIMIT 1000", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db
+        8: [2026-10-03 15:53:38.711] executeForCursorWindow took 4304ms - succeeded, sql="SELECT * FROM reports_effective WHERE (category = ? AND IFNULL(처리상태, '') != '취하') AND ID > ? ORDER BY ID LIMIT 1000", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db
+        9: [2026-10-03 15:53:38.711] prepare took 0ms - succeeded, sql="SELECT * FROM reports_effective WHERE (category = ? AND IFNULL(처리상태, '') != '취하') AND ID > ? ORDER BY ID LIMIT 1000", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db
+        10: [2026-10-03 15:53:38.473] executeForCursorWindow took 8ms - succeeded, sql="SELECT rowid AS _cursor, * FROM sr_stats_1 WHERE rowid > ? ORDER BY rowid LIMIT 1000", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db
+        11: [2026-10-03 15:53:38.472] prepare took 0ms - succeeded, sql="SELECT rowid AS _cursor, * FROM sr_stats_1 WHERE rowid > ? ORDER BY rowid LIMIT 1000", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db
+        12: [2026-10-03 15:53:34.784] executeForCursorWindow took 3559ms - succeeded, sql="SELECT * FROM reports_effective WHERE (category = ? AND IFNULL(처리상태, '') != '취하') AND ID > ? ORDER BY ID LIMIT 1000", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db
+        13: [2026-10-03 15:53:34.784] prepare took 0ms - succeeded, sql="SELECT * FROM reports_effective WHERE (category = ? AND IFNULL(처리상태, '') != '취하') AND ID > ? ORDER BY ID LIMIT 1000", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db
+        14: [2026-10-03 15:53:34.705] executeForCursorWindow took 19ms - succeeded, sql="SELECT rowid AS _cursor, * FROM sr_stats_1 WHERE rowid > ? ORDER BY rowid LIMIT 1000", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db
+        15: [2026-10-03 15:53:34.705] prepare took 0ms - succeeded, sql="SELECT rowid AS _cursor, * FROM sr_stats_1 WHERE rowid > ? ORDER BY rowid LIMIT 1000", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db
+        16: [2026-10-03 15:53:30.438] executeForCursorWindow took 4187ms - succeeded, sql="SELECT * FROM reports_effective WHERE (category = ? AND IFNULL(처리상태, '') != '취하') AND ID > ? ORDER BY ID LIMIT 1000", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db
+        17: [2026-10-03 15:53:30.438] prepare took 1ms - succeeded, sql="SELECT * FROM reports_effective WHERE (category = ? AND IFNULL(처리상태, '') != '취하') AND ID > ? ORDER BY ID LIMIT 1000", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db
+        18: [2026-10-03 15:53:30.403] executeForCursorWindow took 8ms - succeeded, sql="SELECT rowid AS _cursor, * FROM sr_stats_1 WHERE rowid > ? ORDER BY rowid LIMIT 1000", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db
+        19: [2026-10-03 15:53:30.403] prepare took 0ms - succeeded, sql="SELECT rowid AS _cursor, * FROM sr_stats_1 WHERE rowid > ? ORDER BY rowid LIMIT 1000", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db
+      Status: NORMAL
+  Connection waiters:
+    <none>
+Connection pool for /data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb:
+  Open: true
+  Max connections: 4
+  Total execution time (ms): 81
+  Total statements executed: 108
+  Average time per statement (ms): 0
+  Configuration: openFlags=805306368, isLegacyCompatibilityWalEnabled=false, journalMode=WAL, syncMode=NORMAL
+  IsReadOnlyDatabase=false
+  Available primary connection:
+    Connection #0:
+      isPrimaryConnection: true
+      onlyAllowReadOnlyOperations: false
+      Most recently executed operations:
+        0: [2026-10-03 15:33:24.406] executeForLong took 0ms - succeeded, sql="PRAGMA temp.page_size;", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        1: [2026-10-03 15:33:24.406] executeForLong took 0ms - succeeded, sql="PRAGMA temp.page_count;", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        2: [2026-10-03 15:33:24.406] executeForCursorWindow took 0ms - succeeded, sql="PRAGMA database_list;", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        3: [2026-10-03 15:33:24.406] executeForLong took 0ms - succeeded, sql="PRAGMA page_size;", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        4: [2026-10-03 15:33:24.406] executeForLong took 1ms - succeeded, sql="PRAGMA page_count;", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        5: [2026-10-03 15:25:25.215] executeForLong took 0ms - succeeded, sql="PRAGMA temp.page_size;", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        6: [2026-10-03 15:25:25.215] executeForLong took 0ms - succeeded, sql="PRAGMA temp.page_count;", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        7: [2026-10-03 15:25:25.215] executeForCursorWindow took 0ms - succeeded, sql="PRAGMA database_list;", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        8: [2026-10-03 15:25:25.214] executeForLong took 0ms - succeeded, sql="PRAGMA page_size;", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        9: [2026-10-03 15:25:25.210] executeForLong took 5ms - succeeded, sql="PRAGMA page_count;", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        10: [2026-10-03 15:21:53.460] execute took 1ms - succeeded, sql="COMMIT;", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        11: [2026-10-03 15:21:53.459] executeForCursorWindow took 0ms - succeeded, sql="SELECT * FROM room_table_modification_log WHERE invalidated = 1", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        12: [2026-10-03 15:21:53.459] prepare took 0ms - succeeded, sql="SELECT * FROM room_table_modification_log WHERE invalidated = 1", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        13: [2026-10-03 15:21:53.458] execute took 0ms - succeeded, sql="BEGIN IMMEDIATE;", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        14: [2026-10-03 15:21:53.457] execute took 0ms - succeeded, sql="COMMIT;", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        15: [2026-10-03 15:21:53.456] executeForCursorWindow took 0ms - succeeded, sql="SELECT * FROM workspec WHERE state=0 ORDER BY last_enqueue_time LIMIT ?", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        16: [2026-10-03 15:21:53.455] prepare took 0ms - succeeded, sql="SELECT * FROM workspec WHERE state=0 ORDER BY last_enqueue_time LIMIT ?", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        17: [2026-10-03 15:21:53.454] executeForCursorWindow took 1ms - succeeded, sql="SELECT * FROM workspec WHERE state=0 AND schedule_requested_at=-1 ORDER BY last_enqueue_time LIMIT (SELECT MAX(?-COUNT(*), 0) FROM workspec WHERE schedule_requested_at<>-1 AND LENGTH(content_uri_triggers)=0 AND state NOT IN (2, 3, 5))", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        18: [2026-10-03 15:21:53.452] prepare took 0ms - succeeded, sql="SELECT * FROM workspec WHERE state=0 AND schedule_requested_at=-1 ORDER BY last_enqueue_time LIMIT (SELECT MAX(?-COUNT(*), 0) FROM workspec WHERE schedule_requested_at<>-1 AND LENGTH(content_uri_triggers)=0 AND state NOT IN (2, 3, 5))", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        19: [2026-10-03 15:21:53.451] executeForCursorWindow took 0ms - succeeded, sql="SELECT * FROM workspec WHERE state=0 AND schedule_requested_at=-1 AND LENGTH(content_uri_triggers)<>0 ORDER BY last_enqueue_time", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+  Available non-primary connections:
+    Connection #1:
+      isPrimaryConnection: false
+      onlyAllowReadOnlyOperations: true
+      Most recently executed operations:
+        0: [2026-10-03 15:33:24.407] executeForCursorWindow took 0ms - succeeded, sql="PRAGMA database_list;", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        1: [2026-10-03 15:33:24.407] executeForLong took 0ms - succeeded, sql="PRAGMA page_size;", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        2: [2026-10-03 15:33:24.406] executeForLong took 0ms - succeeded, sql="PRAGMA page_count;", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        3: [2026-10-03 15:25:25.216] executeForCursorWindow took 0ms - succeeded, sql="PRAGMA database_list;", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        4: [2026-10-03 15:25:25.216] executeForLong took 0ms - succeeded, sql="PRAGMA page_size;", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        5: [2026-10-03 15:25:25.215] executeForLong took 1ms - succeeded, sql="PRAGMA page_count;", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        6: [2026-10-03 15:21:45.595] executeForCursorWindow took 1ms - succeeded, sql="SELECT COUNT(*) > 0 FROM workspec WHERE state NOT IN (2, 3, 5) LIMIT 1", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        7: [2026-10-03 15:21:45.595] prepare took 0ms - succeeded, sql="SELECT COUNT(*) > 0 FROM workspec WHERE state NOT IN (2, 3, 5) LIMIT 1", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        8: [2026-10-03 15:21:45.440] executeForCursorWindow took 0ms - succeeded, sql="SELECT long_value FROM Preference where `key`=?", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        9: [2026-10-03 15:21:45.439] prepare took 0ms - succeeded, sql="SELECT long_value FROM Preference where `key`=?", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        10: [2026-10-03 15:21:45.436] executeForCursorWindow took 0ms - succeeded, sql="SELECT long_value FROM Preference where `key`=?", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        11: [2026-10-03 15:21:45.436] prepare took 0ms - succeeded, sql="SELECT long_value FROM Preference where `key`=?", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        12: [2026-10-03 15:21:45.415] executeForCursorWindow took 0ms - succeeded, sql="SELECT DISTINCT work_spec_id FROM SystemIdInfo", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        13: [2026-10-03 15:21:45.415] prepare took 0ms - succeeded, sql="SELECT DISTINCT work_spec_id FROM SystemIdInfo", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        14: [2026-10-03 15:21:45.406] executeForCursorWindow took 0ms - succeeded, sql="PRAGMA recursive_triggers = 1", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        15: [2026-10-03 15:21:45.406] executeForCursorWindow took 0ms - succeeded, sql="PRAGMA temp_store = MEMORY", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        16: [2026-10-03 15:21:45.405] executeForCursorWindow took 0ms - succeeded, sql="PRAGMA query_only", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        17: [2026-10-03 15:21:45.405] executeForCursorWindow took 0ms - succeeded, sql="PRAGMA foreign_keys = ON", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        18: [2026-10-03 15:21:45.405] executeForCursorWindow took 0ms - succeeded, sql="SELECT identity_hash FROM room_master_table WHERE id = 42 LIMIT 1", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+        19: [2026-10-03 15:21:45.399] prepare took 5ms - succeeded, sql="SELECT identity_hash FROM room_master_table WHERE id = 42 LIMIT 1", path=/data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb
+  Acquired connections:
+    <none>
+  Connection waiters:
+    <none>
+Statements Executed per Database
+  /data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db :    1017062
+  /data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb :    108
+
+Total Statements Executed for all Active Databases: 1017170
+
+
+Statement Time per Database (ms)
+  /data/user/0/com.fentanest.mysafetyreport.fixture2/databases/standalone_reports_demo.db :    949890
+  /data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup/androidx.work.workdb :    81
+Total Statements Time for all Active Databases (ms): 949971
+
+Database files in /data/user/0/com.fentanest.mysafetyreport.fixture2/databases:
+  community.db                              155648b ctime=2026-10-03T03:56:14Z mtime=2026-10-03T03:56:14Z atime=2026-10-03T03:18:08Z
+  community.db-shm                           32768b ctime=2026-10-03T03:56:18Z mtime=2026-10-03T03:56:18Z atime=2026-10-03T03:56:18Z
+  community.db-wal                               0b ctime=2026-10-03T03:56:18Z mtime=2026-10-03T03:56:18Z atime=2026-10-03T03:56:18Z
+  standalone_reports_demo.db               1143459840b ctime=2026-10-03T06:30:10Z mtime=2026-10-03T06:30:10Z atime=2026-10-03T02:27:05Z
+  standalone_reports_demo.db-shm            360448b ctime=2026-10-03T06:30:09Z mtime=2026-10-03T06:30:09Z atime=2026-10-03T06:22:01Z
+  standalone_reports_demo.db-wal           183710832b ctime=2026-10-03T06:30:09Z mtime=2026-10-03T06:30:09Z atime=2026-10-03T06:22:01Z
+
+Database files in /data/user/0/com.fentanest.mysafetyreport.fixture2/no_backup:
+  androidx.work.workdb                        4096b ctime=2026-10-03T02:26:57Z mtime=2026-10-03T02:26:57Z atime=2026-10-03T02:26:57Z
+  androidx.work.workdb-shm                   32768b ctime=2026-10-03T06:21:45Z mtime=2026-10-03T06:21:45Z atime=2026-10-03T02:26:57Z
+  androidx.work.workdb-wal                  168952b ctime=2026-10-03T04:07:56Z mtime=2026-10-03T04:07:56Z atime=2026-10-03T02:26:57Z

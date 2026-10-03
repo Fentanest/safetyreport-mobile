@@ -68,9 +68,11 @@ class ReportProvider with ChangeNotifier {
   List<Report> _otherReports = [];
   List<Report> _duplicateReports = [];
   Set<String> _watchlistNumbers = {};
+  List<String> _filterStatuses = [];
+  List<String> _filterLaws = [];
 
-  /// 카테고리별로 한 번이라도 fetch 했는지 여부. `ensureCategoryReportsLoaded`
-  /// 가 캐시 hit/miss 판정에 사용한다.
+  /// Legacy callers keep only a 200-row preview, never the full category.
+  /// Real list/search/editor screens own their SQL/server pages.
   final Set<String> _loadedCategories = <String>{};
   Future<void>? _summaryLoadFuture;
   final Map<String, Future<void>> _categoryLoadFutures =
@@ -222,8 +224,52 @@ class ReportProvider with ChangeNotifier {
       return category;
     }
 
-    await ensureCategoryReportsLoaded(forceRefresh: true);
-    return findCategory(report);
+    return resolveReportCategory(report);
+  }
+
+  /// Unknown notification categories are resolved without retaining all reports.
+  Future<String?> resolveReportCategory(Report report) async {
+    final epoch = _datasetEpoch;
+    if (_appMode == AppMode.standalone) {
+      final found = await LocalDbService.getReportByNumber(report.reportNumber);
+      return epoch == _datasetEpoch ? found?.category : null;
+    }
+    // The canonical server has category pages, but no single-report lookup.
+    // This rare, explicit navigation fallback holds at most one 200-row page.
+    for (final category in _kCoreCategories) {
+      var offset = 0;
+      while (epoch == _datasetEpoch) {
+        final page = await _api.getReportsPage(
+          category,
+          offset: offset,
+          dedupe: 'raw',
+        );
+        if (epoch != _datasetEpoch) return null;
+        if (page.reports.any((r) => r.reportNumber == report.reportNumber)) {
+          return category;
+        }
+        offset += page.reports.length;
+        if (page.reports.isEmpty || offset >= page.total) break;
+      }
+    }
+    return null;
+  }
+
+  /// Refresh compact filter metadata without Report bodies; local values use DISTINCT.
+  Future<void> fetchFilterOptions() async {
+    if (!isConfigured) return;
+    final epoch = _datasetEpoch;
+    final options = _appMode == AppMode.standalone
+        ? await LocalDbService.getFilterOptions()
+        : await _api.getFilterOptions();
+    if (epoch != _datasetEpoch) return;
+    _filterStatuses = _appMode == AppMode.standalone
+        ? options.statuses
+        : {..._filterStatuses, ...options.statuses}.toList();
+    _filterLaws = _appMode == AppMode.standalone
+        ? options.laws
+        : {..._filterLaws, ...options.laws}.toList();
+    notifyListeners();
   }
 
   int categoryToTabIndex(String? category) {
@@ -279,6 +325,10 @@ class ReportProvider with ChangeNotifier {
       }
     }
 
+    for (final value in _filterStatuses) {
+      final status = _canonicalStatusLabel(value);
+      if (status.isNotEmpty && seen.add(status)) discovered.add(status);
+    }
     collect(_trafficReports);
     collect(_parkingReports);
     collect(_otherReports);
@@ -314,6 +364,13 @@ class ReportProvider with ChangeNotifier {
       }
     }
 
+    for (final law in _filterLaws) {
+      if (law.isEmpty || law == kEmptyLawFilterValue) {
+        hasEmptyLaw = true;
+      } else if (seen.add(law)) {
+        discovered.add(law);
+      }
+    }
     collect(_trafficReports);
     collect(_parkingReports);
     collect(_otherReports);
@@ -585,6 +642,8 @@ class ReportProvider with ChangeNotifier {
     _otherReports = [];
     _duplicateReports = [];
     _watchlistNumbers = {};
+    _filterStatuses = [];
+    _filterLaws = [];
     _loadedCategories.clear();
     _summaryLoadFuture = null;
     _categoryLoadFutures.clear();
@@ -602,6 +661,8 @@ class ReportProvider with ChangeNotifier {
     _parkingReports = [];
     _otherReports = [];
     _duplicateReports = [];
+    _filterStatuses = [];
+    _filterLaws = [];
     _loadedCategories.clear();
     notifyListeners();
     if (_appMode == AppMode.server) {
@@ -720,6 +781,8 @@ class ReportProvider with ChangeNotifier {
     _baseUrl = cleanUrl;
     _apiKey = key;
     _errorMessage = null;
+    _filterStatuses = [];
+    _filterLaws = [];
     _loadedCategories.clear();
 
     final prefs = await SharedPreferences.getInstance();
@@ -767,6 +830,8 @@ class ReportProvider with ChangeNotifier {
         : phoneNumber.replaceAll(RegExp(r'[^0-9]'), '');
     _isStandaloneDemo = isDemoMode;
     _errorMessage = null;
+    _filterStatuses = [];
+    _filterLaws = [];
     _loadedCategories.clear();
 
     final prefs = await SharedPreferences.getInstance();
@@ -817,6 +882,8 @@ class ReportProvider with ChangeNotifier {
     _otherReports = [];
     _duplicateReports = [];
     _watchlistNumbers = {};
+    _filterStatuses = [];
+    _filterLaws = [];
     _loadedCategories.clear();
     _errorMessage = null;
 
@@ -913,12 +980,27 @@ class ReportProvider with ChangeNotifier {
     String category, {
     int offset = 0,
     int limit = 200,
-  }) => _api.getReportsPage(
-    category,
-    offset: offset,
-    limit: limit,
-    dedupe: _useRepresentativeRecords ? 'canonical' : 'raw',
-  );
+  }) async {
+    final epoch = _datasetEpoch;
+    final page = await _api.getReportsPage(
+      category,
+      offset: offset,
+      limit: limit,
+      dedupe: _useRepresentativeRecords ? 'canonical' : 'raw',
+    );
+    if (epoch == _datasetEpoch) {
+      // Preserve custom values discovered on visible pages; keep only metadata.
+      _filterStatuses = {
+        ..._filterStatuses,
+        ...page.reports.map((r) => r.status),
+      }.toList();
+      _filterLaws = {
+        ..._filterLaws,
+        ...page.reports.map((r) => r.law),
+      }.toList();
+    }
+    return page;
+  }
 
   Future<void> fetchCategoryReports(String category) {
     if (!isConfigured || !_kCoreCategories.contains(category)) {
@@ -940,13 +1022,14 @@ class ReportProvider with ChangeNotifier {
     _isLoading = true;
     notifyListeners();
     try {
-      final reports = _appMode == AppMode.standalone
-          ? await LocalDbService.getReportsByCategory(
-              category,
+      final page = _appMode == AppMode.standalone
+          ? await LocalDbService.getReportPage(
+              category: category,
               excludeWithdraw: _excludeWithdraw,
               useRepresentativeRecords: _useRepresentativeRecords,
             )
-          : await _api.getReports(category);
+          : await readServerPage(category);
+      final reports = page.reports;
       if (epoch != _datasetEpoch) return;
       switch (category) {
         case 'traffic':

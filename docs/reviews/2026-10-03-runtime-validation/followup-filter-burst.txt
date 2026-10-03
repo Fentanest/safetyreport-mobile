@@ -1,0 +1,8 @@
+{"stage": "year_burst_then_dashboard", "elapsed_s": 2.59, "population": 500000}
+Traceback (most recent call last):
+  File "/tmp/sr_final_android_checks.py", line 34, in <module>
+    ns=ready('월별 처리 추이');shot('stats_landscape')
+       ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/sr_final_android_checks.py", line 20, in ready
+    raise AssertionError(label)
+AssertionError: 월별 처리 추이

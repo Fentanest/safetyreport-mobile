@@ -16,6 +16,8 @@ import 'package:safetyreport/services/agency_registry.dart';
 import 'package:safetyreport/services/local_db_service.dart';
 import 'package:safetyreport/services/performance_trace.dart';
 import 'package:safetyreport/services/db_export_location.dart';
+import 'package:safetyreport/services/duplicate_projection_service.dart';
+import 'package:safetyreport/screens/duplicate_management_screen.dart';
 import 'package:safetyreport/services/server_contract.dart';
 import 'package:safetyreport/theme/app_theme.dart';
 import 'package:safetyreport/widgets/rating_dialog.dart';
@@ -143,6 +145,69 @@ class _ProbeAppState extends State<_ProbeApp> {
         value['returned_rows'] =
             value['returned_rows']! + ((e['rows'] as int?) ?? 0);
       };
+      if (const bool.fromEnvironment('SR_DUPLICATE_ONLY')) {
+        for (final phase in ['cold', 'warm']) {
+          final t = Stopwatch()..start();
+          var rawPageMax = 0, fieldPageMax = 0, digestRows = 0;
+          var sampled = false, readReady = false;
+          Future<void>? concurrentRead;
+          final prior = PerformanceTrace.observer;
+          PerformanceTrace.observer = (e) {
+            prior?.call(e);
+            if (e['stage'] == 'duplicate.sql_page') {
+              final rows = e['rows'] as int;
+              if (rows > rawPageMax) rawPageMax = rows;
+            }
+            if (e['stage'] == 'duplicate.digest') {
+              digestRows += e['rows'] as int;
+            }
+            if (e['stage'] == 'duplicate.field_page') {
+              final rows = e['rows'] as int;
+              if (rows > fieldPageMax) fieldPageMax = rows;
+              if (!sampled) {
+                sampled = true;
+                concurrentRead = Future<void>(() async {
+                  final read = Stopwatch()..start();
+                  LocalDbService.invalidateCaches();
+                  final s = await LocalDbService.computeSummary();
+                  readReady = true;
+                  emit({
+                    'stage': 'duplicate.concurrent_summary',
+                    'phase': phase,
+                    'rows': s.total,
+                    'ms': read.elapsedMilliseconds,
+                  });
+                });
+              }
+            }
+          };
+          final result =
+              await DuplicateProjectionService.refreshDuplicateGroups(
+                await LocalDbService.db,
+              );
+          final readyAtPublish = readReady;
+          await concurrentRead;
+          emit({
+            'stage': 'duplicate',
+            'phase': phase,
+            'rows': n,
+            'ms': t.elapsedMilliseconds,
+            'groups': result['group_count'],
+            'members': result['member_count'],
+            'raw_page_max': rawPageMax,
+            'field_page_max': fieldPageMax,
+            'digest_rows': digestRows,
+            'summary_ready_before_publish': readyAtPublish,
+            'rss': ProcessInfo.currentRss,
+            'peak_rss': ProcessInfo.maxRss,
+          });
+          PerformanceTrace.observer = prior;
+        }
+        PerformanceTrace.observer = null;
+        setState(() => _status = '$n건 중복 재계산 측정 완료');
+        emit({'stage': 'complete'});
+        return;
+      }
       for (final phase in ['cold', 'warm']) {
         final t = Stopwatch()..start();
         final summary = await LocalDbService.computeSummary(
@@ -250,6 +315,12 @@ class _ProbeAppState extends State<_ProbeApp> {
                     MaterialPageRoute(builder: (_) => const ReportMapScreen()),
                   ),
                   child: const Text('지도'),
+                ),
+                TextButton(
+                  onPressed: () => setState(
+                    () => _screen = const DuplicateManagementPanel(),
+                  ),
+                  child: const Text('중복'),
                 ),
                 TextButton(
                   onPressed: () => showDialog<void>(

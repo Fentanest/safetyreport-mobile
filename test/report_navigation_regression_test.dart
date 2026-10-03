@@ -56,9 +56,9 @@ class _RecordingReportProvider extends ReportProvider {
   }
 
   @override
-  Future<void> ensureCategoryReportsLoaded({bool forceRefresh = false}) async {
+  Future<String?> resolveReportCategory(Report report) async {
     refreshedAll = true;
-    forceRefreshValue = forceRefresh;
+    return categoryAfterRefresh;
   }
 }
 
@@ -87,7 +87,7 @@ void main() {
     expect(provider.refreshedAll, isFalse);
   });
 
-  test('카테고리가 없는 알림은 전체 목록을 강제 갱신해 다시 찾는다', () async {
+  test('카테고리가 없는 알림은 단건 또는 페이지 조회로 다시 찾는다', () async {
     final provider = _RecordingReportProvider(
       categoryBeforeRefresh: null,
       categoryAfterRefresh: 'parking',
@@ -100,7 +100,7 @@ void main() {
 
     expect(category, 'parking');
     expect(provider.refreshedAll, isTrue);
-    expect(provider.forceRefreshValue, isTrue);
+    expect(provider.forceRefreshValue, isNull);
   });
 
   // 원래 목적(선택/미선택 구분, 글자 가독성, 표시선 가시성)을 유지하면서 고정 색 대신

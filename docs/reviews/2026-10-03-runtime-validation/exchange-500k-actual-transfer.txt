@@ -1,0 +1,263 @@
+{"stage": "M0_to_S0_real_PC_restore", "seconds": 290.352}
+{"stage": "S0_to_M1_real_mobile_import", "seconds": 132.196}
+{"stage": "M1_to_S2_real_PC_restore", "seconds": 250.67}
+{"stage": "S2_to_M3_real_mobile_import", "seconds": 120.856}
+{"stage": "compare_A:mysafety_entry_value", "seconds": 2.247}
+{"stage": "compare_A:mysafety_raw_content", "seconds": 5.317}
+{"stage": "compare_A:mysafety_watchlist", "seconds": 0.013}
+{"stage": "compare_A:mysafety_sync_meta", "seconds": 0.001}
+{"stage": "compare_A:mysafety_geocode_cache", "seconds": 0.004}
+{"stage": "compare_A:mysafety_report_override", "seconds": 0.002}
+{"stage": "compare_A:mysafety_duplicate_decision", "seconds": 0.005}
+{"stage": "compare_A:mysafety_duplicate_group", "seconds": 0.027}
+{"stage": "compare_A:mysafety_duplicate_member", "seconds": 0.096}
+{"stage": "compare_A:mysafety", "seconds": 3.67}
+{"stage": "compare_A:mysafetydetail_traffic", "seconds": 3.519}
+{"stage": "compare_A:mysafetydetail_parking", "seconds": 3.344}
+{"stage": "compare_A:mysafetydetail_other", "seconds": 3.483}
+{"stage": "compare_A:mysafetymerge_traffic", "seconds": 4.576}
+{"stage": "compare_A:mysafetymerge_parking", "seconds": 5.57}
+{"stage": "compare_A:mysafetymerge_other", "seconds": 7.198}
+{"stage": "compare_B:reports", "seconds": 11.542}
+{"stage": "compare_B:report_raw", "seconds": 1.833}
+{"stage": "compare_B:sync_meta", "seconds": 0.001}
+{"stage": "compare_B:geocode_cache", "seconds": 0.001}
+{"stage": "compare_B:report_override", "seconds": 0.001}
+{"stage": "compare_B:duplicate_decision", "seconds": 0.001}
+{"stage": "compare_B:duplicate_group", "seconds": 0.019}
+{"stage": "compare_B:duplicate_member", "seconds": 0.019}
+{"stage": "compare_M0_to_M1_exchange_columns", "seconds": 13.288}
+{
+  "kind": "synthetic_host_exchange_not_device_performance",
+  "rows": 500000,
+  "diff_count": 0,
+  "results": {
+    "A:mysafety_entry_value": {
+      "before": 500000,
+      "after": 500000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafety_raw_content": {
+      "before": 500000,
+      "after": 500000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafety_watchlist": {
+      "before": 5155,
+      "after": 5155,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafety_sync_meta": {
+      "before": 3,
+      "after": 3,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafety_geocode_cache": {
+      "before": 1,
+      "after": 1,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafety_report_override": {
+      "before": 2,
+      "after": 2,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafety_duplicate_decision": {
+      "before": 2,
+      "after": 2,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafety_duplicate_group": {
+      "before": 2000,
+      "after": 2000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafety_duplicate_member": {
+      "before": 4000,
+      "after": 4000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafety": {
+      "before": 500000,
+      "after": 500000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafetydetail_traffic": {
+      "before": 166667,
+      "after": 166667,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafetydetail_parking": {
+      "before": 166667,
+      "after": 166667,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafetydetail_other": {
+      "before": 166666,
+      "after": 166666,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafetymerge_traffic": {
+      "before": 166667,
+      "after": 166667,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafetymerge_parking": {
+      "before": 166667,
+      "after": 166667,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "A:mysafetymerge_other": {
+      "before": 166666,
+      "after": 166666,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "B:reports": {
+      "before": 500000,
+      "after": 500000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "B:report_raw": {
+      "before": 500000,
+      "after": 500000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "B:sync_meta": {
+      "before": 4,
+      "after": 4,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "B:geocode_cache": {
+      "before": 1,
+      "after": 1,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "B:report_override": {
+      "before": 2,
+      "after": 2,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "B:duplicate_decision": {
+      "before": 2,
+      "after": 2,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "B:duplicate_group": {
+      "before": 2000,
+      "after": 2000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "B:duplicate_member": {
+      "before": 4000,
+      "after": 4000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "initial_exchange_reports": {
+      "before": 500000,
+      "after": 500000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "initial_exchange_report_raw": {
+      "before": 500000,
+      "after": 500000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "initial_exchange_geocode_cache": {
+      "before": 1,
+      "after": 1,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "initial_exchange_report_override": {
+      "before": 2,
+      "after": 2,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "initial_exchange_duplicate_decision": {
+      "before": 2,
+      "after": 2,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "initial_exchange_duplicate_group": {
+      "before": 2000,
+      "after": 2000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    },
+    "initial_exchange_duplicate_member": {
+      "before": 4000,
+      "after": 4000,
+      "missing": 0,
+      "extra": 0,
+      "columns": {}
+    }
+  },
+  "contracts_identical": {
+    "storage-contract.json": true,
+    "parser-vectors.json": true,
+    "exif-vectors.json": true,
+    "rating-eligibility-vectors.json": true,
+    "dark-palette.json": true,
+    "selfhost-compat/README.md": true,
+    "selfhost-compat/vectors.json": true
+  },
+  "work_dir": "/tmp/sr_exchange_large_rl93eu40"
+}

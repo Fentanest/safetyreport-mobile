@@ -1,0 +1,25 @@
+00:00 +0: loading /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart
+00:00 +0: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: (setUpAll)
+00:00 +0: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 0 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+SR_HOST rows=0 ms=137 rss=201601024
+00:00 +1: /home/better0101/projects/safetyreport-mobile/test/services/duplicate_rebuild_bounded_test.dart: SQL rebuild matches legacy normalization, rank, conflict, decisions, legacy fingerprint and alerts
+00:00 +1: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 1 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+SR_HOST rows=1 ms=258 rss=206925824
+00:00 +2: /home/better0101/projects/safetyreport-mobile/test/services/duplicate_rebuild_bounded_test.dart: SQL rebuild matches legacy normalization, rank, conflict, decisions, legacy fingerprint and alerts
+00:03 +2: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 3000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+SR_HOST rows=3000 ms=2045 rss=231391232
+00:03 +3: /home/better0101/projects/safetyreport-mobile/test/services/duplicate_rebuild_bounded_test.dart: SQL rebuild matches legacy normalization, rank, conflict, decisions, legacy fingerprint and alerts
+00:06 +4: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 58388 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:06 +5: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 58388 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+00:08 +6: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 58388 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+SR_HOST rows=58388 ms=24302 rss=283983872
+00:30 +7: /home/better0101/projects/safetyreport-mobile/test/services/duplicate_rebuild_bounded_test.dart: bounded raw pages, giant group, interleaved summary/edit and warm invalidation
+01:18 +7: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 100000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+SR_HOST rows=100000 ms=41297 rss=309075968
+01:18 +8: /home/better0101/projects/safetyreport-mobile/test/services/duplicate_rebuild_bounded_test.dart: bounded raw pages, giant group, interleaved summary/edit and warm invalidation
+SR_DUPLICATE_HOST rows=500000 cold_ms=148476 warm_ms=33254 pages=3910 rss=1120518144 peak_rss=1137467392
+04:52 +9: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: 500000 deterministic reports: native grouping, totals, pages, same-count mutations and cancellation
+SR_HOST rows=500000 ms=223608 rss=489787392
+05:37 +10: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: SQL list filtering agrees with the existing ReportFilter predicate
+05:50 +11: /home/better0101/projects/safetyreport-mobile/test/services/large_data_queries_test.dart: (tearDownAll)
+05:50 +11: All tests passed!

@@ -1,0 +1,5 @@
+Warning: Activity not started, intent has been delivered to currently running top-most instance.
+{"stage": "rating_real_ime", "scale": "1.0", "rotation": "0", "input_bounds": "[105,918][975,1149]", "actions_visible": true}
+{"stage": "rating_real_ime", "scale": "1.3", "rotation": "0", "input_bounds": "[91,1311][989,1668]", "actions_visible": true}
+{"stage": "rating_real_ime", "scale": "2.0", "rotation": "0", "input_bounds": "[69,1072][1011,1252]", "actions_visible": true}
+{"stage": "cancel_only_no_rating_submission", "completed": true}

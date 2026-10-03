@@ -498,6 +498,32 @@ class ApiService {
     );
   }
 
+  /// Use the existing compact overview, never download category bodies for laws.
+  /// The server does not expose distinct custom statuses; standard status labels
+  /// remain selectable, with page-discovered values added by the provider.
+  Future<({List<String> statuses, List<String> laws})>
+  getFilterOptions() async {
+    final response = await _sendWithRetry(
+      () => http.get(
+        ServerContract.apiUri(baseUrl, ServerContract.statsOverviewPath),
+        headers: _headers,
+      ),
+    );
+    if (response.statusCode != 200) {
+      throw const ApiFeatureUnavailableException('서버의 필터 선택지 집계를 불러올 수 없습니다.');
+    }
+    final body = _decodeResponse(response) as Map;
+    final section = (body['data'] as Map)['all'] as Map;
+    final laws = (section['violation_laws'] as List? ?? const [])
+        .whereType<Map>()
+        .map((r) => r['filter']?.toString() ?? r['name']?.toString() ?? '')
+        .toList();
+    return (
+      statuses: ['수용', '일부수용', '불수용', '처리중', '보완요청', '취하', '기타', '답변완료'],
+      laws: laws,
+    );
+  }
+
   /// 통계 요약 + 월별 추이. 구서버(엔드포인트 없음)는 [ApiFeatureUnavailableException].
   Future<StatsOverview> getStatsOverview({String? year, String? law}) async {
     final params = <String, String>{};

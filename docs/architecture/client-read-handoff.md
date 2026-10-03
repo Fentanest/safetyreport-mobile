@@ -37,6 +37,37 @@ X-SafetyReport-Protocol: 3
 
 4. missing: `/stats/map/missing`에 offset/limit(예: 100그룹)와 groupTotal 및 각 주소 reportTotal을 제공하고 상세는 category/page의 missingAddress 또는 실제 정본 address-group ID로 200건 조회한다. geocode preview limit(예: 10)은 전체 건수와 분리한다. year와 NULL 날짜 적용 의미를 서버·모바일 같은 벡터로 고정한다.
 
+5. 중복 관리: 기존 group/member API에 group offset/limit(50), group_total/status_counts, member offset/limit(50)/member_total, 대표 메타를 포함하는 정본이 필요하다. 대표가 첫 페이지 밖에 있어도 선택 상태를 보존하고 대표 membership은 서버에서 확인한다. 예:
+
+```http
+GET /api/v1/duplicates/groups?offset=0&limit=50&status=review_required
+GET /api/v1/duplicates/groups/{canonical_group_id}/members?offset=50&limit=50
+```
+
+```json
+{"status":"success","total":461538,"offset":50,"limit":50,"count":50,"data_revision":"r101","data":[{"report_id":"fixture-000000051","is_representative":0}]}
+```
+
+경로·필드는 **제안**이다. 현 group/member API에는 페이지 계약이 없으므로 모바일은 이를 호출 가능한 새 API로 가정하지 않는다.
+
+6. 필터 메타·알림 단건: 전체 DISTINCT 상태·법규와 missing/blank를 원문 없이 반환하고, ID/신고번호로 category/단건을 찾는 정본이 필요하다. 현재 Client 법규는 `/stats/overview`의 `violation_laws`를 사용하지만 이 overview에는 custom status DISTINCT가 없다. 표준 상태/기존 preview 발견 상태만으로 전체 사용자 상태를 보장할 수 없다. 미상 카테고리 알림은 기존 raw page를 순차 탐색하며 전량 객체를 보관하지 않지만 늦을 수 있다. 제안 응답:
+
+```json
+{"status":"success","data":{"statuses":["수용","일부수용","사용자 상태"],"laws":["도로교통법","__없음__"],"dataset_id":"fixture-account","data_revision":"r101"}}
+```
+
+## PC 복원 거대 중복군 계산 인계
+
+50만 건·원문 2개 거대군 fixture의 실제 PC `restore_from_mobile_db`는 20분 이상 완료되지 않았다. own synthetic 프로세스의 stack은 `services/duplicate_group_service.py:299`에 있었고 다음 계산을 확인했다:
+
+```python
+majority_field_fingerprint = max(set(field_fingerprints), key=field_fingerprints.count)
+```
+
+해시마다 전체 리스트를 다시 count하여 O(N × distinct fields)다. source는 reports 500,000, 중복 멤버 499,999(동시 수정 fixture 1건은 독립 원문), 군 크기 461,538/38,461, 전체 field hash 60,000개다. PC 프로세스 RSS는 관찰 중 약 6.9GB였으며 own fixture 작업만 중단했다. PC 저장소를 수정하지 않았다. 일반 분포의 50만 건(2,000쌍 중복군) 실제 양방향 교환은 완료해 모든 교환 컬럼·원문·수정값·중복/메타 diff=0을 확인했다. 거대군 PC 복원이 통과했다고 주장하지 않는다.
+
+서버 수정 제안은 Counter 등으로 한 번 count한 뒤 `max(set(field_fingerprints), key=counts.get)`를 사용해 현재 set 동률 결정도 유지하는 것이다. 정규화/field_match/수동 대표/기존 결정의 parity와 0/1/3천/58,388/10만/50만, 1개 및 2개 거대군의 restore 시간을 테스트해야 한다. `tool/large_data_fixture.dart`의 `giantRawGroups:true`, `test/services/duplicate_rebuild_bounded_test.dart`의 `SR_DUPLICATE_DB_OUT`로 동일 재현 source를 만들 수 있다. API 차단·운영 성능 완료와 별개의 PC 담당 항목이다.
+
 ## 추가해야 할 공통 벡터
 
 | 입력/동작 | 필요한 단언 |

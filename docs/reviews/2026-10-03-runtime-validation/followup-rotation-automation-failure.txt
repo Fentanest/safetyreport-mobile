@@ -1,0 +1,6 @@
+{"stage": "year_burst_then_dashboard", "elapsed_s": 2.89, "population": 500000}
+Traceback (most recent call last):
+  File "/tmp/sr_final_android_checks.py", line 43, in <module>
+    assert any('월별 처리 추이' in text(n) for n in ns)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError

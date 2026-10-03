@@ -20,6 +20,15 @@
 - 검증: 전체 Flutter 860 passed/14 skipped, analyze error 0/warning 9/info 10(기존 진단, dev 24→19), Kotlin 4 passed, 50만 건 포함 host fixture 7 passed, 동시 snapshot/취소 burst/대기 요약 취소/수정값 감시 건수/year NULL 6 passed, DB 양방향 교환 diff 0, 공통 통계 44조합 diff 0. 4GB profile에서 데이터 준비·뒤로가기를 매번 확인한 대시보드↔통계↔지도 20회와 백그라운드 복귀, 연도 필터 연속 변경 후 복귀도 통과했다. 회전의 스크롤 위치를 보존하는 UI는 화면 밖 차트 oracle 실패와 실제 표시 확인을 검증 기록에서 구분했다. profile 에뮬레이터의 58,388건 요약은 dev 10,496 ms→SQL 전환 557 ms였다. 최종 4GB Android profile의 50만 건 요약 cold/warm 972/1 ms, 통계 35,194/3 ms였고 DB/인덱스 준비 13,633 ms는 별도다. 2GB 이전 cold 목표는 안정적으로 충족하지 못했으며 같은 환경의 개선률로 계산하지 않는다. 50만 건 cold와 최초 인덱스 준비는 여전히 부하 영향을 받는다. 실기기 S24 종료 원인은 미확정이며 실기기 성능 확인으로 주장하지 않는다.
 - 상세 측정·실제 화면 증거·제한은 [검증 기록](docs/reviews/2026-10-03-runtime-validation.md), 현재 구조는 [bounded reads](docs/architecture/bounded-reads.md), 서버의 summary watchlist/복합 필터·감시·중복·주소 페이지 계약 인계는 [client read handoff](docs/architecture/client-read-handoff.md)에 있다. 서버 계약이 부족한 Client 전량 경로와 50만 건 cold 목표의 미달을 완료로 위장하지 않았다. 제품 VERSION 변경/push/배포/실제 제출은 하지 않았다.
 
+### 완료 범위 재점검·실제 전량 경로 제거와 50만 건 왕복
+
+- 첫 완료 보고에서 놓친 Dashboard summary 후 전체 category 사전 로딩을 제거했다. 검색/데이터 수정은 200건 페이지와 전체 COUNT, 필터 선택지는 로컬 DISTINCT 또는 기존 Client overview 메타를 사용한다. 서버 custom status/단건 lookup 부족은 계약 인계로 명시했다. 2페이지 편집·취소, 계정 전환 중 늦은 결과를 검증했다.
+- 동기화 중복 재생성은 128행 digest/isolate, SQL staging과 revision 확인 publish로 전환했다. 50그룹/50멤버 페이지, 알림 metadata/deferred, 사진 유지보수 cursor, 서버 가져오기 JOIN 페이지로 raw 전량 보관을 제거했다. 별도 legacy oracle로 원문·다수 동률·수동 결정/대표·NULL 의미를 대조했다. 복원 backup sidecar도 정리했다.
+- 일반 분포 500,000건 DB를 실제 PC restore→mobile import→PC restore→mobile import하고 모든 교환 컬럼/타입/NULL/원문/수정값/결정 비교 diff=0을 확인했다. 거대 중복 2군 PC restore는 반복 list.count에서 20분 이상 지연돼 own fixture 프로세스만 중단했다. PC 저장소는 수정하지 않고 재현/동률 보존 개선안을 인계했다.
+- 최종 Flutter 868 passed/15 skipped, analyze 오류0/기존 warning9/info10, 6종 건수·filter parity·bounded duplicate 11 passed. Android15/4GB/profile 50만 건 실제 데이터 대시보드↔통계↔지도/뒤로가기 20회(검사 총368.51초)와 background/resume를 통과했다. 요약 cold/warm 2,388/1ms, 통계60,585/1ms, 지도6,664/1ms이며 DB 초기 준비15,824ms/registry3,565ms는 별도다. 통계 cold·초기 준비·거대군 재생성 비용은 여전히 크며 실기기 S24 원인/성능은 미확정이다.
+- 실제 IME 글꼴1.0/1.3/2.0 및 세 줄 입력→키보드 닫기→가로회전→스크롤→재열기의 내용/버튼 보존을 확인했다. 실제 별점은 제출하지 않았다.
+- 백그라운드 50만 건 1,143,455,744bytes DB 저장 중 Launcher 유지, 완료 알림 탭의 Files 전환/정확한 파일명/quick_check를 확인했다. native 알림 탭에서 파일 앱이 없을 때도 완료 파일명·위치와 열기/공유 대안을 유지하도록 보완했다. 최종 profile 빌드에서 DocumentsUI 일시 disable로 실제 dialog/열기 실패 시 유지·앱 생존을 확인하고 원복했다. 삼성 내 파일/SAF28/운영 서버는 미검증이며 VERSION/push/배포는 없다.
+
 ## 2026-09-30 (dev 미배포)
 
 ### 공유 resolver(resolve.ts·resolve.dart) 링크 색인 캐시 반영

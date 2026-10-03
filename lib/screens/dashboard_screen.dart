@@ -1,5 +1,4 @@
 import '../services/performance_trace.dart';
-import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -33,8 +32,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final provider = context.read<ReportProvider>();
       await provider.fetchSummary();
-      if (!mounted) return;
-      unawaited(provider.ensureCategoryReportsLoaded());
     });
   }
 

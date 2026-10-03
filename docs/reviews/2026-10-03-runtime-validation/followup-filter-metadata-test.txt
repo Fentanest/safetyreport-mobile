@@ -1,0 +1,17 @@
+00:00 +0: loading /home/better0101/projects/safetyreport-mobile/test/services/api_service_pagination_test.dart
+00:00 +0: /home/better0101/projects/safetyreport-mobile/test/services/api_service_pagination_test.dart: page uses canonical route, exact total, NULL and category with no full-report fallback
+00:00 +1: /home/better0101/projects/safetyreport-mobile/test/services/api_service_pagination_test.dart: bounded map carries viewport and raw/canonical mode
+00:00 +2: /home/better0101/projects/safetyreport-mobile/test/services/api_service_pagination_test.dart: missing page/map API asks for PC update without requesting unlimited endpoint
+00:00 +3: /home/better0101/projects/safetyreport-mobile/test/services/api_service_pagination_test.dart: filter laws use the compact overview rather than downloading reports
+00:00 +4: /home/better0101/projects/safetyreport-mobile/test/widgets/bounded_screen_entry_test.dart: dashboard and empty search never preload category Report bodies
+00:02 +5: /home/better0101/projects/safetyreport-mobile/test/widgets/bounded_screen_entry_test.dart: legacy category refresh is bounded and filter metadata includes rows beyond its page
+00:02 +6: /home/better0101/projects/safetyreport-mobile/test/widgets/bounded_screen_entry_test.dart: editor renders native pages and retains record editing without category preloading
+*** sqflite warning ***
+
+You are changing sqflite default factory.
+Be aware of the potential side effects. Any library using sqflite
+will have this factory as the default for all operations.
+
+*** sqflite warning ***
+
+00:04 +7: All tests passed!

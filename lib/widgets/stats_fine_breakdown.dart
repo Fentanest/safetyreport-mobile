@@ -6,6 +6,7 @@ import '../models/agency_stats.dart';
 import '../server_palette.dart';
 import '../theme/sr_colors.dart';
 import '../utils/format.dart';
+import '../theme/sr_tokens.dart';
 
 /// 기관·담당자 행의 금액과 건수. 추정 건수는 금액 미확인 건수의 부분집합이다.
 ///
@@ -46,7 +47,7 @@ class StatsFineBreakdown extends StatelessWidget {
             '확정 ${formatWon(row.totalFineAmount)} (${formatCount(confirmedCount)})',
             softWrap: true,
             style: TextStyle(
-              fontSize: 11,
+              fontSize: SrFontSize.caption,
               fontWeight: FontWeight.w600,
               color: fineColor,
             ),
@@ -55,7 +56,10 @@ class StatsFineBreakdown extends StatelessWidget {
             Text(
               '금액 미확인 ${formatCount(row.fineAmountUnknown)}',
               softWrap: true,
-              style: TextStyle(fontSize: 11, color: sr.textSecondary),
+              style: TextStyle(
+                fontSize: SrFontSize.caption,
+                color: sr.textSecondary,
+              ),
             ),
           if (estimatedCount > 0)
             MergeSemantics(
@@ -72,7 +76,7 @@ class StatsFineBreakdown extends StatelessWidget {
                           : '${formatWon(row.estimatedFineAmount!)} (${formatCount(estimatedCount)})',
                       softWrap: true,
                       style: TextStyle(
-                        fontSize: 11,
+                        fontSize: SrFontSize.caption,
                         fontWeight: FontWeight.w400,
                         color: sr.textSecondary,
                       ),
@@ -101,7 +105,7 @@ class EstimateBadge extends StatelessWidget {
         child: Text(
           '추정',
           style: TextStyle(
-            fontSize: 10,
+            fontSize: SrFontSize.caption,
             fontWeight: FontWeight.w600,
             color: sr.textSecondary,
           ),
@@ -126,7 +130,7 @@ class _DashedRRectPainter extends CustomPainter {
       ..strokeWidth = 1;
     final rrect = RRect.fromRectAndRadius(
       (Offset.zero & size).deflate(0.5),
-      const Radius.circular(4),
+      const Radius.circular(SrRadius.sm),
     );
     final path = Path()..addRRect(rrect);
     for (final ui.PathMetric metric in path.computeMetrics()) {

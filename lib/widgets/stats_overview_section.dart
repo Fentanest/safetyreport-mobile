@@ -8,6 +8,7 @@ import '../models/stats_overview.dart';
 import '../server_palette.dart';
 import '../theme/sr_colors.dart';
 import '../utils/format.dart';
+import '../theme/sr_tokens.dart';
 
 /// 통계 화면 상단 요약(2026-09-28 개편). 모든 수치는 [summary] 런타임 집계
 /// (Client: 서버 `/api/v1/stats/overview`, Standalone: `LocalDbService.computeStatsOverview`)에서 온다.
@@ -65,7 +66,7 @@ class StatsOverviewSection extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: sr.surfaceAlt,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(SrRadius.lg),
             border: Border.all(color: sr.border),
           ),
           child: Row(
@@ -232,7 +233,7 @@ class _SummaryTile extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         border: Border.all(color: sr.border),
       ),
       child: Column(
@@ -278,7 +279,10 @@ class _SummaryTile extends StatelessWidget {
             child: Text(
               caption,
               softWrap: true,
-              style: TextStyle(fontSize: 11, color: sr.textSecondary),
+              style: TextStyle(
+                fontSize: SrFontSize.caption,
+                color: sr.textSecondary,
+              ),
             ),
           ),
       ],
@@ -299,7 +303,7 @@ class _MonthlyTrendCard extends StatelessWidget {
   });
 
   static const double _groupWidth = 36;
-  static const double _axisFontSize = 11;
+  static const double _axisFontSize = SrFontSize.chartAxis;
 
   static String _ym(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}';
@@ -380,7 +384,10 @@ class _MonthlyTrendCard extends StatelessWidget {
                 ),
                 Text(
                   '답변일 기준',
-                  style: TextStyle(fontSize: 11, color: sr.textSecondary),
+                  style: TextStyle(
+                    fontSize: SrFontSize.caption,
+                    color: sr.textSecondary,
+                  ),
                 ),
               ],
             ),
@@ -455,7 +462,7 @@ class _MonthlyTrendCard extends StatelessWidget {
                 '처리율은 계산하지 않음(신고월·답변월 기준이 다름)',
               ].join(' · '),
               style: TextStyle(
-                fontSize: 11,
+                fontSize: SrFontSize.caption,
                 color: sr.textSecondary,
                 height: 1.4,
               ),
@@ -587,7 +594,7 @@ class _MonthlyTrendCard extends StatelessWidget {
                 '$m${m == nowKey ? '(집계 중)' : ''} ${isFine ? '과태료' : '처리'} ${rod.toY.toInt()}건',
                 TextStyle(
                   color: Theme.of(context).colorScheme.onInverseSurface,
-                  fontSize: 11,
+                  fontSize: SrFontSize.caption,
                   fontWeight: FontWeight.w600,
                 ),
               );
@@ -612,6 +619,7 @@ class _MonthlyTrendCard extends StatelessWidget {
                       ? BorderSide(color: barColor, width: 1)
                       : BorderSide.none,
                   borderRadius: const BorderRadius.vertical(
+                    // sr-allow: 차트 막대 끝 반경(막대 폭 12px 에 묶인 표식, 반경 단계 대상 아님)
                     top: Radius.circular(3),
                   ),
                 ),
@@ -621,6 +629,7 @@ class _MonthlyTrendCard extends StatelessWidget {
                     width: 5,
                     color: fineColor,
                     borderRadius: const BorderRadius.vertical(
+                      // sr-allow: 과태료 막대 폭 5px 에 묶인 표식
                       top: Radius.circular(2),
                     ),
                   ),
@@ -658,13 +667,17 @@ class _LegendSwatch extends StatelessWidget {
             color: hatched ? null : color,
             gradient: hatched ? StatsHatchGradient(color: color) : null,
             border: hatched ? Border.all(color: color) : null,
+            // sr-allow: 범례 견본(10~12px)은 차트 막대 모양을 따른다
             borderRadius: BorderRadius.circular(2),
           ),
         ),
         const SizedBox(width: 5),
         Text(
           label,
-          style: TextStyle(fontSize: 11.5, color: context.sr.textSecondary),
+          style: TextStyle(
+            fontSize: SrFontSize.caption,
+            color: context.sr.textSecondary,
+          ),
         ),
       ],
     );
@@ -815,7 +828,7 @@ class _HBar extends StatelessWidget {
           ),
           const SizedBox(height: 3),
           ClipRRect(
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: BorderRadius.circular(SrRadius.pill),
             child: Stack(
               children: [
                 Container(height: 6, color: sr.surfaceAlt),
@@ -867,7 +880,10 @@ class _ChartCard extends StatelessWidget {
                 if (subtitle != null)
                   Text(
                     subtitle!,
-                    style: TextStyle(fontSize: 11, color: sr.textSecondary),
+                    style: TextStyle(
+                      fontSize: SrFontSize.caption,
+                      color: sr.textSecondary,
+                    ),
                   ),
               ],
             ),
@@ -931,7 +947,11 @@ class _DispositionCard extends StatelessWidget {
                 ? '과태료·경고/범칙금·불수용이 함께 적힌 신고 ${formatCount(d.overlap)}은 두 항목에 모두 세어, 항목 합이 기준 건수보다 많습니다.'
                 : '여섯 항목은 서로 겹치지 않으며 합계가 기준 건수와 같습니다.',
           ].join(' '),
-          style: TextStyle(fontSize: 11, color: sr.textSecondary, height: 1.4),
+          style: TextStyle(
+            fontSize: SrFontSize.caption,
+            color: sr.textSecondary,
+            height: 1.4,
+          ),
         ),
       ],
     );
@@ -1031,7 +1051,7 @@ class _Footnotes extends StatelessWidget {
             child: Text(
               '· $note',
               style: TextStyle(
-                fontSize: 11,
+                fontSize: SrFontSize.caption,
                 color: sr.textSecondary,
                 height: 1.4,
               ),

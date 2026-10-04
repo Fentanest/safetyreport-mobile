@@ -3,12 +3,14 @@ import 'package:flutter/material.dart';
 import '../models/report_map.dart';
 import '../services/map_presentation.dart';
 import '../theme/sr_colors.dart';
+import '../theme/sr_tokens.dart';
 
 /// 지도 마커 색 구간(과태료율). 경계값은 예전 `_mapPointColorForFineRate` 와 같다.
 enum MapFineRateBand {
-  high('과태료율 60% 이상', Color(0xFF2E7D32)),
-  mid('과태료율 50~60%', Color(0xFFF57C00)),
-  low('과태료율 50% 미만', Color(0xFFC62828));
+  // sr-allow: 지도 타일은 테마와 무관하게 밝아 마커 색을 고정한다(아래 color 주석).
+  high('과태료율 60% 이상', Color(0xFF2E7D32)), // sr-allow
+  mid('과태료율 50~60%', Color(0xFFF57C00)), // sr-allow
+  low('과태료율 50% 미만', Color(0xFFC62828)); // sr-allow
 
   const MapFineRateBand(this.label, this.color);
 
@@ -26,7 +28,7 @@ enum MapFineRateBand {
 }
 
 /// 여러 지점을 묶은(클러스터) 원 채움색.
-const Color kMapClusterColor = Color(0xFF0D47A1);
+const Color kMapClusterColor = Color(0xFF0D47A1); // sr-allow: 지도 고정색
 
 /// 마커 아래 라벨에 보일 이름. 시·군·구 이름이 있으면 그것을, 없으면 의미 있는 대체 문구를 돌려준다.
 /// 일반 문구("지도 구역 집계 …", "영역 집계")는 보이지 않는다.
@@ -52,7 +54,7 @@ class MapMarkerRegionPill extends StatelessWidget {
   /// 라이트 팔레트 고정: 지도 타일 위에 놓이므로 앱 테마를 따르지 않는다.
   static Color get background => SrColors.light.surface.withValues(alpha: 0.94);
   static Color get foreground => SrColors.light.textPrimary;
-  static const double fontSize = 11;
+  static const double fontSize = SrFontSize.caption;
 
   @override
   Widget build(BuildContext context) {
@@ -64,7 +66,7 @@ class MapMarkerRegionPill extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         decoration: BoxDecoration(
           color: background,
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(SrRadius.pill),
           border: Border.all(color: SrColors.light.border),
         ),
         child: Text(
@@ -111,7 +113,7 @@ class _MapFineRateLegendState extends State<MapFineRateLegend> {
       child: Material(
         color: sr.surface.withValues(alpha: 0.96),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(SrRadius.lg),
           side: BorderSide(color: sr.border),
         ),
         clipBehavior: Clip.antiAlias,
@@ -248,7 +250,7 @@ class MapOsmAttribution extends StatelessWidget {
       excludeSemantics: true,
       child: Material(
         color: sr.surface.withValues(alpha: 0.9),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(SrRadius.md),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
@@ -259,7 +261,7 @@ class MapOsmAttribution extends StatelessWidget {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: 11,
+                fontSize: SrFontSize.caption,
                 height: 1.2,
                 color: sr.textPrimary,
               ),

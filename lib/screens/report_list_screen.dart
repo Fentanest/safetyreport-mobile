@@ -15,6 +15,7 @@ import '../widgets/sr_tab_bar.dart';
 import '../widgets/status_badge.dart';
 import '../server_palette.dart';
 import '../utils/format.dart';
+import '../theme/sr_tokens.dart';
 
 /// 통계·지도·상세 시트에서 조건으로 좁혀 여는 드릴다운 목록.
 ///
@@ -289,7 +290,7 @@ class _ReportListScreenState extends State<ReportListScreen>
                             color: countFiltered
                                 ? scheme.primaryContainer
                                 : scheme.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(999),
+                            borderRadius: BorderRadius.circular(SrRadius.pill),
                           ),
                           child: Text(
                             countText,

@@ -4,6 +4,7 @@ import '../models/report.dart';
 import '../server_palette.dart';
 import '../theme/sr_colors.dart';
 import 'status_badge.dart';
+import '../theme/sr_tokens.dart';
 
 class ReportCardMetaItem {
   final IconData icon;
@@ -59,7 +60,7 @@ class ReportListCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         side: BorderSide(
           color: isSelected ? scheme.primary : sr.border,
           width: isSelected ? 2 : 1,
@@ -67,7 +68,7 @@ class ReportListCard extends StatelessWidget {
       ),
       color: isSelected ? sr.brandSoft : scheme.surface,
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         onTap: onTap,
         onLongPress: onLongPress,
         child: Padding(
@@ -143,7 +144,7 @@ class ReportListCard extends StatelessWidget {
                           StatusBadge(
                             label: '보완횟수:${report.supplementCount}회',
                             color: serverSupplementColor,
-                            fontSize: 10,
+                            fontSize: SrFontSize.caption,
                           ),
                         ],
                       ],
@@ -164,7 +165,7 @@ class ReportListCard extends StatelessWidget {
                               '보완 요청자: $supplementRequester',
                               style: TextStyle(
                                 color: supplementTone.foreground,
-                                fontSize: 11.5,
+                                fontSize: SrFontSize.caption,
                                 fontWeight: FontWeight.w600,
                               ),
                               overflow: TextOverflow.ellipsis,
@@ -259,7 +260,7 @@ class _CarNumberChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         color: sr.surfaceAlt,
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(SrRadius.md),
         border: Border.all(color: sr.border),
       ),
       child: Text(

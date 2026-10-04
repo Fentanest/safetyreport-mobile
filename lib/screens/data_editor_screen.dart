@@ -12,6 +12,8 @@ import '../widgets/search_filter_sheet.dart';
 import '../widgets/local_paged_report_list.dart';
 import '../widgets/sr_app_bar_actions.dart';
 import '../widgets/status_badge.dart';
+import '../theme/sr_tokens.dart';
+import '../widgets/sr_snack_bar.dart';
 
 /// 데이터 수정 탭의 상세 검색(신고내역과 같은 공용 조건). 신고관리 앱바의 검색/필터 아이콘이 부른다(SQ-U16).
 void openDataEditorFilterSheet(BuildContext context) {
@@ -55,9 +57,7 @@ class _DataEditorPanelState extends State<DataEditorPanel> {
     if (saved != true || !mounted || epoch != provider.datasetEpoch) return;
     await provider.refreshAll();
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('수정 내용이 저장되었습니다.')));
+    showSrSnack(context, '수정 내용이 저장되었습니다.');
   }
 
   @override
@@ -159,7 +159,7 @@ class _EditableReportCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 10),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Column(
@@ -246,9 +246,9 @@ class _InfoPill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(SrRadius.pill),
       ),
-      child: Text(label, style: const TextStyle(fontSize: 11)),
+      child: Text(label, style: const TextStyle(fontSize: SrFontSize.caption)),
     );
   }
 }
@@ -401,9 +401,7 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
       Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('저장 실패: $e')));
+      showSrSnack(context, '저장 실패: $e', kind: SrSnackKind.error);
       setState(() => _saving = false);
     }
   }
@@ -415,7 +413,7 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         border: Border.all(color: context.sr.border),
       ),
       child: Column(
@@ -492,12 +490,12 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.tertiaryContainer,
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(SrRadius.md),
           ),
           child: Text(
             '수정됨',
             style: TextStyle(
-              fontSize: 11,
+              fontSize: SrFontSize.caption,
               fontWeight: FontWeight.w700,
               color: Theme.of(context).colorScheme.onTertiaryContainer,
             ),

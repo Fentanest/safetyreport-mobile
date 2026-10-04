@@ -9,6 +9,7 @@ import '../providers/report_provider.dart';
 import '../services/repositories/sunwi_repository.dart';
 import '../theme/sr_colors.dart';
 import '../server_palette.dart';
+import '../theme/sr_tokens.dart';
 
 class SunwiScreen extends StatelessWidget {
   const SunwiScreen({super.key});
@@ -342,11 +343,7 @@ class _SunwiSectionState extends State<SunwiSection>
             Icon(
               Icons.map_outlined,
               size: 18,
-              color: StatusTone.of(
-                changeDuplicateColor,
-                brightness: Theme.of(context).brightness,
-                surface: context.sr.surface,
-              ).foreground,
+              color: context.toneOf(changeDuplicateColor).foreground,
             ),
             const SizedBox(width: 6),
             const Expanded(
@@ -372,7 +369,7 @@ class _SunwiSectionState extends State<SunwiSection>
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: LinearProgressIndicator(
-              borderRadius: BorderRadius.circular(999),
+              borderRadius: BorderRadius.circular(SrRadius.pill),
             ),
           ),
         _buildCategoryCard(),
@@ -590,7 +587,7 @@ class _SunwiSectionState extends State<SunwiSection>
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
         color: context.sr.surfaceAlt,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
       ),
       child: Row(
         children: [
@@ -605,7 +602,7 @@ class _SunwiSectionState extends State<SunwiSection>
                 Text(
                   title,
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: SrFontSize.caption,
                     color: context.sr.textSecondary,
                     fontWeight: FontWeight.w700,
                   ),
@@ -635,7 +632,7 @@ class _SunwiSectionState extends State<SunwiSection>
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
       decoration: BoxDecoration(
         color: context.sr.surfaceAlt,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
       ),
       child: Text(
         '이번 기간 데이터가 없습니다.',
@@ -647,11 +644,11 @@ class _SunwiSectionState extends State<SunwiSection>
 
   Widget _buildRankItem(SunwiItem item) {
     // 순위 배지: 기준색 틴트 + AA 글자(흰 글자 채움은 다크에서 대비가 무너진다).
-    const rankBases = [
-      Color(0xFF0D6EFD),
+    final rankBases = [
+      context.sr.brand,
       serverAcceptColor,
       serverSupplementColor,
-      Color(0xFF8B5CF6),
+      serverTrafficPenaltyColor,
       serverRejectColor,
     ];
     final theme = Theme.of(context);
@@ -664,7 +661,7 @@ class _SunwiSectionState extends State<SunwiSection>
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(SrRadius.xl),
         border: Border.all(color: context.sr.border),
         gradient: LinearGradient(
           colors: [context.sr.surface, context.sr.surfaceAlt],
@@ -678,7 +675,7 @@ class _SunwiSectionState extends State<SunwiSection>
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
               color: badgeTone.background,
-              borderRadius: BorderRadius.circular(999),
+              borderRadius: BorderRadius.circular(SrRadius.pill),
               border: Border.all(color: badgeTone.border),
             ),
             child: Text(
@@ -732,7 +729,7 @@ class _MetaChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
         color: context.sr.surfaceAlt,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
       ),
       child: Row(
         children: [

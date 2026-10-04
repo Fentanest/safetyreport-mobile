@@ -100,6 +100,16 @@
 - 문서: `ui-renewal-spec.md` 다크 팔레트를 코드(B안 #0B0B0C)와 맞추고 코드 대조 정정을 남겼다. 동의 화면 스크린숏을 앱 테마로 다시 렌더(라이트 배경 라벤더 → 흰색). `feature-matrix.csv`(STAT-01·NOTI-01·SET-10)·`statistics-spec.md` 갱신.
 - 검증: analyze error 0 / warning 9 / info 0, test **1133 passed / 16 skipped / 0 failed**(신규 26), 골든 변경 없음.
 
+### WP10a 디자인 토큰 정리 (SQ-U19 U23)
+- 의미색 토큰(`SrColors.success/warning/info`, 채움색 3종, 분류색 3종, 로그 패널색)과 `context.tone(SrTone)` 헬퍼를 추가했다. 이중 `StatusTone.of(StatusTone.of(...))` 17곳 → 0, theme 밖의 Material 기본색 48곳 → 0(흰/검정 고정색은 이유 주석). 대비: 라이트 success 5.02, warning 5.02, info 5.93(카드 기준), 다크 모두 8.6 이상, 채움색 위 흰 글자 5.02 이상.
+- 모서리 반경 `SrRadius`(4/8/12/16/24/999)로 규격 밖 값 49곳 → 3(차트 막대 끝, 이유 주석). 바텀시트 20→24, 입력창 10→12.
+- 글자 크기: 12 미만 리터럴 73곳 → 0(차트 축만 11). 하단 내비 라벨·`bodySmall`·`labelSmall`·상태 배지 기본값 11→12.
+- SnackBar 헬퍼 `showSrSnack`(info/success/warning/error) 76곳 적용. 다크에서 오류·성공 SnackBar 글자가 어두운 채움 위에 어둡게 그려지던 것을 흰 글자로 고쳤다. 실패 문구는 오류 종류로 통일.
+- 별점 탭 분류 칩 색을 통계와 같은 분류색(교통 파랑·주정차 주황·기타 초록)으로 맞췄다.
+- 재발 방지 검사 테스트: 이중 StatusTone·theme 밖 기본색·`Color(0x..)`·12 미만 글자·규격 밖 반경·자체 배경 SnackBar가 `lib/`에 생기면 실패(의도한 예외는 `// sr-allow`).
+- 골든: `report_list_card`·`stats_overview` 라이트/다크 4장을 의도한 변경(배지·캡션 11→12, 번호판 칩 반경 6→8, 통계 카드 반경 14→12)으로 갱신. `ui-renewal-spec.md` §2·§3·§4에 토큰·최소 글자·반경 결정을 날짜와 함께 기록.
+- 검증: analyze error 0 / warning 9 / info 0, test **1151 passed / 16 skipped / 0 failed**(신규 18).
+
 ## 2026-10-04 (서버 dev 리팩터링 WS 소비자 연동, 로컬 미배포)
 
 - 서버의 optional terminal event_id/after/replay_gap/cursor_reset을 Android WsService에 연결했다. 서버 설정별 cursor를 분리하고 같은 event_id의 완료 알림 중복을 막는다. PrefsInbox가 알림 history와 cursor를 한 Editor.commit에 저장하며 실패하면 메모리의 실패 history/cursor/trim만 복구한 뒤 reconnect한다. rollback disk 실패에서도 메모리 cursor를 되돌리는 회귀를 확인했다.

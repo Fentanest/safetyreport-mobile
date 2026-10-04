@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../server_palette.dart';
 import '../theme/sr_colors.dart';
+import '../theme/sr_tokens.dart';
 
 /// 상태·처분 알약 배지. 색은 기준색을 [StatusTone] 으로 변환해 라이트/다크 모두 AA 대비를 맞춘다.
 class StatusBadge extends StatelessWidget {
@@ -13,12 +14,15 @@ class StatusBadge extends StatelessWidget {
     super.key,
     required this.label,
     required this.color,
-    this.fontSize = 11,
+    this.fontSize = SrFontSize.caption,
   });
 
   /// 처리상태 문자열로 기준색을 고른다.
-  factory StatusBadge.status(String status, {Key? key, double fontSize = 11}) =>
-      StatusBadge(
+  factory StatusBadge.status(
+    String status, {
+    Key? key,
+    double fontSize = SrFontSize.caption,
+  }) => StatusBadge(
         key: key,
         label: status,
         color: serverStatusColor(status),
@@ -38,7 +42,7 @@ class StatusBadge extends StatelessWidget {
       decoration: BoxDecoration(
         color: tone.background,
         border: Border.all(color: tone.border),
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(SrRadius.pill),
       ),
       child: Text(
         label,

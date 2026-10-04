@@ -12,6 +12,8 @@ import '../theme/sr_colors.dart';
 import '../widgets/report_detail_sheet.dart';
 import '../widgets/sr_empty_state.dart';
 import '../widgets/status_badge.dart';
+import '../theme/sr_tokens.dart';
+import '../widgets/sr_snack_bar.dart';
 
 class WatchlistScreen extends StatelessWidget {
   const WatchlistScreen({super.key});
@@ -101,15 +103,11 @@ class _WatchlistPanelState extends State<WatchlistPanel> {
         () => _items.removeWhere((i) => i.reportNumber == r.reportNumber),
       );
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('감시 목록에서 제거되었습니다.')));
+        showSrSnack(context, '감시 목록에서 제거되었습니다.');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('오류: $e')));
+        showSrSnack(context, '오류: $e', kind: SrSnackKind.error);
       }
     }
   }
@@ -153,15 +151,11 @@ class _WatchlistPanelState extends State<WatchlistPanel> {
       provider.markDataChanged();
       if (mounted) setState(() => _items.clear());
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('감시 목록이 모두 해제되었습니다.')));
+        showSrSnack(context, '감시 목록이 모두 해제되었습니다.');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('오류: $e')));
+        showSrSnack(context, '오류: $e', kind: SrSnackKind.error);
       }
     } finally {
       if (mounted) setState(() => _clearing = false);
@@ -269,7 +263,7 @@ class _WatchCard extends StatelessWidget {
     return Card(
       margin: EdgeInsets.zero,
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         onTap: () => showReportDetailSheet(context, report),
         child: Padding(
           padding: const EdgeInsets.all(14),
@@ -362,12 +356,15 @@ class _WatchCard extends StatelessWidget {
         const SizedBox(width: 4),
         Text(
           '$label ',
-          style: TextStyle(fontSize: 11, color: context.sr.textSecondary),
+          style: TextStyle(
+            fontSize: SrFontSize.caption,
+            color: context.sr.textSecondary,
+          ),
         ),
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(fontSize: 11),
+            style: const TextStyle(fontSize: SrFontSize.caption),
             overflow: TextOverflow.ellipsis,
           ),
         ),

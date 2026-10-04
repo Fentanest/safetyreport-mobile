@@ -16,6 +16,8 @@ import '../services/excel_export_service.dart';
 import '../theme/sr_colors.dart';
 import '../widgets/sr_page_padding.dart';
 import '../server_palette.dart';
+import '../theme/sr_tokens.dart';
+import '../widgets/sr_snack_bar.dart';
 
 /// 확장자 → MIME type 매핑 (top-level — 모든 State 에서 공유).
 /// open_filex 가 자동 추론에 실패하는 경우(특히 Android에서 xlsx)가 있어 명시적으로 전달.
@@ -346,25 +348,16 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
       );
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('저장됨: ${saved.path.split('/').last}')),
-        );
+        showSrSnack(context, '저장됨: ${saved.path.split('/').last}');
         await _loadLocalFiles(_currentLocalPath);
       }
     } on ExcelExportCancelled {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('내보내기를 취소했습니다.')));
+        showSrSnack(context, '내보내기를 취소했습니다.');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('내보내기 실패: $e'),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
+        showSrSnack(context, '내보내기 실패: $e', kind: SrSnackKind.error);
       }
     } finally {
       _exportCancel = null;
@@ -413,9 +406,11 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
         XFile(file.path),
       ], subject: file.path.split('/').last);
     } else if (result.type != ResultType.done && mounted) {
-      ScaffoldMessenger.of(
+      showSrSnack(
         context,
-      ).showSnackBar(SnackBar(content: Text('파일 열기 실패: ${result.message}')));
+        '파일 열기 실패: ${result.message}',
+        kind: SrSnackKind.error,
+      );
     }
   }
 
@@ -427,9 +422,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
       await _openSavedFile(staged);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('파일 준비 실패: $e')));
+      showSrSnack(context, '파일 준비 실패: $e', kind: SrSnackKind.error);
     }
   }
 
@@ -462,13 +455,10 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
 
   Future<bool> _downloadServerItems(List<FileItem> items) async {
     if (items.isEmpty) return false;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          items.length == 1 ? '다운로드 중...' : '${items.length}개 파일 묶음 다운로드 중...',
-        ),
-        duration: const Duration(seconds: 30),
-      ),
+    showSrSnack(
+      context,
+      items.length == 1 ? '다운로드 중...' : '${items.length}개 파일 묶음 다운로드 중...',
+      duration: const Duration(seconds: 30),
     );
 
     try {
@@ -480,17 +470,13 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
       final saved = await _saveDownloadedFile(payload);
       if (!mounted) return false;
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('저장됨: ${saved.path.split('/').last}')),
-      );
+      showSrSnack(context, '저장됨: ${saved.path.split('/').last}');
       await _openSavedFile(saved);
       return true;
     } catch (e) {
       if (!mounted) return false;
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('다운로드 실패: $e')));
+      showSrSnack(context, '다운로드 실패: $e', kind: SrSnackKind.error);
       return false;
     }
   }
@@ -510,9 +496,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
       await Share.shareXFiles([XFile(f.path)], subject: name);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('공유 실패: $e')));
+      showSrSnack(context, '공유 실패: $e', kind: SrSnackKind.error);
     }
   }
 
@@ -528,9 +512,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
       if (mounted) _clearSelection();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('공유 실패: $e')));
+      showSrSnack(context, '공유 실패: $e', kind: SrSnackKind.error);
     }
   }
 
@@ -604,7 +586,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     final baseMessage = errors.isEmpty
         ? '$deletedCount개 파일을 삭제했습니다.'
         : '$deletedCount개 삭제, ${errors.length}개 실패';
-    messenger.showSnackBar(SnackBar(content: Text(baseMessage)));
+    showSrSnackOn(messenger, baseMessage);
   }
 
   Future<void> _deleteSelectedServerFiles() async {
@@ -644,12 +626,10 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
       final message = hasErrors
           ? '${result.deletedCount}개 삭제, ${result.errors.length}개 제외'
           : '${result.deletedCount}개 파일을 삭제했습니다.';
-      messenger.showSnackBar(SnackBar(content: Text(message)));
+      showSrSnackOn(messenger, message);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('삭제 실패: $e')));
+      showSrSnack(context, '삭제 실패: $e', kind: SrSnackKind.error);
     }
   }
 
@@ -669,7 +649,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(SrRadius.xl)),
       ),
       builder: (ctx) => Padding(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
@@ -822,16 +802,15 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
       return ListTile(
         leading: Icon(
           Icons.folder_rounded,
-          color: StatusTone.of(
-            Colors.amber,
-            brightness: Theme.of(context).brightness,
-            surface: context.sr.surface,
-          ).foreground,
+          color: context.tone(SrTone.warning).foreground,
         ),
         title: Text(name, style: TextStyle(fontSize: 13)),
         subtitle: Text(
           '폴더  ·  $modified',
-          style: TextStyle(fontSize: 11, color: context.sr.textSecondary),
+          style: TextStyle(
+            fontSize: SrFontSize.caption,
+            color: context.sr.textSecondary,
+          ),
         ),
         trailing: Icon(Icons.chevron_right),
         onTap: _selectionMode ? null : () => _loadLocalFiles(entity.path),
@@ -848,16 +827,15 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
             : fileIconForName(name),
         color: _selectionMode && isSelected
             ? Theme.of(context).colorScheme.primary
-            : StatusTone.of(
-                Colors.green,
-                brightness: Theme.of(context).brightness,
-                surface: context.sr.surface,
-              ).foreground,
+            : context.tone(SrTone.success).foreground,
       ),
       title: Text(name, style: TextStyle(fontSize: 13)),
       subtitle: Text(
         '$sizeStr  ·  $modified  ·  길게 눌러 선택',
-        style: TextStyle(fontSize: 11, color: context.sr.textSecondary),
+        style: TextStyle(
+          fontSize: SrFontSize.caption,
+          color: context.sr.textSecondary,
+        ),
       ),
       trailing: _selectionMode
           ? Icon(
@@ -1122,9 +1100,7 @@ class _TreeNodeState extends State<_TreeNode> {
     } catch (e) {
       if (mounted) {
         setState(() => _loading = false);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('오류: $e')));
+        showSrSnack(context, '오류: $e', kind: SrSnackKind.error);
       }
     }
   }
@@ -1174,11 +1150,7 @@ class _TreeNodeState extends State<_TreeNode> {
                             ? Icons.check_circle
                             : fileIconForName(item.name),
                         color: item.isDir
-                            ? StatusTone.of(
-                                serverPartialAcceptColor,
-                                brightness: Theme.of(context).brightness,
-                                surface: context.sr.surface,
-                              ).foreground
+                            ? context.toneOf(serverPartialAcceptColor).foreground
                             : widget.selectionMode && isSelected
                             ? Theme.of(context).colorScheme.primary
                             : context.sr.textDisabled,
@@ -1200,7 +1172,7 @@ class _TreeNodeState extends State<_TreeNode> {
                   Text(
                     formatFileSize(item.size!),
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: SrFontSize.caption,
                       color: context.sr.textSecondary,
                     ),
                   ),
@@ -1210,7 +1182,7 @@ class _TreeNodeState extends State<_TreeNode> {
                     child: Text(
                       item.modified,
                       style: TextStyle(
-                        fontSize: 10,
+                        fontSize: SrFontSize.caption,
                         color: context.sr.textSecondary,
                       ),
                     ),

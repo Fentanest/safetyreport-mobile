@@ -6,6 +6,7 @@ import '../providers/report_provider.dart';
 import '../main.dart';
 import '../theme/sr_colors.dart';
 import '../widgets/sr_page_padding.dart';
+import '../theme/sr_tokens.dart';
 
 class PermissionScreen extends StatefulWidget {
   /// true면 초기 설정 단계(완료 버튼으로 대시보드 이동), false면 설정 화면 내 탭
@@ -160,29 +161,17 @@ class _PermissionScreenState extends State<PermissionScreen>
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: StatusTone.of(
-                Theme.of(context).colorScheme.primary,
-                brightness: Theme.of(context).brightness,
-                surface: context.sr.surface,
-              ).background,
-              borderRadius: BorderRadius.circular(12),
+              color: context.tone(SrTone.primary).background,
+              borderRadius: BorderRadius.circular(SrRadius.lg),
               border: Border.all(
-                color: StatusTone.of(
-                  Theme.of(context).colorScheme.primary,
-                  brightness: Theme.of(context).brightness,
-                  surface: context.sr.surface,
-                ).border,
+                color: context.tone(SrTone.primary).border,
               ),
             ),
             child: Row(
               children: [
                 Icon(
                   Icons.info_outline,
-                  color: StatusTone.of(
-                    Theme.of(context).colorScheme.primary,
-                    brightness: Theme.of(context).brightness,
-                    surface: context.sr.surface,
-                  ).foreground,
+                  color: context.tone(SrTone.primary).foreground,
                 ),
                 const SizedBox(width: 10),
                 const Expanded(
@@ -322,45 +311,13 @@ class _PermissionScreenState extends State<PermissionScreen>
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: _allGranted
-                  ? StatusTone.of(
-                      StatusTone.of(
-                        Colors.green,
-                        brightness: Theme.of(context).brightness,
-                        surface: context.sr.surface,
-                      ).foreground,
-                      brightness: Theme.of(context).brightness,
-                      surface: context.sr.surface,
-                    ).background
-                  : StatusTone.of(
-                      StatusTone.of(
-                        Colors.orange,
-                        brightness: Theme.of(context).brightness,
-                        surface: context.sr.surface,
-                      ).foreground,
-                      brightness: Theme.of(context).brightness,
-                      surface: context.sr.surface,
-                    ).background,
-              borderRadius: BorderRadius.circular(12),
+                  ? context.tone(SrTone.success).background
+                  : context.tone(SrTone.warning).background,
+              borderRadius: BorderRadius.circular(SrRadius.lg),
               border: Border.all(
                 color: _allGranted
-                    ? StatusTone.of(
-                        StatusTone.of(
-                          Colors.green,
-                          brightness: Theme.of(context).brightness,
-                          surface: context.sr.surface,
-                        ).foreground,
-                        brightness: Theme.of(context).brightness,
-                        surface: context.sr.surface,
-                      ).border
-                    : StatusTone.of(
-                        StatusTone.of(
-                          Colors.orange,
-                          brightness: Theme.of(context).brightness,
-                          surface: context.sr.surface,
-                        ).foreground,
-                        brightness: Theme.of(context).brightness,
-                        surface: context.sr.surface,
-                      ).border,
+                    ? context.tone(SrTone.success).border
+                    : context.tone(SrTone.warning).border,
               ),
             ),
             child: Row(
@@ -368,24 +325,8 @@ class _PermissionScreenState extends State<PermissionScreen>
                 Icon(
                   _allGranted ? Icons.check_circle : Icons.warning_amber,
                   color: _allGranted
-                      ? StatusTone.of(
-                          StatusTone.of(
-                            Colors.green,
-                            brightness: Theme.of(context).brightness,
-                            surface: context.sr.surface,
-                          ).foreground,
-                          brightness: Theme.of(context).brightness,
-                          surface: context.sr.surface,
-                        ).foreground
-                      : StatusTone.of(
-                          StatusTone.of(
-                            Colors.orange,
-                            brightness: Theme.of(context).brightness,
-                            surface: context.sr.surface,
-                          ).foreground,
-                          brightness: Theme.of(context).brightness,
-                          surface: context.sr.surface,
-                        ).foreground,
+                      ? context.tone(SrTone.success).foreground
+                      : context.tone(SrTone.warning).foreground,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -396,24 +337,8 @@ class _PermissionScreenState extends State<PermissionScreen>
                     style: TextStyle(
                       fontSize: 13,
                       color: _allGranted
-                          ? StatusTone.of(
-                              StatusTone.of(
-                                Colors.green,
-                                brightness: Theme.of(context).brightness,
-                                surface: context.sr.surface,
-                              ).foreground,
-                              brightness: Theme.of(context).brightness,
-                              surface: context.sr.surface,
-                            ).foreground
-                          : StatusTone.of(
-                              StatusTone.of(
-                                Colors.orange,
-                                brightness: Theme.of(context).brightness,
-                                surface: context.sr.surface,
-                              ).foreground,
-                              brightness: Theme.of(context).brightness,
-                              surface: context.sr.surface,
-                            ).foreground,
+                          ? context.tone(SrTone.success).foreground
+                          : context.tone(SrTone.warning).foreground,
                     ),
                   ),
                 ),
@@ -480,11 +405,7 @@ class _PermCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = granted
-        ? StatusTone.of(
-            Colors.green,
-            brightness: Theme.of(context).brightness,
-            surface: context.sr.surface,
-          ).foreground
+        ? context.tone(SrTone.success).foreground
         : Theme.of(context).colorScheme.error;
 
     return Card(
@@ -514,7 +435,7 @@ class _PermCard extends StatelessWidget {
                   ),
                   decoration: BoxDecoration(
                     color: color.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(SrRadius.pill),
                     border: Border.all(color: color.withValues(alpha: 0.4)),
                   ),
                   child: Row(
@@ -529,7 +450,7 @@ class _PermCard extends StatelessWidget {
                       Text(
                         granted ? grantedLabel : deniedLabel,
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: SrFontSize.caption,
                           color: color,
                           fontWeight: FontWeight.bold,
                         ),

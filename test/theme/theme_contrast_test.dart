@@ -12,6 +12,7 @@ import 'package:safetyreport/server_palette.dart';
 import 'package:safetyreport/services/app_prefs_keys.dart';
 import 'package:safetyreport/theme/app_theme.dart';
 import 'package:safetyreport/theme/sr_colors.dart';
+import 'package:safetyreport/widgets/sr_snack_bar.dart';
 import 'package:safetyreport/widgets/status_badge.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -130,6 +131,73 @@ void main() {
         });
       }
 
+      // SQ-U23: 의미색·분류색 토큰. 원색(Colors.green 등)을 두 번 StatusTone 에 넣던 코드를 대신한다.
+      test('의미색(success/warning/info) 글자는 배경·카드 위 AA', () {
+        for (final color in [sr.success, sr.warning, sr.info]) {
+          for (final bg in [sr.surface, sr.background]) {
+            expect(
+              contrastRatio(color, bg),
+              greaterThanOrEqualTo(4.5),
+              reason: '$color on $bg',
+            );
+          }
+        }
+      });
+
+      test('의미색 채움(SnackBar·채운 버튼) 위 흰 글자 AA', () {
+        for (final fill in [
+          sr.successFill,
+          sr.warningFill,
+          sr.dangerFill,
+          srSnackWarning,
+        ]) {
+          expect(contrastRatio(Colors.white, fill), greaterThanOrEqualTo(4.5));
+        }
+      });
+
+      test('의미 톤·분류 톤 틴트 위 글자 AA (context.tone 과 같은 계산)', () {
+        for (final base in [
+          scheme.primary,
+          sr.success,
+          sr.warning,
+          sr.info,
+          scheme.error,
+          sr.textSecondary,
+          sr.categoryTraffic,
+          sr.categoryParking,
+          sr.categoryOther,
+        ]) {
+          for (final surface in [sr.surface, sr.background]) {
+            final tone = StatusTone.of(
+              base,
+              brightness: brightness,
+              surface: surface,
+            );
+            expect(
+              contrastRatio(tone.foreground, tone.background),
+              greaterThanOrEqualTo(StatusTone.minContrast),
+              reason: '$base',
+            );
+            expect(
+              contrastRatio(tone.foreground, surface),
+              greaterThanOrEqualTo(StatusTone.minContrast),
+              reason: '$base',
+            );
+          }
+        }
+      });
+
+      test('분류색 키 매핑: 교통/주정차/기타는 서로 다르고 모르는 키는 보조색', () {
+        final colors = {
+          sr.category('traffic'),
+          sr.category('parking'),
+          sr.category('other'),
+        };
+        expect(colors, hasLength(3));
+        expect(sr.category('traffic'), sr.categoryTraffic);
+        expect(sr.category('???'), sr.textSecondary);
+      });
+
       test('모드 배지(Client/Standalone) 글자 AA', () {
         for (final base in [sr.modeClient, sr.modeStandalone]) {
           final tone = StatusTone.of(
@@ -143,6 +211,72 @@ void main() {
           );
         }
       });
+    });
+  }
+
+  // SQ-U23: context.tone 은 현재 테마 표면 위 StatusTone 과 같고, showSrSnack 은 채움 + 흰 글자를 그린다.
+  for (final brightness in Brightness.values) {
+    testWidgets('context.tone / showSrSnack (${brightness.name})', (
+      tester,
+    ) async {
+      late BuildContext ctx;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.build(brightness),
+          home: Scaffold(
+            body: Builder(
+              builder: (context) {
+                ctx = context;
+                return const SizedBox.shrink();
+              },
+            ),
+          ),
+        ),
+      );
+      final sr = ctx.sr;
+      final expected = StatusTone.of(
+        sr.success,
+        brightness: brightness,
+        surface: sr.surface,
+      );
+      expect(ctx.tone(SrTone.success).foreground, expected.foreground);
+      expect(ctx.tone(SrTone.success).background, expected.background);
+      expect(
+        ctx.semantic(SrTone.danger),
+        Theme.of(ctx).colorScheme.error,
+      );
+
+      for (final (kind, fill) in [
+        (SrSnackKind.success, srSnackSuccess),
+        (SrSnackKind.warning, srSnackWarning),
+        (SrSnackKind.error, srSnackError),
+      ]) {
+        showSrSnack(ctx, '알림 $kind', kind: kind, hideCurrent: true);
+        await tester.pump();
+        final bar = tester.widget<SnackBar>(find.byType(SnackBar));
+        expect(bar.backgroundColor, fill);
+        final fg = tester
+            .renderObject<RenderParagraph>(find.text('알림 $kind'))
+            .text
+            .style!
+            .color!;
+        expect(contrastRatio(fg, fill), greaterThanOrEqualTo(4.5));
+      }
+
+      // 정보형은 테마 기본(inverseSurface) 배경 + onInverseSurface 글자.
+      showSrSnack(ctx, '정보', hideCurrent: true);
+      await tester.pump();
+      expect(tester.widget<SnackBar>(find.byType(SnackBar)).backgroundColor, isNull);
+      final infoFg = tester
+          .renderObject<RenderParagraph>(find.text('정보'))
+          .text
+          .style!
+          .color!;
+      final scheme = Theme.of(ctx).colorScheme;
+      expect(
+        contrastRatio(infoFg, scheme.inverseSurface),
+        greaterThanOrEqualTo(4.5),
+      );
     });
   }
 

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../providers/report_provider.dart';
 
 import '../theme/sr_colors.dart';
+import '../theme/sr_tokens.dart';
 
 /// 신고 리스트 / 검색탭 공용 상세검색 팝업
 /// 상세 검색 시트를 연다. 키보드와 긴 내용 때문에 높이가 화면 끝까지 갈 수 있으므로
@@ -389,7 +390,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
                 ),
                 decoration: BoxDecoration(
                   color: Theme.of(context).colorScheme.surfaceContainer,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(SrRadius.lg),
                   border: Border.all(color: context.sr.border),
                 ),
                 child: const Text(
@@ -721,7 +722,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         InkWell(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(SrRadius.md),
           onTap: onToggleExpanded,
           child: InputDecorator(
             decoration: InputDecoration(
@@ -745,7 +746,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
           const SizedBox(height: 6),
           Container(
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(SrRadius.lg),
               border: Border.all(color: context.sr.border),
               color: Theme.of(context).colorScheme.surface,
             ),
@@ -839,7 +840,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
       child: InkWell(
         onTap: onTap,
         canRequestFocus: true,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           child: Row(
@@ -887,7 +888,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
           color: active
               ? Theme.of(context).colorScheme.primaryContainer
               : context.sr.surfaceAlt,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(SrRadius.md),
           border: Border.all(
             color: active
                 ? Theme.of(context).colorScheme.primary

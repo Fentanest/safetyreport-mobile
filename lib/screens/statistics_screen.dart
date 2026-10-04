@@ -16,6 +16,7 @@ import 'sunwi_screen.dart';
 import '../theme/sr_colors.dart';
 import '../widgets/stats_overview_section.dart';
 import '../widgets/stats_fine_breakdown.dart';
+import '../theme/sr_tokens.dart';
 
 /// 통계 화면(2026-09-28 개편).
 /// 위에서부터: 공통 조건(연도·분류·법규) → 요약(2열 카드·월별 처리 추이·펼치는 차트, 접기 가능)
@@ -668,7 +669,10 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
             padding: const EdgeInsets.only(top: 4),
             child: Text(
               '상단 "지도"에는 답변 연도·분류만 적용됩니다(위반법규 조건은 지도에서 지원하지 않음).',
-              style: TextStyle(fontSize: 11, color: sr.textSecondary),
+              style: TextStyle(
+                fontSize: SrFontSize.caption,
+                color: sr.textSecondary,
+              ),
             ),
           ),
         const SizedBox(height: 16),
@@ -752,7 +756,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         Text(
           _scopeText(rows, summary),
           style: TextStyle(
-            fontSize: 11.5,
+            fontSize: SrFontSize.caption,
             color: sr.textSecondary,
             height: 1.4,
           ),
@@ -801,7 +805,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           Text(
             '안전신문고 공개 통계의 행정구역별 현황입니다. 위의 내 신고 통계와 다른 자료이며 조건이 적용되지 않습니다.',
             style: TextStyle(
-              fontSize: 11.5,
+              fontSize: SrFontSize.caption,
               color: sr.textSecondary,
               height: 1.4,
             ),
@@ -861,13 +865,13 @@ class _LawChip extends StatelessWidget {
     final color = Theme.of(context).colorScheme.primary;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(SrRadius.md),
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 3),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
           color: selected ? context.sr.brandSoft : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(SrRadius.md),
           border: Border.all(color: selected ? color : context.sr.border),
         ),
         child: Row(
@@ -918,12 +922,9 @@ class _Conditions extends StatelessWidget {
     ('other', '기타위반'),
   ];
 
-  // 카테고리 식별색(교통 파랑 / 주정차 주황 / 기타 초록). 글자·테두리는 StatusTone 으로 AA 보정.
-  Color _catColor(BuildContext context, String c) => switch (c) {
-    'traffic' => context.sr.brand,
-    'parking' => serverPartialAcceptColor,
-    _ => serverAcceptColor,
-  };
+  // 카테고리 식별색(교통 파랑 / 주정차 주황 / 기타 초록 — SrColors 분류 토큰). 글자·테두리는 StatusTone 으로 AA 보정.
+  Color _catColor(BuildContext context, String c) =>
+      context.sr.category(c == 'traffic' || c == 'parking' ? c : 'other');
 
   @override
   Widget build(BuildContext context) {
@@ -974,12 +975,12 @@ class _Conditions extends StatelessWidget {
           child: InkWell(
             key: const ValueKey('stats-law-picker'),
             onTap: onLawTap,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(SrRadius.lg),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
               decoration: BoxDecoration(
                 color: lawActive ? sr.brandSoft : scheme.surface,
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(SrRadius.lg),
                 border: Border.all(
                   color: lawActive ? scheme.primary : sr.border,
                 ),
@@ -1084,7 +1085,7 @@ class _PillChip extends StatelessWidget {
       button: true,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(SrRadius.pill),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           constraints: BoxConstraints(minHeight: expand ? 36 : 0),
@@ -1094,7 +1095,7 @@ class _PillChip extends StatelessWidget {
           ),
           decoration: BoxDecoration(
             color: selected ? scheme.primary : scheme.surface,
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: BorderRadius.circular(SrRadius.pill),
             border: Border.all(color: selected ? scheme.primary : sr.border),
           ),
           alignment: Alignment.center,
@@ -1142,13 +1143,13 @@ class _CategoryChip extends StatelessWidget {
       button: true,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
           decoration: BoxDecoration(
             color: selected ? tone.background : theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(SrRadius.lg),
             border: Border.all(
               color: selected ? tone.foreground : sr.border,
               width: selected ? 1.6 : 1,
@@ -1261,7 +1262,7 @@ class _RowCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         onTap: () => _openList(context),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -1290,7 +1291,7 @@ class _RowCard extends StatelessWidget {
                           Text(
                             '소속 ${row.agency}',
                             style: TextStyle(
-                              fontSize: 11.5,
+                              fontSize: SrFontSize.caption,
                               color: sr.textSecondary,
                             ),
                             softWrap: true,
@@ -1306,7 +1307,7 @@ class _RowCard extends StatelessWidget {
                           TextSpan(
                             text: '총 ',
                             style: TextStyle(
-                              fontSize: 11,
+                              fontSize: SrFontSize.caption,
                               color: sr.textSecondary,
                             ),
                           ),
@@ -1321,7 +1322,7 @@ class _RowCard extends StatelessWidget {
                           TextSpan(
                             text: '건',
                             style: TextStyle(
-                              fontSize: 11,
+                              fontSize: SrFontSize.caption,
                               color: sr.textSecondary,
                             ),
                           ),
@@ -1338,7 +1339,7 @@ class _RowCard extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(10, 8, 10, 2),
                 decoration: BoxDecoration(
                   color: sr.surfaceAlt,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(SrRadius.lg),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1397,7 +1398,7 @@ class _RowCard extends StatelessWidget {
               const SizedBox(height: 8),
               if (row.total > 0)
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
+                  borderRadius: BorderRadius.circular(SrRadius.sm),
                   child: Row(
                     children: [
                       for (final c in cells)
@@ -1477,7 +1478,7 @@ class _StatBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 4),
       decoration: BoxDecoration(
         color: muted ? context.sr.surfaceAlt : tone.background,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(SrRadius.md),
         border: Border.all(color: muted ? context.sr.border : tone.border),
       ),
       child: Column(
@@ -1493,7 +1494,7 @@ class _StatBadge extends StatelessWidget {
           Text(
             '$label ${pct.toStringAsFixed(1)}%',
             style: TextStyle(
-              fontSize: 10,
+              fontSize: SrFontSize.caption,
               color: muted ? context.sr.textSecondary : tone.foreground,
             ),
             textAlign: TextAlign.center,

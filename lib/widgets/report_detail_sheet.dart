@@ -24,6 +24,8 @@ import '../models/app_mode.dart';
 import '../services/client_media_access.dart';
 import '../services/client_compatibility.dart';
 import '../services/local_db_service.dart';
+import '../theme/sr_tokens.dart';
+import 'sr_snack_bar.dart';
 
 Future<Map<String, String>?> _clientMediaHeaders(
   BuildContext context,
@@ -156,9 +158,7 @@ class ReportDetailSheet extends StatelessWidget {
 
   Future<void> _openInSafetyApp(BuildContext context) async {
     if (report.id.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('신고 ID 정보가 없습니다.')));
+      showSrSnack(context, '신고 ID 정보가 없습니다.');
       return;
     }
     final uri = buildSafetyReportAppUri(report.id);
@@ -168,15 +168,11 @@ class ReportDetailSheet extends StatelessWidget {
         mode: LaunchMode.externalApplication,
       );
       if (!launched && context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('안전신문고 앱이 설치되어 있지 않습니다.')));
+        showSrSnack(context, '안전신문고 앱이 설치되어 있지 않습니다.');
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('안전신문고 앱이 설치되어 있지 않습니다.')));
+        showSrSnack(context, '안전신문고 앱이 설치되어 있지 않습니다.');
       }
     }
   }
@@ -185,9 +181,7 @@ class ReportDetailSheet extends StatelessWidget {
     final uri = Uri.parse(_officialSafetyReportUrl);
     final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!launched && context.mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('공식 사이트를 열 수 없습니다.')));
+      showSrSnack(context, '공식 사이트를 열 수 없습니다.', kind: SrSnackKind.error);
     }
   }
 
@@ -541,7 +535,10 @@ class ReportDetailSheet extends StatelessWidget {
             Text(
               '안전신문고 앱이 설치되어 있고 로그인된 상태여야 합니다.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 11, color: context.sr.textSecondary),
+              style: TextStyle(
+                fontSize: SrFontSize.caption,
+                color: context.sr.textSecondary,
+              ),
             ),
             const SizedBox(height: 12),
             Container(
@@ -549,7 +546,7 @@ class ReportDetailSheet extends StatelessWidget {
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: context.sr.surfaceAlt,
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(SrRadius.lg),
                 border: Border.all(color: context.sr.border),
               ),
               child: Column(
@@ -602,11 +599,10 @@ class ReportDetailSheet extends StatelessWidget {
     final uri = Uri.tryParse(url);
     if (uri == null) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('파일 불러오는 중...'),
-        duration: Duration(seconds: 10),
-      ),
+    showSrSnack(
+      context,
+      '파일 불러오는 중...',
+      duration: const Duration(seconds: 10),
     );
 
     try {
@@ -629,16 +625,16 @@ class ReportDetailSheet extends StatelessWidget {
 
       final result = await OpenFilex.open(file.path);
       if (result.type != ResultType.done && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('열 수 있는 앱이 없습니다: ${result.message}')),
+        showSrSnack(
+          context,
+          '열 수 있는 앱이 없습니다: ${result.message}',
+          kind: SrSnackKind.error,
         );
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('파일을 열지 못했습니다: $e')));
+        showSrSnack(context, '파일을 열지 못했습니다: $e', kind: SrSnackKind.error);
       }
     }
   }
@@ -671,7 +667,7 @@ class ReportDetailSheet extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: context.sr.surfaceAlt,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(SrRadius.md),
             border: Border.all(color: context.sr.border),
           ),
           child: SelectableText(
@@ -763,7 +759,7 @@ class ReportDetailSheet extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
       child: InkWell(
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(SrRadius.md),
         onTap: () => _navigateToFiltered(context, filter, value),
         child: Container(
           constraints: const BoxConstraints(
@@ -806,9 +802,7 @@ class ReportDetailSheet extends StatelessWidget {
     final category = await provider.categoryForNavigation(report);
     if (!context.mounted) return;
     if (category == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('신고 카테고리 정보를 찾지 못했습니다.')));
+      showSrSnack(context, '신고 카테고리 정보를 찾지 못했습니다.', kind: SrSnackKind.error);
       return;
     }
 
@@ -962,6 +956,7 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 동영상 전체 화면은 테마와 무관하게 검은 바탕 + 흰 조작부로 고정한다(의미색 토큰 대상 아님, SQ-U23).
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
@@ -1046,7 +1041,7 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
                               _fmt(pos),
                               style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 11,
+                                fontSize: SrFontSize.caption,
                               ),
                             ),
                             Expanded(
@@ -1095,7 +1090,7 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
                               _fmt(dur),
                               style: const TextStyle(
                                 color: Colors.white70,
-                                fontSize: 11,
+                                fontSize: SrFontSize.caption,
                               ),
                             ),
                             // 축소 버튼 (우측)
@@ -1253,7 +1248,7 @@ class _RetryableImageState extends State<_RetryableImage> {
         height: 80,
         decoration: BoxDecoration(
           color: context.sr.surfaceAlt,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(SrRadius.md),
         ),
         child: Center(
           child: Column(
@@ -1282,7 +1277,7 @@ class _RetryableImageState extends State<_RetryableImage> {
       devicePixelRatio: media.devicePixelRatio,
     );
     return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(SrRadius.md),
       child: Image(
         image: ResizeImage(
           NetworkImage(widget.url, headers: _headers),
@@ -1453,9 +1448,10 @@ class _VideoPlayerState extends State<_VideoPlayer>
 
   /// 자리표시·로딩·오류·재생이 모두 같은 크기를 쓴다(로딩 완료로 높이가 바뀌지 않게).
   Widget _frame(Widget child) => ClipRRect(
-    borderRadius: BorderRadius.circular(8),
+    borderRadius: BorderRadius.circular(SrRadius.md),
     child: AspectRatio(
       aspectRatio: 16 / 9,
+      // 사진·영상 뷰어 바탕은 테마와 무관하게 검정 고정(SQ-U23).
       child: ColoredBox(color: Colors.black, child: child),
     ),
   );
@@ -1621,7 +1617,7 @@ class _VideoPlayerState extends State<_VideoPlayer>
                           _fmt(pos),
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 11,
+                            fontSize: SrFontSize.caption,
                           ),
                         ),
                         // 시크 바
@@ -1670,7 +1666,7 @@ class _VideoPlayerState extends State<_VideoPlayer>
                           _fmt(dur),
                           style: const TextStyle(
                             color: Colors.white70,
-                            fontSize: 11,
+                            fontSize: SrFontSize.caption,
                           ),
                         ),
                         // 전체화면
@@ -1753,13 +1749,13 @@ class _SupplementSection extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: open ? tone.foreground : context.sr.textSecondary,
-                  borderRadius: BorderRadius.circular(4),
+                  borderRadius: BorderRadius.circular(SrRadius.sm),
                 ),
                 child: Text(
                   '$count회',
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.surface,
-                    fontSize: 10,
+                    fontSize: SrFontSize.caption,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -1772,13 +1768,13 @@ class _SupplementSection extends StatelessWidget {
                 color: open
                     ? Theme.of(context).colorScheme.error
                     : context.sr.textSecondary,
-                borderRadius: BorderRadius.circular(3),
+                borderRadius: BorderRadius.circular(SrRadius.sm),
               ),
               child: Text(
                 open ? '미응답' : '응답 완료',
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.onError,
-                  fontSize: 10,
+                  fontSize: SrFontSize.caption,
                 ),
               ),
             ),
@@ -1789,7 +1785,7 @@ class _SupplementSection extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
             color: open ? tone.background : context.sr.surfaceAlt,
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(SrRadius.md),
             border: Border.all(color: open ? tone.border : context.sr.border),
           ),
           child: Column(
@@ -1817,7 +1813,7 @@ class _SupplementSection extends StatelessWidget {
                 Text(
                   '신고자 의견',
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: SrFontSize.caption,
                     color: context.sr.textSecondary,
                     fontWeight: FontWeight.w600,
                   ),

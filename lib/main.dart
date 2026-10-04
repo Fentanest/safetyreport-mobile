@@ -49,6 +49,7 @@ import 'widgets/duplicate_group_detail_sheet.dart';
 import 'widgets/report_detail_sheet.dart';
 import 'widgets/maintenance_status_bar.dart';
 import 'widgets/community_account_card.dart';
+import 'theme/sr_tokens.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -1001,7 +1002,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                           r['representative_report_number']?.toString() ?? '';
 
                       return InkWell(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(SrRadius.lg),
                         onTap: () {
                           Navigator.pop(ctx);
                           showDuplicateGroupDetailSheet(
@@ -1022,7 +1023,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                                       child: StatusBadge(
                                         label: '중복 변경',
                                         color: changeDuplicateColor,
-                                        fontSize: 10,
+                                        fontSize: SrFontSize.caption,
                                       ),
                                     ),
                                     Expanded(
@@ -1074,7 +1075,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                                       Text(
                                         '대표 신고번호: $representativeReportNumber',
                                         style: TextStyle(
-                                          fontSize: 11,
+                                          fontSize: SrFontSize.caption,
                                           color: context.sr.textSecondary,
                                         ),
                                       ),
@@ -1082,7 +1083,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                                       Text(
                                         '멤버 수: $memberCount건',
                                         style: TextStyle(
-                                          fontSize: 11,
+                                          fontSize: SrFontSize.caption,
                                           color: context.sr.textSecondary,
                                         ),
                                       ),
@@ -1125,7 +1126,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                     }
 
                     return InkWell(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(SrRadius.lg),
                       onTap: () {
                         Navigator.pop(ctx);
                         showReportDetailSheet(context, Report.fromJson(r));
@@ -1143,7 +1144,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                                     child: StatusBadge(
                                       label: badgeLabel,
                                       color: badgeColor,
-                                      fontSize: 10,
+                                      fontSize: SrFontSize.caption,
                                     ),
                                   ),
                                   Expanded(

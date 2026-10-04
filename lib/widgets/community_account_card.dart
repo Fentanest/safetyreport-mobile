@@ -12,6 +12,7 @@ import '../community/kakao_logout.dart';
 import '../providers/report_provider.dart';
 import '../services/community_auth_service.dart';
 import 'community_card_parts.dart';
+import 'sr_snack_bar.dart';
 
 /// 앱 전체에서 한 번만 쓰는 전역 키 — 로그인 복귀 링크는 어느 화면에서나 올 수 있어서
 /// 계정 확인 창·안내를 루트 Navigator/ScaffoldMessenger 로 띄운다(`main.dart` 의 MaterialApp).
@@ -367,9 +368,10 @@ class _CommunityAuthPromptState extends State<CommunityAuthPrompt> {
       _seenNotice = st.noticeSerial;
       final notice = st.notice;
       if (notice != null) {
-        communityAuthMessengerKey.currentState
-          ?..hideCurrentSnackBar()
-          ..showSnackBar(SnackBar(content: Text(notice)));
+        final messenger = communityAuthMessengerKey.currentState;
+        if (messenger != null) {
+          showSrSnackOn(messenger, notice, hideCurrent: true);
+        }
       }
     }
     if (st.phase == CommunityAccountPhase.confirmRequired &&

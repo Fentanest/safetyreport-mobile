@@ -14,6 +14,8 @@ import '../services/standalone_auto_sync_service.dart';
 import '../services/standalone_pending_queue_store.dart';
 
 import '../theme/sr_colors.dart';
+import '../theme/sr_tokens.dart';
+import 'sr_snack_bar.dart';
 
 const _permChannel = MethodChannel('com.fentanest.mysafetyreport/permissions');
 
@@ -131,7 +133,6 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
     // 완료 시 알림/히스토리/SnackBar(가능하면) 로 결과만 통지.
     final reportsCopy = List<Report>.unmodifiable(reports);
     final messenger = ScaffoldMessenger.of(context);
-    final errorColor = Theme.of(context).colorScheme.error;
     _snack(
       '별점 $pickedScore점 처리 시작: ${reportsCopy.length}건. 완료 시 알림으로 결과를 알려드립니다.',
       icon: Icons.star_outline,
@@ -149,25 +150,17 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
         await historyProvider.addRatingBatchResult(result);
         await _pushRatingNotification(result);
         try {
-          messenger.showSnackBar(
-            SnackBar(
-              content: Text(
-                '별점 ${result.score}점 처리 완료: 성공 ${result.successCount}, 스킵 ${result.skipCount}, 실패 ${result.failureCount}',
-              ),
-              backgroundColor: result.failureCount > 0 ? errorColor : null,
-              behavior: SnackBarBehavior.floating,
-            ),
+          showSrSnackOn(
+            messenger,
+            '별점 ${result.score}점 처리 완료: 성공 ${result.successCount}, 스킵 ${result.skipCount}, 실패 ${result.failureCount}',
+            kind: result.failureCount > 0
+                ? SrSnackKind.error
+                : SrSnackKind.info,
           );
         } catch (_) {}
       } catch (e) {
         try {
-          messenger.showSnackBar(
-            SnackBar(
-              content: Text('별점 주기 실패: $e'),
-              backgroundColor: errorColor,
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
+          showSrSnackOn(messenger, '별점 주기 실패: $e', kind: SrSnackKind.error);
         } catch (_) {}
       }
     }());
@@ -207,26 +200,11 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
   }
 
   void _snack(String msg, {IconData? icon, bool error = false}) {
-    // 기본 SnackBar 는 inverseSurface 배경(다크에서는 밝은 색)이라 글자·아이콘을 onInverseSurface 로 맞춘다.
-    final fg = error
-        ? Colors.white
-        : Theme.of(context).colorScheme.onInverseSurface;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            if (icon != null) ...[
-              Icon(icon, size: 16, color: fg),
-              const SizedBox(width: 8),
-            ],
-            Flexible(
-              child: Text(msg, style: TextStyle(color: fg)),
-            ),
-          ],
-        ),
-        backgroundColor: error ? srSnackError : null,
-        behavior: SnackBarBehavior.floating,
-      ),
+    showSrSnack(
+      context,
+      msg,
+      icon: icon,
+      kind: error ? SrSnackKind.error : SrSnackKind.info,
     );
   }
 
@@ -359,9 +337,9 @@ class _ActionBtn extends StatelessWidget {
     return Expanded(
       child: Material(
         color: (color ?? context.sr.textSecondary).withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         child: InkWell(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(SrRadius.lg),
           onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 10),
@@ -377,7 +355,7 @@ class _ActionBtn extends StatelessWidget {
                 Text(
                   label,
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: SrFontSize.caption,
                     fontWeight: FontWeight.w600,
                     color: onTap == null ? context.sr.textSecondary : c,
                   ),

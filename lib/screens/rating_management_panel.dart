@@ -13,6 +13,7 @@ import '../widgets/selection_action_bar.dart';
 import '../widgets/selection_back_scope.dart';
 import '../widgets/sr_app_bar_actions.dart';
 import '../widgets/sr_empty_state.dart';
+import '../theme/sr_tokens.dart';
 
 /// 별점 탭의 상세 검색(별점 상태 조건은 빼고 연다). 신고관리 앱바의 검색/필터 아이콘이 부른다(SQ-U16).
 void openRatingFilterSheet(BuildContext context) {
@@ -326,32 +327,21 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
     };
     if (label.isEmpty) return null;
 
-    final baseColor = switch (category) {
-      'traffic' => Colors.blue,
-      'parking' => Colors.teal,
-      'other' => Colors.deepPurple,
-      _ => Colors.grey,
-    };
-
-    final theme = Theme.of(context);
-    final tone = StatusTone.of(
-      baseColor,
-      brightness: theme.brightness,
-      surface: theme.colorScheme.surface,
-    );
+    // 분류색은 통계 화면과 같은 토큰(교통 파랑 / 주정차 주황 / 기타 초록, SQ-U23).
+    final tone = context.toneOf(context.sr.category(category));
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
         color: tone.background,
         border: Border.all(color: tone.border),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(SrRadius.pill),
       ),
       child: Text(
         label,
         style: TextStyle(
           color: tone.foreground,
-          fontSize: 11,
+          fontSize: SrFontSize.caption,
           fontWeight: FontWeight.bold,
         ),
       ),

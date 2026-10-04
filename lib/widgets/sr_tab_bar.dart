@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../theme/sr_tokens.dart';
 
 /// 앱바 하단 알약형 탭. 색·글자는 `AppTheme` 의 tabBarTheme 을 따른다.
 /// 탭 수·순서·스와이프 동작은 호출부의 [TabController] 그대로다.
@@ -27,7 +28,7 @@ class SrTabBar extends StatelessWidget implements PreferredSizeWidget {
 
   static const double baseHeight = 48;
   static const double _labelFontSize = 13.5;
-  static const double _badgeFontSize = 11;
+  static const double _badgeFontSize = SrFontSize.caption;
   static const EdgeInsets _barPadding = EdgeInsets.fromLTRB(12, 0, 12, 0);
 
   /// 알약 아래 여백. 예전에는 막대 바깥 여백이라 탭을 누르는 영역이 42dp 였다.
@@ -104,7 +105,7 @@ class SrTabBar extends StatelessWidget implements PreferredSizeWidget {
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
       decoration: BoxDecoration(
         color: scheme.error,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
       ),
       child: Text(
         '$count',

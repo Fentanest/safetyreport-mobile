@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../server_palette.dart';
 import '../theme/sr_colors.dart';
+import '../theme/sr_tokens.dart';
 
 /// 공용 빈 목록 / 오류 상태(SQ-U21). 대시보드 오류 화면(아이콘 · 제목 · 설명 · 동작)과 같은 구성이다.
 ///
@@ -96,7 +97,7 @@ class SrEmptyState extends StatelessWidget {
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: tone.background,
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(SrRadius.lg),
                 border: Border.all(color: tone.border),
               ),
               child: SelectableText(

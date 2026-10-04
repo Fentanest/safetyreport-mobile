@@ -12,6 +12,8 @@ import '../services/pending_db_import_action.dart';
 import '../services/server_connection_service.dart';
 import '../services/standalone_auth_service.dart';
 import '../theme/sr_colors.dart';
+import '../widgets/sr_snack_bar.dart';
+import '../theme/sr_tokens.dart';
 
 enum _Step { selectMode, serverConfig, standaloneConfig }
 
@@ -278,36 +280,22 @@ class _SetupScreenState extends State<SetupScreen> {
     PendingDbImportOutcome outcome,
   ) {
     if (!messenger.mounted) return;
-    final brightness = Theme.of(messenger.context).brightness;
-    final surface = messenger.context.sr.surface;
     switch (outcome.status) {
       case PendingDbImportStatus.applied:
         final message = outcome.message;
         if (message == null) return;
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(message),
-            backgroundColor: StatusTone.of(
-              Colors.green,
-              brightness: brightness,
-              surface: surface,
-            ).foreground,
-            duration: const Duration(seconds: 4),
-          ),
+        showSrSnackOn(
+          messenger,
+          message,
+          kind: SrSnackKind.success,
+          duration: const Duration(seconds: 4),
         );
       case PendingDbImportStatus.discarded:
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(
-              'DB 가져오기를 버리고 빈 DB 로 시작합니다. 파일: ${outcome.action?.path}',
-            ),
-            backgroundColor: StatusTone.of(
-              Colors.orange,
-              brightness: brightness,
-              surface: surface,
-            ).foreground,
-            duration: const Duration(seconds: 8),
-          ),
+        showSrSnackOn(
+          messenger,
+          'DB 가져오기를 버리고 빈 DB 로 시작합니다. 파일: ${outcome.action?.path}',
+          kind: SrSnackKind.warning,
+          duration: const Duration(seconds: 8),
         );
       case PendingDbImportStatus.none:
       case PendingDbImportStatus.kept:
@@ -372,11 +360,7 @@ class _SetupScreenState extends State<SetupScreen> {
           const SizedBox(height: 16),
           _ModeCard(
             icon: Icons.phone_android_rounded,
-            color: StatusTone.of(
-              Colors.green,
-              brightness: Theme.of(context).brightness,
-              surface: context.sr.surface,
-            ).foreground,
+            color: context.tone(SrTone.success).foreground,
             title: 'Standalone 모드',
             description: '안전신문고 계정으로 앱에서 직접 접근합니다.\n서버 없이 신고 현황을 조회할 수 있습니다.',
             onTap: () => _selectMode(AppMode.standalone),
@@ -512,11 +496,7 @@ class _SetupScreenState extends State<SetupScreen> {
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
-                  color: StatusTone.of(
-                    Colors.green,
-                    brightness: Theme.of(context).brightness,
-                    surface: context.sr.surface,
-                  ).foreground,
+                  color: context.tone(SrTone.success).foreground,
                 ),
               ),
             ],
@@ -525,11 +505,7 @@ class _SetupScreenState extends State<SetupScreen> {
           Icon(
             Icons.lock_open_rounded,
             size: 52,
-            color: StatusTone.of(
-              Colors.green,
-              brightness: Theme.of(context).brightness,
-              surface: context.sr.surface,
-            ).foreground,
+            color: context.tone(SrTone.success).foreground,
           ),
           const SizedBox(height: 16),
           Text(
@@ -602,11 +578,7 @@ class _SetupScreenState extends State<SetupScreen> {
               _importing ? 'DB 가져오는 중...' : (_loading ? '로그인 중...' : '로그인'),
             ),
             style: FilledButton.styleFrom(
-              backgroundColor: StatusTone.of(
-                Colors.green,
-                brightness: Theme.of(context).brightness,
-                surface: context.sr.surface,
-              ).foreground,
+              backgroundColor: context.sr.successFill,
               padding: const EdgeInsets.symmetric(vertical: 16),
             ),
             onPressed: _loading ? null : _loginStandalone,
@@ -616,7 +588,7 @@ class _SetupScreenState extends State<SetupScreen> {
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: context.sr.surfaceAlt,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(SrRadius.lg),
               border: Border.all(color: context.sr.border),
             ),
             child: Row(
@@ -653,18 +625,10 @@ class _SetupScreenState extends State<SetupScreen> {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: StatusTone.of(
-            Theme.of(context).colorScheme.error,
-            brightness: Theme.of(context).brightness,
-            surface: context.sr.surface,
-          ).background,
-          borderRadius: BorderRadius.circular(10),
+          color: context.tone(SrTone.danger).background,
+          borderRadius: BorderRadius.circular(SrRadius.lg),
           border: Border.all(
-            color: StatusTone.of(
-              Theme.of(context).colorScheme.error,
-              brightness: Theme.of(context).brightness,
-              surface: context.sr.surface,
-            ).border,
+            color: context.tone(SrTone.danger).border,
           ),
         ),
         child: Row(
@@ -714,12 +678,12 @@ class _ModeCard extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(SrRadius.xl),
         child: Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
             border: Border.all(color: color.withValues(alpha: 0.3)),
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(SrRadius.xl),
             color: color.withValues(alpha: 0.04),
           ),
           child: Row(
@@ -729,7 +693,7 @@ class _ModeCard extends StatelessWidget {
                 height: 52,
                 decoration: BoxDecoration(
                   color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(SrRadius.lg),
                 ),
                 child: Icon(icon, color: color, size: 28),
               ),

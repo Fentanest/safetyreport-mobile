@@ -10,6 +10,7 @@ import '../widgets/report_detail_sheet.dart';
 import '../widgets/sr_empty_state.dart';
 import '../widgets/sr_page_padding.dart';
 import '../widgets/status_badge.dart';
+import '../theme/sr_tokens.dart';
 
 /// 대시보드의 "최근 답변 완료 (3일)" 더보기 화면.
 /// Standalone은 정확한 로컬 페이지, Client는 서버가 제공한 미리보기다.
@@ -96,7 +97,7 @@ class _RecentCard extends StatelessWidget {
     return Card(
       margin: EdgeInsets.zero,
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         onTap: () => showReportDetailSheet(context, report),
         child: Padding(
           padding: const EdgeInsets.all(14),
@@ -171,12 +172,15 @@ class _RecentCard extends StatelessWidget {
         const SizedBox(width: 4),
         Text(
           '$label ',
-          style: TextStyle(fontSize: 11, color: context.sr.textSecondary),
+          style: TextStyle(
+            fontSize: SrFontSize.caption,
+            color: context.sr.textSecondary,
+          ),
         ),
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(fontSize: 11),
+            style: const TextStyle(fontSize: SrFontSize.caption),
             overflow: TextOverflow.ellipsis,
           ),
         ),

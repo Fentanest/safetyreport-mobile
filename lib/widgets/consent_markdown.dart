@@ -1,6 +1,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../theme/sr_tokens.dart';
 
 /// The small Markdown subset used by the centrally supplied consent document.
 /// Unsupported markup is displayed as ordinary text.
@@ -177,7 +178,7 @@ class _ConsentMarkdownState extends State<ConsentMarkdown> {
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
                 border: Border.all(color: Theme.of(context).dividerColor),
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: BorderRadius.circular(SrRadius.md),
               ),
               // Narrow screen: the first cell is the card title; a two-column table needs no repeated column
               // labels, wider tables keep "label: value" for the remaining columns.

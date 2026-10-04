@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import '../services/maintenance_service.dart';
 import '../theme/sr_colors.dart';
+import '../theme/sr_tokens.dart';
 
 class MaintenanceStatusBar extends StatefulWidget {
   const MaintenanceStatusBar({super.key, this.fetchServerStatus});
@@ -169,7 +170,7 @@ class _MaintenanceStatusBarState extends State<MaintenanceStatusBar>
         padding: const EdgeInsets.fromLTRB(10, 7, 14, 7),
         decoration: BoxDecoration(
           color: sr.surface,
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(SrRadius.pill),
           border: Border.all(color: sr.border),
           boxShadow: [
             BoxShadow(

@@ -6,6 +6,7 @@ import '../navigation/app_routes.dart';
 import '../providers/report_provider.dart';
 import '../services/sync_engine.dart';
 import '../theme/sr_colors.dart';
+import '../theme/sr_tokens.dart';
 
 /// 하단 탭에서 빠진 동기화(Standalone)/크롤링(Client) 화면으로 가는 대시보드 진입점 (D-06).
 /// 실제 실행·설정은 기존 CrawlScreen 이 그대로 담당한다(모드 혼합 없음).
@@ -85,7 +86,7 @@ class _SyncStatusCardState extends State<SyncStatusCard> {
 
     return Card(
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         onTap: () => AppRoutes.openCrawl(context),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
@@ -96,7 +97,7 @@ class _SyncStatusCardState extends State<SyncStatusCard> {
                 height: 40,
                 decoration: BoxDecoration(
                   color: sr.brandSoft,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(SrRadius.lg),
                 ),
                 child: Center(
                   child: p.isSyncing

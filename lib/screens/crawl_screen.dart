@@ -16,6 +16,8 @@ import '../widgets/auth_status_notice.dart';
 import '../widgets/sync_exit_guard.dart';
 import '../widgets/sr_app_bar_actions.dart';
 import '../theme/sr_colors.dart';
+import '../theme/sr_tokens.dart';
+import '../widgets/sr_snack_bar.dart';
 
 class CrawlScreen extends StatefulWidget {
   const CrawlScreen({super.key, this.apiFactory, this.connectLogSocket});
@@ -169,13 +171,13 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
       case 'quick_sync':
         if (!_isStandalone) return;
         if (context.read<ReportProvider>().isStandaloneDemo) {
-          messenger?.showSnackBar(
-            SnackBar(content: Text('데모 모드에서는 동기화를 실행할 수 없습니다.')),
-          );
+          if (messenger != null) {
+            showSrSnackOn(messenger, '데모 모드에서는 동기화를 실행할 수 없습니다.');
+          }
           return;
         }
         if (SyncEngine.isRunning || _isRunning) {
-          messenger?.showSnackBar(SnackBar(content: Text('이미 동기화가 진행 중입니다.')));
+          if (messenger != null) showSrSnackOn(messenger, '이미 동기화가 진행 중입니다.');
           return;
         }
         await _startSync(fullSync: false);
@@ -183,7 +185,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
       case 'quick_crawl':
         if (_isStandalone) return;
         if (_isRunning) {
-          messenger?.showSnackBar(SnackBar(content: Text('이미 크롤링이 진행 중입니다.')));
+          if (messenger != null) showSrSnackOn(messenger, '이미 크롤링이 진행 중입니다.');
           return;
         }
         await _startCrawl();
@@ -472,12 +474,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
       setState(() {
         _logLines.add('오류: $e');
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString()),
-          backgroundColor: Theme.of(context).colorScheme.error,
-        ),
-      );
+      showSrSnack(context, e.toString(), kind: SrSnackKind.error);
     }
   }
 
@@ -516,12 +513,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
       _setRunning(false);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString()),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
+        showSrSnack(context, e.toString(), kind: SrSnackKind.error);
       }
     }
   }
@@ -627,7 +619,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
                   Text(
                     '마지막 동기화',
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: SrFontSize.caption,
                       color: context.sr.textSecondary,
                     ),
                   ),
@@ -646,7 +638,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
                 Text(
                   '저장된 신고',
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: SrFontSize.caption,
                     color: context.sr.textSecondary,
                   ),
                 ),
@@ -687,7 +679,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
         ),
         SizedBox(height: 6),
         ClipRRect(
-          borderRadius: BorderRadius.circular(4),
+          borderRadius: BorderRadius.circular(SrRadius.sm),
           child: LinearProgressIndicator(value: pct, minHeight: 6),
         ),
       ],
@@ -696,15 +688,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
 
   Widget _demoInfoCard() {
     return Card(
-      color: StatusTone.of(
-        StatusTone.of(
-          Colors.orange,
-          brightness: Theme.of(context).brightness,
-          surface: context.sr.surface,
-        ).foreground,
-        brightness: Theme.of(context).brightness,
-        surface: context.sr.surface,
-      ).background,
+      color: context.tone(SrTone.warning).background,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Row(
@@ -712,15 +696,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
           children: [
             Icon(
               Icons.visibility_outlined,
-              color: StatusTone.of(
-                StatusTone.of(
-                  Colors.orange,
-                  brightness: Theme.of(context).brightness,
-                  surface: context.sr.surface,
-                ).foreground,
-                brightness: Theme.of(context).brightness,
-                surface: context.sr.surface,
-              ).foreground,
+              color: context.tone(SrTone.warning).foreground,
             ),
             SizedBox(width: 12),
             const Expanded(
@@ -860,7 +836,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
                   decoration: InputDecoration(
                     hintText: 'SPP-231120-1234567\nSPP-231121-7654321',
                     hintStyle: TextStyle(
-                      fontSize: 11,
+                      fontSize: SrFontSize.caption,
                       color: context.sr.textSecondary,
                     ),
                   ),
@@ -899,9 +875,9 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
   // ── 공통 로그 패널 ───────────────────────────────────────────────────────────
 
   /// 로그 창은 앱 테마와 관계없이 늘 어둡다. 글자색은 이 배경을 기준으로 맞춘다(SQ-U18).
-  static const _logPanelColor = Color(0xFF1E1E1E);
+  static const _logPanelColor = SrColors.logPanel;
   static final Color _logTextColor = StatusTone.of(
-    Colors.green,
+    SrColors.dark.success,
     brightness: Brightness.dark,
     surface: _logPanelColor,
   ).foreground;
@@ -994,7 +970,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
     padding: const EdgeInsets.all(10),
     decoration: BoxDecoration(
       color: Theme.of(context).colorScheme.errorContainer,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(SrRadius.md),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1041,7 +1017,10 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
       subtitle: subtitle.isNotEmpty
           ? Text(
               subtitle,
-              style: TextStyle(fontSize: 11, color: context.sr.textSecondary),
+              style: TextStyle(
+                fontSize: SrFontSize.caption,
+                color: context.sr.textSecondary,
+              ),
             )
           : null,
       value: value,

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../community/rebuild/community_rebuild.dart';
 import '../services/community_auth_service.dart';
 import '../services/community_server_link_service.dart';
+import '../theme/sr_colors.dart';
 
 /// 초기화 크롤링 안내·확인·진행 화면 (`contracts/community-ingest/rebuild.md`).
 ///
@@ -224,7 +225,7 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen> {
                   : i == activeIndex
                       ? Icons.sync
                       : Icons.radio_button_unchecked,
-              color: i <= activeIndex ? Colors.green : null,
+              color: i <= activeIndex ? context.semantic(SrTone.success) : null,
               size: 20,
             ),
             title: Text(_phases[i], style: const TextStyle(fontSize: 13)),

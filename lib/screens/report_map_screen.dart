@@ -28,6 +28,8 @@ import '../widgets/report_map_overlays.dart';
 import 'report_list_screen.dart';
 import 'settings_screen.dart';
 import '../theme/sr_colors.dart';
+import '../theme/sr_tokens.dart';
+import '../widgets/sr_snack_bar.dart';
 
 const double _kMapMarkerWidth = 100;
 const double _kMapMarkerHeight = 98;
@@ -391,9 +393,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
 
   void _showLocationSnackBar(String message, {SnackBarAction? action}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message), action: action));
+    showSrSnack(context, message, action: action);
   }
 
   void _moveMapToCurrentLocation() {
@@ -775,7 +775,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         border: Border.all(color: theme.colorScheme.outlineVariant),
       ),
       child: Row(
@@ -819,7 +819,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
                 label,
                 maxLines: 1,
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: SrFontSize.caption,
                   fontWeight: FontWeight.w700,
                   color: _tone(color).foreground,
                 ),
@@ -914,7 +914,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     final markers = cache.markers;
 
     return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(SrRadius.xl),
       child: Stack(
         children: [
           FlutterMap(
@@ -1235,9 +1235,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
   void _openAddressReportList(String address, {String? preferredCategory}) {
     final normalizedAddress = address.trim();
     if (normalizedAddress.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('주소 정보가 없어 리스트를 열 수 없습니다.')));
+      showSrSnack(context, '주소 정보가 없어 리스트를 열 수 없습니다.', kind: SrSnackKind.error);
       return;
     }
 
@@ -1357,7 +1355,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: _tone(serverSupplementColor).background,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(SrRadius.pill),
         border: Border.all(color: _tone(serverSupplementColor).border),
       ),
       child: Text(
@@ -1407,9 +1405,9 @@ class _ReportMapScreenState extends State<ReportMapScreen>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.only(top: 7),
-            child: Icon(Icons.circle, size: 6, color: Colors.blueGrey),
+          Padding(
+            padding: const EdgeInsets.only(top: 7),
+            child: Icon(Icons.circle, size: 6, color: context.sr.textSecondary),
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -1545,7 +1543,7 @@ class _ClusterMarkerWidget extends StatelessWidget {
             border: Border.all(color: Colors.white, width: 2),
             boxShadow: const [
               BoxShadow(
-                color: Color(0x33000000),
+                color: Color(0x33000000), // sr-allow: 지도 위 클러스터 그림자(테마 무관)
                 blurRadius: 8,
                 offset: Offset(0, 4),
               ),

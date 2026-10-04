@@ -21,6 +21,7 @@ import '../widgets/sr_page_padding.dart';
 import '../widgets/sync_status_card.dart';
 import '../navigation/main_tabs.dart';
 import '../utils/format.dart';
+import '../theme/sr_tokens.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -147,7 +148,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
                         color: _tone(serverRejectColor).background,
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(SrRadius.lg),
                         border: Border.all(
                           color: _tone(serverRejectColor).border,
                         ),
@@ -353,7 +354,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         key: const ValueKey('dashboard-status-$label'),
         color: tone.background,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(SrRadius.lg),
           side: BorderSide(color: tone.border),
         ),
         clipBehavior: Clip.antiAlias,
@@ -431,7 +432,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         key: ValueKey('dashboard-status-${d.label}'),
         color: enabled ? tone.background : sr.surfaceAlt,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(SrRadius.lg),
           side: BorderSide(color: enabled ? tone.border : sr.border),
         ),
         clipBehavior: Clip.antiAlias,
@@ -576,7 +577,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }) {
     return Expanded(
       child: InkWell(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(SrRadius.md),
         onTap: value > 0
             ? () => Navigator.push(
                 context,
@@ -611,7 +612,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
               const SizedBox(height: 2),
               Text(
                 label,
-                style: TextStyle(fontSize: 11, color: context.sr.textSecondary),
+                style: TextStyle(
+                  fontSize: SrFontSize.caption,
+                  color: context.sr.textSecondary,
+                ),
                 textAlign: TextAlign.center,
               ),
             ],
@@ -700,7 +704,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               Text(
                                 '총',
                                 style: TextStyle(
-                                  fontSize: 11,
+                                  fontSize: SrFontSize.caption,
                                   color: context.sr.textSecondary,
                                 ),
                               ),
@@ -767,7 +771,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                               text:
                                                   ' ${(e.$1 / total * 100).toStringAsFixed(1)}%',
                                               style: TextStyle(
-                                                fontSize: 11,
+                                                fontSize: SrFontSize.caption,
                                                 color: context.sr.textSecondary,
                                               ),
                                             ),
@@ -863,7 +867,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             padding: const EdgeInsets.symmetric(vertical: 16),
             decoration: BoxDecoration(
               color: context.sr.surfaceAlt,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(SrRadius.lg),
               border: Border.all(color: context.sr.border),
             ),
             child: Column(
@@ -929,7 +933,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             r.date,
             maxLines: 1,
             style: TextStyle(
-              fontSize: 11.5,
+              fontSize: SrFontSize.caption,
               color: context.sr.textSecondary,
               fontFeatures: const [FontFeature.tabularFigures()],
             ),
@@ -1048,7 +1052,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: Card(
         margin: EdgeInsets.zero,
         child: InkWell(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(SrRadius.lg),
           onTap: () => showReportDetailSheet(context, r),
           child: Padding(
             padding: const EdgeInsets.all(14),
@@ -1109,12 +1113,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
           const SizedBox(width: 4),
           Text(
             '$label ',
-            style: TextStyle(fontSize: 11, color: context.sr.textSecondary),
+            style: TextStyle(
+              fontSize: SrFontSize.caption,
+              color: context.sr.textSecondary,
+            ),
           ),
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(fontSize: 11),
+              style: const TextStyle(fontSize: SrFontSize.caption),
               overflow: TextOverflow.ellipsis,
             ),
           ),

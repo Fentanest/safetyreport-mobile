@@ -36,6 +36,8 @@ import '../widgets/sr_page_padding.dart';
 import '../server_palette.dart';
 import '../widgets/status_badge.dart';
 import '../theme/sr_colors.dart';
+import '../theme/sr_tokens.dart';
+import '../widgets/sr_snack_bar.dart';
 
 const _officialSafetyReportUrl = 'https://www.safetyreport.go.kr/';
 
@@ -322,9 +324,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final url = _urlController.text.trim();
     final key = _apiController.text.trim();
     if (url.isEmpty || key.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('모든 필드를 입력해주세요.')));
+      showSrSnack(context, '모든 필드를 입력해주세요.');
       return;
     }
     setState(() {
@@ -360,11 +360,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // 설정 변경 후 모든 데이터 새로고침(서버 기능 목록 포함 — setConfig 가 이전 서버 것을 비웠다)
       unawaited(provider.refreshAll());
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('설정이 저장되었습니다. 데이터를 불러오는 중...'),
-            backgroundColor: srSnackSuccess,
-          ),
+        showSrSnack(
+          context,
+          '설정이 저장되었습니다. 데이터를 불러오는 중...',
+          kind: SrSnackKind.success,
         );
       }
     } finally {
@@ -505,13 +504,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 );
                             if (!ctx.mounted || !mounted) return;
                             Navigator.pop(ctx);
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  isDemoLogin ? '데모 모드 전환 완료' : '재로그인 완료',
-                                ),
-                                backgroundColor: srSnackSuccess,
-                              ),
+                            showSrSnack(
+                              context,
+                              isDemoLogin ? '데모 모드 전환 완료' : '재로그인 완료',
+                              kind: SrSnackKind.success,
                             );
                           }
                         } catch (e) {
@@ -582,24 +578,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
       }
       if (saved == null && mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('DB 저장을 취소했습니다.')));
+        showSrSnack(context, 'DB 저장을 취소했습니다.');
       }
     } on DownloadCancelled {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('DB 백업을 취소했습니다.')));
+        showSrSnack(context, 'DB 백업을 취소했습니다.');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('DB 백업 실패: $e'),
-            backgroundColor: srSnackError,
-          ),
-        );
+        showSrSnack(context, 'DB 백업 실패: $e', kind: SrSnackKind.error);
       }
     } finally {
       if (staged != null && await staged.exists()) await staged.delete();
@@ -691,17 +678,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!mounted) return;
       await context.read<ReportProvider>().refreshAll();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(done ? '직전 DB 로 되돌렸습니다.' : '되돌릴 사본이 없습니다.'),
-          backgroundColor: done ? srSnackSuccess : srSnackError,
-        ),
+      showSrSnack(
+        context,
+        done ? '직전 DB 로 되돌렸습니다.' : '되돌릴 사본이 없습니다.',
+        kind: done ? SrSnackKind.success : SrSnackKind.error,
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('되돌리기 실패: $e'), backgroundColor: srSnackError),
-        );
+        showSrSnack(context, '되돌리기 실패: $e', kind: SrSnackKind.error);
       }
     } finally {
       if (mounted) setState(() => _isRestoringDb = false);
@@ -776,15 +760,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (mounted) {
           await context.read<ReportProvider>().refreshAll();
           if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                kind == 'server'
-                    ? '서버 DB 변환 복원이 완료되었습니다.'
-                    : '모바일 백업 복원이 완료되었습니다.',
-              ),
-              backgroundColor: srSnackSuccess,
-            ),
+          showSrSnack(
+            context,
+            kind == 'server'
+                ? '서버 DB 변환 복원이 완료되었습니다.'
+                : '모바일 백업 복원이 완료되었습니다.',
+            kind: SrSnackKind.success,
           );
         }
       } else {
@@ -794,25 +775,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (mounted) {
           final kind = res['kind'] as String? ?? '';
           final imported = res['imported'];
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                '서버 DB 복원 완료 (${kind == 'mobile' ? '모바일→서버 변환' : '서버 형식'}, $imported건)',
-              ),
-              backgroundColor: srSnackSuccess,
-            ),
+          showSrSnack(
+            context,
+            '서버 DB 복원 완료 (${kind == 'mobile' ? '모바일→서버 변환' : '서버 형식'}, $imported건)',
+            kind: SrSnackKind.success,
           );
         }
       }
       return; // 아래 standalone 전용 블록 스킵
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('DB 복원 실패: $e'),
-            backgroundColor: srSnackError,
-          ),
-        );
+        showSrSnack(context, 'DB 복원 실패: $e', kind: SrSnackKind.error);
       }
     } finally {
       if (mounted) setState(() => _isRestoringDb = false);
@@ -882,9 +855,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (e) {
       // 백업 실패해도 모드 전환 자체는 진행 (사용자가 명시 요청)
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('백업 실패 (모드 전환은 진행): $e')));
+        showSrSnack(context, '백업 실패 (모드 전환은 진행): $e', kind: SrSnackKind.error);
       }
     }
 
@@ -892,12 +863,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await context.read<ReportProvider>().resetConfig();
     if (mounted) {
       if (backupPath != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('백업 완료: $backupPath'),
-            backgroundColor: srSnackSuccess,
-            duration: const Duration(seconds: 4),
-          ),
+        showSrSnack(
+          context,
+          '백업 완료: $backupPath',
+          kind: SrSnackKind.success,
+          duration: const Duration(seconds: 4),
         );
       }
       Navigator.of(context).popUntil((route) => route.isFirst);
@@ -974,12 +944,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('서버 DB 다운로드 실패: $e'),
-              backgroundColor: srSnackError,
-            ),
-          );
+          showSrSnack(context, '서버 DB 다운로드 실패: $e', kind: SrSnackKind.error);
         }
         return;
       }
@@ -1049,19 +1014,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         pendingAction = ConvertServerDbAction(target.path);
       } on DownloadCancelled {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('서버 DB 다운로드를 취소했습니다. 모드는 바꾸지 않았습니다.')),
-          );
+          showSrSnack(context, '서버 DB 다운로드를 취소했습니다. 모드는 바꾸지 않았습니다.');
         }
         return;
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('서버 DB 다운로드 실패: $e'),
-              backgroundColor: srSnackError,
-            ),
-          );
+          showSrSnack(context, '서버 DB 다운로드 실패: $e', kind: SrSnackKind.error);
         }
         return;
       } finally {
@@ -1080,12 +1038,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         pendingAction = DetectAndApplyDbFileAction(selectedPath);
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('백업 파일 선택 실패: $e'),
-              backgroundColor: srSnackError,
-            ),
-          );
+          showSrSnack(context, '백업 파일 선택 실패: $e', kind: SrSnackKind.error);
         }
         return;
       }
@@ -1117,9 +1070,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _openSupportLink(Uri url) async {
     final ok = await launchUrl(url, mode: LaunchMode.externalApplication);
     if (!ok && mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('브라우저를 열 수 없습니다.')));
+      showSrSnack(context, '브라우저를 열 수 없습니다.', kind: SrSnackKind.error);
     }
   }
 
@@ -1127,9 +1078,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final url = Uri.parse(_officialSafetyReportUrl);
     final ok = await launchUrl(url, mode: LaunchMode.externalApplication);
     if (!ok && mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('브라우저를 열 수 없습니다.')));
+      showSrSnack(context, '브라우저를 열 수 없습니다.', kind: SrSnackKind.error);
     }
   }
 
@@ -1259,8 +1208,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 try {
                   await ReviewPromptService.openStoreListing();
                 } catch (_) {
-                  messenger.showSnackBar(
-                    const SnackBar(content: Text('Play 스토어를 열 수 없습니다.')),
+                  showSrSnackOn(
+                    messenger,
+                    'Play 스토어를 열 수 없습니다.',
+                    kind: SrSnackKind.error,
                   );
                 }
               },
@@ -1501,11 +1452,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   Clipboard.setData(
                                     ClipboardData(text: _apiController.text),
                                   );
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('API 키가 복사되었습니다.'),
-                                    ),
-                                  );
+                                  showSrSnack(context, 'API 키가 복사되었습니다.');
                                 },
                               ),
                             ],
@@ -2025,7 +1972,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             Card(
               child: InkWell(
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(SrRadius.lg),
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const PermissionScreen()),
@@ -2121,7 +2068,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
                         color: cs.secondaryContainer.withValues(alpha: 0.35),
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(SrRadius.lg),
                         border: Border.all(
                           color: cs.secondary.withValues(alpha: 0.22),
                         ),
@@ -2161,7 +2108,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 12),
                     Text(
                       '※ 인터넷 권한(INTERNET)은 Android 일반 권한으로 설치 시 별도 요청 없이 자동 부여됩니다.',
-                      style: TextStyle(fontSize: 11, color: mutedColor),
+                      style: TextStyle(
+                        fontSize: SrFontSize.caption,
+                        color: mutedColor,
+                      ),
                     ),
                   ],
                 ),
@@ -2189,33 +2139,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildTestResult(_TestResult result) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    Color bg, fg;
-    IconData icon;
-    switch (result.type) {
-      case _ResultType.success:
-        fg = isDark ? const Color(0xFF4ADE80) : const Color(0xFF166534);
-        bg = fg.withValues(alpha: isDark ? 0.18 : 0.10);
-        icon = Icons.check_circle;
-        break;
-      case _ResultType.warn:
-        fg = isDark ? const Color(0xFFFBBF24) : const Color(0xFFB45309);
-        bg = fg.withValues(alpha: isDark ? 0.18 : 0.10);
-        icon = Icons.warning;
-        break;
-      case _ResultType.error:
-        fg = isDark ? const Color(0xFFF87171) : const Color(0xFFB91C1C);
-        bg = fg.withValues(alpha: isDark ? 0.18 : 0.10);
-        icon = Icons.error;
-        break;
-    }
+    final (tone, icon) = switch (result.type) {
+      _ResultType.success => (context.tone(SrTone.success), Icons.check_circle),
+      _ResultType.warn => (context.tone(SrTone.warning), Icons.warning),
+      _ResultType.error => (context.tone(SrTone.danger), Icons.error),
+    };
+    final fg = tone.foreground;
 
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: fg.withValues(alpha: 0.3)),
+        color: tone.background,
+        borderRadius: BorderRadius.circular(SrRadius.md),
+        border: Border.all(color: tone.border),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2317,12 +2253,12 @@ class _ChoiceTile extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(SrRadius.lg),
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           border: Border.all(color: cs.primary.withValues(alpha: 0.4)),
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(SrRadius.lg),
           color: cs.primary.withValues(alpha: 0.04),
         ),
         child: Row(
@@ -2341,7 +2277,7 @@ class _ChoiceTile extends StatelessWidget {
                   Text(
                     subtitle,
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: SrFontSize.caption,
                       color: cs.onSurfaceVariant,
                       height: 1.3,
                     ),

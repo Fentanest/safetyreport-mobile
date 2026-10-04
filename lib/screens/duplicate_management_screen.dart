@@ -13,6 +13,8 @@ import '../widgets/report_detail_sheet.dart';
 import '../widgets/sr_empty_state.dart';
 import '../widgets/status_badge.dart';
 import '../utils/format.dart';
+import '../theme/sr_tokens.dart';
+import '../widgets/sr_snack_bar.dart';
 
 class DuplicateManagementPanel extends StatefulWidget {
   const DuplicateManagementPanel({super.key});
@@ -406,8 +408,10 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
                             if (sheetCtx.mounted) Navigator.pop(sheetCtx);
                           } catch (e) {
                             if (!sheetCtx.mounted) return;
-                            ScaffoldMessenger.of(sheetCtx).showSnackBar(
-                              SnackBar(content: Text('저장 실패: $e')),
+                            showSrSnack(
+                              sheetCtx,
+                              '저장 실패: $e',
+                              kind: SrSnackKind.error,
                             );
                           } finally {
                             if (sheetCtx.mounted) {
@@ -560,7 +564,7 @@ class _StatusCard extends StatelessWidget {
     return Card(
       color: selected ? Theme.of(context).colorScheme.primaryContainer : null,
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -593,14 +597,14 @@ class _DuplicateGroupCard extends StatelessWidget {
 
   const _DuplicateGroupCard({required this.group, required this.onTap});
 
-  Color _statusColor(String value) {
+  Color _statusColor(BuildContext context, String value) {
     switch (value) {
       case DuplicateStatuses.confirmedDuplicate:
-        return Colors.green;
+        return context.semantic(SrTone.success);
       case DuplicateStatuses.notDuplicate:
-        return Colors.grey;
+        return context.semantic(SrTone.neutral);
       default:
-        return Colors.orange;
+        return context.semantic(SrTone.warning);
     }
   }
 
@@ -645,7 +649,7 @@ class _DuplicateGroupCard extends StatelessWidget {
         ),
         trailing: StatusBadge(
           label: group.statusLabel,
-          color: _statusColor(group.status),
+          color: _statusColor(context, group.status),
         ),
         onTap: onTap,
       ),

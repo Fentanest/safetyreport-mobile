@@ -54,14 +54,39 @@
 `StatusTone`(틴트 배경 + 기준색에서 명도만 옮긴 글자, 4.5:1 이상 자동 보정)으로 그린다. 보장은 `test/theme/theme_contrast_test.dart`.
 도넛 조각 안 흰 % 글자도 같은 이유로 없애고 범례에 비율을 표시한다.
 
+### 의미색·분류색 토큰 (2026-10-04, SQ-U23)
+화면 코드의 `Colors.green/orange/amber/indigo/…` 직접 사용과 `StatusTone` 이중 호출을 `SrColors` 토큰 + `context.tone(SrTone.x)` 로 바꿨다.
+`test/theme/design_token_scan_test.dart` 가 `lib/theme/` 밖의 Material 원색·`Color(0x…)`(고정 팔레트·`sr-allow` 표시 제외)를 막는다.
+
+| 토큰 | 라이트 | 다크 | 대비(글자 / 바탕·카드) |
+|---|---|---|---|
+| success | `#15803D` | `#4ADE80` | 라이트 카드 5.0 · 바탕 4.8 / 다크 카드 10.7 · 바탕 11.3 |
+| warning | `#B45309` | `#FBBF24` | 라이트 5.0 · 4.8 / 다크 11.1 · 11.8 |
+| info | `#0369A1` | `#38BDF8` | 라이트 5.9 · 5.7 / 다크 8.7 · 9.2 |
+| successFill / warningFill / dangerFill (흰 글자 채움, 두 테마 같음) | `#15803D` / `#B45309` / `#B91C1C` | 같음 | 흰 글자 5.0 / 5.0 / 6.5 |
+| 분류: 교통 / 주정차 / 기타 | brand `#0D6EFD` / `#F59E0B` / `#22C55E` | brand `#2563EB` / 같음 | 글자는 StatusTone 보정(4.5 이상) |
+
+- 틴트 칩·박스는 `context.tone(SrTone.success|warning|info|danger|primary|neutral)` 또는 `context.toneOf(기준색)` 로 그린다(라이트 틴트 위에서는 StatusTone 이 글자를 조금 더 어둡게 옮긴다).
+- 분류색은 통계 화면 규칙(교통 파랑 / 주정차 주황 / 기타 초록)으로 통일했다 — 별점 탭 분류 칩의 예전 teal/deepPurple 은 버렸다.
+- SnackBar 는 `showSrSnack(context, 문구, kind: info|success|warning|error)` 한 곳에서 그린다. 정보형은 테마 기본(inverseSurface),
+  나머지는 위 채움 + 흰 글자(다크에서 채움 위에 어두운 기본 글자가 오르던 문제 해소). 오류 문구(실패·오류·못했…)는 error 로 맞췄다.
+- 고정색 예외: 상태·처분 팔레트(`lib/server_palette.dart`), 지도 마커·클러스터(지도 타일은 늘 밝음), 동영상·사진 뷰어 검정 바탕, 로그 창(`SrColors.logPanel`).
+
 ## 3. 타이포그래피 (D-04 결정: 기기 기본 글꼴)
 - 폰트 에셋을 추가하지 않는다(`fontFamily` 미지정). 시안의 Noto Sans KR/Pretendard 충돌은 이 결정으로 해소.
 - 참고: 서버 웹 `web/templates/base.html:23` 은 `Noto Sans KR` 을 지정한다(`guide.png` 의 "기존 서비스와 동일한 Pretendard" 는 사실과 다름).
 - 골든 테스트만 호스트 Noto Sans CJK 를 로드해 렌더한다(`test/support/ui_harness.dart`).
 - 스케일은 토큰 보드 값을 기준으로 한다: Display 32/48, H1 24/36, H2 20/32, H3 18/28, Body1 16/24, Body2 14/20, Caption 12/16.
+- **최소 글자 12 (2026-10-04, SQ-U19):** 배지·칩·메타 정보·하단 내비 라벨·`StatusBadge` 기본값까지 12(`SrFontSize.caption`)로 올렸다.
+  10·10.5·11·11.5 리터럴은 없다. 예외는 차트 축 눈금 11(`SrFontSize.chartAxis`, `stats_overview_section.dart`) 하나.
+  `ThemeData.textTheme` 의 `bodySmall`·`labelSmall` 도 12. 스캔 테스트가 12 미만 리터럴을 막는다.
 
 ## 4. 형태·간격
 - 간격 8px 계열(4, 8, 12, 16, 24, 32, 48, 64). Radius sm 4 / md 8 / lg 12 / xl 16 / 2xl 24.
+- **반경 상수화 (2026-10-04, SQ-U23):** `SrRadius.sm/md/lg/xl/xxl/pill`(4/8/12/16/24/999). 단계 밖 값은 가까운 단계로 옮겼다:
+  3→4, 6→8, 10·14→12(카드·입력칸·버튼과 같게), 18→16, 작은 칩의 20→알약(999, 모양 같음).
+  바텀시트 위 모서리 `AppTheme.sheetRadius` 20 은 단계 밖이라 **24(2xl)** 로 바꿨다. 입력칸 테두리도 10→12.
+  예외: 차트 막대 끝(2·3px)과 범례 견본(2px)은 막대 폭에 묶인 표식이라 `sr-allow` 주석으로 남겼다.
 - 그림자·글로우는 카드 강조에만 쓰고 **대량 목록·차트에는 blur/glow를 쓰지 않는다**(스크롤 성능). profile 빌드로 확인한다.
 
 ## 5. 컴포넌트 (Flutter 위젯으로 구현, 이미지 사용 금지)

@@ -20,6 +20,8 @@ import '../widgets/sr_empty_state.dart';
 import '../widgets/sr_tab_bar.dart';
 import '../theme/sr_colors.dart';
 import '../widgets/status_badge.dart';
+import '../theme/sr_tokens.dart';
+import '../widgets/sr_snack_bar.dart';
 
 const _permChannel = MethodChannel('com.fentanest.mysafetyreport/permissions');
 
@@ -242,11 +244,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
               children: [
                 Icon(
                   Icons.star_rate_rounded,
-                  color: StatusTone.of(
-                    Colors.amber,
-                    brightness: Theme.of(context).brightness,
-                    surface: context.sr.surface,
-                  ).foreground,
+                  color: context.tone(SrTone.warning).foreground,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -264,20 +262,12 @@ class _NotificationsScreenState extends State<NotificationsScreen>
               children: [
                 _countChip(
                   '성공 ${result.successCount}',
-                  StatusTone.of(
-                    Colors.green,
-                    brightness: Theme.of(context).brightness,
-                    surface: context.sr.surface,
-                  ).foreground,
+                  context.tone(SrTone.success).foreground,
                   Icons.check_circle_outline,
                 ),
                 _countChip(
                   '스킵 ${result.skipCount}',
-                  StatusTone.of(
-                    Colors.orange,
-                    brightness: Theme.of(context).brightness,
-                    surface: context.sr.surface,
-                  ).foreground,
+                  context.tone(SrTone.warning).foreground,
                   Icons.fast_forward_outlined,
                 ),
                 _countChip(
@@ -365,7 +355,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
     decoration: BoxDecoration(
       color: color.withValues(alpha: 0.1),
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(SrRadius.pill),
       border: Border.all(color: color.withValues(alpha: 0.35)),
     ),
     child: Row(
@@ -478,8 +468,10 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     context.read<NotificationHistoryProvider>().load();
     final ok = await _fetchServerResults();
     if (!ok && mounted) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        const SnackBar(content: Text('서버 변경 결과를 가져오지 못했습니다. 아래로 당겨 다시 시도하세요.')),
+      showSrSnack(
+        context,
+        '서버 변경 결과를 가져오지 못했습니다. 아래로 당겨 다시 시도하세요.',
+        kind: SrSnackKind.error,
       );
     }
   }
@@ -603,31 +595,11 @@ class _NotifTile extends StatelessWidget {
               height: 40,
               decoration: BoxDecoration(
                 color: isDuplicate
-                    ? StatusTone.of(
-                        StatusTone.of(
-                          Colors.indigo,
-                          brightness: Theme.of(context).brightness,
-                          surface: context.sr.surface,
-                        ).foreground,
-                        brightness: Theme.of(context).brightness,
-                        surface: context.sr.surface,
-                      ).background
+                    ? context.toneOf(changeDuplicateColor).background
                     : hasDetail
-                    ? StatusTone.of(
-                        StatusTone.of(
-                          Colors.orange,
-                          brightness: Theme.of(context).brightness,
-                          surface: context.sr.surface,
-                        ).foreground,
-                        brightness: Theme.of(context).brightness,
-                        surface: context.sr.surface,
-                      ).background
-                    : StatusTone.of(
-                        Theme.of(context).colorScheme.primary,
-                        brightness: Theme.of(context).brightness,
-                        surface: context.sr.surface,
-                      ).background,
-                borderRadius: BorderRadius.circular(10),
+                    ? context.tone(SrTone.warning).background
+                    : context.tone(SrTone.primary).background,
+                borderRadius: BorderRadius.circular(SrRadius.lg),
               ),
               child: Icon(
                 isDuplicate
@@ -636,30 +608,10 @@ class _NotifTile extends StatelessWidget {
                     ? Icons.assignment_outlined
                     : Icons.notifications_active,
                 color: isDuplicate
-                    ? StatusTone.of(
-                        StatusTone.of(
-                          Colors.indigo,
-                          brightness: Theme.of(context).brightness,
-                          surface: context.sr.surface,
-                        ).foreground,
-                        brightness: Theme.of(context).brightness,
-                        surface: context.sr.surface,
-                      ).foreground
+                    ? context.toneOf(changeDuplicateColor).foreground
                     : hasDetail
-                    ? StatusTone.of(
-                        StatusTone.of(
-                          Colors.orange,
-                          brightness: Theme.of(context).brightness,
-                          surface: context.sr.surface,
-                        ).foreground,
-                        brightness: Theme.of(context).brightness,
-                        surface: context.sr.surface,
-                      ).foreground
-                    : StatusTone.of(
-                        Theme.of(context).colorScheme.primary,
-                        brightness: Theme.of(context).brightness,
-                        surface: context.sr.surface,
-                      ).foreground,
+                    ? context.tone(SrTone.warning).foreground
+                    : context.tone(SrTone.primary).foreground,
                 size: 20,
               ),
             ),
@@ -695,7 +647,9 @@ class _NotifTile extends StatelessWidget {
                         if (status.isNotEmpty)
                           _miniChip(
                             status,
-                            isDuplicate ? Colors.indigo : _statusColor(status),
+                            isDuplicate
+                                ? changeDuplicateColor
+                                : _statusColor(status),
                           ),
                         if (fine.isNotEmpty && fine != 'null')
                           _miniChip(
@@ -718,7 +672,7 @@ class _NotifTile extends StatelessWidget {
                         Text(
                           item.reportNumber,
                           style: TextStyle(
-                            fontSize: 11,
+                            fontSize: SrFontSize.caption,
                             color: context.sr.textSecondary,
                           ),
                         ),
@@ -733,7 +687,7 @@ class _NotifTile extends StatelessWidget {
                       Text(
                         item.timestamp,
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: SrFontSize.caption,
                           color: context.sr.textSecondary,
                         ),
                       ),
@@ -784,7 +738,7 @@ class _RatingBatchTile extends StatelessWidget {
     return Card(
       margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(SrRadius.xl),
         side: BorderSide(
           color: unread
               ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.25)
@@ -792,7 +746,7 @@ class _RatingBatchTile extends StatelessWidget {
         ),
       ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(SrRadius.xl),
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(14),
@@ -805,28 +759,12 @@ class _RatingBatchTile extends StatelessWidget {
                     width: 42,
                     height: 42,
                     decoration: BoxDecoration(
-                      color: StatusTone.of(
-                        StatusTone.of(
-                          Colors.amber,
-                          brightness: Theme.of(context).brightness,
-                          surface: context.sr.surface,
-                        ).foreground,
-                        brightness: Theme.of(context).brightness,
-                        surface: context.sr.surface,
-                      ).background,
-                      borderRadius: BorderRadius.circular(12),
+                      color: context.tone(SrTone.warning).background,
+                      borderRadius: BorderRadius.circular(SrRadius.lg),
                     ),
                     child: Icon(
                       Icons.star_rate_rounded,
-                      color: StatusTone.of(
-                        StatusTone.of(
-                          Colors.amber,
-                          brightness: Theme.of(context).brightness,
-                          surface: context.sr.surface,
-                        ).foreground,
-                        brightness: Theme.of(context).brightness,
-                        surface: context.sr.surface,
-                      ).foreground,
+                      color: context.tone(SrTone.warning).foreground,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -881,19 +819,11 @@ class _RatingBatchTile extends StatelessWidget {
                 children: [
                   _summaryChip(
                     '성공 $successCount',
-                    StatusTone.of(
-                      Colors.green,
-                      brightness: Theme.of(context).brightness,
-                      surface: context.sr.surface,
-                    ).foreground,
+                    context.tone(SrTone.success).foreground,
                   ),
                   _summaryChip(
                     '스킵 $skipCount',
-                    StatusTone.of(
-                      Colors.orange,
-                      brightness: Theme.of(context).brightness,
-                      surface: context.sr.surface,
-                    ).foreground,
+                    context.tone(SrTone.warning).foreground,
                   ),
                   _summaryChip(
                     '실패 $failureCount',
@@ -902,15 +832,7 @@ class _RatingBatchTile extends StatelessWidget {
                   if (result != null)
                     _summaryChip(
                       '목표 ${result!.score}점',
-                      StatusTone.of(
-                        StatusTone.of(
-                          Colors.amber,
-                          brightness: Theme.of(context).brightness,
-                          surface: context.sr.surface,
-                        ).foreground,
-                        brightness: Theme.of(context).brightness,
-                        surface: context.sr.surface,
-                      ).foreground,
+                      context.tone(SrTone.warning).foreground,
                     ),
                 ],
               ),
@@ -937,12 +859,16 @@ class _RatingBatchTile extends StatelessWidget {
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
     decoration: BoxDecoration(
       color: color.withValues(alpha: 0.1),
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(SrRadius.pill),
       border: Border.all(color: color.withValues(alpha: 0.3)),
     ),
     child: Text(
       label,
-      style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w700),
+      style: TextStyle(
+        fontSize: SrFontSize.caption,
+        color: color,
+        fontWeight: FontWeight.w700,
+      ),
     ),
   );
 }
@@ -959,16 +885,8 @@ class _RatingReportCard extends StatelessWidget {
         ? Report.fromJson(item.reportData!)
         : null;
     final badgeColor = switch (item.status) {
-      RatingBatchItemStatus.success => StatusTone.of(
-        Colors.green,
-        brightness: Theme.of(context).brightness,
-        surface: context.sr.surface,
-      ).foreground,
-      RatingBatchItemStatus.skip => StatusTone.of(
-        Colors.orange,
-        brightness: Theme.of(context).brightness,
-        surface: context.sr.surface,
-      ).foreground,
+      RatingBatchItemStatus.success => context.tone(SrTone.success).foreground,
+      RatingBatchItemStatus.skip => context.tone(SrTone.warning).foreground,
       RatingBatchItemStatus.failure => Theme.of(context).colorScheme.error,
     };
 
@@ -976,11 +894,11 @@ class _RatingReportCard extends StatelessWidget {
       margin: EdgeInsets.zero,
       elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         side: BorderSide(color: context.sr.border),
       ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(14),
@@ -1008,7 +926,7 @@ class _RatingReportCard extends StatelessWidget {
                     ),
                     decoration: BoxDecoration(
                       color: badgeColor.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(SrRadius.pill),
                       border: Border.all(
                         color: badgeColor.withValues(alpha: 0.35),
                       ),
@@ -1016,7 +934,7 @@ class _RatingReportCard extends StatelessWidget {
                     child: Text(
                       item.status.label,
                       style: TextStyle(
-                        fontSize: 11,
+                        fontSize: SrFontSize.caption,
                         color: badgeColor,
                         fontWeight: FontWeight.bold,
                       ),
@@ -1074,7 +992,7 @@ class _RatingReportCard extends StatelessWidget {
                 Text(
                   '탭해서 신고 상세 보기',
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: SrFontSize.caption,
                     color: context.sr.textSecondary,
                   ),
                 ),

@@ -9,6 +9,7 @@ import '../widgets/report_detail_sheet.dart';
 import '../widgets/status_badge.dart';
 
 import '../theme/sr_colors.dart';
+import '../theme/sr_tokens.dart';
 
 void showDuplicateGroupDetailSheet(BuildContext context, DuplicateGroup group) {
   final provider = Provider.of<ReportProvider?>(context, listen: false);
@@ -88,11 +89,11 @@ class _DuplicateGroupDetailSheetState
   Color _statusColor(BuildContext context, String value) {
     switch (value) {
       case DuplicateStatuses.confirmedDuplicate:
-        return Colors.green;
+        return context.semantic(SrTone.success);
       case DuplicateStatuses.notDuplicate:
-        return context.sr.textSecondary;
+        return context.semantic(SrTone.neutral);
       default:
-        return Colors.orange;
+        return context.semantic(SrTone.warning);
     }
   }
 
@@ -196,18 +197,27 @@ class _DuplicateGroupDetailSheetState
                     children: [
                       Text(
                         'ID ${member.reportId} · 신고번호 ${member.reportNumber}',
-                        style: const TextStyle(fontSize: 11, height: 1.4),
+                        style: const TextStyle(
+                          fontSize: SrFontSize.caption,
+                          height: 1.4,
+                        ),
                       ),
                       Text(
                         '${member.entryValue.isNotEmpty ? member.entryValue : member.category} · ${member.report.statusWithFine}',
-                        style: const TextStyle(fontSize: 11, height: 1.4),
+                        style: const TextStyle(
+                          fontSize: SrFontSize.caption,
+                          height: 1.4,
+                        ),
                       ),
                       if (member.report.agency.isNotEmpty)
                         Text(
                           member.report.agency,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 11, height: 1.4),
+                          style: const TextStyle(
+                            fontSize: SrFontSize.caption,
+                            height: 1.4,
+                          ),
                         ),
                     ],
                   ),

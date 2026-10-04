@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/community_auth_service.dart';
 import '../services/local_db_service.dart';
 import 'gate/community_gate.dart';
+import '../widgets/sr_snack_bar.dart';
 
 /// 카카오 로그아웃 = 이 기기의 신고 자료 삭제 (2026-09-27 사용자 결정, PC `POST /settings/community/logout` 과 같은 규칙).
 ///
@@ -41,9 +42,11 @@ class KakaoLogout {
       wipes = await wipesData(gate: gate, auth: auth, dbOwner: dbOwner);
     } catch (_) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('저장된 신고 내역을 확인하지 못해 로그아웃하지 않았습니다. 잠시 뒤 다시 시도하세요.'),
-        ));
+        showSrSnack(
+          context,
+          '저장된 신고 내역을 확인하지 못해 로그아웃하지 않았습니다. 잠시 뒤 다시 시도하세요.',
+          kind: SrSnackKind.error,
+        );
       }
       return false;
     }
@@ -79,7 +82,7 @@ class KakaoLogout {
     if (ok != true) return false;
     final error = await run(gate: gate, auth: auth, wipes: wipes, wipe: wipe, afterWipe: afterWipe);
     if (error != null && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      showSrSnack(context, error, kind: SrSnackKind.error);
     }
     return error == null;
   }

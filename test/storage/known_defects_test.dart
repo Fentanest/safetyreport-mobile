@@ -240,6 +240,20 @@ void main() {
         ),
         isTrue,
       );
+      // 실제 자료처럼 처리중(답변 전) 신고에는 처리기관·담당자가 없다. 기관 통계표(답변 완료만)와
+      // 기관 드릴다운 목록의 건수가 데모에서만 어긋나던 원인(2026-10-04, backlog BL-2).
+      final inProgress = demoRows.where((row) => row['처리상태'] == '처리중');
+      expect(inProgress, isNotEmpty);
+      expect(
+        inProgress.every((row) => row['처리기관'] == '' && row['담당자'] == ''),
+        isTrue,
+      );
+      expect(
+        demoRows
+            .where((row) => row['처리상태'] != '처리중')
+            .every((row) => (row['처리기관'] as String).isNotEmpty),
+        isTrue,
+      );
       FlutterSecureStorage.setMockInitialValues({});
       final provider = ReportProvider();
       await provider.init();

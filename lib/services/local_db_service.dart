@@ -3454,8 +3454,9 @@ class LocalDbService {
           '위반법규': '',
           '범칙금_과태료': answered && index % 3 == 0 ? '과태료: 40,000원' : '',
           '벌점': '',
-          '처리기관': agencies[categoryIndex],
-          '담당자': '예시 담당자',
+          // 실제 자료처럼 처리중(답변 전) 신고에는 처리기관·담당자가 아직 없다.
+          '처리기관': answered ? agencies[categoryIndex] : '',
+          '담당자': answered ? '예시 담당자' : '',
           '답변일': answered ? date(day.add(const Duration(days: 2))) : '',
           '발생일자': date(day),
           '발생시각': '${(8 + index % 12).toString().padLeft(2, '0')}:30',

@@ -782,8 +782,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       if (missing > 0) {
         parts.add(
           _showPerson
-              ? '처리기관·담당자가 없는 $missing건은 담당자 목록에 없음'
-              : '처리기관이 없는 $missing건은 기관 목록에 없음',
+              ? '답변 전이거나 처리기관·담당자가 없는 $missing건은 담당자 목록에 없음'
+              : '답변 전이거나 처리기관이 없는 $missing건은 기관 목록에 없음',
         );
       }
     }

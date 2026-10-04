@@ -262,15 +262,21 @@ class _SummaryTile extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 2),
-        // 금액·건수는 말줄임 없이 줄바꿈한다(큰 글자에서도 값이 숨지 않게).
-        Text(
-          item.value,
-          softWrap: true,
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w800,
-            color: tone.foreground,
-            fontFeatures: const [FontFeature.tabularFigures()],
+        // 금액·건수는 숫자와 단위를 한 줄에 둔다(L-9: 줄바꿈하면 "원"·"건"만 다음 줄에 남았다).
+        // 타일 폭을 넘으면 말줄임 대신 비율대로 줄여 값 전체를 보인다.
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: AlignmentDirectional.centerStart,
+          child: Text(
+            item.value,
+            maxLines: 1,
+            softWrap: false,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              color: tone.foreground,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
           ),
         ),
         for (final caption in item.captions)

@@ -110,6 +110,15 @@
 - 골든: `report_list_card`·`stats_overview` 라이트/다크 4장을 의도한 변경(배지·캡션 11→12, 번호판 칩 반경 6→8, 통계 카드 반경 14→12)으로 갱신. `ui-renewal-spec.md` §2·§3·§4에 토큰·최소 글자·반경 결정을 날짜와 함께 기록.
 - 검증: analyze error 0 / warning 9 / info 0, test **1151 passed / 16 skipped / 0 failed**(신규 18).
 
+### WP11 점검 보고서 밖 추가 표시 결함 (UI 검토 L-3 L-7 L-8 L-9)
+- 점검 과정에서 찾았으나 55건 문서에 넣지 않았던 표시 결함 4건을 함께 고쳤다(추적표 WP11).
+- 신고 카드 차량번호 칩: 40% 고정 칸에서 "서울31바584…"처럼 잘리던 것을, 칩 실제 폭을 재어 절반 이하면 오른쪽에 전체 표시, 넘치면 메타 아래 줄로 내린다. 12자 번호판까지 360dp에서 잘리지 않는다.
+- 통계 요약 값: "123,456,780"과 "원"이 줄바꿈으로 갈라지던 것을 한 줄로 유지(필요할 때만 축소).
+- 알림 카드의 신고번호·시각 줄이 2.0배에서 최대 347px 넘치던 것을 줄바꿈 배치로 고쳤다.
+- 별점 사유 대화상자: 세로·키보드·큰 글자에서 입력칸이 한 줄만 보이던 것을, 키보드가 열려 공간이 부족하면 설명 줄을 접고 입력칸 3줄·글자 수를 보이게 했다. 선택된 점수 칩의 체크 표시가 별 아이콘에 겹치던 것을 없앴다. 제출 동작 불변.
+- 골든: `report_list_card`(번호판 칩 위치, 메타 줄이 넓어짐)·`stats_overview`(확정 과태료 한 줄, 아래 요소가 약 30px 위로) 라이트/다크 4장을 의도한 변경으로 갱신.
+- 검증: analyze error 0 / warning 9 / info 0, test **1169 passed / 16 skipped / 0 failed**(신규 18).
+
 ## 2026-10-04 (서버 dev 리팩터링 WS 소비자 연동, 로컬 미배포)
 
 - 서버의 optional terminal event_id/after/replay_gap/cursor_reset을 Android WsService에 연결했다. 서버 설정별 cursor를 분리하고 같은 event_id의 완료 알림 중복을 막는다. PrefsInbox가 알림 history와 cursor를 한 Editor.commit에 저장하며 실패하면 메모리의 실패 history/cursor/trim만 복구한 뒤 reconnect한다. rollback disk 실패에서도 메모리 cursor를 되돌리는 회귀를 확인했다.

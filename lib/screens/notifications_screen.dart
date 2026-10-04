@@ -660,37 +660,14 @@ class _NotifTile extends StatelessWidget {
                     ),
                   ],
                   const SizedBox(height: 4),
-                  Row(
+                  // 신고번호·시각은 폭이 모자라면 다음 줄로 넘긴다(L-3: 360dp·2.0배에서 Row 가 넘쳤다).
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 2,
                     children: [
-                      if (item.reportNumber.isNotEmpty) ...[
-                        Icon(
-                          Icons.tag,
-                          size: 11,
-                          color: context.sr.textDisabled,
-                        ),
-                        const SizedBox(width: 2),
-                        Text(
-                          item.reportNumber,
-                          style: TextStyle(
-                            fontSize: SrFontSize.caption,
-                            color: context.sr.textSecondary,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                      ],
-                      Icon(
-                        Icons.access_time,
-                        size: 11,
-                        color: context.sr.textDisabled,
-                      ),
-                      const SizedBox(width: 2),
-                      Text(
-                        item.timestamp,
-                        style: TextStyle(
-                          fontSize: SrFontSize.caption,
-                          color: context.sr.textSecondary,
-                        ),
-                      ),
+                      if (item.reportNumber.isNotEmpty)
+                        _metaChip(context, Icons.tag, item.reportNumber),
+                      _metaChip(context, Icons.access_time, item.timestamp),
                     ],
                   ),
                 ],
@@ -702,6 +679,24 @@ class _NotifTile extends StatelessWidget {
       ),
     );
   }
+
+  /// 아이콘 + 메타 값. 한 줄 폭보다 길면 말줄임 없이 줄바꿈한다(값이 숨지 않게).
+  Widget _metaChip(BuildContext context, IconData icon, String text) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(icon, size: 11, color: context.sr.textDisabled),
+      const SizedBox(width: 2),
+      Flexible(
+        child: Text(
+          text,
+          style: TextStyle(
+            fontSize: SrFontSize.caption,
+            color: context.sr.textSecondary,
+          ),
+        ),
+      ),
+    ],
+  );
 
   /// 처리상태·과태료 칩. 원색 글자 + 옅은 배경은 AA 미달이라 대비 보정 배지를 쓴다(SQ-U13).
   Widget _miniChip(String label, Color color) =>

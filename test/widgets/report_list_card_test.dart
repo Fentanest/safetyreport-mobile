@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/models/report.dart';
 import 'package:safetyreport/widgets/report_list_card.dart';
@@ -99,5 +100,83 @@ void main() {
     await tester.longPress(find.byType(ReportListCard));
     expect(taps, 1);
     expect(longPresses, 1);
+  });
+
+  // L-8: 보통 차량번호가 40% 칸에 갇혀 "서울31바584…" 로 잘리던 문제.
+  group('차량번호 칩은 잘리지 않는다 (360dp)', () {
+    Report withCar(String car) {
+      final base = longFieldReport();
+      return Report(
+        id: base.id,
+        reportNumber: base.reportNumber,
+        name: base.name,
+        date: base.date,
+        responseDate: base.responseDate,
+        agency: base.agency,
+        manager: base.manager,
+        status: base.status,
+        result: base.result,
+        fineInfo: base.fineInfo,
+        penaltyPoints: base.penaltyPoints,
+        carNumber: car,
+        law: base.law,
+        location: base.location,
+        occurrenceDate: base.occurrenceDate,
+        occurrenceTime: base.occurrenceTime,
+        reportContent: base.reportContent,
+        processContent: base.processContent,
+      );
+    }
+
+    bool truncated(WidgetTester tester, String text) =>
+        tester.renderObject<RenderParagraph>(find.text(text)).didExceedMaxLines;
+
+    // 12자(한글·숫자) 까지는 1.0배에서 모두 보인다.
+    const plates = ['123가4567', '서울31바5847', '경기12가34567', '서울특별시12가3456'];
+    for (final plate in plates) {
+      testWidgets('$plate 는 1.0배에서 전부 보인다', (tester) async {
+        final errors = await pumpThemed(
+          tester,
+          _card(withCar(plate)),
+          brightness: Brightness.light,
+        );
+        expect(errors, isEmpty, reason: describeErrors(errors));
+        expect(truncated(tester, plate), isFalse);
+      });
+    }
+
+    for (final scale in uiTextScales) {
+      testWidgets('서울31바5847 는 x$scale 에서도 전부 보이고 넘치지 않는다', (tester) async {
+        final errors = await pumpThemed(
+          tester,
+          _card(withCar('서울31바5847'), selectionMode: true, selected: true),
+          brightness: Brightness.dark,
+          textScale: scale,
+        );
+        expect(errors, isEmpty, reason: describeErrors(errors));
+        expect(truncated(tester, '서울31바5847'), isFalse);
+      });
+    }
+
+    testWidgets('짧은 번호는 메타 정보 오른쪽, 긴 번호는 메타 정보 아래에 둔다', (tester) async {
+      await pumpThemed(
+        tester,
+        _card(withCar('123가4567')),
+        brightness: Brightness.light,
+      );
+      final agency = tester.getRect(find.text(longFieldReport().agency));
+      final shortChip = tester.getRect(find.text('123가4567'));
+      expect(shortChip.left, greaterThan(agency.right));
+
+      await pumpThemed(
+        tester,
+        _card(withCar('서울특별시12가3456')),
+        brightness: Brightness.light,
+        textScale: 2.0,
+      );
+      final agency2 = tester.getRect(find.text(longFieldReport().agency));
+      final longChip = tester.getRect(find.text('서울특별시12가3456'));
+      expect(longChip.top, greaterThanOrEqualTo(agency2.bottom));
+    });
   });
 }

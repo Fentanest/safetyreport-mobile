@@ -5,7 +5,6 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/models/report.dart';
-import 'package:safetyreport/models/report_filter.dart';
 import 'package:safetyreport/providers/report_provider.dart';
 import 'package:safetyreport/services/report_filter_spec.dart';
 import 'package:safetyreport/services/report_query.dart';

@@ -13,6 +13,7 @@
 - 근거: 서버 레포 기술일지 EO(구조 개선). 서버와 같은 규칙을 같은 벡터로 검사하도록 맞춘다. 기능·DB 교환 형식은 바꾸지 않는다.
 - R-01 상태·처분 정책 정본: `lib/services/report_policy.dart`(서버 `services/report_policy.py`·웹 `report-policy.js` 와 같은 정책 이름)를 두고 통계표 8분류(`_AgencyAgg`), 요약 카드, 지도 상태·4분류, 대시보드 요약 SQL·드릴다운 조건, 목록 취하 제외, 별점 대상 상태, 상태 색이 이를 쓴다. `contracts/report-policy-vectors.json`(서버와 바이트 동일)으로 순수 판정·SQL 조각을 검사한다. 정정: 대시보드 요약 SQL·드릴다운이 공백 붙은 상태를 다르게 세던 것, '교통 불수용' 드릴다운이 '불수용'을 포함 검색하던 것, 상태 색이 포함 검색('처리'·'완료' 포함 여부)이던 것을 정본 규칙으로 맞췄다.
 - R-02 목록 필터 사양: `lib/services/report_filter_spec.dart` 가 검색어(AND/OR)·날짜/시각 범위·법규의 의미를 맡고 SQL 목록(`ReportQuery`)과 메모리 목록(`ReportProvider`)이 이를 쓴다. 서버·웹과 같은 `contracts/report-filter-vectors.json` 으로 검사한다. 정정: 날짜 원문을 그대로 비교해 끝 날짜 당일의 시각 붙은 신고(예 '2026-01-01 10:00:00' ≤ '2026-01-01' 거짓)가 빠지고 날짜 없는 신고가 범위에 들어가던 것, 없는 날짜·잘못된 시각도 비교하던 것, ' , & ' 처럼 빈 항목뿐인 검색어가 모든 신고를 지우던 것.
+- D2-10 커뮤니티 클라이언트 규칙: 서버 정본 `contracts/community-client/` 사본(MANIFEST 해시 확인)과 `lib/community/gate/community_client_rules.dart` 로 status 정규화·오류 분류·재시도 대기·늦은 응답 판정을 서버·auth 와 같게 한다. 정정: status 조회가 일시 오류가 아닌 차단 오류(카카오 필요·정지·형식 오류 등)를 받아도 인증 오류가 아니면 게이트 캐시를 10분까지 유지하던 것(서버처럼 무효화), HTTP 200 에 `error` 가 담긴 응답을 성공으로 읽던 것, 재시도 대기(본문 `retryAfterSeconds`·`Retry-After`)를 읽지 않던 것, 늦은 응답 판정에서 세션이 유효한지 보지 않던 것.
 
 ## 2026-10-05 (서버 기술일지 2026-10-04 결함 중 모바일 해당분 수정, 로컬 미배포)
 

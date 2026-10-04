@@ -15,6 +15,7 @@ import '../capture/server_completed.dart' show deletionState;
 import '../community_store.dart';
 import '../upload_hooks.dart';
 import 'community_account_client.dart';
+import 'community_client_rules.dart';
 import 'community_device_label.dart';
 import 'gate_state.dart';
 
@@ -426,6 +427,11 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
       } on CommunityAccountError catch (e) {
         if (e.isAuth) {
           invalidate('auth:${e.code}');
+        } else if (!e.transient) {
+          // 차단 오류(카카오 필요·정지·형식 오류 등): 서버와 같이 게이트를 무효화한다(client-rules §2).
+          // 예전에는 인증 오류가 아니면 캐시를 10분까지 유지해 서버와 판정이 달랐다(D2-10).
+          _notice = e.message;
+          invalidate('status:${e.code}');
         } else {
           _notice = e.message;
           final age = _ageSeconds();
@@ -443,8 +449,16 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         _notifyIfChanged();
         return _state;
       }
-      if (authGen != _authGen || checkedMode != appMode) {
-        // 이 확인을 시작한 뒤 로그인 상태가 바뀌었다(로그아웃·계정 변경) — 이전 세션의 응답으로 게이트를 열지 않는다.
+      if (!isCurrentResponse(
+        {'generation': authGen, 'mode': checkedMode, 'user_id': null},
+        {
+          'generation': _authGen,
+          'mode': appMode,
+          'user_id': null,
+          'session': sessionStatus(),
+        },
+      )) {
+        // 이 확인을 시작한 뒤 로그인 상태가 바뀌었다(로그아웃·계정 변경) — 이전 세션의 응답으로 게이트를 열지 않는다(client-rules §4).
         // 새 세션의 확인은 _onAuthChanged 가 이어서 한다.
         _checked = true;
         _notifyIfChanged();

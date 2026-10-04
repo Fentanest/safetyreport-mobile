@@ -4,6 +4,8 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
+import 'community_client_rules.dart';
+
 /// `community-account` 함수 REST 클라이언트 (`contracts/community-ingest/account-api.md`).
 ///
 /// 헤더: `apikey: <publishable key>`, `Authorization: Bearer <사용자 access token>`.
@@ -42,9 +44,15 @@ class CommunityAccountClient {
       final version = p['version'];
       final hash = p['consent_text_sha256'];
       final text = p['consent_text'];
-      if (version is String && hash is String && text is String &&
+      if (version is String &&
+          hash is String &&
+          text is String &&
           sha256.convert(utf8.encode(text)).toString() == hash) {
-        return CommunityPolicy(version: version, consentTextSha256: hash, consentText: text);
+        return CommunityPolicy(
+          version: version,
+          consentTextSha256: hash,
+          consentText: text,
+        );
       }
     }
     throw const CommunityAccountError(
@@ -72,7 +80,9 @@ class CommunityAccountClient {
     required String accessToken,
     required String grantId,
   }) async {
-    final json = await _post('consent-revoke', {'grant_id': grantId}, accessToken);
+    final json = await _post('consent-revoke', {
+      'grant_id': grantId,
+    }, accessToken);
     return CommunityRevokeResult.parse(json);
   }
 
@@ -113,7 +123,9 @@ class CommunityAccountClient {
     required String accessToken,
     required String connectionId,
   }) async {
-    await _post('connections-revoke', {'connection_id': connectionId}, accessToken);
+    await _post('connections-revoke', {
+      'connection_id': connectionId,
+    }, accessToken);
   }
 
   // 공유한 자료 전체 삭제: 아직 구현하지 않는 기능이다(2026-09-27). 현재 이를 부르는 화면이 없다(설정 카드의 버튼을 주석 처리).
@@ -147,45 +159,45 @@ class CommunityAccountClient {
             body: jsonEncode({'protocol': 1, ...body}),
           )
           .timeout(timeout);
-      return _decode(res.statusCode, utf8.decode(res.bodyBytes, allowMalformed: true));
+      return _decode(
+        res.statusCode,
+        utf8.decode(res.bodyBytes, allowMalformed: true),
+        res.headers,
+      );
     } on TimeoutException {
-      throw const CommunityAccountError(code: 'timeout', message: '서버 응답이 늦습니다. 다시 시도해 주세요.');
+      throw const CommunityAccountError(
+        code: 'timeout',
+        message: '서버 응답이 늦습니다. 다시 시도해 주세요.',
+        transient: true,
+      );
     } on CommunityAccountError {
       rethrow;
     } catch (_) {
-      throw const CommunityAccountError(code: 'offline', message: '서버에 연결할 수 없습니다.');
+      throw const CommunityAccountError(
+        code: 'offline',
+        message: '서버에 연결할 수 없습니다.',
+        transient: true,
+      );
     } finally {
       if (_client == null) owned.close();
     }
   }
 
-  Map<String, Object?> _decode(int statusCode, String body) {
-    Object? json;
-    try {
-      json = jsonDecode(body);
-    } catch (_) {
-      json = null;
-    }
-    if (statusCode == 200 && json is Map) {
-      return json.cast<String, Object?>();
-    }
-    String code = 'server_error';
-    String? message;
-    final extra = <String, Object?>{};
-    if (json is Map) {
-      final err = json['error'];
-      if (err is Map) {
-        if (err['code'] is String) code = err['code'] as String;
-        if (err['message'] is String) message = err['message'] as String;
-        final writer = err['active_writer'];
-        if (writer is Map) extra['active_writer'] = writer.cast<String, Object?>();
-      }
-    }
+  /// 응답 분류는 서버·auth 와 같은 규칙(client-rules §2, [classifyAccountResponse]).
+  Map<String, Object?> _decode(
+    int statusCode,
+    String body, [
+    Map<String, String> headers = const {},
+  ]) {
+    final result = classifyAccountResponse(statusCode, body, headers);
+    if (result.success) return result.data!;
     throw CommunityAccountError(
-      code: code,
-      message: message ?? _defaultMessage(statusCode, code),
+      code: result.code!,
+      message: result.message ?? _defaultMessage(statusCode, result.code!),
       httpStatus: statusCode,
-      extra: extra,
+      extra: result.extra,
+      transient: result.transient,
+      retryAfterSeconds: result.retryAfterSeconds,
     );
   }
 
@@ -215,9 +227,21 @@ class CommunityAccountError implements Exception {
   final String code;
   final String message;
   final int? httpStatus;
+
   /// `writer_conflict` 의 `active_writer`(device_label·platform·source_app·created_at) 등 표시용 부가 정보.
   final Map<String, Object?> extra;
-  const CommunityAccountError({required this.code, required this.message, this.httpStatus, this.extra = const {}});
+
+  /// 일시 오류(네트워크·시간 초과·바쁨·요청 과다 등, client-rules §2). 아니면 게이트를 무효화한다.
+  final bool transient;
+  final double? retryAfterSeconds;
+  const CommunityAccountError({
+    required this.code,
+    required this.message,
+    this.httpStatus,
+    this.extra = const {},
+    this.transient = false,
+    this.retryAfterSeconds,
+  });
 
   bool get isAuth => code == 'auth_required' || httpStatus == 401;
   bool get isForbidden =>
@@ -244,36 +268,41 @@ class CommunityAccountStatus {
   bool get kakao => _map('gate')?['kakao'] == true;
   String? get consentState => _map('consent')?['state'] as String?;
   String? get consentGrantId => _map('consent')?['grant_id'] as String?;
-  String? get consentPolicyVersion => _map('consent')?['policy_version'] as String?;
+  String? get consentPolicyVersion =>
+      _map('consent')?['policy_version'] as String?;
   String? get contributorStatus => _map('contributor')?['status'] as String?;
   String get requiredPolicyVersion =>
       (_map('policy')?['required_version'] as String?) ?? '';
+
   /// 중앙의 지금 정책 동의문 해시.
   String get consentTextSha256 =>
       (_map('policy')?['consent_text_sha256'] as String?) ?? '';
+
   /// 내 grant 가 동의한 동의문 해시(업로드 context 에 기록).
-  String? get grantConsentTextSha256 => _map('consent')?['consent_text_sha256'] as String?;
+  String? get grantConsentTextSha256 =>
+      _map('consent')?['consent_text_sha256'] as String?;
   String? get fingerprint => _map('account')?['fingerprint'] as String?;
   String? get displayName => _map('account')?['display_name'] as String?;
 
   Map<String, Object?>? get connection => _map('connection');
 
   Map<String, Object?> toGateInput() => {
-        'gate': {'kakao': kakao},
-        'contributor': {'status': contributorStatus},
-        'consent': {
-          'state': consentState,
-          'policy_version': consentPolicyVersion,
-          'consent_text_sha256': grantConsentTextSha256,
-        },
-        'policy': {
-          'required_version': requiredPolicyVersion,
-          'consent_text_sha256': consentTextSha256,
-        },
-      };
+    'gate': {'kakao': kakao},
+    'contributor': {'status': contributorStatus},
+    'consent': {
+      'state': consentState,
+      'policy_version': consentPolicyVersion,
+      'consent_text_sha256': grantConsentTextSha256,
+    },
+    'policy': {
+      'required_version': requiredPolicyVersion,
+      'consent_text_sha256': consentTextSha256,
+    },
+  };
 
+  /// 게이트 관련 필드를 정해진 형으로 맞춘 뒤 보관한다(client-rules §1, 서버 normalize_status 와 같음).
   static CommunityAccountStatus parse(Map<String, Object?> json) =>
-      CommunityAccountStatus(Map<String, Object?>.from(json));
+      CommunityAccountStatus(normalizeAccountStatus(json)!);
 }
 
 /// 중앙이 내려준 지금 필수 동의 정책(본문 해시 확인 뒤).
@@ -329,7 +358,8 @@ class CommunityRevokeResult {
     required this.lineageActive,
   });
 
-  static CommunityRevokeResult parse(Map<String, Object?> json) => CommunityRevokeResult(
+  static CommunityRevokeResult parse(Map<String, Object?> json) =>
+      CommunityRevokeResult(
         grantId: (json['grant_id'] as String?) ?? '',
         revoked: json['revoked'] == true,
         lineageActive: json['lineage_active'] != false,
@@ -368,9 +398,13 @@ class CommunityConnectionResult {
 class CommunityDeleteResult {
   final String deletionId;
   final List<Object?> revokedConnections;
-  const CommunityDeleteResult({required this.deletionId, this.revokedConnections = const []});
+  const CommunityDeleteResult({
+    required this.deletionId,
+    this.revokedConnections = const [],
+  });
 
-  static CommunityDeleteResult parse(Map<String, Object?> json) => CommunityDeleteResult(
+  static CommunityDeleteResult parse(Map<String, Object?> json) =>
+      CommunityDeleteResult(
         deletionId: (json['deletion_id'] as String?) ?? '',
         revokedConnections: json['revoked_connections'] is List
             ? List<Object?>.from(json['revoked_connections'] as List)

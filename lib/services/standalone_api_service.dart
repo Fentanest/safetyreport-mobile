@@ -54,6 +54,27 @@ class StandaloneApiService {
     },
   );
 
+  /// 점수 API 응답 분류 — 서버 satisfaction_fetcher._classify_score_payload 와 같은 규칙(기술일지 A2-06).
+  /// 'empty'  : result 키가 있고 값이 null/빈 객체 — 만족도 미참여 확정
+  /// 'result' : 점수 자료
+  /// 'unknown': 객체가 아님, result 키 없음, error 가 null 이 아님, result 가 객체가 아님 — 확인 실패(저장된 값 유지)
+  @visibleForTesting
+  static ({String kind, Map<String, dynamic>? result}) classifyScorePayload(
+    Object? decoded,
+  ) {
+    if (decoded is! Map<String, dynamic> ||
+        !decoded.containsKey('result') ||
+        decoded['error'] != null) {
+      return (kind: 'unknown', result: null);
+    }
+    final result = decoded['result'];
+    if (result == null || (result is Map && result.isEmpty)) {
+      return (kind: 'empty', result: null);
+    }
+    if (result is! Map<String, dynamic>) return (kind: 'unknown', result: null);
+    return (kind: 'result', result: result);
+  }
+
   @visibleForTesting
   static String extractCauseFromPopupHtmlForTest(String html) =>
       _extractCauseFromPopupHtml(html);
@@ -302,17 +323,14 @@ class StandaloneApiService {
       if (res == null || res.statusCode != 200) {
         return (score: null, cause: '', confirmed: false, exists: false);
       }
-      final json = jsonDecode(res.body) as Map<String, dynamic>;
-      final result = json['result'];
-      if (result == null || (result is Map && result.isEmpty)) {
-        return (
-          score: null,
-          cause: '',
-          confirmed: true,
-          exists: false,
-        ); // 서버 satisfaction_fetcher 와 같음
+      final payload = classifyScorePayload(jsonDecode(res.body));
+      if (payload.kind == 'unknown') {
+        return (score: null, cause: '', confirmed: false, exists: false);
       }
-      final r = result as Map<String, dynamic>;
+      if (payload.kind == 'empty') {
+        return (score: null, cause: '', confirmed: true, exists: false);
+      }
+      final r = payload.result!;
       final scoreRaw = r['STSFDG_SCORE'];
       final score = (scoreRaw is num)
           ? scoreRaw.toInt()

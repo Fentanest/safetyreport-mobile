@@ -426,24 +426,41 @@ class CommunityAuthService {
     return CommunityLinkOutcome.confirmRequired;
   }
 
-  /// "이 계정으로 연결" — 이때만 세션을 저장한다(한 키에 한 번 쓰기).
-  Future<bool> confirmCandidate() async {
+  Future<bool>? _confirming;
+
+  /// "이 계정으로 연결" — 이때만 세션을 저장한다(한 키에 한 번 쓰기). 한 번에 하나만 실행한다.
+  /// 저장에 성공한 뒤에만 후보를 지운다 — 실패하면 확인 화면을 유지해 다시 누를 수 있게 한다
+  /// (서버 community_auth_service 의 영속 후보와 같은 동작, 서버 기술일지 2026-10-04 D2-05).
+  Future<bool> confirmCandidate() {
+    final running = _confirming;
+    if (running != null) return running;
+    final attempt = _confirmCandidateOnce();
+    _confirming = attempt;
+    return attempt.whenComplete(() {
+      if (identical(_confirming, attempt)) _confirming = null;
+    });
+  }
+
+  Future<bool> _confirmCandidateOnce() async {
     final c = _candidate;
     if (c == null) return false;
-    _candidate = null;
-    final old = await _readSession();
-    final session = _StoredSession(
-      accessToken: c.tokens.access,
-      refreshToken: c.tokens.refresh,
-      expiresAt: c.tokens.expiresAt,
-      userId: c.user.id,
-      displayName: c.user.displayName,
-      hasEmail: c.user.hasEmail,
-      connectedAt: _now(),
-      reauthRequired: false,
-      kakaoId: c.user.kakaoId,
-    );
-    await _storage.write(key: sessionKey, value: session.encode());
+    final _StoredSession? old;
+    try {
+      old = await _readSession();
+      await _storage.write(key: sessionKey, value: _sessionFor(c).encode());
+    } catch (_) {
+      if (identical(_candidate, c)) {
+        final cur = state.value;
+        _emit(
+          CommunityAccountPhase.confirmRequired,
+          account: cur.account,
+          candidate: cur.candidate,
+          notice: '이 기기에 계정을 저장하지 못했습니다. 다시 눌러 주세요.',
+        );
+      }
+      return false;
+    }
+    if (identical(_candidate, c)) _candidate = null;
     if (old != null && old.accessToken.isNotEmpty) {
       // 바뀐 이전 세션은 이 기기에서만 로그아웃(best effort).
       unawaited(_logoutLocal(old.accessToken));
@@ -452,8 +469,23 @@ class CommunityAuthService {
     return true;
   }
 
+  _StoredSession _sessionFor(_CandidateSession c) => _StoredSession(
+    accessToken: c.tokens.access,
+    refreshToken: c.tokens.refresh,
+    expiresAt: c.tokens.expiresAt,
+    userId: c.user.id,
+    displayName: c.user.displayName,
+    hasEmail: c.user.hasEmail,
+    connectedAt: _now(),
+    reauthRequired: false,
+    kakaoId: c.user.kakaoId,
+  );
+
   /// "취소" — 새 세션을 `logout?scope=local` 로 닫고 버린다. 기존 연결은 그대로.
+  /// 확정 저장이 진행 중이면 그 결과를 기다린다 — 저장 중인 토큰을 로그아웃시키지 않는다.
   Future<void> cancelCandidate() async {
+    final confirming = _confirming;
+    if (confirming != null && await confirming) return;
     final c = _candidate;
     _candidate = null;
     if (c != null) await _logoutLocal(c.tokens.access);

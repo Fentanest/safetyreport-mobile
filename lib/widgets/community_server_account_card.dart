@@ -443,6 +443,16 @@ class _CommunityServerAccountCardState extends State<CommunityServerAccountCard>
                   '이 계정으로 바뀝니다.',
             ),
           ],
+          if (c?.isDifferentDataOwner == true) ...[
+            const SizedBox(height: 8),
+            const CommunityNoticeBox(
+              icon: Icons.warning_amber_rounded,
+              tone: CommunityTone.danger,
+              text:
+                  '이 서버에 저장된 신고 내역은 다른 카카오 계정의 것입니다. '
+                  '이 계정으로 계속하려면 서버에 저장된 신고 내역을 지워야 합니다.',
+            ),
+          ],
           const SizedBox(height: 12),
           if (manage && c != null)
             CommunityButtonBar(
@@ -489,12 +499,24 @@ class _CommunityServerAccountCardState extends State<CommunityServerAccountCard>
           //   )
           // else
           //   permissionNote(),
-          if (manage)
+          if (manage) ...[
+            // 웹 관리자 화면의 "다른 계정으로 다시 연결"과 같은 흐름(서버 /start). 새 계정을 확인하기 전까지
+            // 지금 연결은 그대로다(기술일지 D2-08).
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.switch_account, size: 18),
+                label: const Text('다른 계정으로 다시 연결'),
+                onPressed: _busy ? null : _start,
+              ),
+            ),
+            const SizedBox(height: 8),
             Text(
+              '다시 연결해도 새 계정을 확인하기 전까지 지금 연결은 그대로입니다. '
               '서버의 카카오 로그아웃은 서버 관리자 화면에서 할 수 있습니다. 로그아웃하면 서버에 저장된 신고 내역이 지워집니다.',
               style: TextStyle(color: muted, fontSize: 12, height: 1.4),
-            )
-          else
+            ),
+          ] else
             permissionNote(),
         ]);
       case CommunityServerState.reauthRequired:

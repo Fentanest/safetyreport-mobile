@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
 
 import '../models/sunwi.dart';
@@ -217,11 +218,7 @@ class SunwiService {
         if (response.statusCode != 200) {
           throw HttpException('HTTP ${response.statusCode}');
         }
-        final decoded =
-            jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-        final result = decoded['result'];
-        if (result is List) return result;
-        return const [];
+        return resultListOrThrow(jsonDecode(utf8.decode(response.bodyBytes)));
       } on TimeoutException catch (e) {
         lastError = e;
       } on SocketException catch (e) {
@@ -236,6 +233,15 @@ class SunwiService {
       }
     }
     throw Exception(lastError);
+  }
+
+  /// 지역 통계 응답의 result 목록. result 가 없거나 목록이 아니면 정상 0건이 아니다 — FormatException 으로
+  /// 재시도 뒤 실패 지역으로 남긴다(서버 sunwi_fetcher.fetch_stats 와 같음, 기술일지 A2-08). 명시적인 빈 목록만 0건이다.
+  @visibleForTesting
+  static List<dynamic> resultListOrThrow(Object? decoded) {
+    final result = decoded is Map<String, dynamic> ? decoded['result'] : null;
+    if (result is List) return result;
+    throw const FormatException('Sunwi 응답에 result 목록이 없습니다');
   }
 
   static void _appendRows({

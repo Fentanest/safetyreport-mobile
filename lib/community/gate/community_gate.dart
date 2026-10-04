@@ -145,12 +145,15 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
       _checking,
       _notice,
       _manifestError,
-      if (conflict != null) [
-        conflict.deviceLabel,
-        conflict.platform,
-        conflict.sourceApp,
-        conflict.createdAt,
-      ] else null,
+      if (conflict != null)
+        [
+          conflict.deviceLabel,
+          conflict.platform,
+          conflict.sourceApp,
+          conflict.createdAt,
+        ]
+      else
+        null,
       _authGen,
       status(),
     ]);
@@ -352,7 +355,20 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         age <= maxAge.inSeconds) {
       return _state;
     }
-    return refreshNow();
+    final result = await refreshNow();
+    // 재검증이 실패해 10분 탐색 캐시를 그대로 쓴 경우에도, 새 작업(업로드·초기화)은 maxAge 안의 확인만
+    // 믿는다. 화면 이동용 상태(_state)는 그대로 둔다(서버 community_gate.require_fresh 와 같음, 기술일지 D2-03).
+    final verifiedAge = _ageSeconds();
+    if (result.canEnter &&
+        (verifiedAge == null || verifiedAge > maxAge.inSeconds)) {
+      return GateState(
+        state: 'verification_required',
+        canEnter: false,
+        reasons: const ['status_stale'],
+        verifiedAgeSeconds: verifiedAge,
+      );
+    }
+    return result;
   }
 
   double? _ageSeconds() {

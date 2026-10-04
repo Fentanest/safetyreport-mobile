@@ -143,6 +143,8 @@ void main() {
     SharedPreferences.setMockInitialValues({
       AppPrefsKeys.standaloneUsername: 'tester',
       AppPrefsKeys.standaloneToken: 'cached',
+      AppPrefsKeys.standaloneTokenUsername:
+          'tester', // 토큰은 받은 아이디를 함께 기록한다(기술일지 A2-01)
       AppPrefsKeys.standaloneTokenExpiresAt: DateTime.now()
           .add(const Duration(minutes: 30))
           .millisecondsSinceEpoch,
@@ -155,5 +157,68 @@ void main() {
     expect(await StandaloneAuthService.ensureValidToken(), 'cached');
     await StandaloneAuthService.refreshSessionIfNeeded();
     expect(loginCalls, 0);
+  });
+
+  // 기술일지 A2-01: 계정을 바꾼 뒤 이전 계정 토큰을 쓰지 않는다(서버 auth_token.json username 과 같은 규칙).
+  test('다른 아이디로 받은 토큰은 쓰지 않고 다시 로그인한다', () async {
+    SharedPreferences.setMockInitialValues({
+      AppPrefsKeys.standaloneUsername: 'tester',
+      AppPrefsKeys.standaloneToken: 'old-account-token',
+      AppPrefsKeys.standaloneTokenUsername: 'old-account',
+      AppPrefsKeys.standaloneTokenExpiresAt: DateTime.now()
+          .add(const Duration(minutes: 30))
+          .millisecondsSinceEpoch,
+    });
+    StandaloneAuthService.loginOverride = (u, p) async {
+      loginCalls++;
+      expect(u, 'tester');
+      return 'tester-token';
+    };
+
+    expect(await StandaloneAuthService.isTokenValid(), isFalse);
+    expect(await StandaloneAuthService.getStoredToken(), isNull);
+    expect(await StandaloneAuthService.ensureValidToken(), 'tester-token');
+    expect(loginCalls, 1);
+  });
+
+  test('받은 아이디가 기록되지 않은 옛 토큰도 한 번 다시 로그인한다', () async {
+    SharedPreferences.setMockInitialValues({
+      AppPrefsKeys.standaloneUsername: 'tester',
+      AppPrefsKeys.standaloneToken: 'legacy-token',
+      AppPrefsKeys.standaloneTokenExpiresAt: DateTime.now()
+          .add(const Duration(minutes: 30))
+          .millisecondsSinceEpoch,
+    });
+    expect(await StandaloneAuthService.isTokenValid(), isFalse);
+  });
+
+  test('자동 재로그인 저장은 그 사이 아이디가 바뀌었으면 쓰지 않는다(다른 isolate 의 계정 변경)', () async {
+    SharedPreferences.setMockInitialValues({
+      AppPrefsKeys.standaloneUsername: 'new-account',
+    });
+    await expectLater(
+      StandaloneAuthService.saveToken(
+        'old-account-token',
+        expiresAt: DateTime.now()
+            .add(const Duration(hours: 1))
+            .millisecondsSinceEpoch,
+        username: 'old-account',
+        requireCurrentUsername: true,
+      ),
+      throwsA(isA<AuthTemporarilyUnavailableException>()),
+    );
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString(AppPrefsKeys.standaloneToken), isNull);
+    expect(prefs.getString(AppPrefsKeys.standaloneTokenUsername), isNull);
+
+    await StandaloneAuthService.saveToken(
+      'new-account-token',
+      expiresAt: DateTime.now()
+          .add(const Duration(hours: 1))
+          .millisecondsSinceEpoch,
+      username: 'new-account',
+      requireCurrentUsername: true,
+    );
+    expect(await StandaloneAuthService.getStoredToken(), 'new-account-token');
   });
 }

@@ -346,9 +346,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     const label = '전체';
     final tone = _tone(context.sr.brand);
     final enabled = total > 0;
+    // excludeSemantics 가 InkWell 의 탭 동작까지 숨기므로 Semantics 에 직접 onTap 을 준다(TalkBack 활성화).
     return Semantics(
       button: enabled,
       label: '$label ${formatCount(total)}',
+      onTap: enabled ? () => _openFiltered(label, (r) => true) : null,
       excludeSemantics: true,
       child: Material(
         key: const ValueKey('dashboard-status-$label'),
@@ -427,6 +429,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       button: enabled,
       enabled: enabled,
       label: '${d.label} ${formatCount(d.value)}',
+      onTap: enabled ? () => _openFiltered(d.label, d.filter) : null,
       excludeSemantics: true,
       child: Material(
         key: ValueKey('dashboard-status-${d.label}'),

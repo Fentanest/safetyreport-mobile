@@ -32,7 +32,7 @@
 | WP9 | 파일·내보내기 | P03 P11 | file_browser_screen, local_db_service(export) | 완료 |
 | WP10 | 디자인 일관성·접근성 | U16 U17 U19 U20 U21 U23 U26 U27 U28 | 앱바들, settings_screen 재배치, sr_colors/app_theme 토큰, 공용 빈 상태, search_filter_sheet, docs | 완료 |
 | WP11 | 보고서 밖 추가 표시 결함 | UI 검토 L-3 L-7 L-8 L-9 | report_list_card, stats_overview_section, notifications_screen, rating_dialog | 완료 |
-| VER | 통합 검증 | 전체 | analyze/test, 에뮬레이터 라이트·다크·1.3/2.0배, 골든 재검토 | 대기 |
+| VER | 통합 검증 | 전체 | analyze/test, 에뮬레이터 라이트·다크·1.3/2.0배, 골든 재검토 | 완료(1170 passed, 상태 칸 접근성 탭 동작 추가 수정, 기관 드릴다운 건수 차이는 backlog BL-2) |
 
 ## 항목별 배정
 

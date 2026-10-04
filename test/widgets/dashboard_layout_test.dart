@@ -235,6 +235,24 @@ void main() {
     expect(heights.length, 1);
   });
 
+  testWidgets('스크린리더도 칸을 누를 수 있다(0건 칸은 누를 수 없음)', (tester) async {
+    // 칸 Semantics 가 excludeSemantics 로 InkWell 의 탭 동작을 가리면 TalkBack 으로 열 수 없다.
+    final handle = tester.ensureSemantics();
+    await _pump(tester, brightness: Brightness.light);
+    SemanticsNode nodeOf(String label) => tester.getSemantics(
+      find.ancestor(of: _tile(label), matching: find.byType(Semantics)).first,
+    );
+    for (final label in ['전체', '수용']) {
+      final data = nodeOf(label).getSemanticsData();
+      expect(data.hasAction(SemanticsAction.tap), isTrue, reason: label);
+    }
+    for (final label in ['보완 요청', '취하']) {
+      final data = nodeOf(label).getSemanticsData();
+      expect(data.hasAction(SemanticsAction.tap), isFalse, reason: label);
+    }
+    handle.dispose();
+  });
+
   testWidgets('감시 목록은 대시보드에서 3건까지 한 줄 요약으로 보이고 나머지는 더 보기로 넘긴다', (tester) async {
     await _pump(tester, brightness: Brightness.light, height: 2400);
     final rows = _watchRows;

@@ -125,6 +125,7 @@ class _MapFineRateLegendState extends State<MapFineRateLegend> {
               button: true,
               expanded: _expanded,
               label: _expanded ? '마커 색 범례 접기' : '마커 색 범례 펼치기',
+              onTap: () => setState(() => _expanded = !_expanded),
               excludeSemantics: true,
               child: InkWell(
                 onTap: () => setState(() => _expanded = !_expanded),
@@ -247,6 +248,7 @@ class MapOsmAttribution extends StatelessWidget {
     return Semantics(
       link: true,
       label: 'OpenStreetMap 저작권 안내 열기',
+      onTap: onTap,
       excludeSemantics: true,
       child: Material(
         color: sr.surface.withValues(alpha: 0.9),

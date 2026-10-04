@@ -971,6 +971,7 @@ class _Conditions extends StatelessWidget {
         Semantics(
           button: true,
           label: '위반법규 선택, 현재 $lawLabel',
+          onTap: onLawTap,
           excludeSemantics: true,
           child: InkWell(
             key: const ValueKey('stats-law-picker'),

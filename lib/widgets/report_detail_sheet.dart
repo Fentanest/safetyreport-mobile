@@ -1509,6 +1509,7 @@ class _VideoPlayerState extends State<_VideoPlayer>
       return Semantics(
         button: true,
         label: '${widget.label ?? '동영상'} 불러오기',
+        onTap: _requestLoad,
         excludeSemantics: true,
         child: GestureDetector(
           onTap: _requestLoad,

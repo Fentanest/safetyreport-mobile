@@ -79,24 +79,21 @@ class _NotificationsScreenState extends State<NotificationsScreen>
   bool get _isStandalone =>
       context.read<ReportProvider>().appMode == AppMode.standalone;
 
-  Future<void> _fetchServerResults() async {
-    if (_isStandalone) return;
+  /// Client 모드 서버 결과 확인. 결과를 먼저 기록에 영속 저장한 뒤에 완료 신호를 소비한다(SQ-B04) —
+  /// 일은 provider 가 끝까지 하므로 화면이 닫혀도 결과가 남는다. 반환: 실패 없이 끝났는지(실패는 provider 가 로그를 남김).
+  Future<bool> _fetchServerResults() async {
+    if (_isStandalone) return true;
     final api = _getApi();
-    if (api == null) return;
-    try {
-      final done = await api.getCrawlDone();
-      if (done['done'] == true) {
-        final changedCount = (done['changed_count'] as num?)?.toInt() ?? 0;
-        final results = await api.fetchCrawlResults();
-        if (mounted) {
-          context.read<NotificationHistoryProvider>().setPreferredTabIndex(1);
-          await context
-              .read<NotificationHistoryProvider>()
-              .addFromServerResults(results);
-        }
-        _showPushNotif(changedCount);
-      }
-    } catch (_) {}
+    if (api == null) return true;
+    final poll = await context
+        .read<NotificationHistoryProvider>()
+        .pollServerCrawlResults(
+          fetchResults: api.fetchCrawlResults,
+          consumeDone: api.getCrawlDone,
+        );
+    final changedCount = poll.doneChangedCount;
+    if (changedCount != null) unawaited(_showPushNotif(changedCount));
+    return poll.ok;
   }
 
   Future<void> _showPushNotif(int changedCount) async {
@@ -413,6 +410,9 @@ class _NotificationsScreenState extends State<NotificationsScreen>
   Widget build(BuildContext context) {
     final provider = context.watch<NotificationHistoryProvider>();
     final allItems = provider.items;
+    final isStandalone = context.select<ReportProvider, bool>(
+      (p) => p.appMode == AppMode.standalone,
+    );
 
     if (provider.preferredTabIndex != _tabController.index &&
         !_tabController.indexIsChanging) {
@@ -474,16 +474,20 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       body: TabBarView(
         controller: _tabController,
         children: [
+          // 하위 탭 이름 "크롤링 현황"은 불변 항목이라 그대로 두고, 빈 상태 문구만 모드에 맞춘다(SQ-U08).
+          // Standalone 동기화는 이 탭에 시작/완료 기록을 남기지 않고, 바뀐 신고만 "신고 결과" 탭에 남긴다.
           _buildGenericList(
             items: crawlItems,
-            emptyMessage: '크롤링 알림이 없습니다.',
-            emptySubMessage: '크롤링 시작/완료 알림이 여기에 기록됩니다.',
+            emptyMessage: isStandalone ? '동기화 알림이 없습니다.' : '크롤링 알림이 없습니다.',
+            emptySubMessage: isStandalone
+                ? '동기화로 바뀐 신고는 "신고 결과" 탭에 기록됩니다.'
+                : '크롤링 시작/완료 알림이 여기에 기록됩니다.',
           ),
           _buildGenericList(
             items: reportItems,
             emptyMessage: '신고 결과가 없습니다.',
             emptySubMessage:
-                '크롤링 후 변경된 신고건과 중복 신고 변경이 여기에 기록됩니다.\n각 항목을 눌러 상세 정보를 확인하세요.',
+                '${isStandalone ? '동기화' : '크롤링'} 후 변경된 신고건과 중복 신고 변경이 여기에 기록됩니다.\n각 항목을 눌러 상세 정보를 확인하세요.',
           ),
           _buildRatingList(ratingItems),
         ],
@@ -521,7 +525,12 @@ class _NotificationsScreenState extends State<NotificationsScreen>
 
   Future<void> _refresh() async {
     context.read<NotificationHistoryProvider>().load();
-    await _fetchServerResults();
+    final ok = await _fetchServerResults();
+    if (!ok && mounted) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('서버 변경 결과를 가져오지 못했습니다. 아래로 당겨 다시 시도하세요.')),
+      );
+    }
   }
 
   Widget _buildGenericList({

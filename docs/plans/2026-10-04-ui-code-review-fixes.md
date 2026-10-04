@@ -8,11 +8,20 @@
 - 상태: `대기` → `진행` → `완료(커밋)` / `보류(사유)`. 중단 시 이 표에서 이어간다.
 - 금지: Dart MCP analyze 도구 사용 금지(홈 전체 분석으로 메모리 8GB 이상, 2026-10-04 OOM 원인). 셸의 `flutter analyze`·`flutter test`만 쓴다.
 
+## 구현 공통 규칙
+
+- SDK는 `~/development/flutter-3.47.5/bin/flutter`만 쓴다. 기본 `flutter`(3.41.6)는 골든·lock이 달라진다.
+- 메모리: `flutter test`는 `-j 2` 이하. 전체 suite는 WP 끝에 한 번. 에뮬레이터·Gradle 빌드와 동시에 돌리지 않는다.
+- 결함마다 재현 테스트를 먼저 만든다(가능하면 수정 전 실패를 확인). 고정 색상 단언을 바꿀 때는 원래 목적을 유지한다.
+- 제품 불변조건(PROJECT_RULES)·서버 API/WS 계약·DB 스키마를 바꾸지 않는다. 서버 레포 변경이 필요하면 멈추고 보고한다.
+- 골든은 의도한 시각 변경일 때만 갱신하고, 변경 이유를 CHANGELOG에 적는다. 실패를 숨기려고 갱신하지 않는다.
+- 커밋은 총괄이 WP 단위로 한다(제목 영문, 본문 한국어, CHANGELOG 함께). push는 요청 시에만.
+
 ## 작업 패키지 순서
 
 | WP | 주제 | 항목 | 주요 파일 | 상태 |
 |---|---|---|---|---|
-| WP1 | 알림 경로 | B01 B02 B04 B12 P08 U08 | notification_history_provider, main(_checkPendingChanges), notifications_screen, report_detail_sheet(markReportRead), WsService.kt(ID) | 대기 |
+| WP1 | 알림 경로 | B01 B02 B04 B12 P08 U08 | notification_history_provider, main(_checkPendingChanges), notifications_screen, report_detail_sheet(markReportRead), WsService.kt(ID) | 완료 |
 | WP2 | DB 가져오기·설정 화면 결함 | B03 B06 B08 B14 B09(settings·setup) | pending_db_import_action, setup_screen, settings_screen, report_provider(capabilities) | 대기 |
 | WP3 | 루트·내비·테마 | P01 U05 U06 B05 B13 U07 U04(탭 막대) | main, app_theme, community_gate, sr_tab_bar, dashboard(관리), 시트 9곳, MainActivity.kt | 대기 |
 | WP4 | 목록·드릴다운·상세 | U01 U02 P09 U12 U13 U14 U20(상세) | report_list_screen, local_paged_report_list, statistics/map/detail 드릴다운, report_detail_sheet, status_badge | 대기 |
@@ -35,7 +44,7 @@
 | U05 | 비0 탭 뒤로가기 즉시 종료 | WP3 | 대기 |
 | U06 | 대시보드 "관리"가 중복 화면 push | WP3 | 대기 |
 | U07 | 바텀시트 손잡이 이중 | WP3 | 대기 |
-| U08 | Standalone 알림 빈 문구 "크롤링" | WP1 | 대기 |
+| U08 | Standalone 알림 빈 문구 "크롤링" | WP1 | 완료 |
 | U09 | 월별 추이 세로축 최상단 잘림 | WP6 | 대기 |
 | U10 | 지도 OSM 출처 표기 | WP5 | 대기 |
 | U11 | 지도 진입 즉시 위치 권한 요청 | WP5 | 대기 |
@@ -63,16 +72,16 @@
 | P05 | 지도 마커 매 빌드 재생성 | WP5 | 대기 |
 | P06 | 목록 SELECT r.* | WP8 | 대기 |
 | P07 | Selector 부재·무변경 알림 | WP8 | 대기 |
-| P08 | 알림 기록 반복 reload·저장 | WP1 | 대기 |
+| P08 | 알림 기록 반복 reload·저장 | WP1 | 완료 |
 | P09 | 상세 "같은 조건 검색" 200행 | WP4 | 대기 |
 | P10 | 전국 현황 타이머 화면 밖 | WP7 | 대기 |
 | P11 | 파일 화면 동기 stat | WP9 | 대기 |
 | P12 | 시작 초기화 직렬 | WP8 | 대기 |
 | P13 | cached_network_image 미사용 | WP8 | 대기 |
-| B01 | 읽은 신고의 새 변경 유실 | WP1 | 대기 |
-| B02 | 알림 기록 lost update | WP1 | 대기 |
+| B01 | 읽은 신고의 새 변경 유실 | WP1 | 완료 |
+| B02 | 알림 기록 lost update | WP1 | 완료 |
 | B03 | DB 변환 대기 작업 선삭제 | WP2 | 대기 |
-| B04 | 소비형 완료 신호 순서 | WP1 | 대기 |
+| B04 | 소비형 완료 신호 순서 | WP1 | 완료 |
 | B05 | MethodChannel 처리기 수명 | WP3 | 대기 |
 | B06 | 다운로드 진행 창 뒤로가기 | WP2 | 대기 |
 | B07 | 크롤링 화면 폴링·dispose | WP7 | 대기 |
@@ -80,10 +89,10 @@
 | B09 | await 뒤 mounted 누락 | WP2·WP7·WP8 | 대기 |
 | B10 | 감시 목록 epoch | WP8 | 대기 |
 | B11 | _isLoading 공유 | WP8 | 대기 |
-| B12 | 알림 기록 ID 충돌 | WP1 | 대기 |
+| B12 | 알림 기록 ID 충돌 | WP1 | 완료 |
 | B13 | 재구성 게이트 onDone 반복 | WP3 | 대기 |
 | B14 | 재로그인 컨트롤러 미해제 | WP2 | 대기 |
 
 ## 기준선
 
-- (작업 시작 시 기록)
+- 2026-10-04, HEAD `77ea5d9f`(코드는 `17c0ea0f`와 동일), Flutter 3.47.5: `flutter test -j 2` **914 passed / 16 skipped / 0 failed**, `flutter analyze` **error 0 / warning 9 / info 0**(test/ unnecessary_cast).

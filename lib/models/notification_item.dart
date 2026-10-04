@@ -28,8 +28,8 @@ class NotificationItem {
     this.extraData,
   });
 
-  NotificationItem copyWith({bool? isRead}) => NotificationItem(
-    id: id,
+  NotificationItem copyWith({String? id, bool? isRead}) => NotificationItem(
+    id: id ?? this.id,
     kind: kind,
     title: title,
     body: body,

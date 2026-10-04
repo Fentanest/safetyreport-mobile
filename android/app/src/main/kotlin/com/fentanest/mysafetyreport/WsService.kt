@@ -414,6 +414,8 @@ class WsService : Service() {
                 .format(java.util.Date())
             val newArr = org.json.JSONArray()
             val baseMs = System.currentTimeMillis()
+            // 한 묶음 안에서도 ID가 겹치지 않게 순번과 임의 꼬리를 붙인다(SQ-B12). 앱은 같은 ID를 이미 합친 항목으로 보고 버린다.
+            val batchTag = java.util.UUID.randomUUID().toString().take(8)
 
             for (i in 0 until minOf(changes.length(), 200)) {
                 val record     = changes.getJSONObject(i)
@@ -433,7 +435,7 @@ class WsService : Service() {
                     }
 
                     val item = JSONObject().apply {
-                        put("id", "${baseMs}_${if (groupId.isNotEmpty()) groupId else i}")
+                        put("id", "${baseMs}_${i}_${if (groupId.isNotEmpty()) groupId else "duplicate"}_$batchTag")
                         put("kind", "duplicate")
                         put("title", title)
                         put("body", body)
@@ -462,7 +464,7 @@ class WsService : Service() {
                 if (fine.isNotEmpty() && fine != "null") bodyLines.add("범칙금/과태료: $fine")
 
                 val item = JSONObject().apply {
-                    put("id",           "${baseMs}_$reportNo")
+                    put("id",           "${baseMs}_${i}_${reportNo}_$batchTag")
                     put("kind",         "report")
                     put("title",        title)
                     put("body",         bodyLines.joinToString("\n"))
@@ -549,7 +551,7 @@ class WsService : Service() {
                 else -> ""
             }
             val item = JSONObject().apply {
-                put("id",          System.currentTimeMillis().toString())
+                put("id",          "${System.currentTimeMillis()}_${java.util.UUID.randomUUID().toString().take(8)}")
                 put("title",       title)
                 put("body",        body)
                 put("reportNumber","")

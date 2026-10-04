@@ -817,22 +817,17 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
       final changes = claim.items;
       if (changes.isEmpty || !current() || !mounted) return;
       final history = context.read<NotificationHistoryProvider>();
-      await history.ensureLoaded();
+      // 읽음 판정은 변경 하나 단위다(SQ-B01). 판정·기록 추가·저장을 한 번에 끝낸 뒤에만 ack 한다(SQ-B02).
+      // 알림 히스토리에 extraData 포함해서 저장 (신고 결과 탭에서 상세 조회 가능하도록)
+      final unreadChanges = await history.recordPendingChanges(
+        changes,
+        preferredTabIndexIfUnread: 1,
+      );
       if (!current()) return;
-      final unreadChanges = changes.where((change) {
-        final kind = change['notification_kind']?.toString() ?? 'report';
-        if (kind == 'duplicate') return true;
-        return !history.isPayloadRead(change);
-      }).toList();
       if (unreadChanges.isEmpty) {
         await PendingChangesStore.acknowledge(claim);
         return;
       }
-
-      // 알림 히스토리에 extraData 포함해서 저장 (신고 결과 탭에서 상세 조회 가능하도록)
-      history.setPreferredTabIndex(1, notify: false);
-      await history.addFromServerResults(unreadChanges);
-      if (!current()) return;
 
       // 알림 탭으로 이동
       setState(() => _selectedIndex = 4);
@@ -1248,7 +1243,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   @override
   Widget build(BuildContext context) {
     final p = context.watch<ReportProvider>();
-    final unread = context.watch<NotificationHistoryProvider>().unreadCount;
+    // 하단 배지는 읽지 않은 수가 바뀔 때만 다시 그린다(SQ-P08).
+    final unread = context.select<NotificationHistoryProvider, int>(
+      (h) => h.unreadCount,
+    );
     _refreshNativeQuickActionsIfNeeded(p);
 
     // standalone drain 이 변경을 기록하면 카드 시트 표시 (Client 모드 _checkPendingChanges 와 동일 흐름)

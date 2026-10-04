@@ -8,6 +8,20 @@
 
 ---
 
+## 2026-10-04 (UI·코드 점검 55건 수정, 로컬 미배포)
+
+- 근거: [점검 보고서](docs/reviews/2026-10-04-ui-code-review/index.html), 추적표 [docs/plans/2026-10-04-ui-code-review-fixes.md](docs/plans/2026-10-04-ui-code-review-fixes.md). 사용자 결정으로 메이저 버전 출시 전 55건 전부 수정. 브랜치 `fix/ui-code-review-2026-10-04`.
+- 기준선(Flutter 3.47.5): test 914 passed / 16 skipped / 0 failed, analyze error 0 / warning 9 / info 0.
+
+### WP1 알림 경로 (SQ-B01 B02 B04 B12 P08 U08)
+- 읽음·중복 판정을 신고 단위에서 변경 단위 키(신고번호+변경종류+처리상태+synced_at+답변일, 중복군은 group_id+변경종류+상태+대표+구성수)로 바꿨다. 상세 시트를 열어 읽음 처리한 신고의 다음 처리 결과가 걸러진 뒤 ack되어 사라지던 결함을 고쳤다. 판정·추가·저장을 한 번에 끝낸 뒤에만 pending claim을 ack한다.
+- 알림 기록 provider의 모든 읽기·쓰기를 하나의 큐로 직렬화하고, reload가 저장 전 메모리 항목을 덮지 않게 했다. 저장 실패 시 다음 작업에서 다시 쓴다.
+- Client 알림 화면은 결과(per-device cursor)를 먼저 받아 저장한 뒤 서버의 일회성 완료 신호를 소비한다. 실패는 로그와 재시도 안내로 남긴다. 서버 변경 없음. 결과 조회가 화면 진입·복귀·새로고침마다 일어나므로 cursor가 이전보다 일찍 전진한다(첫 방문 기기는 최신 묶음을 미읽음으로 받음).
+- 알림 ID에 순번과 임의 꼬리를 붙여 한 묶음 안 충돌을 없앴다(Dart·WsService.kt). 옛 충돌 ID는 읽을 때 `_dupN`으로 구분한다.
+- 변하지 않은 기록은 다시 해석·알림하지 않고, 읽음 저장을 몰아서 한다. 하단 배지는 unreadCount 변경에만 다시 그린다.
+- Standalone의 "크롤링 현황"·"신고 결과" 빈 상태 문구를 동기화 기준으로 바꿨다(탭 이름은 불변 항목이라 유지).
+- 검증: analyze error 0 / warning 9 / info 0, test **934 passed / 16 skipped / 0 failed**(신규 20). WsService.kt는 컴파일 미확인(통합 검증 때 확인).
+
 ## 2026-10-04 (서버 dev 리팩터링 WS 소비자 연동, 로컬 미배포)
 
 - 서버의 optional terminal event_id/after/replay_gap/cursor_reset을 Android WsService에 연결했다. 서버 설정별 cursor를 분리하고 같은 event_id의 완료 알림 중복을 막는다. PrefsInbox가 알림 history와 cursor를 한 Editor.commit에 저장하며 실패하면 메모리의 실패 history/cursor/trim만 복구한 뒤 reconnect한다. rollback disk 실패에서도 메모리 cursor를 되돌리는 회귀를 확인했다.

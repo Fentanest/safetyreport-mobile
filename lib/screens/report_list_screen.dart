@@ -1,7 +1,6 @@
 import '../models/app_mode.dart';
 import '../widgets/local_paged_report_list.dart';
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart' show NumberFormat;
 import 'package:provider/provider.dart';
 import '../providers/report_provider.dart';
 import '../models/report.dart';
@@ -15,6 +14,7 @@ import '../widgets/sr_tab_bar.dart';
 import '../widgets/status_badge.dart';
 import '../theme/sr_colors.dart';
 import '../server_palette.dart';
+import '../utils/format.dart';
 
 /// 통계·지도·상세 시트에서 조건으로 좁혀 여는 드릴다운 목록.
 ///
@@ -71,7 +71,6 @@ class _ReportListScreenState extends State<ReportListScreen>
   final Map<int, PagedReportTotal?> _totals = {};
   ReportFilter? _totalsFilter;
 
-  static final _countFormat = NumberFormat('#,##0');
 
   bool get _isDrillDown => widget.filter != null;
 
@@ -166,11 +165,11 @@ class _ReportListScreenState extends State<ReportListScreen>
     final tab = _tabController.index;
     if (tab == 3 && provider.appMode != AppMode.standalone) {
       // Client 중복차량 탭은 필터와 무관하게 서버의 중복 목록 전체를 보인다.
-      return '${_countFormat.format(provider.filteredDuplicateReports.length)}건';
+      return formatCount(provider.filteredDuplicateReports.length);
     }
     final total = _totals[tab];
     if (total == null || !total.exact) return null;
-    final count = _countFormat.format(total.total);
+    final count = formatNumber(total.total);
     return hasFilter ? '검색 $count건' : '$count건';
   }
 

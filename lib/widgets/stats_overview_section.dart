@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../models/stats_overview.dart';
 import '../server_palette.dart';
 import '../theme/sr_colors.dart';
+import '../utils/format.dart';
 
 /// 통계 화면 상단 요약(2026-09-28 개편). 모든 수치는 [summary] 런타임 집계
 /// (Client: 서버 `/api/v1/stats/overview`, Standalone: `LocalDbService.computeStatsOverview`)에서 온다.
@@ -127,11 +129,6 @@ class StatsOverviewSection extends StatelessWidget {
   }
 }
 
-String _comma(num value) => value.toInt().toString().replaceAllMapped(
-  RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-  (match) => '${match[1]},',
-);
-
 /// 분모 0 은 계산 불가('—'), 실제 0 은 0.0%.
 String _pct(int n, int d) =>
     d > 0 ? '${(n / d * 100).toStringAsFixed(1)}%' : '—';
@@ -156,39 +153,40 @@ class _SummaryGrid extends StatelessWidget {
     final d = s.disposition;
     final fa = s.fineAmount;
     final items = <_SummaryItem>[
-      _SummaryItem('총 건수', '${_comma(s.total)}건', [
-        '처리 중 ${_comma(s.processing)}건 · 보완요청 ${_comma(s.supplement)}건',
+      _SummaryItem('총 건수', formatCount(s.total), [
+        '처리 중 ${formatCount(s.processing)} · 보완요청 ${formatCount(s.supplement)}',
       ], context.sr.brand),
-      _SummaryItem('답변 완료', '${_comma(s.completed)}건', [
-        '총 ${_comma(s.total)}건 중 ${_pct(s.completed, s.total)}',
-        '수용 ${_comma(s.accept)} · 일부 ${_comma(s.partial)} · 불수용/기타 ${_comma(s.reject)}',
+      _SummaryItem('답변 완료', formatCount(s.completed), [
+        '총 ${formatCount(s.total)} 중 ${_pct(s.completed, s.total)}',
+        '수용 ${formatNumber(s.accept)} · 일부 ${formatNumber(s.partial)} · 불수용/기타 ${formatNumber(s.reject)}',
       ], serverCompletedColor),
-      _SummaryItem('과태료 건수', d == null ? '미지원' : '${_comma(d.fines)}건', [
+      _SummaryItem('과태료 건수', d == null ? '미지원' : formatCount(d.fines), [
         d == null
             ? '서버가 처분 분포를 제공하지 않습니다'
-            : '총 ${_comma(s.total)}건 중 ${_pct(d.fines, s.total)}',
+            : '총 ${formatCount(s.total)} 중 ${_pct(d.fines, s.total)}',
       ], serverTrafficFineColor),
-      _SummaryItem('경고·범칙금 건수', d == null ? '미지원' : '${_comma(d.warnings)}건', [
-        if (d != null) '총 ${_comma(s.total)}건 중 ${_pct(d.warnings, s.total)}',
+      _SummaryItem('경고·범칙금 건수', d == null ? '미지원' : formatCount(d.warnings), [
+        if (d != null)
+          '총 ${formatCount(s.total)} 중 ${_pct(d.warnings, s.total)}',
       ], serverTrafficPenaltyColor),
       _SummaryItem(
         '평균 처리기간',
         s.avgDays == null ? '—' : '${s.avgDays!.toStringAsFixed(1)}일',
         [
-          '완료 신고 유효 표본 ${_comma(s.avgDaysCount)}건',
+          '완료 신고 유효 표본 ${formatCount(s.avgDaysCount)}',
           if (s.reversedDateCount > 0)
-            '날짜 역전 ${_comma(s.reversedDateCount)}건 제외',
+            '날짜 역전 ${formatCount(s.reversedDateCount)} 제외',
         ],
         serverPartialAcceptColor,
       ),
       _SummaryItem(
         '확정 과태료',
-        fa == null ? '미지원' : '${_comma(fa.confirmedAmount)}원',
+        fa == null ? '미지원' : formatWon(fa.confirmedAmount),
         fa == null
             ? ['서버가 금액 요약을 제공하지 않습니다']
             : [
-                '금액 확인 ${_comma(fa.confirmedCount)}건 · 미확인 ${_comma(fa.unknownCount)}건',
-                '추정(법정 최저) ${_comma(fa.estimatedAmount)}원 · ${_comma(fa.estimatedCount)}건',
+                '금액 확인 ${formatCount(fa.confirmedCount)} · 미확인 ${formatCount(fa.unknownCount)}',
+                '추정(법정 최저) ${formatWon(fa.estimatedAmount)} · ${formatCount(fa.estimatedCount)}',
               ],
         serverTrafficFineColor,
       ),
@@ -301,6 +299,7 @@ class _MonthlyTrendCard extends StatelessWidget {
   });
 
   static const double _groupWidth = 36;
+  static const double _axisFontSize = 11;
 
   static String _ym(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}';
@@ -393,9 +392,12 @@ class _MonthlyTrendCard extends StatelessWidget {
                 _LegendSwatch(color: barColor, label: '처리(답변) 건수'),
                 if (fineSeries != null)
                   _LegendSwatch(color: fineColor, label: '그중 과태료'),
+                // 막대와 같은 빗금 무늬로 그린다 — 색 농도만으로 구분하지 않는다(SQ-U24).
                 _LegendSwatch(
-                  color: barColor.withValues(alpha: 0.35),
+                  key: const ValueKey('stats-trend-legend-current'),
+                  color: barColor,
                   label: '이번 달(집계 중)',
+                  hatched: true,
                 ),
               ],
             ),
@@ -448,7 +450,7 @@ class _MonthlyTrendCard extends StatelessWidget {
             Text(
               [
                 if (unanswered > 0)
-                  '답변일 없는 ${_comma(unanswered)}건(미답변 등)은 추이에 없음',
+                  '답변일 없는 ${formatCount(unanswered)}(미답변 등)은 추이에 없음',
                 if (months.contains(nowKey)) '이번 달은 집계 중',
                 '처리율은 계산하지 않음(신고월·답변월 기준이 다름)',
               ].join(' · '),
@@ -484,6 +486,22 @@ class _MonthlyTrendCard extends StatelessWidget {
         months.first.substring(0, 4) != months.last.substring(0, 4);
     final labelEvery = months.length <= 12 ? 1 : (months.length / 12).ceil();
 
+    // 축 글자 11(SQ-U09). 예약 폭·높이는 글꼴 배율에 맞춰 잰다.
+    final textScaler = MediaQuery.textScalerOf(context);
+    final axisStyle = TextStyle(
+      fontSize: _axisFontSize,
+      color: sr.textSecondary,
+    );
+    final widest = TextPainter(
+      text: TextSpan(text: formatNumber(chartMaxY), style: axisStyle),
+      textDirection: TextDirection.ltr,
+      textScaler: textScaler,
+      maxLines: 1,
+    )..layout();
+    final leftReserved = math.max(32.0, widest.width + 8);
+    final bottomReserved = math.max(22.0, widest.height + 6);
+    widest.dispose();
+
     String monthLabel(String ym) {
       final mm = int.tryParse(ym.substring(5, 7)) ?? 0;
       return spansYears
@@ -514,16 +532,20 @@ class _MonthlyTrendCard extends StatelessWidget {
           leftTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
-              reservedSize: 32,
+              reservedSize: leftReserved,
               interval: yInterval,
               getTitlesWidget: (value, meta) {
+                // 맨 위 눈금(차트 위 경계) 숫자는 절반이 잘려 그리지 않는다(SQ-U09).
                 if (value != value.roundToDouble() ||
+                    value >= meta.max ||
                     value > maxValue + yInterval) {
                   return const SizedBox.shrink();
                 }
                 return Text(
-                  value.toInt().toString(),
-                  style: TextStyle(fontSize: 10, color: sr.textSecondary),
+                  formatNumber(value),
+                  maxLines: 1,
+                  softWrap: false,
+                  style: axisStyle,
                 );
               },
             ),
@@ -531,7 +553,7 @@ class _MonthlyTrendCard extends StatelessWidget {
           bottomTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
-              reservedSize: 22,
+              reservedSize: bottomReserved,
               getTitlesWidget: (value, meta) {
                 final i = value.toInt();
                 if (i < 0 || i >= months.length || i % labelEvery != 0) {
@@ -542,8 +564,9 @@ class _MonthlyTrendCard extends StatelessWidget {
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
                     monthLabel(months[i]),
-                    style: TextStyle(
-                      fontSize: 10,
+                    maxLines: 1,
+                    softWrap: false,
+                    style: axisStyle.copyWith(
                       color: isNow ? barColor : sr.textSecondary,
                       fontWeight: isNow ? FontWeight.w700 : FontWeight.w400,
                     ),
@@ -580,9 +603,11 @@ class _MonthlyTrendCard extends StatelessWidget {
                 BarChartRodData(
                   toY: (answered[months[i]] ?? 0).toDouble(),
                   width: 12,
-                  color: months[i] == nowKey
-                      ? barColor.withValues(alpha: 0.35)
-                      : barColor,
+                  // 당월(집계 중)은 옅은 바탕 + 진한 빗금 + 테두리. 대비가 낮은 옅은 색만으로 구분하지 않는다.
+                  color: months[i] == nowKey ? null : barColor,
+                  gradient: months[i] == nowKey
+                      ? StatsHatchGradient(color: barColor)
+                      : null,
                   borderSide: months[i] == nowKey
                       ? BorderSide(color: barColor, width: 1)
                       : BorderSide.none,
@@ -611,7 +636,15 @@ class _LegendSwatch extends StatelessWidget {
   final Color color;
   final String label;
 
-  const _LegendSwatch({required this.color, required this.label});
+  /// 당월 막대처럼 옅은 바탕 + 빗금 + 테두리로 그린다.
+  final bool hatched;
+
+  const _LegendSwatch({
+    super.key,
+    required this.color,
+    required this.label,
+    this.hatched = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -619,10 +652,12 @@ class _LegendSwatch extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          width: 10,
-          height: 10,
+          width: hatched ? 12 : 10,
+          height: hatched ? 12 : 10,
           decoration: BoxDecoration(
-            color: color,
+            color: hatched ? null : color,
+            gradient: hatched ? StatsHatchGradient(color: color) : null,
+            border: hatched ? Border.all(color: color) : null,
             borderRadius: BorderRadius.circular(2),
           ),
         ),
@@ -634,6 +669,76 @@ class _LegendSwatch extends StatelessWidget {
       ],
     );
   }
+}
+
+/// 45° 빗금 무늬. 옅은 바탕([fillAlpha])에 진한 [color] 줄을 [period] 간격으로 그린다.
+/// 막대 크기와 상관없이 같은 픽셀 간격이 되도록 절대 좌표로 반복한다.
+/// 월별 추이의 '이번 달(집계 중)' 막대와 범례에 쓴다 — 색 농도만으로 구분하지 않기 위해(SQ-U24).
+class StatsHatchGradient extends Gradient {
+  final Color color;
+  final double fillAlpha;
+  final double period;
+
+  StatsHatchGradient({
+    required this.color,
+    this.fillAlpha = 0.22,
+    this.period = 4.5,
+  }) : super(
+         colors: [
+           color,
+           color.withValues(alpha: fillAlpha),
+         ],
+       );
+
+  @override
+  Shader createShader(Rect rect, {TextDirection? textDirection}) {
+    final step = period / math.sqrt2;
+    final fill = color.withValues(alpha: color.a * fillAlpha);
+    return ui.Gradient.linear(
+      rect.topLeft,
+      rect.topLeft + Offset(step, step),
+      [color, color, fill, fill],
+      const [0, 0.4, 0.4, 1],
+      TileMode.repeated,
+    );
+  }
+
+  StatsHatchGradient _withColor(Color c) =>
+      StatsHatchGradient(color: c, fillAlpha: fillAlpha, period: period);
+
+  @override
+  Gradient scale(double factor) =>
+      _withColor(color.withValues(alpha: (color.a * factor).clamp(0.0, 1.0)));
+
+  @override
+  Gradient withOpacity(double opacity) =>
+      _withColor(color.withValues(alpha: (color.a * opacity).clamp(0.0, 1.0)));
+
+  @override
+  Gradient? lerpFrom(Gradient? a, double t) {
+    if (a is StatsHatchGradient) {
+      return _withColor(Color.lerp(a.color, color, t)!);
+    }
+    return super.lerpFrom(a, t);
+  }
+
+  @override
+  Gradient? lerpTo(Gradient? b, double t) {
+    if (b is StatsHatchGradient) {
+      return _withColor(Color.lerp(color, b.color, t)!);
+    }
+    return super.lerpTo(b, t);
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is StatsHatchGradient &&
+      other.color == color &&
+      other.fillAlpha == fillAlpha &&
+      other.period == period;
+
+  @override
+  int get hashCode => Object.hash(color, fillAlpha, period);
 }
 
 /// 처분 분류 한 줄(라벨·색). PC `DISP` 와 같은 순서·의미색. 표 카드·상세에서도 같은 색을 쓴다.
@@ -698,7 +803,7 @@ class _HBar extends StatelessWidget {
                 ),
               ),
               Text(
-                '${_comma(count)}건 · ${_pct(count, denominator)}',
+                '${formatCount(count)} · ${_pct(count, denominator)}',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -807,7 +912,7 @@ class _DispositionCard extends StatelessWidget {
     final total = math.max(0, summary.total - d.inProgress);
     return _ChartCard(
       title: '처분 분포',
-      subtitle: '답변된 신고 ${_comma(total)}건 기준',
+      subtitle: '답변된 신고 ${formatCount(total)} 기준',
       children: [
         for (final item in StatsDisposition.all)
           _HBar(
@@ -820,9 +925,10 @@ class _DispositionCard extends StatelessWidget {
         const SizedBox(height: 4),
         Text(
           [
-            if (d.inProgress > 0) '처리 중(답변 전) ${_comma(d.inProgress)}건은 처분이 없어 뺐습니다.',
+            if (d.inProgress > 0)
+              '처리 중(답변 전) ${formatCount(d.inProgress)}은 처분이 없어 뺐습니다.',
             d.overlap > 0
-                ? '과태료·경고/범칙금·불수용이 함께 적힌 신고 ${_comma(d.overlap)}건은 두 항목에 모두 세어, 항목 합이 기준 건수보다 많습니다.'
+                ? '과태료·경고/범칙금·불수용이 함께 적힌 신고 ${formatCount(d.overlap)}은 두 항목에 모두 세어, 항목 합이 기준 건수보다 많습니다.'
                 : '여섯 항목은 서로 겹치지 않으며 합계가 기준 건수와 같습니다.',
           ].join(' '),
           style: TextStyle(fontSize: 11, color: sr.textSecondary, height: 1.4),
@@ -865,7 +971,7 @@ class _ReportTypesCardState extends State<_ReportTypesCard> {
     final shown = _all ? types : types.take(_topN).toList();
     return _ChartCard(
       title: '위반 유형별 현황',
-      subtitle: '신고명 기준 · 유형 ${_comma(types.length)}개',
+      subtitle: '신고명 기준 · 유형 ${formatNumber(types.length)}개',
       children: [
         if (types.isEmpty)
           Text(
@@ -886,7 +992,7 @@ class _ReportTypesCardState extends State<_ReportTypesCard> {
             child: Text(
               _all
                   ? '상위 $_topN개만 보기'
-                  : '전체 ${_comma(types.length)}개 유형 보기 (상위 $_topN개 표시 중)',
+                  : '전체 ${formatNumber(types.length)}개 유형 보기 (상위 $_topN개 표시 중)',
             ),
           ),
       ],

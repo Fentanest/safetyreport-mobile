@@ -11,6 +11,7 @@ import '../widgets/dispose_on_unmount.dart';
 import '../widgets/duplicate_group_detail_sheet.dart';
 import '../widgets/report_detail_sheet.dart';
 import '../widgets/status_badge.dart';
+import '../utils/format.dart';
 
 class DuplicateManagementPanel extends StatefulWidget {
   const DuplicateManagementPanel({super.key});
@@ -314,7 +315,7 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
                 ),
                 if (paged && group.memberCount > 50) ...[
                   Text(
-                    '대표 후보 ${candidatePage * 50 + 1}–${candidatePage * 50 + candidates.length} / 전체 ${group.memberCount}건 · 선택 $representativeId',
+                    '대표 후보 ${candidatePage * 50 + 1}–${candidatePage * 50 + candidates.length} / 전체 ${formatCount(group.memberCount)} · 선택 $representativeId',
                   ),
                   if (candidateError != null)
                     Text(
@@ -590,7 +591,7 @@ class _StatusCard extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                '$count건',
+                formatCount(count),
                 style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -647,7 +648,7 @@ class _DuplicateGroupCard extends StatelessWidget {
                   style: const TextStyle(fontSize: 12),
                 ),
               Text(
-                '멤버 ${group.memberCount}건 · ${group.representativeModeLabel}',
+                '멤버 ${formatCount(group.memberCount)} · ${group.representativeModeLabel}',
                 style: const TextStyle(fontSize: 12),
               ),
               if (rep?.report.agency.isNotEmpty == true)

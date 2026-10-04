@@ -117,7 +117,7 @@ Future<void> _waitFor(WidgetTester tester, Finder finder) async {
 }
 
 /// 조회가 끝난 본문(초기값 "전체 0건" 이 아닌 것).
-final _loadedBody = find.textContaining(RegExp(r'^전체 [1-9]\d*건 · '));
+final _loadedBody = find.textContaining(RegExp(r'^전체 [1-9][\d,]*건 · '));
 
 String _comma(int v) =>
     v.toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
@@ -125,7 +125,9 @@ String _comma(int v) =>
 /// 본문(LocalPagedReportList)의 "전체 N건 · ..." 에서 N 을 읽는다.
 int _bodyTotal(WidgetTester tester) {
   final text = tester.widgetList<Text>(_loadedBody).last.data!;
-  return int.parse(RegExp(r'^전체 (\d+)건').firstMatch(text)!.group(1)!);
+  return int.parse(
+    RegExp(r'^전체 ([\d,]+)건').firstMatch(text)!.group(1)!.replaceAll(',', ''),
+  );
 }
 
 Finder _inAppBar(Finder f) =>
@@ -245,7 +247,7 @@ void main() {
       await tester.pump();
       await tester.pump();
       expect(_inAppBar(find.textContaining('건')), findsNothing);
-      expect(find.textContaining('전체 대상 1234건'), findsOneWidget);
+      expect(find.textContaining('전체 대상 1,234건'), findsOneWidget);
     });
   });
 

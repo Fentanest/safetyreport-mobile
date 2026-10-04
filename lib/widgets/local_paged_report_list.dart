@@ -10,6 +10,7 @@ import 'report_list_card.dart';
 import 'selection_action_bar.dart';
 import 'selection_back_scope.dart';
 import 'status_badge.dart';
+import '../utils/format.dart';
 
 /// 페이지 목록이 받은 전체 모집단 건수. [exact] 가 false 면 Client 의 필터처럼
 /// 현재 페이지 안에서만 걸러, 조건에 맞는 전체 건수를 알 수 없다는 뜻이다.
@@ -214,8 +215,8 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
             children: [
               Text(
                 !_candidateCount
-                    ? '전체 $_total건 · ${_page + 1} / ${((_total - 1) ~/ 200 + 1).clamp(1, 100000)} 페이지'
-                    : '전체 대상 $_total건 · ${_page + 1}페이지에서 조건에 맞는 ${_reports.length}건',
+                    ? '전체 ${formatCount(_total)} · ${_page + 1} / ${((_total - 1) ~/ 200 + 1).clamp(1, 100000)} 페이지'
+                    : '전체 대상 ${formatCount(_total)} · ${_page + 1}페이지에서 조건에 맞는 ${formatCount(_reports.length)}',
               ),
               IconButton(
                 tooltip: '이전 페이지',

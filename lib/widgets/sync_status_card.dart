@@ -49,6 +49,26 @@ class _SyncStatusCardState extends State<SyncStatusCard> {
     final scheme = Theme.of(context).colorScheme;
     final isStandalone = p.appMode == AppMode.standalone;
     final title = isStandalone ? '동기화' : '크롤링';
+    // 글꼴 1.5배 이상이면 이동 버튼을 설명 아래로 내린다(제목·버튼이 한 줄에 들어가지 않는다).
+    final large = MediaQuery.textScalerOf(context).scale(1) >= 1.5;
+    final action = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(
+          child: Text(
+            '$title 화면',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: scheme.primary,
+            ),
+          ),
+        ),
+        Icon(Icons.chevron_right, color: scheme.primary),
+      ],
+    );
 
     return Card(
       child: InkWell(
@@ -79,17 +99,30 @@ class _SyncStatusCardState extends State<SyncStatusCard> {
                 ),
               ),
               const SizedBox(width: 12),
+              // 설명 문구가 카드 폭을 다 쓰도록 이동 버튼은 제목 줄 오른쪽에 둔다
+              // (설명 옆에 두면 좁은 폭에서 "없습/니다"처럼 어색하게 꺾였다).
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      '$title 상태',
-                      style: TextStyle(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w800,
-                        color: sr.textPrimary,
-                      ),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '$title 상태',
+                            style: TextStyle(
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w800,
+                              color: sr.textPrimary,
+                            ),
+                          ),
+                        ),
+                        if (!large) ...[
+                          const SizedBox(width: 8),
+                          Flexible(child: action),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 2),
                     if (p.isSyncing)
@@ -100,7 +133,7 @@ class _SyncStatusCardState extends State<SyncStatusCard> {
                     else if (!isStandalone)
                       Text(
                         '서버 크롤링 실행·상태·로그는 크롤링 화면에서 확인합니다',
-                        maxLines: 2,
+                        maxLines: large ? 4 : 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(fontSize: 12, color: sr.textSecondary),
                       )
@@ -122,23 +155,9 @@ class _SyncStatusCardState extends State<SyncStatusCard> {
                           ),
                         ),
                       ),
+                    if (large) ...[const SizedBox(height: 4), action],
                   ],
                 ),
-              ),
-              const SizedBox(width: 8),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    '$title 화면',
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w700,
-                      color: scheme.primary,
-                    ),
-                  ),
-                  Icon(Icons.chevron_right, color: scheme.primary),
-                ],
               ),
             ],
           ),

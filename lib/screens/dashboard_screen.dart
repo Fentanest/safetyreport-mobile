@@ -18,6 +18,7 @@ import '../widgets/mode_badge.dart';
 import '../widgets/status_badge.dart';
 import '../widgets/sync_status_card.dart';
 import '../navigation/main_tabs.dart';
+import '../utils/format.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -48,17 +49,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          children: [
-            const Flexible(
-              child: Text('대시보드', overflow: TextOverflow.ellipsis),
-            ),
-            const SizedBox(width: 8),
-            ModeBadge(
-              mode: provider.appMode,
-              isDemo: provider.isStandaloneDemo,
-            ),
-          ],
+        // 제목은 제 폭을 먼저 쓰고(최대 60%), 남는 폭이 모자랄 때만 모드 배지를 줄인다(SQ-U04 큰 글꼴).
+        title: LayoutBuilder(
+          builder: (context, constraints) => Row(
+            children: [
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: constraints.maxWidth * 0.6,
+                ),
+                child: const Text('대시보드', overflow: TextOverflow.ellipsis),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: ModeBadge(
+                    mode: provider.appMode,
+                    isDemo: provider.isStandaloneDemo,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
         actions: [
           const SyncActionButton(),
@@ -208,149 +221,267 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // ── 요약 그리드 (6칸) ─────────────────────────────
+  // ── 처리 상태 요약 ─────────────────────────────────
+  // 전체 건수를 머리 한 줄에 두고 상태 6종을 칸으로 둔다(SQ-U15). 칸 높이는 내용 높이를 따른다
+  // (고정 가로세로 비율 없음 — 큰 글꼴에서 넘치지 않게, SQ-U04). 휴대전화 폭은 3열×2줄,
+  // 글꼴 1.5배 이상이거나 칸이 너무 좁으면 2열×3줄. 6은 2·3 모두로 나눠져 혼자 남는 칸이 없다.
   Widget _buildSummaryGrid(DashboardStats stats) {
-    return GridView.count(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisCount: 2,
-      childAspectRatio: 1.65,
-      mainAxisSpacing: 10,
-      crossAxisSpacing: 10,
+    final statuses = <_StatusTileData>[
+      _StatusTileData(
+        '보완 요청',
+        stats.supplementCount,
+        serverSupplementColor,
+        Icons.assignment_late_rounded,
+        (r) => r.status == '보완요청',
+      ),
+      _StatusTileData(
+        '처리 중',
+        stats.processingCount,
+        serverProcessingColor,
+        Icons.pending_rounded,
+        (r) =>
+            r.status == '처리중' ||
+            r.status == '진행' ||
+            r.status == '진행중' ||
+            r.status == '검토중',
+      ),
+      _StatusTileData(
+        '수용',
+        stats.acceptCount,
+        serverAcceptColor,
+        Icons.check_circle_rounded,
+        (r) => r.status == '수용',
+      ),
+      _StatusTileData(
+        '일부수용',
+        stats.partialCount,
+        serverPartialAcceptColor,
+        Icons.check_circle_outline_rounded,
+        (r) => r.status == '일부수용',
+      ),
+      _StatusTileData(
+        '불수용/기타',
+        stats.rejectCount,
+        serverRejectColor,
+        Icons.cancel_rounded,
+        (r) => r.status == '불수용' || r.status == '기타',
+      ),
+      _StatusTileData(
+        '취하',
+        stats.withdrawCount,
+        serverWithdrawColor,
+        Icons.remove_circle_outline_rounded,
+        (r) => r.status == '취하',
+      ),
+    ];
+    const gap = 8.0;
+    return Column(
+      key: const ValueKey('dashboard-status-summary'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _buildStatCard(
-          '전체',
-          stats.total,
-          context.sr.brand,
-          Icons.assignment_rounded,
-          filter: (r) => true,
-        ),
-        _buildStatCard(
-          '보완 요청',
-          stats.supplementCount,
-          serverSupplementColor,
-          Icons.assignment_late_rounded,
-          filter: (r) => r.status == '보완요청',
-        ),
-        _buildStatCard(
-          '처리 중',
-          stats.processingCount,
-          serverProcessingColor,
-          Icons.pending_rounded,
-          filter: (r) =>
-              r.status == '처리중' ||
-              r.status == '진행' ||
-              r.status == '진행중' ||
-              r.status == '검토중',
-        ),
-        _buildStatCard(
-          '수용',
-          stats.acceptCount,
-          serverAcceptColor,
-          Icons.check_circle_rounded,
-          filter: (r) => r.status == '수용',
-        ),
-        _buildStatCard(
-          '일부수용',
-          stats.partialCount,
-          serverPartialAcceptColor,
-          Icons.check_circle_outline_rounded,
-          filter: (r) => r.status == '일부수용',
-        ),
-        _buildStatCard(
-          '불수용/기타',
-          stats.rejectCount,
-          serverRejectColor,
-          Icons.cancel_rounded,
-          filter: (r) => r.status == '불수용' || r.status == '기타',
-        ),
-        _buildStatCard(
-          '취하',
-          stats.withdrawCount,
-          serverWithdrawColor,
-          Icons.remove_circle_outline_rounded,
-          filter: (r) => r.status == '취하',
+        _buildTotalTile(stats.total),
+        const SizedBox(height: gap),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final scale = MediaQuery.textScalerOf(context).scale(1);
+            final threeWide = (constraints.maxWidth - gap * 2) / 3;
+            final columns = scale >= 1.5 || threeWide < 96 ? 2 : 3;
+            final rows = <Widget>[];
+            for (var i = 0; i < statuses.length; i += columns) {
+              final cells = <Widget>[];
+              for (var c = 0; c < columns; c++) {
+                if (c > 0) cells.add(const SizedBox(width: gap));
+                final index = i + c;
+                cells.add(
+                  Expanded(
+                    child: index < statuses.length
+                        ? _buildStatusTile(statuses[index])
+                        : const SizedBox.shrink(),
+                  ),
+                );
+              }
+              if (rows.isNotEmpty) rows.add(const SizedBox(height: gap));
+              // 같은 줄 칸은 가장 긴 칸의 높이에 맞춘다(라벨이 두 줄로 꺾여도 숫자 줄이 나란하다).
+              rows.add(
+                IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: cells,
+                  ),
+                ),
+              );
+            }
+            return Column(children: rows);
+          },
         ),
       ],
     );
   }
 
-  Widget _buildStatCard(
-    String label,
-    int value,
-    Color color,
-    IconData icon, {
-    required bool Function(Report) filter,
-  }) {
-    final tone = _tone(color);
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: tone.border),
+  void _openFiltered(String label, bool Function(Report) filter) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => FilteredListScreen(
+          title: label,
+          category: 'all',
+          metric: label,
+          filter: filter,
+        ),
       ),
-      color: tone.background,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: value > 0
-            ? () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => FilteredListScreen(
-                    title: label,
-                    category: 'all',
-                    metric: label,
-                    filter: filter,
-                  ),
-                ),
-              )
-            : null,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
+    );
+  }
+
+  /// 전체 건수 머리 줄. 누르면 전체 목록(FilteredListScreen)으로 간다 — 이전 '전체' 카드와 같은 동작.
+  Widget _buildTotalTile(int total) {
+    const label = '전체';
+    final tone = _tone(context.sr.brand);
+    final enabled = total > 0;
+    return Semantics(
+      button: enabled,
+      label: '$label ${formatCount(total)}',
+      excludeSemantics: true,
+      child: Material(
+        key: const ValueKey('dashboard-status-$label'),
+        color: tone.background,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: tone.border),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: enabled ? () => _openFiltered(label, (r) => true) : null,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 48),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+              child: Row(
                 children: [
-                  Expanded(
-                    child: Text(
-                      label,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
-                        color: tone.foreground,
-                      ),
+                  Icon(
+                    Icons.assignment_rounded,
+                    color: tone.foreground,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: tone.foreground,
                     ),
                   ),
-                  Icon(icon, color: tone.foreground, size: 20),
-                ],
-              ),
-              Row(
-                children: [
-                  Flexible(
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        '$value건',
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.w800,
-                          color: tone.foreground,
-                          fontFeatures: const [FontFeature.tabularFigures()],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          formatCount(total),
+                          maxLines: 1,
+                          softWrap: false,
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                            color: tone.foreground,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
                         ),
                       ),
                     ),
                   ),
-                  if (value > 0) ...[
-                    const Spacer(),
-                    Icon(Icons.chevron_right, size: 18, color: tone.foreground),
-                  ],
+                  _chevronSlot(tone.foreground, visible: enabled),
                 ],
               ),
-            ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 화살표 자리는 0건 칸에도 같은 크기로 남긴다(보이지만 않게) — 칸마다 숫자·화살표 위치가 같다.
+  Widget _chevronSlot(Color color, {required bool visible}) => Opacity(
+    opacity: visible ? 1 : 0,
+    child: Icon(Icons.chevron_right, size: 18, color: color),
+  );
+
+  Widget _buildStatusTile(_StatusTileData d) {
+    final tone = _tone(d.color);
+    final enabled = d.value > 0;
+    final sr = context.sr;
+    // 0건 칸: 배치는 같고, 바탕은 중립 면·글자는 흐리게, 누를 수 없음.
+    final fg = enabled ? tone.foreground : sr.textSecondary;
+    return Semantics(
+      button: enabled,
+      enabled: enabled,
+      label: '${d.label} ${formatCount(d.value)}',
+      excludeSemantics: true,
+      child: Material(
+        key: ValueKey('dashboard-status-${d.label}'),
+        color: enabled ? tone.background : sr.surfaceAlt,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: enabled ? tone.border : sr.border),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: enabled ? () => _openFiltered(d.label, d.filter) : null,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 8, 4, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 1),
+                      // 아이콘은 0건이어도 상태 기준색을 유지해 어떤 상태인지 색으로도 알 수 있다.
+                      child: Icon(d.icon, color: tone.foreground, size: 15),
+                    ),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        d.label,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: fg,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          formatCount(d.value),
+                          // 한 줄 고정: IntrinsicHeight 가 줄바꿈된 높이를 재지 않게 한다.
+                          maxLines: 1,
+                          softWrap: false,
+                          style: TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.w800,
+                            color: fg,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                      ),
+                    ),
+                    _chevronSlot(fg, visible: enabled),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -382,9 +513,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   color: context.sr.textSecondary,
                 ),
                 const SizedBox(width: 6),
-                const Text(
-                  '교통위반 처리 현황',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                const Expanded(
+                  child: Text(
+                    '교통위반 처리 현황',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
                 ),
               ],
             ),
@@ -453,12 +586,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
           padding: const EdgeInsets.symmetric(vertical: 4),
           child: Column(
             children: [
-              Text(
-                '$value',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: _tone(color).foreground,
+              // 큰 글꼴에서 "4,3/21"처럼 숫자가 꺾이지 않게 한 줄로 두고 칸에 맞춰 줄인다.
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  formatNumber(value),
+                  maxLines: 1,
+                  softWrap: false,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: _tone(color).foreground,
+                  ),
                 ),
               ),
               const SizedBox(height: 2),
@@ -500,13 +639,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   color: context.sr.textSecondary,
                 ),
                 const SizedBox(width: 6),
-                const Text(
-                  '처리 현황',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                const Expanded(
+                  child: Text(
+                    '처리 현황',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
                 ),
-                const Spacer(),
+                const SizedBox(width: 8),
                 Text(
-                  '총 $total건',
+                  '총 ${formatCount(total)}',
                   style: TextStyle(
                     color: context.sr.textSecondary,
                     fontSize: 13,
@@ -540,25 +681,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           sectionsSpace: 2,
                         ),
                       ),
-                      Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            '총',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: context.sr.textSecondary,
-                            ),
+                      // 도넛 구멍(지름 100) 안에 머물도록 큰 글꼴에서는 줄인다.
+                      SizedBox(
+                        width: 88,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                '총',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: context.sr.textSecondary,
+                                ),
+                              ),
+                              Text(
+                                formatCount(total),
+                                maxLines: 1,
+                                softWrap: false,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                  color: context.sr.textPrimary,
+                                ),
+                              ),
+                            ],
                           ),
-                          Text(
-                            '$total건',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                              color: context.sr.textPrimary,
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                     ],
                   ),
@@ -571,41 +721,53 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         .map(
                           (e) => Padding(
                             padding: const EdgeInsets.symmetric(vertical: 4),
+                            // 좁은 폭·큰 글자에서는 건수·비율이 다음 줄로 내려간다(넘치지 않게).
                             child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Container(
-                                  width: 10,
-                                  height: 10,
-                                  decoration: BoxDecoration(
-                                    color: e.$2,
-                                    shape: BoxShape.circle,
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Container(
+                                    width: 10,
+                                    height: 10,
+                                    decoration: BoxDecoration(
+                                      color: e.$2,
+                                      shape: BoxShape.circle,
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(width: 6),
                                 Expanded(
-                                  child: Text(
-                                    e.$3,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                                ),
-                                Text(
-                                  '${e.$1}건',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                SizedBox(
-                                  width: 40,
-                                  child: Text(
-                                    '${(e.$1 / total * 100).toStringAsFixed(1)}%',
-                                    textAlign: TextAlign.right,
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: context.sr.textSecondary,
-                                    ),
+                                  child: Wrap(
+                                    alignment: WrapAlignment.spaceBetween,
+                                    spacing: 6,
+                                    children: [
+                                      Text(
+                                        e.$3,
+                                        style: const TextStyle(fontSize: 12),
+                                      ),
+                                      Text.rich(
+                                        TextSpan(
+                                          children: [
+                                            TextSpan(
+                                              text: formatCount(e.$1),
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            TextSpan(
+                                              text:
+                                                  ' ${(e.$1 / total * 100).toStringAsFixed(1)}%',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: context.sr.textSecondary,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        style: const TextStyle(fontSize: 12),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ],
@@ -647,6 +809,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     List<Report> items,
     int? total,
   ) {
+    // 대시보드에는 3건까지 한 줄 요약만 둔다(SQ-U15). 전체는 신고관리 > 감시 목록.
+    const previewLimit = 3;
+    final shown = items.length < previewLimit ? items.length : previewLimit;
+    final allCount = (total ?? 0) > items.length ? total! : items.length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -677,8 +843,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ],
         ),
-        if (total != null && total > items.length)
-          Text('전체 $total건 · 최근 ${items.length}건 표시 (관리에서 전체 조회)'),
+        if (allCount > shown)
+          Text(
+            '전체 ${formatCount(allCount)} · 최근 ${formatCount(shown)} 표시 (관리에서 전체 조회)',
+            style: TextStyle(fontSize: 12, color: context.sr.textSecondary),
+          ),
         const SizedBox(height: 8),
         if (items.isEmpty)
           Container(
@@ -708,70 +877,92 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           )
         else
-          ...items.take(5).map((r) => _buildWatchItem(r)),
-        if (items.length > 5)
+          _buildWatchList(items.take(previewLimit).toList()),
+        if (allCount > shown)
           Center(
             child: TextButton(
               onPressed: () => _openWatchlistManagement(context),
-              child: Text('+ ${items.length - 5}건 더 보기'),
+              child: Text('+ ${formatCount(allCount - shown)} 더 보기'),
             ),
           ),
       ],
     );
   }
 
-  Widget _buildWatchItem(Report r) {
+  /// 감시 목록 미리보기 — 한 카드 안에 한 줄 행(신고명 · 상태 · 신고일). 누르면 상세 시트.
+  Widget _buildWatchList(List<Report> reports) {
     return Card(
-      margin: const EdgeInsets.only(bottom: 6),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () => showReportDetailSheet(context, r),
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          for (var i = 0; i < reports.length; i++) ...[
+            if (i > 0) Divider(height: 1, color: context.sr.border),
+            _buildWatchRow(reports[i]),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWatchRow(Report r) {
+    final title = r.name.isNotEmpty
+        ? r.name
+        : (r.reportNumber.isNotEmpty ? r.reportNumber : '제목 없음');
+    final titleText = Text(
+      title,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
+    );
+    final dateText = r.date.isEmpty
+        ? null
+        : Text(
+            r.date,
+            maxLines: 1,
+            style: TextStyle(
+              fontSize: 11.5,
+              color: context.sr.textSecondary,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          );
+    final badge = ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 96),
+      child: StatusBadge.status(r.status),
+    );
+    // 기본은 한 줄(신고명 · 상태 · 신고일). 글꼴 1.5배 이상에서는 신고일을 신고명 아래로 내려 넘치지 않게 한다.
+    final large = MediaQuery.textScalerOf(context).scale(1) >= 1.5;
+    return InkWell(
+      key: ValueKey('dashboard-watch-row:${r.id}'),
+      onTap: () => showReportDetailSheet(context, r),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 48),
         child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    Icons.bookmark,
-                    color: Theme.of(context).colorScheme.primary,
-                    size: 16,
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      r.name,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: large
+              ? Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [titleText, ?dateText],
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  _statusChip(r.status),
-                ],
-              ),
-              const SizedBox(height: 8),
-              if (r.reportNumber.isNotEmpty)
-                _metaRow(Icons.tag, '신고번호', r.reportNumber),
-              if (r.date.isNotEmpty)
-                _metaRow(Icons.calendar_today, '신고일', r.date),
-              if (r.responseDate.isNotEmpty)
-                _metaRow(Icons.check_circle_outline, '답변일', r.responseDate),
-              if (r.agency.isNotEmpty)
-                _metaRow(Icons.business, '처리기관', r.agency),
-              if (r.manager.isNotEmpty)
-                _metaRow(Icons.person_outline, '담당자', r.manager),
-              if (r.fineInfo.isNotEmpty)
-                _metaRow(Icons.monetization_on_outlined, '과태료/범칙금', r.fineInfo),
-              if (r.carNumber.isNotEmpty)
-                _metaRow(Icons.directions_car_outlined, '차량번호', r.carNumber),
-            ],
-          ),
+                    const SizedBox(width: 8),
+                    badge,
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(child: titleText),
+                    const SizedBox(width: 8),
+                    badge,
+                    if (dateText != null) ...[
+                      const SizedBox(width: 8),
+                      dateText,
+                    ],
+                  ],
+                ),
         ),
       ),
     );
@@ -834,7 +1025,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 context,
                 MaterialPageRoute(builder: (_) => const RecentAnswersScreen()),
               ),
-              child: Text('+ ${reports.length - previewLimit}건 더 보기'),
+              child: Text(
+                '+ ${formatCount(reports.length - previewLimit)} 더 보기',
+              ),
             ),
           ),
       ],
@@ -928,4 +1121,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: StatusBadge.status(status),
     );
   }
+}
+
+/// 대시보드 상태 칸 하나(라벨·건수·기준색·아이콘·드릴다운 필터).
+class _StatusTileData {
+  final String label;
+  final int value;
+  final Color color;
+  final IconData icon;
+  final bool Function(Report) filter;
+
+  const _StatusTileData(
+    this.label,
+    this.value,
+    this.color,
+    this.icon,
+    this.filter,
+  );
 }

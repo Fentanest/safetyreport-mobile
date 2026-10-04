@@ -24,7 +24,7 @@
 | WP1 | 알림 경로 | B01 B02 B04 B12 P08 U08 | notification_history_provider, main(_checkPendingChanges), notifications_screen, report_detail_sheet(markReportRead), WsService.kt(ID) | 완료 |
 | WP2 | DB 가져오기·설정 화면 결함 | B03 B06 B08 B14 B09(settings·setup) | pending_db_import_action, setup_screen, settings_screen, report_provider(capabilities) | 완료 |
 | WP3 | 루트·내비·테마 | P01 U05 U06 B05 B13 U07 U04(탭 막대) | main, app_theme, community_gate, sr_tab_bar, dashboard(관리), 시트 9곳, MainActivity.kt | 완료 |
-| WP4 | 목록·드릴다운·상세 | U01 U02 P09 U12 U13 U14 U20(상세) | report_list_screen, local_paged_report_list, statistics/map/detail 드릴다운, report_detail_sheet, status_badge | 대기 |
+| WP4 | 목록·드릴다운·상세 | U01 U02 P09 U12 U13 U14 U20(상세) | report_list_screen, local_paged_report_list, statistics/map/detail 드릴다운, report_detail_sheet, status_badge | 완료 |
 | WP5 | 지도 | U03 U10 U11 P05 U24(범례) | report_map_screen | 완료 |
 | WP6 | 대시보드·통계 표시 | U15 U04(대시보드 그리드) U09 U24(당월) U25 U22 | dashboard_screen, stats_overview_section, stats_fine_breakdown, utils/format | 대기 |
 | WP7 | 크롤링/동기화 화면·타이머 | B07 U18 P04 P10 B09(crawl) | crawl_screen, maintenance_status_bar, sunwi_screen | 완료 |
@@ -37,8 +37,8 @@
 
 | ID | 내용 | WP | 상태 |
 |---|---|---|---|
-| U01 | 신고내역 앱바 건수 배지 0건 | WP4 | 대기 |
-| U02 | 드릴다운 필터가 하단 신고내역 탭에 남음 | WP4 | 대기 |
+| U01 | 신고내역 앱바 건수 배지 0건 | WP4 | 완료 |
+| U02 | 드릴다운 필터가 하단 신고내역 탭에 남음 | WP4 | 완료 |
 | U03 | 다크 지도 라벨 흰 바탕 흰 글자, 라벨 문구 잘림 | WP5 | 완료 |
 | U04 | 글꼴 2.0배 넘침·탭 이름 잘림 | WP3(탭 막대)·WP6(대시보드) | 대기 |
 | U05 | 비0 탭 뒤로가기 즉시 종료 | WP3 | 완료 |
@@ -48,9 +48,9 @@
 | U09 | 월별 추이 세로축 최상단 잘림 | WP6 | 대기 |
 | U10 | 지도 OSM 출처 표기 | WP5 | 완료 |
 | U11 | 지도 진입 즉시 위치 권한 요청 | WP5 | 완료 |
-| U12 | 상세 라벨 82px 고정 폭 | WP4 | 대기 |
-| U13 | 상태 칩 대비 미달(StatusBadge 우회) | WP4 | 대기 |
-| U14 | 동영상 닫은 뒤 세로 고정 | WP4 | 대기 |
+| U12 | 상세 라벨 82px 고정 폭 | WP4 | 완료 |
+| U13 | 상태 칩 대비 미달(StatusBadge 우회) | WP4 | 완료 |
+| U14 | 동영상 닫은 뒤 세로 고정 | WP4 | 완료 |
 | U15 | 대시보드 요약 카드 밀도 | WP6 | 대기 |
 | U16 | 탭별 앱바·검색 위치 불일치 | WP10 | 대기 |
 | U17 | 설정 화면 순서·중복 | WP10 | 대기 |
@@ -73,7 +73,7 @@
 | P06 | 목록 SELECT r.* | WP8 | 대기 |
 | P07 | Selector 부재·무변경 알림 | WP8 | 대기 |
 | P08 | 알림 기록 반복 reload·저장 | WP1 | 완료 |
-| P09 | 상세 "같은 조건 검색" 200행 | WP4 | 대기 |
+| P09 | 상세 "같은 조건 검색" 200행 | WP4 | 완료 |
 | P10 | 전국 현황 타이머 화면 밖 | WP7 | 완료 |
 | P11 | 파일 화면 동기 stat | WP9 | 완료 |
 | P12 | 시작 초기화 직렬 | WP8 | 대기 |

@@ -15,6 +15,7 @@ import '../providers/notification_history_provider.dart';
 import '../providers/report_provider.dart';
 
 import '../theme/sr_colors.dart';
+import 'status_badge.dart';
 import '../server_palette.dart';
 import '../screens/report_list_screen.dart';
 import '../services/review_prompt_service.dart';
@@ -95,14 +96,15 @@ class ReportDetailSheet extends StatelessWidget {
   videoWithHeadersControllerFactory = (url, headers) =>
       VideoPlayerController.networkUrl(url, httpHeaders: headers);
 
+  /// 테스트마다 동영상 불러오기 순서(정적 대기열)를 비운다. 이전 테스트의 가짜 시간 영역에 묶인
+  /// 대기열 꼬리가 다음 테스트의 불러오기를 막지 않게 한다.
+  @visibleForTesting
+  static void resetVideoLoadQueue() => _VideoLoadQueue.reset();
+
   String _ratingLabel() {
     final rating = report.rating;
     if (rating == null || rating <= 0) return '';
     return '★ $rating점';
-  }
-
-  Color _statusColor(String s) {
-    return serverStatusColor(s);
   }
 
   /// 처리내용에서 전화번호 추출
@@ -191,7 +193,7 @@ class ReportDetailSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = _statusColor(report.status);
+    final labelWidth = _labelColumnWidth(context);
     final expired = attachmentsExpired(report.date);
     final photos = expired ? <String>[] : _splitUrls(report.attachedPhotos);
     final files = expired ? <String>[] : _splitUrls(report.attachedFiles);
@@ -250,48 +252,57 @@ class ReportDetailSheet extends StatelessWidget {
                 ),
                 if (report.status.isNotEmpty) ...[
                   const SizedBox(width: 10),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: color.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: color.withValues(alpha: 0.4)),
-                    ),
-                    child: Text(
-                      report.status,
-                      style: TextStyle(
-                        color: color,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
+                  // 대비 보정 배지(SQ-U13): 원색 글자 + 옅은 배경은 일부수용 등에서 AA 미달이었다.
+                  StatusBadge.status(report.status, fontSize: 12),
                 ],
               ],
             ),
             const Divider(height: 24),
             // 상세 필드
             if (report.reportNumber.isNotEmpty)
-              _field(context, Icons.tag, '신고번호', report.reportNumber),
+              _field(
+                context,
+                labelWidth,
+                Icons.tag,
+                '신고번호',
+                report.reportNumber,
+              ),
             if (report.id.isNotEmpty)
-              _field(context, Icons.fingerprint, '내부 ID', report.id),
+              _field(
+                context,
+                labelWidth,
+                Icons.fingerprint,
+                '내부 ID',
+                report.id,
+              ),
             if (report.date.isNotEmpty)
-              _field(context, Icons.calendar_today, '신고일', report.date),
+              _field(
+                context,
+                labelWidth,
+                Icons.calendar_today,
+                '신고일',
+                report.date,
+              ),
             if (report.responseDate.isNotEmpty)
               _field(
                 context,
+                labelWidth,
                 Icons.check_circle_outline,
                 '답변일',
                 report.responseDate,
               ),
             if (report.agency.isNotEmpty)
-              _field(context, Icons.business, '처리기관', report.agency),
+              _field(
+                context,
+                labelWidth,
+                Icons.business,
+                '처리기관',
+                report.agency,
+              ),
             if (report.manager.isNotEmpty)
               _linkField(
                 context,
+                labelWidth,
                 Icons.person_outline,
                 '담당자',
                 report.manager,
@@ -300,6 +311,7 @@ class ReportDetailSheet extends StatelessWidget {
             if (report.fineInfo.isNotEmpty)
               _field(
                 context,
+                labelWidth,
                 Icons.monetization_on_outlined,
                 '과태료/범칙금',
                 report.fineInfo,
@@ -307,6 +319,7 @@ class ReportDetailSheet extends StatelessWidget {
             if (report.penaltyPoints.isNotEmpty)
               _field(
                 context,
+                labelWidth,
                 Icons.warning_amber_outlined,
                 '벌점',
                 report.penaltyPoints,
@@ -314,6 +327,7 @@ class ReportDetailSheet extends StatelessWidget {
             if (report.carNumber.isNotEmpty)
               _linkField(
                 context,
+                labelWidth,
                 Icons.directions_car,
                 '차량번호',
                 report.carNumber,
@@ -322,6 +336,7 @@ class ReportDetailSheet extends StatelessWidget {
             if (report.law.isNotEmpty)
               _linkField(
                 context,
+                labelWidth,
                 Icons.gavel_outlined,
                 '위반법규',
                 report.law,
@@ -330,6 +345,7 @@ class ReportDetailSheet extends StatelessWidget {
             if (report.location.isNotEmpty)
               _linkField(
                 context,
+                labelWidth,
                 Icons.location_on_outlined,
                 '위반장소',
                 report.location,
@@ -338,6 +354,7 @@ class ReportDetailSheet extends StatelessWidget {
             if (report.occurrenceDate.isNotEmpty)
               _field(
                 context,
+                labelWidth,
                 Icons.event_outlined,
                 '발생일자',
                 report.occurrenceDate +
@@ -346,10 +363,17 @@ class ReportDetailSheet extends StatelessWidget {
                         : ''),
               ),
             if (_ratingLabel().isNotEmpty)
-              _field(context, Icons.star_outline, '별점', _ratingLabel()),
+              _field(
+                context,
+                labelWidth,
+                Icons.star_outline,
+                '별점',
+                _ratingLabel(),
+              ),
             if (report.ratingCause.isNotEmpty)
               _field(
                 context,
+                labelWidth,
                 Icons.comment_outlined,
                 '별점사유',
                 report.ratingCause,
@@ -636,33 +660,63 @@ class ReportDetailSheet extends StatelessWidget {
     );
   }
 
+  /// 상세 필드 라벨(가장 긴 것 기준으로 라벨 열 폭을 정한다).
+  static const _fieldLabels = [
+    '신고번호',
+    '내부 ID',
+    '신고일',
+    '답변일',
+    '처리기관',
+    '담당자',
+    '과태료/범칙금',
+    '벌점',
+    '차량번호',
+    '위반법규',
+    '위반장소',
+    '발생일자',
+    '별점',
+    '별점사유',
+  ];
+  static const _labelFontSize = 13.0;
+
+  /// 라벨 열 폭: 현재 글자 배율로 가장 긴 라벨을 잰 폭(SQ-U12). 고정 82 는 "과태료/범칙금"이
+  /// 값에 붙고 큰 글자에서 꺾였다. 너무 넓으면 [_DetailFieldRow] 가 라벨을 값 위로 올린다.
+  double _labelColumnWidth(BuildContext context) {
+    final style = DefaultTextStyle.of(
+      context,
+    ).style.merge(const TextStyle(fontSize: _labelFontSize));
+    final scaler = MediaQuery.textScalerOf(context);
+    var widest = 0.0;
+    for (final label in _fieldLabels) {
+      final painter = TextPainter(
+        text: TextSpan(text: label, style: style),
+        textDirection: TextDirection.ltr,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      if (painter.width > widest) widest = painter.width;
+      painter.dispose();
+    }
+    return widest.ceilToDouble() + 1;
+  }
+
   Widget _field(
     BuildContext context,
+    double labelWidth,
     IconData icon,
     String label,
     String value,
   ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 16, color: context.sr.textSecondary),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 82,
-            child: Text(
-              label,
-              style: TextStyle(fontSize: 13, color: context.sr.textSecondary),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-            ),
-          ),
-        ],
+      child: _DetailFieldRow(
+        icon: icon,
+        label: label,
+        labelWidth: labelWidth,
+        value: Text(
+          value,
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+        ),
       ),
     );
   }
@@ -671,6 +725,7 @@ class ReportDetailSheet extends StatelessWidget {
   /// 특정 필드 값을 검색 조건으로 넘겨 이동.
   Widget _linkField(
     BuildContext context,
+    double labelWidth,
     IconData icon,
     String label,
     String value,
@@ -681,42 +736,28 @@ class ReportDetailSheet extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 12),
       child: InkWell(
         borderRadius: BorderRadius.circular(6),
-        onTap: () => _navigateToFiltered(context, filter),
+        onTap: () => _navigateToFiltered(context, filter, value),
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 2),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(icon, size: 16, color: context.sr.textSecondary),
-              const SizedBox(width: 8),
-              SizedBox(
-                width: 82,
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: context.sr.textSecondary,
-                  ),
-                ),
+          child: _DetailFieldRow(
+            icon: icon,
+            label: label,
+            labelWidth: labelWidth,
+            value: Text(
+              value,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: color,
+                decoration: TextDecoration.underline,
+                decorationColor: color.withValues(alpha: 0.5),
               ),
-              Expanded(
-                child: Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: color,
-                    decoration: TextDecoration.underline,
-                    decorationColor: color.withValues(alpha: 0.5),
-                  ),
-                ),
-              ),
-              Icon(
-                Icons.chevron_right,
-                size: 16,
-                color: color.withValues(alpha: 0.6),
-              ),
-            ],
+            ),
+            trailing: Icon(
+              Icons.chevron_right,
+              size: 16,
+              color: color.withValues(alpha: 0.6),
+            ),
           ),
         ),
       ),
@@ -726,10 +767,11 @@ class ReportDetailSheet extends StatelessWidget {
   Future<void> _navigateToFiltered(
     BuildContext context,
     ReportFilter filter,
+    String value,
   ) async {
     final navigator = Navigator.of(context);
     final provider = context.read<ReportProvider>();
-    final category = await provider.refreshCategoryForReport(report);
+    final category = await provider.categoryForNavigation(report);
     if (!context.mounted) return;
     if (category == null) {
       ScaffoldMessenger.of(
@@ -739,15 +781,81 @@ class ReportDetailSheet extends StatelessWidget {
     }
 
     final tabIndex = provider.categoryToTabIndex(category);
-    provider.setFilter(filter);
     navigator.pop(); // close bottom sheet
-    navigator.push(
-      MaterialPageRoute(
-        builder: (_) => ReportListScreen(initialTabIndex: tabIndex),
-      ),
+    // SQ-U02: 공용 필터(하단 신고내역 탭)를 바꾸지 않고 이 화면만의 조건으로 연다.
+    pushReportDrillDown(
+      navigator,
+      filter: filter,
+      title: '$value · 신고',
+      initialTabIndex: tabIndex,
     );
   }
 }
+
+/// 아이콘 · 라벨 · 값 한 줄. 라벨 열은 [labelWidth] 로 맞추고, 그 폭이 줄 폭의 40%를 넘으면
+/// (좁은 화면·큰 글자) 라벨을 값 위로 올린다(SQ-U12).
+class _DetailFieldRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final double labelWidth;
+  final Widget value;
+  final Widget? trailing;
+
+  const _DetailFieldRow({
+    required this.icon,
+    required this.label,
+    required this.labelWidth,
+    required this.value,
+    this.trailing,
+  });
+
+  static const _gap = 12.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final labelText = Text(
+      label,
+      maxLines: 1,
+      softWrap: false,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        fontSize: ReportDetailSheet._labelFontSize,
+        color: context.sr.textSecondary,
+      ),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final stacked = labelWidth > constraints.maxWidth * 0.4;
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 16, color: context.sr.textSecondary),
+            const SizedBox(width: 8),
+            if (stacked)
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [labelText, const SizedBox(height: 2), value],
+                ),
+              )
+            else ...[
+              SizedBox(width: labelWidth, child: labelText),
+              const SizedBox(width: _gap),
+              Expanded(child: value),
+            ],
+            ?trailing,
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// 동영상 조작 버튼의 터치 영역(SQ-U20). 아이콘은 22 그대로, 누르는 칸은 48dp.
+const _kVideoButtonConstraints = BoxConstraints(
+  minWidth: kMinInteractiveDimension,
+  minHeight: kMinInteractiveDimension,
+);
 
 // ──────────────────────────────────────────────────────────────
 class _FullscreenVideoPage extends StatefulWidget {
@@ -781,7 +889,9 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
   @override
   void dispose() {
     _hideTimer?.cancel();
-    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    // 빈 목록 = 시스템 기본(자동 회전 설정을 따른다). portraitUp 으로 묶으면 앱을 다시 켤 때까지
+    // 가로 회전이 되지 않았다(SQ-U14).
+    SystemChrome.setPreferredOrientations(const []);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
   }
@@ -826,13 +936,18 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
         children: [
           // 영상 — GestureDetector는 탭으로 컨트롤 토글/재생
           Positioned.fill(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: _onVideoTap,
-              child: Center(
-                child: AspectRatio(
-                  aspectRatio: widget.controller.value.aspectRatio,
-                  child: VideoPlayer(widget.controller),
+            // 화면 전체가 누르는 영역이므로 스크린리더 이름을 준다(SQ-U20).
+            child: Semantics(
+              label: '동영상 화면',
+              hint: '조작 막대 표시, 재생 또는 일시정지',
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _onVideoTap,
+                child: Center(
+                  child: AspectRatio(
+                    aspectRatio: widget.controller.value.aspectRatio,
+                    child: VideoPlayer(widget.controller),
+                  ),
                 ),
               ),
             ),
@@ -861,108 +976,110 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
                     );
                     return Container(
                       color: Colors.black54,
-                      padding: const EdgeInsets.only(
-                        left: 4,
-                        right: 4,
-                        bottom: 2,
-                      ),
-                      child: Row(
-                        children: [
-                          // 재생/일시정지
-                          IconButton(
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                              minWidth: 36,
-                              minHeight: 36,
-                            ),
-                            icon: Icon(
-                              value.isPlaying ? Icons.pause : Icons.play_arrow,
-                              color: Colors.white,
-                              size: 22,
-                            ),
-                            onPressed: () {
-                              if (value.isPlaying) {
-                                widget.controller.pause();
-                                _hideTimer?.cancel();
-                                setState(() => _showControls = true);
-                              } else {
-                                widget.controller.play();
-                                _scheduleHide();
-                                setState(() {});
-                              }
-                            },
-                          ),
-                          Text(
-                            _fmt(pos),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                            ),
-                          ),
-                          Expanded(
-                            child: SliderTheme(
-                              data: SliderTheme.of(context).copyWith(
-                                thumbShape: const RoundSliderThumbShape(
-                                  enabledThumbRadius: 6,
-                                ),
-                                overlayShape: const RoundSliderOverlayShape(
-                                  overlayRadius: 12,
-                                ),
-                                trackHeight: 2,
-                                activeTrackColor: Colors.white,
-                                inactiveTrackColor: Colors.white30,
-                                thumbColor: Colors.white,
-                                overlayColor: Colors.white24,
+                      // 가로 전체화면에서 노치·3버튼 내비 아래로 조작 막대가 들어가지 않게 한다(SQ-U14).
+                      child: SafeArea(
+                        top: false,
+                        minimum: const EdgeInsets.only(
+                          left: 4,
+                          right: 4,
+                          bottom: 2,
+                        ),
+                        child: Row(
+                          children: [
+                            // 재생/일시정지
+                            IconButton(
+                              tooltip: value.isPlaying ? '일시정지' : '재생',
+                              padding: EdgeInsets.zero,
+                              constraints: _kVideoButtonConstraints,
+                              icon: Icon(
+                                value.isPlaying
+                                    ? Icons.pause
+                                    : Icons.play_arrow,
+                                color: Colors.white,
+                                size: 22,
                               ),
-                              child: Slider(
-                                value: posMs,
-                                min: 0,
-                                max: maxMs,
-                                onChangeStart: (_) {
-                                  _wasPlaying = value.isPlaying;
-                                  if (_wasPlaying) widget.controller.pause();
-                                  setState(() {
-                                    _seeking = true;
-                                    _seekPosition = pos;
-                                  });
-                                },
-                                onChanged: (v) => setState(
-                                  () => _seekPosition = Duration(
-                                    milliseconds: v.toInt(),
+                              onPressed: () {
+                                if (value.isPlaying) {
+                                  widget.controller.pause();
+                                  _hideTimer?.cancel();
+                                  setState(() => _showControls = true);
+                                } else {
+                                  widget.controller.play();
+                                  _scheduleHide();
+                                  setState(() {});
+                                }
+                              },
+                            ),
+                            Text(
+                              _fmt(pos),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                              ),
+                            ),
+                            Expanded(
+                              child: SliderTheme(
+                                data: SliderTheme.of(context).copyWith(
+                                  thumbShape: const RoundSliderThumbShape(
+                                    enabledThumbRadius: 6,
                                   ),
+                                  overlayShape: const RoundSliderOverlayShape(
+                                    overlayRadius: 12,
+                                  ),
+                                  trackHeight: 2,
+                                  activeTrackColor: Colors.white,
+                                  inactiveTrackColor: Colors.white30,
+                                  thumbColor: Colors.white,
+                                  overlayColor: Colors.white24,
                                 ),
-                                onChangeEnd: (v) {
-                                  widget.controller.seekTo(
-                                    Duration(milliseconds: v.toInt()),
-                                  );
-                                  if (_wasPlaying) widget.controller.play();
-                                  setState(() => _seeking = false);
-                                },
+                                child: Slider(
+                                  value: posMs,
+                                  min: 0,
+                                  max: maxMs,
+                                  onChangeStart: (_) {
+                                    _wasPlaying = value.isPlaying;
+                                    if (_wasPlaying) widget.controller.pause();
+                                    setState(() {
+                                      _seeking = true;
+                                      _seekPosition = pos;
+                                    });
+                                  },
+                                  onChanged: (v) => setState(
+                                    () => _seekPosition = Duration(
+                                      milliseconds: v.toInt(),
+                                    ),
+                                  ),
+                                  onChangeEnd: (v) {
+                                    widget.controller.seekTo(
+                                      Duration(milliseconds: v.toInt()),
+                                    );
+                                    if (_wasPlaying) widget.controller.play();
+                                    setState(() => _seeking = false);
+                                  },
+                                ),
                               ),
                             ),
-                          ),
-                          Text(
-                            _fmt(dur),
-                            style: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 11,
+                            Text(
+                              _fmt(dur),
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 11,
+                              ),
                             ),
-                          ),
-                          // 축소 버튼 (우측)
-                          IconButton(
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                              minWidth: 36,
-                              minHeight: 36,
+                            // 축소 버튼 (우측)
+                            IconButton(
+                              tooltip: '전체화면 닫기',
+                              padding: EdgeInsets.zero,
+                              constraints: _kVideoButtonConstraints,
+                              icon: Icon(
+                                Icons.fullscreen_exit,
+                                color: Colors.white,
+                                size: 22,
+                              ),
+                              onPressed: () => Navigator.pop(context),
                             ),
-                            icon: Icon(
-                              Icons.fullscreen_exit,
-                              color: Colors.white,
-                              size: 22,
-                            ),
-                            onPressed: () => Navigator.pop(context),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     );
                   },
@@ -1447,11 +1564,9 @@ class _VideoPlayerState extends State<_VideoPlayer>
                       children: [
                         // 재생/일시정지 버튼
                         IconButton(
+                          tooltip: value.isPlaying ? '일시정지' : '재생',
                           padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 36,
-                            minHeight: 36,
-                          ),
+                          constraints: _kVideoButtonConstraints,
                           icon: Icon(
                             value.isPlaying ? Icons.pause : Icons.play_arrow,
                             color: Colors.white,
@@ -1528,11 +1643,9 @@ class _VideoPlayerState extends State<_VideoPlayer>
                         ),
                         // 전체화면
                         IconButton(
+                          tooltip: '전체화면',
                           padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 36,
-                            minHeight: 36,
-                          ),
+                          constraints: _kVideoButtonConstraints,
                           icon: Icon(
                             Icons.fullscreen,
                             color: Colors.white,
@@ -1726,6 +1839,8 @@ class _SupplementMetaRow extends StatelessWidget {
 /// 첨부 동영상을 한 번에 하나씩 불러온다. 여러 플레이어가 동시에 버퍼링하면 스크롤이 멈췄다.
 class _VideoLoadQueue {
   static Future<void> _tail = Future.value();
+
+  static void reset() => _tail = Future.value();
 
   static void run(Future<void> Function() task) {
     _tail = _tail

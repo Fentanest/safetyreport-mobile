@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:safetyreport/models/report.dart';
 import 'package:safetyreport/providers/report_provider.dart';
 import 'package:safetyreport/screens/report_management_screen.dart';
@@ -62,6 +63,31 @@ class _RecordingReportProvider extends ReportProvider {
   }
 }
 
+/// Client 모드에서 실제 fetchCategoryReports 경로가 서버 페이지를 읽는지 기록한다.
+class _ServerPageRecorder extends ReportProvider {
+  final List<String> pageReads = [];
+
+  @override
+  Future<({List<Report> reports, int total})> readServerPage(
+    String category, {
+    int offset = 0,
+    int limit = 200,
+    bool Function()? isCancelled,
+  }) async {
+    pageReads.add(category);
+    return (reports: [_report()], total: 1);
+  }
+
+  @override
+  Future<void> fetchSummary() async {}
+
+  @override
+  Future<void> fetchWatchlistNumbers() async {}
+
+  @override
+  Future<void> fetchAppConfig() async {}
+}
+
 void main() {
   test('안전신문고 앱 URI에 최신 배포본의 openpage 파라미터를 포함한다', () {
     final uri = buildSafetyReportAppUri('1234567890');
@@ -76,14 +102,16 @@ void main() {
     });
   });
 
-  test('알림 상세에서 검색 진입 전 해당 카테고리를 새로 고친다', () async {
+  // SQ-P09: 예전에는 검색 진입 전에 그 분류의 200건 목록을 읽고(fetchCategoryReports)
+  // 그 분류를 refreshAll 대상에 올렸다. 드릴다운 목록은 페이지 조회가 직접 읽으므로 분류만 정한다.
+  test('상세 시트 "같은 조건" 진입은 분류만 확인하고 분류 목록을 읽지 않는다', () async {
     final provider = _RecordingReportProvider(categoryBeforeRefresh: 'traffic');
     addTearDown(provider.dispose);
 
-    final category = await provider.refreshCategoryForReport(_report());
+    final category = await provider.categoryForNavigation(_report());
 
     expect(category, 'traffic');
-    expect(provider.fetchedCategories, ['traffic']);
+    expect(provider.fetchedCategories, isEmpty);
     expect(provider.refreshedAll, isFalse);
   });
 
@@ -94,13 +122,32 @@ void main() {
     );
     addTearDown(provider.dispose);
 
-    final category = await provider.refreshCategoryForReport(
+    final category = await provider.categoryForNavigation(
       _report(category: ''),
     );
 
     expect(category, 'parking');
     expect(provider.refreshedAll, isTrue);
     expect(provider.forceRefreshValue, isNull);
+    expect(provider.fetchedCategories, isEmpty);
+  });
+
+  test('SQ-P09 분류 확인 뒤 refreshAll 은 그 분류 목록을 다시 읽지 않는다', () async {
+    SharedPreferences.setMockInitialValues({
+      'appMode': 'server',
+      'baseUrl': 'https://fixture.test',
+      'apiKey': 'synthetic',
+    });
+    final provider = _ServerPageRecorder();
+    addTearDown(provider.dispose);
+    await provider.init();
+    expect(provider.isConfigured, isTrue);
+
+    expect(await provider.categoryForNavigation(_report()), 'traffic');
+    await provider.refreshAll();
+
+    expect(provider.pageReads, isEmpty);
+    expect(provider.trafficReports, isEmpty);
   });
 
   // 원래 목적(선택/미선택 구분, 글자 가독성, 표시선 가시성)을 유지하면서 고정 색 대신

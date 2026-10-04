@@ -1,8 +1,19 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+import 'package:safetyreport/models/notification_item.dart';
+import 'package:safetyreport/providers/notification_history_provider.dart';
+import 'package:safetyreport/providers/report_provider.dart';
+import 'package:safetyreport/screens/notifications_screen.dart';
 import 'package:safetyreport/server_palette.dart';
+import 'package:safetyreport/services/app_prefs_keys.dart';
 import 'package:safetyreport/theme/app_theme.dart';
 import 'package:safetyreport/theme/sr_colors.dart';
+import 'package:safetyreport/widgets/status_badge.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// 상태색이 시안(D-02)으로 바뀌면서 흰 글자 채움 배지는 대부분 AA 미달이 된다.
 /// 배지·카드 글자는 StatusTone 으로 보정하고, 이 테스트가 두 테마 모두 4.5:1 이상을 보장한다.
@@ -18,6 +29,20 @@ const _statusColors = {
   '경고/범칙금': serverTrafficPenaltyColor,
   '미확인': serverUnconfirmedColor,
 };
+
+/// 실제로 그려진 글자 색과, 글자를 감싼 가장 가까운 칠한 상자(배지 배경)의 대비.
+double _renderedChipContrast(WidgetTester tester, Finder text) {
+  final fg = tester.renderObject<RenderParagraph>(text).text.style!.color!;
+  final box = tester
+      .widgetList<DecoratedBox>(
+        find.ancestor(of: text, matching: find.byType(DecoratedBox)),
+      )
+      .map((d) => d.decoration)
+      .whereType<BoxDecoration>()
+      .firstWhere((d) => d.color != null);
+  final surface = Theme.of(tester.element(text)).colorScheme.surface;
+  return contrastRatio(fg, Color.alphaBlend(box.color!, surface));
+}
 
 void main() {
   test('contrastRatio 는 반투명 전경을 배경에 합성해 계산한다', () {
@@ -118,6 +143,97 @@ void main() {
           );
         }
       });
+    });
+  }
+
+  // SQ-U13: 상세 시트·알림·지도의 상태 칩이 StatusBadge 를 우회해 원색 글자 + 옅은 배경으로 그려
+  // 일부수용 1.96:1 등 AA 미달이었다. 이제 모두 StatusBadge 를 쓰고, 실제 렌더 색으로 검사한다.
+  // (상세 시트 칩은 test/widgets/report_detail_sheet_wp4_test.dart 에서 검사한다.)
+  for (final brightness in Brightness.values) {
+    testWidgets(
+      'SQ-U13 StatusBadge 렌더 대비 (${brightness.name}, 지도 주소 없음 배지 포함)',
+      (tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: AppTheme.build(brightness),
+            home: Scaffold(
+              body: Wrap(
+                children: [
+                  for (final entry in _statusColors.entries)
+                    StatusBadge(label: entry.key, color: entry.value),
+                  const StatusBadge(
+                    label: '3건',
+                    color: serverSupplementColor,
+                    fontSize: 12,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+        for (final label in [..._statusColors.keys, '3건']) {
+          expect(
+            _renderedChipContrast(tester, find.text(label)),
+            greaterThanOrEqualTo(4.5),
+            reason: label,
+          );
+        }
+      },
+    );
+
+    testWidgets('SQ-U13 알림 신고 결과 칩 대비 (${brightness.name})', (tester) async {
+      Map<String, dynamic> item(
+        String id,
+        String kind,
+        Map<String, dynamic> extra,
+      ) => NotificationItem(
+        id: id,
+        kind: kind,
+        title: '처리 결과 $id',
+        body: '본문',
+        reportNumber: 'SPP-2610-000000$id',
+        timestamp: '2026-10-04 10:00',
+        isRead: false,
+        extraData: extra,
+      ).toJson();
+      SharedPreferences.setMockInitialValues({
+        AppPrefsKeys.notificationsHistory: jsonEncode([
+          item('1', NotificationItemKind.report, {
+            '처리상태': '일부수용',
+            '범칙금_과태료': '과태료: 40,000원',
+          }),
+          item('2', NotificationItemKind.report, {'처리상태': '수용'}),
+          item('3', NotificationItemKind.duplicate, {'status_label': '확정 중복'}),
+        ]),
+      });
+      final report = ReportProvider();
+      final history = NotificationHistoryProvider();
+      addTearDown(report.dispose);
+      addTearDown(history.dispose);
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<ReportProvider>.value(value: report),
+            ChangeNotifierProvider<NotificationHistoryProvider>.value(
+              value: history,
+            ),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.build(brightness),
+            home: const NotificationsScreen(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('신고 결과'));
+      await tester.pumpAndSettle();
+      for (final label in ['일부수용', '과태료', '수용', '확정 중복']) {
+        expect(
+          _renderedChipContrast(tester, find.text(label)),
+          greaterThanOrEqualTo(4.5),
+          reason: label,
+        );
+      }
     });
   }
 }

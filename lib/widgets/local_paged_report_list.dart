@@ -11,6 +11,10 @@ import 'selection_action_bar.dart';
 import 'selection_back_scope.dart';
 import 'status_badge.dart';
 
+/// 페이지 목록이 받은 전체 모집단 건수. [exact] 가 false 면 Client 의 필터처럼
+/// 현재 페이지 안에서만 걸러, 조건에 맞는 전체 건수를 알 수 없다는 뜻이다.
+typedef PagedReportTotal = ({int total, bool exact});
+
 /// Keeps one page of Report objects. The count belongs to the full SQL population.
 /// An optional legacy predicate streams candidates; its label never claims that
 /// the current page is a whole-population total.
@@ -21,6 +25,9 @@ class LocalPagedReportList extends StatefulWidget {
   final bool Function(Report)? predicate;
   final Future<void> Function(Report)? onRemove;
   final Widget Function(BuildContext, Report)? itemBuilder;
+
+  /// 조회가 끝날 때마다 전체 건수를 알린다(오류면 null). 앱바 건수 배지가 쓴다(SQ-U01).
+  final ValueChanged<PagedReportTotal?>? onTotalChanged;
   const LocalPagedReportList({
     super.key,
     this.category = 'all',
@@ -32,6 +39,7 @@ class LocalPagedReportList extends StatefulWidget {
     this.predicate,
     this.onRemove,
     this.itemBuilder,
+    this.onTotalChanged,
   });
   @override
   State<LocalPagedReportList> createState() => _LocalPagedReportListState();
@@ -174,6 +182,7 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
         _total = result.total;
         _loading = false;
       });
+      widget.onTotalChanged?.call((total: _total, exact: !_candidateCount));
     } catch (e) {
       if (!mounted || seq != _seq || epoch != p.datasetEpoch) return;
       setState(() {
@@ -181,6 +190,7 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
         _reports = [];
         _error = '$e';
       });
+      widget.onTotalChanged?.call(null);
     }
   }
 

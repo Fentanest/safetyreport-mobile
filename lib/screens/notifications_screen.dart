@@ -17,6 +17,7 @@ import '../widgets/duplicate_group_detail_sheet.dart';
 import '../widgets/report_detail_sheet.dart';
 import '../widgets/sr_tab_bar.dart';
 import '../theme/sr_colors.dart';
+import '../widgets/status_badge.dart';
 
 const _permChannel = MethodChannel('com.fentanest.mysafetyreport/permissions');
 
@@ -721,13 +722,7 @@ class _NotifTile extends StatelessWidget {
                         if (status.isNotEmpty)
                           _miniChip(
                             status,
-                            isDuplicate
-                                ? StatusTone.of(
-                                    Colors.indigo,
-                                    brightness: Theme.of(context).brightness,
-                                    surface: context.sr.surface,
-                                  ).foreground
-                                : _statusColor(status),
+                            isDuplicate ? Colors.indigo : _statusColor(status),
                           ),
                         if (fine.isNotEmpty && fine != 'null')
                           _miniChip(
@@ -781,18 +776,9 @@ class _NotifTile extends StatelessWidget {
     );
   }
 
-  Widget _miniChip(String label, Color color) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: 0.12),
-      borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: color.withValues(alpha: 0.4)),
-    ),
-    child: Text(
-      label,
-      style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w600),
-    ),
-  );
+  /// 처리상태·과태료 칩. 원색 글자 + 옅은 배경은 AA 미달이라 대비 보정 배지를 쓴다(SQ-U13).
+  Widget _miniChip(String label, Color color) =>
+      StatusBadge(label: label, color: color);
 
   Color _statusColor(String status) {
     return serverStatusColor(status);

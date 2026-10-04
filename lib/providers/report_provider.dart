@@ -235,18 +235,14 @@ class ReportProvider with ChangeNotifier {
     return null;
   }
 
-  /// 알림 상세처럼 목록보다 최신인 [report]를 기준으로 검색 화면에
-  /// 진입할 때, 해당 카테고리의 캐시를 먼저 새로 고친다.
+  /// 상세 시트의 "같은 조건으로 검색"이 열 분류 탭을 정한다(SQ-P09).
   ///
-  /// 카테고리 정보가 없으면 최신 목록 전체에서 한 번 더 찾는다.
-  Future<String?> refreshCategoryForReport(Report report) async {
-    final category = findCategory(report);
-    if (category != null) {
-      await fetchCategoryReports(category);
-      return category;
-    }
-
-    return resolveReportCategory(report);
+  /// 분류만 확인한다. 목록은 드릴다운 화면의 페이지 조회가 직접 읽으므로 여기서
+  /// 분류 목록(200건)을 미리 읽거나 `_loadedCategories` 에 올리지 않는다
+  /// (올리면 이후 모든 refreshAll 이 그 분류를 다시 읽는다).
+  /// 분류 정보가 없으면 단건(Standalone) 또는 페이지 조회(Client)로 찾는다.
+  Future<String?> categoryForNavigation(Report report) async {
+    return findCategory(report) ?? await resolveReportCategory(report);
   }
 
   /// Unknown notification categories are resolved without retaining all reports.

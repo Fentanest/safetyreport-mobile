@@ -7,6 +7,7 @@ import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
+import 'package:safetyreport/models/report.dart';
 import 'package:safetyreport/models/report_map.dart';
 import 'package:safetyreport/providers/report_provider.dart';
 import 'package:safetyreport/screens/report_map_screen.dart';
@@ -87,6 +88,18 @@ class _ScopeProvider extends ReportProvider {
   }
 
   void notifyUnrelated() => notifyListeners();
+
+  // 드릴다운 목록(ReportListScreen)이 열려도 네트워크에 가지 않는다.
+  @override
+  Future<({List<Report> reports, int total})> readServerPage(
+    String category, {
+    int offset = 0,
+    int limit = 200,
+    bool Function()? isCancelled,
+  }) async => (reports: <Report>[], total: 0);
+
+  @override
+  Future<void> fetchDuplicateReports() async {}
 }
 
 final _transparentPng = base64Decode(
@@ -331,5 +344,40 @@ void main() {
     expect(find.bySemanticsLabel('강남구 외, 7건, 과태료율 60% 이상'), findsOneWidget);
     expect(find.bySemanticsLabel('제주시, 3건, 과태료율 50% 미만'), findsOneWidget);
     semantics.dispose();
+  });
+
+  testWidgets('SQ-U02 지도 "리스트 보기" 드릴다운은 공용 필터를 바꾸지 않는다', (tester) async {
+    final h = _Harness();
+    await h.pump(tester);
+    expect(h.provider.filter, const ReportFilter());
+
+    // 첫 클러스터 애니메이션이 끝나야 마커 탭을 받는다.
+    await tester.pump(const Duration(seconds: 2));
+    // 지도 제스처(두 번 탭 확대 등)와 경합하지 않도록 마커의 탭 처리기를 직접 부른다.
+    final markerTap = tester
+        .widgetList<GestureDetector>(
+          find.ancestor(
+            of: find.text('제주시'),
+            matching: find.byType(GestureDetector),
+          ),
+        )
+        .firstWhere((g) => g.onTap != null);
+    markerTap.onTap!();
+    await h.settle(tester);
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.ensureVisible(find.text('리스트 보기'));
+    await tester.tap(find.text('리스트 보기'));
+    await h.settle(tester);
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('제주특별자치도 제주시 문연로 6 · 신고'), findsOneWidget);
+    expect(find.text('위반장소: 제주특별자치도 제주시 문연로 6'), findsOneWidget);
+    expect(h.provider.filter, const ReportFilter());
+    expect(h.provider.hasFilter, isFalse);
+
+    await tester.pageBack();
+    await h.settle(tester);
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(h.provider.filter, const ReportFilter());
   });
 }

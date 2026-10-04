@@ -22,6 +22,7 @@ import '../services/local_db_service.dart';
 import '../services/permission_service.dart';
 import '../widgets/report_detail_sheet.dart';
 import '../widgets/report_list_card.dart';
+import '../widgets/status_badge.dart';
 import '../widgets/community_upload_panel.dart';
 import '../widgets/report_map_overlays.dart';
 import 'report_list_screen.dart';
@@ -649,20 +650,11 @@ class _ReportMapScreenState extends State<ReportMapScreen>
           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
         ),
         subtitle: region.isNotEmpty ? Text(region) : null,
-        trailing: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: serverSupplementColor.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Text(
-            '${group.reportCount}건',
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: serverSupplementColor,
-            ),
-          ),
+        // 대비 보정 배지(SQ-U13): 원색 글자 + 옅은 배경은 AA 미달이었다.
+        trailing: StatusBadge(
+          label: '${group.reportCount}건',
+          color: serverSupplementColor,
+          fontSize: 12,
         ),
         children: [
           ...group.reports.map(_buildMissingReportCard),
@@ -1240,13 +1232,13 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     }
 
     final provider = context.read<ReportProvider>();
-    provider.setFilter(ReportFilter(location: normalizedAddress));
     final tabIndex = provider.categoryToTabIndex(preferredCategory);
-
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ReportListScreen(initialTabIndex: tabIndex),
-      ),
+    // SQ-U02: 공용 필터(하단 신고내역 탭)를 바꾸지 않고 이 화면만의 조건으로 연다.
+    pushReportDrillDown(
+      Navigator.of(context),
+      filter: ReportFilter(location: normalizedAddress),
+      title: '$normalizedAddress · 신고',
+      initialTabIndex: tabIndex,
     );
   }
 

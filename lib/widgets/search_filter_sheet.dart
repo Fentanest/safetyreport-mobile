@@ -12,6 +12,8 @@ Future<void> showSearchFilterSheet(
   BuildContext context, {
   required ReportProvider provider,
   bool ratingManagementMode = false,
+  ReportFilter? initialFilter,
+  ValueChanged<ReportFilter>? onApply,
 }) => showModalBottomSheet<void>(
   context: context,
   isScrollControlled: true,
@@ -19,16 +21,25 @@ Future<void> showSearchFilterSheet(
   builder: (_) => SearchFilterSheet(
     provider: provider,
     ratingManagementMode: ratingManagementMode,
+    initialFilter: initialFilter,
+    onApply: onApply,
   ),
 );
 
 class SearchFilterSheet extends StatefulWidget {
   final ReportProvider provider;
   final bool ratingManagementMode;
+
+  /// [onApply] 가 있으면 공용 필터(provider.filter) 대신 이 조건으로 시작하고,
+  /// 적용·초기화 결과를 [onApply] 로만 돌려준다(드릴다운 화면의 지역 조건, SQ-U02).
+  final ReportFilter? initialFilter;
+  final ValueChanged<ReportFilter>? onApply;
   const SearchFilterSheet({
     super.key,
     required this.provider,
     this.ratingManagementMode = false,
+    this.initialFilter,
+    this.onApply,
   });
 
   @override
@@ -101,7 +112,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   @override
   void initState() {
     super.initState();
-    final f = widget.provider.filter;
+    final f = widget.initialFilter ?? widget.provider.filter;
     _nameCtrl = TextEditingController(text: f.name);
     _numCtrl = TextEditingController(text: f.reportNumber);
     _idCtrl = TextEditingController(text: f.id);
@@ -184,7 +195,8 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   }
 
   void _apply() {
-    widget.provider.setFilter(
+    final apply = widget.onApply ?? widget.provider.setFilter;
+    apply(
       ReportFilter(
         name: _nameCtrl.text.trim(),
         reportNumber: _numCtrl.text.trim(),
@@ -222,7 +234,12 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   }
 
   void _clear() {
-    widget.provider.clearFilter();
+    final apply = widget.onApply;
+    if (apply != null) {
+      apply(const ReportFilter());
+    } else {
+      widget.provider.clearFilter();
+    }
     Navigator.pop(context);
   }
 

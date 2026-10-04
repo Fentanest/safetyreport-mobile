@@ -60,6 +60,15 @@
 - 파일 목록: 디렉터리를 비동기로 한 번 읽고 항목마다 stat 한 번, `ListView.builder`·정적 DateFormat, build에서 동기 파일시스템 호출 제거. Provider 구독을 `filesRefreshNonce`로 좁혔다. 정렬(폴더 먼저, 이름 내림차순)·삭제/공유/열기 동작 불변.
 - 검증: analyze error 0 / warning 9 / info 0, test **1034 passed / 16 skipped / 0 failed**(신규 9). Kotlin 단위 테스트 12 passed(Gradle, 데몬 없이).
 
+### WP4 목록·드릴다운·상세 (SQ-U01 U02 P09 U12 U13 U14, U20 상세 시트)
+- 신고내역 앱바 배지가 Standalone에서 늘 "0건"이던 결함: 페이지 목록이 받은 실제 전체 건수(탭별, 천 단위 쉼표)를 보인다. Client에서 필터가 걸려 전체를 모르면 배지를 숨긴다. 옛 메모리 목록 기반 계수·선택 코드를 지우고, 화면 단위 선택은 Client 중복차량 탭에만 남겼다(중복 카드 선택 시 빈 목록이 넘어가던 결함·늘 꺼져 있던 일괄 선택도 고침).
+- 통계·지도·상세 시트의 드릴다운은 앱 전체 필터를 바꾸지 않고 그 화면만의 필터로 연다(`pushReportDrillDown`). 제목에 조건을 보인다("예시 교통 담당 기관 · 신고"). 돌아온 뒤 하단 신고내역 탭에 조건이 남던 결함을 고쳤다. 드릴다운 화면의 검색/필터도 그 화면 필터만 바꾼다.
+- 상세 시트 "같은 조건으로 검색"은 분류만 판정하고 200행을 읽거나 이후 refreshAll 대상에 넣지 않는다.
+- 상세 시트 라벨 칸 폭을 가장 긴 라벨로 계산하고, 좁은 폭·큰 글자에서는 라벨을 값 위로 올린다.
+- 상세 시트·알림·지도의 상태 칩을 공용 `StatusBadge`로 바꿔 라이트에서도 대비 4.5:1 이상(이전 일부수용 1.96:1).
+- 전체화면 동영상을 닫으면 방향을 시스템 기본으로 되돌리고(세로 고정 해제), 조작 막대를 SafeArea 안에 둔다. 동영상 버튼에 툴팁과 48dp 터치 영역.
+- 검증: analyze error 0 / warning 9 / info 0, test **1063 passed / 16 skipped / 0 failed**(신규 29), 골든 변경 없음.
+
 ## 2026-10-04 (서버 dev 리팩터링 WS 소비자 연동, 로컬 미배포)
 
 - 서버의 optional terminal event_id/after/replay_gap/cursor_reset을 Android WsService에 연결했다. 서버 설정별 cursor를 분리하고 같은 event_id의 완료 알림 중복을 막는다. PrefsInbox가 알림 history와 cursor를 한 Editor.commit에 저장하며 실패하면 메모리의 실패 history/cursor/trim만 복구한 뒤 reconnect한다. rollback disk 실패에서도 메모리 cursor를 되돌리는 회귀를 확인했다.

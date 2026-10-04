@@ -1140,30 +1140,26 @@ class _RowCard extends StatelessWidget {
   void _openList(BuildContext context) {
     final agency = row.agency;
     final person = showPerson ? row.person : '';
-    final provider = context.read<ReportProvider>();
     // S-08: 통계 연도는 답변일 기준이므로 drilldown 도 답변일 범위로 좁힌다.
     final responseDateStart = year == 'all' ? '' : '$year-01-01';
     final responseDateEnd = year == 'all' ? '' : '$year-12-31';
-    provider.setFilter(
-      ReportFilter(
+    // SQ-U02: 공용 필터(하단 신고내역 탭)를 바꾸지 않고 이 화면만의 조건으로 연다.
+    final condition = [agency, person].where((v) => v.isNotEmpty).join(' · ');
+    pushReportDrillDown(
+      Navigator.of(context),
+      filter: ReportFilter(
         agency: agency,
         manager: person,
         law: law ?? '',
         responseDateStart: responseDateStart,
         responseDateEnd: responseDateEnd,
       ),
-    );
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ReportListScreen(
-          initialTabIndex: switch (category) {
-            'parking' => 1,
-            'other' => 2,
-            _ => 0,
-          },
-        ),
-      ),
+      title: condition.isEmpty ? '신고 내역' : '$condition · 신고',
+      initialTabIndex: switch (category) {
+        'parking' => 1,
+        'other' => 2,
+        _ => 0,
+      },
     );
   }
 

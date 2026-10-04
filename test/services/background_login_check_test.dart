@@ -85,6 +85,8 @@ void main() {
 
     await setPrefs({
       AppPrefsKeys.standaloneToken: 't',
+      AppPrefsKeys.standaloneTokenUsername:
+          'tester', // 토큰은 받은 아이디를 함께 기록한다(기술일지 A2-01)
       AppPrefsKeys.standaloneTokenExpiresAt: DateTime.now()
           .add(const Duration(minutes: 30))
           .millisecondsSinceEpoch,

@@ -73,6 +73,7 @@ class StandaloneAuthService {
   // SharedPreferences 키 — `AppPrefsKeys` alias (Kotlin 호환 이름)
   static const _tokenKey = AppPrefsKeys.standaloneToken;
   static const _expiresAtKey = AppPrefsKeys.standaloneTokenExpiresAt;
+  static const _tokenUsernameKey = AppPrefsKeys.standaloneTokenUsername;
 
   // FlutterSecureStorage 키 (비밀번호 암호화 저장)
   static const _securePasswordKey = AppPrefsKeys.standalonePassword;
@@ -341,7 +342,15 @@ class StandaloneAuthService {
 
       // 토큰 + 만료 시간 저장
       checkCurrent();
-      await saveToken(token, expiresAt: expiresAt, generation: generation);
+      await saveToken(
+        token,
+        expiresAt: expiresAt,
+        generation: generation,
+        username: username,
+        // 자동 재로그인(백그라운드 isolate 포함)은 저장 직전에도 설정 아이디가 그대로일 때만 저장한다.
+        // 사용자가 직접 로그인하는 경우(saveCredentials)는 아이디 저장이 뒤따른다.
+        requireCurrentUsername: !saveCredentials,
+      );
       checkCurrent();
 
       // 재로그인용 비밀번호 저장 (secure storage)
@@ -378,14 +387,30 @@ class StandaloneAuthService {
 
   // ── 토큰 저장/조회/삭제 ──────────────────────────────────────
 
+  /// 토큰과 받은 아이디를 함께 저장한다. [requireCurrentUsername] 이면 다른 isolate 가 쓴 최신 설정을 다시 읽어
+  /// 아이디가 [username] 과 같을 때만 저장한다 — 백그라운드 재로그인 중 계정을 바꾸면 이전 계정 토큰을 쓰지 않는다
+  /// (기술일지 A2-01; 세대 번호는 isolate 마다 따로라 이것만으로는 막지 못했다).
   static Future<void> saveToken(
     String token, {
     int? expiresAt,
     int? generation,
+    String? username,
+    bool requireCurrentUsername = false,
   }) => _writeCredentials(() async {
     _checkGeneration(generation);
     final prefs = await SharedPreferences.getInstance();
+    if (requireCurrentUsername) {
+      await prefs.reload();
+      if (username == null ||
+          prefs.getString(AppPrefsKeys.standaloneUsername) != username) {
+        throw const AuthTemporarilyUnavailableException('로그인 문맥이 변경되었습니다.');
+      }
+    }
     _checkGeneration(generation);
+    if (username != null &&
+        !await prefs.setString(_tokenUsernameKey, username)) {
+      throw StateError('토큰 계정 저장 실패');
+    }
     if (!await prefs.setString(_tokenKey, token)) throw StateError('토큰 저장 실패');
     if (expiresAt != null && !await prefs.setInt(_expiresAtKey, expiresAt)) {
       throw StateError('토큰 만료 시간 저장 실패');
@@ -393,9 +418,17 @@ class StandaloneAuthService {
     _checkGeneration(generation);
   });
 
+  /// 저장된 토큰. 지금 설정한 아이디로 받은 토큰이 아니면 null(이전 계정 토큰을 쓰지 않는다, 기술일지 A2-01).
   static Future<String?> getStoredToken() async {
     final prefs = await SharedPreferences.getInstance();
+    if (!_tokenOwnedByCurrentUser(prefs)) return null;
     return prefs.getString(_tokenKey);
+  }
+
+  static bool _tokenOwnedByCurrentUser(SharedPreferences prefs) {
+    final owner = prefs.getString(_tokenUsernameKey);
+    final username = prefs.getString(AppPrefsKeys.standaloneUsername) ?? '';
+    return owner != null && owner.isNotEmpty && owner == username;
   }
 
   static Future<String> getPhoneNumber() async {
@@ -408,6 +441,8 @@ class StandaloneAuthService {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString(_tokenKey);
     if (token == null || token.isEmpty) return false;
+    // 받은 아이디가 기록되지 않았거나(이 기능 전의 토큰) 지금 아이디와 다르면 무효 — 한 번 다시 로그인한다.
+    if (!_tokenOwnedByCurrentUser(prefs)) return false;
 
     final expiresAt = prefs.getInt(_expiresAtKey);
     if (expiresAt == null) return true; // 만료 정보 없으면 일단 유효하다고 판단
@@ -431,6 +466,7 @@ class StandaloneAuthService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_tokenKey);
       await prefs.remove(_expiresAtKey);
+      await prefs.remove(_tokenUsernameKey);
       await prefs.remove(AppPrefsKeys.standaloneAuthLastAt);
       await prefs.remove(AppPrefsKeys.standaloneAuthLastOutcome);
       await prefs.remove(AppPrefsKeys.standaloneAuthLastMessage);

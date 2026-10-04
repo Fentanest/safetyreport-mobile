@@ -288,7 +288,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       key: const ValueKey('dashboard-status-summary'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _buildTotalTile(stats.total),
+        _buildTotalTile(
+          stats.total,
+          // 취하를 숨기는 설정이어도 '전체'에는 취하가 들어 있다 — 서버 대시보드와 같이 밝힌다(기술일지 O-01)
+          withdrawIncluded: stats.withdrawGraphCount == 0
+              ? stats.withdrawRawCount
+              : 0,
+        ),
         const SizedBox(height: gap),
         LayoutBuilder(
           builder: (context, constraints) {
@@ -342,14 +348,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   /// 전체 건수 머리 줄. 누르면 전체 목록(FilteredListScreen)으로 간다 — 이전 '전체' 카드와 같은 동작.
-  Widget _buildTotalTile(int total) {
+  Widget _buildTotalTile(int total, {int withdrawIncluded = 0}) {
     const label = '전체';
     final tone = _tone(context.sr.brand);
     final enabled = total > 0;
+    final note = withdrawIncluded > 0
+        ? '취하 ${formatCount(withdrawIncluded)} 포함'
+        : null;
     // excludeSemantics 가 InkWell 의 탭 동작까지 숨기므로 Semantics 에 직접 onTap 을 준다(TalkBack 활성화).
     return Semantics(
       button: enabled,
-      label: '$label ${formatCount(total)}',
+      label: '$label ${formatCount(total)}${note == null ? '' : ', $note'}',
       onTap: enabled ? () => _openFiltered(label, (r) => true) : null,
       excludeSemantics: true,
       child: Material(
@@ -374,13 +383,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     size: 20,
                   ),
                   const SizedBox(width: 8),
-                  Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: tone.foreground,
-                    ),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: tone.foreground,
+                        ),
+                      ),
+                      if (note != null)
+                        Text(
+                          note,
+                          style: TextStyle(
+                            fontSize: SrFontSize.caption,
+                            color: context.sr.textSecondary,
+                          ),
+                        ),
+                    ],
                   ),
                   const SizedBox(width: 12),
                   Expanded(

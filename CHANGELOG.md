@@ -8,6 +8,18 @@
 
 ---
 
+## 2026-10-05 (서버 기술일지 2026-10-04 결함 중 모바일 해당분 수정, 로컬 미배포)
+
+- 근거: 서버 레포 기술일지(서버·auth·모바일 정밀 점검, 결함 77건). 서버·모바일 동작을 같게 맞추는 항목만 이 레포에서 고쳤다.
+- A2-01: 안전신문고 토큰에 받은 아이디(`standaloneTokenUsername`)를 함께 저장하고, 지금 아이디와 다르거나 기록이 없으면 무효로 본다. 백그라운드(WorkManager isolate) 재로그인은 저장 직전 디스크의 아이디를 다시 읽어 같을 때만 저장한다(세대 번호는 isolate 마다 따로라 막지 못하던 경로, CHANGELOG 2026-10-04 S-05 의 "cross-isolate 인증 원자성" 경계). 업그레이드 뒤 첫 사용 때 한 번 다시 로그인한다.
+- A2-06: 만족도 점수 응답은 `result` 키가 있고 null/빈 객체일 때만 미참여로 확정한다. 키 없음·`error`·객체 아님은 확인 실패로 보고 저장된 별점·사유를 지우지 않는다(`classifyScorePayload`, 서버 `_classify_score_payload` 와 같은 벡터).
+- A2-08: Sunwi 지역 응답의 `result` 가 목록이 아니면 0건이 아니라 실패로 재시도한다(`resultListOrThrow`, 서버와 같음).
+- D2-03: `requireFresh` 는 재검증 실패 뒤 10분 캐시로 새 작업을 허용하지 않는다(`status_stale`, 서버와 같음).
+- D2-05: 커뮤니티 "이 계정으로 연결"은 저장 성공 뒤에만 후보를 지우고, 실패하면 확인 화면을 유지한다. 확정은 한 번에 하나, 확정 중 취소는 결과를 기다린다.
+- D2-06·D2-08: Client 서버 계정 카드가 `is_different_data_owner` 경고를 보이고, 연결됨 상태에 "다른 계정으로 다시 연결"을 둔다.
+- O-01: 대시보드 '전체' 타일에 취하를 숨기는 설정이면 "취하 N건 포함"을 표시한다(서버 웹 대시보드와 같은 표기).
+- 검증: `flutter analyze` error 0 / 기존 warning 9. `flutter test` 1188 passed / 16 skipped / 0 failed(이번 실행 기준선 1170 + 신규 18). 서버↔모바일 실제 DB 왕복(`db_roundtrip_check.py`, 실제 Dart importer·서버 restore) 양방향 컬럼 차이 0.
+
 ## 2026-10-04 (UI·코드 점검 55건 수정, 로컬 미배포)
 
 - 근거: [점검 보고서](docs/reviews/2026-10-04-ui-code-review/index.html), 추적표 [docs/plans/2026-10-04-ui-code-review-fixes.md](docs/plans/2026-10-04-ui-code-review-fixes.md). 사용자 결정으로 메이저 버전 출시 전 55건 전부 수정. 브랜치 `fix/ui-code-review-2026-10-04`.

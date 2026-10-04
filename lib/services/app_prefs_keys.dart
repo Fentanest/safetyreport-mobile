@@ -25,6 +25,9 @@ class AppPrefsKeys {
   static const standaloneToken = 'standaloneToken';
   static const standaloneTokenExpiresAt = 'standaloneTokenExpiresAt';
 
+  /// 토큰을 받은 안전신문고 아이디. [standaloneUsername] 과 다르면 토큰은 무효다(기술일지 A2-01, 서버 auth_token.json username 과 같음).
+  static const standaloneTokenUsername = 'standaloneTokenUsername';
+
   /// FlutterSecureStorage (Keystore) 에 저장하는 비밀번호 키.
   static const standalonePassword = 'standalone_password';
 

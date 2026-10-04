@@ -125,6 +125,7 @@ Dart CommunityAuthLinkChannel (main() 에서 등록) → "takePendingLink"(꺼�
 | `flutter.standalonePhoneNumber` | String | Standalone 휴대폰번호 (또는 demo) |
 | `flutter.standaloneDemoMode` | bool | Play review 데모 모드 여부 |
 | `flutter.standaloneToken` / `flutter.standaloneTokenExpiresAt` | String / int | OAuth 토큰 |
+| `flutter.standaloneTokenUsername` | String | 토큰을 받은 안전신문고 아이디. `standaloneUsername` 과 다르거나 없으면 토큰 무효(계정 변경 뒤 이전 계정 토큰 사용 방지). 백그라운드 재로그인은 저장 직전 디스크의 아이디를 다시 확인(2026-10-04 서버 기술일지 A2-01) |
 | `flutter.inbox.queue.<ms>_<순번>` | String (신고번호 하나) | Standalone 감지 큐. Kotlin·Dart 모두 새 키에만 쓰고 `StandalonePendingQueueStore` 가 읽을 때 중복 제거, 처리한 값의 키만 지움 (G11-5) |
 | `flutter.standalone_pending_reports` | **String (CSV)** | (G11-5 이전 큐) 남은 값만 읽고 지움 (아래 함정 주의) |
 | `flutter.standalone_last_detected_at` | long | 디버그용 |

@@ -32,6 +32,8 @@
   (`apikey` + Bearer, 10초 타임아웃, `{"protocol":1,…}`).
 - `community_gate.dart` (`ChangeNotifier`): 캐시 10분, `requireFresh(60s)`,
   `invalidate(reason)`, 포그라운드 60초 poll + resume 즉시 refresh.
+  `requireFresh` 는 재검증이 실패해 10분 탐색 캐시를 쓴 경우에도 60초 안의 확인이 없으면 `verification_required`(`status_stale`)를 돌려준다.
+  화면 이동용 상태는 그대로 둔다(서버 `require_fresh` 와 같음, 2026-10-04 서버 기술일지 D2-03).
   Standalone 이고 status active 면 `CommunityStore.setContext(...)`,
   상실이면 `deactivateContext`.
 - 자료 주인(2026-09-27, Standalone writer 만 — Client·데모는 확인하지 않음): 중앙 status 가 진입 허용이면

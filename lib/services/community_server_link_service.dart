@@ -367,11 +367,16 @@ class CommunityServerCandidate {
   final String displayName;
   final bool hasEmail;
   final bool isDifferentAccount;
+
+  /// 서버에 저장된 신고 자료의 주인이 이 카카오 계정과 다르다(서버 status.candidate.is_different_data_owner).
+  /// 웹 관리자 화면(#cmOwnerWarn)과 같은 경고를 보여 준다(기술일지 D2-06).
+  final bool isDifferentDataOwner;
   const CommunityServerCandidate({
     required this.requestId,
     required this.displayName,
     required this.hasEmail,
     required this.isDifferentAccount,
+    this.isDifferentDataOwner = false,
   });
 }
 
@@ -441,6 +446,7 @@ class CommunityServerStatus {
                   : _str(c['display_name']).trim(),
               hasEmail: c['has_email'] == true,
               isDifferentAccount: c['is_different_account'] == true,
+              isDifferentDataOwner: c['is_different_data_owner'] == true,
             )
           : null,
       account: a is Map

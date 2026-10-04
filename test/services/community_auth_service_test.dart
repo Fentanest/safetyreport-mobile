@@ -108,6 +108,30 @@ class _FakeAuth {
   });
 }
 
+/// 세션 키 첫 쓰기를 실패시키는 보안 저장소(서버 기술일지 2026-10-04 D2-05 회귀).
+class _FailFirstSessionWrite extends FlutterSecureStorage {
+  _FailFirstSessionWrite() : super();
+  int failures = 1;
+
+  @override
+  Future<void> write({
+    required String key,
+    required String? value,
+    AppleOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    AppleOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) {
+    if (key == CommunityAuthService.sessionKey && failures > 0) {
+      failures--;
+      throw PlatformException(code: 'io', message: 'keystore busy');
+    }
+    return super.write(key: key, value: value);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -321,6 +345,35 @@ void main() {
       }
       // 확인은 한 번만.
       expect(await svc.confirmCandidate(), isFalse);
+    });
+
+    test('D2-05: 새 세션 저장이 실패하면 후보와 확인 화면을 유지하고 다시 누르면 연결된다', () async {
+      final failing = _FailFirstSessionWrite();
+      svc = CommunityAuthService(
+        config: config,
+        client: fake.client,
+        storage: failing,
+        launcher: (u) async {
+          launched.add(u);
+          return true;
+        },
+        now: () => now,
+      );
+      await svc.startLogin();
+      await svc.handleCallbackLink('$_link?code=$_code');
+      expect(await svc.confirmCandidate(), isFalse);
+      expect(stored(), isNull);
+      expect(svc.state.value.phase, CommunityAccountPhase.confirmRequired);
+      expect(svc.state.value.candidate, isNotNull);
+      expect(svc.state.value.notice, contains('저장하지 못했습니다'));
+
+      expect(
+        await svc.confirmCandidate(),
+        isTrue,
+        reason: '후보가 남아 있어 다시 누르면 저장된다',
+      );
+      expect(stored()!['access_token'], 'acc-1');
+      expect(svc.state.value.phase, CommunityAccountPhase.connected);
     });
 
     test('취소하면 새 세션을 logout?scope=local 로 닫고 저장하지 않는다', () async {

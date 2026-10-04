@@ -9,6 +9,7 @@ import '../models/report.dart';
 import 'api_service.dart';
 import 'client_compatibility.dart';
 import 'local_db_service.dart';
+import 'report_policy.dart';
 import 'standalone_api_service.dart';
 import 'sync_engine.dart';
 
@@ -464,16 +465,12 @@ class RatingService {
         '${two(now.hour)}:${two(now.minute)}:${two(now.second)}';
   }
 
-  static String _canonicalStatus(String status) {
-    final trimmed = status.trim();
-    if (trimmed == '진행' ||
-        trimmed == '진행중' ||
-        trimmed == '검토중' ||
-        trimmed == '처리중') {
-      return '처리중';
-    }
-    return trimmed;
-  }
+  static String _canonicalStatus(String status) =>
+      ReportPolicy.displayStatus(status);
+
+  @visibleForTesting
+  static String canonicalStatusForTest(String status) =>
+      _canonicalStatus(status);
 }
 
 class _ParsedRatingLog {

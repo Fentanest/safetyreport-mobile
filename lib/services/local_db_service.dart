@@ -27,6 +27,7 @@ import 'attachment_policy.dart';
 import 'photo_capture_time.dart';
 
 import 'standalone_parser.dart';
+import 'report_policy.dart';
 
 part 'local_statistics.dart';
 
@@ -1736,18 +1737,26 @@ class LocalDbService {
       if (metric != null) {
         final condition = switch (metric) {
           '전체' => '1=1',
-          '보완 요청' => "처리상태 = '보완요청'",
-          '처리 중' => "처리상태 IN ('처리중','진행','진행중','검토중')",
-          '수용' => "처리상태 = '수용'",
-          '일부수용' => "처리상태 = '일부수용'",
-          '불수용/기타' => "처리상태 IN ('불수용','기타')",
-          '취하' => "처리상태 = '취하'",
-          'traffic:과태료' => "instr(IFNULL(범칙금_과태료,''),'과태료') > 0",
-          'traffic:경고/범칙금' =>
-            "(instr(IFNULL(범칙금_과태료,''),'경고') > 0 OR instr(IFNULL(범칙금_과태료,''),'범칙금') > 0)",
-          'traffic:불수용' => "(instr(IFNULL(처리상태,''),'불수용') > 0 OR 처리상태 = '기타')",
-          'traffic:과태료 미확인' =>
-            "범칙금_과태료 = '미확인' AND instr(IFNULL(처리상태,''),'불수용') = 0 AND IFNULL(처리상태,'') != '기타'",
+          // 대시보드 막대·타일과 같은 규칙(ReportPolicy, 서버 대시보드와 같음)
+          '보완 요청' => ReportPolicy.sqlStatusIs(
+            '처리상태',
+            ReportPolicy.supplementStatus,
+          ),
+          '처리 중' => ReportPolicy.sqlListStatusFilter(
+            '처리상태',
+            ReportPolicy.processingLabel,
+          ),
+          '수용' => ReportPolicy.sqlStatusIs('처리상태', '수용'),
+          '일부수용' => ReportPolicy.sqlStatusIs('처리상태', '일부수용'),
+          '불수용/기타' => ReportPolicy.sqlListStatusFilter('처리상태', '불수용'),
+          '취하' => ReportPolicy.sqlStatusIs(
+            '처리상태',
+            ReportPolicy.withdrawnStatus,
+          ),
+          'traffic:과태료' => ReportPolicy.sqlHasFine('범칙금_과태료'),
+          'traffic:경고/범칙금' => ReportPolicy.sqlHasWarning('범칙금_과태료'),
+          'traffic:불수용' => ReportPolicy.sqlListStatusFilter('처리상태', '불수용'),
+          'traffic:과태료 미확인' => ReportPolicy.sqlFineUnknown('범칙금_과태료', '처리상태'),
           _ => throw ArgumentError('알 수 없는 요약 항목'),
         };
         q.clauses.add(condition);
@@ -1768,7 +1777,7 @@ class LocalDbService {
         String date(DateTime t) =>
             '${t.year.toString().padLeft(4, '0')}-${t.month.toString().padLeft(2, '0')}-${t.day.toString().padLeft(2, '0')}';
         q.clauses.add(
-          "처리상태 IN ('수용','일부수용','불수용','기타','답변완료') AND 답변일>=? AND 답변일<=?",
+          "${ReportPolicy.sqlListStatusFilter('처리상태', '완료')} AND 답변일>=? AND 답변일<=?",
         );
         q.args.addAll([
           date(today.subtract(const Duration(days: 3))),
@@ -1778,14 +1787,18 @@ class LocalDbService {
       if (scope == 'rating') {
         q.clauses.add("trim(IFNULL(만족도조사여부,'')) NOT IN ('참여 완료','참여 불가')");
         q.clauses.add(
-          "trim(IFNULL(처리상태,'')) NOT IN ('취하','답변 대기','처리중','진행','진행중','검토중')",
+          ReportPolicy.sqlNotIn(ReportPolicy.sqlNorm('처리상태'), const [
+            '취하',
+            '답변 대기',
+            ...ReportPolicy.processingOrder,
+          ]),
         );
       }
       if (category != 'all') {
         q.clauses.add('category = ?');
         q.args.add(category);
       }
-      if (excludeWithdraw) q.clauses.add("IFNULL(처리상태,'') != '취하'");
+      if (excludeWithdraw) q.clauses.add(ReportPolicy.sqlNotWithdrawn('처리상태'));
       final count = await PerformanceTrace.sql(
         'list.sql_count',
         () => d.rawQuery(
@@ -1803,9 +1816,8 @@ class LocalDbService {
       return (
         reports: PerformanceTrace.sync(
           'list.report_objects',
-          () => rows
-              .map((r) => _rowToReport(r, detailLoaded: !compact))
-              .toList(),
+          () =>
+              rows.map((r) => _rowToReport(r, detailLoaded: !compact)).toList(),
         ),
         total: count.first['n'] as int,
       );
@@ -1857,11 +1869,13 @@ class LocalDbService {
     ReportQuery q, {
     bool compact = false,
   }) async {
-    final withdraw = excludeWithdraw ? "AND IFNULL(처리상태,'') != '취하'" : '';
+    final withdraw = excludeWithdraw
+        ? "AND ${ReportPolicy.sqlNotWithdrawn('처리상태')}"
+        : '';
     final cte =
         """
       WITH dv AS (SELECT 차량번호, COUNT(*) AS total_count,
-        SUM(CASE WHEN IFNULL(처리상태,'') != '취하' THEN 1 ELSE 0 END) AS valid_count,
+        SUM(CASE WHEN ${ReportPolicy.sqlNotWithdrawn('처리상태')} THEN 1 ELSE 0 END) AS valid_count,
         MAX(신고번호) AS max_report_no FROM $effectiveReportsView
         WHERE 차량번호 != '' $withdraw GROUP BY 차량번호 HAVING COUNT(*) >= 2)
     """;
@@ -1892,7 +1906,7 @@ class LocalDbService {
     var where = 'category = ?';
     final args = <dynamic>[category];
     if (excludeWithdraw) {
-      where += " AND IFNULL(처리상태, '') != '취하'";
+      where += ' AND ${ReportPolicy.sqlNotWithdrawn('처리상태')}';
     }
     final rows = await _queryReportsChunked(d, where: where, whereArgs: args);
     final projected = await _projectRows(
@@ -1914,7 +1928,7 @@ class LocalDbService {
     final d = await db;
     final rows = await _queryReportsChunked(
       d,
-      where: excludeWithdraw ? "IFNULL(처리상태, '') != '취하'" : null,
+      where: excludeWithdraw ? ReportPolicy.sqlNotWithdrawn('처리상태') : null,
     );
     final projected = await _projectRows(
       d,
@@ -1960,7 +1974,7 @@ class LocalDbService {
   ];
 
   static String _exportWhere(bool excludeWithdraw) => excludeWithdraw
-      ? "category = ? AND IFNULL(처리상태, '') != '취하'"
+      ? 'category = ? AND ${ReportPolicy.sqlNotWithdrawn('처리상태')}'
       : 'category = ?';
 
   /// 엑셀 내보내기 진행률의 분모. [readReportsForExport] 와 같은 조건이다.
@@ -2124,20 +2138,23 @@ class LocalDbService {
       if (isCancelled?.call() == true) throw const QueryCancelled();
       final representative = _representativeWhere(useRepresentativeRecords);
       final timer = Stopwatch()..start();
+      // 하위 질의가 처리상태·범칙금_과태료·category 를 ReportPolicy.sqlNorm 으로 한 번 정규화한다
+      // (서버 대시보드와 같은 규칙, contracts/report-policy-vectors.json).
+      const traffic = "category = 'traffic'";
       final fields = <String, String>{
         'accept': "처리상태 = '수용'",
         'partial': "처리상태 = '일부수용'",
-        'reject': "처리상태 IN ('불수용','기타')",
-        'supplement': "처리상태 = '보완요청'",
-        'processing': "처리상태 IN ('처리중','진행','진행중','검토중')",
-        'completed': "처리상태 IN ('수용','불수용','일부수용','기타','답변완료')",
-        'withdraw': "처리상태 = '취하'",
-        'fine': "category = 'traffic' AND instr(IFNULL(범칙금_과태료,''),'과태료') > 0",
-        'penalty':
-            "category = 'traffic' AND (instr(IFNULL(범칙금_과태료,''),'경고') > 0 OR instr(IFNULL(범칙금_과태료,''),'범칙금') > 0)",
-        'traffic_reject': "category = 'traffic' AND 처리상태 IN ('불수용','기타')",
+        'reject': ReportPolicy.sqlIn('처리상태', ReportPolicy.rejectOrder),
+        'supplement': "처리상태 = '${ReportPolicy.supplementStatus}'",
+        'processing': ReportPolicy.sqlIn('처리상태', ReportPolicy.processingOrder),
+        'completed': ReportPolicy.sqlIn('처리상태', ReportPolicy.completedOrder),
+        'withdraw': "처리상태 = '${ReportPolicy.withdrawnStatus}'",
+        'fine': '$traffic AND ${ReportPolicy.sqlHasFine('범칙금_과태료')}',
+        'penalty': '$traffic AND ${ReportPolicy.sqlHasWarning('범칙금_과태료')}',
+        'traffic_reject':
+            '$traffic AND ${ReportPolicy.sqlIn('처리상태', ReportPolicy.rejectOrder)}',
         'unconfirmed':
-            "category = 'traffic' AND 범칙금_과태료 = '미확인' AND IFNULL(처리상태,'') NOT IN ('불수용','기타')",
+            "$traffic AND 범칙금_과태료 = '${ReportPolicy.fineUnknownText}' AND ${ReportPolicy.sqlNotIn('처리상태', ReportPolicy.rejectOrder)}",
       };
       final sums = fields.entries
           .map((e) => 'COUNT(CASE WHEN ${e.value} THEN 1 END) AS ${e.key}')
@@ -2146,8 +2163,9 @@ class LocalDbService {
         'summary.sql_counts',
         () => d.rawQuery(
           'SELECT COUNT(*) AS total, $sums FROM ('
-          'SELECT r.ID, r.category, COALESCE(s.value,r.처리상태) AS 처리상태, '
-          'COALESCE(f.value,r.범칙금_과태료) AS 범칙금_과태료 FROM reports r '
+          'SELECT r.ID, ${ReportPolicy.sqlNorm('r.category')} AS category, '
+          '${ReportPolicy.sqlNorm('COALESCE(s.value,r.처리상태)')} AS 처리상태, '
+          '${ReportPolicy.sqlNorm('COALESCE(f.value,r.범칙금_과태료)')} AS 범칙금_과태료 FROM reports r '
           "LEFT JOIN report_override s ON s.ID=r.ID AND s.column_name='처리상태' "
           "LEFT JOIN report_override f ON f.ID=r.ID AND f.column_name='범칙금_과태료') r "
           'WHERE $representative',
@@ -2164,7 +2182,7 @@ class LocalDbService {
         () => d.rawQuery(
           "SELECT r.* FROM $effectiveReportsView r WHERE $representative AND "
           "r.ID IN (SELECT ID FROM reports WHERE 답변일 >= ? AND 답변일 <= ? UNION SELECT ID FROM report_override WHERE column_name='답변일' AND value >= ? AND value <= ?) AND "
-          "처리상태 IN ('수용','일부수용','불수용','기타','답변완료') AND 답변일 >= ? AND 답변일 <= ? "
+          "${ReportPolicy.sqlListStatusFilter('처리상태', '완료')} AND 답변일 >= ? AND 답변일 <= ? "
           'ORDER BY CAST(synced_at AS INTEGER) DESC, 답변일 DESC, 신고번호 DESC LIMIT 200',
           [lower, upper, lower, upper, lower, upper],
         ),
@@ -2172,14 +2190,14 @@ class LocalDbService {
       // The watch flag of ANY confirmed member applies to its representative.
       final watch = _watchWhere(useRepresentativeRecords);
       final watchWhere =
-          '$representative AND $watch${excludeWithdraw ? " AND IFNULL(COALESCE(s.value,r.처리상태),'') != '취하'" : ''}';
+          '$representative AND $watch${excludeWithdraw ? " AND ${ReportPolicy.sqlNotWithdrawn('COALESCE(s.value,r.처리상태)')}" : ''}';
       final watchCount = await PerformanceTrace.sql(
         'summary.sql_watch_count',
         () => d.rawQuery(
           'SELECT COUNT(*) AS n FROM reports r INDEXED BY sr_summary_cover '
           "LEFT JOIN report_override s ON s.ID=r.ID AND s.column_name='처리상태' "
           'WHERE $representative AND $watch'
-          '${excludeWithdraw ? " AND IFNULL(COALESCE(s.value,r.처리상태),'') != '취하'" : ""}',
+          '${excludeWithdraw ? " AND ${ReportPolicy.sqlNotWithdrawn('COALESCE(s.value,r.처리상태)')}" : ""}',
         ),
       );
       final watched = await PerformanceTrace.sql(
@@ -2379,7 +2397,7 @@ class LocalDbService {
         clauses.add('답변일 LIKE ?');
         args.add('$year%');
       }
-      if (excludeWithdraw) clauses.add("IFNULL(처리상태, '') != '취하'");
+      if (excludeWithdraw) clauses.add(ReportPolicy.sqlNotWithdrawn('처리상태'));
       final columns = _statsColumns.map((c) => '"$c"').join(',');
       final cats = {
         for (final c in ['traffic', 'parking', 'other'])
@@ -2477,8 +2495,8 @@ class LocalDbService {
     isCancelled,
   );
 
-  static const _overviewCompletedStatuses = {'수용', '불수용', '일부수용', '기타', '답변완료'};
-  static const _overviewProcessingStatuses = {'처리중', '진행', '진행중', '검토중'};
+  static const _overviewCompletedStatuses = ReportPolicy.completedStatuses;
+  static const _overviewProcessingStatuses = ReportPolicy.processingStatuses;
 
   static DateTime? _parseOverviewDate(Object? value) {
     final text = (value?.toString() ?? '').trim();
@@ -2514,14 +2532,14 @@ class LocalDbService {
 
     for (final r in rows) {
       final weight = (r['_weight'] as int?) ?? 1;
-      final status = (r['처리상태']?.toString() ?? '').trim();
+      final status = ReportPolicy.norm(r['처리상태']);
       if (_overviewCompletedStatuses.contains(status)) completed += weight;
       if (status == '수용') accept += weight;
       if (status == '일부수용') partial += weight;
-      if (status == '불수용' || status == '기타') reject += weight;
-      if (status == '보완요청') supplement += weight;
+      if (ReportPolicy.rejectStatuses.contains(status)) reject += weight;
+      if (status == ReportPolicy.supplementStatus) supplement += weight;
       if (_overviewProcessingStatuses.contains(status)) processing += weight;
-      if (status == '취하') withdraw += weight;
+      if (status == ReportPolicy.withdrawnStatus) withdraw += weight;
 
       final reported = _parseOverviewDate(r['신고일']);
       final answered = _parseOverviewDate(r['답변일']);
@@ -2608,14 +2626,9 @@ class LocalDbService {
       final weight = (r['_weight'] as int?) ?? 1;
       agg.add(r);
       final fine = r['범칙금_과태료']?.toString() ?? '';
-      final status = (r['처리상태']?.toString() ?? '').trim();
-      if (fine.contains('과태료') ||
-          fine.contains('경고') ||
-          fine.contains('범칙금') ||
-          status == '불수용' ||
-          status == '기타') {
-        decided += weight;
-      }
+      final status = ReportPolicy.norm(r['처리상태']);
+      final disposition = ReportPolicy.dashboardDisposition(r);
+      if (!disposition['unconfirmed']!) decided += weight;
       if (fine.contains('과태료') && extractFineAmount(fine) > 0) {
         confirmedCount += weight;
       }
@@ -2623,7 +2636,7 @@ class LocalDbService {
       typeCounts[name] = (typeCounts[name] ?? 0) + weight;
       final law = (r['위반법규']?.toString() ?? '').trim();
       lawCounts[law] = (lawCounts[law] ?? 0) + weight;
-      if (status == '답변완료') resultUnknown += weight;
+      if (status == ReportPolicy.answeredUnknownStatus) resultUnknown += weight;
     }
     final types = typeCounts.entries.toList()
       ..sort((a, b) {
@@ -2633,18 +2646,13 @@ class LocalDbService {
     return {
       'result_distribution': {
         'accept': rows
-            .where((r) => (r['처리상태']?.toString() ?? '').trim() == '수용')
+            .where((r) => ReportPolicy.norm(r['처리상태']) == '수용')
             .fold<int>(0, (n, r) => n + ((r['_weight'] as int?) ?? 1)),
         'partial': rows
-            .where((r) => (r['처리상태']?.toString() ?? '').trim() == '일부수용')
+            .where((r) => ReportPolicy.norm(r['처리상태']) == '일부수용')
             .fold<int>(0, (n, r) => n + ((r['_weight'] as int?) ?? 1)),
         'reject': rows
-            .where(
-              (r) => const {
-                '불수용',
-                '기타',
-              }.contains((r['처리상태']?.toString() ?? '').trim()),
-            )
+            .where((r) => ReportPolicy.isReject(r['처리상태']))
             .fold<int>(0, (n, r) => n + ((r['_weight'] as int?) ?? 1)),
         'unknown': resultUnknown,
       },
@@ -2725,7 +2733,7 @@ class LocalDbService {
         clauses.add('답변일 LIKE ?');
         args.add('$year%');
       }
-      if (excludeWithdraw) clauses.add("IFNULL(처리상태,'') != '취하'");
+      if (excludeWithdraw) clauses.add(ReportPolicy.sqlNotWithdrawn('처리상태'));
       final scope = clauses.join(' AND ');
       const valid =
           "typeof(위도) IN ('integer','real') AND typeof(경도) IN ('integer','real') AND CAST(위도 AS REAL) BETWEEN -90 AND 90 AND CAST(경도 AS REAL) BETWEEN -180 AND 180";
@@ -2983,7 +2991,9 @@ class LocalDbService {
         q.clauses.add('r.답변일 LIKE ?');
         q.args.add('$year%');
       }
-      if (excludeWithdraw) q.clauses.add("IFNULL(r.처리상태,'') != '취하'");
+      if (excludeWithdraw) {
+        q.clauses.add(ReportPolicy.sqlNotWithdrawn('r.처리상태'));
+      }
       final source =
           '$effectiveReportsView r JOIN temp.sr_missing_addresses m ON m.ID=r.ID WHERE ${q.where}';
       final totals = await d.rawQuery(
@@ -3177,7 +3187,7 @@ class LocalDbService {
   }) async {
     final d = await db;
     final withdrawFilter = excludeWithdraw
-        ? "AND IFNULL(처리상태, '') != '취하'"
+        ? 'AND ${ReportPolicy.sqlNotWithdrawn('처리상태')}'
         : '';
     // 신고번호 DESC 가 유니크 tiebreaker 라 LIMIT/OFFSET 페이지 경계에서
     // 누락/중복 없이 전체 정렬 순서를 그대로 유지한다.
@@ -3189,7 +3199,7 @@ class LocalDbService {
         WITH dup_vehicles AS (
           SELECT 차량번호,
                  COUNT(*)                                                 AS total_count,
-                 SUM(CASE WHEN IFNULL(처리상태, '') != '취하' THEN 1 ELSE 0 END)        AS valid_count,
+                 SUM(CASE WHEN ${ReportPolicy.sqlNotWithdrawn('처리상태')} THEN 1 ELSE 0 END)        AS valid_count,
                  MAX(신고번호)                                              AS max_report_no
           FROM $effectiveReportsView
           WHERE 차량번호 != '' $withdrawFilter
@@ -3240,7 +3250,7 @@ class LocalDbService {
   }) => runBackgroundWork(() async {
     final d = await db;
     final rows = await d.rawQuery(
-      'SELECT r.신고번호 FROM $effectiveReportsView r WHERE ${_representativeWhere(useRepresentativeRecords)} AND ${_watchWhere(useRepresentativeRecords)}${excludeWithdraw ? " AND IFNULL(r.처리상태,'') != '취하'" : ""}',
+      'SELECT r.신고번호 FROM $effectiveReportsView r WHERE ${_representativeWhere(useRepresentativeRecords)} AND ${_watchWhere(useRepresentativeRecords)}${excludeWithdraw ? " AND ${ReportPolicy.sqlNotWithdrawn('r.처리상태')}" : ""}',
     );
     return rows.map((r) => _stringify(r['신고번호'])).toList(growable: false);
   });
@@ -3298,7 +3308,7 @@ class LocalDbService {
     final d = await db;
     final placeholders = numbers.map((_) => '?').join(',');
     final withdrawFilter = excludeWithdraw
-        ? " AND IFNULL(처리상태, '') != '취하'"
+        ? ' AND ${ReportPolicy.sqlNotWithdrawn('처리상태')}'
         : '';
     final rows = await d.rawQuery(
       'SELECT * FROM $effectiveReportsView WHERE 신고번호 IN ($placeholders)$withdrawFilter ORDER BY 신고일 DESC',
@@ -3329,7 +3339,7 @@ class LocalDbService {
         '(신고명 LIKE ? OR 신고번호 LIKE ? OR 차량번호 LIKE ? OR 처리기관 LIKE ? OR 위반법규 LIKE ?)';
     final args = <dynamic>[q, q, q, q, q];
     if (excludeWithdraw) {
-      where += " AND IFNULL(처리상태, '') != '취하'";
+      where += ' AND ${ReportPolicy.sqlNotWithdrawn('처리상태')}';
     }
     final rows = await d.query(
       effectiveReportsView,

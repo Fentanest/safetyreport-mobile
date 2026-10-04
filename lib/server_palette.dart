@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'services/report_policy.dart';
+
 // 상태·처분 기준색.
 // 2026-09-24 UI 리뉴얼(D-02 선택지 c): 모바일이 디자인 토큰 상태색으로 먼저 바뀌었다.
 // 서버 웹은 별도 작업으로 추종 예정이므로 그 전까지 웹과 모바일 배지 색이 다르다.
@@ -22,18 +24,20 @@ const changeStatusColor = Color(0xFFF59E0B); // 처리변경
 const changeConfirmColor = Color(0xFF64748B); // 개별 확인
 const changeDuplicateColor = Color(0xFF6366F1); // 중복 변경
 
+/// 상태 배지 색. 판정은 [ReportPolicy.badgeKey](서버·웹과 같은 규칙), 답변완료만 모바일 완료색을 쓴다.
 Color serverStatusColor(String status) {
-  final value = status.trim();
-  if (value == '보완요청') return serverSupplementColor;
-  if (value == '일부수용') return serverPartialAcceptColor;
-  if (value.contains('수용') && !value.contains('불')) return serverAcceptColor;
-  if (value.contains('불수용') || value == '기타') return serverRejectColor;
-  if (value == '답변완료' || value.contains('완료')) return serverCompletedColor;
-  if (value == '취하') return serverWithdrawColor;
-  if (value.contains('처리') || value.contains('진행') || value.contains('검토')) {
-    return serverProcessingColor;
+  if (ReportPolicy.norm(status) == ReportPolicy.answeredUnknownStatus) {
+    return serverCompletedColor;
   }
-  return serverUnconfirmedColor;
+  return switch (ReportPolicy.badgeKey(status)) {
+    'supplement' => serverSupplementColor,
+    'partial' => serverPartialAcceptColor,
+    'accept' => serverAcceptColor,
+    'reject' => serverRejectColor,
+    'withdraw' => serverWithdrawColor,
+    'processing' => serverProcessingColor,
+    _ => serverUnconfirmedColor,
+  };
 }
 
 Color serverFineColor(String fine) {

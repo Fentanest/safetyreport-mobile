@@ -7,6 +7,7 @@ import '../models/app_mode.dart';
 import '../providers/report_provider.dart';
 import '../models/report.dart';
 import '../server_palette.dart';
+import '../services/report_policy.dart';
 import '../widgets/auth_status_notice.dart';
 import '../widgets/report_detail_sheet.dart';
 import 'recent_answers_screen.dart';
@@ -241,46 +242,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
         stats.supplementCount,
         serverSupplementColor,
         Icons.assignment_late_rounded,
-        (r) => r.status == '보완요청',
+        (r) => ReportPolicy.norm(r.status) == ReportPolicy.supplementStatus,
       ),
       _StatusTileData(
         '처리 중',
         stats.processingCount,
         serverProcessingColor,
         Icons.pending_rounded,
-        (r) =>
-            r.status == '처리중' ||
-            r.status == '진행' ||
-            r.status == '진행중' ||
-            r.status == '검토중',
+        (r) => ReportPolicy.isProcessing(r.status),
       ),
       _StatusTileData(
         '수용',
         stats.acceptCount,
         serverAcceptColor,
         Icons.check_circle_rounded,
-        (r) => r.status == '수용',
+        (r) => ReportPolicy.norm(r.status) == '수용',
       ),
       _StatusTileData(
         '일부수용',
         stats.partialCount,
         serverPartialAcceptColor,
         Icons.check_circle_outline_rounded,
-        (r) => r.status == '일부수용',
+        (r) => ReportPolicy.norm(r.status) == '일부수용',
       ),
       _StatusTileData(
         '불수용/기타',
         stats.rejectCount,
         serverRejectColor,
         Icons.cancel_rounded,
-        (r) => r.status == '불수용' || r.status == '기타',
+        (r) => ReportPolicy.isReject(r.status),
       ),
       _StatusTileData(
         '취하',
         stats.withdrawCount,
         serverWithdrawColor,
         Icons.remove_circle_outline_rounded,
-        (r) => r.status == '취하',
+        (r) => ReportPolicy.isWithdrawn(r.status),
       ),
     ];
     const gap = 8.0;
@@ -563,29 +560,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   '과태료',
                   stats.tFineCount,
                   serverTrafficFineColor,
-                  filter: (r) => r.fineInfo.contains('과태료'),
+                  filter: (r) => ReportPolicy.hasFine(r.fineInfo),
                 ),
                 _miniStat(
                   '경고/범칙금',
                   stats.tPenaltyCount,
                   serverTrafficPenaltyColor,
-                  filter: (r) =>
-                      r.fineInfo.contains('경고') || r.fineInfo.contains('범칙금'),
+                  filter: (r) => ReportPolicy.hasWarning(r.fineInfo),
                 ),
                 _miniStat(
                   '불수용',
                   stats.tRejectCount,
                   serverRejectColor,
-                  filter: (r) => r.status.contains('불수용') || r.status == '기타',
+                  filter: (r) => ReportPolicy.isReject(r.status),
                 ),
                 _miniStat(
                   '과태료 미확인',
                   stats.tUnconfirmedCount,
                   serverUnconfirmedColor,
-                  filter: (r) =>
-                      r.fineInfo == '미확인' &&
-                      !r.status.contains('불수용') &&
-                      r.status != '기타',
+                  filter: (r) => ReportPolicy.listFineFilter(
+                    ReportPolicy.fineUnknownText,
+                    r.fineInfo,
+                    r.status,
+                  ),
                 ),
               ],
             ),

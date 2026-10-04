@@ -26,51 +26,18 @@ class _AgencyAgg {
   void add(Map<String, dynamic> r) {
     final weight = (r['_weight'] as int?) ?? 1;
     total += weight;
-    final status = (r['처리상태'] as String? ?? '').trim();
     final fine = (r['범칙금_과태료'] as String? ?? '');
-    if (fine.contains('과태료')) fines += weight;
-    if (fine.contains('경고') || fine.contains('범칙금')) warn += weight;
-    if (status == '불수용' || status == '기타') reject += weight;
-    final completed = LocalDbService._overviewCompletedStatuses.contains(
-      status,
-    );
-    if (!fine.contains('과태료') &&
-        !fine.contains('경고') &&
-        !fine.contains('범칙금') &&
-        status != '불수용' &&
-        status != '기타') {
-      if (!completed && status != '취하') {
-        inProgress += weight;
-      } else {
-        unconfirmed += weight;
-        final category = (r['category'] as String? ?? '').trim();
-        final entry = (r['entry_value'] as String? ?? '').trim();
-        final eligible =
-            category == 'traffic' ||
-            category == 'parking' ||
-            entry.contains('자동차·교통위반') ||
-            entry.contains('불법주정차신고') ||
-            entry.contains('쓰레기, 폐기물');
-
-        // 과태료 미확인(2026-09-28 이름 변경): '미확인' 이거나, 저장된 주정차·버스전용차로·쓰레기 메뉴의 일부수용 + 처분 없음.
-        // 서버 `_stats_row_disposition_counts` 와 같은 규칙.
-        final partialMenu =
-            category == 'parking' ||
-            entry.contains('불법주정차신고') ||
-            entry.contains('버스전용차로 위반') ||
-            entry.contains('쓰레기, 폐기물');
-        final isUnknown =
-            fine.trim() == '미확인' ||
-            (status == '일부수용' && fine.trim().isEmpty && partialMenu);
-        if (isUnknown) {
-          dispositionUnknown += weight;
-        } else if (!eligible && completed) {
-          noPenalty += weight;
-        } else {
-          unclassified += weight;
-        }
-      }
-    }
+    final completed = ReportPolicy.isCompleted(r['처리상태']);
+    // 통계표 8분류: 서버 `_stats_row_disposition_counts` 와 같은 규칙(ReportPolicy.tableDisposition, contracts/report-policy-vectors.json).
+    final d = ReportPolicy.tableDisposition(r);
+    if (d['fines']!) fines += weight;
+    if (d['warnings']!) warn += weight;
+    if (d['rejects']!) reject += weight;
+    if (d['in_progress']!) inProgress += weight;
+    if (d['unconfirmed']!) unconfirmed += weight;
+    if (d['disposition_unknown']!) dispositionUnknown += weight;
+    if (d['no_penalty']!) noPenalty += weight;
+    if (d['unclassified']!) unclassified += weight;
     final fineAmount = extractFineAmount(fine);
     totalFine += fineAmount * weight;
     if (fine.contains('과태료') && fineAmount == 0) {
@@ -357,10 +324,7 @@ class _MapCellAccumulator {
     }
     void count(Map<String, int> target, String label) =>
         target[label] = (target[label] ?? 0) + n;
-    final status = (r['처리상태']?.toString() ?? '').trim();
-    final label = const {'', '진행', '진행중', '검토중', '처리중'}.contains(status)
-        ? '처리중'
-        : status;
+    final label = ReportPolicy.breakdownStatus(r['처리상태']);
     if (const {
       '수용',
       '일부수용',
@@ -374,21 +338,12 @@ class _MapCellAccumulator {
     }.contains(label)) {
       count(statuses, label);
     }
-    final fine = r['범칙금_과태료']?.toString() ?? '';
-    var decided = false;
-    if (fine.contains('과태료')) {
-      count(dispositions, '과태료');
-      decided = true;
-    }
-    if (fine.contains('경고') || fine.contains('범칙금')) {
-      count(dispositions, '경고/범칙금');
-      decided = true;
-    }
-    if (status == '불수용' || status == '기타') {
-      count(dispositions, '불수용/기타');
-      decided = true;
-    }
-    if (!decided) count(dispositions, '미확인');
+    // 4분류(ReportPolicy.dashboardDisposition): 처리중은 '미확인'에 둔다(서버 지도와 같음).
+    final disposition = ReportPolicy.dashboardDisposition(r);
+    if (disposition['fines']!) count(dispositions, '과태료');
+    if (disposition['warnings']!) count(dispositions, '경고/범칙금');
+    if (disposition['rejects']!) count(dispositions, '불수용/기타');
+    if (disposition['unconfirmed']!) count(dispositions, '미확인');
     count(categories, switch (r['category']) {
       'traffic' => '교통위반',
       'parking' => '주정차위반',

@@ -18,6 +18,8 @@ import '../services/local_db_service.dart';
 import '../services/maintenance_service.dart';
 import '../services/permission_service.dart';
 import '../services/rating_service.dart';
+import '../services/report_filter_spec.dart';
+import '../services/report_policy.dart';
 import '../services/background_login_check.dart';
 import '../services/review_prompt_service.dart';
 import '../services/standalone_auth_service.dart';
@@ -36,18 +38,10 @@ const _defaultStatusOrder = <String>[
   '답변완료',
 ];
 
-String _canonicalStatusLabel(String status) {
-  final trimmed = status.trim();
-  if (trimmed == '진행' ||
-      trimmed == '진행중' ||
-      trimmed == '검토중' ||
-      trimmed == '처리중') {
-    return '처리중';
-  }
-  return trimmed;
-}
+String _canonicalStatusLabel(String status) =>
+    ReportPolicy.displayStatus(status);
 
-const _recentAnswerStatuses = <String>{'수용', '일부수용', '불수용', '기타', '답변완료'};
+const _recentAnswerStatuses = ReportPolicy.completedStatuses;
 
 typedef _ReportPage = ({List<Report> reports, int total});
 
@@ -67,6 +61,7 @@ class ReportProvider with ChangeNotifier {
   String _apiKey = '';
   int _datasetEpoch = 0;
   int get datasetEpoch => _datasetEpoch;
+
   /// 진행 중인 요약·분류·중복 조회 수(SQ-B11). 하나라도 돌면 [isLoading] 이 true 다.
   /// 먼저 끝난 조회가 다른 조회의 스피너를 끄지 않게 플래그 하나 대신 센다.
   int _loadingCount = 0;
@@ -429,26 +424,8 @@ class ReportProvider with ChangeNotifier {
     return discovered;
   }
 
-  List<List<String>> _parseAndOrGroups(String query) {
-    final text = query.trim();
-    if (text.isEmpty) return const [];
-    final groups = <List<String>>[];
-    for (final rawGroup in text.split(',')) {
-      final terms = rawGroup
-          .split('&')
-          .map((term) => term.trim().toLowerCase())
-          .where((term) => term.isNotEmpty)
-          .toList();
-      if (terms.isNotEmpty) groups.add(terms);
-    }
-    return groups;
-  }
-
   bool _contains(String source, String query) =>
-      query.trim().isEmpty ||
-      _parseAndOrGroups(query).any(
-        (group) => group.every((term) => source.toLowerCase().contains(term)),
-      );
+      ReportFilterSpec.matchesText(source, query);
 
   String _formatDateOnly(DateTime time) {
     String two(int value) => value.toString().padLeft(2, '0');
@@ -486,12 +463,6 @@ class ReportProvider with ChangeNotifier {
         responseDate.compareTo(upperBound) <= 0;
   }
 
-  bool _dateGte(String value, String bound) =>
-      bound.isEmpty || value.isEmpty || value.compareTo(bound) >= 0;
-
-  bool _dateLte(String value, String bound) =>
-      bound.isEmpty || value.isEmpty || value.compareTo(bound) <= 0;
-
   List<Report> _sortRatingReports(Iterable<Report> reports) {
     final items = reports.toList(growable: false);
     items.sort((left, right) {
@@ -523,11 +494,7 @@ class ReportProvider with ChangeNotifier {
       if (!_contains(r.agency, f.agency)) return false;
       if (!_contains(r.manager, f.manager)) return false;
       if (!_contains(r.carNumber, f.carNumber)) return false;
-      if (f.law == kEmptyLawFilterValue) {
-        if (r.law.trim().isNotEmpty) return false;
-      } else if (f.law.isNotEmpty && r.law.trim() != f.law) {
-        return false;
-      }
+      if (!ReportFilterSpec.matchesLaw(r.law, f.law)) return false;
       if (!_contains(r.location, f.location)) return false;
       if (!_contains(r.fineInfo, f.fine)) return false;
       if (!_contains(r.supplementCount.toString(), f.supplementCount)) {
@@ -539,14 +506,22 @@ class ReportProvider with ChangeNotifier {
           !f.statuses.contains(_canonicalStatusLabel(r.status))) {
         return false;
       }
-      if (!_dateGte(r.date, f.reportDateStart)) return false;
-      if (!_dateLte(r.date, f.reportDateEnd)) return false;
-      if (!_dateGte(r.occurrenceDate, f.occurDateStart)) return false;
-      if (!_dateLte(r.occurrenceDate, f.occurDateEnd)) return false;
-      if (!_dateGte(r.responseDate, f.responseDateStart)) return false;
-      if (!_dateLte(r.responseDate, f.responseDateEnd)) return false;
-      if (!_dateGte(r.occurrenceTime, f.occurTimeStart)) return false;
-      if (!_dateLte(r.occurrenceTime, f.occurTimeEnd)) return false;
+      // 날짜·시각 범위: 서버·웹과 같은 의미(앞자리 비교, 형식이 맞지 않으면 제외 — ReportFilterSpec)
+      for (final range in [
+        (r.date, f.reportDateStart, f.reportDateEnd, false),
+        (r.occurrenceDate, f.occurDateStart, f.occurDateEnd, false),
+        (r.responseDate, f.responseDateStart, f.responseDateEnd, false),
+        (r.occurrenceTime, f.occurTimeStart, f.occurTimeEnd, true),
+      ]) {
+        if (!ReportFilterSpec.inRange(
+          range.$1,
+          range.$2,
+          range.$3,
+          time: range.$4,
+        )) {
+          return false;
+        }
+      }
       if (f.excludePolice && r.agency.contains('경찰')) return false;
       if (f.onlyPolice && !r.agency.contains('경찰')) return false;
       if (f.pollStatus.isNotEmpty && r.pollStatus.trim() != f.pollStatus) {
@@ -615,8 +590,7 @@ class ReportProvider with ChangeNotifier {
       final cfg = await _api.getAppConfig();
       if (epoch != _datasetEpoch) return;
       final exclude = cfg['exclude_withdraw'] as bool? ?? false;
-      final representative =
-          cfg['use_representative_records'] as bool? ?? true;
+      final representative = cfg['use_representative_records'] as bool? ?? true;
       final capabilities = [
         for (final c in (cfg['capabilities'] as List? ?? const [])) '$c',
       ];
@@ -1033,8 +1007,7 @@ class ReportProvider with ChangeNotifier {
 
   /// 조회 하나를 시작한다. 다른 조회가 이미 돌고 있으면 [isLoading] 은 그대로라 알리지 않는다.
   void _beginLoad({bool clearError = false}) {
-    final changed =
-        _loadingCount == 0 || (clearError && _errorMessage != null);
+    final changed = _loadingCount == 0 || (clearError && _errorMessage != null);
     _loadingCount++;
     if (clearError) _errorMessage = null;
     if (changed) notifyListeners();

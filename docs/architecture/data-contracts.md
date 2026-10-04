@@ -478,3 +478,10 @@ Standalone은 저장된 `standaloneNormalizePolice`를 읽거나 적용하지 �
 ### 코드 대조 정정 — 대용량 가져오기/중복
 
 서버 title/detail 또는 legacy merge, raw/entry는 128행 native JOIN 페이지로 읽는다. 가져오기 전체 raw Map과 중복 inventory 전량 보관을 제거했다. 교환 컬럼/NULL/수정값은 그대로이며 파생 digest/revision 표는 원문을 보관하지 않는다. 중복 staging·원자적 교체·백업 수명은 [bounded reads](bounded-reads.md)를 따른다.
+
+
+## 종료 이벤트 재연결 복구
+
+서버 `/ws/events`의 추가형 `event_id`와 `connected.data.latest_event_id/replay_gap/cursor_reset`을 사용한다. `WsService`는 서버/API key 설정 scope별 커서를 `after`로 보내고 이미 처리한 종료 이벤트를 건너뛴다. `PrefsInbox.put`의 terminalCursor 인자로 이력과 커서를 같은 Editor commit에 저장한다. 저장 실패는 1013 재연결로 복구하며, 오래된 이벤트가 서버의 256개 보존 범위를 벗어나면 현황 확인 알림을 표시한다. crawl_finished의 outcome succeeded/partial/failed/cancelled/unknown을 구별하고 결과 불명을 성공으로 표시하지 않는다. 기존 event payload와 DB 교환 schema는 유지한다.
+
+SharedPreferences의 disk commit 실패는 메모리 변경을 되돌리지 않는다. PrefsInbox는 정상 history/cursor를 한 commit으로 쓰고 실패하면 이번 새 history 키·잘린 기존 history·기존/부재 cursor만 메모리에 복구한 뒤 오류를 전달한다. WsService는 오류 후1013으로 재연결하여 아직 저장하지 못한 terminal을 건너뛰지 않는다. OS 알림 표시 자체의 exactly-once를 보장하는 계약은 아니다.

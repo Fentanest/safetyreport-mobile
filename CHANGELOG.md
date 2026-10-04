@@ -8,6 +8,12 @@
 
 ---
 
+## 2026-10-04 (서버 dev 리팩터링 WS 소비자 연동, 로컬 미배포)
+
+- 서버의 optional terminal event_id/after/replay_gap/cursor_reset을 Android WsService에 연결했다. 서버 설정별 cursor를 분리하고 같은 event_id의 완료 알림 중복을 막는다. PrefsInbox가 알림 history와 cursor를 한 Editor.commit에 저장하며 실패하면 메모리의 실패 history/cursor/trim만 복구한 뒤 reconnect한다. rollback disk 실패에서도 메모리 cursor를 되돌리는 회귀를 확인했다.
+- crawl outcome failed/cancelled/unknown/partial을 기존 succeeded/구버전 알림과 구분했다. 기존 compatibility7·outcome2·저장 실패 회귀3개(총12 passed)와 debug assemble을 실행했고 전용 Android35 x86_64 emulator의 정상 protocol3 gate에서 live/offline 실패·취소·unknown 세 알림, cursor3, 재연결 중복0을 확인했다. Flutter 전체 UI·물리 기기·실제 운영 서버 검사는 하지 않았다.
+- 서버/실제 Dart DB converter 양방향 all-exchange-column 왕복 diff0을 확인했다. DB schema/converter/공동 계약·pubspec.lock·Gradle/Manifest·VERSION은 변경하지 않았다. 서버와 같은 배포 단위로 검토하며 원래 미추적 사용자 파일은 보존했다. 운영 계정/서명/릴리즈/push는 실행하지 않았다.
+
 ## 2026-10-04 (리팩터링 구현, 로컬 미배포)
 
 - 계획 제출 이후 사용자의 `계획대로 구현` 요청으로 모바일 독립 변경을 구현했다. 기준과 현재 HEAD는 `ea183b2a94b62ec9bd51b0f2ab8bd9e72f075b60`이며, 격리 worktree에서 검증한 74개 파일을 바이트 대조 후 원래 폴더에 반영했다. 이전 계획 기록과 사용자 기존 파일을 보존했다. commit/push/릴리즈/서명/APK 생성/앱·기기 조작/운영 계정·서버 작업은 하지 않았다. VERSION·패키지 잠금·서버/모바일 교환 스키마5/16·protocol3·공동 정본은 변경하지 않았다.

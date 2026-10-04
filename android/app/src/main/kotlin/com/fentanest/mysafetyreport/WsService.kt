@@ -134,7 +134,10 @@ class WsService : Service() {
                 }
 
                 // http → ws, https → wss 변환
-                val wsUrl = ServerContract.wsEventsUrl(baseUrl, apiKey)
+                val cursorKey = cursorKey(stamp)
+                val wsUrl = Uri.parse(ServerContract.wsEventsUrl(baseUrl, apiKey)).buildUpon().apply {
+                    if (prefs.contains(cursorKey)) appendQueryParameter("after", prefs.getLong(cursorKey, 0).toString())
+                }.build().toString()
 
                 Log.i(TAG, "WS 연결 시도 #$attempt")
                 updateForegroundNotif("서버 연결 중... (#$attempt)")
@@ -183,7 +186,7 @@ class WsService : Service() {
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 if (!current()) { webSocket.cancel(); latch.countDown(); return }
-                handleEvent(text, webSocket)
+                handleEvent(text, webSocket, stamp)
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
@@ -221,29 +224,54 @@ class WsService : Service() {
     // 이벤트 처리
     // ─────────────────────────────────────────────────────────────────────────
 
-    private fun handleEvent(text: String, ws: WebSocket) {
+    private fun cursorKey(stamp: String): String = "flutter.ws_terminal_cursor_" +
+        java.security.MessageDigest.getInstance("SHA-256").digest(stamp.toByteArray()).joinToString("") { "%02x".format(it) }
+
+    private fun handleEvent(text: String, ws: WebSocket, stamp: String) {
         try {
             val json = JSONObject(text)
             val type = json.optString("type", "")
             val data = json.optJSONObject("data") ?: JSONObject()
+            val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+            val cursorKey = cursorKey(stamp)
+            val eventId = json.optLong("event_id", 0)
+            if (type == ServerContract.EVENT_CRAWL_FINISHED && eventId > 0 && eventId <= prefs.getLong(cursorKey, 0)) return
 
             Log.d(TAG, "WS 이벤트: $type")
 
             when (type) {
                 ServerContract.EVENT_PING -> ws.send("pong")
-                ServerContract.EVENT_CONNECTED -> Log.i(TAG, "서버 연결 확인: ${data.optString("message")}")
+                ServerContract.EVENT_CONNECTED -> {
+                    Log.i(TAG, "서버 연결 확인: ${data.optString("message")}")
+                    if (data.has("latest_event_id") && (!prefs.contains(cursorKey) || data.optBoolean("cursor_reset"))) {
+                        // reset은 서버 데이터 루트 교체다. 이어지는 replay를 받도록 0부터 시작.
+                        val initial = if (data.optBoolean("cursor_reset")) 0 else data.optLong("latest_event_id")
+                        check(prefs.edit().putLong(cursorKey, initial).commit())
+                    }
+                    if (data.optBoolean("replay_gap")) {
+                        showPushNotif("크롤링 현황 확인 필요", "연결 중단 동안 오래된 종료 알림이 만료되었습니다. 크롤링 현황과 신고 결과를 확인하세요.", ServerContract.EVENT_CRAWL_FINISHED)
+                    }
+                }
                 ServerContract.EVENT_CRAWL_STARTED -> showCrawlStartedNotif(data)
-                ServerContract.EVENT_CRAWL_FINISHED -> showCrawlFinishedNotif(data)
+                ServerContract.EVENT_CRAWL_FINISHED -> {
+                    // History and replay cursor commit together. A crash cannot leave
+                    // a saved event behind an older cursor and duplicate it on replay.
+                    if (!saveToHistory(type, data, eventId, cursorKey)) {
+                        ws.close(1013, "Local storage unavailable"); return
+                    }
+                    showCrawlFinishedNotif(data)
+                }
                 ServerContract.EVENT_CRAWL_CHANGES -> showCrawlChangesNotif(data)
                 else             -> Log.d(TAG, "알 수 없는 이벤트: $type")
             }
 
             // 알림 히스토리 저장 (crawl_started, crawl_finished만)
-            if (type in listOf(ServerContract.EVENT_CRAWL_STARTED, ServerContract.EVENT_CRAWL_FINISHED)) {
-                saveToHistory(type, data)
+            if (type == ServerContract.EVENT_CRAWL_STARTED) {
+                if (!saveToHistory(type, data)) { ws.close(1013, "Local storage unavailable"); return }
             }
         } catch (e: Exception) {
             Log.e(TAG, "이벤트 파싱 오류: ${e.javaClass.simpleName}")
+            ws.close(1013, "Event processing unavailable")
         }
     }
 
@@ -270,13 +298,10 @@ class WsService : Service() {
         }
 
         val count = data.optInt("changed_count", 0)
-        val body = if (count > 0) {
-            "크롤링이 완료되었습니다. ${count}건의 변경사항이 있습니다."
-        } else {
-            "크롤링이 완료되었습니다. 변경사항이 없습니다."
-        }
+        val outcome = data.optString("outcome", "")
+        val body = CrawlOutcome.body(outcome, count)
         showPushNotif(
-            title = "✅ 크롤링 완료",
+            title = CrawlOutcome.title(outcome),
             body  = body,
             type  = ServerContract.EVENT_CRAWL_FINISHED,
             notificationId = if (count > 20) BULK_CHANGE_NOTIF_ID else null
@@ -505,13 +530,13 @@ class WsService : Service() {
     // 히스토리 저장 (Flutter SharedPreferences와 공유)
     // ─────────────────────────────────────────────────────────────────────────
 
-    private fun saveToHistory(type: String, data: JSONObject) {
+    private fun saveToHistory(type: String, data: JSONObject, eventId: Long = 0, cursorKey: String? = null): Boolean {
         val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
         try {
             val count = data.optInt("changed_count", 0)
             val title = when (type) {
                 ServerContract.EVENT_CRAWL_STARTED  -> "🔄 크롤링 시작"
-                ServerContract.EVENT_CRAWL_FINISHED -> "✅ 크롤링 완료"
+                ServerContract.EVENT_CRAWL_FINISHED -> CrawlOutcome.title(data.optString("outcome", ""))
                 else             -> type
             }
             val body = when (type) {
@@ -520,10 +545,7 @@ class WsService : Service() {
                     val sourceLabel = if (source.startsWith("mobile")) "📱 모바일" else "🖥️ 웹"
                     "$sourceLabel 에서 크롤링이 시작되었습니다."
                 }
-                ServerContract.EVENT_CRAWL_FINISHED -> if (count > 0)
-                    "크롤링이 완료되었습니다. ${count}건의 변경사항이 있습니다."
-                else
-                    "크롤링이 완료되었습니다. 변경사항이 없습니다."
+                ServerContract.EVENT_CRAWL_FINISHED -> CrawlOutcome.body(data.optString("outcome", ""), count)
                 else -> ""
             }
             val item = JSONObject().apply {
@@ -536,9 +558,12 @@ class WsService : Service() {
                 ).format(java.util.Date()))
                 put("isRead", false)
             }
-            PrefsInbox.put(this, prefs, PrefsInbox.HISTORY, org.json.JSONArray().put(item).toString())
+            PrefsInbox.put(this, prefs, PrefsInbox.HISTORY, org.json.JSONArray().put(item).toString(),
+                terminalCursor = if (eventId > 0 && cursorKey != null) cursorKey to eventId else null)
+            return true
         } catch (e: Exception) {
             Log.e(TAG, "히스토리 저장 오류: ${e.javaClass.simpleName}")
+            return false
         }
     }
 

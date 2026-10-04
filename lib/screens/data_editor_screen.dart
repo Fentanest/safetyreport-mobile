@@ -23,14 +23,9 @@ class _DataEditorPanelState extends State<DataEditorPanel> {
   static const _categories = <String>['traffic', 'parking', 'other'];
   String _selectedCategory = _categories.first;
   void _openSearchPopup() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) =>
-          SearchFilterSheet(provider: context.read<ReportProvider>()),
+    showSearchFilterSheet(
+      context,
+      provider: context.read<ReportProvider>(),
     );
   }
 

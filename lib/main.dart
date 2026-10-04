@@ -40,6 +40,8 @@ import 'services/review_prompt_service.dart';
 import 'services/sync_engine.dart' show ChangeType, SyncEngine;
 import 'server_palette.dart';
 import 'navigation/app_routes.dart';
+import 'navigation/main_tabs.dart';
+import 'navigation/native_call_router.dart';
 import 'theme/app_theme.dart';
 import 'theme/sr_colors.dart';
 import 'widgets/status_badge.dart';
@@ -47,10 +49,12 @@ import 'widgets/duplicate_group_detail_sheet.dart';
 import 'widgets/report_detail_sheet.dart';
 import 'widgets/maintenance_status_bar.dart';
 import 'widgets/community_account_card.dart';
-import 'widgets/sync_exit_guard.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Kotlin → Dart 호출(알림 탭 이동·동기화 서비스 중지)은 화면과 무관하게 앱 루트에서 한 번 받는다(SQ-B05).
+  // 이동 요청은 메인 화면이 붙을 때까지 보관하고, Kotlin 은 dartReady 를 받은 뒤 보류한 요청을 보낸다.
+  unawaited(NativeCallRouter.instance.start());
   await ServerContract.loadProductVersion();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   // 보안 저장소 v9 → v10 이관을 앱 시작 때 끝낸다(다른 코드가 보안 저장소를 열기 전에, 백그라운드 작업은 이 표시 뒤에만 연다).
@@ -238,36 +242,52 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer2<ReportProvider, CommunityGate>(
-      builder: (context, provider, gate, _) {
-        // 두 모드 공통 테마(D-03). 모드는 ModeBadge 로 따로 표시한다.
-        return MaterialApp(
-          title: '나만의 안전신문고',
-          debugShowCheckedModeBanner: false,
-          // 커뮤니티 로그인 복귀 뒤 계정 확인 창·안내를 어느 화면에서든 띄우기 위한 루트 키.
-          navigatorKey: communityAuthNavigatorKey,
-          scaffoldMessengerKey: communityAuthMessengerKey,
-          builder: (context, child) =>
-              CommunityAuthPrompt(child: child ?? const SizedBox.shrink()),
-          theme: AppTheme.light(),
-          darkTheme: AppTheme.dark(),
-          themeMode: provider.themeMode.themeMode,
-          home: Builder(
-            builder: (_) {
-              if (provider.isInitialized &&
-                  provider.appMode == AppMode.server &&
-                  provider.isConfigured) {
-                return FutureBuilder<ServerConnectionResult>(
-                  future: _checkServer(provider),
-                  builder: (context, check) =>
-                      _buildHome(provider, gate, check.data),
-                );
-              }
-              return _buildHome(provider, gate, null);
-            },
-          ),
-        );
-      },
+    // 루트는 테마 설정만 보고 MaterialApp 을 다시 만든다(SQ-P01). 테마는 캐시된 같은 객체라 보간이 돌지 않는다.
+    // 첫 화면 판정은 아래 Builder 가 쓰는 값이 바뀔 때만 다시 한다(목록·통계 갱신 알림은 무시).
+    final themeMode = context.select<ReportProvider, ThemeMode>(
+      (p) => p.themeMode.themeMode,
+    );
+    // 두 모드 공통 테마(D-03). 모드는 ModeBadge 로 따로 표시한다.
+    return MaterialApp(
+      title: '나만의 안전신문고',
+      debugShowCheckedModeBanner: false,
+      // 커뮤니티 로그인 복귀 뒤 계정 확인 창·안내를 어느 화면에서든 띄우기 위한 루트 키.
+      navigatorKey: communityAuthNavigatorKey,
+      scaffoldMessengerKey: communityAuthMessengerKey,
+      builder: (context, child) =>
+          CommunityAuthPrompt(child: child ?? const SizedBox.shrink()),
+      theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
+      themeMode: themeMode,
+      home: Builder(
+        builder: (context) {
+          context.select<ReportProvider, Object>(
+            (p) => (
+              p.isInitialized,
+              p.appMode,
+              p.isConfigured,
+              p.isStandaloneDemo,
+              p.baseUrl,
+              p.apiKey,
+            ),
+          );
+          context.select<CommunityGate, Object>(
+            (g) => (g.isChecked, g.canEnter),
+          );
+          final provider = context.read<ReportProvider>();
+          final gate = context.read<CommunityGate>();
+          if (provider.isInitialized &&
+              provider.appMode == AppMode.server &&
+              provider.isConfigured) {
+            return FutureBuilder<ServerConnectionResult>(
+              future: _checkServer(provider),
+              builder: (context, check) =>
+                  _buildHome(provider, gate, check.data),
+            );
+          }
+          return _buildHome(provider, gate, null);
+        },
+      ),
     );
   }
 
@@ -438,8 +458,10 @@ class _PostGateFlowState extends State<_PostGateFlow> {
           },
         );
       }
-      return _StandaloneRebuildGate(
-        onDone: () => setState(() => _rebuildDone = true),
+      return StandaloneRebuildGate(
+        onDone: () {
+          if (mounted) setState(() => _rebuildDone = true);
+        },
       );
     }
     return const MainNavigationScreen();
@@ -520,21 +542,27 @@ CommunityRebuild standaloneRebuild(
 );
 
 /// Standalone 초기화 필요 여부 확인. 필요 없으면 메인으로 건너뛴다.
-class _StandaloneRebuildGate extends StatefulWidget {
-  const _StandaloneRebuildGate({required this.onDone});
+class StandaloneRebuildGate extends StatefulWidget {
+  const StandaloneRebuildGate({super.key, required this.onDone, this.prepare});
   final VoidCallback onDone;
 
+  /// 시험용 판정 주입. 없으면 커뮤니티 저장소로 초기화가 필요한지 판정한다.
+  final Future<CommunityRebuild?> Function()? prepare;
+
   @override
-  State<_StandaloneRebuildGate> createState() => _StandaloneRebuildGateState();
+  State<StandaloneRebuildGate> createState() => _StandaloneRebuildGateState();
 }
 
-class _StandaloneRebuildGateState extends State<_StandaloneRebuildGate> {
+class _StandaloneRebuildGateState extends State<StandaloneRebuildGate> {
   Future<CommunityRebuild?>? _future;
+
+  /// 건너뛰기(onDone)는 한 번만, 화면이 살아 있을 때만 부른다(SQ-B13). build 는 여러 번 돌 수 있다.
+  bool _skipScheduled = false;
 
   @override
   void initState() {
     super.initState();
-    _future = _prepare();
+    _future = widget.prepare?.call() ?? _prepare();
   }
 
   Future<CommunityRebuild?> _prepare() async {
@@ -552,6 +580,14 @@ class _StandaloneRebuildGateState extends State<_StandaloneRebuildGate> {
     return rebuild;
   }
 
+  void _skipOnce() {
+    if (_skipScheduled) return;
+    _skipScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.onDone();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<CommunityRebuild?>(
@@ -559,7 +595,7 @@ class _StandaloneRebuildGateState extends State<_StandaloneRebuildGate> {
       builder: (context, snap) {
         if (snap.hasError) {
           // 저장소를 열지 못하면(테스트·손상) 초기화를 건너뛰고 메인으로 간다.
-          WidgetsBinding.instance.addPostFrameCallback((_) => widget.onDone());
+          _skipOnce();
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
           );
@@ -571,7 +607,7 @@ class _StandaloneRebuildGateState extends State<_StandaloneRebuildGate> {
         }
         final rebuild = snap.data;
         if (rebuild == null) {
-          WidgetsBinding.instance.addPostFrameCallback((_) => widget.onDone());
+          _skipOnce();
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
           );
@@ -594,8 +630,6 @@ class MainNavigationScreen extends StatefulWidget {
   State<MainNavigationScreen> createState() => _MainNavigationScreenState();
 }
 
-const _permChannel = MethodChannel('com.fentanest.mysafetyreport/permissions');
-
 /// 게이트 미충족이면 알림 탭 이동·payload 상세 열기를 무시한다 (F06).
 /// Provider 가 없으면(예전 테스트) 허용으로 둔다.
 bool communityNavAllowed(BuildContext context) {
@@ -610,23 +644,29 @@ bool communityNavAllowed(BuildContext context) {
 }
 
 class _MainNavigationScreenState extends State<MainNavigationScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver
+    implements NativeNavTarget {
   int _selectedIndex = 0;
   String _lastQuickActionSignature = '';
   late final List<Widget?> _screenCache = List<Widget?>.filled(_tabCount, null);
+
+  /// 하단 탭 전환·하위 탭 지정 통로(SQ-U06). 대시보드 "감시 목록 › 관리" 등이 화면을 새로 쌓지 않고 쓴다.
+  late final MainTabController _tabs = MainTabController(
+    onSelectTab: _selectTab,
+  );
 
   /// 게이트 미충족이면 알림 탭 이동·payload 상세 열기를 무시한다.
   bool get _gateAllows => communityNavAllowed(context);
 
   /// 하단 탭 수(D-06: 7 → 5). 동기화/크롤링·파일은 [AppRoutes] 로 연다.
-  static const _tabCount = 5;
+  static const _tabCount = MainTabs.count;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Native에서 navigateToTab 호출 수신
-    _permChannel.setMethodCallHandler(_handleNativeCall);
+    // Native 의 navigateToTab 은 앱 루트 처리기가 받아 이 화면이 붙을 때까지 보관한다(SQ-B05).
+    NativeCallRouter.instance.attach(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<NotificationHistoryProvider>().load();
       _checkPendingChanges();
@@ -636,8 +676,18 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
 
   @override
   void dispose() {
+    NativeCallRouter.instance.detach(this);
     WidgetsBinding.instance.removeObserver(this);
+    _tabs.dispose();
     super.dispose();
+  }
+
+  /// 하단 탭을 바꾸고 그 화면을 새로 고친다.
+  void _selectTab(int index) {
+    if (!mounted) return;
+    final clamped = index.clamp(0, _tabCount - 1);
+    setState(() => _selectedIndex = clamped);
+    _refreshOnTab(clamped);
   }
 
   @override
@@ -653,49 +703,38 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     }
   }
 
-  Future<dynamic> _handleNativeCall(MethodCall call) async {
-    if (call.method == 'syncFgsStopped') {
-      final args = call.arguments as Map?;
-      SyncEngine.onNativeFgsStopped(args?['owner'] as String?);
-      return;
+  @override
+  Future<void> handleNativeNavigation(NativeNavRequest request) async {
+    if (!mounted || !_gateAllows) return;
+    final tab = request.tab;
+    final subTab = request.subTab;
+    final eventType = request.eventType;
+    final payloadJson = request.payloadJson;
+    if (subTab != null) {
+      context.read<NotificationHistoryProvider>().setPreferredTabIndex(
+        subTab,
+        notify: false,
+      );
     }
-    if (call.method == 'navigateToTab') {
-      if (!_gateAllows) return;
-      final args = call.arguments as Map?;
-      final tab = (args?['tab'] as num?)?.toInt() ?? 4;
-      final subTab = (args?['sub_tab'] as num?)?.toInt();
-      final eventType = args?['event_type']?.toString() ?? '';
-      final payloadJson = args?['payload_json']?.toString() ?? '';
-      if (subTab != null && subTab >= 0) {
-        context.read<NotificationHistoryProvider>().setPreferredTabIndex(
-          subTab,
-          notify: false,
-        );
+    // 옛 하단 탭 인덱스 5(파일)·6(동기화/크롤링)은 화면을 따로 연다(Kotlin 은 그대로 6 을 보냄).
+    if (tab == 5) {
+      AppRoutes.openFiles(context);
+    } else if (tab == 6) {
+      // 런처 바로가기(quick_*)는 아래 _handleNavigationEvent 가 화면을 연 뒤 명령까지 전달한다.
+      if (eventType != 'quick_sync' && eventType != 'quick_crawl') {
+        AppRoutes.openCrawl(context);
       }
-      if (mounted) {
-        // 옛 하단 탭 인덱스 5(파일)·6(동기화/크롤링)은 화면을 따로 연다(Kotlin 은 그대로 6 을 보냄).
-        if (tab == 5) {
-          AppRoutes.openFiles(context);
-        } else if (tab == 6) {
-          // 런처 바로가기(quick_*)는 아래 _handleNavigationEvent 가 화면을 연 뒤 명령까지 전달한다.
-          if (eventType != 'quick_sync' && eventType != 'quick_crawl') {
-            AppRoutes.openCrawl(context);
-          }
-        } else {
-          final index = tab.clamp(0, _tabCount - 1);
-          setState(() => _selectedIndex = index);
-          _refreshOnTab(index);
-        }
-      }
-      if (payloadJson.isNotEmpty && mounted) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          _openNotificationPayloadDetail(payloadJson);
-        });
-      }
-      if (eventType.isNotEmpty && mounted) {
-        await _handleNavigationEvent(eventType);
-      }
+    } else {
+      _selectTab(tab);
+    }
+    if (payloadJson.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _openNotificationPayloadDetail(payloadJson);
+      });
+    }
+    if (eventType.isNotEmpty && mounted) {
+      await _handleNavigationEvent(eventType);
     }
   }
 
@@ -848,9 +887,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      // 전체 높이까지 끌어올려도 상태 표시줄 아래에서 멈춘다(SQ-U07).
+      useSafeArea: true,
       builder: (_) => DraggableScrollableSheet(
         initialChildSize: 0.6,
         minChildSize: 0.35,
@@ -878,19 +916,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
               changes.length - newCount - confirmCount - duplicateCount;
           return Column(
             children: [
+              // 손잡이는 테마(showDragHandle)가 그린다(SQ-U07).
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12),
+                padding: const EdgeInsets.only(bottom: 12),
                 child: Column(
                   children: [
-                    Container(
-                      width: 36,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: context.sr.border,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -1287,16 +1317,21 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
         ],
       ),
     );
-    return SyncExitGuard(child: screen);
+    // 뒤로 가기: 선택 취소 → 비0 탭이면 대시보드 → 동기화 중 종료 막기 → 종료(SQ-U05).
+    return MainTabScope(
+      controller: _tabs,
+      child: MainTabBackScope(
+        currentIndex: _selectedIndex,
+        onReturnHome: () => _selectTab(MainTabs.dashboard),
+        child: screen,
+      ),
+    );
   }
 
   Widget _buildNavigationBar(int unread) {
     return NavigationBar(
       selectedIndex: _selectedIndex,
-      onDestinationSelected: (index) {
-        setState(() => _selectedIndex = index);
-        _refreshOnTab(index);
-      },
+      onDestinationSelected: _selectTab,
       destinations: [
         const NavigationDestination(
           icon: Icon(Icons.dashboard_outlined),
@@ -1351,7 +1386,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   Future<void> _refreshNativeQuickActions() async {
     if (defaultTargetPlatform != TargetPlatform.android) return;
     try {
-      await _permChannel.invokeMethod('refreshQuickActions');
+      await NativeCallRouter.channel.invokeMethod('refreshQuickActions');
     } catch (_) {}
   }
 }

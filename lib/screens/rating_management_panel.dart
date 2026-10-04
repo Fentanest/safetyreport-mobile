@@ -53,16 +53,10 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
   }
 
   void _showSearchPopup(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => SearchFilterSheet(
-        provider: context.read<ReportProvider>(),
-        ratingManagementMode: true,
-      ),
+    showSearchFilterSheet(
+      context,
+      provider: context.read<ReportProvider>(),
+      ratingManagementMode: true,
     );
   }
 

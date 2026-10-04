@@ -6,6 +6,22 @@ import '../providers/report_provider.dart';
 import '../theme/sr_colors.dart';
 
 /// 신고 리스트 / 검색탭 공용 상세검색 팝업
+/// 상세 검색 시트를 연다. 키보드와 긴 내용 때문에 높이가 화면 끝까지 갈 수 있으므로
+/// 상태 표시줄 아래에서 멈추게 한다(useSafeArea, SQ-U07). 손잡이·모서리는 테마를 따른다.
+Future<void> showSearchFilterSheet(
+  BuildContext context, {
+  required ReportProvider provider,
+  bool ratingManagementMode = false,
+}) => showModalBottomSheet<void>(
+  context: context,
+  isScrollControlled: true,
+  useSafeArea: true,
+  builder: (_) => SearchFilterSheet(
+    provider: provider,
+    ratingManagementMode: ratingManagementMode,
+  ),
+);
+
 class SearchFilterSheet extends StatefulWidget {
   final ReportProvider provider;
   final bool ratingManagementMode;
@@ -295,25 +311,14 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
           bottom: MediaQuery.of(context).viewInsets.bottom,
           left: 20,
           right: 20,
-          top: 16,
+          // 손잡이는 테마(showDragHandle)가 그린다(SQ-U07).
+          top: 0,
         ),
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // 핸들
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(
-                    color: context.sr.border,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [

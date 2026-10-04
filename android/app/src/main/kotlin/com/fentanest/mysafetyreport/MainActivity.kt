@@ -37,6 +37,12 @@ class MainActivity : FlutterFragmentActivity() {
     private var exportSource: java.io.File? = null
     private val EXPORT_REQUEST = 9136
     private var methodChannel: MethodChannel? = null
+    /**
+     * 아직 Dart 가 받지 못한 알림 탭 이동 요청(SQ-B05). Dart 처리기가 없으면(notImplemented) 지우지 않고,
+     * Dart 가 `dartReady` 를 보내면 다시 보낸다. Dart 는 메인 화면이 붙을 때까지 요청을 보관한다.
+     */
+    private var pendingNav: Map<String, Any>? = null
+    private var pendingNavInFlight = false
     private var syncStoppedListener: ((String, String) -> Unit)? = null
     private var communityAuthChannel: MethodChannel? = null
     /** Dart 가 `takePendingLink` 를 한 번이라도 불렀으면(핸들러 등록 완료) 새 링크 때 신호를 보낸다. */
@@ -71,6 +77,7 @@ class MainActivity : FlutterFragmentActivity() {
         }
         syncStoppedListener = null
         methodChannel = null
+        pendingNav = null
         super.onDestroy()
     }
 
@@ -219,15 +226,43 @@ class MainActivity : FlutterFragmentActivity() {
             intent.removeExtra("nav_subtab")
             intent.removeExtra("nav_event_type")
             intent.removeExtra("nav_payload_json")
-            // MethodChannel이 준비되기 전(앱 콜드 스타트) 처리를 위해 약간 지연
+            pendingNav = mapOf(
+                "tab" to navTab,
+                "sub_tab" to navSubTab,
+                "event_type" to eventType,
+                "payload_json" to payloadJson
+            )
+            // Dart 가 준비됐으면(dartReady) 그때 보낸다. 예전처럼 500ms 뒤에도 한 번 시도한다 —
+            // Dart 처리기가 아직 없으면 notImplemented 로 돌아와 요청을 지우지 않는다.
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                methodChannel?.invokeMethod("navigateToTab", mapOf(
-                    "tab" to navTab,
-                    "sub_tab" to navSubTab,
-                    "event_type" to eventType,
-                    "payload_json" to payloadJson
-                ))
+                deliverPendingNav()
             }, 500)
+        }
+    }
+
+    /** 보류한 이동 요청을 Dart 로 보낸다. Dart 가 받았을 때(success/error)만 지운다. 메인 스레드에서 부른다. */
+    private fun deliverPendingNav() {
+        val nav = pendingNav ?: return
+        val channel = methodChannel ?: return
+        if (pendingNavInFlight) return
+        pendingNavInFlight = true
+        channel.invokeMethod("navigateToTab", nav, object : MethodChannel.Result {
+            override fun success(result: Any?) = onNavDelivered(nav)
+            override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) = onNavDelivered(nav)
+            override fun notImplemented() {
+                // Dart 처리기가 아직 없다 — dartReady 를 기다린다.
+                pendingNavInFlight = false
+            }
+        })
+    }
+
+    private fun onNavDelivered(nav: Map<String, Any>) {
+        pendingNavInFlight = false
+        if (pendingNav === nav) {
+            pendingNav = null
+        } else {
+            // 보내는 사이 새 요청이 들어왔다.
+            deliverPendingNav()
         }
     }
 
@@ -566,6 +601,12 @@ class MainActivity : FlutterFragmentActivity() {
                     "refreshQuickActions" -> {
                         updateAppShortcuts()
                         result.success(true)
+                    }
+
+                    // Dart 루트 처리기가 걸렸다(SQ-B05) — 보류한 알림 탭 이동 요청을 보낸다.
+                    "dartReady" -> {
+                        result.success(true)
+                        deliverPendingNav()
                     }
 
                     // ── 동기화 Foreground Service 제어 ─────────────────────

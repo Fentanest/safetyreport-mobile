@@ -34,9 +34,8 @@ void showDuplicateGroupDetailSheet(BuildContext context, DuplicateGroup group) {
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-    ),
+    // 전체 높이까지 끌어올려도 상태 표시줄 아래에서 멈춘다(SQ-U07).
+    useSafeArea: true,
     builder: (_) => _DuplicateGroupDetailSheet(group: group, loadPage: loader),
   );
 }
@@ -110,19 +109,9 @@ class _DuplicateGroupDetailSheetState
       maxChildSize: 0.95,
       builder: (_, controller) => ListView(
         controller: controller,
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+        // 손잡이는 테마(showDragHandle)가 그린다(SQ-U07).
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
         children: [
-          Center(
-            child: Container(
-              width: 36,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 18),
-              decoration: BoxDecoration(
-                color: context.sr.border,
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-          ),
           Row(
             children: [
               Icon(Icons.content_copy, color: cs.primary),

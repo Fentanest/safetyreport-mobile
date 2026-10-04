@@ -23,7 +23,7 @@
 |---|---|---|---|---|
 | WP1 | 알림 경로 | B01 B02 B04 B12 P08 U08 | notification_history_provider, main(_checkPendingChanges), notifications_screen, report_detail_sheet(markReportRead), WsService.kt(ID) | 완료 |
 | WP2 | DB 가져오기·설정 화면 결함 | B03 B06 B08 B14 B09(settings·setup) | pending_db_import_action, setup_screen, settings_screen, report_provider(capabilities) | 완료 |
-| WP3 | 루트·내비·테마 | P01 U05 U06 B05 B13 U07 U04(탭 막대) | main, app_theme, community_gate, sr_tab_bar, dashboard(관리), 시트 9곳, MainActivity.kt | 대기 |
+| WP3 | 루트·내비·테마 | P01 U05 U06 B05 B13 U07 U04(탭 막대) | main, app_theme, community_gate, sr_tab_bar, dashboard(관리), 시트 9곳, MainActivity.kt | 완료 |
 | WP4 | 목록·드릴다운·상세 | U01 U02 P09 U12 U13 U14 U20(상세) | report_list_screen, local_paged_report_list, statistics/map/detail 드릴다운, report_detail_sheet, status_badge | 대기 |
 | WP5 | 지도 | U03 U10 U11 P05 U24(범례) | report_map_screen | 완료 |
 | WP6 | 대시보드·통계 표시 | U15 U04(대시보드 그리드) U09 U24(당월) U25 U22 | dashboard_screen, stats_overview_section, stats_fine_breakdown, utils/format | 대기 |
@@ -41,9 +41,9 @@
 | U02 | 드릴다운 필터가 하단 신고내역 탭에 남음 | WP4 | 대기 |
 | U03 | 다크 지도 라벨 흰 바탕 흰 글자, 라벨 문구 잘림 | WP5 | 완료 |
 | U04 | 글꼴 2.0배 넘침·탭 이름 잘림 | WP3(탭 막대)·WP6(대시보드) | 대기 |
-| U05 | 비0 탭 뒤로가기 즉시 종료 | WP3 | 대기 |
-| U06 | 대시보드 "관리"가 중복 화면 push | WP3 | 대기 |
-| U07 | 바텀시트 손잡이 이중 | WP3 | 대기 |
+| U05 | 비0 탭 뒤로가기 즉시 종료 | WP3 | 완료 |
+| U06 | 대시보드 "관리"가 중복 화면 push | WP3 | 완료 |
+| U07 | 바텀시트 손잡이 이중 | WP3 | 완료 |
 | U08 | Standalone 알림 빈 문구 "크롤링" | WP1 | 완료 |
 | U09 | 월별 추이 세로축 최상단 잘림 | WP6 | 대기 |
 | U10 | 지도 OSM 출처 표기 | WP5 | 완료 |
@@ -65,7 +65,7 @@
 | U26 | 시스템 바 여백 | WP10 | 대기 |
 | U27 | 상세 검색 시트 입력칸 정리 | WP10 | 대기 |
 | U28 | 문서 불일치·동의 화면 증거 | WP10 | 대기 |
-| P01 | 테마 재생성·루트 재빌드 | WP3 | 대기 |
+| P01 | 테마 재생성·루트 재빌드 | WP3 | 완료 |
 | P02 | statsRefreshNonce 전역 재조회 | WP8 | 대기 |
 | P03 | 엑셀 내보내기 전량·UI isolate | WP9 | 대기 |
 | P04 | 유지보수 폴링 백그라운드 | WP7 | 완료 |
@@ -82,7 +82,7 @@
 | B02 | 알림 기록 lost update | WP1 | 완료 |
 | B03 | DB 변환 대기 작업 선삭제 | WP2 | 완료 |
 | B04 | 소비형 완료 신호 순서 | WP1 | 완료 |
-| B05 | MethodChannel 처리기 수명 | WP3 | 대기 |
+| B05 | MethodChannel 처리기 수명 | WP3 | 완료 |
 | B06 | 다운로드 진행 창 뒤로가기 | WP2 | 완료 |
 | B07 | 크롤링 화면 폴링·dispose | WP7 | 완료 |
 | B08 | 서버 변경 시 capabilities·저장 이중 실행 | WP2 | 완료 |
@@ -90,7 +90,7 @@
 | B10 | 감시 목록 epoch | WP8 | 대기 |
 | B11 | _isLoading 공유 | WP8 | 대기 |
 | B12 | 알림 기록 ID 충돌 | WP1 | 완료 |
-| B13 | 재구성 게이트 onDone 반복 | WP3 | 대기 |
+| B13 | 재구성 게이트 onDone 반복 | WP3 | 완료 |
 | B14 | 재로그인 컨트롤러 미해제 | WP2 | 완료 |
 
 ## 기준선

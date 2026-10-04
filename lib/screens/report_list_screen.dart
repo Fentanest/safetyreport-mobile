@@ -228,12 +228,8 @@ class _ReportListScreenState extends State<ReportListScreen>
                 ],
                 bottom: SrTabBar(
                   controller: _tabController,
-                  tabs: const [
-                    Tab(text: '교통위반'),
-                    Tab(text: '주정차'),
-                    Tab(text: '기타위반'),
-                    Tab(text: '중복차량'),
-                  ],
+                  textScaler: MediaQuery.textScalerOf(context),
+                  labels: const ['교통위반', '주정차', '기타위반', '중복차량'],
                 ),
               ),
         body: Stack(
@@ -421,14 +417,9 @@ class _ReportListScreenState extends State<ReportListScreen>
   }
 
   void _showSearchPopup(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) =>
-          SearchFilterSheet(provider: context.read<ReportProvider>()),
+    showSearchFilterSheet(
+      context,
+      provider: context.read<ReportProvider>(),
     );
   }
 

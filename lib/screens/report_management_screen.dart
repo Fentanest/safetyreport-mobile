@@ -4,6 +4,7 @@ import 'data_editor_screen.dart';
 import 'duplicate_management_screen.dart';
 import 'rating_management_panel.dart';
 import 'watchlist_screen.dart';
+import '../navigation/main_tabs.dart';
 import '../widgets/sr_tab_bar.dart';
 
 class ReportManagementScreen extends StatefulWidget {
@@ -29,8 +30,30 @@ class _ReportManagementScreenState extends State<ReportManagementScreen>
     );
   }
 
+  /// 하단 탭 화면일 때 메인 화면이 보내는 하위 탭 요청(대시보드 "감시 목록 › 관리", SQ-U06).
+  MainTabController? _mainTabs;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final tabs = MainTabScope.maybeOf(context);
+    if (identical(tabs, _mainTabs)) return;
+    _mainTabs?.removeListener(_applyMainTabRequest);
+    _mainTabs = tabs;
+    tabs?.addListener(_applyMainTabRequest);
+    _applyMainTabRequest();
+  }
+
+  void _applyMainTabRequest() {
+    final subTab = _mainTabs?.takeSubTab(MainTabs.management);
+    if (subTab == null) return;
+    final index = subTab.clamp(0, _tabController.length - 1);
+    if (_tabController.index != index) _tabController.index = index;
+  }
+
   @override
   void dispose() {
+    _mainTabs?.removeListener(_applyMainTabRequest);
     _tabController.dispose();
     super.dispose();
   }
@@ -42,12 +65,8 @@ class _ReportManagementScreenState extends State<ReportManagementScreen>
         title: const Text('신고관리'),
         bottom: SrTabBar(
           controller: _tabController,
-          tabs: const [
-            Tab(text: '별점'),
-            Tab(text: '감시 목록'),
-            Tab(text: '중복 신고'),
-            Tab(text: '데이터 수정'),
-          ],
+          textScaler: MediaQuery.textScalerOf(context),
+          labels: const ['별점', '감시 목록', '중복 신고', '데이터 수정'],
         ),
       ),
       body: TabBarView(

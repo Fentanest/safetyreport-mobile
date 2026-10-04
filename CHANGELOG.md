@@ -44,6 +44,16 @@
 - 전국 신고현황 자동 넘김은 화면이 보이고 앱이 전경일 때만 돈다.
 - 검증: 신규 테스트 13개, 합친 상태 test 988 passed / 16 skipped / 0 failed, analyze error 0 / warning 9.
 
+### WP3 루트·내비게이션·테마 (SQ-P01 U05 U06 B05 B13 U07 U04 탭 막대)
+- 테마를 한 번만 만들어 재사용하고, 루트를 Selector로 좁혀 `themeMode`가 바뀔 때만 MaterialApp을, 초기화·모드·설정·게이트 값이 바뀔 때만 홈을 다시 그린다. 매 알림마다 테마 보간(약 200ms)으로 숨은 탭까지 다시 그리던 문제를 없앴다. 커뮤니티 게이트는 화면이 읽는 상태가 실제로 바뀔 때만 알린다.
+- 뒤로가기: 선택 모드 해제 → 대시보드가 아닌 탭이면 대시보드로 → 대시보드에서 동기화 중이면 안내 → 종료. 탭 인덱스 0~4는 불변.
+- 대시보드 "감시 목록 › 관리"·"더 보기"는 하단 신고관리 탭의 감시 목록 하위 탭으로 전환한다(중복 화면 push 제거, 48dp, chevron).
+- 네이티브 MethodChannel 처리기를 앱 루트(`NativeCallRouter`)에 한 번 걸고, 알림 탭 이동 요청은 메인 화면이 붙을 때까지 보관한다. Kotlin은 `dartReady` 뒤 보관 요청을 보내고 Dart가 받았을 때만 지운다(500ms 예비 경로 유지). `syncFgsStopped`는 화면과 무관하게 SyncEngine으로 간다. `docs/architecture/android-runtime.md` 갱신.
+- Standalone 초기 재구성 게이트의 onDone을 한 번만, mounted일 때만 부른다.
+- 바텀시트 손잡이: 수동 손잡이 9곳을 지우고 테마 손잡이·모서리만 쓴다. 높은 시트는 `useSafeArea`(상세 검색 시트가 상태 표시줄 아래로 가던 문제).
+- 하위 탭 막대: 높이를 글자 배율에 맞추고, 라벨이 칸에 안 들어가면 가로 스크롤 탭으로 바꾼다(개수·순서·스와이프 불변). 알림 미읽음 배지를 탭 막대 안으로 옮겼다.
+- 검증: analyze error 0 / warning 9 / info 0, test **1025 passed / 16 skipped / 0 failed**(신규 37), 골든 변경 없음. MainActivity.kt 컴파일은 WP9 병합 뒤 함께 확인.
+
 ## 2026-10-04 (서버 dev 리팩터링 WS 소비자 연동, 로컬 미배포)
 
 - 서버의 optional terminal event_id/after/replay_gap/cursor_reset을 Android WsService에 연결했다. 서버 설정별 cursor를 분리하고 같은 event_id의 완료 알림 중복을 막는다. PrefsInbox가 알림 history와 cursor를 한 Editor.commit에 저장하며 실패하면 메모리의 실패 history/cursor/trim만 복구한 뒤 reconnect한다. rollback disk 실패에서도 메모리 cursor를 되돌리는 회귀를 확인했다.

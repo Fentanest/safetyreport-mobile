@@ -17,8 +17,16 @@ class AppTheme {
   /// 다크 채움(버튼·선택 탭 바탕, 흰 글자 5.17:1). 웹 `--sr-primary` 와 같은 값. 라이트는 [lightPrimary] 가 채움도 맡는다.
   static const darkPrimaryFill = Color(0xFF2563EB);
 
-  static ThemeData light() => build(Brightness.light);
-  static ThemeData dark() => build(Brightness.dark);
+  /// 앱이 쓰는 테마는 한 번만 만든다(SQ-P01). ThemeData 안의 `WidgetStateProperty.resolveWith` 는 `==` 가 없어
+  /// 새로 만든 테마는 늘 "다른 테마"로 판정되고, MaterialApp 의 AnimatedTheme 이 200ms 보간으로 전체를 다시 그린다.
+  static final ThemeData _light = build(Brightness.light);
+  static final ThemeData _dark = build(Brightness.dark);
+
+  static ThemeData light() => _light;
+  static ThemeData dark() => _dark;
+
+  /// 바텀시트 위 모서리 반경. 시트마다 따로 주지 않고 테마로 맞춘다(SQ-U07).
+  static const sheetRadius = 20.0;
 
   static ThemeData build(Brightness brightness) {
     final isDark = brightness == Brightness.dark;
@@ -155,8 +163,14 @@ class AppTheme {
         backgroundColor: t.surface,
         modalBackgroundColor: t.surface,
         surfaceTintColor: Colors.transparent,
+        // 손잡이는 테마 하나만 그린다 — 시트가 직접 그리지 않는다(SQ-U07).
         showDragHandle: true,
         dragHandleColor: t.textDisabled,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(sheetRadius),
+          ),
+        ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,

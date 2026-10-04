@@ -101,7 +101,59 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   /// 폐기 뒤에 끝난 확인(로그인 상태 변화로 시작된 refresh 등)은 조용히 멈춘다.
   @override
   void notifyListeners() {
-    if (!_disposed) super.notifyListeners();
+    if (_disposed) return;
+    _notifiedSnapshot = _observableSnapshot();
+    super.notifyListeners();
+  }
+
+  /// 마지막으로 알렸을 때 화면이 읽던 값([_observableSnapshot]).
+  String? _notifiedSnapshot;
+
+  /// 확인(refresh)은 화면이 읽는 값이 실제로 바뀌었을 때만 알린다(SQ-P01). 60초 poll·앱 복귀의 조용한 확인이
+  /// 같은 결과를 낼 때마다 알리면 루트와 화면 전체가 다시 빌드된다.
+  void _notifyIfChanged() {
+    if (_disposed) return;
+    if (_notifiedSnapshot != null &&
+        _observableSnapshot() == _notifiedSnapshot) {
+      return;
+    }
+    notifyListeners();
+  }
+
+  /// 공개 getter 로 읽히는 값의 요약. status 의 `server_time` 은 매번 바뀌고 화면이 쓰지 않으므로 뺀다.
+  String _observableSnapshot() {
+    String status() {
+      final raw = _lastStatus?.raw;
+      if (raw == null) return '';
+      try {
+        return jsonEncode(
+          Map<String, Object?>.from(raw)..remove('server_time'),
+        );
+      } catch (_) {
+        return 'status#${identityHashCode(_lastStatus)}';
+      }
+    }
+
+    final conflict = _writerConflict;
+    return jsonEncode([
+      _state.state,
+      _state.canEnter,
+      _state.reasons,
+      _passedMode,
+      appMode,
+      _checked,
+      _checking,
+      _notice,
+      _manifestError,
+      if (conflict != null) [
+        conflict.deviceLabel,
+        conflict.platform,
+        conflict.sourceApp,
+        conflict.createdAt,
+      ] else null,
+      _authGen,
+      status(),
+    ]);
   }
 
   void _onAuthChanged() {
@@ -321,7 +373,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     final checkedMode = appMode;
     if (!silent) {
       _checking = true;
-      notifyListeners();
+      _notifyIfChanged();
     }
     try {
       final config = configStatus();
@@ -331,7 +383,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         _apply(next);
         await _deactivate('gate:$next');
         _checked = true;
-        notifyListeners();
+        _notifyIfChanged();
         return _state;
       }
       final token = await _auth.getAccessToken();
@@ -345,7 +397,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         _apply(next);
         await _deactivate('gate:$next');
         _checked = true;
-        notifyListeners();
+        _notifyIfChanged();
         return _state;
       }
       final storedConnection = await _readStoredConnection();
@@ -366,20 +418,20 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
               age != null &&
               age <= communityGateCacheTtl.inSeconds) {
             _checked = true;
-            notifyListeners();
+            _notifyIfChanged();
             return _state;
           }
           _apply(evaluateGate(config: config, session: session));
         }
         _checked = true;
-        notifyListeners();
+        _notifyIfChanged();
         return _state;
       }
       if (authGen != _authGen || checkedMode != appMode) {
         // 이 확인을 시작한 뒤 로그인 상태가 바뀌었다(로그아웃·계정 변경) — 이전 세션의 응답으로 게이트를 열지 않는다.
         // 새 세션의 확인은 _onAuthChanged 가 이어서 한다.
         _checked = true;
-        notifyListeners();
+        _notifyIfChanged();
         return _state;
       }
       _lastStatus = status;
@@ -396,7 +448,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         _apply(next);
         await _deactivate('gate:${next.state}');
         _checked = true;
-        notifyListeners();
+        _notifyIfChanged();
         return _state;
       }
       if (isWriter) {
@@ -419,7 +471,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
           _apply(blocked);
           await _deactivate('gate:${blocked.state}');
           _checked = true;
-          notifyListeners();
+          _notifyIfChanged();
           return _state;
         }
         // 진입(K·C)과 업로드 연결은 별개다: 연결을 못 얻으면 화면은 쓰되 context 를 끄고 업로드만 멈춘다.
@@ -448,7 +500,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         _notice =
             '공유한 자료 삭제 요청의 결과를 확인하지 못해 업로드를 멈춘 상태입니다. 설정에서 삭제 요청을 다시 눌러 주세요.';
       }
-      notifyListeners();
+      _notifyIfChanged();
       if (!_firstPassFired) {
         _firstPassFired = true;
         for (final cb in _onFirstPassed) {
@@ -463,7 +515,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     } finally {
       if (!silent) {
         _checking = false;
-        notifyListeners();
+        _notifyIfChanged();
       }
     }
   }

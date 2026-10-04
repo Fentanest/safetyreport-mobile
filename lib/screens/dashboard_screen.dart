@@ -17,6 +17,7 @@ import '../theme/sr_colors.dart';
 import '../widgets/mode_badge.dart';
 import '../widgets/status_badge.dart';
 import '../widgets/sync_status_card.dart';
+import '../navigation/main_tabs.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -622,6 +623,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  /// 감시 목록 관리: 메인 화면 안이면 하단 탭 2 + 하위 탭 "감시 목록"으로 바꾼다.
+  /// 메인 화면 밖(단독으로 띄운 대시보드)에서만 신고관리 화면을 연다.
+  void _openWatchlistManagement(BuildContext context) {
+    final tabs = MainTabScope.maybeOf(context);
+    if (tabs != null) {
+      tabs.goTo(MainTabs.management, subTab: MainTabs.managementWatchlist);
+      return;
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const ReportManagementScreen(
+          initialTabIndex: MainTabs.managementWatchlist,
+        ),
+      ),
+    );
+  }
+
   // ── 감시 목록 섹션 ────────────────────────────────
   Widget _buildWatchlistSection(
     BuildContext context,
@@ -645,20 +664,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
             ),
+            // 하단 탭 신고관리(2)의 "감시 목록"으로 전환한다 — 화면을 새로 쌓지 않는다(SQ-U06).
             TextButton.icon(
-              icon: const Icon(Icons.open_in_new, size: 14),
+              icon: const Icon(Icons.chevron_right, size: 18),
+              iconAlignment: IconAlignment.end,
               label: const Text('관리'),
               style: TextButton.styleFrom(
-                padding: EdgeInsets.zero,
-                minimumSize: const Size(0, 28),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                minimumSize: const Size(48, 48),
               ),
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) =>
-                      const ReportManagementScreen(initialTabIndex: 1),
-                ),
-              ),
+              onPressed: () => _openWatchlistManagement(context),
             ),
           ],
         ),
@@ -697,13 +712,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         if (items.length > 5)
           Center(
             child: TextButton(
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) =>
-                      const ReportManagementScreen(initialTabIndex: 1),
-                ),
-              ),
+              onPressed: () => _openWatchlistManagement(context),
               child: Text('+ ${items.length - 5}건 더 보기'),
             ),
           ),

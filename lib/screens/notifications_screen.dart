@@ -168,9 +168,6 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (sheetCtx) => DraggableScrollableSheet(
         initialChildSize: hasChanges ? 0.5 : 0.4,
         minChildSize: 0.3,
@@ -178,19 +175,9 @@ class _NotificationsScreenState extends State<NotificationsScreen>
         expand: false,
         builder: (_, controller) => ListView(
           controller: controller,
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+          // 손잡이는 테마(showDragHandle)가 그린다(SQ-U07).
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
           children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 20),
-                decoration: BoxDecoration(
-                  color: context.sr.border,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
             Row(
               children: [
                 Icon(
@@ -236,9 +223,8 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      // 전체 높이까지 끌어올려도 상태 표시줄 아래에서 멈춘다(SQ-U07).
+      useSafeArea: true,
       builder: (sheetCtx) => DraggableScrollableSheet(
         initialChildSize: 0.72,
         minChildSize: 0.4,
@@ -246,19 +232,9 @@ class _NotificationsScreenState extends State<NotificationsScreen>
         expand: false,
         builder: (_, controller) => ListView(
           controller: controller,
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+          // 손잡이는 테마(showDragHandle)가 그린다(SQ-U07).
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
           children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 20),
-                decoration: BoxDecoration(
-                  color: context.sr.border,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
             Row(
               children: [
                 Icon(
@@ -464,11 +440,9 @@ class _NotificationsScreenState extends State<NotificationsScreen>
         ],
         bottom: SrTabBar(
           controller: _tabController,
-          tabs: [
-            _tabWithBadge('크롤링 현황', crawlUnread),
-            _tabWithBadge('신고 결과', reportUnread),
-            _tabWithBadge('별점 주기', ratingUnread),
-          ],
+          textScaler: MediaQuery.textScalerOf(context),
+          labels: const ['크롤링 현황', '신고 결과', '별점 주기'],
+          badgeCounts: [crawlUnread, reportUnread, ratingUnread],
         ),
       ),
       body: TabBarView(
@@ -494,34 +468,6 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       ),
     );
   }
-
-  Tab _tabWithBadge(String label, int unread) {
-    return Tab(
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(label),
-          if (unread > 0) ...[const SizedBox(width: 6), _unreadBadge(unread)],
-        ],
-      ),
-    );
-  }
-
-  Widget _unreadBadge(int count) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-    decoration: BoxDecoration(
-      color: Theme.of(context).colorScheme.error,
-      borderRadius: BorderRadius.circular(10),
-    ),
-    child: Text(
-      '$count',
-      style: TextStyle(
-        fontSize: 11,
-        color: Theme.of(context).colorScheme.onError,
-        fontWeight: FontWeight.bold,
-      ),
-    ),
-  );
 
   Future<void> _refresh() async {
     context.read<NotificationHistoryProvider>().load();

@@ -341,9 +341,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
+      // 전체 높이까지 끌어올려도 상태 표시줄 아래에서 멈춘다(SQ-U07).
+      useSafeArea: true,
       builder: (_) => StatefulBuilder(
         builder: (sheetContext, setSheet) {
           final filtered = laws
@@ -356,16 +355,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
             expand: false,
             builder: (_, controller) => Column(
               children: [
-                const SizedBox(height: 12),
-                Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: context.sr.border,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(height: 12),
+                // 손잡이는 테마(showDragHandle)가 그린다(SQ-U07).
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 16),
                   child: Align(

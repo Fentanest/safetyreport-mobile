@@ -71,9 +71,8 @@ void showReportDetailSheet(BuildContext context, Report report) {
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-    ),
+    // 전체 높이까지 끌어올려도 상태 표시줄 아래에서 멈춘다(SQ-U07).
+    useSafeArea: true,
     builder: (_) => ReportDetailSheet(report: report),
   ).then((_) {
     // 최근에 받은 좋은 결과를 다 보고 닫은 직후가 스토어 별점 요청 시점(조건은 ReviewPromptService).
@@ -230,23 +229,12 @@ class ReportDetailSheet extends StatelessWidget {
       initialChildSize: 0.6,
       maxChildSize: 0.95,
       minChildSize: 0.3,
+      // 손잡이는 테마(showDragHandle)가 그린다(SQ-U07).
       builder: (_, sc) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
         child: ListView(
           controller: sc,
           children: [
-            // 핸들
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: context.sr.textSecondary.withValues(alpha: 0.35),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
             // 신고명 + 상태칩
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,

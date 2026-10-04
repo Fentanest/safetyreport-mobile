@@ -7,9 +7,14 @@ import '../providers/report_provider.dart';
 import '../services/api_service.dart';
 import '../services/repositories/duplicate_repository.dart';
 import '../theme/sr_colors.dart';
+import '../widgets/dispose_on_unmount.dart';
 import '../widgets/duplicate_group_detail_sheet.dart';
 import '../widgets/report_detail_sheet.dart';
+import '../widgets/sr_empty_state.dart';
 import '../widgets/status_badge.dart';
+import '../utils/format.dart';
+import '../theme/sr_tokens.dart';
+import '../widgets/sr_snack_bar.dart';
 
 class DuplicateManagementPanel extends StatefulWidget {
   const DuplicateManagementPanel({super.key});
@@ -155,279 +160,279 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetCtx) => StatefulBuilder(
-        builder: (sheetCtx, setSheetState) => DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.82,
-          minChildSize: 0.5,
-          maxChildSize: 0.95,
-          builder: (_, controller) => ListView(
-            controller: controller,
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-            children: [
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 18),
-                  decoration: BoxDecoration(
-                    color: context.sr.border,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-              ),
-              Row(
-                children: [
-                  Icon(
-                    Icons.content_copy,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      group.representative?.report.name.isNotEmpty == true
-                          ? group.representative!.report.name
-                          : '중복 신고 그룹',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () =>
-                        showDuplicateGroupDetailSheet(sheetCtx, group),
-                    child: const Text('상세 보기'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: duplicateStatus,
-                decoration: const InputDecoration(
-                  labelText: '중복 상태',
-                  border: OutlineInputBorder(),
-                ),
-                items: const [
-                  DropdownMenuItem(
-                    value: DuplicateStatuses.reviewRequired,
-                    child: Text('검토 필요'),
-                  ),
-                  DropdownMenuItem(
-                    value: DuplicateStatuses.confirmedDuplicate,
-                    child: Text('중복 확정'),
-                  ),
-                  DropdownMenuItem(
-                    value: DuplicateStatuses.notDuplicate,
-                    child: Text('중복 아님'),
-                  ),
-                ],
-                onChanged: (value) {
-                  if (value == null) return;
-                  setSheetState(() => duplicateStatus = value);
-                },
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: representativeMode,
-                decoration: const InputDecoration(
-                  labelText: '대표건 선정',
-                  border: OutlineInputBorder(),
-                ),
-                items: const [
-                  DropdownMenuItem(
-                    value: RepresentativeModes.auto,
-                    child: Text('자동 선정'),
-                  ),
-                  DropdownMenuItem(
-                    value: RepresentativeModes.manual,
-                    child: Text('수동 고정'),
-                  ),
-                ],
-                onChanged: (value) {
-                  if (value == null) return;
-                  setSheetState(() => representativeMode = value);
-                },
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: noteCtrl,
-                decoration: const InputDecoration(
-                  labelText: '비고',
-                  border: OutlineInputBorder(),
-                ),
-                maxLines: 2,
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                '대표 후보',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              RadioGroup<String>(
-                groupValue: representativeId,
-                onChanged: (value) {
-                  if (value == null) return;
-                  setSheetState(() {
-                    representativeId = value;
-                    representativeMode = RepresentativeModes.manual;
-                  });
-                },
-                child: Column(
+      // 전체 높이까지 끌어올려도 상태 표시줄 아래에서 멈춘다(SQ-U07).
+      useSafeArea: true,
+      // 시트가 완전히 닫힌 뒤 메모 컨트롤러를 해제한다(SQ-B14).
+      builder: (sheetCtx) => DisposeOnUnmount(
+        onDispose: noteCtrl.dispose,
+        child: StatefulBuilder(
+          builder: (sheetCtx, setSheetState) => DraggableScrollableSheet(
+            expand: false,
+            initialChildSize: 0.82,
+            minChildSize: 0.5,
+            maxChildSize: 0.95,
+            builder: (_, controller) => ListView(
+              controller: controller,
+              // 손잡이는 테마(showDragHandle)가 그린다(SQ-U07).
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+              children: [
+                Row(
                   children: [
-                    for (final member in candidates)
-                      Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: RadioListTile<String>(
-                          value: member.reportId,
-                          title: Text(
-                            member.report.reportNumber.isNotEmpty
-                                ? member.report.reportNumber
-                                : member.reportId,
-                          ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (member.report.name.isNotEmpty)
-                                Text(
-                                  member.report.name,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              Text(
-                                '${member.entryValue.isNotEmpty ? member.entryValue : member.category} · ${member.report.statusWithFine}',
-                              ),
-                              if (member.report.agency.isNotEmpty)
-                                Text(
-                                  member.report.agency,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                            ],
-                          ),
-                          secondary: IconButton(
-                            icon: const Icon(Icons.open_in_new),
-                            tooltip: '상세 보기',
-                            onPressed: () =>
-                                showReportDetailSheet(context, member.report),
-                          ),
+                    Icon(
+                      Icons.content_copy,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        group.representative?.report.name.isNotEmpty == true
+                            ? group.representative!.report.name
+                            : '중복 신고 그룹',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
+                    ),
+                    TextButton(
+                      onPressed: () =>
+                          showDuplicateGroupDetailSheet(sheetCtx, group),
+                      child: const Text('상세 보기'),
+                    ),
                   ],
                 ),
-              ),
-              if (paged && group.memberCount > 50) ...[
-                Text(
-                  '대표 후보 ${candidatePage * 50 + 1}–${candidatePage * 50 + candidates.length} / 전체 ${group.memberCount}건 · 선택 $representativeId',
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: duplicateStatus,
+                  decoration: const InputDecoration(
+                    labelText: '중복 상태',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: DuplicateStatuses.reviewRequired,
+                      child: Text('검토 필요'),
+                    ),
+                    DropdownMenuItem(
+                      value: DuplicateStatuses.confirmedDuplicate,
+                      child: Text('중복 확정'),
+                    ),
+                    DropdownMenuItem(
+                      value: DuplicateStatuses.notDuplicate,
+                      child: Text('중복 아님'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setSheetState(() => duplicateStatus = value);
+                  },
                 ),
-                if (candidateError != null)
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: representativeMode,
+                  decoration: const InputDecoration(
+                    labelText: '대표건 선정',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: RepresentativeModes.auto,
+                      child: Text('자동 선정'),
+                    ),
+                    DropdownMenuItem(
+                      value: RepresentativeModes.manual,
+                      child: Text('수동 고정'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setSheetState(() => representativeMode = value);
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: noteCtrl,
+                  decoration: const InputDecoration(
+                    labelText: '비고',
+                    border: OutlineInputBorder(),
+                  ),
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  '대표 후보',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                RadioGroup<String>(
+                  groupValue: representativeId,
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setSheetState(() {
+                      representativeId = value;
+                      representativeMode = RepresentativeModes.manual;
+                    });
+                  },
+                  child: Column(
+                    children: [
+                      for (final member in candidates)
+                        Card(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          child: RadioListTile<String>(
+                            value: member.reportId,
+                            title: Text(
+                              member.report.reportNumber.isNotEmpty
+                                  ? member.report.reportNumber
+                                  : member.reportId,
+                            ),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (member.report.name.isNotEmpty)
+                                  Text(
+                                    member.report.name,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                Text(
+                                  '${member.entryValue.isNotEmpty ? member.entryValue : member.category} · ${member.report.statusWithFine}',
+                                ),
+                                if (member.report.agency.isNotEmpty)
+                                  Text(
+                                    member.report.agency,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                              ],
+                            ),
+                            secondary: IconButton(
+                              icon: const Icon(Icons.open_in_new),
+                              tooltip: '상세 보기',
+                              onPressed: () =>
+                                  showReportDetailSheet(context, member.report),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                if (paged && group.memberCount > 50) ...[
                   Text(
-                    candidateError!,
+                    '대표 후보 ${candidatePage * 50 + 1}–${candidatePage * 50 + candidates.length} / 전체 ${formatCount(group.memberCount)} · 선택 $representativeId',
+                  ),
+                  if (candidateError != null)
+                    Text(
+                      candidateError!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      for (final step in [-1, 1])
+                        TextButton(
+                          onPressed:
+                              candidateLoading ||
+                                  saving ||
+                                  candidatePage + step < 0 ||
+                                  (candidatePage + step) * 50 >=
+                                      group.memberCount
+                              ? null
+                              : () async {
+                                  setSheetState(() {
+                                    candidateLoading = true;
+                                    candidateError = null;
+                                  });
+                                  try {
+                                    if (provider.datasetEpoch != epoch) {
+                                      throw StateError(
+                                        '자료/계정이 바뀌었습니다. 화면을 다시 열어 주세요.',
+                                      );
+                                    }
+                                    final rows = await repo.getMembers(
+                                      group.groupId,
+                                      page: candidatePage + step,
+                                    );
+                                    if (sheetCtx.mounted &&
+                                        provider.datasetEpoch == epoch) {
+                                      setSheetState(() {
+                                        candidates = rows;
+                                        candidatePage += step;
+                                      });
+                                    }
+                                  } catch (e) {
+                                    if (sheetCtx.mounted) {
+                                      setSheetState(
+                                        () => candidateError = '$e',
+                                      );
+                                    }
+                                  } finally {
+                                    if (sheetCtx.mounted) {
+                                      setSheetState(
+                                        () => candidateLoading = false,
+                                      );
+                                    }
+                                  }
+                                },
+                          child: Text(step < 0 ? '이전 후보' : '다음 후보'),
+                        ),
+                    ],
+                  ),
+                ],
+                if (saveError != null)
+                  Text(
+                    saveError!,
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.error,
                     ),
                   ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    for (final step in [-1, 1])
-                      TextButton(
-                        onPressed:
-                            candidateLoading ||
-                                saving ||
-                                candidatePage + step < 0 ||
-                                (candidatePage + step) * 50 >= group.memberCount
-                            ? null
-                            : () async {
-                                setSheetState(() {
-                                  candidateLoading = true;
-                                  candidateError = null;
-                                });
-                                try {
-                                  if (provider.datasetEpoch != epoch) {
-                                    throw StateError(
-                                      '자료/계정이 바뀌었습니다. 화면을 다시 열어 주세요.',
-                                    );
-                                  }
-                                  final rows = await repo.getMembers(
-                                    group.groupId,
-                                    page: candidatePage + step,
-                                  );
-                                  if (sheetCtx.mounted &&
-                                      provider.datasetEpoch == epoch) {
-                                    setSheetState(() {
-                                      candidates = rows;
-                                      candidatePage += step;
-                                    });
-                                  }
-                                } catch (e) {
-                                  if (sheetCtx.mounted) {
-                                    setSheetState(() => candidateError = '$e');
-                                  }
-                                } finally {
-                                  if (sheetCtx.mounted) {
-                                    setSheetState(
-                                      () => candidateLoading = false,
-                                    );
-                                  }
-                                }
-                              },
-                        child: Text(step < 0 ? '이전 후보' : '다음 후보'),
-                      ),
-                  ],
+                const SizedBox(height: 8),
+                FilledButton.icon(
+                  onPressed: saving || candidateLoading
+                      ? null
+                      : () async {
+                          setSheetState(() {
+                            saving = true;
+                            saveError = null;
+                          });
+                          try {
+                            await _saveGroup(
+                              group,
+                              duplicateStatus: duplicateStatus,
+                              representativeMode: representativeMode,
+                              representativeId: representativeId,
+                              note: noteCtrl.text.trim(),
+                              expectedEpoch: epoch,
+                            );
+                            if (sheetCtx.mounted) Navigator.pop(sheetCtx);
+                          } catch (e) {
+                            if (!sheetCtx.mounted) return;
+                            showSrSnack(
+                              sheetCtx,
+                              '저장 실패: $e',
+                              kind: SrSnackKind.error,
+                            );
+                          } finally {
+                            if (sheetCtx.mounted) {
+                              setSheetState(() => saving = false);
+                            }
+                          }
+                        },
+                  icon: saving
+                      ? SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Theme.of(context).colorScheme.onPrimary,
+                          ),
+                        )
+                      : const Icon(Icons.save_outlined),
+                  label: const Text('저장'),
                 ),
               ],
-              if (saveError != null)
-                Text(
-                  saveError!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-              const SizedBox(height: 8),
-              FilledButton.icon(
-                onPressed: saving || candidateLoading
-                    ? null
-                    : () async {
-                        setSheetState(() {
-                          saving = true;
-                          saveError = null;
-                        });
-                        try {
-                          await _saveGroup(
-                            group,
-                            duplicateStatus: duplicateStatus,
-                            representativeMode: representativeMode,
-                            representativeId: representativeId,
-                            note: noteCtrl.text.trim(),
-                            expectedEpoch: epoch,
-                          );
-                          if (sheetCtx.mounted) Navigator.pop(sheetCtx);
-                        } catch (e) {
-                          if (!sheetCtx.mounted) return;
-                          ScaffoldMessenger.of(
-                            sheetCtx,
-                          ).showSnackBar(SnackBar(content: Text('저장 실패: $e')));
-                        } finally {
-                          if (sheetCtx.mounted) {
-                            setSheetState(() => saving = false);
-                          }
-                        }
-                      },
-                icon: saving
-                    ? SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Theme.of(context).colorScheme.onPrimary,
-                        ),
-                      )
-                    : const Icon(Icons.save_outlined),
-                label: const Text('저장'),
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -440,25 +445,11 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.error_outline,
-              size: 48,
-              color: Theme.of(context).colorScheme.error,
-            ),
-            const SizedBox(height: 12),
-            Text(_error!, textAlign: TextAlign.center),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              icon: const Icon(Icons.refresh),
-              label: const Text('다시 시도'),
-              onPressed: _load,
-            ),
-          ],
-        ),
+      // 공용 오류 상태(SQ-U21).
+      return SrEmptyState.error(
+        title: '중복 신고를 불러오지 못했습니다',
+        detail: _error,
+        onRetry: _load,
       );
     }
 
@@ -518,15 +509,10 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
           ),
           const SizedBox(height: 12),
           if (_filteredGroups.isEmpty)
-            Padding(
-              padding: const EdgeInsets.all(24),
-              child: Center(
-                child: Text(
-                  _infoMessage ?? '현재 조건에 맞는 중복 신고 그룹이 없습니다.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: context.sr.textSecondary),
-                ),
-              ),
+            SrEmptyState(
+              icon: Icons.content_copy_outlined,
+              title: _infoMessage ?? '현재 조건에 맞는 중복 신고 그룹이 없습니다.',
+              scrollable: false,
             )
           else
             ..._filteredGroups.map(
@@ -578,7 +564,7 @@ class _StatusCard extends StatelessWidget {
     return Card(
       color: selected ? Theme.of(context).colorScheme.primaryContainer : null,
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -591,7 +577,7 @@ class _StatusCard extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                '$count건',
+                formatCount(count),
                 style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -611,14 +597,14 @@ class _DuplicateGroupCard extends StatelessWidget {
 
   const _DuplicateGroupCard({required this.group, required this.onTap});
 
-  Color _statusColor(String value) {
+  Color _statusColor(BuildContext context, String value) {
     switch (value) {
       case DuplicateStatuses.confirmedDuplicate:
-        return Colors.green;
+        return context.semantic(SrTone.success);
       case DuplicateStatuses.notDuplicate:
-        return Colors.grey;
+        return context.semantic(SrTone.neutral);
       default:
-        return Colors.orange;
+        return context.semantic(SrTone.warning);
     }
   }
 
@@ -648,7 +634,7 @@ class _DuplicateGroupCard extends StatelessWidget {
                   style: const TextStyle(fontSize: 12),
                 ),
               Text(
-                '멤버 ${group.memberCount}건 · ${group.representativeModeLabel}',
+                '멤버 ${formatCount(group.memberCount)} · ${group.representativeModeLabel}',
                 style: const TextStyle(fontSize: 12),
               ),
               if (rep?.report.agency.isNotEmpty == true)
@@ -663,7 +649,7 @@ class _DuplicateGroupCard extends StatelessWidget {
         ),
         trailing: StatusBadge(
           label: group.statusLabel,
-          color: _statusColor(group.status),
+          color: _statusColor(context, group.status),
         ),
         onTap: onTap,
       ),

@@ -30,10 +30,14 @@ import '../community/client_account_notice.dart';
 import '../community/gate/community_gate.dart';
 import '../widgets/community_account_card.dart';
 import '../widgets/community_server_account_card.dart';
+import '../widgets/dispose_on_unmount.dart';
 import '../widgets/mode_badge.dart';
+import '../widgets/sr_page_padding.dart';
 import '../server_palette.dart';
 import '../widgets/status_badge.dart';
 import '../theme/sr_colors.dart';
+import '../theme/sr_tokens.dart';
+import '../widgets/sr_snack_bar.dart';
 
 const _officialSafetyReportUrl = 'https://www.safetyreport.go.kr/';
 
@@ -52,6 +56,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _apiController = TextEditingController();
   bool _obscureKey = true;
   bool _testing = false;
+
+  /// "저장" 진행 중(연결 확인 → setConfig). 두 번 실행·연결 테스트와 겹침을 막는다(SQ-B08).
+  bool _saving = false;
   _TestResult? _testResult;
   bool _wsRunning = false;
   bool _wsToggling = false;
@@ -196,7 +203,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await PermissionService.startWsService();
     }
     await Future.delayed(const Duration(seconds: 1));
+    if (!mounted) return;
     await _checkWsStatus();
+    if (!mounted) return;
     setState(() => _wsToggling = false);
   }
 
@@ -226,6 +235,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _testConnection() async {
+    if (_testing || _saving) return;
     final url = _urlController.text.trim();
     final key = _apiController.text.trim();
     if (url.isEmpty || key.isEmpty) {
@@ -262,6 +272,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             headers: ServerContract.apiHeaders(key),
           )
           .timeout(const Duration(seconds: 10));
+      if (!mounted) return;
 
       final status = response.statusCode;
       String body = response.body;
@@ -299,58 +310,64 @@ class _SettingsScreenState extends State<SettingsScreen> {
         });
       }
     } on Exception catch (e) {
+      if (!mounted) return;
       setState(() {
         _testResult = _TestResult.error('연결 실패: $e');
       });
     } finally {
-      setState(() => _testing = false);
+      if (mounted) setState(() => _testing = false);
     }
   }
 
   Future<void> _save() async {
+    if (_saving || _testing) return;
     final url = _urlController.text.trim();
     final key = _apiController.text.trim();
     if (url.isEmpty || key.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('모든 필드를 입력해주세요.')));
+      showSrSnack(context, '모든 필드를 입력해주세요.');
       return;
     }
-    setState(() => _testing = true);
-    ServerConnectionResult result;
+    setState(() {
+      _saving = true;
+      _testing = true;
+    });
     try {
-      result = await ServerConnectionService.testConnection(
-        baseUrl: url,
-        apiKey: key,
-      );
-    } catch (e) {
-      if (mounted) {
-        setState(() => _testResult = _TestResult.error('서버에 연결할 수 없습니다: $e'));
+      ServerConnectionResult result;
+      try {
+        result = await ServerConnectionService.testConnection(
+          baseUrl: url,
+          apiKey: key,
+        );
+      } catch (e) {
+        if (mounted) {
+          setState(() => _testResult = _TestResult.error('서버에 연결할 수 없습니다: $e'));
+        }
+        return;
+      } finally {
+        if (mounted) setState(() => _testing = false);
       }
-      return;
+      if (!mounted) return;
+      if (!result.isOk) {
+        setState(
+          () => _testResult = _TestResult.error(
+            result.message ?? '서버에 연결할 수 없습니다.',
+          ),
+        );
+        return;
+      }
+      final provider = context.read<ReportProvider>();
+      await provider.setConfig(result.normalizedUrl, key);
+      // 설정 변경 후 모든 데이터 새로고침(서버 기능 목록 포함 — setConfig 가 이전 서버 것을 비웠다)
+      unawaited(provider.refreshAll());
+      if (mounted) {
+        showSrSnack(
+          context,
+          '설정이 저장되었습니다. 데이터를 불러오는 중...',
+          kind: SrSnackKind.success,
+        );
+      }
     } finally {
-      if (mounted) setState(() => _testing = false);
-    }
-    if (!mounted) return;
-    if (!result.isOk) {
-      setState(
-        () => _testResult = _TestResult.error(
-          result.message ?? '서버에 연결할 수 없습니다.',
-        ),
-      );
-      return;
-    }
-    final provider = context.read<ReportProvider>();
-    await provider.setConfig(result.normalizedUrl, key);
-    // 설정 변경 후 모든 데이터 새로고침
-    provider.refreshAll();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('설정이 저장되었습니다. 데이터를 불러오는 중...'),
-          backgroundColor: srSnackSuccess,
-        ),
-      );
+      if (mounted) setState(() => _saving = false);
     }
   }
 
@@ -371,139 +388,149 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlg) => AlertDialog(
-          title: const Text('안전신문고 재로그인'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: usernameCtrl,
-                decoration: const InputDecoration(
-                  labelText: '아이디',
-                  prefixIcon: Icon(Icons.person_outline),
+      // 창이 완전히 닫힌 뒤 컨트롤러를 해제한다. 비밀번호는 먼저 지운다(SQ-B14).
+      builder: (ctx) => DisposeOnUnmount(
+        onDispose: () {
+          passwordCtrl.clear();
+          usernameCtrl.dispose();
+          passwordCtrl.dispose();
+          phoneCtrl.dispose();
+        },
+        child: StatefulBuilder(
+          builder: (ctx, setDlg) => AlertDialog(
+            title: const Text('안전신문고 재로그인'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: usernameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: '아이디',
+                    prefixIcon: Icon(Icons.person_outline),
+                  ),
+                  autocorrect: false,
+                  textInputAction: TextInputAction.next,
                 ),
-                autocorrect: false,
-                textInputAction: TextInputAction.next,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: passwordCtrl,
-                decoration: InputDecoration(
-                  labelText: '비밀번호',
-                  prefixIcon: const Icon(Icons.lock_outline),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      obscurePw ? Icons.visibility_off : Icons.visibility,
-                      size: 20,
+                const SizedBox(height: 12),
+                TextField(
+                  controller: passwordCtrl,
+                  decoration: InputDecoration(
+                    labelText: '비밀번호',
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        obscurePw ? Icons.visibility_off : Icons.visibility,
+                        size: 20,
+                      ),
+                      tooltip: obscurePw ? '비밀번호 보기' : '비밀번호 숨기기',
+                      onPressed: () => setDlg(() => obscurePw = !obscurePw),
                     ),
-                    onPressed: () => setDlg(() => obscurePw = !obscurePw),
                   ),
+                  obscureText: obscurePw,
+                  autocorrect: false,
                 ),
-                obscureText: obscurePw,
-                autocorrect: false,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: phoneCtrl,
-                decoration: const InputDecoration(
-                  labelText: '휴대폰번호',
-                  helperText: '별점 사유 조회에 사용됩니다.',
-                  helperMaxLines: 2,
-                  prefixIcon: Icon(Icons.phone_outlined),
-                ),
-                keyboardType: TextInputType.phone,
-                autocorrect: false,
-              ),
-              if (err != null) ...[
-                const SizedBox(height: 10),
-                Text(
-                  err!,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.error,
-                    fontSize: 13,
+                const SizedBox(height: 12),
+                TextField(
+                  controller: phoneCtrl,
+                  decoration: const InputDecoration(
+                    labelText: '휴대폰번호',
+                    helperText: '별점 사유 조회에 사용됩니다.',
+                    helperMaxLines: 2,
+                    prefixIcon: Icon(Icons.phone_outlined),
                   ),
+                  keyboardType: TextInputType.phone,
+                  autocorrect: false,
                 ),
+                if (err != null) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    err!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
               ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: loggingIn ? null : () => Navigator.pop(ctx),
+                child: const Text('취소'),
+              ),
+              FilledButton(
+                onPressed: loggingIn
+                    ? null
+                    : () async {
+                        setDlg(() {
+                          loggingIn = true;
+                          err = null;
+                        });
+                        try {
+                          final username = usernameCtrl.text.trim();
+                          final rawPhone = phoneCtrl.text.trim();
+                          final phone = rawPhone.replaceAll(
+                            RegExp(r'[^0-9]'),
+                            '',
+                          );
+                          final isDemoLogin =
+                              LocalDbService.isPlayReviewDemoLogin(
+                                username: username,
+                                password: passwordCtrl.text,
+                                rawPhone: rawPhone,
+                              );
+                          if (!isDemoLogin && phone.isEmpty) {
+                            throw Exception('휴대폰번호를 입력해주세요.');
+                          }
+                          if (isDemoLogin) {
+                            await LocalDbService.seedPlayReviewDemo();
+                          } else {
+                            await StandaloneAuthService.login(
+                              username,
+                              passwordCtrl.text,
+                            );
+                          }
+                          if (ctx.mounted) {
+                            await ctx
+                                .read<ReportProvider>()
+                                .setStandaloneConfig(
+                                  username,
+                                  phoneNumber: isDemoLogin
+                                      ? (rawPhone.isEmpty
+                                            ? LocalDbService.playReviewDemoPhone
+                                            : rawPhone)
+                                      : phone,
+                                  isDemoMode: isDemoLogin,
+                                );
+                            if (!ctx.mounted || !mounted) return;
+                            Navigator.pop(ctx);
+                            showSrSnack(
+                              context,
+                              isDemoLogin ? '데모 모드 전환 완료' : '재로그인 완료',
+                              kind: SrSnackKind.success,
+                            );
+                          }
+                        } catch (e) {
+                          if (!ctx.mounted) return;
+                          setDlg(() {
+                            err = e.toString().replaceFirst('Exception: ', '');
+                            loggingIn = false;
+                          });
+                        }
+                      },
+                child: loggingIn
+                    ? SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Theme.of(ctx).colorScheme.onPrimary,
+                        ),
+                      )
+                    : const Text('로그인'),
+              ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: loggingIn ? null : () => Navigator.pop(ctx),
-              child: const Text('취소'),
-            ),
-            FilledButton(
-              onPressed: loggingIn
-                  ? null
-                  : () async {
-                      setDlg(() {
-                        loggingIn = true;
-                        err = null;
-                      });
-                      try {
-                        final username = usernameCtrl.text.trim();
-                        final rawPhone = phoneCtrl.text.trim();
-                        final phone = rawPhone.replaceAll(
-                          RegExp(r'[^0-9]'),
-                          '',
-                        );
-                        final isDemoLogin =
-                            LocalDbService.isPlayReviewDemoLogin(
-                              username: username,
-                              password: passwordCtrl.text,
-                              rawPhone: rawPhone,
-                            );
-                        if (!isDemoLogin && phone.isEmpty) {
-                          throw Exception('휴대폰번호를 입력해주세요.');
-                        }
-                        if (isDemoLogin) {
-                          await LocalDbService.seedPlayReviewDemo();
-                        } else {
-                          await StandaloneAuthService.login(
-                            username,
-                            passwordCtrl.text,
-                          );
-                        }
-                        if (ctx.mounted) {
-                          await ctx.read<ReportProvider>().setStandaloneConfig(
-                            username,
-                            phoneNumber: isDemoLogin
-                                ? (rawPhone.isEmpty
-                                      ? LocalDbService.playReviewDemoPhone
-                                      : rawPhone)
-                                : phone,
-                            isDemoMode: isDemoLogin,
-                          );
-                          if (!ctx.mounted || !mounted) return;
-                          Navigator.pop(ctx);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                isDemoLogin ? '데모 모드 전환 완료' : '재로그인 완료',
-                              ),
-                              backgroundColor: srSnackSuccess,
-                            ),
-                          );
-                        }
-                      } catch (e) {
-                        setDlg(() {
-                          err = e.toString().replaceFirst('Exception: ', '');
-                          loggingIn = false;
-                        });
-                      }
-                    },
-              child: loggingIn
-                  ? SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Theme.of(ctx).colorScheme.onPrimary,
-                      ),
-                    )
-                  : const Text('로그인'),
-            ),
-          ],
         ),
       ),
     );
@@ -528,6 +555,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await LocalDbService.exportBackup(targetFile.path);
       } else {
         final api = ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
+        // 화면이 닫혔으면 받지 않는다(dispose 가 취소할 수 없는 다운로드가 남는다).
+        if (!mounted) return;
         final cancel = DownloadCancel();
         _dbDownloadProgress.value = (0, null);
         setState(() => _dbDownloadCancel = cancel);
@@ -549,24 +578,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
       }
       if (saved == null && mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('DB 저장을 취소했습니다.')));
+        showSrSnack(context, 'DB 저장을 취소했습니다.');
       }
     } on DownloadCancelled {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('DB 백업을 취소했습니다.')));
+        showSrSnack(context, 'DB 백업을 취소했습니다.');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('DB 백업 실패: $e'),
-            backgroundColor: srSnackError,
-          ),
-        );
+        showSrSnack(context, 'DB 백업 실패: $e', kind: SrSnackKind.error);
       }
     } finally {
       if (staged != null && await staged.exists()) await staged.delete();
@@ -658,17 +678,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!mounted) return;
       await context.read<ReportProvider>().refreshAll();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(done ? '직전 DB 로 되돌렸습니다.' : '되돌릴 사본이 없습니다.'),
-          backgroundColor: done ? srSnackSuccess : srSnackError,
-        ),
+      showSrSnack(
+        context,
+        done ? '직전 DB 로 되돌렸습니다.' : '되돌릴 사본이 없습니다.',
+        kind: done ? SrSnackKind.success : SrSnackKind.error,
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('되돌리기 실패: $e'), backgroundColor: srSnackError),
-        );
+        showSrSnack(context, '되돌리기 실패: $e', kind: SrSnackKind.error);
       }
     } finally {
       if (mounted) setState(() => _isRestoringDb = false);
@@ -720,7 +737,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
 
-    if (confirmed != true) return;
+    if (confirmed != true || !mounted) return;
 
     setState(() => _isRestoringDb = true);
 
@@ -743,15 +760,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (mounted) {
           await context.read<ReportProvider>().refreshAll();
           if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                kind == 'server'
-                    ? '서버 DB 변환 복원이 완료되었습니다.'
-                    : '모바일 백업 복원이 완료되었습니다.',
-              ),
-              backgroundColor: srSnackSuccess,
-            ),
+          showSrSnack(
+            context,
+            kind == 'server'
+                ? '서버 DB 변환 복원이 완료되었습니다.'
+                : '모바일 백업 복원이 완료되었습니다.',
+            kind: SrSnackKind.success,
           );
         }
       } else {
@@ -761,25 +775,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
         if (mounted) {
           final kind = res['kind'] as String? ?? '';
           final imported = res['imported'];
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                '서버 DB 복원 완료 (${kind == 'mobile' ? '모바일→서버 변환' : '서버 형식'}, $imported건)',
-              ),
-              backgroundColor: srSnackSuccess,
-            ),
+          showSrSnack(
+            context,
+            '서버 DB 복원 완료 (${kind == 'mobile' ? '모바일→서버 변환' : '서버 형식'}, $imported건)',
+            kind: SrSnackKind.success,
           );
         }
       }
       return; // 아래 standalone 전용 블록 스킵
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('DB 복원 실패: $e'),
-            backgroundColor: srSnackError,
-          ),
-        );
+        showSrSnack(context, 'DB 복원 실패: $e', kind: SrSnackKind.error);
       }
     } finally {
       if (mounted) setState(() => _isRestoringDb = false);
@@ -849,9 +855,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (e) {
       // 백업 실패해도 모드 전환 자체는 진행 (사용자가 명시 요청)
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('백업 실패 (모드 전환은 진행): $e')));
+        showSrSnack(context, '백업 실패 (모드 전환은 진행): $e', kind: SrSnackKind.error);
       }
     }
 
@@ -859,12 +863,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await context.read<ReportProvider>().resetConfig();
     if (mounted) {
       if (backupPath != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('백업 완료: $backupPath'),
-            backgroundColor: srSnackSuccess,
-            duration: const Duration(seconds: 4),
-          ),
+        showSrSnack(
+          context,
+          '백업 완료: $backupPath',
+          kind: SrSnackKind.success,
+          duration: const Duration(seconds: 4),
         );
       }
       Navigator.of(context).popUntil((route) => route.isFirst);
@@ -939,30 +942,65 @@ class _SettingsScreenState extends State<SettingsScreen> {
           final st = await Permission.storage.status;
           if (!st.isGranted) await Permission.storage.request();
         }
-        // 화면이 닫혔으면 다운로드·모드 전환을 시작하지 않는다.
-        if (!mounted) return;
-        // 진행 다이얼로그(받은 크기·취소)
-        final cancel = DownloadCancel();
-        final progress = ValueNotifier<(int, int?)>((0, null));
-        unawaited(
-          showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (ctx) => AlertDialog(
-              content: ValueListenableBuilder<(int, int?)>(
-                valueListenable: progress,
-                builder: (_, v, _) => DbDownloadProgressView(
-                  title: '서버 DB 다운로드 중',
-                  received: v.$1,
-                  total: v.$2,
-                ),
+      } catch (e) {
+        if (mounted) {
+          showSrSnack(context, '서버 DB 다운로드 실패: $e', kind: SrSnackKind.error);
+        }
+        return;
+      }
+      // 화면이 닫혔으면 다운로드·모드 전환을 시작하지 않는다.
+      if (!mounted) return;
+      // 진행 다이얼로그(받은 크기·취소). 뒤로가기도 취소로 처리하고(SQ-B06),
+      // 닫을 때는 이 route 만 닫는다 — Navigator.of(context).pop() 은 그 사이 맨 위가 바뀌면 설정 화면을 닫는다.
+      final cancel = DownloadCancel();
+      final progress = ValueNotifier<(int, int?)>((0, null));
+      // showDialog 와 같은 설정(루트 navigator·테마 캡처·배경색)으로 route 를 직접 만들어 그 route 만 닫을 수 있게 한다.
+      final dialogNavigator = Navigator.of(context, rootNavigator: true);
+      final dialogRoute = DialogRoute<void>(
+        context: context,
+        themes: InheritedTheme.capture(
+          from: context,
+          to: dialogNavigator.context,
+        ),
+        barrierColor:
+            DialogTheme.of(context).barrierColor ??
+            Theme.of(context).dialogTheme.barrierColor ??
+            Colors.black54,
+        barrierDismissible: false,
+        traversalEdgeBehavior: TraversalEdgeBehavior.closedLoop,
+        builder: (ctx) => PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) cancel.cancel();
+          },
+          child: AlertDialog(
+            content: ValueListenableBuilder<(int, int?)>(
+              valueListenable: progress,
+              builder: (_, v, _) => DbDownloadProgressView(
+                title: '서버 DB 다운로드 중',
+                received: v.$1,
+                total: v.$2,
               ),
-              actions: [
-                TextButton(onPressed: cancel.cancel, child: const Text('취소')),
-              ],
             ),
+            actions: [
+              TextButton(onPressed: cancel.cancel, child: const Text('취소')),
+            ],
           ),
-        );
+        ),
+      );
+      unawaited(dialogNavigator.push(dialogRoute));
+      void closeDialog() {
+        if (!dialogRoute.isActive) return;
+        final navigator = dialogRoute.navigator;
+        if (navigator == null) return;
+        if (dialogRoute.isCurrent) {
+          navigator.pop();
+        } else {
+          navigator.removeRoute(dialogRoute);
+        }
+      }
+
+      try {
         final api = ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
         final dir = _backupDir();
         final fileName =
@@ -974,26 +1012,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
           onProgress: (received, total) => progress.value = (received, total),
         );
         pendingAction = ConvertServerDbAction(target.path);
-        if (mounted) Navigator.of(context).pop(); // 진행 다이얼로그 닫기
       } on DownloadCancelled {
         if (mounted) {
-          Navigator.of(context).pop(); // 진행 다이얼로그 닫기
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('서버 DB 다운로드를 취소했습니다. 모드는 바꾸지 않았습니다.')),
-          );
+          showSrSnack(context, '서버 DB 다운로드를 취소했습니다. 모드는 바꾸지 않았습니다.');
         }
         return;
       } catch (e) {
         if (mounted) {
-          Navigator.of(context).pop(); // 진행 다이얼로그 닫기 (실패 시)
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('서버 DB 다운로드 실패: $e'),
-              backgroundColor: srSnackError,
-            ),
-          );
+          showSrSnack(context, '서버 DB 다운로드 실패: $e', kind: SrSnackKind.error);
         }
         return;
+      } finally {
+        closeDialog();
+        progress.dispose();
       }
     } else if (choice == 'pick_backup') {
       try {
@@ -1007,22 +1038,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
         pendingAction = DetectAndApplyDbFileAction(selectedPath);
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('백업 파일 선택 실패: $e'),
-              backgroundColor: srSnackError,
-            ),
-          );
+          showSrSnack(context, '백업 파일 선택 실패: $e', kind: SrSnackKind.error);
         }
         return;
       }
     }
     // 'fresh' 는 pendingAction = null
 
-    await PendingDbImportAction.save(pendingAction);
-
+    // 대기 작업 저장과 모드 초기화는 함께 하거나 둘 다 하지 않는다(SQ-B06). 다운로드·파일 선택 중 화면이
+    // 사라졌으면 여기서 멈춘다 — 대기 작업만 남으면 나중에 엉뚱한 Standalone 로그인에서 적용된다.
+    // 받은 파일은 지우지 않는다(사용자 자료).
     if (!mounted) return;
-    await context.read<ReportProvider>().resetConfig();
+    await PendingDbImportAction.save(pendingAction);
+    await p.resetConfig();
     if (mounted) {
       Navigator.of(context).popUntil((route) => route.isFirst);
     }
@@ -1042,9 +1070,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _openSupportLink(Uri url) async {
     final ok = await launchUrl(url, mode: LaunchMode.externalApplication);
     if (!ok && mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('브라우저를 열 수 없습니다.')));
+      showSrSnack(context, '브라우저를 열 수 없습니다.', kind: SrSnackKind.error);
     }
   }
 
@@ -1052,9 +1078,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final url = Uri.parse(_officialSafetyReportUrl);
     final ok = await launchUrl(url, mode: LaunchMode.externalApplication);
     if (!ok && mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('브라우저를 열 수 없습니다.')));
+      showSrSnack(context, '브라우저를 열 수 없습니다.', kind: SrSnackKind.error);
     }
   }
 
@@ -1089,11 +1113,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('앱 설정')),
+      // 마지막 항목이 3버튼 내비·가로 컷아웃 아래로 들어가지 않게(SQ-U26).
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        padding: srPagePadding(context, const EdgeInsets.all(20)),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // 순서(SQ-U17): 연결·계정(맨 위 도움·문의 포함) → 데이터 관리 → 표시 → 목록·통계 기준 → 권한 → 정보(앱 정보·홈페이지).
+            const _SettingsSectionHeader(
+              key: ValueKey('settings-section-connection'),
+              title: '연결·계정',
+            ),
             // ── 연결 방식 카드 ─────────────────────────────
             Card(
               child: Padding(
@@ -1153,9 +1183,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             const SizedBox(height: 16),
-
             // ── 도움·문의 카드 ─────────────────────────────
-            // 버그 제보 위치를 사용자가 자주 찾지 못해(2026-09-24 제보) 앱 정보 맨 아래에서 설정 맨 위로 옮겼다.
+            // 버그 제보 위치를 사용자가 자주 찾지 못해(2026-09-24 제보) 설정 맨 위(연결 방식 카드 바로 아래)에 둔다.
+            // 버그 제보는 이 카드 한 곳에만 있다(SQ-U17: 앱 정보 카드의 중복 버튼 제거).
             _SupportCard(
               onBugReport: () => _openSupportLink(
                 SupportLinks.bugReport(
@@ -1178,120 +1208,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 try {
                   await ReviewPromptService.openStoreListing();
                 } catch (_) {
-                  messenger.showSnackBar(
-                    const SnackBar(content: Text('Play 스토어를 열 수 없습니다.')),
+                  showSrSnackOn(
+                    messenger,
+                    'Play 스토어를 열 수 없습니다.',
+                    kind: SrSnackKind.error,
                   );
                 }
               },
             ),
-            const SizedBox(height: 16),
-
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.dark_mode_outlined, color: cs.primary),
-                        const SizedBox(width: 8),
-                        Text(
-                          '화면 테마',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: cs.primary,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '설정 화면을 포함한 앱 전체 테마를 직접 선택합니다.',
-                      style: TextStyle(color: mutedColor, fontSize: 12),
-                    ),
-                    const SizedBox(height: 12),
-                    RadioGroup<AppThemeMode>(
-                      groupValue: provider.themeMode,
-                      onChanged: (value) {
-                        if (value != null) {
-                          context.read<ReportProvider>().setThemeMode(value);
-                        }
-                      },
-                      child: Column(
-                        children: [
-                          RadioListTile<AppThemeMode>(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text(
-                              '시스템 설정 사용',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            subtitle: Text(
-                              '기기 설정을 그대로 따라갑니다.',
-                              style: TextStyle(fontSize: 12, color: mutedColor),
-                            ),
-                            value: AppThemeMode.system,
-                          ),
-                          RadioListTile<AppThemeMode>(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text(
-                              '라이트 모드',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            subtitle: Text(
-                              '항상 밝은 테마로 고정합니다.',
-                              style: TextStyle(fontSize: 12, color: mutedColor),
-                            ),
-                            value: AppThemeMode.light,
-                          ),
-                          RadioListTile<AppThemeMode>(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text(
-                              '다크 모드',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            subtitle: Text(
-                              '어두운 배경과 높은 대비로 가독성을 높입니다.',
-                              style: TextStyle(fontSize: 12, color: mutedColor),
-                            ),
-                            value: AppThemeMode.dark,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: cs.surfaceContainer,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: cs.outlineVariant),
-                      ),
-                      child: Text(
-                        '현재 선택: ${provider.themeMode.label}\n${_themeModeDescription(provider.themeMode)}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: mutedColor,
-                          height: 1.45,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
             // ── 스탠드어론: 계정 카드 ──────────────────────
             if (isStandalone) ...[
               const SizedBox(height: 16),
@@ -1308,12 +1232,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             color: cs.primary,
                           ),
                           const SizedBox(width: 8),
-                          Text(
-                            '안전신문고 계정',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: cs.primary,
+                          Flexible(
+                            child: Text(
+                              '안전신문고 계정',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: cs.primary,
+                              ),
                             ),
                           ),
                         ],
@@ -1364,7 +1290,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ],
             ],
-
             // ── 서버 모드 전용 섹션 시작 ──────────────────────
             if (!isStandalone) ...[
               const SizedBox(height: 16),
@@ -1462,12 +1387,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         children: [
                           Icon(Icons.dns_rounded, color: cs.primary),
                           const SizedBox(width: 8),
-                          Text(
-                            '서버 연결',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: cs.primary,
+                          Flexible(
+                            child: Text(
+                              '서버 연결',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: cs.primary,
+                              ),
                             ),
                           ),
                         ],
@@ -1487,6 +1414,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           prefixIcon: const Icon(Icons.link),
                           suffixIcon: IconButton(
                             icon: const Icon(Icons.clear, size: 18),
+                            tooltip: '서버 URL 지우기',
                             onPressed: () => _urlController.clear(),
                           ),
                         ),
@@ -1511,6 +1439,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       : Icons.visibility,
                                   size: 20,
                                 ),
+                                tooltip: _obscureKey
+                                    ? 'API 키 보기'
+                                    : 'API 키 숨기기',
                                 onPressed: () =>
                                     setState(() => _obscureKey = !_obscureKey),
                               ),
@@ -1521,11 +1452,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   Clipboard.setData(
                                     ClipboardData(text: _apiController.text),
                                   );
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('API 키가 복사되었습니다.'),
-                                    ),
-                                  );
+                                  showSrSnack(context, 'API 키가 복사되었습니다.');
                                 },
                               ),
                             ],
@@ -1553,7 +1480,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     )
                                   : const Icon(Icons.wifi_find, size: 18),
                               label: Text(_testing ? '테스트 중...' : '연결 테스트'),
-                              onPressed: _testing ? null : _testConnection,
+                              onPressed: _testing || _saving
+                                  ? null
+                                  : _testConnection,
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -1561,7 +1490,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             child: FilledButton.icon(
                               icon: const Icon(Icons.save, size: 18),
                               label: const Text('저장'),
-                              onPressed: _save,
+                              onPressed: _testing || _saving ? null : _save,
                             ),
                           ),
                         ],
@@ -1593,10 +1522,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     );
                   },
                 ),
-                const SizedBox(height: 16),
               ],
-
-              // ── 크롤링 자동 저장 카드 ──────────────────────
+            ], // if (!isStandalone) 서버 연결
+            if (!isStandalone) ...[
+              const SizedBox(height: 16),
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(20),
@@ -1605,153 +1534,90 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.save_outlined, color: cs.primary),
+                          Icon(
+                            Icons.wifi_tethering,
+                            color: _wsRunning
+                                ? _fg(context, serverAcceptColor)
+                                : mutedColor,
+                          ),
                           const SizedBox(width: 8),
-                          Text(
-                            '크롤링 자동 저장',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: cs.primary,
+                          Expanded(
+                            child: Text(
+                              '백그라운드 서버 연결',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: cs.primary,
+                              ),
                             ),
                           ),
-                          if (_filterLoading) ...[
-                            const SizedBox(width: 8),
-                            const SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                          ],
+                          StatusBadge(
+                            label: _wsRunning ? '● 실행 중' : '○ 중지됨',
+                            color: _wsRunning
+                                ? serverAcceptColor
+                                : serverRejectColor,
+                            fontSize: 12,
+                          ),
                         ],
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 6),
                       Text(
-                        '크롤링 완료 후 자동으로 내보내기를 실행합니다.',
-                        style: TextStyle(color: mutedColor, fontSize: 12),
+                        '앱 종료 후에도 크롤링 시작·완료 이벤트를 실시간으로 알림으로 받습니다.\n상단 상태바에 지속 알림이 표시됩니다.',
+                        style: TextStyle(
+                          color: mutedColor,
+                          fontSize: 12,
+                          height: 1.5,
+                        ),
                       ),
-                      const SizedBox(height: 12),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text(
-                          '엑셀 자동 저장',
-                          style: TextStyle(fontSize: 14),
-                        ),
-                        subtitle: const Text(
-                          '크롤링 완료 후 서버에 Excel 파일을 자동 생성합니다.',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                        value: _autoExportExcel,
-                        onChanged: _filterLoading
-                            ? null
-                            : (v) {
-                                setState(() => _autoExportExcel = v);
-                                _toggleFilter('auto_export_excel', v);
-                              },
-                      ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text(
-                          '구글 스프레드시트 자동 업로드',
-                          style: TextStyle(fontSize: 14),
-                        ),
-                        subtitle: const Text(
-                          '크롤링 완료 후 구글 시트에 자동 업로드합니다.',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                        value: _autoExportSheet,
-                        onChanged: _filterLoading
-                            ? null
-                            : (v) {
-                                setState(() => _autoExportSheet = v);
-                                _toggleFilter('auto_export_sheet', v);
-                              },
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        width: double.infinity,
+                        child: _wsToggling
+                            ? const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(8),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                ),
+                              )
+                            : OutlinedButton.icon(
+                                icon: Icon(
+                                  _wsRunning
+                                      ? Icons.stop_circle_outlined
+                                      : Icons.play_circle_outline,
+                                  size: 18,
+                                ),
+                                label: Text(_wsRunning ? '서비스 중지' : '서비스 시작'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: _fg(
+                                    context,
+                                    _wsRunning
+                                        ? serverRejectColor
+                                        : serverAcceptColor,
+                                  ),
+                                  side: BorderSide(
+                                    color: _fg(
+                                      context,
+                                      _wsRunning
+                                          ? serverRejectColor
+                                          : serverAcceptColor,
+                                    ),
+                                  ),
+                                ),
+                                onPressed: _toggleWsService,
+                              ),
                       ),
                     ],
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
-            ], // if (!isStandalone)
-            // ── 기타 데이터 필터 세팅 카드 (양쪽 모드 공통) ──────
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.filter_list, color: cs.primary),
-                        const SizedBox(width: 8),
-                        Text(
-                          '기타 데이터 필터 세팅',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: cs.primary,
-                          ),
-                        ),
-                        if (_filterLoading) ...[
-                          const SizedBox(width: 8),
-                          const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      isStandalone
-                          ? '변경 시 데이터가 즉시 갱신됩니다.'
-                          : '웹앱 설정과 동기화됩니다. 변경 시 데이터가 즉시 갱신됩니다.',
-                      style: TextStyle(color: mutedColor, fontSize: 12),
-                    ),
-                    const SizedBox(height: 12),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text(
-                        '취하 데이터 숨기기',
-                        style: TextStyle(fontSize: 14),
-                      ),
-                      subtitle: const Text(
-                        '처리상태가 취하인 신고를 목록에서 제외합니다.',
-                        style: TextStyle(fontSize: 12),
-                      ),
-                      value: _excludeWithdraw,
-                      onChanged: _filterLoading
-                          ? null
-                          : (v) {
-                              setState(() => _excludeWithdraw = v);
-                              _toggleFilter('exclude_withdraw', v);
-                            },
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text(
-                        '중복 신고 대표건만 반영',
-                        style: TextStyle(fontSize: 14),
-                      ),
-                      subtitle: const Text(
-                        '전체 신고 조회, 차량/주소 검색, 대시보드, 통계 등의 기본 집계 기준을 대표건 1건으로 맞춥니다.\n비활성화할 경우 원본 신고 row를 모두 반영합니다. 검토 필요 그룹은 항상 child 전체를 보여줍니다.',
-                        style: TextStyle(fontSize: 12),
-                      ),
-                      value: _useRepresentativeRecords,
-                      onChanged: _filterLoading
-                          ? null
-                          : (v) {
-                              setState(() => _useRepresentativeRecords = v);
-                              _toggleFilter('use_representative_records', v);
-                            },
-                    ),
-                  ],
-                ),
-              ),
+            ], // if (!isStandalone) WS service
+            const SizedBox(height: 24),
+            const _SettingsSectionHeader(
+              key: ValueKey('settings-section-data'),
+              title: '데이터 관리',
             ),
-            const SizedBox(height: 16),
-
             // ── 데이터베이스 관리 ──────────────────────────────
             Card(
               child: Padding(
@@ -1761,14 +1627,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.storage, color: cs.secondary),
+                        Icon(Icons.storage, color: cs.primary),
                         const SizedBox(width: 8),
-                        Text(
-                          '데이터 관리',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: cs.secondary,
+                        Flexible(
+                          child: Text(
+                            '데이터 관리',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: cs.primary,
+                            ),
                           ),
                         ),
                       ],
@@ -1870,8 +1738,282 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
             ),
-            const SizedBox(height: 16),
-
+            if (!isStandalone) ...[
+              const SizedBox(height: 16),
+              // ── 크롤링 자동 저장 카드 ──────────────────────
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.save_outlined, color: cs.primary),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              '크롤링 자동 저장',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: cs.primary,
+                              ),
+                            ),
+                          ),
+                          if (_filterLoading) ...[
+                            const SizedBox(width: 8),
+                            const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '크롤링 완료 후 자동으로 내보내기를 실행합니다.',
+                        style: TextStyle(color: mutedColor, fontSize: 12),
+                      ),
+                      const SizedBox(height: 12),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text(
+                          '엑셀 자동 저장',
+                          style: TextStyle(fontSize: 14),
+                        ),
+                        subtitle: const Text(
+                          '크롤링 완료 후 서버에 Excel 파일을 자동 생성합니다.',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        value: _autoExportExcel,
+                        onChanged: _filterLoading
+                            ? null
+                            : (v) {
+                                setState(() => _autoExportExcel = v);
+                                _toggleFilter('auto_export_excel', v);
+                              },
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text(
+                          '구글 스프레드시트 자동 업로드',
+                          style: TextStyle(fontSize: 14),
+                        ),
+                        subtitle: const Text(
+                          '크롤링 완료 후 구글 시트에 자동 업로드합니다.',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        value: _autoExportSheet,
+                        onChanged: _filterLoading
+                            ? null
+                            : (v) {
+                                setState(() => _autoExportSheet = v);
+                                _toggleFilter('auto_export_sheet', v);
+                              },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 24),
+            const _SettingsSectionHeader(
+              key: ValueKey('settings-section-display'),
+              title: '표시',
+            ),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.dark_mode_outlined, color: cs.primary),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            '화면 테마',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: cs.primary,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    // 라디오 3줄 + 설명 상자 대신 3칸 세그먼트 한 줄(SQ-U17).
+                    SegmentedButton<AppThemeMode>(
+                      key: const ValueKey('settings-theme-mode'),
+                      showSelectedIcon: false,
+                      segments: const [
+                        ButtonSegment(
+                          value: AppThemeMode.system,
+                          label: Text('시스템'),
+                          tooltip: '시스템 설정 사용',
+                        ),
+                        ButtonSegment(
+                          value: AppThemeMode.light,
+                          label: Text('라이트'),
+                          tooltip: '라이트 모드',
+                        ),
+                        ButtonSegment(
+                          value: AppThemeMode.dark,
+                          label: Text('다크'),
+                          tooltip: '다크 모드',
+                        ),
+                      ],
+                      selected: {provider.themeMode},
+                      onSelectionChanged: (value) => context
+                          .read<ReportProvider>()
+                          .setThemeMode(value.first),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _themeModeDescription(provider.themeMode),
+                      style: TextStyle(color: mutedColor, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            const _SettingsSectionHeader(
+              key: ValueKey('settings-section-list-basis'),
+              title: '목록·통계 기준',
+            ),
+            // ── 목록·통계 기준 카드 (양쪽 모드 공통, 옛 이름 "기타 데이터 필터 세팅") ──────
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.filter_list, color: cs.primary),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            '목록·통계 기준',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: cs.primary,
+                            ),
+                          ),
+                        ),
+                        if (_filterLoading) ...[
+                          const SizedBox(width: 8),
+                          const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      isStandalone
+                          ? '신고 목록·대시보드·통계에 함께 적용됩니다. 변경 시 데이터가 즉시 갱신됩니다.'
+                          : '신고 목록·대시보드·통계에 함께 적용되며 웹앱 설정과 동기화됩니다. 변경 시 데이터가 즉시 갱신됩니다.',
+                      style: TextStyle(color: mutedColor, fontSize: 12),
+                    ),
+                    const SizedBox(height: 12),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        '취하 데이터 숨기기',
+                        style: TextStyle(fontSize: 14),
+                      ),
+                      subtitle: const Text(
+                        '처리상태가 취하인 신고를 목록에서 제외합니다.',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      value: _excludeWithdraw,
+                      onChanged: _filterLoading
+                          ? null
+                          : (v) {
+                              setState(() => _excludeWithdraw = v);
+                              _toggleFilter('exclude_withdraw', v);
+                            },
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        '중복 신고 대표건만 반영',
+                        style: TextStyle(fontSize: 14),
+                      ),
+                      subtitle: const Text(
+                        '전체 신고 조회, 차량/주소 검색, 대시보드, 통계 등의 기본 집계 기준을 대표건 1건으로 맞춥니다.\n비활성화할 경우 원본 신고 row를 모두 반영합니다. 검토 필요 그룹은 항상 child 전체를 보여줍니다.',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      value: _useRepresentativeRecords,
+                      onChanged: _filterLoading
+                          ? null
+                          : (v) {
+                              setState(() => _useRepresentativeRecords = v);
+                              _toggleFilter('use_representative_records', v);
+                            },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            const _SettingsSectionHeader(
+              key: ValueKey('settings-section-permissions'),
+              title: '권한',
+            ),
+            Card(
+              child: InkWell(
+                borderRadius: BorderRadius.circular(SrRadius.lg),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const PermissionScreen()),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Row(
+                    children: [
+                      Icon(Icons.security, color: cs.primary),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '권한 설정',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: cs.primary,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '알림 접근, 배터리 최적화 제외, 백그라운드 서비스 등 권한을 관리합니다.',
+                              style: TextStyle(color: mutedColor, fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.chevron_right, color: mutedColor),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            const _SettingsSectionHeader(
+              key: ValueKey('settings-section-about'),
+              title: '정보',
+            ),
             // ── 앱 정보 카드 ──────────────────────────────
             Card(
               child: Padding(
@@ -1881,14 +2023,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.info_outline, color: cs.secondary),
+                        Icon(Icons.info_outline, color: cs.primary),
                         const SizedBox(width: 8),
-                        Text(
-                          '앱 정보',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: cs.secondary,
+                        Flexible(
+                          child: Text(
+                            '앱 정보',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: cs.primary,
+                            ),
                           ),
                         ),
                       ],
@@ -1924,7 +2068,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
                         color: cs.secondaryContainer.withValues(alpha: 0.35),
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(SrRadius.lg),
                         border: Border.all(
                           color: cs.secondary.withValues(alpha: 0.22),
                         ),
@@ -1962,157 +2106,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    // 맨 위 도움·문의 카드와 같은 동작. 앱 정보에서 찾는 사용자를 위해 남긴다.
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        icon: const Icon(Icons.bug_report_outlined, size: 18),
-                        label: const Text('버그 제보하기'),
-                        onPressed: () => _openSupportLink(
-                          SupportLinks.bugReport(
-                            appVersion: _appVersion,
-                            modeLabel: _modeLabel,
-                            osLabel: _osLabel,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
                     Text(
                       '※ 인터넷 권한(INTERNET)은 Android 일반 권한으로 설치 시 별도 요청 없이 자동 부여됩니다.',
-                      style: TextStyle(fontSize: 11, color: mutedColor),
+                      style: TextStyle(
+                        fontSize: SrFontSize.caption,
+                        color: mutedColor,
+                      ),
                     ),
                   ],
-                ),
-              ),
-            ),
-            if (!isStandalone) ...[
-              const SizedBox(height: 16),
-
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.wifi_tethering,
-                            color: _wsRunning
-                                ? _fg(context, serverAcceptColor)
-                                : mutedColor,
-                          ),
-                          const SizedBox(width: 8),
-                          const Expanded(
-                            child: Text(
-                              '백그라운드 서버 연결',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          StatusBadge(
-                            label: _wsRunning ? '● 실행 중' : '○ 중지됨',
-                            color: _wsRunning
-                                ? serverAcceptColor
-                                : serverRejectColor,
-                            fontSize: 12,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        '앱 종료 후에도 크롤링 시작·완료 이벤트를 실시간으로 알림으로 받습니다.\n상단 상태바에 지속 알림이 표시됩니다.',
-                        style: TextStyle(
-                          color: mutedColor,
-                          fontSize: 12,
-                          height: 1.5,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      SizedBox(
-                        width: double.infinity,
-                        child: _wsToggling
-                            ? const Center(
-                                child: Padding(
-                                  padding: EdgeInsets.all(8),
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                ),
-                              )
-                            : OutlinedButton.icon(
-                                icon: Icon(
-                                  _wsRunning
-                                      ? Icons.stop_circle_outlined
-                                      : Icons.play_circle_outline,
-                                  size: 18,
-                                ),
-                                label: Text(_wsRunning ? '서비스 중지' : '서비스 시작'),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: _fg(
-                                    context,
-                                    _wsRunning
-                                        ? serverRejectColor
-                                        : serverAcceptColor,
-                                  ),
-                                  side: BorderSide(
-                                    color: _fg(
-                                      context,
-                                      _wsRunning
-                                          ? serverRejectColor
-                                          : serverAcceptColor,
-                                    ),
-                                  ),
-                                ),
-                                onPressed: _toggleWsService,
-                              ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ], // if (!isStandalone) WS service
-            const SizedBox(height: 16),
-
-            Card(
-              child: InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const PermissionScreen()),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Row(
-                    children: [
-                      Icon(Icons.security, color: cs.tertiary),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '권한 설정',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: cs.tertiary,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '알림 접근, 배터리 최적화 제외, 백그라운드 서비스 등 권한을 관리합니다.',
-                              style: TextStyle(color: mutedColor, fontSize: 13),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Icon(Icons.chevron_right, color: mutedColor),
-                    ],
-                  ),
                 ),
               ),
             ),
@@ -2138,33 +2139,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildTestResult(_TestResult result) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    Color bg, fg;
-    IconData icon;
-    switch (result.type) {
-      case _ResultType.success:
-        fg = isDark ? const Color(0xFF4ADE80) : const Color(0xFF166534);
-        bg = fg.withValues(alpha: isDark ? 0.18 : 0.10);
-        icon = Icons.check_circle;
-        break;
-      case _ResultType.warn:
-        fg = isDark ? const Color(0xFFFBBF24) : const Color(0xFFB45309);
-        bg = fg.withValues(alpha: isDark ? 0.18 : 0.10);
-        icon = Icons.warning;
-        break;
-      case _ResultType.error:
-        fg = isDark ? const Color(0xFFF87171) : const Color(0xFFB91C1C);
-        bg = fg.withValues(alpha: isDark ? 0.18 : 0.10);
-        icon = Icons.error;
-        break;
-    }
+    final (tone, icon) = switch (result.type) {
+      _ResultType.success => (context.tone(SrTone.success), Icons.check_circle),
+      _ResultType.warn => (context.tone(SrTone.warning), Icons.warning),
+      _ResultType.error => (context.tone(SrTone.danger), Icons.error),
+    };
+    final fg = tone.foreground;
 
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: fg.withValues(alpha: 0.3)),
+        color: tone.background,
+        borderRadius: BorderRadius.circular(SrRadius.md),
+        border: Border.all(color: tone.border),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2214,14 +2201,38 @@ class _InfoRow extends StatelessWidget {
               ),
             ),
           ),
-          Text(
-            value,
-            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+            ),
           ),
         ],
       ),
     );
   }
+}
+
+/// 설정 묶음 머리(SQ-U17). 모든 묶음이 같은 모양·색을 쓴다.
+class _SettingsSectionHeader extends StatelessWidget {
+  const _SettingsSectionHeader({super.key, required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(left: 4, bottom: 8),
+    child: Semantics(
+      header: true,
+      child: Text(
+        title,
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+          fontWeight: FontWeight.w700,
+          color: context.sr.textSecondary,
+        ),
+      ),
+    ),
+  );
 }
 
 /// Server → Standalone 전환 시 3-way 선택 다이얼로그용 타일.
@@ -2242,12 +2253,12 @@ class _ChoiceTile extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(SrRadius.lg),
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           border: Border.all(color: cs.primary.withValues(alpha: 0.4)),
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(SrRadius.lg),
           color: cs.primary.withValues(alpha: 0.04),
         ),
         child: Row(
@@ -2266,7 +2277,7 @@ class _ChoiceTile extends StatelessWidget {
                   Text(
                     subtitle,
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: SrFontSize.caption,
                       color: cs.onSurfaceVariant,
                       height: 1.3,
                     ),
@@ -2281,7 +2292,7 @@ class _ChoiceTile extends StatelessWidget {
   }
 }
 
-/// 설정 맨 위 도움·문의 카드. 버그 제보를 가장 눈에 띄게 둔다.
+/// 설정 맨 위 도움·문의 카드. 버그 제보는 설정에서 이 카드 한 곳에만 있다(2026-09-24 결정, SQ-U17).
 class _SupportCard extends StatelessWidget {
   final VoidCallback onBugReport;
   final VoidCallback onFeatureRequest;
@@ -2308,12 +2319,14 @@ class _SupportCard extends StatelessWidget {
               children: [
                 Icon(Icons.support_agent, color: cs.primary),
                 const SizedBox(width: 8),
-                Text(
-                  '도움·문의',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: cs.primary,
+                Flexible(
+                  child: Text(
+                    '도움·문의',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: cs.primary,
+                    ),
                   ),
                 ),
               ],

@@ -175,7 +175,7 @@ void main() {
     await tester.pump();
     expect(find.byType(SelectionActionBar), findsNothing);
     expect(find.text('1개 선택됨'), findsNothing);
-    expect(find.text('신고 내역'), findsOneWidget);
+    expect(find.text('신고내역'), findsOneWidget);
     expect(exitedApp(), isFalse);
   });
 }

@@ -222,5 +222,7 @@ Map<String, dynamic> reportToMap(Report report) {
     'valid_count': report.validCount,
     'category': report.category,
     'synced_at': report.syncedAt,
+    // 목록용 신고(본문 없음)는 표시를 남겨, 보관된 결과에서 상세를 열 때 한 건을 다시 읽게 한다(SQ-P06).
+    if (!report.detailLoaded) Report.detailOmittedKey: true,
   };
 }

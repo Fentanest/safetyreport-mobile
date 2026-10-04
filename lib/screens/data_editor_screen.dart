@@ -10,7 +10,15 @@ import '../services/repositories/editor_repository.dart';
 import '../theme/sr_colors.dart';
 import '../widgets/search_filter_sheet.dart';
 import '../widgets/local_paged_report_list.dart';
+import '../widgets/sr_app_bar_actions.dart';
 import '../widgets/status_badge.dart';
+import '../theme/sr_tokens.dart';
+import '../widgets/sr_snack_bar.dart';
+
+/// 데이터 수정 탭의 상세 검색(신고내역과 같은 공용 조건). 신고관리 앱바의 검색/필터 아이콘이 부른다(SQ-U16).
+void openDataEditorFilterSheet(BuildContext context) {
+  showSearchFilterSheet(context, provider: context.read<ReportProvider>());
+}
 
 class DataEditorPanel extends StatefulWidget {
   const DataEditorPanel({super.key});
@@ -22,17 +30,6 @@ class DataEditorPanel extends StatefulWidget {
 class _DataEditorPanelState extends State<DataEditorPanel> {
   static const _categories = <String>['traffic', 'parking', 'other'];
   String _selectedCategory = _categories.first;
-  void _openSearchPopup() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) =>
-          SearchFilterSheet(provider: context.read<ReportProvider>()),
-    );
-  }
 
   String _categoryLabel(String category) {
     switch (category) {
@@ -60,14 +57,14 @@ class _DataEditorPanelState extends State<DataEditorPanel> {
     if (saved != true || !mounted || epoch != provider.datasetEpoch) return;
     await provider.refreshAll();
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('수정 내용이 저장되었습니다.')));
+    showSrSnack(context, '수정 내용이 저장되었습니다.');
   }
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<ReportProvider>();
+    // 검색 조건만 구독한다(SQ-P07). 목록은 LocalPagedReportList 가 자료 변경을 따로 본다.
+    context.select<ReportProvider, ReportFilter>((p) => p.filter);
+    final provider = context.read<ReportProvider>();
     return Column(
       children: [
         Padding(
@@ -87,7 +84,7 @@ class _DataEditorPanelState extends State<DataEditorPanel> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '신고번호 역순으로 정렬되며, 신고내역과 같은 상세검색을 그대로 사용할 수 있습니다.',
+                      '신고번호 역순으로 정렬되며, 상단 검색/필터로 신고내역과 같은 상세검색을 쓸 수 있습니다.',
                       style: TextStyle(
                         fontSize: 12,
                         color: context.sr.textSecondary,
@@ -96,30 +93,17 @@ class _DataEditorPanelState extends State<DataEditorPanel> {
                   ],
                 ),
               ),
-              IconButton(
-                onPressed: _openSearchPopup,
-                tooltip: '상세검색',
-                icon: Badge(
-                  isLabelVisible: provider.hasFilter,
-                  child: const Icon(Icons.filter_list),
-                ),
-              ),
             ],
           ),
         ),
-        if (provider.hasFilter)
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (final label in provider.filter.activeLabels)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: Chip(label: Text(label)),
-                  ),
-              ],
-            ),
-          ),
+        ActiveFilterChipBar(
+          conditions: provider.filter.activeConditions,
+          onRemove: (field) {
+            final p = context.read<ReportProvider>();
+            p.setFilter(p.filter.without(field));
+          },
+          onClear: () => context.read<ReportProvider>().clearFilter(),
+        ),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Row(
@@ -175,7 +159,7 @@ class _EditableReportCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 10),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Column(
@@ -262,9 +246,9 @@ class _InfoPill extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(SrRadius.pill),
       ),
-      child: Text(label, style: const TextStyle(fontSize: 11)),
+      child: Text(label, style: const TextStyle(fontSize: SrFontSize.caption)),
     );
   }
 }
@@ -417,9 +401,7 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
       Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('저장 실패: $e')));
+      showSrSnack(context, '저장 실패: $e', kind: SrSnackKind.error);
       setState(() => _saving = false);
     }
   }
@@ -431,7 +413,7 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         border: Border.all(color: context.sr.border),
       ),
       child: Column(
@@ -486,6 +468,7 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
         suffixIcon: isDate
             ? IconButton(
                 icon: const Icon(Icons.calendar_today_outlined, size: 18),
+                tooltip: '날짜 선택',
                 onPressed: () => _pickDate(field),
               )
             : _revertButton(field),
@@ -507,12 +490,12 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.tertiaryContainer,
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(SrRadius.md),
           ),
           child: Text(
             '수정됨',
             style: TextStyle(
-              fontSize: 11,
+              fontSize: SrFontSize.caption,
               fontWeight: FontWeight.w700,
               color: Theme.of(context).colorScheme.onTertiaryContainer,
             ),

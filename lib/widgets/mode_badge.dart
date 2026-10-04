@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/app_mode.dart';
 import '../theme/sr_colors.dart';
+import '../theme/sr_tokens.dart';
 
 /// 실행 모드 표시(D-03). primary 가 두 모드 공통이 되면서 모드 구분을 이 배지가 맡는다.
 class ModeBadge extends StatelessWidget {
@@ -31,7 +32,7 @@ class ModeBadge extends StatelessWidget {
         decoration: BoxDecoration(
           color: tone.background,
           border: Border.all(color: tone.border),
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(SrRadius.pill),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -42,12 +43,15 @@ class ModeBadge extends StatelessWidget {
               color: tone.foreground,
             ),
             const SizedBox(width: 4),
-            Text(
-              label,
-              style: TextStyle(
-                color: tone.foreground,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
+            Flexible(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: tone.foreground,
+                  fontSize: SrFontSize.caption,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
           ],

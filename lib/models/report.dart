@@ -61,6 +61,13 @@ class Report {
   final String supplementRequest; // 마지막 round 요청 내용
   final String supplementOpinion; // 마지막 round 의 신고자 보완 의견
 
+  /// false 면 목록용 열만 읽은 신고다(SQ-P06): 신고내용·처리내용·첨부·지도·보완 내용이 비어 있다.
+  /// 상세 시트는 열 때 한 건을 다시 읽는다. 이런 신고를 DB 에 다시 쓰지 않는다.
+  final bool detailLoaded;
+
+  /// [reportToMap] 등 JSON 보관 때 [detailLoaded] false 를 남기는 키(보관된 별점 결과에서 상세를 열 때 다시 읽게).
+  static const detailOmittedKey = '_detail_omitted';
+
   Report({
     required this.id,
     required this.reportNumber,
@@ -101,6 +108,7 @@ class Report {
     this.supplementCompletedAt = '',
     this.supplementRequest = '',
     this.supplementOpinion = '',
+    this.detailLoaded = true,
   });
 
   /// 필드를 하나도 빠뜨리지 않고 복사한다(손으로 복사하다 새 필드를 놓쳐 저장 때 지워지던 문제 — 저장 계층 재설계 M-22).
@@ -145,6 +153,7 @@ class Report {
     String? supplementCompletedAt,
     String? supplementRequest,
     String? supplementOpinion,
+    bool? detailLoaded,
     bool clearRating = false,
     bool clearAgencyCode = false,
   }) {
@@ -190,6 +199,7 @@ class Report {
           supplementCompletedAt ?? this.supplementCompletedAt,
       supplementRequest: supplementRequest ?? this.supplementRequest,
       supplementOpinion: supplementOpinion ?? this.supplementOpinion,
+      detailLoaded: detailLoaded ?? this.detailLoaded,
     );
   }
 
@@ -249,6 +259,7 @@ class Report {
       supplementCompletedAt: json['보완_완료일시']?.toString() ?? '',
       supplementRequest: json['보완_요청_내용']?.toString() ?? '',
       supplementOpinion: json['보완_신고자_의견']?.toString() ?? '',
+      detailLoaded: json[detailOmittedKey] != true,
     );
   }
 }

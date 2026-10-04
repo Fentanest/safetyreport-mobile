@@ -44,7 +44,6 @@ dependencies:
   font_awesome_flutter: ^10.7.0
   permission_handler: ^11.3.1
   video_player: ^2.9.2
-  cached_network_image: ^3.4.1
   path_provider: ^2.1.0
   open_filex: ^4.3.4
   # 시스템 공유 sheet (xlsx 등 직접 핸들러 없을 때 '다른 앱으로 열기' fallback)

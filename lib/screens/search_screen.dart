@@ -9,14 +9,9 @@ class SearchScreen extends StatelessWidget {
   const SearchScreen({super.key});
 
   void _openSearchPopup(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) =>
-          SearchFilterSheet(provider: context.read<ReportProvider>()),
+    showSearchFilterSheet(
+      context,
+      provider: context.read<ReportProvider>(),
     );
   }
 

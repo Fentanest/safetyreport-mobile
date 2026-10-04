@@ -9,7 +9,14 @@ import 'report_detail_sheet.dart';
 import 'report_list_card.dart';
 import 'selection_action_bar.dart';
 import 'selection_back_scope.dart';
+import 'sr_empty_state.dart';
+import 'sr_page_padding.dart';
 import 'status_badge.dart';
+import '../utils/format.dart';
+
+/// 페이지 목록이 받은 전체 모집단 건수. [exact] 가 false 면 Client 의 필터처럼
+/// 현재 페이지 안에서만 걸러, 조건에 맞는 전체 건수를 알 수 없다는 뜻이다.
+typedef PagedReportTotal = ({int total, bool exact});
 
 /// Keeps one page of Report objects. The count belongs to the full SQL population.
 /// An optional legacy predicate streams candidates; its label never claims that
@@ -21,6 +28,9 @@ class LocalPagedReportList extends StatefulWidget {
   final bool Function(Report)? predicate;
   final Future<void> Function(Report)? onRemove;
   final Widget Function(BuildContext, Report)? itemBuilder;
+
+  /// 조회가 끝날 때마다 전체 건수를 알린다(오류면 null). 앱바 건수 배지가 쓴다(SQ-U01).
+  final ValueChanged<PagedReportTotal?>? onTotalChanged;
   const LocalPagedReportList({
     super.key,
     this.category = 'all',
@@ -32,6 +42,7 @@ class LocalPagedReportList extends StatefulWidget {
     this.predicate,
     this.onRemove,
     this.itemBuilder,
+    this.onTotalChanged,
   });
   @override
   State<LocalPagedReportList> createState() => _LocalPagedReportListState();
@@ -40,6 +51,9 @@ class LocalPagedReportList extends StatefulWidget {
 class _LocalPagedReportListState extends State<LocalPagedReportList> {
   int _page = 0, _total = 0, _seq = 0;
   String? _datasetSettings;
+
+  /// 숨은 탭(TickerMode 꺼짐)에서 자료가 바뀌면 표시만 해 두고, 다시 보일 때 한 번 읽는다(SQ-P02).
+  bool _stale = false;
   List<Report> _reports = [];
   bool _loading = true;
   String? _error;
@@ -51,18 +65,28 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final p = context.watch<ReportProvider>();
-    final next =
-        '${p.datasetEpoch}:${p.statsRefreshNonce}:${p.excludeWithdraw}:${p.useRepresentativeRecords}';
+  /// build 에서 부른다(context.select 는 build 안에서만 쓸 수 있다).
+  /// 이 목록이 쓰는 값만 구독한다(SQ-P07). 자료 변경은 dataRevision 으로만 본다 — 통계 탭 진입 신호는 보지 않는다(SQ-P02).
+  /// 숨은 탭이면 표시만 해 두고, 다시 보일 때(TickerMode 켜짐) 한 번 읽는다.
+  void _watchDataset(BuildContext context) {
+    final visible = TickerMode.valuesOf(context).enabled;
+    final next = context.select<ReportProvider, String>(
+      (p) =>
+          '${p.datasetEpoch}:${p.dataRevision}:${p.excludeWithdraw}:${p.useRepresentativeRecords}',
+    );
     if (_datasetSettings != null && _datasetSettings != next) {
+      _seq++; // 이전 자료의 늦은 응답을 버린다.
       _reports = [];
       _page = 0;
-      _load();
+      _stale = true;
     }
     _datasetSettings = next;
+    if (_stale && visible) {
+      _stale = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _load();
+      });
+    }
   }
 
   @override
@@ -93,6 +117,8 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
       final ({List<Report> reports, int total}) result;
       if (p.appMode == AppMode.standalone) {
         result = await LocalDbService.getReportPage(
+          // 카드·선택 동작이 쓰는 열만 읽는다. 상세 시트는 열 때 한 건을 다시 읽는다(SQ-P06).
+          compact: true,
           category: widget.category,
           scope: widget.scope,
           metric: widget.metric,
@@ -174,6 +200,7 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
         _total = result.total;
         _loading = false;
       });
+      widget.onTotalChanged?.call((total: _total, exact: !_candidateCount));
     } catch (e) {
       if (!mounted || seq != _seq || epoch != p.datasetEpoch) return;
       setState(() {
@@ -181,7 +208,27 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
         _reports = [];
         _error = '$e';
       });
+      widget.onTotalChanged?.call(null);
     }
+  }
+
+  /// 빈 목록과 조회 오류를 구분한다. 오류는 오류 톤 + "다시 시도"(SQ-U21).
+  Widget _buildEmptyOrError() {
+    final error = _error;
+    if (error != null) {
+      return SrEmptyState.error(
+        title: '목록을 불러오지 못했습니다',
+        message: '아래로 당기거나 다시 시도를 누르세요.',
+        detail: error,
+        onRetry: _load,
+      );
+    }
+    final filtered = !widget.filter.isEmpty || widget.predicate != null;
+    return SrEmptyState(
+      icon: filtered ? Icons.search_off_rounded : Icons.inbox_outlined,
+      title: filtered ? '조건에 맞는 신고가 없습니다' : '해당하는 신고가 없습니다',
+      message: filtered ? '검색 조건을 바꾸거나 초기화해 보세요.' : null,
+    );
   }
 
   void _toggle(Report r) => setState(() {
@@ -190,7 +237,12 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
         : _selected.add(r.reportNumber);
   });
   @override
-  Widget build(BuildContext context) => SelectionBackScope(
+  Widget build(BuildContext context) {
+    _watchDataset(context);
+    return _buildList(context);
+  }
+
+  Widget _buildList(BuildContext context) => SelectionBackScope(
     selectionMode: _selected.isNotEmpty,
     onCancel: () => setState(_selected.clear),
     child: Column(
@@ -204,8 +256,8 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
             children: [
               Text(
                 !_candidateCount
-                    ? '전체 $_total건 · ${_page + 1} / ${((_total - 1) ~/ 200 + 1).clamp(1, 100000)} 페이지'
-                    : '전체 대상 $_total건 · ${_page + 1}페이지에서 조건에 맞는 ${_reports.length}건',
+                    ? '전체 ${formatCount(_total)} · ${_page + 1} / ${((_total - 1) ~/ 200 + 1).clamp(1, 100000)} 페이지'
+                    : '전체 대상 ${formatCount(_total)} · ${_page + 1}페이지에서 조건에 맞는 ${formatCount(_reports.length)}',
               ),
               IconButton(
                 tooltip: '이전 페이지',
@@ -241,64 +293,69 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
         Expanded(
           child: RefreshIndicator(
             onRefresh: _load,
-            child: ListView.builder(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(12),
-              itemCount: _reports.isEmpty ? 1 : _reports.length,
-              itemBuilder: (context, index) {
-                if (_reports.isEmpty) {
-                  return Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(
-                      _error ?? (_loading ? '불러오는 중…' : '해당하는 신고가 없습니다.'),
-                    ),
-                  );
-                }
-                final r = _reports[index];
-                if (widget.itemBuilder != null) {
-                  return widget.itemBuilder!(context, r);
-                }
-                return ReportListCard(
-                  report: r,
-                  selectionMode: _selected.isNotEmpty,
-                  isSelected: _selected.contains(r.reportNumber),
-                  onTap: () => _selected.isNotEmpty
-                      ? _toggle(r)
-                      : showReportDetailSheet(context, r),
-                  onLongPress: () => _toggle(r),
-                  headerSuffix: widget.onRemove != null
-                      ? IconButton(
-                          tooltip: '감시 목록에서 제거',
-                          icon: const Icon(Icons.bookmark_remove_outlined),
-                          onPressed: () async {
-                            await widget.onRemove!(r);
-                            if (mounted) _load();
-                          },
-                        )
-                      : r.totalCount > 0
-                      ? StatusBadge(
-                          label: '${r.validCount}/${r.totalCount}회',
-                          color: Theme.of(context).colorScheme.primary,
-                        )
-                      : null,
-                  metaItems: [
-                    ReportCardMetaItem(
-                      icon: Icons.calendar_today,
-                      text: r.date,
-                    ),
-                    ReportCardMetaItem(icon: Icons.business, text: r.agency),
-                    ReportCardMetaItem(
-                      icon: Icons.person_outline,
-                      text: r.manager,
-                    ),
-                    ReportCardMetaItem(
-                      icon: Icons.location_on_outlined,
-                      text: r.location,
-                    ),
-                  ],
-                );
-              },
-            ),
+            child: !_loading && _reports.isEmpty
+                ? _buildEmptyOrError()
+                : ListView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: srPagePadding(context, const EdgeInsets.all(12)),
+                    itemCount: _reports.isEmpty ? 1 : _reports.length,
+                    itemBuilder: (context, index) {
+                      if (_reports.isEmpty) {
+                        return const Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Text('불러오는 중…'),
+                        );
+                      }
+                      final r = _reports[index];
+                      if (widget.itemBuilder != null) {
+                        return widget.itemBuilder!(context, r);
+                      }
+                      return ReportListCard(
+                        report: r,
+                        selectionMode: _selected.isNotEmpty,
+                        isSelected: _selected.contains(r.reportNumber),
+                        onTap: () => _selected.isNotEmpty
+                            ? _toggle(r)
+                            : showReportDetailSheet(context, r),
+                        onLongPress: () => _toggle(r),
+                        headerSuffix: widget.onRemove != null
+                            ? IconButton(
+                                tooltip: '감시 목록에서 제거',
+                                icon: const Icon(
+                                  Icons.bookmark_remove_outlined,
+                                ),
+                                onPressed: () async {
+                                  await widget.onRemove!(r);
+                                  if (mounted) _load();
+                                },
+                              )
+                            : r.totalCount > 0
+                            ? StatusBadge(
+                                label: '${r.validCount}/${r.totalCount}회',
+                                color: Theme.of(context).colorScheme.primary,
+                              )
+                            : null,
+                        metaItems: [
+                          ReportCardMetaItem(
+                            icon: Icons.calendar_today,
+                            text: r.date,
+                          ),
+                          ReportCardMetaItem(
+                            icon: Icons.business,
+                            text: r.agency,
+                          ),
+                          ReportCardMetaItem(
+                            icon: Icons.person_outline,
+                            text: r.manager,
+                          ),
+                          ReportCardMetaItem(
+                            icon: Icons.location_on_outlined,
+                            text: r.location,
+                          ),
+                        ],
+                      );
+                    },
+                  ),
           ),
         ),
         if (_selected.isNotEmpty)

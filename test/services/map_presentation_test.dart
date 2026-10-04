@@ -49,4 +49,31 @@ void main() {
       );
     },
   );
+
+  test('SQ-U03 표시용 셀 묶음은 일반 문구 대신 대표 시·군·구를 지역 이름으로 갖는다(건수는 그대로)', () {
+    ReportMapPoint p(double lat, double lng, String address, int total) =>
+        ReportMapPoint(
+          lat: lat,
+          lng: lng,
+          address: address,
+          region: '',
+          total: total,
+          statusBreakdown: const [],
+          dispositionBreakdown: const [],
+          agencyBreakdown: const [],
+          categoryBreakdown: const [],
+        );
+    final cells = visibleMapCells([
+      p(37.5, 127.03, '서울특별시 강남구 테헤란로 1', 5),
+      p(37.56, 126.9, '서울특별시 마포구 월드컵로 2', 2),
+      p(33.5, 126.53, '제주특별자치도 제주시 문연로 6', 3),
+    ], null);
+    expect(cells, hasLength(2));
+    final group = cells.singleWhere((c) => c.isCluster);
+    expect(group.total, 7);
+    expect(group.region, '강남구 외');
+    final single = cells.singleWhere((c) => !c.isCluster);
+    expect(single.region, '');
+    expect(single.address, '제주특별자치도 제주시 문연로 6');
+  });
 }

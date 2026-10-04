@@ -15,6 +15,7 @@ import '../providers/notification_history_provider.dart';
 import '../providers/report_provider.dart';
 
 import '../theme/sr_colors.dart';
+import 'status_badge.dart';
 import '../server_palette.dart';
 import '../screens/report_list_screen.dart';
 import '../services/review_prompt_service.dart';
@@ -22,6 +23,9 @@ import '../services/standalone_auth_service.dart';
 import '../models/app_mode.dart';
 import '../services/client_media_access.dart';
 import '../services/client_compatibility.dart';
+import '../services/local_db_service.dart';
+import '../theme/sr_tokens.dart';
+import 'sr_snack_bar.dart';
 
 Future<Map<String, String>?> _clientMediaHeaders(
   BuildContext context,
@@ -53,6 +57,32 @@ Uri buildSafetyReportAppUri(String reportId) {
 }
 
 void showReportDetailSheet(BuildContext context, Report report) {
+  if (!report.detailLoaded) {
+    unawaited(_showLoadedReportDetailSheet(context, report));
+    return;
+  }
+  _showReportDetailSheetNow(context, report);
+}
+
+/// 목록용 열만 읽은 신고(SQ-P06)는 Standalone 로컬 DB 에서 한 건을 다시 읽어 상세를 연다.
+/// 다시 읽지 못하면(Client 로 바뀐 뒤 보관된 결과 등) 받은 내용 그대로 연다.
+Future<void> _showLoadedReportDetailSheet(
+  BuildContext context,
+  Report report,
+) async {
+  var full = report;
+  try {
+    final standalone =
+        context.read<ReportProvider>().appMode == AppMode.standalone;
+    if (standalone && report.id.isNotEmpty) {
+      full = await LocalDbService.getReport(report.id) ?? report;
+    }
+  } catch (_) {}
+  if (!context.mounted) return;
+  _showReportDetailSheetNow(context, full);
+}
+
+void _showReportDetailSheetNow(BuildContext context, Report report) {
   final reportNumber = report.reportNumber.trim();
   if (reportNumber.isNotEmpty) {
     try {
@@ -71,9 +101,8 @@ void showReportDetailSheet(BuildContext context, Report report) {
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-    ),
+    // 전체 높이까지 끌어올려도 상태 표시줄 아래에서 멈춘다(SQ-U07).
+    useSafeArea: true,
     builder: (_) => ReportDetailSheet(report: report),
   ).then((_) {
     // 최근에 받은 좋은 결과를 다 보고 닫은 직후가 스토어 별점 요청 시점(조건은 ReviewPromptService).
@@ -96,14 +125,15 @@ class ReportDetailSheet extends StatelessWidget {
   videoWithHeadersControllerFactory = (url, headers) =>
       VideoPlayerController.networkUrl(url, httpHeaders: headers);
 
+  /// 테스트마다 동영상 불러오기 순서(정적 대기열)를 비운다. 이전 테스트의 가짜 시간 영역에 묶인
+  /// 대기열 꼬리가 다음 테스트의 불러오기를 막지 않게 한다.
+  @visibleForTesting
+  static void resetVideoLoadQueue() => _VideoLoadQueue.reset();
+
   String _ratingLabel() {
     final rating = report.rating;
     if (rating == null || rating <= 0) return '';
     return '★ $rating점';
-  }
-
-  Color _statusColor(String s) {
-    return serverStatusColor(s);
   }
 
   /// 처리내용에서 전화번호 추출
@@ -128,9 +158,7 @@ class ReportDetailSheet extends StatelessWidget {
 
   Future<void> _openInSafetyApp(BuildContext context) async {
     if (report.id.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('신고 ID 정보가 없습니다.')));
+      showSrSnack(context, '신고 ID 정보가 없습니다.');
       return;
     }
     final uri = buildSafetyReportAppUri(report.id);
@@ -140,15 +168,11 @@ class ReportDetailSheet extends StatelessWidget {
         mode: LaunchMode.externalApplication,
       );
       if (!launched && context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('안전신문고 앱이 설치되어 있지 않습니다.')));
+        showSrSnack(context, '안전신문고 앱이 설치되어 있지 않습니다.');
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('안전신문고 앱이 설치되어 있지 않습니다.')));
+        showSrSnack(context, '안전신문고 앱이 설치되어 있지 않습니다.');
       }
     }
   }
@@ -157,9 +181,7 @@ class ReportDetailSheet extends StatelessWidget {
     final uri = Uri.parse(_officialSafetyReportUrl);
     final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!launched && context.mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('공식 사이트를 열 수 없습니다.')));
+      showSrSnack(context, '공식 사이트를 열 수 없습니다.', kind: SrSnackKind.error);
     }
   }
 
@@ -192,7 +214,7 @@ class ReportDetailSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = _statusColor(report.status);
+    final labelWidth = _labelColumnWidth(context);
     final expired = attachmentsExpired(report.date);
     final photos = expired ? <String>[] : _splitUrls(report.attachedPhotos);
     final files = expired ? <String>[] : _splitUrls(report.attachedFiles);
@@ -230,23 +252,12 @@ class ReportDetailSheet extends StatelessWidget {
       initialChildSize: 0.6,
       maxChildSize: 0.95,
       minChildSize: 0.3,
+      // 손잡이는 테마(showDragHandle)가 그린다(SQ-U07).
       builder: (_, sc) => Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
         child: ListView(
           controller: sc,
           children: [
-            // 핸들
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: context.sr.textSecondary.withValues(alpha: 0.35),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
             // 신고명 + 상태칩
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -262,48 +273,57 @@ class ReportDetailSheet extends StatelessWidget {
                 ),
                 if (report.status.isNotEmpty) ...[
                   const SizedBox(width: 10),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: color.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: color.withValues(alpha: 0.4)),
-                    ),
-                    child: Text(
-                      report.status,
-                      style: TextStyle(
-                        color: color,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
+                  // 대비 보정 배지(SQ-U13): 원색 글자 + 옅은 배경은 일부수용 등에서 AA 미달이었다.
+                  StatusBadge.status(report.status, fontSize: 12),
                 ],
               ],
             ),
             const Divider(height: 24),
             // 상세 필드
             if (report.reportNumber.isNotEmpty)
-              _field(context, Icons.tag, '신고번호', report.reportNumber),
+              _field(
+                context,
+                labelWidth,
+                Icons.tag,
+                '신고번호',
+                report.reportNumber,
+              ),
             if (report.id.isNotEmpty)
-              _field(context, Icons.fingerprint, '내부 ID', report.id),
+              _field(
+                context,
+                labelWidth,
+                Icons.fingerprint,
+                '내부 ID',
+                report.id,
+              ),
             if (report.date.isNotEmpty)
-              _field(context, Icons.calendar_today, '신고일', report.date),
+              _field(
+                context,
+                labelWidth,
+                Icons.calendar_today,
+                '신고일',
+                report.date,
+              ),
             if (report.responseDate.isNotEmpty)
               _field(
                 context,
+                labelWidth,
                 Icons.check_circle_outline,
                 '답변일',
                 report.responseDate,
               ),
             if (report.agency.isNotEmpty)
-              _field(context, Icons.business, '처리기관', report.agency),
+              _field(
+                context,
+                labelWidth,
+                Icons.business,
+                '처리기관',
+                report.agency,
+              ),
             if (report.manager.isNotEmpty)
               _linkField(
                 context,
+                labelWidth,
                 Icons.person_outline,
                 '담당자',
                 report.manager,
@@ -312,6 +332,7 @@ class ReportDetailSheet extends StatelessWidget {
             if (report.fineInfo.isNotEmpty)
               _field(
                 context,
+                labelWidth,
                 Icons.monetization_on_outlined,
                 '과태료/범칙금',
                 report.fineInfo,
@@ -319,6 +340,7 @@ class ReportDetailSheet extends StatelessWidget {
             if (report.penaltyPoints.isNotEmpty)
               _field(
                 context,
+                labelWidth,
                 Icons.warning_amber_outlined,
                 '벌점',
                 report.penaltyPoints,
@@ -326,6 +348,7 @@ class ReportDetailSheet extends StatelessWidget {
             if (report.carNumber.isNotEmpty)
               _linkField(
                 context,
+                labelWidth,
                 Icons.directions_car,
                 '차량번호',
                 report.carNumber,
@@ -334,6 +357,7 @@ class ReportDetailSheet extends StatelessWidget {
             if (report.law.isNotEmpty)
               _linkField(
                 context,
+                labelWidth,
                 Icons.gavel_outlined,
                 '위반법규',
                 report.law,
@@ -342,6 +366,7 @@ class ReportDetailSheet extends StatelessWidget {
             if (report.location.isNotEmpty)
               _linkField(
                 context,
+                labelWidth,
                 Icons.location_on_outlined,
                 '위반장소',
                 report.location,
@@ -350,6 +375,7 @@ class ReportDetailSheet extends StatelessWidget {
             if (report.occurrenceDate.isNotEmpty)
               _field(
                 context,
+                labelWidth,
                 Icons.event_outlined,
                 '발생일자',
                 report.occurrenceDate +
@@ -358,10 +384,17 @@ class ReportDetailSheet extends StatelessWidget {
                         : ''),
               ),
             if (_ratingLabel().isNotEmpty)
-              _field(context, Icons.star_outline, '별점', _ratingLabel()),
+              _field(
+                context,
+                labelWidth,
+                Icons.star_outline,
+                '별점',
+                _ratingLabel(),
+              ),
             if (report.ratingCause.isNotEmpty)
               _field(
                 context,
+                labelWidth,
                 Icons.comment_outlined,
                 '별점사유',
                 report.ratingCause,
@@ -502,7 +535,10 @@ class ReportDetailSheet extends StatelessWidget {
             Text(
               '안전신문고 앱이 설치되어 있고 로그인된 상태여야 합니다.',
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 11, color: context.sr.textSecondary),
+              style: TextStyle(
+                fontSize: SrFontSize.caption,
+                color: context.sr.textSecondary,
+              ),
             ),
             const SizedBox(height: 12),
             Container(
@@ -510,7 +546,7 @@ class ReportDetailSheet extends StatelessWidget {
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: context.sr.surfaceAlt,
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(SrRadius.lg),
                 border: Border.all(color: context.sr.border),
               ),
               child: Column(
@@ -563,17 +599,16 @@ class ReportDetailSheet extends StatelessWidget {
     final uri = Uri.tryParse(url);
     if (uri == null) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('파일 불러오는 중...'),
-        duration: Duration(seconds: 10),
-      ),
+    showSrSnack(
+      context,
+      '파일 불러오는 중...',
+      duration: const Duration(seconds: 10),
     );
 
     try {
       final provider = context.read<ReportProvider>();
       final epoch = provider.datasetEpoch;
-      final scope = '${provider.appMode}:${provider.baseUrl}:$epoch:${provider.statsRefreshNonce}';
+      final scope = '${provider.appMode}:${provider.baseUrl}:$epoch:${provider.dataRevision}';
       final headers = await _clientMediaHeaders(context, url);
       final dir = await getTemporaryDirectory();
       final file = await AttachmentCache.fetch(root: dir, uri: uri, scope: scope,
@@ -590,16 +625,16 @@ class ReportDetailSheet extends StatelessWidget {
 
       final result = await OpenFilex.open(file.path);
       if (result.type != ResultType.done && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('열 수 있는 앱이 없습니다: ${result.message}')),
+        showSrSnack(
+          context,
+          '열 수 있는 앱이 없습니다: ${result.message}',
+          kind: SrSnackKind.error,
         );
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('파일을 열지 못했습니다: $e')));
+        showSrSnack(context, '파일을 열지 못했습니다: $e', kind: SrSnackKind.error);
       }
     }
   }
@@ -632,7 +667,7 @@ class ReportDetailSheet extends StatelessWidget {
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             color: context.sr.surfaceAlt,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(SrRadius.md),
             border: Border.all(color: context.sr.border),
           ),
           child: SelectableText(
@@ -648,33 +683,63 @@ class ReportDetailSheet extends StatelessWidget {
     );
   }
 
+  /// 상세 필드 라벨(가장 긴 것 기준으로 라벨 열 폭을 정한다).
+  static const _fieldLabels = [
+    '신고번호',
+    '내부 ID',
+    '신고일',
+    '답변일',
+    '처리기관',
+    '담당자',
+    '과태료/범칙금',
+    '벌점',
+    '차량번호',
+    '위반법규',
+    '위반장소',
+    '발생일자',
+    '별점',
+    '별점사유',
+  ];
+  static const _labelFontSize = 13.0;
+
+  /// 라벨 열 폭: 현재 글자 배율로 가장 긴 라벨을 잰 폭(SQ-U12). 고정 82 는 "과태료/범칙금"이
+  /// 값에 붙고 큰 글자에서 꺾였다. 너무 넓으면 [_DetailFieldRow] 가 라벨을 값 위로 올린다.
+  double _labelColumnWidth(BuildContext context) {
+    final style = DefaultTextStyle.of(
+      context,
+    ).style.merge(const TextStyle(fontSize: _labelFontSize));
+    final scaler = MediaQuery.textScalerOf(context);
+    var widest = 0.0;
+    for (final label in _fieldLabels) {
+      final painter = TextPainter(
+        text: TextSpan(text: label, style: style),
+        textDirection: TextDirection.ltr,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      if (painter.width > widest) widest = painter.width;
+      painter.dispose();
+    }
+    return widest.ceilToDouble() + 1;
+  }
+
   Widget _field(
     BuildContext context,
+    double labelWidth,
     IconData icon,
     String label,
     String value,
   ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 16, color: context.sr.textSecondary),
-          const SizedBox(width: 8),
-          SizedBox(
-            width: 82,
-            child: Text(
-              label,
-              style: TextStyle(fontSize: 13, color: context.sr.textSecondary),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-            ),
-          ),
-        ],
+      child: _DetailFieldRow(
+        icon: icon,
+        label: label,
+        labelWidth: labelWidth,
+        value: Text(
+          value,
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+        ),
       ),
     );
   }
@@ -683,52 +748,44 @@ class ReportDetailSheet extends StatelessWidget {
   /// 특정 필드 값을 검색 조건으로 넘겨 이동.
   Widget _linkField(
     BuildContext context,
+    double labelWidth,
     IconData icon,
     String label,
     String value,
     ReportFilter filter,
   ) {
     final color = Theme.of(context).colorScheme.primary;
+    // 누르는 줄은 48dp 이상(SQ-U20). 글자는 가운데 두어 위아래 여백이 다른 줄의 간격(12)을 대신한다.
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 2),
       child: InkWell(
-        borderRadius: BorderRadius.circular(6),
-        onTap: () => _navigateToFiltered(context, filter),
-        child: Padding(
+        borderRadius: BorderRadius.circular(SrRadius.md),
+        onTap: () => _navigateToFiltered(context, filter, value),
+        child: Container(
+          constraints: const BoxConstraints(
+            minHeight: kMinInteractiveDimension,
+          ),
+          alignment: Alignment.centerLeft,
           padding: const EdgeInsets.symmetric(vertical: 2),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(icon, size: 16, color: context.sr.textSecondary),
-              const SizedBox(width: 8),
-              SizedBox(
-                width: 82,
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: context.sr.textSecondary,
-                  ),
-                ),
+          child: _DetailFieldRow(
+            icon: icon,
+            label: label,
+            labelWidth: labelWidth,
+            value: Text(
+              value,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: color,
+                decoration: TextDecoration.underline,
+                decorationColor: color.withValues(alpha: 0.5),
               ),
-              Expanded(
-                child: Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: color,
-                    decoration: TextDecoration.underline,
-                    decorationColor: color.withValues(alpha: 0.5),
-                  ),
-                ),
-              ),
-              Icon(
-                Icons.chevron_right,
-                size: 16,
-                color: color.withValues(alpha: 0.6),
-              ),
-            ],
+            ),
+            trailing: Icon(
+              Icons.chevron_right,
+              size: 16,
+              color: color.withValues(alpha: 0.6),
+            ),
           ),
         ),
       ),
@@ -738,28 +795,93 @@ class ReportDetailSheet extends StatelessWidget {
   Future<void> _navigateToFiltered(
     BuildContext context,
     ReportFilter filter,
+    String value,
   ) async {
     final navigator = Navigator.of(context);
     final provider = context.read<ReportProvider>();
-    final category = await provider.refreshCategoryForReport(report);
+    final category = await provider.categoryForNavigation(report);
     if (!context.mounted) return;
     if (category == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('신고 카테고리 정보를 찾지 못했습니다.')));
+      showSrSnack(context, '신고 카테고리 정보를 찾지 못했습니다.', kind: SrSnackKind.error);
       return;
     }
 
     final tabIndex = provider.categoryToTabIndex(category);
-    provider.setFilter(filter);
     navigator.pop(); // close bottom sheet
-    navigator.push(
-      MaterialPageRoute(
-        builder: (_) => ReportListScreen(initialTabIndex: tabIndex),
-      ),
+    // SQ-U02: 공용 필터(하단 신고내역 탭)를 바꾸지 않고 이 화면만의 조건으로 연다.
+    pushReportDrillDown(
+      navigator,
+      filter: filter,
+      title: '$value · 신고',
+      initialTabIndex: tabIndex,
     );
   }
 }
+
+/// 아이콘 · 라벨 · 값 한 줄. 라벨 열은 [labelWidth] 로 맞추고, 그 폭이 줄 폭의 40%를 넘으면
+/// (좁은 화면·큰 글자) 라벨을 값 위로 올린다(SQ-U12).
+class _DetailFieldRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final double labelWidth;
+  final Widget value;
+  final Widget? trailing;
+
+  const _DetailFieldRow({
+    required this.icon,
+    required this.label,
+    required this.labelWidth,
+    required this.value,
+    this.trailing,
+  });
+
+  static const _gap = 12.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final labelText = Text(
+      label,
+      maxLines: 1,
+      softWrap: false,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        fontSize: ReportDetailSheet._labelFontSize,
+        color: context.sr.textSecondary,
+      ),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final stacked = labelWidth > constraints.maxWidth * 0.4;
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 16, color: context.sr.textSecondary),
+            const SizedBox(width: 8),
+            if (stacked)
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [labelText, const SizedBox(height: 2), value],
+                ),
+              )
+            else ...[
+              SizedBox(width: labelWidth, child: labelText),
+              const SizedBox(width: _gap),
+              Expanded(child: value),
+            ],
+            ?trailing,
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// 동영상 조작 버튼의 터치 영역(SQ-U20). 아이콘은 22 그대로, 누르는 칸은 48dp.
+const _kVideoButtonConstraints = BoxConstraints(
+  minWidth: kMinInteractiveDimension,
+  minHeight: kMinInteractiveDimension,
+);
 
 // ──────────────────────────────────────────────────────────────
 class _FullscreenVideoPage extends StatefulWidget {
@@ -793,7 +915,9 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
   @override
   void dispose() {
     _hideTimer?.cancel();
-    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    // 빈 목록 = 시스템 기본(자동 회전 설정을 따른다). portraitUp 으로 묶으면 앱을 다시 켤 때까지
+    // 가로 회전이 되지 않았다(SQ-U14).
+    SystemChrome.setPreferredOrientations(const []);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
   }
@@ -832,19 +956,25 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 동영상 전체 화면은 테마와 무관하게 검은 바탕 + 흰 조작부로 고정한다(의미색 토큰 대상 아님, SQ-U23).
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
         children: [
           // 영상 — GestureDetector는 탭으로 컨트롤 토글/재생
           Positioned.fill(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: _onVideoTap,
-              child: Center(
-                child: AspectRatio(
-                  aspectRatio: widget.controller.value.aspectRatio,
-                  child: VideoPlayer(widget.controller),
+            // 화면 전체가 누르는 영역이므로 스크린리더 이름을 준다(SQ-U20).
+            child: Semantics(
+              label: '동영상 화면',
+              hint: '조작 막대 표시, 재생 또는 일시정지',
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _onVideoTap,
+                child: Center(
+                  child: AspectRatio(
+                    aspectRatio: widget.controller.value.aspectRatio,
+                    child: VideoPlayer(widget.controller),
+                  ),
                 ),
               ),
             ),
@@ -873,108 +1003,110 @@ class _FullscreenVideoPageState extends State<_FullscreenVideoPage> {
                     );
                     return Container(
                       color: Colors.black54,
-                      padding: const EdgeInsets.only(
-                        left: 4,
-                        right: 4,
-                        bottom: 2,
-                      ),
-                      child: Row(
-                        children: [
-                          // 재생/일시정지
-                          IconButton(
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                              minWidth: 36,
-                              minHeight: 36,
-                            ),
-                            icon: Icon(
-                              value.isPlaying ? Icons.pause : Icons.play_arrow,
-                              color: Colors.white,
-                              size: 22,
-                            ),
-                            onPressed: () {
-                              if (value.isPlaying) {
-                                widget.controller.pause();
-                                _hideTimer?.cancel();
-                                setState(() => _showControls = true);
-                              } else {
-                                widget.controller.play();
-                                _scheduleHide();
-                                setState(() {});
-                              }
-                            },
-                          ),
-                          Text(
-                            _fmt(pos),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                            ),
-                          ),
-                          Expanded(
-                            child: SliderTheme(
-                              data: SliderTheme.of(context).copyWith(
-                                thumbShape: const RoundSliderThumbShape(
-                                  enabledThumbRadius: 6,
-                                ),
-                                overlayShape: const RoundSliderOverlayShape(
-                                  overlayRadius: 12,
-                                ),
-                                trackHeight: 2,
-                                activeTrackColor: Colors.white,
-                                inactiveTrackColor: Colors.white30,
-                                thumbColor: Colors.white,
-                                overlayColor: Colors.white24,
+                      // 가로 전체화면에서 노치·3버튼 내비 아래로 조작 막대가 들어가지 않게 한다(SQ-U14).
+                      child: SafeArea(
+                        top: false,
+                        minimum: const EdgeInsets.only(
+                          left: 4,
+                          right: 4,
+                          bottom: 2,
+                        ),
+                        child: Row(
+                          children: [
+                            // 재생/일시정지
+                            IconButton(
+                              tooltip: value.isPlaying ? '일시정지' : '재생',
+                              padding: EdgeInsets.zero,
+                              constraints: _kVideoButtonConstraints,
+                              icon: Icon(
+                                value.isPlaying
+                                    ? Icons.pause
+                                    : Icons.play_arrow,
+                                color: Colors.white,
+                                size: 22,
                               ),
-                              child: Slider(
-                                value: posMs,
-                                min: 0,
-                                max: maxMs,
-                                onChangeStart: (_) {
-                                  _wasPlaying = value.isPlaying;
-                                  if (_wasPlaying) widget.controller.pause();
-                                  setState(() {
-                                    _seeking = true;
-                                    _seekPosition = pos;
-                                  });
-                                },
-                                onChanged: (v) => setState(
-                                  () => _seekPosition = Duration(
-                                    milliseconds: v.toInt(),
+                              onPressed: () {
+                                if (value.isPlaying) {
+                                  widget.controller.pause();
+                                  _hideTimer?.cancel();
+                                  setState(() => _showControls = true);
+                                } else {
+                                  widget.controller.play();
+                                  _scheduleHide();
+                                  setState(() {});
+                                }
+                              },
+                            ),
+                            Text(
+                              _fmt(pos),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: SrFontSize.caption,
+                              ),
+                            ),
+                            Expanded(
+                              child: SliderTheme(
+                                data: SliderTheme.of(context).copyWith(
+                                  thumbShape: const RoundSliderThumbShape(
+                                    enabledThumbRadius: 6,
                                   ),
+                                  overlayShape: const RoundSliderOverlayShape(
+                                    overlayRadius: 12,
+                                  ),
+                                  trackHeight: 2,
+                                  activeTrackColor: Colors.white,
+                                  inactiveTrackColor: Colors.white30,
+                                  thumbColor: Colors.white,
+                                  overlayColor: Colors.white24,
                                 ),
-                                onChangeEnd: (v) {
-                                  widget.controller.seekTo(
-                                    Duration(milliseconds: v.toInt()),
-                                  );
-                                  if (_wasPlaying) widget.controller.play();
-                                  setState(() => _seeking = false);
-                                },
+                                child: Slider(
+                                  value: posMs,
+                                  min: 0,
+                                  max: maxMs,
+                                  onChangeStart: (_) {
+                                    _wasPlaying = value.isPlaying;
+                                    if (_wasPlaying) widget.controller.pause();
+                                    setState(() {
+                                      _seeking = true;
+                                      _seekPosition = pos;
+                                    });
+                                  },
+                                  onChanged: (v) => setState(
+                                    () => _seekPosition = Duration(
+                                      milliseconds: v.toInt(),
+                                    ),
+                                  ),
+                                  onChangeEnd: (v) {
+                                    widget.controller.seekTo(
+                                      Duration(milliseconds: v.toInt()),
+                                    );
+                                    if (_wasPlaying) widget.controller.play();
+                                    setState(() => _seeking = false);
+                                  },
+                                ),
                               ),
                             ),
-                          ),
-                          Text(
-                            _fmt(dur),
-                            style: const TextStyle(
-                              color: Colors.white70,
-                              fontSize: 11,
+                            Text(
+                              _fmt(dur),
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: SrFontSize.caption,
+                              ),
                             ),
-                          ),
-                          // 축소 버튼 (우측)
-                          IconButton(
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(
-                              minWidth: 36,
-                              minHeight: 36,
+                            // 축소 버튼 (우측)
+                            IconButton(
+                              tooltip: '전체화면 닫기',
+                              padding: EdgeInsets.zero,
+                              constraints: _kVideoButtonConstraints,
+                              icon: Icon(
+                                Icons.fullscreen_exit,
+                                color: Colors.white,
+                                size: 22,
+                              ),
+                              onPressed: () => Navigator.pop(context),
                             ),
-                            icon: Icon(
-                              Icons.fullscreen_exit,
-                              color: Colors.white,
-                              size: 22,
-                            ),
-                            onPressed: () => Navigator.pop(context),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     );
                   },
@@ -1116,7 +1248,7 @@ class _RetryableImageState extends State<_RetryableImage> {
         height: 80,
         decoration: BoxDecoration(
           color: context.sr.surfaceAlt,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(SrRadius.md),
         ),
         child: Center(
           child: Column(
@@ -1145,7 +1277,7 @@ class _RetryableImageState extends State<_RetryableImage> {
       devicePixelRatio: media.devicePixelRatio,
     );
     return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(SrRadius.md),
       child: Image(
         image: ResizeImage(
           NetworkImage(widget.url, headers: _headers),
@@ -1316,9 +1448,10 @@ class _VideoPlayerState extends State<_VideoPlayer>
 
   /// 자리표시·로딩·오류·재생이 모두 같은 크기를 쓴다(로딩 완료로 높이가 바뀌지 않게).
   Widget _frame(Widget child) => ClipRRect(
-    borderRadius: BorderRadius.circular(8),
+    borderRadius: BorderRadius.circular(SrRadius.md),
     child: AspectRatio(
       aspectRatio: 16 / 9,
+      // 사진·영상 뷰어 바탕은 테마와 무관하게 검정 고정(SQ-U23).
       child: ColoredBox(color: Colors.black, child: child),
     ),
   );
@@ -1376,6 +1509,7 @@ class _VideoPlayerState extends State<_VideoPlayer>
       return Semantics(
         button: true,
         label: '${widget.label ?? '동영상'} 불러오기',
+        onTap: _requestLoad,
         excludeSemantics: true,
         child: GestureDetector(
           onTap: _requestLoad,
@@ -1459,11 +1593,9 @@ class _VideoPlayerState extends State<_VideoPlayer>
                       children: [
                         // 재생/일시정지 버튼
                         IconButton(
+                          tooltip: value.isPlaying ? '일시정지' : '재생',
                           padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 36,
-                            minHeight: 36,
-                          ),
+                          constraints: _kVideoButtonConstraints,
                           icon: Icon(
                             value.isPlaying ? Icons.pause : Icons.play_arrow,
                             color: Colors.white,
@@ -1486,7 +1618,7 @@ class _VideoPlayerState extends State<_VideoPlayer>
                           _fmt(pos),
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 11,
+                            fontSize: SrFontSize.caption,
                           ),
                         ),
                         // 시크 바
@@ -1535,16 +1667,14 @@ class _VideoPlayerState extends State<_VideoPlayer>
                           _fmt(dur),
                           style: const TextStyle(
                             color: Colors.white70,
-                            fontSize: 11,
+                            fontSize: SrFontSize.caption,
                           ),
                         ),
                         // 전체화면
                         IconButton(
+                          tooltip: '전체화면',
                           padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(
-                            minWidth: 36,
-                            minHeight: 36,
-                          ),
+                          constraints: _kVideoButtonConstraints,
                           icon: Icon(
                             Icons.fullscreen,
                             color: Colors.white,
@@ -1620,13 +1750,13 @@ class _SupplementSection extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
                   color: open ? tone.foreground : context.sr.textSecondary,
-                  borderRadius: BorderRadius.circular(4),
+                  borderRadius: BorderRadius.circular(SrRadius.sm),
                 ),
                 child: Text(
                   '$count회',
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.surface,
-                    fontSize: 10,
+                    fontSize: SrFontSize.caption,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -1639,13 +1769,13 @@ class _SupplementSection extends StatelessWidget {
                 color: open
                     ? Theme.of(context).colorScheme.error
                     : context.sr.textSecondary,
-                borderRadius: BorderRadius.circular(3),
+                borderRadius: BorderRadius.circular(SrRadius.sm),
               ),
               child: Text(
                 open ? '미응답' : '응답 완료',
                 style: TextStyle(
                   color: Theme.of(context).colorScheme.onError,
-                  fontSize: 10,
+                  fontSize: SrFontSize.caption,
                 ),
               ),
             ),
@@ -1656,7 +1786,7 @@ class _SupplementSection extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
             color: open ? tone.background : context.sr.surfaceAlt,
-            borderRadius: BorderRadius.circular(6),
+            borderRadius: BorderRadius.circular(SrRadius.md),
             border: Border.all(color: open ? tone.border : context.sr.border),
           ),
           child: Column(
@@ -1684,7 +1814,7 @@ class _SupplementSection extends StatelessWidget {
                 Text(
                   '신고자 의견',
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: SrFontSize.caption,
                     color: context.sr.textSecondary,
                     fontWeight: FontWeight.w600,
                   ),
@@ -1738,6 +1868,8 @@ class _SupplementMetaRow extends StatelessWidget {
 /// 첨부 동영상을 한 번에 하나씩 불러온다. 여러 플레이어가 동시에 버퍼링하면 스크롤이 멈췄다.
 class _VideoLoadQueue {
   static Future<void> _tail = Future.value();
+
+  static void reset() => _tail = Future.value();
 
   static void run(Future<void> Function() task) {
     _tail = _tail

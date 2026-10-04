@@ -8,6 +8,9 @@ import '../community/client_account_notice.dart';
 import '../community/kakao_logout.dart';
 import '../services/community_auth_service.dart';
 import '../widgets/consent_markdown.dart';
+import '../theme/sr_colors.dart';
+import '../theme/sr_tokens.dart';
+import '../widgets/sr_snack_bar.dart';
 
 /// 필수 게이트 온보딩: `[필수] 카카오 인증` + `[필수] 신고내용 공유 동의`.
 ///
@@ -290,9 +293,7 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
         afterWipe: widget.onReportsWiped,
       );
       if (error != null && mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error)));
+        showSrSnack(context, error, kind: SrSnackKind.error);
       }
     } finally {
       if (mounted) setState(() => _ownerBusy = false);
@@ -307,15 +308,11 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
           ? await launcher(uri)
           : await launchUrl(uri, mode: LaunchMode.externalApplication);
       if (!ok && mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('브라우저를 열지 못했습니다.')));
+        showSrSnack(context, '브라우저를 열지 못했습니다.', kind: SrSnackKind.error);
       }
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('브라우저를 열지 못했습니다.')));
+        showSrSnack(context, '브라우저를 열지 못했습니다.', kind: SrSnackKind.error);
       }
     }
   }
@@ -467,12 +464,12 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
     decoration: BoxDecoration(
       color: Theme.of(context).colorScheme.primaryContainer,
-      borderRadius: BorderRadius.circular(6),
+      borderRadius: BorderRadius.circular(SrRadius.md),
     ),
     child: Text(
       '[필수]',
       style: TextStyle(
-        fontSize: 11,
+        fontSize: SrFontSize.caption,
         fontWeight: FontWeight.bold,
         color: Theme.of(context).colorScheme.onPrimaryContainer,
       ),
@@ -500,7 +497,9 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
                 ),
                 Icon(
                   done ? Icons.check_circle : Icons.radio_button_unchecked,
-                  color: done ? Colors.green : Theme.of(context).disabledColor,
+                  color: done
+                      ? context.semantic(SrTone.success)
+                      : Theme.of(context).disabledColor,
                 ),
               ],
             ),
@@ -614,7 +613,7 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
                       ? Icons.check_circle
                       : Icons.radio_button_unchecked,
                   color: _consentDone
-                      ? Colors.green
+                      ? context.semantic(SrTone.success)
                       : Theme.of(context).disabledColor,
                 ),
               ],
@@ -636,7 +635,7 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   border: Border.all(color: Theme.of(context).dividerColor),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(SrRadius.md),
                 ),
                 child: SingleChildScrollView(
                   child: ConsentMarkdown(text: _docText),

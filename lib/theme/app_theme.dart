@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'sr_colors.dart';
+import 'sr_tokens.dart';
 
 /// 앱 공통 테마. 두 실행 모드가 같은 primary 를 쓰고(D-03), 모드는 `ModeBadge` 로 따로 표시한다.
 /// 글꼴은 기기 기본(D-04)이라 fontFamily 를 지정하지 않는다.
@@ -17,8 +18,17 @@ class AppTheme {
   /// 다크 채움(버튼·선택 탭 바탕, 흰 글자 5.17:1). 웹 `--sr-primary` 와 같은 값. 라이트는 [lightPrimary] 가 채움도 맡는다.
   static const darkPrimaryFill = Color(0xFF2563EB);
 
-  static ThemeData light() => build(Brightness.light);
-  static ThemeData dark() => build(Brightness.dark);
+  /// 앱이 쓰는 테마는 한 번만 만든다(SQ-P01). ThemeData 안의 `WidgetStateProperty.resolveWith` 는 `==` 가 없어
+  /// 새로 만든 테마는 늘 "다른 테마"로 판정되고, MaterialApp 의 AnimatedTheme 이 200ms 보간으로 전체를 다시 그린다.
+  static final ThemeData _light = build(Brightness.light);
+  static final ThemeData _dark = build(Brightness.dark);
+
+  static ThemeData light() => _light;
+  static ThemeData dark() => _dark;
+
+  /// 바텀시트 위 모서리 반경. 시트마다 따로 주지 않고 테마로 맞춘다(SQ-U07).
+  /// 20 은 반경 단계 밖이라 2xl(24)로 맞췄다(SQ-U23, 2026-10-04).
+  static const sheetRadius = SrRadius.xxl;
 
   static ThemeData build(Brightness brightness) {
     final isDark = brightness == Brightness.dark;
@@ -86,7 +96,7 @@ class AppTheme {
       systemStatusBarContrastEnforced: false,
     );
     final inputBorder = OutlineInputBorder(
-      borderRadius: const BorderRadius.all(Radius.circular(10)),
+      borderRadius: const BorderRadius.all(Radius.circular(SrRadius.lg)),
       borderSide: BorderSide(color: t.border),
     );
 
@@ -98,6 +108,11 @@ class AppTheme {
       scaffoldBackgroundColor: t.background,
       canvasColor: t.background,
       dividerColor: t.border,
+      // 작은 글자 단계(spec §3 Caption 12/16). Material 기본 labelSmall(11)은 최소 크기 밑이라 올린다(SQ-U19).
+      textTheme: const TextTheme(
+        bodySmall: TextStyle(fontSize: SrFontSize.caption),
+        labelSmall: TextStyle(fontSize: SrFontSize.caption),
+      ),
       progressIndicatorTheme: ProgressIndicatorThemeData(color: primary),
       appBarTheme: AppBarTheme(
         centerTitle: false,
@@ -117,7 +132,7 @@ class AppTheme {
         // 시안의 알약형 선택 탭. 선택/미선택 모두 배경 대비 AA 를 만족해야 한다(test/theme).
         indicator: BoxDecoration(
           color: fill,
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(SrRadius.pill),
         ),
         indicatorSize: TabBarIndicatorSize.tab,
         indicatorColor: fill,
@@ -133,7 +148,7 @@ class AppTheme {
           fontWeight: FontWeight.w600,
         ),
         labelPadding: const EdgeInsets.symmetric(horizontal: 6),
-        splashBorderRadius: BorderRadius.circular(999),
+        splashBorderRadius: BorderRadius.circular(SrRadius.pill),
         overlayColor: WidgetStatePropertyAll(primary.withValues(alpha: 0.08)),
       ),
       cardTheme: CardThemeData(
@@ -142,21 +157,29 @@ class AppTheme {
         margin: EdgeInsets.zero,
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
-          borderRadius: const BorderRadius.all(Radius.circular(12)),
+          borderRadius: const BorderRadius.all(Radius.circular(SrRadius.lg)),
           side: BorderSide(color: t.border),
         ),
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: t.surface,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(SrRadius.xl),
+        ),
       ),
       bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: t.surface,
         modalBackgroundColor: t.surface,
         surfaceTintColor: Colors.transparent,
+        // 손잡이는 테마 하나만 그린다 — 시트가 직접 그리지 않는다(SQ-U07).
         showDragHandle: true,
         dragHandleColor: t.textDisabled,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(sheetRadius),
+          ),
+        ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
@@ -192,7 +215,7 @@ class AppTheme {
         ),
         labelTextStyle: WidgetStateProperty.resolveWith(
           (states) => TextStyle(
-            fontSize: 11,
+            fontSize: SrFontSize.caption,
             fontWeight: states.contains(WidgetState.selected)
                 ? FontWeight.w700
                 : FontWeight.w600,
@@ -209,8 +232,13 @@ class AppTheme {
       chipTheme: ChipThemeData(
         backgroundColor: t.surfaceAlt,
         side: BorderSide(color: t.border),
-        labelStyle: TextStyle(color: t.textPrimary, fontSize: 12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+        labelStyle: TextStyle(
+          color: t.textPrimary,
+          fontSize: SrFontSize.caption,
+        ),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(SrRadius.pill),
+        ),
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
@@ -223,7 +251,7 @@ class AppTheme {
           foregroundColor: onFill,
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(SrRadius.lg),
           ),
         ),
       ),
@@ -232,14 +260,14 @@ class AppTheme {
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
           side: BorderSide(color: t.border),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(SrRadius.lg),
           ),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(SrRadius.lg),
           ),
         ),
       ),

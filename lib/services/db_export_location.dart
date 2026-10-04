@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
+import '../widgets/sr_snack_bar.dart';
 
 class SavedDbExport {
   final String uri, filename, location;
@@ -81,14 +82,13 @@ class DbExportLocation {
       return;
     }
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        duration: const Duration(seconds: 15),
-        content: Text('DB 저장 완료\n${saved.filename}\n${saved.location}'),
-        action: SnackBarAction(
-          label: '저장 위치 열기',
-          onPressed: () => showLocation(context, saved),
-        ),
+    showSrSnack(
+      context,
+      'DB 저장 완료\n${saved.filename}\n${saved.location}',
+      duration: const Duration(seconds: 15),
+      action: SnackBarAction(
+        label: '저장 위치 열기',
+        onPressed: () => showLocation(context, saved),
       ),
     );
     await showLocation(context, saved);
@@ -112,8 +112,10 @@ class DbExportLocation {
           TextButton(
             onPressed: () async {
               if (!await open(saved, action: 'file') && ctx.mounted) {
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                  const SnackBar(content: Text('DB 파일을 처리할 앱이 없습니다.')),
+                showSrSnack(
+                  ctx,
+                  'DB 파일을 처리할 앱이 없습니다.',
+                  kind: SrSnackKind.error,
                 );
               }
             },
@@ -122,9 +124,7 @@ class DbExportLocation {
           TextButton(
             onPressed: () async {
               if (!await open(saved, action: 'share') && ctx.mounted) {
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                  const SnackBar(content: Text('공유 앱을 열 수 없습니다.')),
-                );
+                showSrSnack(ctx, '공유 앱을 열 수 없습니다.', kind: SrSnackKind.error);
               }
             },
             child: const Text('공유'),

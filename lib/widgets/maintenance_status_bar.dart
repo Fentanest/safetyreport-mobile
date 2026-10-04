@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import '../services/maintenance_service.dart';
 import '../theme/sr_colors.dart';
+import '../theme/sr_tokens.dart';
 
 class MaintenanceStatusBar extends StatefulWidget {
   const MaintenanceStatusBar({super.key, this.fetchServerStatus});
@@ -18,26 +19,52 @@ class MaintenanceStatusBar extends StatefulWidget {
   State<MaintenanceStatusBar> createState() => _MaintenanceStatusBarState();
 }
 
-class _MaintenanceStatusBarState extends State<MaintenanceStatusBar> {
+class _MaintenanceStatusBarState extends State<MaintenanceStatusBar>
+    with WidgetsBindingObserver {
   List<MaintenanceJob> _jobs = const [];
   bool _wasActive = false;
   String? _doneText;
   Timer? _timer;
   Timer? _hideTimer;
 
+  /// 앱이 보이는가. hidden/paused 면 확인을 멈추고 resumed 에서 즉시 한 번 확인한다(SQ-P04).
+  bool _foreground = true;
+  bool _inFlight = false;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     MaintenanceService.photoJob.addListener(_refreshLocal);
-    _tick();
+    _foreground = !_isBackground(WidgetsBinding.instance.lifecycleState);
+    if (_foreground) _tick();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     MaintenanceService.photoJob.removeListener(_refreshLocal);
     _timer?.cancel();
     _hideTimer?.cancel();
     super.dispose();
+  }
+
+  static bool _isBackground(AppLifecycleState? state) =>
+      state == AppLifecycleState.hidden ||
+      state == AppLifecycleState.paused ||
+      state == AppLifecycleState.detached;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (_foreground) return;
+      _foreground = true;
+      _tick();
+    } else if (_isBackground(state)) {
+      _foreground = false;
+      _timer?.cancel();
+      _timer = null;
+    }
   }
 
   void _refreshLocal() {
@@ -47,16 +74,27 @@ class _MaintenanceStatusBarState extends State<MaintenanceStatusBar> {
   }
 
   Future<void> _tick() async {
-    List<MaintenanceJob> jobs;
+    // 복귀 확인과 예약 확인이 겹치면 진행 중인 요청 하나가 끝난 뒤 다음 주기를 잡는다.
+    if (_inFlight || !mounted) return;
+    _timer?.cancel();
+    _timer = null;
+    List<MaintenanceJob>? jobs;
     final fetch = widget.fetchServerStatus;
-    if (fetch == null) {
-      jobs = MaintenanceService.localJobs();
-    } else {
-      jobs = MaintenanceService.jobsFromServer(await fetch());
+    _inFlight = true;
+    try {
+      jobs = fetch == null
+          ? MaintenanceService.localJobs()
+          : MaintenanceService.jobsFromServer(await fetch());
+    } catch (_) {
+      jobs = null; // 일시 오류 — 표시는 그대로 두고 다음 주기에 다시 본다.
+    } finally {
+      _inFlight = false;
     }
     if (!mounted) return;
-    _apply(jobs);
-    final active = jobs.any((j) => j.active);
+    if (jobs != null) _apply(jobs);
+    // 백그라운드로 간 사이 끝난 요청은 다음 주기를 예약하지 않는다(복귀 때 즉시 확인).
+    if (!_foreground) return;
+    final active = jobs?.any((j) => j.active) ?? _wasActive;
     _timer?.cancel();
     _timer = Timer(
       active ? const Duration(seconds: 2) : const Duration(seconds: 30),
@@ -64,16 +102,42 @@ class _MaintenanceStatusBarState extends State<MaintenanceStatusBar> {
     );
   }
 
+  static bool _sameJobs(List<MaintenanceJob> a, List<MaintenanceJob> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      final x = a[i], y = b[i];
+      if (x.key != y.key ||
+          x.label != y.label ||
+          x.state != y.state ||
+          x.total != y.total ||
+          x.done != y.done ||
+          x.current != y.current ||
+          x.message != y.message) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /// 표시가 실제로 바뀔 때만 다시 그린다(같은 결과면 setState 하지 않는다).
   void _apply(List<MaintenanceJob> jobs) {
+    if (!mounted) return;
     final active = jobs.any((j) => j.active);
-    setState(() {
-      if (active) {
-        _jobs = jobs.where((j) => j.active).toList();
+    if (active) {
+      final activeJobs = jobs.where((j) => j.active).toList();
+      if (_wasActive && _doneText == null && _sameJobs(activeJobs, _jobs)) {
+        return;
+      }
+      _hideTimer?.cancel();
+      setState(() {
+        _jobs = activeJobs;
         _doneText = null;
         _wasActive = true;
-        _hideTimer?.cancel();
-      } else if (_wasActive) {
-        final done = jobs.where((j) => j.state == 'completed').toList();
+      });
+    } else if (_wasActive) {
+      final done = jobs.where((j) => j.state == 'completed').toList();
+      _hideTimer?.cancel();
+      setState(() {
         _doneText = done.isEmpty
             ? '작업 완료'
             : done
@@ -84,12 +148,11 @@ class _MaintenanceStatusBarState extends State<MaintenanceStatusBar> {
                   .join('   |   ');
         _jobs = const [];
         _wasActive = false;
-        _hideTimer?.cancel();
-        _hideTimer = Timer(const Duration(seconds: 6), () {
-          if (mounted) setState(() => _doneText = null);
-        });
-      }
-    });
+      });
+      _hideTimer = Timer(const Duration(seconds: 6), () {
+        if (mounted) setState(() => _doneText = null);
+      });
+    }
   }
 
   @override
@@ -107,7 +170,7 @@ class _MaintenanceStatusBarState extends State<MaintenanceStatusBar> {
         padding: const EdgeInsets.fromLTRB(10, 7, 14, 7),
         decoration: BoxDecoration(
           color: sr.surface,
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(SrRadius.pill),
           border: Border.all(color: sr.border),
           boxShadow: [
             BoxShadow(

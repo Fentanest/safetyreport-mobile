@@ -14,11 +14,21 @@ import '../services/local_db_service.dart';
 import '../services/sync_engine.dart';
 import '../widgets/auth_status_notice.dart';
 import '../widgets/sync_exit_guard.dart';
-import 'settings_screen.dart';
+import '../widgets/sr_app_bar_actions.dart';
 import '../theme/sr_colors.dart';
+import '../theme/sr_tokens.dart';
+import '../widgets/sr_snack_bar.dart';
 
 class CrawlScreen extends StatefulWidget {
-  const CrawlScreen({super.key});
+  const CrawlScreen({super.key, this.apiFactory, this.connectLogSocket});
+
+  /// 테스트 주입용. null 이면 Provider 의 서버 주소·키로 [ApiService] 를 만든다.
+  @visibleForTesting
+  final ApiService? Function(ReportProvider provider)? apiFactory;
+
+  /// 테스트 주입용. null 이면 호환성 확인 뒤 서버 로그 WebSocket 에 연결한다.
+  @visibleForTesting
+  final Future<WebSocket> Function(ApiService api)? connectLogSocket;
 
   @override
   State<CrawlScreen> createState() => CrawlScreenState();
@@ -32,17 +42,27 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
   bool _isRunning = false;
   List<CrawlUnresolved> _unresolved = const [];
   void _setRunning(bool val) {
-    if (_isRunning == val) return;
+    if (!mounted || _isRunning == val) return;
     setState(() => _isRunning = val);
-    if (mounted) context.read<ReportProvider>().setSyncing(val);
+    context.read<ReportProvider>().setSyncing(val);
   }
 
   bool _loading = true;
 
   WebSocket? _ws;
+
+  /// 연결 중인 로그 WebSocket 이 있으면 true — 같은 시점의 두 번째 연결을 막는다.
+  bool _wsConnecting = false;
+
+  /// 닫기 요청(크롤링 종료·화면 dispose)마다 증가. 연결이 끝났을 때 값이 바뀌었으면 그 소켓은 닫는다.
+  int _wsEpoch = 0;
   final List<String> _logLines = [];
   final ScrollController _logScroll = ScrollController();
+  final GlobalKey _topAreaKey = GlobalKey();
   Timer? _statusTimer;
+
+  /// 앱이 화면에 보이는가(paused/hidden 이면 상태 폴링을 멈춘다).
+  bool _foreground = true;
 
   // ── 스탠드어론 모드 상태 ─────────────────────────────────────────────────────
   int _localCount = 0;
@@ -56,14 +76,21 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _init());
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    _foreground =
+        lifecycle != AppLifecycleState.paused &&
+        lifecycle != AppLifecycleState.hidden &&
+        lifecycle != AppLifecycleState.detached;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _init();
+    });
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _statusTimer?.cancel();
-    _ws?.close();
+    _stopStatusPolling();
+    _closeWs();
     _syncSub?.cancel();
     _queueController.dispose();
     _logScroll.dispose();
@@ -72,10 +99,21 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _checkStatus();
-    } else if (state == AppLifecycleState.paused) {
-      _statusTimer?.cancel();
+    if (!mounted) return;
+    switch (state) {
+      case AppLifecycleState.resumed:
+        _foreground = true;
+        // 상태 확인·폴링은 Client(크롤링) 전용. 초기 로딩 중이면 _init 이 폴링을 시작한다.
+        if (_isStandalone || _loading) return;
+        _checkStatus();
+        _startStatusPolling();
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.detached:
+        _foreground = false;
+        _stopStatusPolling();
+      case AppLifecycleState.inactive:
+        break;
     }
   }
 
@@ -84,18 +122,24 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
 
   ApiService? _api() {
     final p = context.read<ReportProvider>();
+    final factory = widget.apiFactory;
+    if (factory != null) return factory(p);
     if (p.baseUrl.isEmpty) return null;
     return ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
   }
 
   Future<void> _init() async {
+    if (!mounted) return;
     if (_isStandalone) {
       await _loadStandaloneInfo();
     } else {
       await _loadConfig();
+      if (!mounted) return;
       await _checkStatus();
+      if (!mounted) return;
       _startStatusPolling();
     }
+    if (!mounted) return;
     await _runPendingQuickActionIfNeeded();
   }
 
@@ -127,13 +171,13 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
       case 'quick_sync':
         if (!_isStandalone) return;
         if (context.read<ReportProvider>().isStandaloneDemo) {
-          messenger?.showSnackBar(
-            SnackBar(content: Text('데모 모드에서는 동기화를 실행할 수 없습니다.')),
-          );
+          if (messenger != null) {
+            showSrSnackOn(messenger, '데모 모드에서는 동기화를 실행할 수 없습니다.');
+          }
           return;
         }
         if (SyncEngine.isRunning || _isRunning) {
-          messenger?.showSnackBar(SnackBar(content: Text('이미 동기화가 진행 중입니다.')));
+          if (messenger != null) showSrSnackOn(messenger, '이미 동기화가 진행 중입니다.');
           return;
         }
         await _startSync(fullSync: false);
@@ -141,7 +185,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
       case 'quick_crawl':
         if (_isStandalone) return;
         if (_isRunning) {
-          messenger?.showSnackBar(SnackBar(content: Text('이미 크롤링이 진행 중입니다.')));
+          if (messenger != null) showSrSnackOn(messenger, '이미 크롤링이 진행 중입니다.');
           return;
         }
         await _startCrawl();
@@ -244,6 +288,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
     if (api == null) return;
     try {
       final cfg = await api.getCrawlConfig();
+      if (!mounted) return;
       setState(() {
         // 최소 크롤링(min)은 레거시 전용이라 없앴다 — 예전 설정값 min 은 전체로 본다(서버와 같음)
         final mode = (cfg['crawl_mode'] ?? 'full').toString();
@@ -251,7 +296,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
         _loading = false;
       });
     } catch (_) {
-      setState(() => _loading = false);
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -260,41 +305,64 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
     if (api == null) return;
     try {
       final status = await api.getCrawlStatus();
+      if (!mounted) return;
       final running = status['running'] == true;
       final unresolved = CrawlUnresolved.fromStatus(status);
-      if (mounted && !CrawlUnresolved.sameList(unresolved, _unresolved)) {
+      if (!CrawlUnresolved.sameList(unresolved, _unresolved)) {
         setState(() => _unresolved = unresolved);
       }
       if (running && !_isRunning) _connectWs(api);
-      if (!running && _isRunning) {
-        _ws?.close();
-        _ws = null;
-      }
-      if (mounted) _setRunning(running);
+      if (!running && _isRunning) _closeWs();
+      _setRunning(running);
     } catch (_) {}
   }
 
+  /// 5초 상태 폴링. 화면이 살아 있고 앱이 보일 때만 돈다(복귀 시 didChangeAppLifecycleState 가 다시 켠다).
   void _startStatusPolling() {
-    _statusTimer?.cancel();
-    _statusTimer = Timer.periodic(
-      const Duration(seconds: 5),
-      (_) => _checkStatus(),
-    );
+    _stopStatusPolling();
+    if (!mounted || !_foreground) return;
+    _statusTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      _checkStatus();
+    });
   }
 
-  void _connectWs(ApiService api) async {
-    if (_ws != null) return;
+  void _stopStatusPolling() {
+    _statusTimer?.cancel();
+    _statusTimer = null;
+  }
+
+  /// 열린(또는 연결 중인) 로그 WebSocket 을 닫는다. 연결 중이던 소켓은 연결이 끝나는 즉시 닫힌다.
+  void _closeWs() {
+    _wsEpoch++;
+    final ws = _ws;
+    _ws = null;
+    if (ws != null) unawaited(ws.close().catchError((_) {}));
+  }
+
+  Future<void> _connectWs(ApiService api) async {
+    if (_ws != null || _wsConnecting) return;
+    _wsConnecting = true;
+    final epoch = _wsEpoch;
+    final WebSocket ws;
     try {
-      await ClientCompatibility.ensure(api.baseUrl, api.apiKey);
-      // 서버는 2026-09-26 부터 로그 WS 에 API 키(또는 관리자 세션)와 커뮤니티 게이트를 요구한다(미충족 4403).
-      _ws = await WebSocket.connect(
-        ServerContract.wsClientUri(
-          api.baseUrl,
-          api.apiKey,
-          '/crawl/ws/logs',
-        ).toString(),
-      );
-      _ws!.listen(
+      ws = await (widget.connectLogSocket ?? _connectLogSocket)(api);
+    } catch (_) {
+      _wsConnecting = false;
+      return;
+    }
+    _wsConnecting = false;
+    // 연결 중에 화면이 닫혔거나 크롤링이 끝났으면 늦게 열린 소켓을 남기지 않는다.
+    if (!mounted || epoch != _wsEpoch || _ws != null) {
+      unawaited(ws.close().catchError((_) {}));
+      return;
+    }
+    _ws = ws;
+    try {
+      ws.listen(
         (data) {
           if (!mounted) return;
           final lines = data
@@ -315,26 +383,41 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
           });
         },
         onDone: () {
-          if (_ws?.closeCode == 4406) {
-            _statusTimer?.cancel();
+          if (ws.closeCode == 4406) {
+            _stopStatusPolling();
             ClientCompatibility.block(
               api.baseUrl,
               api.apiKey,
               ServerConnectionService.upgradeMessage(
-                    jsonEncode({'code': _ws?.closeReason}),
+                    jsonEncode({'code': ws.closeReason}),
                   ) ??
                   '앱과 PC 서버의 protocol 3 지원을 확인하고 업데이트하세요.',
             );
           }
+          if (!identical(_ws, ws)) return;
           _ws = null;
-          if (mounted) _setRunning(false);
+          _setRunning(false);
         },
-        onError: (_) => _ws = null,
+        onError: (_) {
+          if (identical(_ws, ws)) _ws = null;
+        },
         cancelOnError: true,
       );
     } catch (_) {
-      _ws = null;
+      if (identical(_ws, ws)) _ws = null;
     }
+  }
+
+  static Future<WebSocket> _connectLogSocket(ApiService api) async {
+    await ClientCompatibility.ensure(api.baseUrl, api.apiKey);
+    // 서버는 2026-09-26 부터 로그 WS 에 API 키(또는 관리자 세션)와 커뮤니티 게이트를 요구한다(미충족 4403).
+    return WebSocket.connect(
+      ServerContract.wsClientUri(
+        api.baseUrl,
+        api.apiKey,
+        '/crawl/ws/logs',
+      ).toString(),
+    );
   }
 
   Future<void> _startCrawl() async {
@@ -364,7 +447,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
           ],
         ),
       );
-      if (ok != true) return;
+      if (ok != true || !mounted) return;
     }
 
     setState(() {
@@ -372,26 +455,26 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
       _logLines.add('크롤링 시작 중...');
     });
     _setRunning(true);
+    final provider = context.read<ReportProvider>();
 
     try {
       await api.startCrawl(
         crawlMode: _crawlMode,
         queueList: _queueController.text,
       );
+      if (!mounted) return;
       _connectWs(api);
     } catch (e) {
+      if (!mounted) {
+        // 시작 요청이 실패했는데 화면이 이미 닫혔다 — 대시보드의 진행 표시만 되돌린다.
+        provider.setSyncing(false);
+        return;
+      }
       _setRunning(false);
       setState(() {
         _logLines.add('오류: $e');
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString()),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
-      }
+      showSrSnack(context, e.toString(), kind: SrSnackKind.error);
     }
   }
 
@@ -416,21 +499,21 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
         ],
       ),
     );
-    if (ok != true) return;
+    if (ok != true || !mounted) return;
 
     final api = _api();
     if (api == null) return;
+    final provider = context.read<ReportProvider>();
     try {
       await api.killCrawl();
+      if (!mounted) {
+        provider.setSyncing(false);
+        return;
+      }
       _setRunning(false);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString()),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
+        showSrSnack(context, e.toString(), kind: SrSnackKind.error);
       }
     }
   }
@@ -451,18 +534,14 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
   // ── 스탠드어론 UI ────────────────────────────────────────────────────────────
 
   Widget _buildStandalone() {
-    final isDemo = context.watch<ReportProvider>().isStandaloneDemo;
+    final isDemo = context.select<ReportProvider, bool>(
+      (p) => p.isStandaloneDemo,
+    );
     return Scaffold(
       appBar: AppBar(
         title: const Text('데이터 동기화'),
         actions: [
-          IconButton(
-            icon: Icon(Icons.settings_outlined),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SettingsScreen()),
-            ),
-          ),
+          const SettingsActionButton(),
         ],
       ),
       body: _withLogPanel(
@@ -494,22 +573,29 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
   }
 
   /// 상단 제어 영역 + 로그 창. 상단은 내용 높이만 차지하되 [topMaxFraction] 을 넘으면 스크롤되고,
-  /// 로그 창은 남은 높이를 모두 쓴다. edge-to-edge 에서 로그 마지막 줄이 시스템 내비게이션 바에
+  /// 로그 창은 남은 높이를 모두 쓴다. 로그가 한 줄도 없으면 로그 창은 한 줄 높이로 접히고
+  /// 상단이 남는 높이를 쓴다(SQ-U18). edge-to-edge 에서 로그 마지막 줄이 시스템 내비게이션 바에
   /// 가리지 않도록 하단 안전 영역 위에서 끝낸다.
   Widget _withLogPanel({required Widget top, required double topMaxFraction}) {
+    final hasLogs = _logLines.isNotEmpty;
+    // 로그가 생겨 배치가 바뀌어도 제어 영역(스크롤·입력 포커스) 상태를 유지한다.
+    top = KeyedSubtree(key: _topAreaKey, child: top);
     return SafeArea(
       top: false,
       child: LayoutBuilder(
         builder: (context, constraints) => Column(
           children: [
-            ConstrainedBox(
-              constraints: BoxConstraints(
-                maxHeight: constraints.maxHeight * topMaxFraction,
-              ),
-              child: top,
-            ),
+            if (hasLogs)
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: constraints.maxHeight * topMaxFraction,
+                ),
+                child: top,
+              )
+            else
+              Expanded(child: top),
             const Divider(height: 1),
-            Expanded(child: _logPanel()),
+            if (hasLogs) Expanded(child: _logPanel()) else _logPanel(),
           ],
         ),
       ),
@@ -533,7 +619,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
                   Text(
                     '마지막 동기화',
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: SrFontSize.caption,
                       color: context.sr.textSecondary,
                     ),
                   ),
@@ -552,7 +638,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
                 Text(
                   '저장된 신고',
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: SrFontSize.caption,
                     color: context.sr.textSecondary,
                   ),
                 ),
@@ -593,7 +679,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
         ),
         SizedBox(height: 6),
         ClipRRect(
-          borderRadius: BorderRadius.circular(4),
+          borderRadius: BorderRadius.circular(SrRadius.sm),
           child: LinearProgressIndicator(value: pct, minHeight: 6),
         ),
       ],
@@ -602,15 +688,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
 
   Widget _demoInfoCard() {
     return Card(
-      color: StatusTone.of(
-        StatusTone.of(
-          Colors.orange,
-          brightness: Theme.of(context).brightness,
-          surface: context.sr.surface,
-        ).foreground,
-        brightness: Theme.of(context).brightness,
-        surface: context.sr.surface,
-      ).background,
+      color: context.tone(SrTone.warning).background,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Row(
@@ -618,15 +696,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
           children: [
             Icon(
               Icons.visibility_outlined,
-              color: StatusTone.of(
-                StatusTone.of(
-                  Colors.orange,
-                  brightness: Theme.of(context).brightness,
-                  surface: context.sr.surface,
-                ).foreground,
-                brightness: Theme.of(context).brightness,
-                surface: context.sr.surface,
-              ).foreground,
+              color: context.tone(SrTone.warning).foreground,
             ),
             SizedBox(width: 12),
             const Expanded(
@@ -642,7 +712,9 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
   }
 
   Widget _syncButtons() {
-    final isDemo = context.watch<ReportProvider>().isStandaloneDemo;
+    final isDemo = context.select<ReportProvider, bool>(
+      (p) => p.isStandaloneDemo,
+    );
     return Row(
       children: [
         Expanded(
@@ -701,7 +773,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
         ],
       ),
     );
-    if (ok == true) _startSync(fullSync: true);
+    if (ok == true && mounted) _startSync(fullSync: true);
   }
 
   String _formatSyncTime(String iso) {
@@ -725,13 +797,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
       appBar: AppBar(
         title: const Text('크롤링 제어'),
         actions: [
-          IconButton(
-            icon: Icon(Icons.settings_outlined),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SettingsScreen()),
-            ),
-          ),
+          const SettingsActionButton(),
         ],
       ),
       body: _withLogPanel(
@@ -770,7 +836,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
                   decoration: InputDecoration(
                     hintText: 'SPP-231120-1234567\nSPP-231121-7654321',
                     hintStyle: TextStyle(
-                      fontSize: 11,
+                      fontSize: SrFontSize.caption,
                       color: context.sr.textSecondary,
                     ),
                   ),
@@ -808,80 +874,78 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
 
   // ── 공통 로그 패널 ───────────────────────────────────────────────────────────
 
+  /// 로그 창은 앱 테마와 관계없이 늘 어둡다. 글자색은 이 배경을 기준으로 맞춘다(SQ-U18).
+  static const _logPanelColor = SrColors.logPanel;
+  static final Color _logTextColor = StatusTone.of(
+    SrColors.dark.success,
+    brightness: Brightness.dark,
+    surface: _logPanelColor,
+  ).foreground;
+  static final Color _logMutedColor = SrColors.dark.textSecondary;
+  static const double _logFontSize = 12;
+
   Widget _logPanel() {
-    return Container(
-      color: const Color(0xFF1E1E1E),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    final hasLogs = _logLines.isNotEmpty;
+    final header = Padding(
+      padding: EdgeInsets.fromLTRB(12, 8, 12, hasLogs ? 4 : 8),
+      child: Row(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-            child: Row(
-              children: [
-                if (_isRunning) ...[
-                  SizedBox(
-                    width: 12,
-                    height: 12,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: StatusTone.of(
-                        Colors.green,
-                        brightness: Theme.of(context).brightness,
-                        surface: context.sr.surface,
-                      ).foreground,
-                    ),
-                  ),
-                  SizedBox(width: 8),
-                ],
-                Text(
-                  _isRunning ? '실행 중' : '대기 중',
-                  style: TextStyle(
-                    color: _isRunning
-                        ? StatusTone.of(
-                            Colors.green,
-                            brightness: Theme.of(context).brightness,
-                            surface: context.sr.surface,
-                          ).foreground
-                        : context.sr.textSecondary,
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
+          if (_isRunning) ...[
+            SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: _logTextColor,
+              ),
+            ),
+            SizedBox(width: 8),
+          ],
+          Text(
+            _isRunning ? '실행 중' : '대기 중',
+            style: TextStyle(
+              color: _isRunning ? _logTextColor : _logMutedColor,
+              fontSize: _logFontSize,
+              fontWeight: FontWeight.bold,
             ),
           ),
-          Expanded(
-            child: _logLines.isEmpty
-                ? Center(
-                    child: Text(
-                      '로그 없음',
-                      style: TextStyle(
-                        color: context.sr.textSecondary,
-                        fontSize: 12,
-                      ),
-                    ),
-                  )
-                : ListView.builder(
+          if (!hasLogs) ...[
+            const Spacer(),
+            Text(
+              '로그 없음',
+              style: TextStyle(color: _logMutedColor, fontSize: _logFontSize),
+            ),
+          ],
+        ],
+      ),
+    );
+    return Container(
+      key: const Key('crawl-log-panel'),
+      color: _logPanelColor,
+      child: !hasLogs
+          ? header
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                header,
+                Expanded(
+                  child: ListView.builder(
                     controller: _logScroll,
                     padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
                     itemCount: _logLines.length,
                     itemBuilder: (_, i) => Text(
                       _logLines[i],
                       style: TextStyle(
-                        color: StatusTone.of(
-                          Colors.green,
-                          brightness: Theme.of(context).brightness,
-                          surface: context.sr.surface,
-                        ).foreground,
-                        fontSize: 10.5,
+                        color: _logTextColor,
+                        fontSize: _logFontSize,
                         fontFamily: 'monospace',
                         height: 1.4,
                       ),
                     ),
                   ),
-          ),
-        ],
-      ),
+                ),
+              ],
+            ),
     );
   }
 
@@ -906,7 +970,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
     padding: const EdgeInsets.all(10),
     decoration: BoxDecoration(
       color: Theme.of(context).colorScheme.errorContainer,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(SrRadius.md),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -953,7 +1017,10 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
       subtitle: subtitle.isNotEmpty
           ? Text(
               subtitle,
-              style: TextStyle(fontSize: 11, color: context.sr.textSecondary),
+              style: TextStyle(
+                fontSize: SrFontSize.caption,
+                color: context.sr.textSecondary,
+              ),
             )
           : null,
       value: value,

@@ -265,10 +265,13 @@ CREATE TABLE sync_meta (key TEXT PRIMARY KEY, value TEXT);
 | 최신 백업 파일 사용 | Documents/Download/mysafetyreport 의 .db 중 가장 최근 modified 자동 발견 | `copy:<path>` |
 | 처음부터 시작 | 빈 DB | (없음) |
 
-선택 결과는 SharedPreferences 의 `pending_db_import` 키에 저장. SetupScreen 의 `_loginStandalone` 가 standalone 로그인 성공 직후 `_applyPendingDbImport()` 호출:
+선택 결과는 SharedPreferences 의 `pending_db_import` 키에 저장. SetupScreen 의 `_loginStandalone` 가 안전신문고 로그인 성공 뒤, **Standalone 모드를 켜기(`setStandaloneConfig`) 전에** `PendingDbImportAction.applyPending()` 으로 적용한다(2026-10-04, SQ-B03):
 - `convert:<path>` → `LocalDbService.importFromServerDb(path)`
 - `copy:<path>` → `LocalDbService.replaceFromBackup(path)`
-- 적용 후 키 제거. 실패해도 로그인은 성공으로 처리 (SnackBar 만 안내).
+- 모드를 먼저 켜면 루트가 게이트 통과 흐름(drain·자동 동기화·초기화 판정)을 시작해 빈 DB 에 먼저 쓰거나 가져오기를 "작업 중"으로 거절시킬 수 있다. 모드가 꺼진 동안에는 그런 쓰기가 없다.
+- 키는 **적용에 성공했을 때만** 지운다(저장값이 그 작업일 때만). 실패하면 키를 남기고 "다시 시도 / 버리고 빈 DB로 시작" 대화상자(받은 파일 경로 표시, 뒤로가기 막음)를 띄운다. 버리면 키만 지우고 받은 파일은 남긴다.
+- 결정을 받지 못하면(화면 닫힘 등) 키를 남기고 모드도 켜지 않는다. 다음 로그인에서 다시 시도한다.
+- 데모 진입(`_enterDemo`)은 기존대로 대기 작업을 지운다.
 
 ### `LocalDbService.importFromServerDb(path)`
 서버 DB 의 3개 merge 테이블 (`mysafetymerge_traffic` / `parking` / `other`) → 모바일 단일 `reports` 테이블 + `category` 컬럼 부여. `mysafety_entry_value`, `mysafety_raw_content`, `mysafety_sync_meta`, `mysafety_duplicate_group`, `mysafety_duplicate_member`도 함께 복원한다. `mysafety_watchlist` 는 `sync_meta('watchlist')` 와 `reports.감시목록`을 다시 맞춘다. duplicate group/member가 없는 구서버 DB만 마지막에 로컬 projection 재계산을 수행한다.

@@ -9,16 +9,49 @@ import '../widgets/report_list_card.dart';
 import '../widgets/search_filter_sheet.dart';
 import '../widgets/selection_action_bar.dart';
 import '../widgets/selection_back_scope.dart';
-import 'settings_screen.dart';
+import '../widgets/sr_app_bar_actions.dart';
+import '../widgets/sr_empty_state.dart';
 import '../widgets/sr_tab_bar.dart';
 import '../widgets/status_badge.dart';
-import '../theme/sr_colors.dart';
 import '../server_palette.dart';
+import '../utils/format.dart';
+import '../theme/sr_tokens.dart';
+
+/// 통계·지도·상세 시트에서 조건으로 좁혀 여는 드릴다운 목록.
+///
+/// 앱 전체 공용 필터(`ReportProvider.filter`, 하단 신고내역 탭이 쓴다)를 바꾸지 않고
+/// 이 화면만의 [filter] 로 연다. 닫아도 신고내역 탭은 그대로다(SQ-U02).
+Future<void> pushReportDrillDown(
+  NavigatorState navigator, {
+  required ReportFilter filter,
+  required String title,
+  int initialTabIndex = 0,
+}) => navigator.push(
+  MaterialPageRoute<void>(
+    builder: (_) => ReportListScreen(
+      initialTabIndex: initialTabIndex,
+      filter: filter,
+      title: title,
+    ),
+  ),
+);
 
 class ReportListScreen extends StatefulWidget {
   final int initialTabIndex;
 
-  const ReportListScreen({super.key, this.initialTabIndex = 0});
+  /// null 이면 하단 탭의 신고내역: 공용 필터를 쓰고 검색 시트가 공용 필터를 바꾼다.
+  /// 값이 있으면 드릴다운: 이 화면만의 조건이며 공용 필터를 건드리지 않는다.
+  final ReportFilter? filter;
+
+  /// 드릴다운 제목(예: "예시 교통 담당 기관 · 신고"). 조건을 바꾸면 기본 제목으로 돌아간다.
+  final String? title;
+
+  const ReportListScreen({
+    super.key,
+    this.initialTabIndex = 0,
+    this.filter,
+    this.title,
+  });
 
   @override
   State<ReportListScreen> createState() => _ReportListScreenState();
@@ -26,12 +59,28 @@ class ReportListScreen extends StatefulWidget {
 
 class _ReportListScreenState extends State<ReportListScreen>
     with TickerProviderStateMixin {
+  /// 화면 단위 선택은 Client 중복차량 탭(메모리 목록)에만 쓴다.
+  /// 분류 탭과 Standalone 중복차량 탭은 LocalPagedReportList 가 자기 페이지 선택을 가진다.
   final Set<String> _selected = {};
   bool get _selectionMode => _selected.isNotEmpty;
   late TabController _tabController;
+
+  /// 드릴다운의 현재 조건. 하단 탭(widget.filter == null)에서는 쓰지 않는다.
+  ReportFilter? _localFilter;
+
+  /// 탭별 전체 건수(LocalPagedReportList 가 조회 뒤 알린다). 조건이 바뀌면 비운다.
+  final Map<int, PagedReportTotal?> _totals = {};
+  ReportFilter? _totalsFilter;
+
+  bool get _isDrillDown => widget.filter != null;
+
+  ReportFilter _effectiveFilter(ReportProvider provider) =>
+      _localFilter ?? provider.filter;
+
   @override
   void initState() {
     super.initState();
+    _localFilter = widget.filter;
     _tabController = TabController(
       length: 4,
       vsync: this,
@@ -66,7 +115,15 @@ class _ReportListScreenState extends State<ReportListScreen>
         p.duplicateReports.isEmpty) {
       p.fetchDuplicateReports();
     }
-    setState(() {});
+    setState(() {
+      // 화면 단위 선택은 Client 중복차량 탭의 것이다. 다른 탭으로 넘어가면 푼다.
+      if (_tabController.index != 3) _selected.clear();
+    });
+  }
+
+  void _onTabTotal(int tab, PagedReportTotal? total) {
+    if (!mounted || _totals[tab] == total) return;
+    setState(() => _totals[tab] = total);
   }
 
   void _toggleSelect(String reportNumber) {
@@ -81,65 +138,111 @@ class _ReportListScreenState extends State<ReportListScreen>
 
   void _clearSelection() => setState(() => _selected.clear());
 
+  /// Client 중복차량 탭이 보여 주는 목록(서버가 준 전체 목록을 그대로 그린다).
+  List<Report> _clientDuplicates(ReportProvider provider) =>
+      provider.appMode == AppMode.standalone
+      ? const <Report>[]
+      : provider.filteredDuplicateReports;
+
   bool _canSelectAllCurrentTab(ReportProvider provider) {
-    if (_tabController.index == 3) return false;
-    return _currentReports(
+    if (_tabController.index != 3) return false;
+    return _clientDuplicates(
       provider,
     ).any((report) => !_selected.contains(report.reportNumber));
   }
 
-  List<Report> _currentReports(ReportProvider provider) {
-    switch (_tabController.index) {
-      case 0:
-        return provider.filteredTrafficReports;
-      case 1:
-        return provider.filteredParkingReports;
-      case 2:
-        return provider.filteredOtherReports;
-      default:
-        return provider.filteredDuplicateReports;
-    }
-  }
-
   void _selectAllCurrentTab() {
     final provider = context.read<ReportProvider>();
-    final List<Report> currentReports;
-    switch (_tabController.index) {
-      case 0:
-        currentReports = provider.filteredTrafficReports;
-        break;
-      case 1:
-        currentReports = provider.filteredParkingReports;
-        break;
-      case 2:
-        currentReports = provider.filteredOtherReports;
-        break;
-      default:
-        currentReports = [];
-        break;
-    }
     setState(() {
-      for (final r in currentReports) {
+      for (final r in _clientDuplicates(provider)) {
         _selected.add(r.reportNumber);
       }
     });
   }
 
+  /// 앱바 건수 배지 문구. 확정 건수를 모르면(조회 전·오류·Client 필터 후보) null.
+  String? _countBadgeText(ReportProvider provider, bool hasFilter) {
+    final tab = _tabController.index;
+    if (tab == 3 && provider.appMode != AppMode.standalone) {
+      // Client 중복차량 탭은 필터와 무관하게 서버의 중복 목록 전체를 보인다.
+      return formatCount(provider.filteredDuplicateReports.length);
+    }
+    final total = _totals[tab];
+    if (total == null || !total.exact) return null;
+    final count = formatNumber(total.total);
+    return hasFilter ? '검색 $count건' : '$count건';
+  }
+
+  void _showSearchPopup(BuildContext context) {
+    final provider = context.read<ReportProvider>();
+    if (!_isDrillDown) {
+      showSearchFilterSheet(context, provider: provider);
+      return;
+    }
+    showSearchFilterSheet(
+      context,
+      provider: provider,
+      initialFilter: _localFilter ?? const ReportFilter(),
+      onApply: (filter) {
+        if (!mounted) return;
+        setState(() => _localFilter = filter);
+      },
+    );
+  }
+
+  /// 칩 × — 그 조건 하나만 푼다. 드릴다운은 이 화면의 조건만, 하단 탭은 공용 조건을 바꾼다(SQ-U16).
+  void _removeCondition(ReportFilterField field) {
+    if (_isDrillDown) {
+      setState(
+        () => _localFilter = (_localFilter ?? const ReportFilter()).without(
+          field,
+        ),
+      );
+      return;
+    }
+    final provider = context.read<ReportProvider>();
+    provider.setFilter(provider.filter.without(field));
+  }
+
+  /// 칩 줄 "초기화" — 상세 검색 시트의 "전체 초기화"와 같다.
+  void _clearConditions() {
+    if (_isDrillDown) {
+      setState(() => _localFilter = const ReportFilter());
+      return;
+    }
+    context.read<ReportProvider>().clearFilter();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<ReportProvider>();
-    final activeLabels = provider.filter.activeLabels;
-    final currentCount = _currentReports(provider).length;
+    // 이 화면이 그리는 값만 구독한다(SQ-P07). 분류 탭 목록은 LocalPagedReportList 가 자료 변경을 따로 본다.
+    context.select<ReportProvider, Object>(
+      (p) => (
+        p.filter,
+        p.appMode,
+        p.duplicateReports,
+        p.isLoading,
+        p.excludeWithdraw,
+      ),
+    );
+    final provider = context.read<ReportProvider>();
+    final filter = _effectiveFilter(provider);
+    if (filter != _totalsFilter) {
+      // 조건이 바뀌면 이전 조건의 건수를 보이지 않는다(새 조회가 다시 알린다).
+      _totals.clear();
+      _totalsFilter = filter;
+    }
+    final hasFilter = !filter.isEmpty;
+    final countText = _countBadgeText(provider, hasFilter);
+    final countFiltered = countText != null && countText.startsWith('검색 ');
+    final scheme = Theme.of(context).colorScheme;
     final canSelectAllCurrentTab = _canSelectAllCurrentTab(provider);
-
-    final allReports = [
-      ...provider.filteredTrafficReports,
-      ...provider.filteredParkingReports,
-      ...provider.filteredOtherReports,
-    ];
-    final selectedReports = allReports
-        .where((r) => _selected.contains(r.reportNumber))
-        .toList();
+    final selectedReports = _clientDuplicates(
+      provider,
+    ).where((r) => _selected.contains(r.reportNumber)).toList();
+    final title = _isDrillDown && _localFilter == widget.filter
+        ? (widget.title ?? '신고내역')
+        : '신고내역';
 
     return SelectionBackScope(
       selectionMode: _selectionMode,
@@ -172,135 +275,65 @@ class _ReportListScreenState extends State<ReportListScreen>
                 ],
               )
             : AppBar(
-                title: const Text('신고 내역'),
+                title: Text(title),
                 actions: [
-                  Padding(
-                    padding: const EdgeInsets.only(right: 4),
-                    child: Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: provider.hasFilter
-                              ? Theme.of(context).colorScheme.primaryContainer
-                              : Theme.of(
-                                  context,
-                                ).colorScheme.surfaceContainerHighest,
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          provider.hasFilter
-                              ? '검색 $currentCount건'
-                              : '$currentCount건',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: provider.hasFilter
-                                ? Theme.of(
-                                    context,
-                                  ).colorScheme.onPrimaryContainer
-                                : Theme.of(
-                                    context,
-                                  ).colorScheme.onSurfaceVariant,
+                  if (countText != null)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: countFiltered
+                                ? scheme.primaryContainer
+                                : scheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(SrRadius.pill),
+                          ),
+                          child: Text(
+                            countText,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: countFiltered
+                                  ? scheme.onPrimaryContainer
+                                  : scheme.onSurfaceVariant,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                  IconButton(
-                    icon: Badge(
-                      isLabelVisible: provider.hasFilter,
-                      child: const Icon(Icons.filter_list),
-                    ),
-                    tooltip: '검색/필터',
+                  FilterActionButton(
+                    active: hasFilter,
                     onPressed: () => _showSearchPopup(context),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.settings),
-                    tooltip: '설정',
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const SettingsScreen()),
-                    ),
-                  ),
+                  const SettingsActionButton(),
                 ],
                 bottom: SrTabBar(
                   controller: _tabController,
-                  tabs: const [
-                    Tab(text: '교통위반'),
-                    Tab(text: '주정차'),
-                    Tab(text: '기타위반'),
-                    Tab(text: '중복차량'),
-                  ],
+                  textScaler: MediaQuery.textScalerOf(context),
+                  labels: const ['교통위반', '주정차', '기타위반', '중복차량'],
                 ),
               ),
         body: Stack(
           children: [
             Column(
               children: [
-                if (provider.hasFilter && activeLabels.isNotEmpty)
-                  Container(
-                    width: double.infinity,
-                    color: context.sr.brandSoft,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: activeLabels
-                            .map(
-                              (label) => Padding(
-                                padding: const EdgeInsets.only(right: 6),
-                                child: Chip(
-                                  label: Text(
-                                    label,
-                                    style: const TextStyle(fontSize: 11),
-                                  ),
-                                  backgroundColor: Theme.of(
-                                    context,
-                                  ).colorScheme.surface,
-                                  side: BorderSide(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
-                                  ),
-                                  padding: EdgeInsets.zero,
-                                  materialTapTargetSize:
-                                      MaterialTapTargetSize.shrinkWrap,
-                                ),
-                              ),
-                            )
-                            .toList(),
-                      ),
-                    ),
-                  ),
+                ActiveFilterChipBar(
+                  conditions: filter.activeConditions,
+                  onRemove: _removeCondition,
+                  onClear: _clearConditions,
+                ),
                 Expanded(
                   child: TabBarView(
                     controller: _tabController,
                     children: [
-                      _buildTab(
-                        provider,
-                        provider.filteredTrafficReports,
-                        provider.fetchTrafficReports,
-                        category: 'traffic',
-                      ),
-                      _buildTab(
-                        provider,
-                        provider.filteredParkingReports,
-                        provider.fetchParkingReports,
-                        category: 'parking',
-                      ),
-                      _buildTab(
-                        provider,
-                        provider.filteredOtherReports,
-                        provider.fetchOtherReports,
-                        category: 'other',
-                      ),
-                      _buildDuplicateTab(provider),
+                      _buildTab(filter, 'traffic', 0),
+                      _buildTab(filter, 'parking', 1),
+                      _buildTab(filter, 'other', 2),
+                      _buildDuplicateTab(provider, filter),
                     ],
                   ),
                 ),
@@ -323,57 +356,33 @@ class _ReportListScreenState extends State<ReportListScreen>
     );
   }
 
-  Widget _buildTab(
-    ReportProvider provider,
-    List<Report> reports,
-    Future<void> Function() onRefresh, {
-    required String category,
-  }) {
+  Widget _buildTab(ReportFilter filter, String category, int tab) {
     return LocalPagedReportList(
       key: ValueKey('page-$category'),
       category: category,
-      filter: provider.filter,
+      filter: filter,
+      onTotalChanged: (total) => _onTabTotal(tab, total),
     );
   }
 
-  Widget _buildDuplicateTab(ReportProvider provider) {
+  Widget _buildDuplicateTab(ReportProvider provider, ReportFilter filter) {
     if (provider.appMode == AppMode.standalone) {
-      return LocalPagedReportList(scope: 'duplicates', filter: provider.filter);
+      return LocalPagedReportList(
+        scope: 'duplicates',
+        filter: filter,
+        onTotalChanged: (total) => _onTabTotal(3, total),
+      );
     }
     final reports = provider.filteredDuplicateReports;
     if (provider.isLoading && reports.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
     if (reports.isEmpty) {
-      return LayoutBuilder(
-        builder: (context, constraints) => RefreshIndicator(
-          onRefresh: provider.fetchDuplicateReports,
-          child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: constraints.maxHeight),
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.content_copy,
-                      size: 56,
-                      color: context.sr.textDisabled,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      '중복 신고 차량이 없습니다.',
-                      style: TextStyle(
-                        color: context.sr.textSecondary,
-                        fontSize: 15,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+      return RefreshIndicator(
+        onRefresh: provider.fetchDuplicateReports,
+        child: const SrEmptyState(
+          icon: Icons.content_copy,
+          title: '중복 신고 차량이 없습니다.',
         ),
       );
     }
@@ -417,18 +426,6 @@ class _ReportListScreenState extends State<ReportListScreen>
             )
           : null,
       metaItems: _buildMetaItems(report, includeLocation: true),
-    );
-  }
-
-  void _showSearchPopup(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) =>
-          SearchFilterSheet(provider: context.read<ReportProvider>()),
     );
   }
 

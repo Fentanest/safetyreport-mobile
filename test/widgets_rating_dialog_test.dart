@@ -138,4 +138,111 @@ void main() {
       expect(result, isNull);
     },
   );
+
+  // L-7: 세로 화면 + 키보드 + 큰 글자에서 사유 입력칸이 한 줄만 보이고 도움말·글자 수가 가려지던 문제.
+  Future<void> openDialog(WidgetTester tester, double scale) async {
+    tester.view.physicalSize = const Size(360, 740);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(scale)),
+          child: child!,
+        ),
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () => showDialog<({int score, String cause})>(
+                context: context,
+                builder: (_) => const RatingDialog(
+                  count: 20,
+                  eligibleCount: 17,
+                  causeSupported: true,
+                ),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+  }
+
+  for (final scale in [1.0, 1.3, 2.0]) {
+    testWidgets(
+      'portrait 360x740 + IME 300 scale=$scale: reason shows 3+ lines and counter',
+      (tester) async {
+        await openDialog(tester, scale);
+        await tester.showKeyboard(find.byType(TextField));
+        tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+
+        final viewport = tester.getRect(
+          find
+              .ancestor(
+                of: find.byType(TextField),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
+        final visible = viewport.intersect(
+          const Rect.fromLTWH(0, 0, 360, 740 - 300),
+        );
+        bool inside(Rect r) =>
+            r.top >= visible.top - 0.5 && r.bottom <= visible.bottom + 0.5;
+
+        final editable = tester
+            .state<EditableTextState>(find.byType(EditableText))
+            .renderEditable;
+        final editableRect = tester.getRect(find.byType(EditableText));
+        expect(
+          inside(editableRect),
+          isTrue,
+          reason: '$editableRect / $visible',
+        );
+        expect(
+          editableRect.height,
+          greaterThanOrEqualTo(editable.preferredLineHeight * 3 - 0.5),
+        );
+        final counter = find.text('0 / ${RatingService.ratingCauseMax}자');
+        expect(counter, findsOneWidget);
+        expect(inside(tester.getRect(counter)), isTrue);
+        expect(
+          find.widgetWithText(FilledButton, '확인').hitTestable(),
+          findsOneWidget,
+        );
+        expect(
+          find.widgetWithText(TextButton, '취소').hitTestable(),
+          findsOneWidget,
+        );
+
+        // 키보드를 닫으면 설명 문구가 돌아온다.
+        tester.view.viewInsets = FakeViewPadding.zero;
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(find.textContaining('진행 가능 17건'), findsOneWidget);
+      },
+    );
+  }
+
+  testWidgets('selected score chip shows fill only, no checkmark', (
+    tester,
+  ) async {
+    await openDialog(tester, 1.0);
+    final chips = tester.widgetList<ChoiceChip>(find.byType(ChoiceChip));
+    expect(chips, hasLength(5));
+    for (final chip in chips) {
+      expect(chip.showCheckmark, isFalse);
+    }
+    expect(chips.where((c) => c.selected), hasLength(1));
+  });
 }

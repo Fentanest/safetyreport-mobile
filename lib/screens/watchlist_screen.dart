@@ -10,7 +10,10 @@ import '../services/repositories/watchlist_repository.dart';
 
 import '../theme/sr_colors.dart';
 import '../widgets/report_detail_sheet.dart';
+import '../widgets/sr_empty_state.dart';
 import '../widgets/status_badge.dart';
+import '../theme/sr_tokens.dart';
+import '../widgets/sr_snack_bar.dart';
 
 class WatchlistScreen extends StatelessWidget {
   const WatchlistScreen({super.key});
@@ -95,19 +98,16 @@ class _WatchlistPanelState extends State<WatchlistPanel> {
     if (confirmed != true) return;
     try {
       await provider.removeFromWatchlist([r.reportNumber]);
+      if (!mounted) return;
       setState(
         () => _items.removeWhere((i) => i.reportNumber == r.reportNumber),
       );
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('감시 목록에서 제거되었습니다.')));
+        showSrSnack(context, '감시 목록에서 제거되었습니다.');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('오류: $e')));
+        showSrSnack(context, '오류: $e', kind: SrSnackKind.error);
       }
     }
   }
@@ -147,18 +147,15 @@ class _WatchlistPanelState extends State<WatchlistPanel> {
       );
       if (confirmed != true || epoch != provider.datasetEpoch) return;
       await provider.removeFromWatchlist(rnums);
-      provider.bumpStatsRefresh();
+      // 감시 목록이 바뀌었다 — 이 목록을 보여 주는 화면들이 다시 읽는다(SQ-P02, 통계 탭 신호가 아님).
+      provider.markDataChanged();
       if (mounted) setState(() => _items.clear());
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('감시 목록이 모두 해제되었습니다.')));
+        showSrSnack(context, '감시 목록이 모두 해제되었습니다.');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('오류: $e')));
+        showSrSnack(context, '오류: $e', kind: SrSnackKind.error);
       }
     } finally {
       if (mounted) setState(() => _clearing = false);
@@ -167,7 +164,8 @@ class _WatchlistPanelState extends State<WatchlistPanel> {
 
   @override
   Widget build(BuildContext context) {
-    if (context.watch<ReportProvider>().appMode == AppMode.standalone) {
+    if (context.select<ReportProvider, AppMode>((p) => p.appMode) ==
+        AppMode.standalone) {
       return Column(
         children: [
           Align(
@@ -211,56 +209,21 @@ class _WatchlistPanelState extends State<WatchlistPanel> {
         Expanded(
           child: _loading
               ? const Center(child: CircularProgressIndicator())
+              // 공용 빈/오류 상태(SQ-U21).
               : _error != null
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.error_outline,
-                        size: 48,
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(_error!, textAlign: TextAlign.center),
-                      const SizedBox(height: 16),
-                      FilledButton.icon(
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('다시 시도'),
-                        onPressed: _load,
-                      ),
-                    ],
-                  ),
+              ? SrEmptyState.error(
+                  title: '감시 목록을 불러오지 못했습니다',
+                  detail: _error,
+                  onRetry: _load,
                 )
               : _items.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.bookmark_border,
-                        size: 64,
-                        color: context.sr.textDisabled,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        '감시 목록이 비어 있습니다.',
-                        style: TextStyle(
-                          color: context.sr.textSecondary,
-                          fontSize: 15,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
+              ? RefreshIndicator(
+                  onRefresh: _load,
+                  child: const SrEmptyState(
+                    icon: Icons.bookmark_border,
+                    title: '감시 목록이 비어 있습니다.',
+                    message:
                         '서버에서 감시 목록에 추가하거나\n신고리스트 다중 선택 모드에서 바로 추가할 수 있습니다.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: context.sr.textSecondary,
-                          fontSize: 12,
-                          height: 1.5,
-                        ),
-                      ),
-                    ],
                   ),
                 )
               : RefreshIndicator(
@@ -300,7 +263,7 @@ class _WatchCard extends StatelessWidget {
     return Card(
       margin: EdgeInsets.zero,
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         onTap: () => showReportDetailSheet(context, report),
         child: Padding(
           padding: const EdgeInsets.all(14),
@@ -393,12 +356,15 @@ class _WatchCard extends StatelessWidget {
         const SizedBox(width: 4),
         Text(
           '$label ',
-          style: TextStyle(fontSize: 11, color: context.sr.textSecondary),
+          style: TextStyle(
+            fontSize: SrFontSize.caption,
+            color: context.sr.textSecondary,
+          ),
         ),
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(fontSize: 11),
+            style: const TextStyle(fontSize: SrFontSize.caption),
             overflow: TextOverflow.ellipsis,
           ),
         ),

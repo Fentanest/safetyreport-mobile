@@ -10,17 +10,23 @@ import '../services/api_service.dart';
 import '../services/local_db_service.dart';
 import 'report_map_screen.dart';
 import 'report_list_screen.dart';
-import 'settings_screen.dart';
+import '../widgets/sr_app_bar_actions.dart';
+import '../widgets/sr_page_padding.dart';
 import 'sunwi_screen.dart';
 import '../theme/sr_colors.dart';
 import '../widgets/stats_overview_section.dart';
 import '../widgets/stats_fine_breakdown.dart';
+import '../theme/sr_tokens.dart';
 
 /// 통계 화면(2026-09-28 개편).
 /// 위에서부터: 공통 조건(연도·분류·법규) → 요약(2열 카드·월별 처리 추이·펼치는 차트, 접기 가능)
-/// → 신고 지도 열기 → 상세 통계(여섯 보기·검색·정렬·기관/담당자 카드) → 전국 안전신고 현황.
+/// → 상세 통계(여섯 보기·검색·정렬·기관/담당자 카드) → 전국 안전신고 현황.
 /// 여섯 보기는 상세 영역의 집계 단위·기관 범위만 바꾼다(요약 수치는 그대로).
 class StatisticsScreen extends StatefulWidget {
+  /// Client 통계를 탭 재진입 때 다시 받을 기준 나이(SQ-P02 보완). 시험에서만 바꾼다.
+  @visibleForTesting
+  static Duration clientStatsMaxAge = const Duration(seconds: 60);
+
   const StatisticsScreen({super.key});
 
   @override
@@ -54,9 +60,17 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
 
   /// 조건을 빠르게 바꿀 때 늦게 온 이전 응답이 최신 화면을 덮지 않게 요청 번호를 비교한다.
   int _loadSeq = 0;
-  int _lastRefreshNonce = 0;
+  int? _lastRefreshNonce;
   bool? _wasActive;
   String? _datasetScope;
+
+  /// 마지막으로 반영한 자료 revision(SQ-P02). 숨은 동안 바뀌면 [_stale] 로 두고 다시 보일 때 읽는다.
+  int? _dataRevision;
+  bool _stale = false;
+
+  /// Client 통계를 마지막으로 받아 온 시각. PC 쪽에서 알림 없이 바뀐 자료를 놓치지 않도록, 탭에 다시 들어왔을 때
+  /// 이보다 오래됐으면 지금 수치를 보인 채 다시 받는다(SQ-P02 보완). Standalone 은 [_dataRevision] 으로 충분하다.
+  DateTime? _clientLoadedAt;
 
   @override
   void initState() {
@@ -71,43 +85,82 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     super.dispose();
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
+  /// build 에서 부른다(context.select 는 build 안에서만 쓸 수 있다). 다시 읽기는 다음 프레임에 한다.
+  void _watchDependencies(BuildContext context) {
     final active = TickerMode.valuesOf(context).enabled;
-    final p = context.watch<ReportProvider>();
-    final scope =
-        '${p.datasetEpoch}:${p.excludeWithdraw}:${p.useRepresentativeRecords}';
+    // 이 화면이 쓰는 값만 구독한다(SQ-P07).
+    final (
+      scope,
+      revision,
+      nonce,
+    ) = context.select<ReportProvider, (String, int, int)>(
+      (p) => (
+        '${p.datasetEpoch}:${p.excludeWithdraw}:${p.useRepresentativeRecords}',
+        p.dataRevision,
+        p.statsRefreshNonce,
+      ),
+    );
     var reload = _wasActive == false && active && _loading;
+    var keepShown = false;
     if (_datasetScope != null && _datasetScope != scope) {
       reload = true;
+      _stale = false;
       _stats = null;
       _overview = null;
       _loading = true;
+    } else if (_dataRevision != null && _dataRevision != revision) {
+      // 자료가 바뀌었다(SQ-P02). 숨은 동안에는 표시만 해 두고 다시 보일 때 한 번 읽는다.
+      _stale = true;
     }
     _datasetScope = scope;
-    _wasActive = active;
-    final nonce = p.statsRefreshNonce;
-    if (nonce != _lastRefreshNonce) {
-      _lastRefreshNonce = nonce;
-      reload = reload || nonce != 0;
+    _dataRevision = revision;
+    if (_stale && active) {
+      _stale = false;
+      if (!reload) keepShown = true;
+      reload = true;
     }
+    // 통계 탭 진입 신호: 자료가 그대로면 이미 보이는 결과를 그대로 둔다(빈 화면 깜박임·Client 재요청 없음).
+    // 이전 조회가 실패했을 때만 다시 시도한다. 첫 구독은 기준값만 잡는다(initState 가 이미 읽는다).
+    if (nonce != _lastRefreshNonce) {
+      final entered = _lastRefreshNonce != null;
+      _lastRefreshNonce = nonce;
+      if (entered && active && !_loading) {
+        if (_error != null) {
+          reload = true;
+        } else if (_isClientStatsStale()) {
+          reload = true;
+          keepShown = true;
+        }
+      }
+    }
+    _wasActive = active;
     if (reload) {
       _loadSeq++;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _load();
+        if (mounted) _load(keepShown: keepShown);
       });
     }
   }
 
-  Future<void> _load() async {
+  bool _isClientStatsStale() {
+    if (context.read<ReportProvider>().appMode != AppMode.server) return false;
+    final loadedAt = _clientLoadedAt;
+    return loadedAt == null ||
+        DateTime.now().difference(loadedAt) >=
+            StatisticsScreen.clientStatsMaxAge;
+  }
+
+  /// [keepShown] 이 true 면(같은 조건의 자료 변경) 새 결과가 올 때까지 지금 수치를 그대로 보인다.
+  Future<void> _load({bool keepShown = false}) async {
     final seq = ++_loadSeq;
     setState(() {
       _loading = true;
       _error = null;
-      // 새 조건의 요약이 오기 전까지 이전 조건의 요약 수치를 보이지 않는다(불러오는 중 안내).
-      _overview = null;
-      _overviewNotice = null;
+      if (!keepShown) {
+        // 새 조건의 요약이 오기 전까지 이전 조건의 요약 수치를 보이지 않는다(불러오는 중 안내).
+        _overview = null;
+        _overviewNotice = null;
+      }
     });
     final p = context.read<ReportProvider>();
     final epoch = p.datasetEpoch;
@@ -140,6 +193,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         if (localOverview != null) _overview = localOverview;
         _loading = false;
       });
+      if (p.appMode == AppMode.server) _clientLoadedAt = DateTime.now();
     } on QueryCancelled {
       return;
     } catch (e) {
@@ -341,9 +395,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
+      // 전체 높이까지 끌어올려도 상태 표시줄 아래에서 멈춘다(SQ-U07).
+      useSafeArea: true,
       builder: (_) => StatefulBuilder(
         builder: (sheetContext, setSheet) {
           final filtered = laws
@@ -356,16 +409,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
             expand: false,
             builder: (_, controller) => Column(
               children: [
-                const SizedBox(height: 12),
-                Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: context.sr.border,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-                const SizedBox(height: 12),
+                // 손잡이는 테마(showDragHandle)가 그린다(SQ-U07).
                 const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 16),
                   child: Align(
@@ -467,29 +511,27 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => PerformanceTrace.sync(
-    'statistics.screen_build',
-    () => _buildMeasured(context),
-  );
+  Widget build(BuildContext context) {
+    _watchDependencies(context);
+    return PerformanceTrace.sync(
+      'statistics.screen_build',
+      () => _buildMeasured(context),
+    );
+  }
 
   Widget _buildMeasured(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('통계'),
+        // 지도 진입은 앱바 한 곳(SQ-U16). 설정은 항상 맨 끝.
         actions: [
           TextButton.icon(
+            key: const ValueKey('stats-open-map'),
             onPressed: _openMap,
             icon: const Icon(Icons.map_outlined, size: 18),
             label: const Text('지도'),
           ),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            tooltip: '설정',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SettingsScreen()),
-            ),
-          ),
+          const SettingsActionButton(),
         ],
       ),
       body: _loading && _stats == null
@@ -508,7 +550,11 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       onRefresh: _load,
       child: ListView.builder(
         key: const PageStorageKey('stats-list'),
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+        // 가로 모드 좌우 컷아웃·내비 여백(SQ-U26).
+        padding: srPagePadding(
+          context,
+          const EdgeInsets.fromLTRB(12, 8, 12, 24),
+        ),
         itemCount: 1 + cardCount + 1,
         itemBuilder: (context, index) {
           if (index == 0) return _buildHeader(rows);
@@ -618,18 +664,15 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                 _overviewNotice ??
                 (_overview == null ? '요약을 불러오는 중입니다…' : null),
           ),
-        OutlinedButton.icon(
-          key: const ValueKey('stats-open-map'),
-          onPressed: _openMap,
-          icon: const Icon(Icons.map_outlined),
-          label: const Text('신고 지도 열기'),
-        ),
         if (_law != null)
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
-              '신고 지도에는 답변 연도·분류만 적용됩니다(위반법규 조건은 지도에서 지원하지 않음).',
-              style: TextStyle(fontSize: 11, color: sr.textSecondary),
+              '상단 "지도"에는 답변 연도·분류만 적용됩니다(위반법규 조건은 지도에서 지원하지 않음).',
+              style: TextStyle(
+                fontSize: SrFontSize.caption,
+                color: sr.textSecondary,
+              ),
             ),
           ),
         const SizedBox(height: 16),
@@ -713,7 +756,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         Text(
           _scopeText(rows, summary),
           style: TextStyle(
-            fontSize: 11.5,
+            fontSize: SrFontSize.caption,
             color: sr.textSecondary,
             height: 1.4,
           ),
@@ -739,8 +782,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       if (missing > 0) {
         parts.add(
           _showPerson
-              ? '처리기관·담당자가 없는 $missing건은 담당자 목록에 없음'
-              : '처리기관이 없는 $missing건은 기관 목록에 없음',
+              ? '답변 전이거나 처리기관·담당자가 없는 $missing건은 담당자 목록에 없음'
+              : '답변 전이거나 처리기관이 없는 $missing건은 기관 목록에 없음',
         );
       }
     }
@@ -762,7 +805,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           Text(
             '안전신문고 공개 통계의 행정구역별 현황입니다. 위의 내 신고 통계와 다른 자료이며 조건이 적용되지 않습니다.',
             style: TextStyle(
-              fontSize: 11.5,
+              fontSize: SrFontSize.caption,
               color: sr.textSecondary,
               height: 1.4,
             ),
@@ -822,13 +865,13 @@ class _LawChip extends StatelessWidget {
     final color = Theme.of(context).colorScheme.primary;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(SrRadius.md),
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 3),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
           color: selected ? context.sr.brandSoft : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(SrRadius.md),
           border: Border.all(color: selected ? color : context.sr.border),
         ),
         child: Row(
@@ -879,12 +922,9 @@ class _Conditions extends StatelessWidget {
     ('other', '기타위반'),
   ];
 
-  // 카테고리 식별색(교통 파랑 / 주정차 주황 / 기타 초록). 글자·테두리는 StatusTone 으로 AA 보정.
-  Color _catColor(BuildContext context, String c) => switch (c) {
-    'traffic' => context.sr.brand,
-    'parking' => serverPartialAcceptColor,
-    _ => serverAcceptColor,
-  };
+  // 카테고리 식별색(교통 파랑 / 주정차 주황 / 기타 초록 — SrColors 분류 토큰). 글자·테두리는 StatusTone 으로 AA 보정.
+  Color _catColor(BuildContext context, String c) =>
+      context.sr.category(c == 'traffic' || c == 'parking' ? c : 'other');
 
   @override
   Widget build(BuildContext context) {
@@ -931,16 +971,17 @@ class _Conditions extends StatelessWidget {
         Semantics(
           button: true,
           label: '위반법규 선택, 현재 $lawLabel',
+          onTap: onLawTap,
           excludeSemantics: true,
           child: InkWell(
             key: const ValueKey('stats-law-picker'),
             onTap: onLawTap,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(SrRadius.lg),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
               decoration: BoxDecoration(
                 color: lawActive ? sr.brandSoft : scheme.surface,
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(SrRadius.lg),
                 border: Border.all(
                   color: lawActive ? scheme.primary : sr.border,
                 ),
@@ -1045,7 +1086,7 @@ class _PillChip extends StatelessWidget {
       button: true,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(SrRadius.pill),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           constraints: BoxConstraints(minHeight: expand ? 36 : 0),
@@ -1055,7 +1096,7 @@ class _PillChip extends StatelessWidget {
           ),
           decoration: BoxDecoration(
             color: selected ? scheme.primary : scheme.surface,
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: BorderRadius.circular(SrRadius.pill),
             border: Border.all(color: selected ? scheme.primary : sr.border),
           ),
           alignment: Alignment.center,
@@ -1103,13 +1144,13 @@ class _CategoryChip extends StatelessWidget {
       button: true,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
           decoration: BoxDecoration(
             color: selected ? tone.background : theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(SrRadius.lg),
             border: Border.all(
               color: selected ? tone.foreground : sr.border,
               width: selected ? 1.6 : 1,
@@ -1150,30 +1191,26 @@ class _RowCard extends StatelessWidget {
   void _openList(BuildContext context) {
     final agency = row.agency;
     final person = showPerson ? row.person : '';
-    final provider = context.read<ReportProvider>();
     // S-08: 통계 연도는 답변일 기준이므로 drilldown 도 답변일 범위로 좁힌다.
     final responseDateStart = year == 'all' ? '' : '$year-01-01';
     final responseDateEnd = year == 'all' ? '' : '$year-12-31';
-    provider.setFilter(
-      ReportFilter(
+    // SQ-U02: 공용 필터(하단 신고내역 탭)를 바꾸지 않고 이 화면만의 조건으로 연다.
+    final condition = [agency, person].where((v) => v.isNotEmpty).join(' · ');
+    pushReportDrillDown(
+      Navigator.of(context),
+      filter: ReportFilter(
         agency: agency,
         manager: person,
         law: law ?? '',
         responseDateStart: responseDateStart,
         responseDateEnd: responseDateEnd,
       ),
-    );
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ReportListScreen(
-          initialTabIndex: switch (category) {
-            'parking' => 1,
-            'other' => 2,
-            _ => 0,
-          },
-        ),
-      ),
+      title: condition.isEmpty ? '신고내역' : '$condition · 신고',
+      initialTabIndex: switch (category) {
+        'parking' => 1,
+        'other' => 2,
+        _ => 0,
+      },
     );
   }
 
@@ -1226,7 +1263,7 @@ class _RowCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         onTap: () => _openList(context),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
@@ -1255,7 +1292,7 @@ class _RowCard extends StatelessWidget {
                           Text(
                             '소속 ${row.agency}',
                             style: TextStyle(
-                              fontSize: 11.5,
+                              fontSize: SrFontSize.caption,
                               color: sr.textSecondary,
                             ),
                             softWrap: true,
@@ -1271,7 +1308,7 @@ class _RowCard extends StatelessWidget {
                           TextSpan(
                             text: '총 ',
                             style: TextStyle(
-                              fontSize: 11,
+                              fontSize: SrFontSize.caption,
                               color: sr.textSecondary,
                             ),
                           ),
@@ -1286,7 +1323,7 @@ class _RowCard extends StatelessWidget {
                           TextSpan(
                             text: '건',
                             style: TextStyle(
-                              fontSize: 11,
+                              fontSize: SrFontSize.caption,
                               color: sr.textSecondary,
                             ),
                           ),
@@ -1303,7 +1340,7 @@ class _RowCard extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(10, 8, 10, 2),
                 decoration: BoxDecoration(
                   color: sr.surfaceAlt,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(SrRadius.lg),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1362,7 +1399,7 @@ class _RowCard extends StatelessWidget {
               const SizedBox(height: 8),
               if (row.total > 0)
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
+                  borderRadius: BorderRadius.circular(SrRadius.sm),
                   child: Row(
                     children: [
                       for (final c in cells)
@@ -1442,7 +1479,7 @@ class _StatBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 4),
       decoration: BoxDecoration(
         color: muted ? context.sr.surfaceAlt : tone.background,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(SrRadius.md),
         border: Border.all(color: muted ? context.sr.border : tone.border),
       ),
       child: Column(
@@ -1458,7 +1495,7 @@ class _StatBadge extends StatelessWidget {
           Text(
             '$label ${pct.toStringAsFixed(1)}%',
             style: TextStyle(
-              fontSize: 10,
+              fontSize: SrFontSize.caption,
               color: muted ? context.sr.textSecondary : tone.foreground,
             ),
             textAlign: TextAlign.center,

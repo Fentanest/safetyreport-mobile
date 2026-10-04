@@ -53,8 +53,10 @@ Kotlin NotificationService.onNotificationPosted(sbn)
                               └─ "📬 신규 신고 감지" heads-up 알림 (탭 시 nav_tab=6)
 ```
 
-감지 알림 탭 → MainActivity.onNewIntent → handleNavIntent → 500ms 지연 후 MethodChannel `navigateToTab` →  
-Flutter `_handleNativeCall` → 동기화 탭 이동 + (Standalone) `checkAutoSyncOnResume()` → `_drainAndRefresh()`.
+감지 알림 탭 → MainActivity.onNewIntent → handleNavIntent → 요청을 `pendingNav` 에 보관 → MethodChannel `navigateToTab` →  
+Flutter `NativeCallRouter`(앱 루트, `main()` 에서 시작) → 메인 화면(`MainNavigationScreen.handleNativeNavigation`)이 붙어 있으면 전달, 없으면 최신 요청 하나를 보관했다가 붙을 때 한 번 전달 → 동기화 탭 이동 + (Standalone) `checkAutoSyncOnResume()` → `_drainAndRefresh()`.
+- 2026-10-04(SQ-B05): Dart 가 루트 처리기를 건 뒤 `dartReady` 를 보내면 Kotlin 이 보관한 요청을 보낸다. 예전 500ms 지연 전송은 예비로 남았고, Dart 처리기가 없으면(`notImplemented`) 요청을 지우지 않는다. Dart 가 받았을 때(success/error)만 지운다.
+- `syncFgsStopped` 는 화면과 무관하게 `NativeCallRouter` → `SyncEngine.onNativeFgsStopped` 로 간다(초기 재구성 중에도 전달).
 단, `standaloneDemoMode=true` 이면 resume 시 refreshAll 만 수행하고 실제 drain/sync 는 생략.
 
 ### 3. Standalone drainIfPending (`StandaloneAutoSyncService`)

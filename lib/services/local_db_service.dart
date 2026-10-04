@@ -1701,6 +1701,7 @@ class LocalDbService {
     bool Function()? isCancelled,
     bool excludeWithdraw = false,
     bool useRepresentativeRecords = false,
+    bool compact = false,
   }) => runBackgroundWork(() async {
     if (page < 0 || pageSize < 1 || pageSize > 200) {
       throw ArgumentError('잘못된 페이지');
@@ -1723,7 +1724,14 @@ class LocalDbService {
         q.args.add('$answerYear%');
       }
       if (scope == 'duplicates') {
-        return _getDuplicatePage(d, page, pageSize, excludeWithdraw, q);
+        return _getDuplicatePage(
+          d,
+          page,
+          pageSize,
+          excludeWithdraw,
+          q,
+          compact: compact,
+        );
       }
       if (metric != null) {
         final condition = switch (metric) {
@@ -1788,27 +1796,67 @@ class LocalDbService {
       final rows = await PerformanceTrace.sql(
         'list.sql_page',
         () => d.rawQuery(
-          'SELECT r.* FROM $effectiveReportsView r WHERE ${q.where} ORDER BY ${scope == 'recent' ? 'CAST(synced_at AS INTEGER) DESC, 답변일 DESC, 신고번호 DESC, ID DESC' : '신고번호 DESC, ID DESC'} LIMIT ? OFFSET ?',
+          'SELECT ${compact ? _listCardSelect : 'r.*'} FROM $effectiveReportsView r WHERE ${q.where} ORDER BY ${scope == 'recent' ? 'CAST(synced_at AS INTEGER) DESC, 답변일 DESC, 신고번호 DESC, ID DESC' : '신고번호 DESC, ID DESC'} LIMIT ? OFFSET ?',
           [...q.args, pageSize, page * pageSize],
         ),
       );
       return (
         reports: PerformanceTrace.sync(
           'list.report_objects',
-          () => rows.map(_rowToReport).toList(),
+          () => rows
+              .map((r) => _rowToReport(r, detailLoaded: !compact))
+              .toList(),
         ),
         total: count.first['n'] as int,
       );
     }, exclusive: false);
   });
 
+  /// 목록 카드·선택 동작·별점 판정이 쓰는 열(SQ-P06). 긴 본문(신고내용·처리내용·보완 내용)과
+  /// 첨부·지도 URL, 매핑하지 않는 원문 열은 읽지 않는다. 상세 시트는 열 때 한 건을 다시 읽는다
+  /// ([Report.detailLoaded] false → `showReportDetailSheet` 가 [getReport] 로 채운다).
+  static const listCardColumns = <String>[
+    'ID',
+    '신고번호',
+    '신고명',
+    '신고일',
+    '답변일',
+    '처리기관',
+    '처리기관코드',
+    '담당자',
+    '처리상태',
+    '상태',
+    '범칙금_과태료',
+    '벌점',
+    '차량번호',
+    '위반법규',
+    '위반장소',
+    '발생일자',
+    '발생시각',
+    '만족도조사여부',
+    '종결여부',
+    '별점',
+    '별점사유',
+    'category',
+    'synced_at',
+    '보완횟수',
+    '보완_미응답',
+    '보완_요청자',
+    '보완_요청일시',
+    '보완_완료일시',
+  ];
+  static final String _listCardSelect = listCardColumns
+      .map((c) => 'r."$c"')
+      .join(', ');
+
   static Future<({List<Report> reports, int total})> _getDuplicatePage(
     DatabaseExecutor d,
     int page,
     int pageSize,
     bool excludeWithdraw,
-    ReportQuery q,
-  ) async {
+    ReportQuery q, {
+    bool compact = false,
+  }) async {
     final withdraw = excludeWithdraw ? "AND IFNULL(처리상태,'') != '취하'" : '';
     final cte =
         """
@@ -1822,13 +1870,15 @@ class LocalDbService {
       q.args,
     );
     final rows = await d.rawQuery(
-      '$cte SELECT r.*, dv.total_count, dv.valid_count FROM $effectiveReportsView r '
+      '$cte SELECT ${compact ? _listCardSelect : 'r.*'}, dv.total_count, dv.valid_count FROM $effectiveReportsView r '
       'JOIN dv ON r.차량번호 = dv.차량번호 WHERE ${q.where} $withdraw '
       'ORDER BY dv.max_report_no DESC, r.차량번호 ASC, r.신고번호 DESC, r.ID DESC LIMIT ? OFFSET ?',
       [...q.args, pageSize, page * pageSize],
     );
     return (
-      reports: rows.map(_rowToReportWithCounts).toList(),
+      reports: rows
+          .map((r) => _rowToReportWithCounts(r, detailLoaded: !compact))
+          .toList(),
       total: (count.first['n'] as int?) ?? 0,
     );
   }
@@ -1877,6 +1927,98 @@ class LocalDbService {
     );
     return projected.map((r) => _rowToReport(r)).toList();
   }
+
+  /// 엑셀 내보내기가 시트에 쓰는 값을 만드는 데 필요한 열(SQ-P03). 처리기관코드는 기관 표시명 해석에 쓴다.
+  @visibleForTesting
+  static const exportReportColumns = <String>[
+    'ID',
+    '상태',
+    '신고번호',
+    '신고명',
+    '신고일',
+    '처리상태',
+    '차량번호',
+    '위반법규',
+    '범칙금_과태료',
+    '벌점',
+    '처리기관',
+    '처리기관코드',
+    '담당자',
+    '답변일',
+    '발생일자',
+    '발생시각',
+    '위반장소',
+    '종결여부',
+    '신고내용',
+    '처리내용',
+    '지도',
+    '첨부사진',
+    '첨부파일',
+    '만족도조사여부',
+    '별점',
+    '별점사유',
+  ];
+
+  static String _exportWhere(bool excludeWithdraw) => excludeWithdraw
+      ? "category = ? AND IFNULL(처리상태, '') != '취하'"
+      : 'category = ?';
+
+  /// 엑셀 내보내기 진행률의 분모. [readReportsForExport] 와 같은 조건이다.
+  static Future<int> countReportsForExport(
+    String category, {
+    bool excludeWithdraw = false,
+  }) => runBackgroundWork(() async {
+    final d = await db;
+    final rows = await d.rawQuery(
+      'SELECT COUNT(*) AS n FROM $effectiveReportsView WHERE ${_exportWhere(excludeWithdraw)}',
+      [category],
+    );
+    return (rows.first['n'] as int?) ?? 0;
+  });
+
+  /// 엑셀 내보내기 전용 페이지 읽기(SQ-P03).
+  ///
+  /// [getReportsByCategory] 와 같은 조건·같은 순서(ID 오름차순 keyset, [_kListChunkSize] 행)로 읽되,
+  /// [exportReportColumns] 만 읽고 페이지마다 같은 변환([_rowToReport])을 거친 [Report] 를 [onPage] 로 넘긴다.
+  /// 전체 목록을 만들지 않는다. 신고번호 정렬은 호출자가 모든 페이지를 받은 뒤 같은 비교로 한다.
+  /// 내보내기는 대표건 투영을 쓰지 않는다(useRepresentativeRecords=false 이면 [_projectRows] 는 행을 그대로 돌려준다).
+  /// 페이지 경계에서 [isCancelled] 또는 연결 닫기 요청이면 [QueryCancelled] 로 멈춘다.
+  static Future<void> readReportsForExport(
+    String category, {
+    bool excludeWithdraw = false,
+    required FutureOr<void> Function(List<Report> page) onPage,
+    bool Function()? isCancelled,
+  }) => runBackgroundWork(() async {
+    final d = await db;
+    final available = (await d.rawQuery(
+      'PRAGMA table_info("$effectiveReportsView")',
+    )).map((r) => r['name'] as String).toSet();
+    // 예전 DB 에 없는 열은 SELECT * 에서처럼 NULL(→ 같은 기본값)로 둔다.
+    final columns = [
+      for (final c in exportReportColumns)
+        if (available.contains(c)) '"$c"',
+    ].join(', ');
+    String? lastId;
+    while (true) {
+      if (isCancelled?.call() == true || closeRequested) {
+        throw const QueryCancelled();
+      }
+      final rows = await d.rawQuery(
+        'SELECT $columns FROM $effectiveReportsView '
+        'WHERE (${_exportWhere(excludeWithdraw)})${lastId == null ? '' : ' AND ID > ?'} '
+        'ORDER BY ID LIMIT ?',
+        [category, ?lastId, _kListChunkSize],
+      );
+      if (isCancelled?.call() == true || closeRequested) {
+        throw const QueryCancelled();
+      }
+      await onPage(rows.map(_rowToReport).toList(growable: false));
+      if (rows.length < _kListChunkSize) break;
+      final next = rows.last['ID'];
+      if (next is! String || next.isEmpty) break;
+      lastId = next;
+    }
+  });
 
   /// 동기화 엔진이 다시 받을 신고를 고를 때 쓰는 사이트 원본 상태(수정값 제외, 필요한 열만 — M-17).
   static Future<
@@ -2194,6 +2336,13 @@ class LocalDbService {
     '사진_첫촬영',
     '사진_끝촬영',
   ];
+
+  /// 화면 "자료 변경" 판정용 쓰기 표시(SQ-P02): 연결 identity + TEMP 쓰기 revision + `PRAGMA data_version`.
+  /// 읽기 캐시 키와 같은 재료다. 같으면 마지막으로 본 뒤 이 DB 에 쓰기가 없었다는 뜻이다.
+  static Future<String> readDataStamp() async {
+    final d = await db;
+    return '${identityHashCode(d)}:${await _readRevision(d)}';
+  }
 
   static Future<String> _readRevision(DatabaseExecutor d) async {
     final v = await d.rawQuery('PRAGMA data_version');
@@ -3065,9 +3214,12 @@ class LocalDbService {
     return rows.map((r) => _rowToReportWithCounts(r)).toList();
   }
 
-  static Report _rowToReportWithCounts(Map<String, dynamic> r) {
+  static Report _rowToReportWithCounts(
+    Map<String, dynamic> r, {
+    bool detailLoaded = true,
+  }) {
     // 같은 변환 두 벌을 하나로(M-30): 기본 변환 + 중복 건수만 덧붙인다.
-    return _rowToReport(r).copyWith(
+    return _rowToReport(r, detailLoaded: detailLoaded).copyWith(
       totalCount: (r['total_count'] as num?)?.toInt() ?? 0,
       validCount: (r['valid_count'] as num?)?.toInt() ?? 0,
     );
@@ -3302,8 +3454,9 @@ class LocalDbService {
           '위반법규': '',
           '범칙금_과태료': answered && index % 3 == 0 ? '과태료: 40,000원' : '',
           '벌점': '',
-          '처리기관': agencies[categoryIndex],
-          '담당자': '예시 담당자',
+          // 실제 자료처럼 처리중(답변 전) 신고에는 처리기관·담당자가 아직 없다.
+          '처리기관': answered ? agencies[categoryIndex] : '',
+          '담당자': answered ? '예시 담당자' : '',
           '답변일': answered ? date(day.add(const Duration(days: 2))) : '',
           '발생일자': date(day),
           '발생시각': '${(8 + index % 12).toString().padLeft(2, '0')}:30',
@@ -4480,7 +4633,10 @@ class LocalDbService {
 
   // ── 내부 변환 ─────────────────────────────────────────────────────────────
 
-  static Report _rowToReport(Map<String, dynamic> r) {
+  static Report _rowToReport(
+    Map<String, dynamic> r, {
+    bool detailLoaded = true,
+  }) {
     final agency = registryDisplayAgency(
       r['처리기관코드'],
       r['처리기관'] as String? ?? '',
@@ -4522,6 +4678,7 @@ class LocalDbService {
       supplementCompletedAt: r['보완_완료일시'] as String? ?? '',
       supplementRequest: r['보완_요청_내용'] as String? ?? '',
       supplementOpinion: r['보완_신고자_의견'] as String? ?? '',
+      detailLoaded: detailLoaded,
     );
   }
 }

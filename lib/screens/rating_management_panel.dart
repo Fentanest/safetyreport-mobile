@@ -11,6 +11,36 @@ import '../widgets/report_list_card.dart';
 import '../widgets/search_filter_sheet.dart';
 import '../widgets/selection_action_bar.dart';
 import '../widgets/selection_back_scope.dart';
+import '../widgets/sr_app_bar_actions.dart';
+import '../widgets/sr_empty_state.dart';
+import '../theme/sr_tokens.dart';
+
+/// 별점 탭의 상세 검색(별점 상태 조건은 빼고 연다). 신고관리 앱바의 검색/필터 아이콘이 부른다(SQ-U16).
+void openRatingFilterSheet(BuildContext context) {
+  showSearchFilterSheet(
+    context,
+    provider: context.read<ReportProvider>(),
+    ratingManagementMode: true,
+  );
+}
+
+/// 별점 탭 조건 칩 줄. 별점 상태 조건은 이 탭에 적용되지 않으므로 보이지 않는다.
+class _RatingFilterChips extends StatelessWidget {
+  const _RatingFilterChips({required this.filter});
+
+  final ReportFilter filter;
+
+  @override
+  Widget build(BuildContext context) => ActiveFilterChipBar(
+    conditions: filter.withoutRatingStateFilters().activeConditions,
+    onRemove: (field) {
+      final provider = context.read<ReportProvider>();
+      provider.setFilter(provider.filter.without(field));
+    },
+    // 상세 검색 시트의 "전체 초기화"와 같다.
+    onClear: () => context.read<ReportProvider>().clearFilter(),
+  );
+}
 
 class RatingManagementPanel extends StatefulWidget {
   const RatingManagementPanel({super.key});
@@ -52,36 +82,17 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
     );
   }
 
-  void _showSearchPopup(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (_) => SearchFilterSheet(
-        provider: context.read<ReportProvider>(),
-        ratingManagementMode: true,
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<ReportProvider>();
+    // 두 모드 모두 페이지 목록(LocalPagedReportList)을 쓴다. 조건·모드만 구독한다(SQ-P07).
+    context.select<ReportProvider, Object>((p) => (p.filter, p.appMode));
+    final provider = context.read<ReportProvider>();
     final effectiveFilter = provider.filter.withoutRatingStateFilters();
     if (provider.appMode == AppMode.standalone ||
         provider.appMode == AppMode.server) {
       return Column(
         children: [
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              onPressed: () => _showSearchPopup(context),
-              icon: const Icon(Icons.filter_list),
-              label: const Text('검색/필터'),
-            ),
-          ),
+          _RatingFilterChips(filter: provider.filter),
           Expanded(
             child: LocalPagedReportList(
               scope: 'rating',
@@ -92,7 +103,6 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
       );
     }
     final reports = provider.filteredRatingEligibleReports;
-    final activeLabels = effectiveFilter.activeLabels;
     final hasApplicableFilter = !effectiveFilter.isEmpty;
     final canSelectAllReports = reports.any(
       (report) => !_selected.contains(report.reportNumber),
@@ -123,11 +133,6 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
     }
 
     final theme = Theme.of(context);
-    final primaryTone = StatusTone.of(
-      theme.colorScheme.primary,
-      brightness: theme.brightness,
-      surface: theme.colorScheme.surface,
-    );
 
     return SelectionBackScope(
       selectionMode: _selectionMode,
@@ -190,14 +195,6 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
                                 : null,
                             child: const Text('일괄 선택'),
                           ),
-                        IconButton(
-                          icon: Badge(
-                            isLabelVisible: hasApplicableFilter,
-                            child: const Icon(Icons.filter_list),
-                          ),
-                          tooltip: '검색/필터',
-                          onPressed: () => _showSearchPopup(context),
-                        ),
                       ],
                     ),
                     if (_selectionMode) ...[
@@ -219,41 +216,7 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
                   ],
                 ),
               ),
-              if (hasApplicableFilter && activeLabels.isNotEmpty)
-                Container(
-                  width: double.infinity,
-                  color: primaryTone.background,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: activeLabels
-                          .map(
-                            (label) => Padding(
-                              padding: const EdgeInsets.only(right: 6),
-                              child: Chip(
-                                label: Text(
-                                  label,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: primaryTone.foreground,
-                                  ),
-                                ),
-                                backgroundColor: theme.colorScheme.surface,
-                                side: BorderSide(color: primaryTone.border),
-                                padding: EdgeInsets.zero,
-                                materialTapTargetSize:
-                                    MaterialTapTargetSize.shrinkWrap,
-                              ),
-                            ),
-                          )
-                          .toList(growable: false),
-                    ),
-                  ),
-                ),
+              _RatingFilterChips(filter: provider.filter),
               Expanded(child: _buildBody(provider, reports)),
             ],
           ),
@@ -281,70 +244,20 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
       return const Center(child: CircularProgressIndicator());
     }
     if (reports.isEmpty) {
-      return LayoutBuilder(
-        builder: (context, constraints) => RefreshIndicator(
-          onRefresh: _refreshReports,
-          child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: constraints.maxHeight),
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (provider.errorMessage != null) ...[
-                      Icon(
-                        Icons.cloud_off_rounded,
-                        size: 56,
-                        color: context.sr.textDisabled,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        '데이터를 불러오지 못했습니다.',
-                        style: TextStyle(
-                          color: context.sr.textSecondary,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        '아래로 당겨 다시 시도하거나\n서버/동기화 상태를 확인하세요.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: context.sr.textSecondary,
-                          fontSize: 13,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      FilledButton.icon(
-                        icon: const Icon(Icons.refresh, size: 16),
-                        label: const Text('다시 시도'),
-                        onPressed: _refreshReports,
-                      ),
-                    ] else ...[
-                      Icon(
-                        Icons.star_outline_rounded,
-                        size: 56,
-                        color: context.sr.textDisabled,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        hasApplicableFilter
-                            ? '검색 결과가 없습니다.'
-                            : '별점 가능한 신고가 없습니다.',
-                        style: TextStyle(
-                          color: context.sr.textSecondary,
-                          fontSize: 15,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
+      // 공용 빈/오류 상태(SQ-U21).
+      return RefreshIndicator(
+        onRefresh: _refreshReports,
+        child: provider.errorMessage != null
+            ? SrEmptyState.error(
+                message: '아래로 당겨 다시 시도하거나\n서버/동기화 상태를 확인하세요.',
+                onRetry: _refreshReports,
+              )
+            : SrEmptyState(
+                icon: Icons.star_outline_rounded,
+                title: hasApplicableFilter
+                    ? '검색 결과가 없습니다.'
+                    : '별점 가능한 신고가 없습니다.',
               ),
-            ),
-          ),
-        ),
       );
     }
 
@@ -414,32 +327,21 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
     };
     if (label.isEmpty) return null;
 
-    final baseColor = switch (category) {
-      'traffic' => Colors.blue,
-      'parking' => Colors.teal,
-      'other' => Colors.deepPurple,
-      _ => Colors.grey,
-    };
-
-    final theme = Theme.of(context);
-    final tone = StatusTone.of(
-      baseColor,
-      brightness: theme.brightness,
-      surface: theme.colorScheme.surface,
-    );
+    // 분류색은 통계 화면과 같은 토큰(교통 파랑 / 주정차 주황 / 기타 초록, SQ-U23).
+    final tone = context.toneOf(context.sr.category(category));
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
         color: tone.background,
         border: Border.all(color: tone.border),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(SrRadius.pill),
       ),
       child: Text(
         label,
         style: TextStyle(
           color: tone.foreground,
-          fontSize: 11,
+          fontSize: SrFontSize.caption,
           fontWeight: FontWeight.bold,
         ),
       ),

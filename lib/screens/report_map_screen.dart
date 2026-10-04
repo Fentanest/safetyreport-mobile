@@ -10,6 +10,7 @@ import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/app_mode.dart';
 import '../models/report.dart';
@@ -21,37 +22,76 @@ import '../services/local_db_service.dart';
 import '../services/permission_service.dart';
 import '../widgets/report_detail_sheet.dart';
 import '../widgets/report_list_card.dart';
+import '../widgets/status_badge.dart';
 import '../widgets/community_upload_panel.dart';
+import '../widgets/report_map_overlays.dart';
 import 'report_list_screen.dart';
 import 'settings_screen.dart';
 import '../theme/sr_colors.dart';
+import '../theme/sr_tokens.dart';
+import '../widgets/sr_snack_bar.dart';
 
 const double _kMapMarkerWidth = 100;
 const double _kMapMarkerHeight = 98;
 const double _kMapMarkerLabelMaxWidth = 92;
-const EdgeInsets _kMapMarkerLabelPadding = EdgeInsets.symmetric(
-  horizontal: 8,
-  vertical: 3,
-);
+const String _kOsmCopyrightUrl = 'https://www.openstreetmap.org/copyright';
 
-Color _mapPointColorForFineRate(double fineRate) {
-  if (fineRate >= 60) {
-    return const Color(0xFF2E7D32);
-  }
-  if (fineRate >= 50) {
-    return const Color(0xFFF57C00);
-  }
-  return const Color(0xFFC62828);
+/// 지도 화면이 쓰는 위치 기능. 권한 요청 시점(SQ-U11)을 테스트로 고정하려고 주입할 수 있게 둔다.
+class ReportMapLocationGateway {
+  const ReportMapLocationGateway();
+
+  Future<bool> isPermissionGranted() =>
+      PermissionService.isLocationPermissionGranted();
+
+  Future<LocationPermission> requestPermission() =>
+      PermissionService.requestLocationPermission();
+
+  Future<bool> isServiceEnabled() => Geolocator.isLocationServiceEnabled();
+
+  Future<Position> getCurrentPosition() => Geolocator.getCurrentPosition(
+    locationSettings: const LocationSettings(
+      accuracy: LocationAccuracy.high,
+      timeLimit: Duration(seconds: 12),
+    ),
+  );
+
+  Future<Position?> getLastKnownPosition() => Geolocator.getLastKnownPosition();
+
+  Future<bool> openLocationSettings() => Geolocator.openLocationSettings();
+
+  Future<bool> openAppSettings() =>
+      PermissionService.openAppPermissionSettings();
 }
+
+/// 지도 집계 조회. 기본은 모드에 따라 로컬 DB 또는 서버 API(`_ReportMapScreenState._loadMap`).
+typedef ReportMapPayloadLoader =
+    Future<ReportMapPayload> Function({
+      List<double>? bounds,
+      required double zoom,
+      String? year,
+      required String category,
+    });
 
 class ReportMapScreen extends StatefulWidget {
   final String initialYear;
   final String initialCategory;
+  final ReportMapLocationGateway locationGateway;
+
+  /// 테스트 전용: 지도 집계 조회를 바꿔 끼운다.
+  @visibleForTesting
+  final ReportMapPayloadLoader? payloadLoader;
+
+  /// 테스트 전용: 타일을 네트워크 없이 그린다. null 이면 flutter_map 기본(네트워크) 타일.
+  @visibleForTesting
+  final TileProvider? tileProvider;
 
   const ReportMapScreen({
     super.key,
     this.initialYear = 'all',
     this.initialCategory = 'all',
+    this.locationGateway = const ReportMapLocationGateway(),
+    this.payloadLoader,
+    this.tileProvider,
   });
 
   @override
@@ -75,6 +115,15 @@ class _ReportMapScreenState extends State<ReportMapScreen>
   String _selectedYear = 'all';
   String _selectedCategory = 'all';
 
+  // SQ-P05: 마커는 조회 결과(_payload)가 바뀔 때만 다시 만든다. marker_cluster 는 마커 리스트를
+  // 동일성으로 비교하므로, 매 build 마다 새 리스트를 주면 줌 단계 전체 클러스터를 다시 계산한다.
+  _MapMarkerCache? _markerCache;
+
+  /// 권한 설명 창을 띄우는 중(연속 탭으로 창이 두 번 뜨지 않게).
+  bool _promptingLocation = false;
+
+  ReportMapLocationGateway get _location => widget.locationGateway;
+
   @override
   void initState() {
     super.initState();
@@ -83,25 +132,37 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     _selectedCategory = widget.initialCategory;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadMap();
-      _loadCurrentLocation(requestPermission: true, moveCamera: true);
+      // SQ-U11: 진입 시에는 권한을 요청하지 않는다. 이미 허용된 경우에만 현재 위치를 보인다.
+      // 요청은 "현재 위치" 버튼을 눌렀을 때 설명을 먼저 보인 뒤 한다.
+      _loadCurrentLocation(requestPermission: false, moveCamera: true);
     });
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final p = context.watch<ReportProvider>();
-    final scope =
-        '${p.datasetEpoch}:${p.statsRefreshNonce}:${p.excludeWithdraw}:${p.useRepresentativeRecords}';
+  /// 자료가 바뀌었는데 화면이 가려져 있던 동안(TickerMode 꺼짐) 미뤄 둔 다시 조회(SQ-P02).
+  bool _stale = false;
+
+  /// Provider 중 이 화면이 실제로 쓰는 값만 구독한다(SQ-P05). 값이 바뀌면 처음부터 다시 조회한다.
+  /// 자료 변경은 dataRevision 으로만 본다(통계 탭 진입은 자료 변경이 아니다 — SQ-P02).
+  /// 다른 화면에 가려져 있으면 표시만 해 두고 다시 보일 때 한 번 읽는다.
+  void _watchDatasetScope(BuildContext context) {
+    final visible = TickerMode.valuesOf(context).enabled;
+    final scope = context.select<ReportProvider, String>(
+      (p) =>
+          '${p.datasetEpoch}:${p.dataRevision}:${p.excludeWithdraw}:${p.useRepresentativeRecords}',
+    );
     if (_datasetScope != null && _datasetScope != scope) {
       _loadSeq++;
       _payload = null;
       _loading = true;
+      _stale = true;
+    }
+    _datasetScope = scope;
+    if (_stale && visible) {
+      _stale = false;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _loadMap();
       });
     }
-    _datasetScope = scope;
   }
 
   @override
@@ -133,7 +194,15 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     final epoch = provider.datasetEpoch;
     try {
       ReportMapPayload payload;
-      if (provider.appMode == AppMode.standalone) {
+      final loader = widget.payloadLoader;
+      if (loader != null) {
+        payload = await loader(
+          bounds: _viewport,
+          zoom: _viewportZoom,
+          year: _selectedYear == 'all' ? null : _selectedYear,
+          category: _selectedCategory,
+        );
+      } else if (provider.appMode == AppMode.standalone) {
         payload = ReportMapPayload.fromJson(
           await LocalDbService.computeReportMapStats(
             bounds: _viewport,
@@ -195,7 +264,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
       );
       if (!hasPermission) return;
 
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      final serviceEnabled = await _location.isServiceEnabled();
       if (!serviceEnabled) {
         _setLocationError('기기 위치 서비스가 꺼져 있어 현재 위치를 표시할 수 없습니다.');
         if (showMessages) {
@@ -203,7 +272,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
             '기기 위치 서비스가 꺼져 있습니다.',
             action: SnackBarAction(
               label: '설정',
-              onPressed: Geolocator.openLocationSettings,
+              onPressed: _location.openLocationSettings,
             ),
           );
         }
@@ -243,13 +312,12 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     required bool requestPermission,
     required bool showMessages,
   }) async {
-    if (await PermissionService.isLocationPermissionGranted()) return true;
-    if (!requestPermission) {
-      _setLocationError('위치 권한이 없어 현재 위치를 표시할 수 없습니다.');
-      return false;
-    }
+    if (await _location.isPermissionGranted()) return true;
+    // 조용한 확인(화면 진입·앱 복귀)에서는 권한이 없어도 오류로 표시하지 않는다.
+    // 사용자가 아직 버튼을 누르지 않았으므로 "위치 꺼짐" 아이콘 대신 기본 아이콘을 둔다.
+    if (!requestPermission) return false;
 
-    final permission = await PermissionService.requestLocationPermission();
+    final permission = await _location.requestPermission();
     if (permission == LocationPermission.always ||
         permission == LocationPermission.whileInUse) {
       return true;
@@ -261,26 +329,58 @@ class _ReportMapScreenState extends State<ReportMapScreen>
       _showLocationSnackBar(
         permanentlyDenied ? '위치 권한이 차단되어 있습니다.' : '위치 권한이 허용되지 않았습니다.',
         action: permanentlyDenied
-            ? SnackBarAction(
-                label: '설정',
-                onPressed: PermissionService.openAppPermissionSettings,
-              )
+            ? SnackBarAction(label: '설정', onPressed: _location.openAppSettings)
             : null,
       );
     }
     return false;
   }
 
+  /// "현재 위치" 버튼. 권한이 없으면 앱 안 설명을 먼저 보이고, 사용자가 허용을 고를 때만 시스템 권한 창을 띄운다.
+  Future<void> _onCurrentLocationPressed() async {
+    if (_locating || _promptingLocation) return;
+    _promptingLocation = true;
+    try {
+      if (!await _location.isPermissionGranted()) {
+        if (!mounted) return;
+        final proceed = await _showLocationRationale();
+        if (!mounted || proceed != true) return;
+      }
+    } finally {
+      _promptingLocation = false;
+    }
+    await _loadCurrentLocation(
+      requestPermission: true,
+      moveCamera: true,
+      showMessages: true,
+    );
+  }
+
+  Future<bool?> _showLocationRationale() {
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('위치 권한 안내'),
+        content: const Text('지도에서 내 위치로 이동하려면 위치 권한이 필요합니다.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('허용'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<Position> _resolveCurrentPosition() async {
     try {
-      return await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 12),
-        ),
-      );
+      return await _location.getCurrentPosition();
     } catch (_) {
-      final lastKnown = await Geolocator.getLastKnownPosition();
+      final lastKnown = await _location.getLastKnownPosition();
       if (lastKnown != null) return lastKnown;
       rethrow;
     }
@@ -293,9 +393,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
 
   void _showLocationSnackBar(String message, {SnackBarAction? action}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message), action: action));
+    showSrSnack(context, message, action: action);
   }
 
   void _moveMapToCurrentLocation() {
@@ -319,11 +417,10 @@ class _ReportMapScreenState extends State<ReportMapScreen>
       PerformanceTrace.sync('map.screen_build', () => _buildMeasured(context));
 
   Widget _buildMeasured(BuildContext context) {
+    _watchDatasetScope(context);
     final cs = Theme.of(context).colorScheme;
     final payload = _payload;
-    final points = (payload?.points ?? const <ReportMapPoint>[])
-        .where((point) => point.hasValidCoordinates)
-        .toList(growable: false);
+    final markerCache = _markersFor(payload);
 
     return Scaffold(
       appBar: AppBar(
@@ -372,9 +469,11 @@ class _ReportMapScreenState extends State<ReportMapScreen>
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.all(16),
-                    child: points.isEmpty && _currentLocation == null
+                    child:
+                        markerCache.validPoints.isEmpty &&
+                            _currentLocation == null
                         ? _buildEmptyState()
-                        : _buildMap(points),
+                        : _buildMap(markerCache),
                   ),
                 ),
               ],
@@ -561,20 +660,11 @@ class _ReportMapScreenState extends State<ReportMapScreen>
           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
         ),
         subtitle: region.isNotEmpty ? Text(region) : null,
-        trailing: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: serverSupplementColor.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Text(
-            '${group.reportCount}건',
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: serverSupplementColor,
-            ),
-          ),
+        // 대비 보정 배지(SQ-U13): 원색 글자 + 옅은 배경은 AA 미달이었다.
+        trailing: StatusBadge(
+          label: '${group.reportCount}건',
+          color: serverSupplementColor,
+          fontSize: 12,
         ),
         children: [
           ...group.reports.map(_buildMissingReportCard),
@@ -685,7 +775,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         border: Border.all(color: theme.colorScheme.outlineVariant),
       ),
       child: Row(
@@ -729,7 +819,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
                 label,
                 maxLines: 1,
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: SrFontSize.caption,
                   fontWeight: FontWeight.w700,
                   color: _tone(color).foreground,
                 ),
@@ -781,28 +871,50 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     );
   }
 
-  Widget _buildMap(List<ReportMapPoint> sourcePoints) {
-    final points = visibleMapCells(sourcePoints, _viewport);
+  /// 조회 결과가 같으면(동일 객체) 이전 마커 리스트를 그대로 돌려준다.
+  _MapMarkerCache _markersFor(ReportMapPayload? payload) {
+    final cached = _markerCache;
+    if (cached != null && identical(cached.payload, payload)) return cached;
+    final next = PerformanceTrace.sync('map.marker_creation', () {
+      final validPoints = (payload?.points ?? const <ReportMapPoint>[])
+          .where((point) => point.hasValidCoordinates)
+          .toList(growable: false);
+      final visiblePoints = visibleMapCells(validPoints, _viewport);
+      final lookup = <Marker, ReportMapPoint>{};
+      final markers = visiblePoints
+          .map((point) {
+            final marker = Marker(
+              point: LatLng(point.lat, point.lng),
+              width: _kMapMarkerWidth,
+              height: _kMapMarkerHeight,
+              child: _MapPointMarker(point: point),
+            );
+            lookup[marker] = point;
+            return marker;
+          })
+          .toList(growable: false);
+      return _MapMarkerCache(
+        payload: payload,
+        validPoints: validPoints,
+        markers: markers,
+        lookup: lookup,
+        center: _computeCenter(visiblePoints),
+        zoom: _suggestZoom(visiblePoints),
+      );
+    });
+    _markerCache = next;
+    return next;
+  }
+
+  Widget _buildMap(_MapMarkerCache cache) {
     final currentLocation = _currentLocation;
-    final center = currentLocation ?? _computeCenter(points);
-    final zoom = currentLocation != null ? 15.0 : _suggestZoom(points);
-    final markerLookup = <Marker, ReportMapPoint>{};
-    final markers = PerformanceTrace.sync(
-      'map.marker_creation',
-      () => points.map((point) {
-        final marker = Marker(
-          point: LatLng(point.lat, point.lng),
-          width: _kMapMarkerWidth,
-          height: _kMapMarkerHeight,
-          child: _MapPointMarker(point: point),
-        );
-        markerLookup[marker] = point;
-        return marker;
-      }).toList(),
-    );
+    final center = currentLocation ?? cache.center;
+    final zoom = currentLocation != null ? 15.0 : cache.zoom;
+    final markerLookup = cache.lookup;
+    final markers = cache.markers;
 
     return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(SrRadius.xl),
       child: Stack(
         children: [
           FlutterMap(
@@ -836,6 +948,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
               TileLayer(
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.fentanest.mysafetyreport',
+                tileProvider: widget.tileProvider,
               ),
               if (markers.isNotEmpty)
                 MarkerClusterLayerWidget(
@@ -857,11 +970,10 @@ class _ReportMapScreenState extends State<ReportMapScreen>
                         (sum, marker) =>
                             sum + (markerLookup[marker]?.total ?? 0),
                       ),
-                      regionLabel: _clusterRegionLabel(
+                      regionLabel: dominantMapRegionLabel(
                         clusterMarkers
                             .map((marker) => markerLookup[marker])
-                            .whereType<ReportMapPoint>()
-                            .toList(),
+                            .whereType<ReportMapPoint>(),
                       ),
                     ),
                     onMarkerTap: (marker) {
@@ -893,6 +1005,24 @@ class _ReportMapScreenState extends State<ReportMapScreen>
                 ),
             ],
           ),
+          // SQ-U24: 마커 색(과태료율) 범례.
+          const Positioned(left: 8, top: 8, child: MapFineRateLegend()),
+          // SQ-U10: OSM 타일 사용 조건(ODbL·OSMF 타일 정책)인 출처 표기.
+          // 오른쪽 아래는 현재 위치 버튼 자리라 그만큼 비우고 왼쪽 아래에 둔다.
+          Positioned(
+            left: 8,
+            right: 64,
+            bottom: 8,
+            child: Align(
+              alignment: Alignment.bottomLeft,
+              child: MapOsmAttribution(
+                onTap: () => launchUrl(
+                  Uri.parse(_kOsmCopyrightUrl),
+                  mode: LaunchMode.externalApplication,
+                ),
+              ),
+            ),
+          ),
           Positioned(
             right: 12,
             bottom: 12,
@@ -917,13 +1047,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     return FloatingActionButton.small(
       heroTag: 'reportMapCurrentLocation',
       tooltip: locationError ?? '현재 위치',
-      onPressed: _locating
-          ? null
-          : () => _loadCurrentLocation(
-              requestPermission: true,
-              moveCamera: true,
-              showMessages: true,
-            ),
+      onPressed: _locating ? null : _onCurrentLocationPressed,
       child: icon,
     );
   }
@@ -947,22 +1071,6 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     if (span > 0.6) return 9.2;
     if (span > 0.2) return 10.5;
     return 12.5;
-  }
-
-  String _clusterRegionLabel(List<ReportMapPoint> points) {
-    if (points.isEmpty) return '';
-    final counts = <String, int>{};
-    for (final point in points) {
-      final label = point.region.trim().isNotEmpty
-          ? point.region.trim()
-          : point.address.trim();
-      if (label.isEmpty) continue;
-      counts[label] = (counts[label] ?? 0) + point.total;
-    }
-    if (counts.isEmpty) return '';
-    final sorted = counts.entries.toList()
-      ..sort((left, right) => right.value.compareTo(left.value));
-    return sorted.first.key;
   }
 
   void _showPointBottomSheet(ReportMapPoint point) {
@@ -1127,20 +1235,18 @@ class _ReportMapScreenState extends State<ReportMapScreen>
   void _openAddressReportList(String address, {String? preferredCategory}) {
     final normalizedAddress = address.trim();
     if (normalizedAddress.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('주소 정보가 없어 리스트를 열 수 없습니다.')));
+      showSrSnack(context, '주소 정보가 없어 리스트를 열 수 없습니다.', kind: SrSnackKind.error);
       return;
     }
 
     final provider = context.read<ReportProvider>();
-    provider.setFilter(ReportFilter(location: normalizedAddress));
     final tabIndex = provider.categoryToTabIndex(preferredCategory);
-
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ReportListScreen(initialTabIndex: tabIndex),
-      ),
+    // SQ-U02: 공용 필터(하단 신고내역 탭)를 바꾸지 않고 이 화면만의 조건으로 연다.
+    pushReportDrillDown(
+      Navigator.of(context),
+      filter: ReportFilter(location: normalizedAddress),
+      title: '$normalizedAddress · 신고',
+      initialTabIndex: tabIndex,
     );
   }
 
@@ -1249,7 +1355,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: _tone(serverSupplementColor).background,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(SrRadius.pill),
         border: Border.all(color: _tone(serverSupplementColor).border),
       ),
       child: Text(
@@ -1299,9 +1405,9 @@ class _ReportMapScreenState extends State<ReportMapScreen>
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.only(top: 7),
-            child: Icon(Icons.circle, size: 6, color: Colors.blueGrey),
+          Padding(
+            padding: const EdgeInsets.only(top: 7),
+            child: Icon(Icons.circle, size: 6, color: context.sr.textSecondary),
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -1331,39 +1437,46 @@ class _MapPointMarker extends StatelessWidget {
         : total >= 10
         ? 44.0
         : 38.0;
-    final label = point.region.trim().isNotEmpty ? point.region : point.address;
-    final markerColor = _mapPointColorForFineRate(point.fineRate);
+    final label = mapMarkerRegionLabel(point);
+    final band = MapFineRateBand.of(point.fineRate);
+    final markerColor = band.color;
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: circleSize,
-          height: circleSize,
-          decoration: BoxDecoration(
-            color: markerColor,
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 2),
-            boxShadow: [
-              BoxShadow(
-                color: markerColor.withValues(alpha: 0.28),
-                blurRadius: 8,
-                offset: Offset(0, 4),
+    // 색만으로 구분하지 않도록 스크린리더에는 지역·건수·과태료율 구간을 읽어 준다(SQ-U24).
+    return Semantics(
+      container: true,
+      excludeSemantics: true,
+      label: '$label, $total건, ${band.label}',
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: circleSize,
+            height: circleSize,
+            decoration: BoxDecoration(
+              color: markerColor,
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 2),
+              boxShadow: [
+                BoxShadow(
+                  color: markerColor.withValues(alpha: 0.28),
+                  blurRadius: 8,
+                  offset: Offset(0, 4),
+                ),
+              ],
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              '$total',
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
               ),
-            ],
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            '$total',
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
             ),
           ),
-        ),
-        const SizedBox(height: 6),
-        _MarkerRegionPill(label: label),
-      ],
+          const SizedBox(height: 6),
+          MapMarkerRegionPill(label: label, maxWidth: _kMapMarkerLabelMaxWidth),
+        ],
+      ),
     );
   }
 }
@@ -1425,12 +1538,12 @@ class _ClusterMarkerWidget extends StatelessWidget {
           width: circleSize,
           height: circleSize,
           decoration: BoxDecoration(
-            color: const Color(0xFF0D47A1),
+            color: kMapClusterColor,
             shape: BoxShape.circle,
             border: Border.all(color: Colors.white, width: 2),
             boxShadow: const [
               BoxShadow(
-                color: Color(0x33000000),
+                color: Color(0x33000000), // sr-allow: 지도 위 클러스터 그림자(테마 무관)
                 blurRadius: 8,
                 offset: Offset(0, 4),
               ),
@@ -1446,39 +1559,31 @@ class _ClusterMarkerWidget extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 6),
-        if (regionLabel.trim().isNotEmpty)
-          _MarkerRegionPill(label: regionLabel),
+        MapMarkerRegionPill(
+          label: regionLabel.trim().isNotEmpty
+              ? regionLabel
+              : '$totalCount건 묶음',
+          maxWidth: _kMapMarkerLabelMaxWidth,
+        ),
       ],
     );
   }
 }
 
-class _MarkerRegionPill extends StatelessWidget {
-  final String label;
+class _MapMarkerCache {
+  const _MapMarkerCache({
+    required this.payload,
+    required this.validPoints,
+    required this.markers,
+    required this.lookup,
+    required this.center,
+    required this.zoom,
+  });
 
-  const _MarkerRegionPill({required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(maxWidth: _kMapMarkerLabelMaxWidth),
-      padding: _kMapMarkerLabelPadding,
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.94),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.black12),
-      ),
-      child: Text(
-        label,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        textAlign: TextAlign.center,
-        style: const TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          height: 1.1,
-        ),
-      ),
-    );
-  }
+  final ReportMapPayload? payload;
+  final List<ReportMapPoint> validPoints;
+  final List<Marker> markers;
+  final Map<Marker, ReportMapPoint> lookup;
+  final LatLng center;
+  final double zoom;
 }

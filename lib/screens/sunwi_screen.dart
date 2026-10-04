@@ -9,6 +9,7 @@ import '../providers/report_provider.dart';
 import '../services/repositories/sunwi_repository.dart';
 import '../theme/sr_colors.dart';
 import '../server_palette.dart';
+import '../theme/sr_tokens.dart';
 
 class SunwiScreen extends StatelessWidget {
   const SunwiScreen({super.key});
@@ -25,13 +26,22 @@ class SunwiScreen extends StatelessWidget {
 class SunwiSection extends StatefulWidget {
   final bool embedded;
 
-  const SunwiSection({super.key, this.embedded = false});
+  /// 테스트 주입용. null 이면 Provider 의 실행 모드로 저장소를 고른다.
+  @visibleForTesting
+  final SunwiRepository? repository;
+
+  const SunwiSection({super.key, this.embedded = false, this.repository});
+
+  /// 테스트 사이에 모드별 캐시가 남지 않게 비운다.
+  @visibleForTesting
+  static void debugClearCache() => _SunwiSectionState._cacheByMode.clear();
 
   @override
   State<SunwiSection> createState() => _SunwiSectionState();
 }
 
-class _SunwiSectionState extends State<SunwiSection> {
+class _SunwiSectionState extends State<SunwiSection>
+    with WidgetsBindingObserver {
   static const _resyncInterval = Duration(hours: 3);
   static const _autoPageInterval = Duration(seconds: 5);
   static final Map<AppMode, _SunwiCacheEntry> _cacheByMode = {};
@@ -46,22 +56,62 @@ class _SunwiSectionState extends State<SunwiSection> {
   bool _requestInFlight = false;
   Timer? _autoPageTimer;
 
+  /// 자동 넘김은 보일 때만 돈다(SQ-P10): 숨은 탭·덮인 화면은 TickerMode 가 꺼지고,
+  /// 앱이 백그라운드(hidden/paused)면 생명주기로 멈춘다.
+  bool _tickerEnabled = true;
+  bool _appVisible = true;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    WidgetsBinding.instance.addObserver(this);
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    _appVisible =
+        lifecycle != AppLifecycleState.hidden &&
+        lifecycle != AppLifecycleState.paused &&
+        lifecycle != AppLifecycleState.detached;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _load();
+    });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _autoPageTimer?.cancel();
+    _autoPageTimer = null;
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final visible = switch (state) {
+      AppLifecycleState.resumed => true,
+      AppLifecycleState.hidden ||
+      AppLifecycleState.paused ||
+      AppLifecycleState.detached => false,
+      AppLifecycleState.inactive => _appVisible,
+    };
+    if (visible == _appVisible) return;
+    _appVisible = visible;
+    _resetAutoPageTimer();
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final nonce = context.watch<ReportProvider>().sunwiRefreshNonce;
+    final tickerEnabled = TickerMode.valuesOf(context).enabled;
+    if (tickerEnabled != _tickerEnabled) {
+      _tickerEnabled = tickerEnabled;
+      _resetAutoPageTimer();
+    }
+  }
+
+  /// build 에서 부른다(context.select 는 build 안에서만 쓸 수 있다). 새로고침 신호와 모드만 구독한다(SQ-P07).
+  void _watchProvider(BuildContext context) {
+    final (nonce, _) = context.select<ReportProvider, (int, AppMode)>(
+      (p) => (p.sunwiRefreshNonce, p.appMode),
+    );
     if (nonce != _lastRefreshNonce) {
       _lastRefreshNonce = nonce;
       if (nonce != 0) {
@@ -100,7 +150,7 @@ class _SunwiSectionState extends State<SunwiSection> {
 
     _requestInFlight = true;
     try {
-      final repo = SunwiRepository.fromProvider(provider);
+      final repo = widget.repository ?? SunwiRepository.fromProvider(provider);
       final snapshot = await repo.fetch(
         onProgress: (completed, total, label) {
           if (!mounted) return;
@@ -209,9 +259,15 @@ class _SunwiSectionState extends State<SunwiSection> {
 
   void _resetAutoPageTimer() {
     _autoPageTimer?.cancel();
-    if (!_shouldAutoPage) return;
-    _autoPageTimer = Timer.periodic(_autoPageInterval, (_) {
-      if (!mounted) return;
+    _autoPageTimer = null;
+    if (!mounted || !_tickerEnabled || !_appVisible || !_shouldAutoPage) {
+      return;
+    }
+    _autoPageTimer = Timer.periodic(_autoPageInterval, (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
       _advancePage();
     });
   }
@@ -258,7 +314,8 @@ class _SunwiSectionState extends State<SunwiSection> {
 
   @override
   Widget build(BuildContext context) {
-    context.watch<ReportProvider>();
+    // 값을 쓰지 않던 전체 구독을 새로고침 신호·모드 구독으로 좁힌다(SQ-P07).
+    _watchProvider(context);
     final children = _buildChildren();
 
     if (widget.embedded) {
@@ -286,11 +343,7 @@ class _SunwiSectionState extends State<SunwiSection> {
             Icon(
               Icons.map_outlined,
               size: 18,
-              color: StatusTone.of(
-                changeDuplicateColor,
-                brightness: Theme.of(context).brightness,
-                surface: context.sr.surface,
-              ).foreground,
+              color: context.toneOf(changeDuplicateColor).foreground,
             ),
             const SizedBox(width: 6),
             const Expanded(
@@ -316,7 +369,7 @@ class _SunwiSectionState extends State<SunwiSection> {
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: LinearProgressIndicator(
-              borderRadius: BorderRadius.circular(999),
+              borderRadius: BorderRadius.circular(SrRadius.pill),
             ),
           ),
         _buildCategoryCard(),
@@ -534,7 +587,7 @@ class _SunwiSectionState extends State<SunwiSection> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
         color: context.sr.surfaceAlt,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
       ),
       child: Row(
         children: [
@@ -549,7 +602,7 @@ class _SunwiSectionState extends State<SunwiSection> {
                 Text(
                   title,
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: SrFontSize.caption,
                     color: context.sr.textSecondary,
                     fontWeight: FontWeight.w700,
                   ),
@@ -579,7 +632,7 @@ class _SunwiSectionState extends State<SunwiSection> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
       decoration: BoxDecoration(
         color: context.sr.surfaceAlt,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
       ),
       child: Text(
         '이번 기간 데이터가 없습니다.',
@@ -591,11 +644,11 @@ class _SunwiSectionState extends State<SunwiSection> {
 
   Widget _buildRankItem(SunwiItem item) {
     // 순위 배지: 기준색 틴트 + AA 글자(흰 글자 채움은 다크에서 대비가 무너진다).
-    const rankBases = [
-      Color(0xFF0D6EFD),
+    final rankBases = [
+      context.sr.brand,
       serverAcceptColor,
       serverSupplementColor,
-      Color(0xFF8B5CF6),
+      serverTrafficPenaltyColor,
       serverRejectColor,
     ];
     final theme = Theme.of(context);
@@ -608,7 +661,7 @@ class _SunwiSectionState extends State<SunwiSection> {
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(SrRadius.xl),
         border: Border.all(color: context.sr.border),
         gradient: LinearGradient(
           colors: [context.sr.surface, context.sr.surfaceAlt],
@@ -622,7 +675,7 @@ class _SunwiSectionState extends State<SunwiSection> {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
               color: badgeTone.background,
-              borderRadius: BorderRadius.circular(999),
+              borderRadius: BorderRadius.circular(SrRadius.pill),
               border: Border.all(color: badgeTone.border),
             ),
             child: Text(
@@ -676,7 +729,7 @@ class _MetaChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
         color: context.sr.surfaceAlt,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
       ),
       child: Row(
         children: [

@@ -26,6 +26,22 @@ class SrColors extends ThemeExtension<SrColors> {
   final Color modeClient;
   final Color modeStandalone;
 
+  /// 의미색(SQ-U23). 글자·아이콘으로 바로 써도 [surface]/[background] 위 AA 이고,
+  /// 틴트 칩·박스는 `context.tone(SrTone.x)`([StatusTone])로 만든다.
+  final Color success;
+  final Color warning;
+  final Color info;
+
+  /// 흰 글자를 올리는 채움(SnackBar·채운 버튼). 두 테마 같은 값, 흰 글자 5.0:1 이상.
+  final Color successFill;
+  final Color warningFill;
+  final Color dangerFill;
+
+  /// 신고 분류 식별색(교통 파랑 / 주정차 주황 / 기타 초록 — 통계 화면 규칙). 글자는 [StatusTone] 으로 보정한다.
+  final Color categoryTraffic;
+  final Color categoryParking;
+  final Color categoryOther;
+
   const SrColors({
     required this.background,
     required this.surface,
@@ -38,7 +54,19 @@ class SrColors extends ThemeExtension<SrColors> {
     required this.brandSoft,
     required this.modeClient,
     required this.modeStandalone,
+    required this.success,
+    required this.warning,
+    required this.info,
+    required this.successFill,
+    required this.warningFill,
+    required this.dangerFill,
+    required this.categoryTraffic,
+    required this.categoryParking,
+    required this.categoryOther,
   });
+
+  /// 크롤링/동기화 로그 창 바탕. 라이트/다크 모두 어두운 터미널로 고정한다(spec §8 결정, SQ-U18).
+  static const logPanel = Color(0xFF1E1E1E);
 
   static const light = SrColors(
     background: Color(0xFFF8FAFC),
@@ -52,6 +80,15 @@ class SrColors extends ThemeExtension<SrColors> {
     brandSoft: Color(0xFFE7F1FF),
     modeClient: Color(0xFF0D6EFD),
     modeStandalone: Color(0xFF16A34A),
+    success: Color(0xFF15803D), // green-700
+    warning: Color(0xFFB45309), // amber-700
+    info: Color(0xFF0369A1), // sky-700
+    successFill: srSnackSuccess,
+    warningFill: srSnackWarning,
+    dangerFill: srSnackError,
+    categoryTraffic: Color(0xFF0D6EFD), // = brand
+    categoryParking: Color(0xFFF59E0B),
+    categoryOther: Color(0xFF22C55E),
   );
 
   static const dark = SrColors(
@@ -66,6 +103,15 @@ class SrColors extends ThemeExtension<SrColors> {
     brandSoft: Color(0xFF192436), // --sr-primary-soft 를 surface 위에 합성한 값
     modeClient: Color(0xFF60A5FA),
     modeStandalone: Color(0xFF4ADE80),
+    success: Color(0xFF4ADE80), // green-400
+    warning: Color(0xFFFBBF24), // amber-400
+    info: Color(0xFF38BDF8), // sky-400
+    successFill: srSnackSuccess,
+    warningFill: srSnackWarning,
+    dangerFill: srSnackError,
+    categoryTraffic: Color(0xFF2563EB), // = brand
+    categoryParking: Color(0xFFF59E0B),
+    categoryOther: Color(0xFF22C55E),
   );
 
   @override
@@ -81,6 +127,15 @@ class SrColors extends ThemeExtension<SrColors> {
     Color? brandSoft,
     Color? modeClient,
     Color? modeStandalone,
+    Color? success,
+    Color? warning,
+    Color? info,
+    Color? successFill,
+    Color? warningFill,
+    Color? dangerFill,
+    Color? categoryTraffic,
+    Color? categoryParking,
+    Color? categoryOther,
   }) {
     return SrColors(
       background: background ?? this.background,
@@ -94,6 +149,15 @@ class SrColors extends ThemeExtension<SrColors> {
       brandSoft: brandSoft ?? this.brandSoft,
       modeClient: modeClient ?? this.modeClient,
       modeStandalone: modeStandalone ?? this.modeStandalone,
+      success: success ?? this.success,
+      warning: warning ?? this.warning,
+      info: info ?? this.info,
+      successFill: successFill ?? this.successFill,
+      warningFill: warningFill ?? this.warningFill,
+      dangerFill: dangerFill ?? this.dangerFill,
+      categoryTraffic: categoryTraffic ?? this.categoryTraffic,
+      categoryParking: categoryParking ?? this.categoryParking,
+      categoryOther: categoryOther ?? this.categoryOther,
     );
   }
 
@@ -112,13 +176,35 @@ class SrColors extends ThemeExtension<SrColors> {
       brandSoft: Color.lerp(brandSoft, other.brandSoft, t)!,
       modeClient: Color.lerp(modeClient, other.modeClient, t)!,
       modeStandalone: Color.lerp(modeStandalone, other.modeStandalone, t)!,
+      success: Color.lerp(success, other.success, t)!,
+      warning: Color.lerp(warning, other.warning, t)!,
+      info: Color.lerp(info, other.info, t)!,
+      successFill: Color.lerp(successFill, other.successFill, t)!,
+      warningFill: Color.lerp(warningFill, other.warningFill, t)!,
+      dangerFill: Color.lerp(dangerFill, other.dangerFill, t)!,
+      categoryTraffic: Color.lerp(categoryTraffic, other.categoryTraffic, t)!,
+      categoryParking: Color.lerp(categoryParking, other.categoryParking, t)!,
+      categoryOther: Color.lerp(categoryOther, other.categoryOther, t)!,
     );
   }
+
+  /// 분류 키(`traffic`/`parking`/`other`)의 식별색. 모르는 키는 보조 글자색.
+  Color category(String key) => switch (key) {
+    'traffic' => categoryTraffic,
+    'parking' => categoryParking,
+    'other' => categoryOther,
+    _ => textSecondary,
+  };
 }
 
-/// 성공/실패 SnackBar 배경. 흰 글자 대비 5.0:1 / 6.5:1 (Material green/red 기본색은 AA 미달).
+/// 성공/경고/실패 SnackBar·채움 배경. 흰 글자 대비 5.0:1 / 5.0:1 / 6.5:1 (Material green/orange/red 기본색은 AA 미달).
+/// 두 테마 같은 값이다 — 다크의 기본 SnackBar 글자(onInverseSurface)는 어두워서 이 배경에는 흰 글자를 따로 준다(`showSrSnack`).
 const srSnackSuccess = Color(0xFF15803D);
+const srSnackWarning = Color(0xFFB45309);
 const srSnackError = Color(0xFFB91C1C);
+
+/// 의미 톤. `context.tone(SrTone.success)` 처럼 [StatusTone] 으로 받아 틴트 배경·테두리·AA 글자를 함께 쓴다.
+enum SrTone { primary, success, warning, info, danger, neutral }
 
 extension SrColorsContext on BuildContext {
   SrColors get sr {
@@ -126,6 +212,31 @@ extension SrColorsContext on BuildContext {
     return theme.extension<SrColors>() ??
         (theme.brightness == Brightness.dark ? SrColors.dark : SrColors.light);
   }
+
+  /// [tone] 의 기준색(글자·아이콘으로 바로 써도 표면 위 AA).
+  Color semantic(SrTone tone) {
+    final sr = this.sr;
+    return switch (tone) {
+      SrTone.primary => Theme.of(this).colorScheme.primary,
+      SrTone.success => sr.success,
+      SrTone.warning => sr.warning,
+      SrTone.info => sr.info,
+      SrTone.danger => Theme.of(this).colorScheme.error,
+      SrTone.neutral => sr.textSecondary,
+    };
+  }
+
+  /// 의미 톤을 현재 테마의 [surface](기본: 카드 표면) 위 틴트 묶음으로.
+  /// 예전의 이중 호출(원색 → StatusTone 글자색 → 다시 StatusTone)을 대신한다(SQ-U23).
+  StatusTone tone(SrTone tone, {Color? surface}) =>
+      toneOf(semantic(tone), surface: surface);
+
+  /// 임의 기준색(상태색·분류색 등)을 현재 테마의 [surface] 위 틴트 묶음으로.
+  StatusTone toneOf(Color base, {Color? surface}) => StatusTone.of(
+    base,
+    brightness: Theme.of(this).brightness,
+    surface: surface ?? sr.surface,
+  );
 }
 
 /// WCAG 2.x 대비. 반투명 전경은 반드시 [background] 위에 합성한 뒤 계산한다

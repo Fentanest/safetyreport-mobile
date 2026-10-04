@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/sr_colors.dart';
+import '../theme/sr_tokens.dart';
 
 /// 커뮤니티 계정 카드(Standalone/Client) 공용 조각. 색은 테마 토큰만 쓴다.
 
@@ -61,7 +62,7 @@ class CommunityStatusLine extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: t.background,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(SrRadius.pill),
         border: Border.all(color: t.border),
       ),
       child: Text(
@@ -108,7 +109,7 @@ class CommunityNoticeBox extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: t.background,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         border: Border.all(color: t.border),
       ),
       child: Row(

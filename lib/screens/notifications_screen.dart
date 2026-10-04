@@ -15,8 +15,13 @@ import '../server_palette.dart';
 import '../services/api_service.dart';
 import '../widgets/duplicate_group_detail_sheet.dart';
 import '../widgets/report_detail_sheet.dart';
+import '../widgets/sr_app_bar_actions.dart';
+import '../widgets/sr_empty_state.dart';
 import '../widgets/sr_tab_bar.dart';
 import '../theme/sr_colors.dart';
+import '../widgets/status_badge.dart';
+import '../theme/sr_tokens.dart';
+import '../widgets/sr_snack_bar.dart';
 
 const _permChannel = MethodChannel('com.fentanest.mysafetyreport/permissions');
 
@@ -79,24 +84,21 @@ class _NotificationsScreenState extends State<NotificationsScreen>
   bool get _isStandalone =>
       context.read<ReportProvider>().appMode == AppMode.standalone;
 
-  Future<void> _fetchServerResults() async {
-    if (_isStandalone) return;
+  /// Client 모드 서버 결과 확인. 결과를 먼저 기록에 영속 저장한 뒤에 완료 신호를 소비한다(SQ-B04) —
+  /// 일은 provider 가 끝까지 하므로 화면이 닫혀도 결과가 남는다. 반환: 실패 없이 끝났는지(실패는 provider 가 로그를 남김).
+  Future<bool> _fetchServerResults() async {
+    if (_isStandalone) return true;
     final api = _getApi();
-    if (api == null) return;
-    try {
-      final done = await api.getCrawlDone();
-      if (done['done'] == true) {
-        final changedCount = (done['changed_count'] as num?)?.toInt() ?? 0;
-        final results = await api.fetchCrawlResults();
-        if (mounted) {
-          context.read<NotificationHistoryProvider>().setPreferredTabIndex(1);
-          await context
-              .read<NotificationHistoryProvider>()
-              .addFromServerResults(results);
-        }
-        _showPushNotif(changedCount);
-      }
-    } catch (_) {}
+    if (api == null) return true;
+    final poll = await context
+        .read<NotificationHistoryProvider>()
+        .pollServerCrawlResults(
+          fetchResults: api.fetchCrawlResults,
+          consumeDone: api.getCrawlDone,
+        );
+    final changedCount = poll.doneChangedCount;
+    if (changedCount != null) unawaited(_showPushNotif(changedCount));
+    return poll.ok;
   }
 
   Future<void> _showPushNotif(int changedCount) async {
@@ -171,9 +173,6 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (sheetCtx) => DraggableScrollableSheet(
         initialChildSize: hasChanges ? 0.5 : 0.4,
         minChildSize: 0.3,
@@ -181,19 +180,9 @@ class _NotificationsScreenState extends State<NotificationsScreen>
         expand: false,
         builder: (_, controller) => ListView(
           controller: controller,
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+          // 손잡이는 테마(showDragHandle)가 그린다(SQ-U07).
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
           children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 20),
-                decoration: BoxDecoration(
-                  color: context.sr.border,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
             Row(
               children: [
                 Icon(
@@ -239,9 +228,8 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      // 전체 높이까지 끌어올려도 상태 표시줄 아래에서 멈춘다(SQ-U07).
+      useSafeArea: true,
       builder: (sheetCtx) => DraggableScrollableSheet(
         initialChildSize: 0.72,
         minChildSize: 0.4,
@@ -249,28 +237,14 @@ class _NotificationsScreenState extends State<NotificationsScreen>
         expand: false,
         builder: (_, controller) => ListView(
           controller: controller,
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+          // 손잡이는 테마(showDragHandle)가 그린다(SQ-U07).
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
           children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 20),
-                decoration: BoxDecoration(
-                  color: context.sr.border,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
             Row(
               children: [
                 Icon(
                   Icons.star_rate_rounded,
-                  color: StatusTone.of(
-                    Colors.amber,
-                    brightness: Theme.of(context).brightness,
-                    surface: context.sr.surface,
-                  ).foreground,
+                  color: context.tone(SrTone.warning).foreground,
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -288,20 +262,12 @@ class _NotificationsScreenState extends State<NotificationsScreen>
               children: [
                 _countChip(
                   '성공 ${result.successCount}',
-                  StatusTone.of(
-                    Colors.green,
-                    brightness: Theme.of(context).brightness,
-                    surface: context.sr.surface,
-                  ).foreground,
+                  context.tone(SrTone.success).foreground,
                   Icons.check_circle_outline,
                 ),
                 _countChip(
                   '스킵 ${result.skipCount}',
-                  StatusTone.of(
-                    Colors.orange,
-                    brightness: Theme.of(context).brightness,
-                    surface: context.sr.surface,
-                  ).foreground,
+                  context.tone(SrTone.warning).foreground,
                   Icons.fast_forward_outlined,
                 ),
                 _countChip(
@@ -389,7 +355,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
     decoration: BoxDecoration(
       color: color.withValues(alpha: 0.1),
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(SrRadius.pill),
       border: Border.all(color: color.withValues(alpha: 0.35)),
     ),
     child: Row(
@@ -413,6 +379,9 @@ class _NotificationsScreenState extends State<NotificationsScreen>
   Widget build(BuildContext context) {
     final provider = context.watch<NotificationHistoryProvider>();
     final allItems = provider.items;
+    final isStandalone = context.select<ReportProvider, bool>(
+      (p) => p.appMode == AppMode.standalone,
+    );
 
     if (provider.preferredTabIndex != _tabController.index &&
         !_tabController.indexIsChanging) {
@@ -443,7 +412,8 @@ class _NotificationsScreenState extends State<NotificationsScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('알림 기록'),
+        // 제목은 하단 탭 이름과 같게, 설정은 맨 끝(SQ-U16).
+        title: const Text('알림'),
         actions: [
           if (allItems.isNotEmpty && provider.unreadCount > 0)
             TextButton.icon(
@@ -461,29 +431,32 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                 }
               },
             ),
+          const SettingsActionButton(),
         ],
         bottom: SrTabBar(
           controller: _tabController,
-          tabs: [
-            _tabWithBadge('크롤링 현황', crawlUnread),
-            _tabWithBadge('신고 결과', reportUnread),
-            _tabWithBadge('별점 주기', ratingUnread),
-          ],
+          textScaler: MediaQuery.textScalerOf(context),
+          labels: const ['크롤링 현황', '신고 결과', '별점 주기'],
+          badgeCounts: [crawlUnread, reportUnread, ratingUnread],
         ),
       ),
       body: TabBarView(
         controller: _tabController,
         children: [
+          // 하위 탭 이름 "크롤링 현황"은 불변 항목이라 그대로 두고, 빈 상태 문구만 모드에 맞춘다(SQ-U08).
+          // Standalone 동기화는 이 탭에 시작/완료 기록을 남기지 않고, 바뀐 신고만 "신고 결과" 탭에 남긴다.
           _buildGenericList(
             items: crawlItems,
-            emptyMessage: '크롤링 알림이 없습니다.',
-            emptySubMessage: '크롤링 시작/완료 알림이 여기에 기록됩니다.',
+            emptyMessage: isStandalone ? '동기화 알림이 없습니다.' : '크롤링 알림이 없습니다.',
+            emptySubMessage: isStandalone
+                ? '동기화로 바뀐 신고는 "신고 결과" 탭에 기록됩니다.'
+                : '크롤링 시작/완료 알림이 여기에 기록됩니다.',
           ),
           _buildGenericList(
             items: reportItems,
             emptyMessage: '신고 결과가 없습니다.',
             emptySubMessage:
-                '크롤링 후 변경된 신고건과 중복 신고 변경이 여기에 기록됩니다.\n각 항목을 눌러 상세 정보를 확인하세요.',
+                '${isStandalone ? '동기화' : '크롤링'} 후 변경된 신고건과 중복 신고 변경이 여기에 기록됩니다.\n각 항목을 눌러 상세 정보를 확인하세요.',
           ),
           _buildRatingList(ratingItems),
         ],
@@ -491,37 +464,16 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     );
   }
 
-  Tab _tabWithBadge(String label, int unread) {
-    return Tab(
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(label),
-          if (unread > 0) ...[const SizedBox(width: 6), _unreadBadge(unread)],
-        ],
-      ),
-    );
-  }
-
-  Widget _unreadBadge(int count) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-    decoration: BoxDecoration(
-      color: Theme.of(context).colorScheme.error,
-      borderRadius: BorderRadius.circular(10),
-    ),
-    child: Text(
-      '$count',
-      style: TextStyle(
-        fontSize: 11,
-        color: Theme.of(context).colorScheme.onError,
-        fontWeight: FontWeight.bold,
-      ),
-    ),
-  );
-
   Future<void> _refresh() async {
     context.read<NotificationHistoryProvider>().load();
-    await _fetchServerResults();
+    final ok = await _fetchServerResults();
+    if (!ok && mounted) {
+      showSrSnack(
+        context,
+        '서버 변경 결과를 가져오지 못했습니다. 아래로 당겨 다시 시도하세요.',
+        kind: SrSnackKind.error,
+      );
+    }
   }
 
   Widget _buildGenericList({
@@ -584,44 +536,13 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     required String emptyMessage,
     required String emptySubMessage,
   }) {
+    // 공용 빈 상태(SQ-U21). 모드별 문구(SQ-U08)는 부르는 쪽이 정한다.
     return RefreshIndicator(
       onRefresh: _refresh,
-      child: ListView(
-        children: [
-          SizedBox(
-            height: 320,
-            child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.notifications_none,
-                    size: 72,
-                    color: context.sr.border,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    emptyMessage,
-                    style: TextStyle(
-                      color: context.sr.textSecondary,
-                      fontSize: 15,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    emptySubMessage,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: context.sr.textSecondary,
-                      fontSize: 12,
-                      height: 1.5,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
+      child: SrEmptyState(
+        icon: Icons.notifications_none,
+        title: emptyMessage,
+        message: emptySubMessage,
       ),
     );
   }
@@ -674,31 +595,11 @@ class _NotifTile extends StatelessWidget {
               height: 40,
               decoration: BoxDecoration(
                 color: isDuplicate
-                    ? StatusTone.of(
-                        StatusTone.of(
-                          Colors.indigo,
-                          brightness: Theme.of(context).brightness,
-                          surface: context.sr.surface,
-                        ).foreground,
-                        brightness: Theme.of(context).brightness,
-                        surface: context.sr.surface,
-                      ).background
+                    ? context.toneOf(changeDuplicateColor).background
                     : hasDetail
-                    ? StatusTone.of(
-                        StatusTone.of(
-                          Colors.orange,
-                          brightness: Theme.of(context).brightness,
-                          surface: context.sr.surface,
-                        ).foreground,
-                        brightness: Theme.of(context).brightness,
-                        surface: context.sr.surface,
-                      ).background
-                    : StatusTone.of(
-                        Theme.of(context).colorScheme.primary,
-                        brightness: Theme.of(context).brightness,
-                        surface: context.sr.surface,
-                      ).background,
-                borderRadius: BorderRadius.circular(10),
+                    ? context.tone(SrTone.warning).background
+                    : context.tone(SrTone.primary).background,
+                borderRadius: BorderRadius.circular(SrRadius.lg),
               ),
               child: Icon(
                 isDuplicate
@@ -707,30 +608,10 @@ class _NotifTile extends StatelessWidget {
                     ? Icons.assignment_outlined
                     : Icons.notifications_active,
                 color: isDuplicate
-                    ? StatusTone.of(
-                        StatusTone.of(
-                          Colors.indigo,
-                          brightness: Theme.of(context).brightness,
-                          surface: context.sr.surface,
-                        ).foreground,
-                        brightness: Theme.of(context).brightness,
-                        surface: context.sr.surface,
-                      ).foreground
+                    ? context.toneOf(changeDuplicateColor).foreground
                     : hasDetail
-                    ? StatusTone.of(
-                        StatusTone.of(
-                          Colors.orange,
-                          brightness: Theme.of(context).brightness,
-                          surface: context.sr.surface,
-                        ).foreground,
-                        brightness: Theme.of(context).brightness,
-                        surface: context.sr.surface,
-                      ).foreground
-                    : StatusTone.of(
-                        Theme.of(context).colorScheme.primary,
-                        brightness: Theme.of(context).brightness,
-                        surface: context.sr.surface,
-                      ).foreground,
+                    ? context.tone(SrTone.warning).foreground
+                    : context.tone(SrTone.primary).foreground,
                 size: 20,
               ),
             ),
@@ -767,11 +648,7 @@ class _NotifTile extends StatelessWidget {
                           _miniChip(
                             status,
                             isDuplicate
-                                ? StatusTone.of(
-                                    Colors.indigo,
-                                    brightness: Theme.of(context).brightness,
-                                    surface: context.sr.surface,
-                                  ).foreground
+                                ? changeDuplicateColor
                                 : _statusColor(status),
                           ),
                         if (fine.isNotEmpty && fine != 'null')
@@ -783,37 +660,14 @@ class _NotifTile extends StatelessWidget {
                     ),
                   ],
                   const SizedBox(height: 4),
-                  Row(
+                  // 신고번호·시각은 폭이 모자라면 다음 줄로 넘긴다(L-3: 360dp·2.0배에서 Row 가 넘쳤다).
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 2,
                     children: [
-                      if (item.reportNumber.isNotEmpty) ...[
-                        Icon(
-                          Icons.tag,
-                          size: 11,
-                          color: context.sr.textDisabled,
-                        ),
-                        const SizedBox(width: 2),
-                        Text(
-                          item.reportNumber,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: context.sr.textSecondary,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                      ],
-                      Icon(
-                        Icons.access_time,
-                        size: 11,
-                        color: context.sr.textDisabled,
-                      ),
-                      const SizedBox(width: 2),
-                      Text(
-                        item.timestamp,
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: context.sr.textSecondary,
-                        ),
-                      ),
+                      if (item.reportNumber.isNotEmpty)
+                        _metaChip(context, Icons.tag, item.reportNumber),
+                      _metaChip(context, Icons.access_time, item.timestamp),
                     ],
                   ),
                 ],
@@ -826,18 +680,27 @@ class _NotifTile extends StatelessWidget {
     );
   }
 
-  Widget _miniChip(String label, Color color) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: 0.12),
-      borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: color.withValues(alpha: 0.4)),
-    ),
-    child: Text(
-      label,
-      style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w600),
-    ),
+  /// 아이콘 + 메타 값. 한 줄 폭보다 길면 말줄임 없이 줄바꿈한다(값이 숨지 않게).
+  Widget _metaChip(BuildContext context, IconData icon, String text) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(icon, size: 11, color: context.sr.textDisabled),
+      const SizedBox(width: 2),
+      Flexible(
+        child: Text(
+          text,
+          style: TextStyle(
+            fontSize: SrFontSize.caption,
+            color: context.sr.textSecondary,
+          ),
+        ),
+      ),
+    ],
   );
+
+  /// 처리상태·과태료 칩. 원색 글자 + 옅은 배경은 AA 미달이라 대비 보정 배지를 쓴다(SQ-U13).
+  Widget _miniChip(String label, Color color) =>
+      StatusBadge(label: label, color: color);
 
   Color _statusColor(String status) {
     return serverStatusColor(status);
@@ -870,7 +733,7 @@ class _RatingBatchTile extends StatelessWidget {
     return Card(
       margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(SrRadius.xl),
         side: BorderSide(
           color: unread
               ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.25)
@@ -878,7 +741,7 @@ class _RatingBatchTile extends StatelessWidget {
         ),
       ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(SrRadius.xl),
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(14),
@@ -891,28 +754,12 @@ class _RatingBatchTile extends StatelessWidget {
                     width: 42,
                     height: 42,
                     decoration: BoxDecoration(
-                      color: StatusTone.of(
-                        StatusTone.of(
-                          Colors.amber,
-                          brightness: Theme.of(context).brightness,
-                          surface: context.sr.surface,
-                        ).foreground,
-                        brightness: Theme.of(context).brightness,
-                        surface: context.sr.surface,
-                      ).background,
-                      borderRadius: BorderRadius.circular(12),
+                      color: context.tone(SrTone.warning).background,
+                      borderRadius: BorderRadius.circular(SrRadius.lg),
                     ),
                     child: Icon(
                       Icons.star_rate_rounded,
-                      color: StatusTone.of(
-                        StatusTone.of(
-                          Colors.amber,
-                          brightness: Theme.of(context).brightness,
-                          surface: context.sr.surface,
-                        ).foreground,
-                        brightness: Theme.of(context).brightness,
-                        surface: context.sr.surface,
-                      ).foreground,
+                      color: context.tone(SrTone.warning).foreground,
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -967,19 +814,11 @@ class _RatingBatchTile extends StatelessWidget {
                 children: [
                   _summaryChip(
                     '성공 $successCount',
-                    StatusTone.of(
-                      Colors.green,
-                      brightness: Theme.of(context).brightness,
-                      surface: context.sr.surface,
-                    ).foreground,
+                    context.tone(SrTone.success).foreground,
                   ),
                   _summaryChip(
                     '스킵 $skipCount',
-                    StatusTone.of(
-                      Colors.orange,
-                      brightness: Theme.of(context).brightness,
-                      surface: context.sr.surface,
-                    ).foreground,
+                    context.tone(SrTone.warning).foreground,
                   ),
                   _summaryChip(
                     '실패 $failureCount',
@@ -988,15 +827,7 @@ class _RatingBatchTile extends StatelessWidget {
                   if (result != null)
                     _summaryChip(
                       '목표 ${result!.score}점',
-                      StatusTone.of(
-                        StatusTone.of(
-                          Colors.amber,
-                          brightness: Theme.of(context).brightness,
-                          surface: context.sr.surface,
-                        ).foreground,
-                        brightness: Theme.of(context).brightness,
-                        surface: context.sr.surface,
-                      ).foreground,
+                      context.tone(SrTone.warning).foreground,
                     ),
                 ],
               ),
@@ -1023,12 +854,16 @@ class _RatingBatchTile extends StatelessWidget {
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
     decoration: BoxDecoration(
       color: color.withValues(alpha: 0.1),
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(SrRadius.pill),
       border: Border.all(color: color.withValues(alpha: 0.3)),
     ),
     child: Text(
       label,
-      style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w700),
+      style: TextStyle(
+        fontSize: SrFontSize.caption,
+        color: color,
+        fontWeight: FontWeight.w700,
+      ),
     ),
   );
 }
@@ -1045,16 +880,8 @@ class _RatingReportCard extends StatelessWidget {
         ? Report.fromJson(item.reportData!)
         : null;
     final badgeColor = switch (item.status) {
-      RatingBatchItemStatus.success => StatusTone.of(
-        Colors.green,
-        brightness: Theme.of(context).brightness,
-        surface: context.sr.surface,
-      ).foreground,
-      RatingBatchItemStatus.skip => StatusTone.of(
-        Colors.orange,
-        brightness: Theme.of(context).brightness,
-        surface: context.sr.surface,
-      ).foreground,
+      RatingBatchItemStatus.success => context.tone(SrTone.success).foreground,
+      RatingBatchItemStatus.skip => context.tone(SrTone.warning).foreground,
       RatingBatchItemStatus.failure => Theme.of(context).colorScheme.error,
     };
 
@@ -1062,11 +889,11 @@ class _RatingReportCard extends StatelessWidget {
       margin: EdgeInsets.zero,
       elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         side: BorderSide(color: context.sr.border),
       ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.all(14),
@@ -1094,7 +921,7 @@ class _RatingReportCard extends StatelessWidget {
                     ),
                     decoration: BoxDecoration(
                       color: badgeColor.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(SrRadius.pill),
                       border: Border.all(
                         color: badgeColor.withValues(alpha: 0.35),
                       ),
@@ -1102,7 +929,7 @@ class _RatingReportCard extends StatelessWidget {
                     child: Text(
                       item.status.label,
                       style: TextStyle(
-                        fontSize: 11,
+                        fontSize: SrFontSize.caption,
                         color: badgeColor,
                         fontWeight: FontWeight.bold,
                       ),
@@ -1160,7 +987,7 @@ class _RatingReportCard extends StatelessWidget {
                 Text(
                   '탭해서 신고 상세 보기',
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: SrFontSize.caption,
                     color: context.sr.textSecondary,
                   ),
                 ),

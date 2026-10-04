@@ -67,7 +67,9 @@ class ReportProvider with ChangeNotifier {
   String _apiKey = '';
   int _datasetEpoch = 0;
   int get datasetEpoch => _datasetEpoch;
-  bool _isLoading = false;
+  /// 진행 중인 요약·분류·중복 조회 수(SQ-B11). 하나라도 돌면 [isLoading] 이 true 다.
+  /// 먼저 끝난 조회가 다른 조회의 스피너를 끄지 않게 플래그 하나 대신 센다.
+  int _loadingCount = 0;
   bool _isInitialized = false;
   String? _errorMessage;
   DashboardStats? _stats;
@@ -92,22 +94,51 @@ class ReportProvider with ChangeNotifier {
   /// 서버가 `/api/v1/app/config` 의 `capabilities` 로 알린 기능(Client 모드). 구서버는 빈 목록.
   List<String> _serverCapabilities = const [];
 
+  /// 지금 연결한 서버의 기능 목록을 받았는가. 서버·모드를 바꾸면 false(알 수 없음)로 돌아가고,
+  /// 그동안 기능 게이트 UI 는 숨긴다(SQ-B08 — 예전에는 이전 서버 목록이 남아 지원하지 않는 API 를 불렀다).
+  bool _serverCapabilitiesKnown = false;
+  bool get serverCapabilitiesKnown => _serverCapabilitiesKnown;
+
+  /// 서버·모드가 바뀔 때 이전 서버의 기능 목록과 진행 중 조회를 버린다.
+  void _forgetServerCapabilities() {
+    _serverCapabilities = const [];
+    _serverCapabilitiesKnown = false;
+    _appConfigLoadFuture = null;
+  }
+
   /// 별점 공통 사유를 보낼 수 있는가 — Standalone 은 항상, Client 는 서버가 rating_cause 를 알릴 때만.
   bool get ratingCauseSupported =>
       _appMode == AppMode.standalone ||
-      _serverCapabilities.contains('rating_cause');
+      (_serverCapabilitiesKnown &&
+          _serverCapabilities.contains('rating_cause'));
 
   /// 연결된 서버가 "서버의 커뮤니티 계정" API 를 알리는가(Client 모드). 구서버는 false.
   bool get communityAccountSupported =>
       _appMode == AppMode.server &&
+      _serverCapabilitiesKnown &&
       _serverCapabilities.contains(ServerContract.communityAccountCapability);
 
   ReportFilter _filter = const ReportFilter();
   bool _excludeWithdraw = true;
   bool _useRepresentativeRecords = true;
 
-  // 탭 전환 시 내부 state 가 있는 화면(통계/파일)이 재로드하도록 바꾸는 nonce.
-  // 화면들은 이 값을 watch 하다가 변경 시 refresh 를 수행.
+  /// 실제 자료가 바뀌었을 때만 오르는 번호(SQ-P02). 목록·지도·통계·첨부 캐시 범위가 이 값을 본다.
+  /// 오르는 때: 로컬 DB 쓰기 revision·data_version·연결이 바뀐 refreshAll, Client 의 refreshAll(변경·사용자 요청 뒤에만 불림),
+  /// 받은 변경 알림, [markDataChanged] 를 부르는 명시적 변경. 모드·자료 전환은 [datasetEpoch] 가 따로 맡는다.
+  int _dataRevision = 0;
+  int get dataRevision => _dataRevision;
+
+  /// 마지막으로 본 로컬 DB 쓰기 표시(연결·쓰기 revision·data_version). 같으면 refreshAll 이 [dataRevision] 을 올리지 않는다.
+  String? _lastLocalDataStamp;
+
+  /// 자료가 바뀌었음을 알린다. 보이는 화면은 한 번 다시 읽고, 숨은 탭은 다시 보일 때 읽는다.
+  void markDataChanged() {
+    _dataRevision++;
+    notifyListeners();
+  }
+
+  // 통계 탭에 들어왔다는 신호(통계 화면 전용). 자료 변경 신호가 아니다 — 다른 화면은 [dataRevision] 을 본다(SQ-P02).
+  // 파일·전국 현황 nonce 는 각 화면 진입 신호다.
   int _statsRefreshNonce = 0;
   int _filesRefreshNonce = 0;
   int _sunwiRefreshNonce = 0;
@@ -142,7 +173,7 @@ class ReportProvider with ChangeNotifier {
   bool get isStandaloneDemo => _isStandaloneDemo;
   String get baseUrl => _baseUrl;
   String get apiKey => _apiKey;
-  bool get isLoading => _isLoading;
+  bool get isLoading => _loadingCount > 0;
   bool get isInitialized => _isInitialized;
   bool get isConfigured {
     if (_appMode == AppMode.standalone) return _standaloneUsername.isNotEmpty;
@@ -221,18 +252,14 @@ class ReportProvider with ChangeNotifier {
     return null;
   }
 
-  /// 알림 상세처럼 목록보다 최신인 [report]를 기준으로 검색 화면에
-  /// 진입할 때, 해당 카테고리의 캐시를 먼저 새로 고친다.
+  /// 상세 시트의 "같은 조건으로 검색"이 열 분류 탭을 정한다(SQ-P09).
   ///
-  /// 카테고리 정보가 없으면 최신 목록 전체에서 한 번 더 찾는다.
-  Future<String?> refreshCategoryForReport(Report report) async {
-    final category = findCategory(report);
-    if (category != null) {
-      await fetchCategoryReports(category);
-      return category;
-    }
-
-    return resolveReportCategory(report);
+  /// 분류만 확인한다. 목록은 드릴다운 화면의 페이지 조회가 직접 읽으므로 여기서
+  /// 분류 목록(200건)을 미리 읽거나 `_loadedCategories` 에 올리지 않는다
+  /// (올리면 이후 모든 refreshAll 이 그 분류를 다시 읽는다).
+  /// 분류 정보가 없으면 단건(Standalone) 또는 페이지 조회(Client)로 찾는다.
+  Future<String?> categoryForNavigation(Report report) async {
+    return findCategory(report) ?? await resolveReportCategory(report);
   }
 
   /// Unknown notification categories are resolved without retaining all reports.
@@ -271,12 +298,17 @@ class ReportProvider with ChangeNotifier {
         ? await LocalDbService.getFilterOptions()
         : await _api.getFilterOptions();
     if (epoch != _datasetEpoch) return;
-    _filterStatuses = _appMode == AppMode.standalone
+    final statuses = _appMode == AppMode.standalone
         ? options.statuses
         : {..._filterStatuses, ...options.statuses}.toList();
-    _filterLaws = _appMode == AppMode.standalone
+    final laws = _appMode == AppMode.standalone
         ? options.laws
         : {..._filterLaws, ...options.laws}.toList();
+    if (_sameList(statuses, _filterStatuses) && _sameList(laws, _filterLaws)) {
+      return;
+    }
+    _filterStatuses = statuses;
+    _filterLaws = laws;
     notifyListeners();
   }
 
@@ -525,14 +557,28 @@ class ReportProvider with ChangeNotifier {
   }
 
   void setFilter(ReportFilter filter) {
+    if (filter == _filter) return;
     _filter = filter;
     notifyListeners();
   }
 
   void clearFilter() {
+    if (_filter == const ReportFilter()) return;
     _filter = const ReportFilter();
     notifyListeners();
   }
+
+  static bool _sameList<T>(List<T> a, List<T> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  static bool _sameSet<T>(Set<T> a, Set<T> b) =>
+      identical(a, b) || (a.length == b.length && a.containsAll(b));
 
   Future<void> fetchAppConfig() {
     if (!isConfigured) return Future.value();
@@ -552,23 +598,43 @@ class ReportProvider with ChangeNotifier {
     if (_appMode == AppMode.standalone) {
       final prefs = await SharedPreferences.getInstance();
       if (epoch != _datasetEpoch) return;
-      _excludeWithdraw = prefs.getBool('standaloneExcludeWithdraw') ?? true;
-      _useRepresentativeRecords =
+      final exclude = prefs.getBool('standaloneExcludeWithdraw') ?? true;
+      final representative =
           prefs.getBool('standaloneUseRepresentativeRecords') ?? true;
+      // 값이 같으면 알리지 않는다(SQ-P07 — 매 refreshAll 마다 전체 화면 재빌드 방지).
+      if (exclude == _excludeWithdraw &&
+          representative == _useRepresentativeRecords) {
+        return;
+      }
+      _excludeWithdraw = exclude;
+      _useRepresentativeRecords = representative;
       notifyListeners();
       return;
     }
     try {
       final cfg = await _api.getAppConfig();
       if (epoch != _datasetEpoch) return;
-      _excludeWithdraw = cfg['exclude_withdraw'] as bool? ?? false;
-      _useRepresentativeRecords =
+      final exclude = cfg['exclude_withdraw'] as bool? ?? false;
+      final representative =
           cfg['use_representative_records'] as bool? ?? true;
-      _serverCapabilities = [
+      final capabilities = [
         for (final c in (cfg['capabilities'] as List? ?? const [])) '$c',
       ];
+      if (exclude == _excludeWithdraw &&
+          representative == _useRepresentativeRecords &&
+          _serverCapabilitiesKnown &&
+          _sameList(capabilities, _serverCapabilities)) {
+        return;
+      }
+      _excludeWithdraw = exclude;
+      _useRepresentativeRecords = representative;
+      _serverCapabilities = capabilities;
+      _serverCapabilitiesKnown = true;
       notifyListeners();
-    } catch (_) {}
+    } catch (e) {
+      // 기능 목록은 "알 수 없음"으로 남는다(게이트 UI 숨김). 다음 refreshAll 이 다시 묻는다.
+      debugPrint('[ReportProvider] 서버 앱 설정 조회 실패: $e');
+    }
   }
 
   /// standalone 전용 설정 토글 — SharedPreferences 영속화 + 데이터 재로드
@@ -656,6 +722,7 @@ class ReportProvider with ChangeNotifier {
     _filterStatuses = [];
     _filterLaws = [];
     _loadedCategories.clear();
+    _lastLocalDataStamp = null;
     _summaryLoadFuture = null;
     _categoryLoadFutures.clear();
     _duplicateLoadFuture = null;
@@ -790,6 +857,7 @@ class ReportProvider with ChangeNotifier {
     final cleanUrl = url.endsWith('/') ? url.substring(0, url.length - 1) : url;
     _datasetEpoch++;
     _resetDatasetView();
+    _forgetServerCapabilities();
     ratingCauseDraft = '';
     ClientCompatibility.invalidate();
     _appMode = AppMode.server;
@@ -844,6 +912,7 @@ class ReportProvider with ChangeNotifier {
     }
     _datasetEpoch++;
     _resetDatasetView();
+    _forgetServerCapabilities();
     ratingCauseDraft = '';
     ClientCompatibility.invalidate();
     _appMode = AppMode.standalone;
@@ -926,7 +995,7 @@ class ReportProvider with ChangeNotifier {
     await prefs.remove(AppPrefsKeys.standaloneDemoMode);
     await StandaloneAuthService.clearToken();
     // 실제 모드 변경: Standalone 커뮤니티 세션·대기 로그인을 지운다(M05). 서버의 커뮤니티 계정은 건드리지 않는다.
-    _serverCapabilities = const [];
+    _forgetServerCapabilities();
     try {
       await CommunityAuthService.instance.clearForModeChange();
     } catch (_) {}
@@ -962,11 +1031,25 @@ class ReportProvider with ChangeNotifier {
     });
   }
 
+  /// 조회 하나를 시작한다. 다른 조회가 이미 돌고 있으면 [isLoading] 은 그대로라 알리지 않는다.
+  void _beginLoad({bool clearError = false}) {
+    final changed =
+        _loadingCount == 0 || (clearError && _errorMessage != null);
+    _loadingCount++;
+    if (clearError) _errorMessage = null;
+    if (changed) notifyListeners();
+  }
+
+  /// 조회 하나를 끝낸다. 자료셋이 바뀐 뒤 끝난 조회도 개수는 줄인다(스피너가 남지 않게).
+  /// [notify] 가 false 면(이전 자료셋의 결과) 결과 반영 없이 개수만 맞춘다.
+  void _endLoad({required bool notify}) {
+    if (_loadingCount > 0) _loadingCount--;
+    if (notify || _loadingCount == 0) notifyListeners();
+  }
+
   Future<void> _fetchSummaryImpl() async {
     final epoch = _datasetEpoch;
-    _isLoading = true;
-    _errorMessage = null;
-    notifyListeners();
+    _beginLoad(clearError: true);
     try {
       DashboardStats result;
       if (_appMode == AppMode.standalone) {
@@ -996,10 +1079,7 @@ class ReportProvider with ChangeNotifier {
           : '서버 연결 실패: $e';
       _stats = null;
     } finally {
-      if (epoch == _datasetEpoch) {
-        _isLoading = false;
-        notifyListeners();
-      }
+      _endLoad(notify: epoch == _datasetEpoch);
     }
   }
 
@@ -1012,9 +1092,10 @@ class ReportProvider with ChangeNotifier {
     bool Function()? isCancelled,
   }) {
     final epoch = _datasetEpoch;
+    // 자료가 바뀐 뒤의 요청은 바뀌기 전에 시작한 요청을 공유하지 않는다(SQ-P02: 통계 탭 신호가 아닌 dataRevision).
     final key = (
       epoch,
-      _statsRefreshNonce,
+      _dataRevision,
       _useRepresentativeRecords,
       category,
       offset,
@@ -1097,8 +1178,7 @@ class ReportProvider with ChangeNotifier {
 
   Future<void> _fetchCategoryReportsImpl(String category) async {
     final epoch = _datasetEpoch;
-    _isLoading = true;
-    notifyListeners();
+    _beginLoad();
     try {
       final page = _appMode == AppMode.standalone
           ? await LocalDbService.getReportPage(
@@ -1126,10 +1206,7 @@ class ReportProvider with ChangeNotifier {
       _errorMessage = '${_categoryLabel(category)} 내역 로드 실패: $e';
       ReviewPromptService.markSessionError();
     } finally {
-      if (epoch == _datasetEpoch) {
-        _isLoading = false;
-        notifyListeners();
-      }
+      _endLoad(notify: epoch == _datasetEpoch);
     }
   }
 
@@ -1166,8 +1243,7 @@ class ReportProvider with ChangeNotifier {
 
   Future<void> _fetchDuplicateReportsImpl() async {
     final epoch = _datasetEpoch;
-    _isLoading = true;
-    notifyListeners();
+    _beginLoad();
     try {
       if (_appMode == AppMode.standalone) {
         final loaded = await LocalDbService.getDuplicateVehicleReports(
@@ -1185,10 +1261,7 @@ class ReportProvider with ChangeNotifier {
       _errorMessage = '중복차량 내역 로드 실패: $e';
       ReviewPromptService.markSessionError();
     } finally {
-      if (epoch == _datasetEpoch) {
-        _isLoading = false;
-        notifyListeners();
-      }
+      _endLoad(notify: epoch == _datasetEpoch);
     }
   }
 
@@ -1208,40 +1281,49 @@ class ReportProvider with ChangeNotifier {
   Future<void> _fetchWatchlistNumbersImpl() async {
     final epoch = _datasetEpoch;
     try {
+      final Set<String> numbers;
       if (_appMode == AppMode.standalone) {
-        final numbers = await LocalDbService.getWatchlistNumbers();
-        if (epoch != _datasetEpoch) return;
-        _watchlistNumbers = numbers;
+        numbers = await LocalDbService.getWatchlistNumbers();
       } else {
         final reports = await _api.getWatchlist();
-        if (epoch != _datasetEpoch) return;
-        _watchlistNumbers = reports.map((r) => r.reportNumber).toSet();
+        numbers = reports.map((r) => r.reportNumber).toSet();
       }
+      if (epoch != _datasetEpoch) return;
+      // 같은 목록이면 알리지 않는다(SQ-P07).
+      if (_sameSet(numbers, _watchlistNumbers)) return;
+      _watchlistNumbers = numbers;
       notifyListeners();
     } catch (_) {}
   }
 
-  Future<void> addToWatchlist(List<String> reportNumbers) async {
-    if (_appMode == AppMode.standalone) {
-      _watchlistNumbers = await LocalDbService.changeWatchlist(
-        add: reportNumbers,
-      );
-    } else {
-      await _api.updateWatchlist(reportNumbers, add: true);
-      _watchlistNumbers.addAll(reportNumbers);
-    }
-    notifyListeners();
-  }
+  /// 감시 목록 추가·해제(SQ-B10). 요청 중 모드·서버·자료셋이 바뀌면([datasetEpoch]) 결과를 새 자료셋에 쓰지 않는다.
+  /// 같은 Set 을 제자리에서 바꾸지 않고 새 Set 을 넣어, 이전 값을 들고 비교하는 화면이 변경을 알아채게 한다.
+  Future<void> addToWatchlist(List<String> reportNumbers) =>
+      _changeWatchlist(reportNumbers, add: true);
 
-  Future<void> removeFromWatchlist(List<String> reportNumbers) async {
+  Future<void> removeFromWatchlist(List<String> reportNumbers) =>
+      _changeWatchlist(reportNumbers, add: false);
+
+  Future<void> _changeWatchlist(
+    List<String> reportNumbers, {
+    required bool add,
+  }) async {
+    final epoch = _datasetEpoch;
+    final Set<String> next;
     if (_appMode == AppMode.standalone) {
-      _watchlistNumbers = await LocalDbService.changeWatchlist(
-        remove: reportNumbers,
+      next = await LocalDbService.changeWatchlist(
+        add: add ? reportNumbers : const [],
+        remove: add ? const [] : reportNumbers,
       );
+      if (epoch != _datasetEpoch) return;
     } else {
-      await _api.updateWatchlist(reportNumbers, add: false);
-      _watchlistNumbers.removeAll(reportNumbers);
+      await _api.updateWatchlist(reportNumbers, add: add);
+      if (epoch != _datasetEpoch) return;
+      next = add
+          ? {..._watchlistNumbers, ...reportNumbers}
+          : ({..._watchlistNumbers}..removeAll(reportNumbers));
     }
+    _watchlistNumbers = next;
     notifyListeners();
   }
 
@@ -1364,7 +1446,23 @@ class ReportProvider with ChangeNotifier {
         fetchAppConfig(),
       ]);
     }
-    if (epoch == _datasetEpoch) bumpStatsRefresh();
+    if (epoch != _datasetEpoch) return;
+    // SQ-P02: 자료가 실제로 바뀐 때만 화면들에 다시 읽으라고 알린다.
+    // Standalone 은 DB 쓰기 표시(연결·쓰기 revision·data_version)로 판정한다 — 앱 복귀처럼 대기열이 비어 아무것도
+    // 쓰지 않은 refreshAll 은 목록·지도·통계를 다시 읽게 하지 않는다. 표시를 읽지 못하면 바뀐 것으로 본다.
+    // Client 의 refreshAll 은 변경(크롤링 완료·별점·수정·DB 가져오기)이나 사용자 요청 뒤에만 불리므로 바뀐 것으로 본다.
+    if (_appMode == AppMode.standalone) {
+      String? stamp;
+      try {
+        stamp = await LocalDbService.readDataStamp();
+      } catch (_) {
+        stamp = null;
+      }
+      if (epoch != _datasetEpoch) return;
+      if (stamp != null && stamp == _lastLocalDataStamp) return;
+      _lastLocalDataStamp = stamp;
+    }
+    markDataChanged();
   }
 
   /// Client 모드 하단 표시줄용: 서버의 한 번 훑기 작업 진행. 구서버·오류면 null.

@@ -4,6 +4,7 @@ import '../models/report.dart';
 import '../server_palette.dart';
 import '../theme/sr_colors.dart';
 import 'status_badge.dart';
+import '../theme/sr_tokens.dart';
 
 class ReportCardMetaItem {
   final IconData icon;
@@ -59,7 +60,7 @@ class ReportListCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       elevation: 0,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         side: BorderSide(
           color: isSelected ? scheme.primary : sr.border,
           width: isSelected ? 2 : 1,
@@ -67,7 +68,7 @@ class ReportListCard extends StatelessWidget {
       ),
       color: isSelected ? sr.brandSoft : scheme.surface,
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         onTap: onTap,
         onLongPress: onLongPress,
         child: Padding(
@@ -143,7 +144,7 @@ class ReportListCard extends StatelessWidget {
                           StatusBadge(
                             label: '보완횟수:${report.supplementCount}회',
                             color: serverSupplementColor,
-                            fontSize: 10,
+                            fontSize: SrFontSize.caption,
                           ),
                         ],
                       ],
@@ -164,7 +165,7 @@ class ReportListCard extends StatelessWidget {
                               '보완 요청자: $supplementRequester',
                               style: TextStyle(
                                 color: supplementTone.foreground,
-                                fontSize: 11.5,
+                                fontSize: SrFontSize.caption,
                                 fontWeight: FontWeight.w600,
                               ),
                               overflow: TextOverflow.ellipsis,
@@ -174,42 +175,9 @@ class ReportListCard extends StatelessWidget {
                       ),
                     ],
                     Divider(height: 16, color: sr.border),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          flex: 3,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              for (
-                                var i = 0;
-                                i < visibleMetaItems.length;
-                                i++
-                              ) ...[
-                                if (i > 0) const SizedBox(height: 3),
-                                _MetaRow(
-                                  icon: visibleMetaItems[i].icon,
-                                  text: visibleMetaItems[i].text,
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                        if (report.carNumber.isNotEmpty) ...[
-                          const SizedBox(width: 8),
-                          // 차량번호가 비정상적으로 길어도 행 너비의 40% 를 넘지 않는다.
-                          Flexible(
-                            flex: 2,
-                            child: Align(
-                              alignment: Alignment.bottomRight,
-                              child: _CarNumberChip(
-                                carNumber: report.carNumber,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
+                    _MetaAndCarNumber(
+                      metaItems: visibleMetaItems,
+                      carNumber: report.carNumber,
                     ),
                   ],
                 ),
@@ -218,6 +186,60 @@ class ReportListCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// 메타 정보 열 + 차량번호 칩.
+///
+/// 칩은 먼저 자기 폭(글자 배율 반영)을 받고 메타 열이 남은 폭을 말줄임으로 쓴다(L-8).
+/// 칩이 행 폭의 [_chipMaxFraction] 을 넘으면(좁은 폭·큰 글자) 자르지 않고 메타 열 아래로 내린다.
+class _MetaAndCarNumber extends StatelessWidget {
+  final List<ReportCardMetaItem> metaItems;
+  final String carNumber;
+
+  const _MetaAndCarNumber({required this.metaItems, required this.carNumber});
+
+  static const double _gap = 8;
+  static const double _chipMaxFraction = 0.5;
+
+  @override
+  Widget build(BuildContext context) {
+    final meta = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var i = 0; i < metaItems.length; i++) ...[
+          if (i > 0) const SizedBox(height: 3),
+          _MetaRow(icon: metaItems[i].icon, text: metaItems[i].text),
+        ],
+      ],
+    );
+    if (carNumber.isEmpty) return meta;
+
+    final chip = _CarNumberChip(carNumber: carNumber);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final chipWidth = _CarNumberChip.intrinsicWidth(context, carNumber);
+        final besideMeta =
+            chipWidth <= constraints.maxWidth * _chipMaxFraction;
+        if (besideMeta) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(child: meta),
+              const SizedBox(width: _gap),
+              chip,
+            ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (metaItems.isNotEmpty) ...[meta, const SizedBox(height: 6)],
+            Align(alignment: Alignment.centerRight, child: chip),
+          ],
+        );
+      },
     );
   }
 }
@@ -252,26 +274,45 @@ class _CarNumberChip extends StatelessWidget {
 
   const _CarNumberChip({required this.carNumber});
 
+  static const _padding = EdgeInsets.symmetric(horizontal: 10, vertical: 5);
+  static const double _borderWidth = 1;
+  static const _textStyle = TextStyle(
+    fontWeight: FontWeight.w700,
+    fontSize: 13,
+    letterSpacing: 0.4,
+  );
+
+  /// 말줄임 없이 그릴 때의 칩 폭(현재 글꼴·글자 배율 기준).
+  static double intrinsicWidth(BuildContext context, String carNumber) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: carNumber,
+        style: DefaultTextStyle.of(context).style.merge(_textStyle),
+      ),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    final width = painter.width.ceilToDouble();
+    painter.dispose();
+    return width + _padding.horizontal + _borderWidth * 2;
+  }
+
   @override
   Widget build(BuildContext context) {
     final sr = context.sr;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: _padding,
       decoration: BoxDecoration(
         color: sr.surfaceAlt,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: sr.border),
+        borderRadius: BorderRadius.circular(SrRadius.md),
+        border: Border.all(color: sr.border, width: _borderWidth),
       ),
       child: Text(
         carNumber,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontWeight: FontWeight.w700,
-          fontSize: 13,
-          letterSpacing: 0.4,
-          color: sr.textPrimary,
-        ),
+        style: _textStyle.copyWith(color: sr.textPrimary),
       ),
     );
   }

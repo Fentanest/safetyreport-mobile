@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -10,6 +12,8 @@ import '../services/pending_db_import_action.dart';
 import '../services/server_connection_service.dart';
 import '../services/standalone_auth_service.dart';
 import '../theme/sr_colors.dart';
+import '../widgets/sr_snack_bar.dart';
+import '../theme/sr_tokens.dart';
 
 enum _Step { selectMode, serverConfig, standaloneConfig }
 
@@ -18,6 +22,11 @@ class SetupScreen extends StatefulWidget {
 
   final AppMode? initialMode;
   final ValueChanged<AppMode>? onModeSelected;
+
+  /// 테스트에서 실제 안전신문고 로그인 대신 쓰는 함수. null 이면 [StandaloneAuthService.login].
+  @visibleForTesting
+  static Future<void> Function(String username, String password)?
+  standaloneLoginOverride;
 
   @override
   State<SetupScreen> createState() => _SetupScreenState();
@@ -43,6 +52,9 @@ class _SetupScreenState extends State<SetupScreen> {
   final _phoneController = TextEditingController();
   bool _obscurePw = true;
   bool _loading = false;
+
+  /// 로그인 뒤 대기 DB 가져오기 중(버튼 문구용).
+  bool _importing = false;
   String? _errorMessage;
 
   bool _isPlayReviewDemoLogin(
@@ -132,15 +144,16 @@ class _SetupScreenState extends State<SetupScreen> {
         baseUrl: url,
         apiKey: key,
       );
+      if (!mounted) return;
       if (!result.isOk) {
         setState(() => _errorMessage = result.message ?? '서버에 연결할 수 없습니다.');
         return;
       }
-      if (!mounted) return;
       await context.read<ReportProvider>().setConfig(result.normalizedUrl, key);
       // 루트의 설정 완료 흐름이 다음 화면을 선택한다. 권한 화면을 다시 쌓지 않는다.
       _finishSetup();
     } catch (e) {
+      if (!mounted) return;
       setState(() => _errorMessage = '서버에 연결할 수 없습니다.\n$e');
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -165,63 +178,128 @@ class _SetupScreenState extends State<SetupScreen> {
       _errorMessage = null;
     });
     try {
-      await StandaloneAuthService.login(username, password);
+      final loginOverride = SetupScreen.standaloneLoginOverride;
+      if (loginOverride != null) {
+        await loginOverride(username, password);
+      } else {
+        await StandaloneAuthService.login(username, password);
+      }
       if (!mounted) return;
-      await context.read<ReportProvider>().setStandaloneConfig(
-        username,
-        phoneNumber: phoneNumber,
-      );
-      // 모드 전환 시 settings_screen 이 저장한 pending_db_import 적용
-      // (Client → Standalone 의 '서버 DB 변환' 또는 '백업 파일 사용' 선택 결과)
-      await _applyPendingDbImport();
+      final provider = context.read<ReportProvider>();
+      final messenger = ScaffoldMessenger.of(context);
+      // 모드 전환 시 settings_screen 이 저장한 pending_db_import 를 Standalone 모드를 켜기 **전에** 적용한다
+      // (Client → Standalone 의 '서버 DB 변환' 또는 '백업 파일 사용' 선택 결과, SQ-B03).
+      // setStandaloneConfig 가 먼저면 루트가 곧바로 게이트 통과 흐름(drain·자동 동기화·초기화 판정)을 시작해
+      // 빈 DB 에 먼저 쓰거나 가져오기를 "작업 중"으로 거절시킬 수 있다. 모드가 꺼진 동안에는 그런 작업이 없다.
+      final imported = await _applyPendingDbImport();
+      if (imported.status == PendingDbImportStatus.kept) {
+        // 결정을 받지 못했다(화면이 닫힘 등). 대기 작업을 남기고 모드도 켜지 않는다 — 다음 로그인에서 다시 시도.
+        if (mounted) {
+          setState(
+            () => _errorMessage =
+                'DB 가져오기를 마치지 못해 Standalone 모드를 켜지 않았습니다. 다시 로그인하면 다시 시도합니다.',
+          );
+        }
+        return;
+      }
+      await provider.setStandaloneConfig(username, phoneNumber: phoneNumber);
+      _showImportOutcome(messenger, imported);
+      if (imported.status == PendingDbImportStatus.applied) {
+        unawaited(provider.refreshAll());
+      }
       // 설정 저장 후 루트가 다음 화면을 선택한다.
       _finishSetup();
     } catch (e) {
+      if (!mounted) return;
       setState(
         () => _errorMessage = e.toString().replaceFirst('Exception: ', ''),
       );
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _importing = false;
+        });
+      }
     }
   }
 
-  /// `pending_db_import` 키에 저장된 [PendingDbImportAction] 을 읽고 적용.
-  /// 실패해도 로그인 자체는 성공으로 진행 (에러 메시지만 표시).
-  Future<void> _applyPendingDbImport() async {
-    final action = await PendingDbImportAction.readAndClear();
-    if (action == null) return;
-    try {
-      final message = await action.apply();
-      if (mounted) {
-        await context.read<ReportProvider>().refreshAll();
-      }
-      if (message != null && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(message),
-            backgroundColor: StatusTone.of(
-              Colors.green,
-              brightness: Theme.of(context).brightness,
-              surface: context.sr.surface,
-            ).foreground,
-            duration: const Duration(seconds: 4),
+  /// `pending_db_import` 키에 저장된 [PendingDbImportAction] 을 적용한다.
+  /// 성공하거나 사용자가 버릴 때만 지운다. 실패하면 남긴 채 "다시 시도 / 버리기"를 묻는다(SQ-B03).
+  Future<PendingDbImportOutcome> _applyPendingDbImport() async {
+    if (mounted) setState(() => _importing = true);
+    return PendingDbImportAction.applyPending(
+      onFailure: (action, error) async {
+        if (!mounted) return null;
+        return showDialog<PendingDbImportFailureChoice>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => PopScope(
+            canPop: false,
+            child: AlertDialog(
+              title: const Text('DB 가져오기 실패'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(error.toString().replaceFirst('Exception: ', '')),
+                    const SizedBox(height: 12),
+                    const Text('가져올 파일'),
+                    SelectableText(action.path),
+                    const SizedBox(height: 12),
+                    const Text(
+                      '다시 시도하면 같은 파일로 다시 가져옵니다. '
+                      '버리면 빈 DB 로 시작하고, 파일은 위 위치에 그대로 남습니다.',
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () =>
+                      Navigator.pop(ctx, PendingDbImportFailureChoice.discard),
+                  child: const Text('버리고 빈 DB로 시작'),
+                ),
+                FilledButton(
+                  onPressed: () =>
+                      Navigator.pop(ctx, PendingDbImportFailureChoice.retry),
+                  child: const Text('다시 시도'),
+                ),
+              ],
+            ),
           ),
         );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('DB 가져오기 실패 (빈 DB 로 시작): $e'),
-            backgroundColor: StatusTone.of(
-              Colors.orange,
-              brightness: Theme.of(context).brightness,
-              surface: context.sr.surface,
-            ).foreground,
-            duration: const Duration(seconds: 5),
-          ),
+      },
+    );
+  }
+
+  /// 가져오기 결과 안내. 모드를 켠 뒤 이 화면이 사라져도 보이도록 미리 잡아 둔 [messenger] 로 띄운다.
+  void _showImportOutcome(
+    ScaffoldMessengerState messenger,
+    PendingDbImportOutcome outcome,
+  ) {
+    if (!messenger.mounted) return;
+    switch (outcome.status) {
+      case PendingDbImportStatus.applied:
+        final message = outcome.message;
+        if (message == null) return;
+        showSrSnackOn(
+          messenger,
+          message,
+          kind: SrSnackKind.success,
+          duration: const Duration(seconds: 4),
         );
-      }
+      case PendingDbImportStatus.discarded:
+        showSrSnackOn(
+          messenger,
+          'DB 가져오기를 버리고 빈 DB 로 시작합니다. 파일: ${outcome.action?.path}',
+          kind: SrSnackKind.warning,
+          duration: const Duration(seconds: 8),
+        );
+      case PendingDbImportStatus.none:
+      case PendingDbImportStatus.kept:
+        return;
     }
   }
 
@@ -282,11 +360,7 @@ class _SetupScreenState extends State<SetupScreen> {
           const SizedBox(height: 16),
           _ModeCard(
             icon: Icons.phone_android_rounded,
-            color: StatusTone.of(
-              Colors.green,
-              brightness: Theme.of(context).brightness,
-              surface: context.sr.surface,
-            ).foreground,
+            color: context.tone(SrTone.success).foreground,
             title: 'Standalone 모드',
             description: '안전신문고 계정으로 앱에서 직접 접근합니다.\n서버 없이 신고 현황을 조회할 수 있습니다.',
             onTap: () => _selectMode(AppMode.standalone),
@@ -325,6 +399,7 @@ class _SetupScreenState extends State<SetupScreen> {
             children: [
               IconButton(
                 icon: Icon(Icons.arrow_back),
+                tooltip: '모드 선택으로 돌아가기',
                 onPressed: () => _goToStep(_Step.selectMode),
               ),
               const SizedBox(width: 4),
@@ -411,7 +486,9 @@ class _SetupScreenState extends State<SetupScreen> {
             children: [
               IconButton(
                 icon: Icon(Icons.arrow_back),
-                onPressed: () => _goToStep(_Step.selectMode),
+                tooltip: '모드 선택으로 돌아가기',
+                // 로그인·DB 가져오기 중에는 떠나지 않는다(SQ-B03).
+                onPressed: _loading ? null : () => _goToStep(_Step.selectMode),
               ),
               const SizedBox(width: 4),
               Text(
@@ -419,11 +496,7 @@ class _SetupScreenState extends State<SetupScreen> {
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
-                  color: StatusTone.of(
-                    Colors.green,
-                    brightness: Theme.of(context).brightness,
-                    surface: context.sr.surface,
-                  ).foreground,
+                  color: context.tone(SrTone.success).foreground,
                 ),
               ),
             ],
@@ -432,11 +505,7 @@ class _SetupScreenState extends State<SetupScreen> {
           Icon(
             Icons.lock_open_rounded,
             size: 52,
-            color: StatusTone.of(
-              Colors.green,
-              brightness: Theme.of(context).brightness,
-              surface: context.sr.surface,
-            ).foreground,
+            color: context.tone(SrTone.success).foreground,
           ),
           const SizedBox(height: 16),
           Text(
@@ -468,6 +537,7 @@ class _SetupScreenState extends State<SetupScreen> {
                   _obscurePw ? Icons.visibility_off : Icons.visibility,
                   size: 20,
                 ),
+                tooltip: _obscurePw ? '비밀번호 보기' : '비밀번호 숨기기',
                 onPressed: () => setState(() => _obscurePw = !_obscurePw),
               ),
             ),
@@ -504,13 +574,11 @@ class _SetupScreenState extends State<SetupScreen> {
                     ),
                   )
                 : Icon(Icons.login, size: 18),
-            label: Text(_loading ? '로그인 중...' : '로그인'),
+            label: Text(
+              _importing ? 'DB 가져오는 중...' : (_loading ? '로그인 중...' : '로그인'),
+            ),
             style: FilledButton.styleFrom(
-              backgroundColor: StatusTone.of(
-                Colors.green,
-                brightness: Theme.of(context).brightness,
-                surface: context.sr.surface,
-              ).foreground,
+              backgroundColor: context.sr.successFill,
               padding: const EdgeInsets.symmetric(vertical: 16),
             ),
             onPressed: _loading ? null : _loginStandalone,
@@ -520,7 +588,7 @@ class _SetupScreenState extends State<SetupScreen> {
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: context.sr.surfaceAlt,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(SrRadius.lg),
               border: Border.all(color: context.sr.border),
             ),
             child: Row(
@@ -557,18 +625,10 @@ class _SetupScreenState extends State<SetupScreen> {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: StatusTone.of(
-            Theme.of(context).colorScheme.error,
-            brightness: Theme.of(context).brightness,
-            surface: context.sr.surface,
-          ).background,
-          borderRadius: BorderRadius.circular(10),
+          color: context.tone(SrTone.danger).background,
+          borderRadius: BorderRadius.circular(SrRadius.lg),
           border: Border.all(
-            color: StatusTone.of(
-              Theme.of(context).colorScheme.error,
-              brightness: Theme.of(context).brightness,
-              surface: context.sr.surface,
-            ).border,
+            color: context.tone(SrTone.danger).border,
           ),
         ),
         child: Row(
@@ -618,12 +678,12 @@ class _ModeCard extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(SrRadius.xl),
         child: Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
             border: Border.all(color: color.withValues(alpha: 0.3)),
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(SrRadius.xl),
             color: color.withValues(alpha: 0.04),
           ),
           child: Row(
@@ -633,7 +693,7 @@ class _ModeCard extends StatelessWidget {
                 height: 52,
                 decoration: BoxDecoration(
                   color: color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(SrRadius.lg),
                 ),
                 child: Icon(icon, color: color, size: 28),
               ),

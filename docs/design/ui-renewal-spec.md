@@ -14,19 +14,25 @@
 
 `ThemeData` + `ThemeExtension<SrColors>` 한 곳에서 정의한다. 화면 코드는 `context.sr` / `Theme.of(context).colorScheme` 을 읽고 색을 직접 쓰지 않는다(잔여 하드코딩은 화면 그룹별로 순차 교체).
 
-| 역할 | 라이트 | 다크 (D-01: 슬레이트) |
+| 역할 | 라이트 | 다크 (B안 "딥 다크", 2026-09-25 — [dark-palette.md](dark-palette.md)) |
 |---|---|---|
-| background | `#F8FAFC` | `#0B1220` |
-| surface (카드·시트·하단 내비) | `#FFFFFF` | `#111827` |
-| surfaceAlt | `#F1F5F9` | `#1F2937` |
-| border | `#E2E8F0` | `#334155` |
-| textPrimary / Secondary / Disabled | `#0F172A` / `#64748B` / `#94A3B8` | `#F8FAFC` / `#CBD5E1` / `#64748B` |
-| brand (차트·장식) | `#0D6EFD` | `#0D6EFD` |
-| **ColorScheme.primary** (글자·채움) | **`#0B5ED7`** — 토큰 `#0D6EFD` 는 흰 글자 대비 4.50:1 경계라 한 단계 어둡게(5.84:1) | **`#60A5FA`** + onPrimary `#0B1220` (슬레이트 위 6.98:1) |
+| background | `#F8FAFC` | `#0B0B0C` |
+| surface (카드·시트·하단 내비) | `#FFFFFF` | `#131314` |
+| surfaceAlt | `#F1F5F9` | `#1B1B1C` |
+| surfaceContainerHigh (표면 3) | `#E9EEF5` | `#232324` |
+| border | `#E2E8F0` | `#2D2D2F` |
+| textPrimary / Secondary / Disabled | `#0F172A` / `#64748B` / `#94A3B8` | `#F3F3F4` / `#9EA0A4` / `#6B6D72` |
+| brand (차트·장식, `SrColors.brand`) | `#0D6EFD` | `#2563EB` |
+| **ColorScheme.primary** (글자·아이콘) | **`#0B5ED7`** — 토큰 `#0D6EFD` 는 흰 글자 대비 4.50:1 경계라 한 단계 어둡게(5.84:1) | **`#60A5FA`** + onPrimary `#0B0B0C` (바탕 위 7.7:1, 표면 위 7.3:1) |
+| 채움(FilledButton·선택 탭, 흰 글자) | `#0B5ED7` (5.84:1) | `#2563EB` (`AppTheme.darkPrimaryFill`, 흰 글자 5.17:1) |
 | 모드 식별 (D-03) | Client `#0D6EFD` / Standalone `#16A34A` | Client `#60A5FA` / Standalone `#4ADE80` |
 
 - 앱바는 시안처럼 배경색(파란 앱바 폐지), 상단 탭은 알약형(`SrTabBar`).
 - D-01 결정 전 참고로 잰 다크 시안 픽셀(`#011128`~`#081C35`, 네이비)은 채택하지 않았다.
+- **코드 대조 정정 (2026-10-04, SQ-U28):** 이 표의 다크 열은 처음(2026-09-24) D-01 "슬레이트" 값(`#0B1220`·`#111827`·`#1F2937`·`#334155`,
+  글자 `#F8FAFC`/`#CBD5E1`, onPrimary `#0B1220` 6.98:1)으로 적혀 있었다. 2026-09-25 사용자 결정으로 다크는 B안 "딥 다크"로 바뀌었고
+  코드(`lib/theme/sr_colors.dart` `SrColors.dark`, `lib/theme/app_theme.dart`)와 [dark-palette.md](dark-palette.md)·`contracts/dark-palette.json` 은
+  이미 새 값이다. 표와 대비 수치를 코드 기준으로 고쳤다. 웹과 모바일은 같은 다크 값을 쓴다(`test/theme/dark_palette_contract_test.dart`).
 
 ### 상태·처분 색 (D-02: 선택지 c — 모바일 먼저 변경, 서버 웹은 별도 추종)
 `lib/server_palette.dart` 값을 토큰 보드 상태색으로 바꿨다. 서버 웹이 따라오기 전까지 **웹과 모바일 배지 색이 다르다**.
@@ -48,14 +54,39 @@
 `StatusTone`(틴트 배경 + 기준색에서 명도만 옮긴 글자, 4.5:1 이상 자동 보정)으로 그린다. 보장은 `test/theme/theme_contrast_test.dart`.
 도넛 조각 안 흰 % 글자도 같은 이유로 없애고 범례에 비율을 표시한다.
 
+### 의미색·분류색 토큰 (2026-10-04, SQ-U23)
+화면 코드의 `Colors.green/orange/amber/indigo/…` 직접 사용과 `StatusTone` 이중 호출을 `SrColors` 토큰 + `context.tone(SrTone.x)` 로 바꿨다.
+`test/theme/design_token_scan_test.dart` 가 `lib/theme/` 밖의 Material 원색·`Color(0x…)`(고정 팔레트·`sr-allow` 표시 제외)를 막는다.
+
+| 토큰 | 라이트 | 다크 | 대비(글자 / 바탕·카드) |
+|---|---|---|---|
+| success | `#15803D` | `#4ADE80` | 라이트 카드 5.0 · 바탕 4.8 / 다크 카드 10.7 · 바탕 11.3 |
+| warning | `#B45309` | `#FBBF24` | 라이트 5.0 · 4.8 / 다크 11.1 · 11.8 |
+| info | `#0369A1` | `#38BDF8` | 라이트 5.9 · 5.7 / 다크 8.7 · 9.2 |
+| successFill / warningFill / dangerFill (흰 글자 채움, 두 테마 같음) | `#15803D` / `#B45309` / `#B91C1C` | 같음 | 흰 글자 5.0 / 5.0 / 6.5 |
+| 분류: 교통 / 주정차 / 기타 | brand `#0D6EFD` / `#F59E0B` / `#22C55E` | brand `#2563EB` / 같음 | 글자는 StatusTone 보정(4.5 이상) |
+
+- 틴트 칩·박스는 `context.tone(SrTone.success|warning|info|danger|primary|neutral)` 또는 `context.toneOf(기준색)` 로 그린다(라이트 틴트 위에서는 StatusTone 이 글자를 조금 더 어둡게 옮긴다).
+- 분류색은 통계 화면 규칙(교통 파랑 / 주정차 주황 / 기타 초록)으로 통일했다 — 별점 탭 분류 칩의 예전 teal/deepPurple 은 버렸다.
+- SnackBar 는 `showSrSnack(context, 문구, kind: info|success|warning|error)` 한 곳에서 그린다. 정보형은 테마 기본(inverseSurface),
+  나머지는 위 채움 + 흰 글자(다크에서 채움 위에 어두운 기본 글자가 오르던 문제 해소). 오류 문구(실패·오류·못했…)는 error 로 맞췄다.
+- 고정색 예외: 상태·처분 팔레트(`lib/server_palette.dart`), 지도 마커·클러스터(지도 타일은 늘 밝음), 동영상·사진 뷰어 검정 바탕, 로그 창(`SrColors.logPanel`).
+
 ## 3. 타이포그래피 (D-04 결정: 기기 기본 글꼴)
 - 폰트 에셋을 추가하지 않는다(`fontFamily` 미지정). 시안의 Noto Sans KR/Pretendard 충돌은 이 결정으로 해소.
 - 참고: 서버 웹 `web/templates/base.html:23` 은 `Noto Sans KR` 을 지정한다(`guide.png` 의 "기존 서비스와 동일한 Pretendard" 는 사실과 다름).
 - 골든 테스트만 호스트 Noto Sans CJK 를 로드해 렌더한다(`test/support/ui_harness.dart`).
 - 스케일은 토큰 보드 값을 기준으로 한다: Display 32/48, H1 24/36, H2 20/32, H3 18/28, Body1 16/24, Body2 14/20, Caption 12/16.
+- **최소 글자 12 (2026-10-04, SQ-U19):** 배지·칩·메타 정보·하단 내비 라벨·`StatusBadge` 기본값까지 12(`SrFontSize.caption`)로 올렸다.
+  10·10.5·11·11.5 리터럴은 없다. 예외는 차트 축 눈금 11(`SrFontSize.chartAxis`, `stats_overview_section.dart`) 하나.
+  `ThemeData.textTheme` 의 `bodySmall`·`labelSmall` 도 12. 스캔 테스트가 12 미만 리터럴을 막는다.
 
 ## 4. 형태·간격
 - 간격 8px 계열(4, 8, 12, 16, 24, 32, 48, 64). Radius sm 4 / md 8 / lg 12 / xl 16 / 2xl 24.
+- **반경 상수화 (2026-10-04, SQ-U23):** `SrRadius.sm/md/lg/xl/xxl/pill`(4/8/12/16/24/999). 단계 밖 값은 가까운 단계로 옮겼다:
+  3→4, 6→8, 10·14→12(카드·입력칸·버튼과 같게), 18→16, 작은 칩의 20→알약(999, 모양 같음).
+  바텀시트 위 모서리 `AppTheme.sheetRadius` 20 은 단계 밖이라 **24(2xl)** 로 바꿨다. 입력칸 테두리도 10→12.
+  예외: 차트 막대 끝(2·3px)과 범례 견본(2px)은 막대 폭에 묶인 표식이라 `sr-allow` 주석으로 남겼다.
 - 그림자·글로우는 카드 강조에만 쓰고 **대량 목록·차트에는 blur/glow를 쓰지 않는다**(스크롤 성능). profile 빌드로 확인한다.
 
 ## 5. 컴포넌트 (Flutter 위젯으로 구현, 이미지 사용 금지)
@@ -82,7 +113,7 @@
 ## 8. 결정 현황
 | ID | 항목 | 상태 |
 |---|---|---|
-| D-01 | 다크 배경 | **결정: 슬레이트(토큰 보드)** — 구현 |
+| D-01 | 다크 배경 | **결정: 슬레이트(토큰 보드, 2026-09-24) → B안 "딥 다크"로 대체(2026-09-25, [dark-palette.md](dark-palette.md))** — 구현 |
 | D-02 | 상태·처분 색 | **결정: c (모바일 먼저, 웹은 별도)** — 구현, StatusTone 으로 AA 보정 |
 | D-03 | 모드 식별 | **결정: primary 통합 + 별도 표시** — ModeBadge 구현(대시보드) |
 | D-04 | 글꼴 | **결정: 기기 기본** — 구현 |

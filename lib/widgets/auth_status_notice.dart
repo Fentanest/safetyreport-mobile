@@ -6,6 +6,7 @@ import '../providers/report_provider.dart';
 import '../screens/settings_screen.dart';
 import '../services/standalone_auth_service.dart';
 import '../theme/sr_colors.dart';
+import '../theme/sr_tokens.dart';
 
 String _fmt(DateTime t) =>
     '${t.month}/${t.day} ${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
@@ -17,8 +18,10 @@ class ReloginRequiredBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<ReportProvider>();
-    if (provider.appMode != AppMode.standalone || provider.isStandaloneDemo) {
+    final (appMode, isDemo) = context.select<ReportProvider, (AppMode, bool)>(
+      (p) => (p.appMode, p.isStandaloneDemo),
+    );
+    if (appMode != AppMode.standalone || isDemo) {
       return const SizedBox.shrink();
     }
     return ValueListenableBuilder<ReloginStatus?>(
@@ -40,7 +43,7 @@ class ReloginRequiredBanner extends StatelessWidget {
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: tone.background,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(SrRadius.lg),
               border: Border.all(color: tone.border),
             ),
             child: Column(
@@ -137,7 +140,7 @@ class AuthStatusLine extends StatelessWidget {
                 child: Text(
                   status.message,
                   style: TextStyle(
-                    fontSize: 11.5,
+                    fontSize: SrFontSize.caption,
                     height: 1.35,
                     color: sr.textSecondary,
                   ),

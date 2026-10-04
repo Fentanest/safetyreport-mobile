@@ -26,20 +26,37 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('차량번호·신고번호·ID 다음에 통계표 공통 항목이 나온다', (tester) async {
+  // SQ-U27(2026-10-04): 주요 4칸(차량번호·신고번호·처리상태·처리기관)만 펼치고 나머지는 "조건 더 보기"에 접는다.
+  // 펼친 뒤의 추가 조건은 통계표 공통 열 순서(담당자 → 과태료 → 별점)를 그대로 따른다.
+  testWidgets('주요 4칸 다음 "조건 더 보기" 안에 ID·통계표 공통 항목이 나온다', (tester) async {
     final provider = ReportProvider();
     addTearDown(provider.dispose);
     await openSheet(tester, provider);
-    final labels = tester
+    List<String> labels() => tester
         .widgetList<TextField>(find.byType(TextField))
         .map((field) => field.decoration?.labelText)
         .whereType<String>()
         .toList();
-    expect(labels.take(6).toList(), [
+    expect(labels(), ['차량번호', '신고번호', '처리기관']);
+    expect(
+      tester.getTopLeft(find.text('신고번호')).dy,
+      lessThan(tester.getTopLeft(find.text('처리상태')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('처리상태')).dy,
+      lessThan(tester.getTopLeft(find.text('처리기관')).dy),
+    );
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('search-filter-more')),
+    );
+    await tester.tap(find.byKey(const ValueKey('search-filter-more')));
+    await tester.pumpAndSettle();
+    expect(labels().take(6).toList(), [
       '차량번호',
       '신고번호',
-      'ID',
       '처리기관',
+      'ID',
       '담당자',
       '과태료/범칙금',
     ]);
@@ -96,6 +113,11 @@ void main() {
     final provider = ReportProvider();
     addTearDown(provider.dispose);
     await openSheet(tester, provider);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('search-filter-more')),
+    );
+    await tester.tap(find.byKey(const ValueKey('search-filter-more')));
+    await tester.pumpAndSettle();
     final idField = find.widgetWithText(TextField, 'ID');
     await tester.ensureVisible(idField);
     await tester.enterText(idField, '90000011');

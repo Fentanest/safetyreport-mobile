@@ -6,6 +6,7 @@ import '../navigation/app_routes.dart';
 import '../providers/report_provider.dart';
 import '../services/sync_engine.dart';
 import '../theme/sr_colors.dart';
+import '../theme/sr_tokens.dart';
 
 /// 하단 탭에서 빠진 동기화(Standalone)/크롤링(Client) 화면으로 가는 대시보드 진입점 (D-06).
 /// 실제 실행·설정은 기존 CrawlScreen 이 그대로 담당한다(모드 혼합 없음).
@@ -21,7 +22,9 @@ class _SyncStatusCardState extends State<SyncStatusCard> {
   bool? _lastSyncing;
   AppMode? _lastMode;
 
-  void _refreshIfNeeded(ReportProvider p) {
+  void _refreshIfNeeded(
+    ({AppMode appMode, bool isSyncing, bool isStandaloneDemo}) p,
+  ) {
     if (_lastSync != null &&
         _lastSyncing == p.isSyncing &&
         _lastMode == p.appMode) {
@@ -43,16 +46,47 @@ class _SyncStatusCardState extends State<SyncStatusCard> {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.watch<ReportProvider>();
+    // 모드·동기화 중·데모 여부만 구독한다(SQ-P07).
+    final p = context
+        .select<
+          ReportProvider,
+          ({AppMode appMode, bool isSyncing, bool isStandaloneDemo})
+        >(
+          (p) => (
+            appMode: p.appMode,
+            isSyncing: p.isSyncing,
+            isStandaloneDemo: p.isStandaloneDemo,
+          ),
+        );
     _refreshIfNeeded(p);
     final sr = context.sr;
     final scheme = Theme.of(context).colorScheme;
     final isStandalone = p.appMode == AppMode.standalone;
     final title = isStandalone ? '동기화' : '크롤링';
+    // 글꼴 1.5배 이상이면 이동 버튼을 설명 아래로 내린다(제목·버튼이 한 줄에 들어가지 않는다).
+    final large = MediaQuery.textScalerOf(context).scale(1) >= 1.5;
+    final action = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(
+          child: Text(
+            '$title 화면',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: scheme.primary,
+            ),
+          ),
+        ),
+        Icon(Icons.chevron_right, color: scheme.primary),
+      ],
+    );
 
     return Card(
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(SrRadius.lg),
         onTap: () => AppRoutes.openCrawl(context),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
@@ -63,7 +97,7 @@ class _SyncStatusCardState extends State<SyncStatusCard> {
                 height: 40,
                 decoration: BoxDecoration(
                   color: sr.brandSoft,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(SrRadius.lg),
                 ),
                 child: Center(
                   child: p.isSyncing
@@ -79,17 +113,30 @@ class _SyncStatusCardState extends State<SyncStatusCard> {
                 ),
               ),
               const SizedBox(width: 12),
+              // 설명 문구가 카드 폭을 다 쓰도록 이동 버튼은 제목 줄 오른쪽에 둔다
+              // (설명 옆에 두면 좁은 폭에서 "없습/니다"처럼 어색하게 꺾였다).
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      '$title 상태',
-                      style: TextStyle(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w800,
-                        color: sr.textPrimary,
-                      ),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '$title 상태',
+                            style: TextStyle(
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w800,
+                              color: sr.textPrimary,
+                            ),
+                          ),
+                        ),
+                        if (!large) ...[
+                          const SizedBox(width: 8),
+                          Flexible(child: action),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 2),
                     if (p.isSyncing)
@@ -100,7 +147,7 @@ class _SyncStatusCardState extends State<SyncStatusCard> {
                     else if (!isStandalone)
                       Text(
                         '서버 크롤링 실행·상태·로그는 크롤링 화면에서 확인합니다',
-                        maxLines: 2,
+                        maxLines: large ? 4 : 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(fontSize: 12, color: sr.textSecondary),
                       )
@@ -122,23 +169,9 @@ class _SyncStatusCardState extends State<SyncStatusCard> {
                           ),
                         ),
                       ),
+                    if (large) ...[const SizedBox(height: 4), action],
                   ],
                 ),
-              ),
-              const SizedBox(width: 8),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    '$title 화면',
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w700,
-                      color: scheme.primary,
-                    ),
-                  ),
-                  Icon(Icons.chevron_right, color: scheme.primary),
-                ],
               ),
             ],
           ),
@@ -171,7 +204,10 @@ class _SyncActionButtonState extends State<SyncActionButton>
 
   @override
   Widget build(BuildContext context) {
-    final p = context.watch<ReportProvider>();
+    final p = context
+        .select<ReportProvider, ({AppMode appMode, bool isSyncing})>(
+          (p) => (appMode: p.appMode, isSyncing: p.isSyncing),
+        );
     if (p.isSyncing) {
       if (!_controller.isAnimating) _controller.repeat();
     } else if (_controller.isAnimating) {

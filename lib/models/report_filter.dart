@@ -189,49 +189,154 @@ class ReportFilter {
       pollStatus.isEmpty;
 
   /// 활성 필터 항목 요약 (Chip 표시용)
-  List<String> get activeLabels {
-    final list = <String>[];
-    if (name.isNotEmpty) list.add('신고명: $name');
-    if (reportNumber.isNotEmpty) list.add('신고번호: $reportNumber');
-    if (id.isNotEmpty) list.add('ID: $id');
+  List<String> get activeLabels =>
+      activeConditions.map((c) => c.label).toList(growable: false);
+
+  /// 활성 조건 하나하나(칩 표시와 개별 해제용, SQ-U16). 순서는 [activeLabels] 와 같다.
+  List<ReportFilterCondition> get activeConditions {
+    final list = <ReportFilterCondition>[];
+    void add(ReportFilterField field, String label) =>
+        list.add(ReportFilterCondition(field, label));
+    if (name.isNotEmpty) add(ReportFilterField.name, '신고명: $name');
+    if (reportNumber.isNotEmpty) {
+      add(ReportFilterField.reportNumber, '신고번호: $reportNumber');
+    }
+    if (id.isNotEmpty) add(ReportFilterField.id, 'ID: $id');
     if (ratings.isNotEmpty) {
-      list.add(
+      add(
+        ReportFilterField.ratings,
         '별점: ${ratings.map((rating) => rating == '__none__' ? '없음' : '$rating점').join(', ')}',
       );
     }
-    if (ratingCause.isNotEmpty) list.add('별점사유: $ratingCause');
-    if (agency.isNotEmpty) list.add('기관: $agency');
-    if (manager.isNotEmpty) list.add('담당자: $manager');
-    if (carNumber.isNotEmpty) list.add('차량: $carNumber');
-    if (law == kEmptyLawFilterValue) {
-      list.add('위반법규: 없음');
-    } else if (law.isNotEmpty) {
-      list.add('위반법규: $law');
+    if (ratingCause.isNotEmpty) {
+      add(ReportFilterField.ratingCause, '별점사유: $ratingCause');
     }
-    if (location.isNotEmpty) list.add('위반장소: $location');
-    if (fine.isNotEmpty) list.add('범칙금/과태료: $fine');
-    if (supplementCount.isNotEmpty) list.add('보완횟수: $supplementCount');
-    if (reportContent.isNotEmpty) list.add('신고내용: $reportContent');
-    if (processContent.isNotEmpty) list.add('처리내용: $processContent');
-    if (statuses.isNotEmpty) list.add('상태: ${statuses.join(', ')}');
+    if (agency.isNotEmpty) add(ReportFilterField.agency, '기관: $agency');
+    if (manager.isNotEmpty) add(ReportFilterField.manager, '담당자: $manager');
+    if (carNumber.isNotEmpty) {
+      add(ReportFilterField.carNumber, '차량: $carNumber');
+    }
+    if (law == kEmptyLawFilterValue) {
+      add(ReportFilterField.law, '위반법규: 없음');
+    } else if (law.isNotEmpty) {
+      add(ReportFilterField.law, '위반법규: $law');
+    }
+    if (location.isNotEmpty) {
+      add(ReportFilterField.location, '위반장소: $location');
+    }
+    if (fine.isNotEmpty) add(ReportFilterField.fine, '범칙금/과태료: $fine');
+    if (supplementCount.isNotEmpty) {
+      add(ReportFilterField.supplementCount, '보완횟수: $supplementCount');
+    }
+    if (reportContent.isNotEmpty) {
+      add(ReportFilterField.reportContent, '신고내용: $reportContent');
+    }
+    if (processContent.isNotEmpty) {
+      add(ReportFilterField.processContent, '처리내용: $processContent');
+    }
+    if (statuses.isNotEmpty) {
+      add(ReportFilterField.statuses, '상태: ${statuses.join(', ')}');
+    }
     if (reportDateStart.isNotEmpty || reportDateEnd.isNotEmpty) {
-      list.add('신고일: $reportDateStart~$reportDateEnd');
+      add(
+        ReportFilterField.reportDate,
+        '신고일: $reportDateStart~$reportDateEnd',
+      );
     }
     if (occurDateStart.isNotEmpty || occurDateEnd.isNotEmpty) {
-      list.add('발생일: $occurDateStart~$occurDateEnd');
+      add(ReportFilterField.occurDate, '발생일: $occurDateStart~$occurDateEnd');
     }
     if (responseDateStart.isNotEmpty || responseDateEnd.isNotEmpty) {
-      list.add('답변일: $responseDateStart~$responseDateEnd');
+      add(
+        ReportFilterField.responseDate,
+        '답변일: $responseDateStart~$responseDateEnd',
+      );
     }
     if (occurTimeStart.isNotEmpty || occurTimeEnd.isNotEmpty) {
-      list.add('발생시각: $occurTimeStart~$occurTimeEnd');
+      add(
+        ReportFilterField.occurTime,
+        '발생시각: $occurTimeStart~$occurTimeEnd',
+      );
     }
-    if (excludePolice) list.add('경찰기관 제외');
-    if (onlyPolice) list.add('경찰기관만');
-    if (pollStatus.isNotEmpty) list.add('만족도: $pollStatus');
+    if (excludePolice) add(ReportFilterField.excludePolice, '경찰기관 제외');
+    if (onlyPolice) add(ReportFilterField.onlyPolice, '경찰기관만');
+    if (pollStatus.isNotEmpty) {
+      add(ReportFilterField.pollStatus, '만족도: $pollStatus');
+    }
     return list;
   }
 
+  /// [field] 조건 하나만 비운 필터(나머지 조건은 그대로, SQ-U16 칩 ×).
+  ReportFilter without(ReportFilterField field) => switch (field) {
+    ReportFilterField.name => copyWith(name: ''),
+    ReportFilterField.reportNumber => copyWith(reportNumber: ''),
+    ReportFilterField.id => copyWith(id: ''),
+    ReportFilterField.ratings => copyWith(ratings: const []),
+    ReportFilterField.ratingCause => copyWith(ratingCause: ''),
+    ReportFilterField.agency => copyWith(agency: ''),
+    ReportFilterField.manager => copyWith(manager: ''),
+    ReportFilterField.carNumber => copyWith(carNumber: ''),
+    ReportFilterField.law => copyWith(law: ''),
+    ReportFilterField.location => copyWith(location: ''),
+    ReportFilterField.fine => copyWith(fine: ''),
+    ReportFilterField.supplementCount => copyWith(supplementCount: ''),
+    ReportFilterField.reportContent => copyWith(reportContent: ''),
+    ReportFilterField.processContent => copyWith(processContent: ''),
+    ReportFilterField.statuses => copyWith(statuses: const []),
+    ReportFilterField.reportDate => copyWith(
+      reportDateStart: '',
+      reportDateEnd: '',
+    ),
+    ReportFilterField.occurDate => copyWith(
+      occurDateStart: '',
+      occurDateEnd: '',
+    ),
+    ReportFilterField.responseDate => copyWith(
+      responseDateStart: '',
+      responseDateEnd: '',
+    ),
+    ReportFilterField.occurTime => copyWith(
+      occurTimeStart: '',
+      occurTimeEnd: '',
+    ),
+    ReportFilterField.excludePolice => copyWith(excludePolice: false),
+    ReportFilterField.onlyPolice => copyWith(onlyPolice: false),
+    ReportFilterField.pollStatus => copyWith(pollStatus: ''),
+  };
+
   String get rating => ratings.join(',');
   String get status => statuses.join(',');
+}
+
+/// 칩 하나가 나타내는 필터 조건(날짜·시각 범위는 시작~끝을 한 조건으로 본다).
+enum ReportFilterField {
+  name,
+  reportNumber,
+  id,
+  ratings,
+  ratingCause,
+  agency,
+  manager,
+  carNumber,
+  law,
+  location,
+  fine,
+  supplementCount,
+  reportContent,
+  processContent,
+  statuses,
+  reportDate,
+  occurDate,
+  responseDate,
+  occurTime,
+  excludePolice,
+  onlyPolice,
+  pollStatus,
+}
+
+class ReportFilterCondition {
+  const ReportFilterCondition(this.field, this.label);
+
+  final ReportFilterField field;
+  final String label;
 }

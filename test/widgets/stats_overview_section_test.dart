@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/models/stats_overview.dart';
 import 'package:safetyreport/widgets/stats_overview_section.dart';
@@ -68,6 +69,53 @@ OverviewSummary fixtureSummary({int months = 8, bool withExtras = true}) {
 }
 
 void main() {
+  // L-9: "123,456,780원"·"11,890건" 이 줄바꿈되어 단위만 다음 줄에 남던 문제.
+  for (final scale in uiTextScales) {
+    testWidgets('요약 값은 숫자와 단위가 한 줄에 있다 (360dp, x$scale)', (
+      tester,
+    ) async {
+      final errors = await pumpThemed(
+        tester,
+        StatsOverviewSection(
+          summary: fixtureSummary(),
+          categoryLabel: '교통위반',
+          yearBasis: '답변일',
+          now: DateTime(2025, 8, 20),
+        ),
+        brightness: Brightness.light,
+        textScale: scale,
+        height: 2600,
+      );
+      expect(errors, isEmpty, reason: describeErrors(errors));
+      for (final value in [
+        '123,456,780원',
+        '12,345건',
+        '11,890건',
+        '4,321건',
+        '2,100건',
+        '38.5일',
+      ]) {
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.text(value),
+        );
+        final boxes = paragraph.getBoxesForSelection(
+          TextSelection(baseOffset: 0, extentOffset: value.length),
+        );
+        final tops = boxes.map((b) => b.top.round()).toSet();
+        expect(tops, hasLength(1), reason: '$value 가 여러 줄로 나뉨');
+        expect(paragraph.didExceedMaxLines, isFalse, reason: value);
+        // 값이 타일 안에 다 보인다(잘리거나 타일 밖으로 나가지 않음).
+        final tile = tester.getRect(
+          find
+              .ancestor(of: find.text(value), matching: find.byType(SizedBox))
+              .first,
+        );
+        final rect = tester.getRect(find.text(value));
+        expect(rect.right, lessThanOrEqualTo(tile.right + 0.5), reason: value);
+      }
+    });
+  }
+
   for (final brightness in Brightness.values) {
     for (final scale in uiTextScales) {
       for (final width in [360.0, 430.0]) {

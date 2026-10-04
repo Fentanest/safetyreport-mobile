@@ -4,11 +4,17 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:http/http.dart' as http;
 import 'network_retry_config.dart';
+import 'sync_inventory.dart';
 import 'standalone_auth_service.dart';
 
 /// 안전신문고 직접 API 클라이언트 (Authorization: BEARER 토큰 사용)
 /// 토큰 만료 시 자동 재로그인 후 재시도
 class StandaloneApiService {
+  @visibleForTesting
+  static Future<Map<String, dynamic>> Function(int start, int end)? listForTest;
+  @visibleForTesting
+  static Future<Map<String, dynamic>> Function(String id)? detailForTest;
+
   static const _base = 'https://www.safetyreport.go.kr';
 
   static const _commonHeaders = {
@@ -82,13 +88,28 @@ class StandaloneApiService {
     return '';
   }
 
+  static Future<http.Response> _ownedGet(
+    Uri uri,
+    Map<String, String> headers,
+    Duration timeout,
+  ) async {
+    final client = http.Client();
+    try {
+      return await client.get(uri, headers: headers).timeout(timeout);
+    } finally {
+      client.close();
+    }
+  }
+
   static Future<http.Response?> _getPublicWithRetry(Uri uri) async {
     Object? lastError;
     for (var attempt = 1; attempt <= mobileMaxRetryAttempts; attempt++) {
       try {
-        return await http
-            .get(uri, headers: _commonHeaders)
-            .timeout(const Duration(seconds: 10));
+        return await _ownedGet(
+          uri,
+          _commonHeaders,
+          const Duration(seconds: 10),
+        );
       } on SocketException catch (e) {
         lastError = e;
       } on http.ClientException catch (e) {
@@ -114,19 +135,25 @@ class StandaloneApiService {
     Uri uri, {
     required Map<String, String> body,
     String? referer,
-  }) {
-    return http
-        .post(
-          uri,
-          headers: {
-            ..._commonHeaders,
-            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-            'Origin': 'https://www.safetyreport.go.kr',
-            'Referer': ?referer,
-          },
-          body: body,
-        )
-        .timeout(const Duration(seconds: 10));
+  }) async {
+    final client = http.Client();
+    try {
+      return await client
+          .post(
+            uri,
+            headers: {
+              ..._commonHeaders,
+              'Content-Type':
+                  'application/x-www-form-urlencoded; charset=UTF-8',
+              'Origin': 'https://www.safetyreport.go.kr',
+              'Referer': ?referer,
+            },
+            body: body,
+          )
+          .timeout(const Duration(seconds: 10));
+    } finally {
+      client.close();
+    }
   }
 
   /// 유효한 토큰으로 헤더 구성. 만료 시 자동 재로그인.
@@ -148,9 +175,7 @@ class StandaloneApiService {
 
     for (var attempt = 1; attempt <= mobileMaxRetryAttempts; attempt++) {
       try {
-        res = await http
-            .get(uri, headers: headers)
-            .timeout(const Duration(seconds: 20));
+        res = await _ownedGet(uri, headers, const Duration(seconds: 20));
         break;
       } on SocketException catch (e) {
         // errno 104 (connection reset), 110 (timeout) 등 네트워크 일시 오류
@@ -166,9 +191,7 @@ class StandaloneApiService {
     }
 
     if (res == null) {
-      throw Exception(
-        '네트워크 오류 ($mobileMaxRetryAttempts회 재시도 실패): $lastError',
-      );
+      throw Exception('네트워크 오류 ($mobileMaxRetryAttempts회 재시도 실패): $lastError');
     }
 
     // 401이면 토큰 만료 — 자동 재로그인 후 1회 재시도.
@@ -183,9 +206,7 @@ class StandaloneApiService {
           'Authorization': 'BEARER $newToken',
           'Content-Type': 'application/json',
         };
-        res = await http
-            .get(uri, headers: headers)
-            .timeout(const Duration(seconds: 20));
+        res = await _ownedGet(uri, headers, const Duration(seconds: 20));
       }
     }
 
@@ -198,6 +219,8 @@ class StandaloneApiService {
     int startRow = 1,
     int endRow = 200,
   }) async {
+    final injected = listForTest;
+    if (injected != null) return injected(startRow, endRow);
     final today = DateTime.now();
     final todayStr =
         '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
@@ -229,6 +252,8 @@ class StandaloneApiService {
 
   /// 신고 상세 조회
   static Future<Map<String, dynamic>> fetchReportDetail(String cNo) async {
+    final injected = detailForTest;
+    if (injected != null) return injected(cNo);
     final uri = Uri.parse('$_base/api/v1/portal/mypage/mysafereport/$cNo');
     final res = await _getWithRetry(uri);
 
@@ -246,7 +271,7 @@ class StandaloneApiService {
   /// 전체 신고 건수 확인 (totalCnt 필드)
   static Future<int> fetchTotalCount() async {
     final data = await fetchReportList(startRow: 1, endRow: 1);
-    return (data['totalCnt'] as num?)?.toInt() ?? 0;
+    return ListInventory.readTotal(data);
   }
 
   /// 만족도조사 점수+사유 조회 (인증 불필요 — 신고번호 + 휴대폰번호로 확인).

@@ -18,7 +18,11 @@ import 'upload/upload_defaults.dart';
 import 'upload_hooks.dart';
 
 /// 포그라운드 uploader 용 게이트 어댑터: 새 작업은 60초 이내 재검증(plan §6.1).
-class LiveGateCheck implements CommunityGateCheck {
+class LiveGateCheck implements CommunityGateCheck, CommunityGenerationFence, CommunityScopeFence {
+  @override
+  Object get generation => gate.generation;
+  @override
+  String? get contributorFingerprint => gate.canEnter ? gate.lastStatus?.fingerprint : null;
   LiveGateCheck(this.gate);
   final CommunityGate gate;
 
@@ -88,20 +92,35 @@ class CommunityWiring {
     final config = CommunityAuthConfig.fromEnvironment;
     final c = client ??
         CommunityIngestClient(supabaseUrl: config.supabaseUrl, publishableKey: config.publishableKey);
-    const owner = 'manifest';
-    if (!await store.acquireLease('upload', owner, const Duration(minutes: 5))) return false;
+    final owner = 'manifest:${newUuidV4()}';
+    if (!await store.acquireLease('upload', owner, const Duration(minutes: 5))) {
+      if (client == null) c.close();
+      return false;
+    }
     try {
       return await completed.refreshServerCompleted(
         datasetKey: datasetKey,
         writerEpoch: epoch,
         store: store,
+        commitAllowed: (tx) async {
+          final current = await tx.query('context', where: 'id=1 AND state=?', whereArgs: ['active']);
+          if (current.isEmpty || !['connection_id','writer_epoch','dataset_key','contributor_fingerprint','consent_grant_id'].every((k) => current.first[k] == ctx![k])) return false;
+          final lease = await tx.query('leases', where: 'name=? AND owner=? AND until>?', whereArgs: ['upload', owner, isoUtc(DateTime.now())]);
+          return lease.length == 1;
+        },
         fetchPage: (after, limit) async {
+          if (!await store.renewLease('upload', owner, const Duration(minutes: 5)) || !await _sameContext(store, ctx!)) return null;
           final page = await c.fetchManifestPage(access, connectionId, after: after, limit: limit);
           return page == null ? null : completed.ManifestPage.fromJson(page);
         },
       );
     } finally {
+      if (client == null) c.close();
       await store.releaseLease('upload', owner);
     }
+  }  static Future<bool> _sameContext(CommunityStore store, Map<String, Object?> expected) async {
+    final current = await store.activeContext();
+    return current != null && ['connection_id','writer_epoch','dataset_key','contributor_fingerprint','consent_grant_id'].every((k) => current[k] == expected[k]);
   }
+
 }

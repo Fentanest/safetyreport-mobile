@@ -30,6 +30,7 @@ object DbExportLocation {
         return file
     }
 
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.Q)
     fun publish(context: Context, source: File, filename: String): Map<String, Any> {
         check(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q)
         val resolver = context.contentResolver
@@ -104,6 +105,7 @@ object DbExportLocation {
     fun notifyCompleted(context: Context, data: Map<String, Any>) {
         val uri = Uri.parse(data["uri"] as String)
         val intent = Intent(context, MainActivity::class.java).apply {
+            this.data = Uri.parse("mysafetyreport://notification/db-export/${java.util.UUID.randomUUID()}")
             putExtra("db_export_uri", uri.toString())
             putExtra("db_export_downloads", data["downloads"] == true)
             putExtra("db_export_filename", data["filename"] as? String)
@@ -113,8 +115,10 @@ object DbExportLocation {
         val id = uri.toString().hashCode()
         val pi = PendingIntent.getActivity(context, id, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.createNotificationChannel(NotificationChannel("db_exports", "DB 저장 완료", NotificationManager.IMPORTANCE_DEFAULT))
-        manager.notify(id, Notification.Builder(context, "db_exports")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            manager.createNotificationChannel(NotificationChannel("db_exports", "DB 저장 완료", NotificationManager.IMPORTANCE_DEFAULT))
+        }
+        manager.notify("db_exports", id, NativeNotifications.builder(context, "db_exports")
             .setSmallIcon(R.drawable.ic_stat_logo).setContentTitle("DB 저장 완료: ${data["filename"]}")
             .setContentText("${data["location"]} · 눌러 저장 위치 열기").setContentIntent(pi).setAutoCancel(true).build())
     }

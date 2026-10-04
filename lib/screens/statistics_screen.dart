@@ -250,10 +250,18 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     };
   }
 
+  List<AgencyStatRow>? _viewSource;
+  Object? _viewKey;
+  List<AgencyStatRow> _viewRows = const [];
+
   /// 검색(기관명·담당자명)과 정렬을 적용한 전체 목록. 미리보기로 자르지 않는다.
   List<AgencyStatRow> get _visibleRows {
     final q = _search.trim().toLowerCase();
-    final rows = _typeRows
+    final source = _typeRows;
+    final key = (_type, _cat, q, _sort);
+    if (identical(source, _viewSource) && key == _viewKey) return _viewRows;
+    final timer = Stopwatch()..start();
+    final rows = source
         .where(
           (r) =>
               q.isEmpty ||
@@ -290,7 +298,11 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       };
       return c != 0 ? c : byName(a, b);
     });
-    return rows;
+    _viewSource = source;
+    _viewKey = key;
+    _viewRows = List.unmodifiable(rows);
+    PerformanceTrace.record('stats.view_filter_sort', timer, rows: rows.length);
+    return _viewRows;
   }
 
   bool get _showPerson => _type.endsWith('person');

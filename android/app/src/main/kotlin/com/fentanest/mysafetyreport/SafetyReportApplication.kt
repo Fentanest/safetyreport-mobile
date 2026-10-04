@@ -49,7 +49,7 @@ class SafetyReportApplication : Application() {
 
     private fun showReloginNotification(message: String) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (nm.getNotificationChannel(CHANNEL_ID) == null) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && nm.getNotificationChannel(CHANNEL_ID) == null) {
             nm.createNotificationChannel(
                 NotificationChannel(CHANNEL_ID, "앱 알림", NotificationManager.IMPORTANCE_HIGH).apply {
                     description = "크롤링 완료 등 앱 이벤트 알림"
@@ -58,13 +58,15 @@ class SafetyReportApplication : Application() {
             )
         }
         // 앱을 열면 대시보드 맨 위 '재로그인 필요' 경고에서 바로 재로그인할 수 있다.
-        val openIntent = packageManager.getLaunchIntentForPackage(packageName) ?: Intent()
+        val openIntent = (packageManager.getLaunchIntentForPackage(packageName) ?: Intent()).apply {
+            data = android.net.Uri.parse("mysafetyreport://notification/auth/${java.util.UUID.randomUUID()}")
+        }
         val pi = PendingIntent.getActivity(
             this, NOTIF_ID, openIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         val body = "$message\n앱을 열어 재로그인해 주세요."
-        val notif = Notification.Builder(this, CHANNEL_ID)
+        val notif = NativeNotifications.builder(this, CHANNEL_ID)
             .setContentTitle("🔐 안전신문고 재로그인 필요")
             .setContentText(body)
             .setStyle(Notification.BigTextStyle().bigText(body))
@@ -72,6 +74,6 @@ class SafetyReportApplication : Application() {
             .setAutoCancel(true)
             .setContentIntent(pi)
             .build()
-        nm.notify(NOTIF_ID, notif)
+        nm.notify("auth", NOTIF_ID, notif)
     }
 }

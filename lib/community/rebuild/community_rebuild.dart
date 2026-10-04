@@ -71,17 +71,25 @@ class RebuildEngine {
   /// 실패(목록 일부 실패·로그인 실패 포함)는 성공으로 보지 않는다(G12).
   Future<RebuildRunOutcome> run({required String runId}) async {
     final result = await SyncEngine.start(fullSync: true, rebuildRunId: runId);
-    if (result.failed) {
+    if (result.failed &&
+        (!result.listComplete || result.cancelled || result.busy)) {
       throw StateError(result.errorMessage ?? 'rebuild_sync_failed');
     }
     final store = await CommunityStore.open();
     final permanent = await store.db.rawQuery(
-      "SELECT source_report_id FROM rebuild_items WHERE run_id=? AND state='failed_permanent'", [runId]);
-    final listed = await store.db.rawQuery('SELECT list_complete FROM rebuild_jobs WHERE run_id=?', [runId]);
+      "SELECT source_report_id FROM rebuild_items WHERE run_id=? AND state='failed_permanent'",
+      [runId],
+    );
+    final listed = await store.db.rawQuery(
+      'SELECT list_complete FROM rebuild_jobs WHERE run_id=?',
+      [runId],
+    );
     return RebuildRunOutcome(
       listComplete: listed.isNotEmpty && listed.first['list_complete'] == 1,
       fetched: result.done,
-      permanentFailures: [for (final r in permanent) r['source_report_id'] as String],
+      permanentFailures: [
+        for (final r in permanent) r['source_report_id'] as String,
+      ],
       orphanCount: result.orphans,
       note: 'sync_engine_rebuild',
     );
@@ -108,7 +116,12 @@ class RebuildBackupResult {
   final String? ref;
   final String? check;
   final String? error;
-  const RebuildBackupResult({required this.ok, this.ref, this.check, this.error});
+  const RebuildBackupResult({
+    required this.ok,
+    this.ref,
+    this.check,
+    this.error,
+  });
 }
 
 /// Standalone 로컬 초기화 job (`rebuild.md` 상태기계).
@@ -123,16 +136,20 @@ class CommunityRebuild extends ChangeNotifier {
     Future<bool> Function()? manifestCheck,
     Future<String> Function()? personalDbPath,
     Future<PersonalDbFacts> Function()? personalDbFacts,
-  })  : _store = store,
-        _personalDbFacts = personalDbFacts,
-        _localDatasetId = localDatasetId,
-        _sourceNamespace = sourceNamespace,
-        _gateFresh = gateFresh,
-        _engine = engine,
-        _backupOverride = backup,
-        _manifestCheck = manifestCheck ?? CommunityUploadHooks.refreshServerCompletedNow,
-        _personalDbPath = personalDbPath;
+    int Function()? scopeGeneration,
+  }) : _scopeGeneration = scopeGeneration,
+       _store = store,
+       _personalDbFacts = personalDbFacts,
+       _localDatasetId = localDatasetId,
+       _sourceNamespace = sourceNamespace,
+       _gateFresh = gateFresh,
+       _engine = engine,
+       _backupOverride = backup,
+       _manifestCheck =
+           manifestCheck ?? CommunityUploadHooks.refreshServerCompletedNow,
+       _personalDbPath = personalDbPath;
 
+  final int Function()? _scopeGeneration;
   final CommunityStore _store;
   final Future<String> Function() _localDatasetId;
   final Future<String?> Function() _sourceNamespace;
@@ -148,6 +165,8 @@ class CommunityRebuild extends ChangeNotifier {
   /// 이전 버전 DB 를 비운 기록(안내 화면용). [required]·[load] 뒤에 채워진다.
   Map<String, Object?>? get legacyReset => _legacyReset;
 
+  final String _leaseOwner = newUuidV4();
+  Timer? _leaseHeartbeat;
   Map<String, Object?>? _job;
   Map<String, Object?>? get job => _job;
   String get state => (_job?['state'] ?? RebuildStates.required) as String;
@@ -161,10 +180,10 @@ class CommunityRebuild extends ChangeNotifier {
   String? get notice => _notice;
 
   Future<Map<String, Object?>> _scope() async => {
-        'required_version': communityRebuildRequiredVersion,
-        'local_dataset_id': await _localDatasetId(),
-        'source_account_namespace': await _sourceNamespace() ?? '',
-      };
+    'required_version': communityRebuildRequiredVersion,
+    'local_dataset_id': await _localDatasetId(),
+    'source_account_namespace': await _sourceNamespace() ?? '',
+  };
 
   /// 새 설치: 개인 DB 에 신고가 없고 이전 DB 를 비운 기록도 없다(2026-09-26 결정 — 처음 실행은 안내 없이 평소대로).
   /// 사실을 주지 않으면(테스트·주입 없음) 새 설치로 보지 않는다.
@@ -178,24 +197,22 @@ class CommunityRebuild extends ChangeNotifier {
   /// 새 설치: 다시 읽을 기존 신고가 없으니 이 범위 키를 완료로 적는다(빈 목록 완료와 같은 뜻). 첫 수집은 일반 동기화가 한다.
   Future<void> _recordFreshBaseline(Map<String, Object?> s) async {
     final now = isoUtc(DateTime.now());
-    await _store.db.insert(
-      'rebuild_jobs',
-      {
-        'run_id': 'baseline-${DateTime.now().toUtc().millisecondsSinceEpoch}',
-        'required_version': s['required_version'],
-        'local_dataset_id': s['local_dataset_id'],
-        'source_account_namespace': s['source_account_namespace'],
-        'state': RebuildStates.completed,
-        'phase': 'done',
-        'confirmed_at': communityRebuildFreshInstallBaseline,
-        'started_at': now,
-        'updated_at': now,
-        'completed_at': now,
-        'list_complete': 1,
-        'counts_json': jsonEncode({'baseline': communityRebuildFreshInstallBaseline}),
-      },
-      conflictAlgorithm: ConflictAlgorithm.ignore,
-    );
+    await _store.db.insert('rebuild_jobs', {
+      'run_id': 'baseline-${DateTime.now().toUtc().millisecondsSinceEpoch}',
+      'required_version': s['required_version'],
+      'local_dataset_id': s['local_dataset_id'],
+      'source_account_namespace': s['source_account_namespace'],
+      'state': RebuildStates.completed,
+      'phase': 'done',
+      'confirmed_at': communityRebuildFreshInstallBaseline,
+      'started_at': now,
+      'updated_at': now,
+      'completed_at': now,
+      'list_complete': 1,
+      'counts_json': jsonEncode({
+        'baseline': communityRebuildFreshInstallBaseline,
+      }),
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
   /// 초기화 필요 여부. 완료 행이 없으면 필요. 새 설치([_isFreshInstall])는 필요 없음 — 공식 계정이 있으면 그 자리에서
@@ -203,14 +220,26 @@ class CommunityRebuild extends ChangeNotifier {
   Future<bool> required() async {
     final s = await _scope();
     final fresh = await _isFreshInstall();
-    if ((s['source_account_namespace'] as String).isEmpty && fresh) return false;
+    if ((s['source_account_namespace'] as String).isEmpty && fresh) {
+      return false;
+    }
     final rows = await _store.db.rawQuery(
       'SELECT state FROM rebuild_jobs WHERE required_version=? AND local_dataset_id=? AND source_account_namespace=?',
-      [s['required_version'], s['local_dataset_id'], s['source_account_namespace']],
+      [
+        s['required_version'],
+        s['local_dataset_id'],
+        s['source_account_namespace'],
+      ],
     );
-    if (rows.any((r) => RebuildStates.terminalOk.contains(r['state']))) return false;
-    final active = rows.any((r) => !RebuildStates.inactiveTerminal.contains(r['state']));
-    if (!active && fresh && (s['source_account_namespace'] as String).isNotEmpty) {
+    if (rows.any((r) => RebuildStates.terminalOk.contains(r['state']))) {
+      return false;
+    }
+    final active = rows.any(
+      (r) => !RebuildStates.inactiveTerminal.contains(r['state']),
+    );
+    if (!active &&
+        fresh &&
+        (s['source_account_namespace'] as String).isNotEmpty) {
       await _recordFreshBaseline(s);
       return false;
     }
@@ -223,10 +252,15 @@ class CommunityRebuild extends ChangeNotifier {
     final s = await _scope();
     final rows = await _store.db.rawQuery(
       'SELECT * FROM rebuild_jobs WHERE required_version=? AND local_dataset_id=? AND source_account_namespace=? ORDER BY updated_at DESC LIMIT 1',
-      [s['required_version'], s['local_dataset_id'], s['source_account_namespace']],
+      [
+        s['required_version'],
+        s['local_dataset_id'],
+        s['source_account_namespace'],
+      ],
     );
     _job = rows.isEmpty ? null : Map<String, Object?>.from(rows.first);
-    CommunityRebuildGuard.active = _job != null && !RebuildStates.terminalOk.contains(_job!['state']);
+    CommunityRebuildGuard.active =
+        _job != null && !RebuildStates.terminalOk.contains(_job!['state']);
     notifyListeners();
   }
 
@@ -238,9 +272,15 @@ class CommunityRebuild extends ChangeNotifier {
     if (job == null) return;
     final row = Map<String, Object?>.from(job)..addAll(fields);
     row['updated_at'] = isoUtc(DateTime.now());
-    await _store.db.insert('rebuild_jobs', row, conflictAlgorithm: ConflictAlgorithm.replace);
+    await _store.db.insert(
+      'rebuild_jobs',
+      row,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
     _job = row;
-    CommunityRebuildGuard.active = !RebuildStates.terminalOk.contains(row['state']);
+    CommunityRebuildGuard.active = !RebuildStates.terminalOk.contains(
+      row['state'],
+    );
     notifyListeners();
   }
 
@@ -258,7 +298,10 @@ class CommunityRebuild extends ChangeNotifier {
     }
     final gateOk = await _gateFresh();
     if (!gateOk) {
-      await _ensureRow(state: RebuildStates.prerequisitesRequired, error: 'gate_required');
+      await _ensureRow(
+        state: RebuildStates.prerequisitesRequired,
+        error: 'gate_required',
+      );
       _notice = '카카오 인증과 신고내용 공유 동의가 필요합니다.';
       notifyListeners();
       return false;
@@ -273,11 +316,16 @@ class CommunityRebuild extends ChangeNotifier {
       notifyListeners();
       return false;
     }
-    final leaseOk = await _store.acquireLease('rebuild', 'mobile', const Duration(minutes: 30));
+    final leaseOk = await _store.acquireLease(
+      'rebuild',
+      _leaseOwner,
+      const Duration(minutes: 30),
+    );
     if (!leaseOk) {
       await load();
       return true;
     }
+    _startLeaseHeartbeat();
     try {
       if (_job == null ||
           RebuildStates.terminalOk.contains(_job!['state']) ||
@@ -289,15 +337,19 @@ class CommunityRebuild extends ChangeNotifier {
         'confirmed_at': isoUtc(DateTime.now()),
       });
       await _runToCompletion();
-      return state == RebuildStates.completed || state == RebuildStates.completedWithGaps;
+      return state == RebuildStates.completed ||
+          state == RebuildStates.completedWithGaps;
     } finally {
-      await _store.releaseLease('rebuild', 'mobile');
+      _leaseHeartbeat?.cancel();
+      await _store.releaseLease('rebuild', _leaseOwner);
     }
   }
 
   Future<void> resume() async {
     await load();
-    if (_job == null || RebuildStates.terminalOk.contains(_job!['state'])) return;
+    if (_job == null || RebuildStates.terminalOk.contains(_job!['state'])) {
+      return;
+    }
     final gateOk = await _gateFresh();
     if (!gateOk) {
       await _save({}..['state'] = RebuildStates.paused);
@@ -305,12 +357,18 @@ class CommunityRebuild extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    final leaseOk = await _store.acquireLease('rebuild', 'mobile', const Duration(minutes: 30));
+    final leaseOk = await _store.acquireLease(
+      'rebuild',
+      _leaseOwner,
+      const Duration(minutes: 30),
+    );
     if (!leaseOk) return;
+    _startLeaseHeartbeat();
     try {
       await _runToCompletion(resumed: true);
     } finally {
-      await _store.releaseLease('rebuild', 'mobile');
+      _leaseHeartbeat?.cancel();
+      await _store.releaseLease('rebuild', _leaseOwner);
     }
   }
 
@@ -319,12 +377,36 @@ class CommunityRebuild extends ChangeNotifier {
   }
 
   /// 영구 누락 N건을 사용자가 수락 → completed_with_gaps.
-  Future<void> acceptGaps() async {
-    await _save({
-      'state': RebuildStates.committing,
-      'gaps_accepted_at': isoUtc(DateTime.now()),
+  void _startLeaseHeartbeat() {
+    _leaseHeartbeat?.cancel();
+    _leaseHeartbeat = Timer.periodic(const Duration(minutes: 1), (_) {
+      // The transaction at commit also checks expiry and owner; errors never grant ownership.
+      unawaited(
+        _store
+            .renewLease('rebuild', _leaseOwner, const Duration(minutes: 30))
+            .then<void>((_) {}, onError: (Object _) {}),
+      );
     });
-    await _commit(finishedWithGaps: true);
+  }
+
+  Future<void> acceptGaps() async {
+    if (_job == null ||
+        state != RebuildStates.validating ||
+        !await _gateFresh()) {
+      return;
+    }
+    if (!await _store.acquireLease(
+      'rebuild',
+      _leaseOwner,
+      const Duration(minutes: 30),
+    )) {
+      return;
+    }
+    try {
+      await _commit(finishedWithGaps: true);
+    } finally {
+      await _store.releaseLease('rebuild', _leaseOwner);
+    }
   }
 
   Future<void> _runToCompletion({bool resumed = false}) async {
@@ -341,18 +423,22 @@ class CommunityRebuild extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    await _save({
-      'backup_ref': backup.ref,
-      'backup_check': backup.check,
-    });
+    await _save({'backup_ref': backup.ref, 'backup_check': backup.check});
     // 실행.
-    await _save({'state': RebuildStates.running, 'phase': 'collect', 'started_at': isoUtc(DateTime.now())});
+    await _save({
+      'state': RebuildStates.running,
+      'phase': 'collect',
+      'list_complete': 0,
+      'started_at': isoUtc(DateTime.now()),
+    });
     late final RebuildRunOutcome outcome;
     try {
       outcome = await _engine.run(runId: runId);
     } catch (e) {
       final msg = '$e';
-      if (msg.contains('paused') || msg.contains('revoked') || msg.contains('logout')) {
+      if (msg.contains('paused') ||
+          msg.contains('revoked') ||
+          msg.contains('logout')) {
         await _save({'state': RebuildStates.paused, 'last_error': msg});
       } else {
         await _save({'state': RebuildStates.failed, 'last_error': msg});
@@ -361,11 +447,31 @@ class CommunityRebuild extends ChangeNotifier {
       return;
     }
     if (!outcome.listComplete) {
-      await _save({'state': RebuildStates.failed, 'last_error': 'list_incomplete'});
+      await _save({
+        'state': RebuildStates.failed,
+        'last_error': 'list_incomplete',
+      });
       _notice = '전체 신고 확인에 실패했습니다. 다시 시도해 주세요.';
       notifyListeners();
       return;
     }
+    final unfinished = await _store.db.rawQuery(
+      "SELECT COUNT(*) AS n FROM rebuild_items WHERE run_id=? AND state NOT IN ('fetched','failed_permanent')",
+      [runId],
+    );
+    if (unfinished.single['n'] != 0) {
+      await _save({
+        'state': RebuildStates.paused,
+        'last_error': 'rebuild_items_pending',
+      });
+      _notice = '다시 시도할 신고가 남아 있습니다. 재개하면 이어서 수집합니다.';
+      notifyListeners();
+      return;
+    }
+    await _store.setMeta(
+      'rebuild_offered_gaps:$runId',
+      jsonEncode(outcome.permanentFailures.toList()..sort()),
+    );
     await _save({
       'state': RebuildStates.validating,
       'phase': 'validate',
@@ -377,7 +483,8 @@ class CommunityRebuild extends ChangeNotifier {
       }),
     });
     if (outcome.permanentFailures.isNotEmpty) {
-      _notice = '가져오지 못한 신고 ${outcome.permanentFailures.length}건이 있습니다. 확인 뒤 계속할 수 있습니다.';
+      _notice =
+          '가져오지 못한 신고 ${outcome.permanentFailures.length}건이 있습니다. 확인 뒤 계속할 수 있습니다.';
       notifyListeners();
       return;
     }
@@ -385,15 +492,91 @@ class CommunityRebuild extends ChangeNotifier {
   }
 
   Future<void> _commit({required bool finishedWithGaps}) async {
-    await _save({'state': RebuildStates.committing, 'phase': 'commit'});
-    // T6 병합 함수 하나로(PC 와 같은 규칙): staging → report_latest upsert, 삭제 없음, source_generation 증가.
-    await mergeRebuildStaging(_job!['run_id'] as String, store: _store);
-    await _save({
-      'state': finishedWithGaps ? RebuildStates.completedWithGaps : RebuildStates.completed,
-      'phase': 'done',
-      'completed_at': isoUtc(DateTime.now()),
-    });
-    _notice = null;
+    final generation = _scopeGeneration?.call();
+    final runId = _job!['run_id'] as String;
+    if (!await _gateFresh()) {
+      await pause('gate_not_fresh');
+      return;
+    }
+    final scope = await _scope();
+    try {
+      await _store.transaction((tx) async {
+        if (generation != _scopeGeneration?.call()) {
+          throw StateError('rebuild_generation_changed');
+        }
+        final rows = await tx.query(
+          'rebuild_jobs',
+          where: 'run_id=?',
+          whereArgs: [runId],
+        );
+        if (rows.length != 1) throw StateError('rebuild_job_missing');
+        final job = rows.single;
+        if (job['list_complete'] != 1 ||
+            job['state'] != RebuildStates.validating ||
+            job['local_dataset_id'] != scope['local_dataset_id'] ||
+            job['source_account_namespace'] !=
+                scope['source_account_namespace'] ||
+            await _store.meta('local_dataset_id', tx) !=
+                scope['local_dataset_id']) {
+          throw StateError('rebuild_scope_or_state_changed');
+        }
+        final lease = await tx.query(
+          'leases',
+          where: 'name=? AND owner=? AND until>?',
+          whereArgs: ['rebuild', _leaseOwner, isoUtc(DateTime.now())],
+        );
+        if (lease.isEmpty) throw StateError('rebuild_lease_lost');
+        final pending = await tx.rawQuery(
+          "SELECT COUNT(*) n FROM rebuild_items WHERE run_id=? AND state NOT IN ('fetched','failed_permanent')",
+          [runId],
+        );
+        if (pending.single['n'] != 0) throw StateError('rebuild_items_pending');
+        final gaps = await tx.rawQuery(
+          "SELECT source_report_id FROM rebuild_items WHERE run_id=? AND state='failed_permanent' ORDER BY source_report_id",
+          [runId],
+        );
+        final ids = gaps.map((r) => r['source_report_id']).toList();
+        final offered = jsonDecode(
+          await _store.meta('rebuild_offered_gaps:$runId', tx) ?? '[]',
+        );
+        if ((!finishedWithGaps && ids.isNotEmpty) ||
+            (finishedWithGaps &&
+                (ids.isEmpty || jsonEncode(ids) != jsonEncode(offered)))) {
+          throw StateError('rebuild_gaps_changed');
+        }
+        final dangling = await tx.rawQuery(
+          "SELECT COUNT(*) n FROM rebuild_items i LEFT JOIN report_latest_staging s ON s.run_id=i.run_id AND s.source_report_id=i.source_report_id LEFT JOIN source_journal j ON j.event_id=s.event_id WHERE i.run_id=? AND i.state='fetched' AND ((s.source_report_id IS NOT NULL AND j.event_id IS NULL) OR (s.source_report_id IS NULL AND NOT EXISTS (SELECT 1 FROM detail_status ds WHERE ds.local_dataset_id=? AND ds.source_report_id=i.source_report_id)))",
+          [runId, scope['local_dataset_id']],
+        );
+        if (dangling.single['n'] != 0) {
+          throw StateError('rebuild_staging_incomplete');
+        }
+        if (generation != _scopeGeneration?.call()) {
+          throw StateError('rebuild_generation_changed');
+        }
+        await mergeRebuildStaging(runId, store: _store, executor: tx);
+        final now = isoUtc(DateTime.now());
+        await tx.update(
+          'rebuild_jobs',
+          {
+            'state': finishedWithGaps
+                ? RebuildStates.completedWithGaps
+                : RebuildStates.completed,
+            'phase': 'done',
+            'completed_at': now,
+            'updated_at': now,
+            if (finishedWithGaps) 'gaps_accepted_at': now,
+          },
+          where: 'run_id=?',
+          whereArgs: [runId],
+        );
+      });
+      await load();
+      _notice = null;
+    } catch (e) {
+      await pause('$e');
+      _notice = '수집 결과를 확정하지 못했습니다. 기존 자료는 유지됩니다. 재개해 주세요.';
+    }
     notifyListeners();
   }
 
@@ -440,7 +623,11 @@ class CommunityRebuild extends ChangeNotifier {
       'list_complete': 0,
       'counts_json': '{}',
     };
-    await _store.db.insert('rebuild_jobs', row, conflictAlgorithm: ConflictAlgorithm.ignore);
+    await _store.db.insert(
+      'rebuild_jobs',
+      row,
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
     await load();
   }
 

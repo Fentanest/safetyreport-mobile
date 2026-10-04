@@ -7,13 +7,12 @@ import java.net.URL
 /** 저장된 Client 설정도 서버 작업 전에 v3 이상인지 확인한다. 실패하면 연결하지 않는다. */
 object ServerVersionCompatibility {
     enum class Failure { NONE, INCOMPATIBLE, AUTH, NETWORK }
-    @Volatile var failure = Failure.NONE
-        private set
-    @Volatile var failureMessage = ""
-        private set
-    @Volatile private var blockedAddress: String? = null
-    @Volatile private var blockedKey: String? = null
-    fun reset() { blockedAddress = null; blockedKey = null; failure = Failure.NONE; failureMessage = "" }
+    data class Probe(val failure: Failure, val message: String = "") {
+        val accepted: Boolean get() = failure == Failure.NONE
+    }
+    private data class Blocked(val address: String, val key: String, val result: Probe)
+    @Volatile private var blocked: Blocked? = null
+    fun reset() { blocked = null }
     fun upgradeMessage(code: String): String = when (code) {
         "SERVER_UPGRADE_REQUIRED" -> "PC 서버를 v3 이상으로 업데이트하세요."
         "CLIENT_UPGRADE_REQUIRED" -> "모바일 앱을 최신 버전으로 업데이트하세요."
@@ -32,49 +31,59 @@ object ServerVersionCompatibility {
     }
 
     fun block(baseUrl: String, apiKey: String) {
-        blockedAddress = baseUrl; blockedKey = apiKey; failure = Failure.INCOMPATIBLE
+        blocked = Blocked(baseUrl, apiKey, Probe(Failure.INCOMPATIBLE, upgradeMessage("")))
     }
-    fun check(baseUrl: String, apiKey: String): Boolean {
-        if (baseUrl.isBlank() || apiKey.isBlank()) return false
-        if (blockedAddress == baseUrl && blockedKey == apiKey) return false
+    fun check(baseUrl: String, apiKey: String): Boolean = probe(baseUrl, apiKey).accepted
+    fun probe(baseUrl: String, apiKey: String): Probe {
+        if (baseUrl.isBlank() || apiKey.isBlank()) return Probe(Failure.NETWORK)
+        blocked?.let { if (it.address == baseUrl && it.key == apiKey) return it.result }
         var connection: HttpURLConnection? = null
+        val deadline = java.util.Timer(true)
         return try {
-            val active = URL(ServerContract.apiUrl(baseUrl, ServerContract.SERVER_VERSION_PATH))
-                .openConnection() as HttpURLConnection
+            val active = URL(ServerContract.apiUrl(baseUrl, ServerContract.SERVER_VERSION_PATH)).openConnection() as HttpURLConnection
             connection = active
+            deadline.schedule(object : java.util.TimerTask() { override fun run() { active.disconnect() } }, 30_000L)
             active.requestMethod = "GET"
             ServerContract.headers(apiKey).forEach { (name, value) -> active.setRequestProperty(name, value) }
             active.connectTimeout = 10_000
             active.readTimeout = 10_000
-            failure = when (active.responseCode) {
+            val status = active.responseCode
+            var failure = when (status) {
                 200 -> Failure.NONE
                 401, 403 -> Failure.AUTH
                 404, 409 -> Failure.INCOMPATIBLE
                 else -> Failure.NETWORK
             }
-            if (failure == Failure.NONE && !supportsPayload(
-                JSONObject(active.inputStream.bufferedReader().use { it.readText() })
-            )) failure = Failure.INCOMPATIBLE
-            failureMessage = when (failure) {
+            if (failure == Failure.NONE && !supportsPayload(JSONObject(readBounded(active.inputStream)))) failure = Failure.INCOMPATIBLE
+            var message = when (failure) {
                 Failure.NONE -> ""
                 Failure.AUTH -> "서버 API 키를 확인하세요."
                 Failure.NETWORK -> "서버에 연결할 수 없습니다. 네트워크와 주소를 확인하세요."
                 Failure.INCOMPATIBLE -> "PC 서버 v3 이상과 self-host protocol 3 지원을 확인하세요."
             }
-            if (active.responseCode == 409) {
-                val body = active.errorStream?.bufferedReader()?.use { it.readText() }
-                failureMessage = upgradeMessage(body?.let { JSONObject(it).optString("code") } ?: "")
+            if (status == 409) {
+                val body = active.errorStream?.let { readBounded(it) }
+                message = upgradeMessage(body?.let { JSONObject(it).optString("code") } ?: "")
             }
-            if (failure == Failure.INCOMPATIBLE || failure == Failure.AUTH) {
-                blockedAddress = baseUrl; blockedKey = apiKey
-            }
-            failure == Failure.NONE
+            val result = Probe(failure, message)
+            if (failure == Failure.INCOMPATIBLE || failure == Failure.AUTH) blocked = Blocked(baseUrl, apiKey, result)
+            result
         } catch (_: Exception) {
-            failure = Failure.NETWORK
-            failureMessage = "서버에 연결할 수 없습니다. 네트워크와 주소를 확인하세요."
-            false
+            Probe(Failure.NETWORK, "서버에 연결할 수 없습니다. 네트워크와 주소를 확인하세요.")
         } finally {
+            deadline.cancel()
             connection?.disconnect()
         }
+    }
+    private fun readBounded(stream: java.io.InputStream): String = stream.use { input ->
+        val body = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        while (true) {
+            val n = input.read(buffer)
+            if (n < 0) break
+            if (body.size() + n > 1_048_576) throw java.io.IOException("version response too large")
+            body.write(buffer, 0, n)
+        }
+        body.toString(Charsets.UTF_8.name())
     }
 }

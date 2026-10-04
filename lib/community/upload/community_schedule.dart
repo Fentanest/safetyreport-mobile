@@ -34,7 +34,10 @@ DateTime dueAtUtc(String key) {
   final date = key.substring('midnight:'.length);
   final parts = date.split('-');
   final day = DateTime.utc(
-      int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+    int.parse(parts[0]),
+    int.parse(parts[1]),
+    int.parse(parts[2]),
+  );
   return day.subtract(const Duration(hours: 9));
 }
 
@@ -120,36 +123,50 @@ Future<String> catchUp(
   final context = await store.activeContext();
   if (context == null) return 'deferred';
   // context 표에는 namespace 열이 없다 — capture·uploader 와 같은 규칙(공개 설정 URL)으로 계산한다.
-  final projectNamespace = namespace ?? community_store.projectNamespace(CommunityAuthConfig.fromEnvironment.supabaseUrl);
+  final projectNamespace =
+      namespace ??
+      community_store.projectNamespace(
+        CommunityAuthConfig.fromEnvironment.supabaseUrl,
+      );
   final fingerprint = context['contributor_fingerprint']?.toString() ?? '';
   final localDatasetId = await store.localDatasetId();
   final epoch = int.tryParse('${context['writer_epoch']}') ?? 0;
   final keyArgs = [projectNamespace, fingerprint, localDatasetId, epoch, key];
-  const keyWhere = 'project_namespace=? AND contributor_fingerprint=? AND local_dataset_id=? AND writer_epoch=? AND schedule_key=?';
+  const keyWhere =
+      'project_namespace=? AND contributor_fingerprint=? AND local_dataset_id=? AND writer_epoch=? AND schedule_key=?';
   final owner = 'scheduler:$reason:${newUuidV4()}';
   final claimed = await store.transaction((tx) async {
-    final rows = await tx.rawQuery('SELECT state, lease_until, attempts FROM schedule_runs WHERE $keyWhere', keyArgs);
+    final rows = await tx.rawQuery(
+      'SELECT state, lease_until, attempts FROM schedule_runs WHERE $keyWhere',
+      keyArgs,
+    );
     final runs = rows.isEmpty
         ? null
-        : {key: <String, Object?>{'state': rows.first['state'], 'lease_until': rows.first['lease_until']}};
-    if (!shouldRun(t, runs)) return rows.first['state'] == 'succeeded' ? 'succeeded' : 'deferred';
-    await tx.insert(
-        'schedule_runs',
-        {
-          'project_namespace': projectNamespace,
-          'contributor_fingerprint': fingerprint,
-          'local_dataset_id': localDatasetId,
-          'writer_epoch': epoch,
-          'schedule_key': key,
-          'scheduled_date_kst': key.substring('midnight:'.length),
-          'due_at_utc': isoUtc(dueAtUtc(key)),
-          'state': 'running',
-          'attempts': (rows.isEmpty ? 0 : int.tryParse('${rows.first['attempts']}') ?? 0) + 1,
-          'last_attempt_at': isoUtc(t),
-          'lease_owner': owner,
-          'lease_until': isoUtc(t.add(const Duration(minutes: 10))),
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace);
+        : {
+            key: <String, Object?>{
+              'state': rows.first['state'],
+              'lease_until': rows.first['lease_until'],
+            },
+          };
+    if (!shouldRun(t, runs)) {
+      return rows.first['state'] == 'succeeded' ? 'succeeded' : 'deferred';
+    }
+    await tx.insert('schedule_runs', {
+      'project_namespace': projectNamespace,
+      'contributor_fingerprint': fingerprint,
+      'local_dataset_id': localDatasetId,
+      'writer_epoch': epoch,
+      'schedule_key': key,
+      'scheduled_date_kst': key.substring('midnight:'.length),
+      'due_at_utc': isoUtc(dueAtUtc(key)),
+      'state': 'running',
+      'attempts':
+          (rows.isEmpty ? 0 : int.tryParse('${rows.first['attempts']}') ?? 0) +
+          1,
+      'last_attempt_at': isoUtc(t),
+      'lease_owner': owner,
+      'lease_until': isoUtc(t.add(const Duration(minutes: 10))),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
     return null;
   });
   if (claimed != null) return claimed;
@@ -158,7 +175,11 @@ Future<String> catchUp(
     result = await runUpload('midnight');
   } catch (e) {
     // 예외여도 key 를 lease 만료까지 running 으로 두지 않는다(내 owner 일 때만 failed 기록 — PC run_midnight 와 같음)
-    result = UploadRunResult(runId: '', result: 'failed', errorCode: e.runtimeType.toString());
+    result = UploadRunResult(
+      runId: '',
+      result: 'failed',
+      errorCode: e.runtimeType.toString(),
+    );
   }
   final state = midnightState(result.result);
   // PC run_midnight 와 같다: 보류·실패 사유는 오류 코드, 없으면 결과 코드. 다른 실행이 이어받았으면(lease 만료 뒤) 덮지 않는다.
@@ -199,16 +220,24 @@ String midnightState(String result) {
 
 /// 게이트 캐시(600초 이내 성공) 기반 판정. T5 의 CommunityGate 가 닿지 않는
 /// 경로(지도 패널·백그라운드)에서 uploader 의 requireFresh 를 만족한다.
-class CacheGateCheck implements CommunityGateCheck {
+class CacheGateCheck implements CommunityGateCheck, CommunityScopeFence {
+  String? _fingerprint;
+  @override
+  String? get contributorFingerprint => _fingerprint;
   @override
   Future<bool> requireFresh() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.reload();
       final fresh = await isGateCacheFresh(prefs, DateTime.now());
+      final raw = jsonDecode(
+        prefs.getString('community_gate_cache_v1') ?? '{}',
+      );
+      _fingerprint = fresh && raw is Map ? raw['owner'] as String? : null;
       _blocked = fresh ? null : _cachedState(prefs) ?? 'gate_not_fresh';
       return fresh;
     } catch (_) {
+      _fingerprint = null;
       _blocked = 'gate_not_fresh';
       return false;
     }
@@ -229,15 +258,24 @@ class CacheGateCheck implements CommunityGateCheck {
   void invalidate(String reason) {
     _blocked = reason;
     _pendingWrite = SharedPreferences.getInstance()
-        .then((prefs) => prefs.setString('community_gate_cache_v1',
-            jsonEncode({'state': 'invalidated:$reason', 'verified_at': DateTime.now().millisecondsSinceEpoch})))
+        .then(
+          (prefs) => prefs.setString(
+            'community_gate_cache_v1',
+            jsonEncode({
+              'state': 'invalidated:$reason',
+              'verified_at': DateTime.now().millisecondsSinceEpoch,
+            }),
+          ),
+        )
         .then<void>((_) {}, onError: (_) {});
   }
 }
 
 String? _cachedState(SharedPreferences prefs) {
   try {
-    final decoded = jsonDecode(prefs.getString('community_gate_cache_v1') ?? '');
+    final decoded = jsonDecode(
+      prefs.getString('community_gate_cache_v1') ?? '',
+    );
     final state = decoded is Map ? decoded['state'] : null;
     return state is String && state != 'ok' ? state : null;
   } catch (_) {
@@ -258,7 +296,8 @@ Future<bool> isGateCacheFresh(SharedPreferences prefs, DateTime now) async {
     if (decoded['state'] != 'ok') return false;
     final verifiedAt = int.tryParse('${decoded['verified_at']}');
     if (verifiedAt == null) return false;
-    return now.millisecondsSinceEpoch - verifiedAt <= 600 * 1000;
+    final age = now.millisecondsSinceEpoch - verifiedAt;
+    return age >= 0 && age <= 600 * 1000;
   } catch (_) {
     return false;
   }

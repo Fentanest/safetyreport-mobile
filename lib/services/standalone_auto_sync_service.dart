@@ -12,13 +12,14 @@ import 'standalone_api_service.dart';
 import 'standalone_auth_service.dart';
 import 'standalone_pending_queue_store.dart';
 import 'sync_engine.dart';
+import 'prefs_inbox.dart';
+import 'sync_operation_admission.dart';
 
 /// 개별 fetch 결과 — drainIfPending 분기용.
 enum _FetchResult {
   success, // 정상 처리 + 큐 제거
   notInDb, // DB에 없음 → 증분 fallback 1회
   networkError, // errno=104, timeout, 로그인 필요·안전신문고 연결 실패 → 큐 유지하고 drain 종료
-  otherError, // 4xx/5xx 등 진짜 실패 → 큐 제거 (재시도 무의미)
 }
 
 /// Standalone 모드 자동 동기화 드레인.
@@ -28,18 +29,18 @@ enum _FetchResult {
 ///   - 📬 heads-up 팝업 표시
 ///
 /// [drainIfPending] 처리 정책 (앱 종료에 견고):
-///   - 큐의 항목을 한 건씩 꺼내 처리하고, **성공/포기 결정이 난 후에만** 큐에서 제거
+///   - 큐의 항목을 한 건씩 꺼내 처리하고, **성공을 확인한 후에만** 큐에서 제거
 ///     → 앱이 처리 도중 죽어도 미완료 항목은 큐에 남아 다음 launch 의 drain 에서 재처리됨.
 ///   - 각 항목 처리:
 ///       1. DB 에서 신고번호로 조회 → C_NO 있으면 상세 API 개별 호출 + upsert (개별 fetch)
 ///       2. DB 에 없으면 → **이번 drain 에서 1회만** 증분 sync (SyncEngine.start) fallback
 ///          증분 후 다시 개별 fetch 시도.
-///       3. 증분 후에도 미발견 → 포기 (3회 retry 같은 무한 루프 안 함)
+///       3. 증분 후에도 미발견 → 의무를 유지하고 이번 drain 종료
 ///   - 처리 도중 Kotlin 이 큐에 추가하는 신호도 다음 iteration 에서 자연스럽게 잡힘
 ///     (큐 read 시 prefs.reload 로 디스크 동기화).
 ///
-/// 프로세스 보호: drain 시작 시 SyncForegroundService 가동 → activity destroy 되어도
-/// 프로세스가 OS kill 후순위로 격상 (옵션 1 - swipe-away 방어).
+/// FGS는 프로세스 우선순위를 높인다. Activity 소유 FlutterEngine의 생존이나
+/// 완료를 보장하지 않으며, 엔진 종료·취소 시 미완료 의도를 유지한다.
 ///
 /// drain 종료 후 신규/처리변경/개별확인된 신고는 SyncEngine.emitChanges 로:
 ///   - flutter.pending_crawl_changes SharedPref 에 누적 → main.dart 카드 시트
@@ -58,11 +59,21 @@ class StandaloneAutoSyncService {
   static List<Map<String, dynamic>> _singleFetchChanges = [];
 
   /// 공유 DB 연결을 쓰는 백그라운드 작업으로 등록한다 — 백업·복원이 도중에 연결을 닫지 않게(M-25).
-  static Future<void> drainIfPending() =>
-      LocalDbService.runBackgroundWork(_drainIfPending);
+  static Future<void> drainIfPending() async {
+    try {
+      await SyncOperationAdmission.run(
+        () => LocalDbService.runBackgroundWork(_drainIfPending),
+        null,
+        openStore: SyncEngine.openCommunityStoreForTest,
+      );
+    } catch (_) {
+      SyncEngine.emitLog('작업 소유권 저장소를 확인하지 못해 개별 동기화를 시작하지 않았습니다. 큐는 보존했습니다.');
+    }
+  }
 
   static Future<void> _drainIfPending() async {
-    if (_running) return;
+    if (_running || SyncEngine.isRunning) return;
+    SyncEngine.beginOperation();
     _running = true;
     _singleFetchChanges = [];
     bool didAnyWork = false;
@@ -73,16 +84,18 @@ class StandaloneAutoSyncService {
       final prefs = await SharedPreferences.getInstance();
 
       while (true) {
-        if (LocalDbService.closeRequested) break; // 큐는 그대로 — 다음 drain 에서 이어 감
+        if (SyncEngine.stopRequested) break; // 큐는 그대로 — 다음 drain 에서 이어 감
         await prefs.reload();
-        final queue = StandalonePendingQueueStore.read(prefs);
-        if (queue.isEmpty) break;
+        await PrefsInbox.synchronize(prefs, PrefsInbox.queue);
+        final claim = StandalonePendingQueueStore.claim(prefs);
+        if (claim == null) break;
 
         // 첫 작업 직전에 FGS 가동 (큐가 비어 있으면 굳이 가동 안 함).
         if (!fgsAcquired) {
           await SyncEngine.acquireFgs('개별 동기화 진행 중...');
           fgsAcquired = true;
         }
+        if (SyncEngine.stopRequested) break;
         didAnyWork = true;
 
         if (!preflightDone) {
@@ -95,9 +108,9 @@ class StandaloneAutoSyncService {
           }
         }
 
-        // 큐 맨 앞 항목을 꺼내 처리 — 큐에서 제거는 성공/포기 결정 후에만!
+        // 큐 맨 앞 항목을 꺼내 처리 — 큐에서 제거는 성공 확인 후에만!
         // (앱이 처리 도중 죽으면 항목이 큐에 남아 다음 drain 에서 재시도)
-        final spp = queue.first;
+        final spp = claim.reportNumber;
 
         var result = await _tryFetchSingle(spp);
 
@@ -113,7 +126,14 @@ class StandaloneAutoSyncService {
           didIncremental = true;
           SyncEngine.emitLog('증분 sync 1회 fallback 시작');
           try {
-            await SyncEngine.start(fullSync: false);
+            final sync = await SyncEngine.start(fullSync: false);
+            if (sync.failed ||
+                sync.busy ||
+                sync.cancelled ||
+                !sync.listComplete) {
+              SyncEngine.emitLog('증분 동기화 미완료 — 큐를 유지합니다.');
+              break;
+            }
             // 증분 후 DB 에 들어왔을 가능성 → 한 번 더 개별 시도
             result = await _tryFetchSingle(spp);
             // 증분 후 재시도에서도 네트워크 오류면 큐 유지하고 종료
@@ -127,19 +147,21 @@ class StandaloneAutoSyncService {
           }
         }
 
-        if (result == _FetchResult.success) {
-          SyncEngine.emitLog('큐 처리 완료: $spp');
-        } else {
-          SyncEngine.emitLog('처리 포기: $spp ($result)');
+        if (result != _FetchResult.success) {
+          SyncEngine.emitLog('다시 확인할 신고를 큐에 유지합니다.');
+          break;
         }
-        // 성공/포기(notInDb 끝까지/otherError) 모두 큐에서 제거. networkError 만 위에서 break.
-        await StandalonePendingQueueStore.remove(prefs, spp);
+        if (SyncEngine.stopRequested) break;
+        await StandalonePendingQueueStore.acknowledge(prefs, claim);
         // 다음 iteration 으로 → drain 도중 Kotlin 이 추가한 항목까지 처리.
       }
 
       // 큐 지정 크롤링 끝의 촬영 시각 재시도(서버 _process_and_save_results 와 같음).
       // 증분 fallback 을 탔으면 그 동기화 끝에서 이미 했다.
-      if (preflightDone && didAnyWork && !didIncremental && !LocalDbService.closeRequested) {
+      if (preflightDone &&
+          didAnyWork &&
+          !didIncremental &&
+          !LocalDbService.closeRequested) {
         final filled = await MaintenanceService.backfillMissing();
         if (filled > 0) SyncEngine.emitLog('[photo] 촬영 시각 재시도로 $filled건 채움');
       }
@@ -165,7 +187,7 @@ class StandaloneAutoSyncService {
   ///   - success      : 정상 처리 (큐 제거)
   ///   - notInDb      : C_NO 모름 → 증분 fallback 트리거
   ///   - networkError : errno=104 / timeout 등 일시 오류 (큐 유지, drain 종료)
-  ///   - otherError   : 4xx/5xx 등 진짜 실패 (큐 제거, 재시도 무의미)
+  ///   - 임시·불명 실패: 큐 보존
   ///
   /// 사용자가 알림을 탭한 명시적 요청이므로 종결여부와 무관하게 항상 크롤링.
   /// 처리상태 변동 여부와 무관하게 변경 카드 표시 (사용자 피드백).
@@ -185,9 +207,11 @@ class StandaloneAutoSyncService {
       final community = await SyncEngine.openCommunitySession();
       var captureActive = false;
       if (community.store != null) {
-        captureActive =
-            await SyncEngine.communityCaptureReady(community.store!);
+        captureActive = await SyncEngine.communityCaptureReady(
+          community.store!,
+        );
       }
+      if (SyncEngine.stopRequested) return _FetchResult.networkError;
       SavedDetail saved;
       try {
         saved = await SyncEngine.captureAndSaveDetail(
@@ -200,13 +224,14 @@ class StandaloneAutoSyncService {
           retryFile: community.retryFile,
           projectNamespace: community.projectNamespace,
           captureActive: captureActive,
+          isCancelled: () => SyncEngine.stopRequested,
         );
       } on CaptureStoreUnavailable catch (e) {
         SyncEngine.emitLog('커뮤니티 저장소 실패로 drain 중단 (큐 보존): $reportNumber → $e');
         return _FetchResult.networkError;
       } on DetailFailed catch (e) {
         SyncEngine.emitLog('실패: $reportNumber → $e');
-        return _FetchResult.otherError;
+        return _FetchResult.networkError;
       }
       final report = saved.report;
       final duplicateRefresh =
@@ -254,7 +279,7 @@ class StandaloneAutoSyncService {
         return _FetchResult.networkError;
       }
       SyncEngine.emitLog('실패: $reportNumber → $e');
-      return _FetchResult.otherError;
+      return _FetchResult.networkError;
     }
   }
 

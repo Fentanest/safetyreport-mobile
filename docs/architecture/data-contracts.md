@@ -103,19 +103,19 @@ Client 모드 서버 경로와 이벤트 문자열은 Flutter/Dart 와 Android/K
 
 `lib/services/standalone_auth_service.dart`
 
-### 로그인 흐름 (`dart:io HttpClient` 로 쿠키 자동 관리)
+### 로그인 흐름 (`dart:io HttpClient` + 명시적 세션 쿠키 전달)
 
 ```
 1. GET /api/v1/common/rsa/getPublicKey → RSAModulus + RSAExponent (hex)
-   ↳ 서버가 Set-Cookie: JSESSIONID=xxx, HttpClient 자동 저장
+   ↳ 서버가 Set-Cookie: JSESSIONID=xxx, 응답 쿠키에서 JSESSIONID 수동 추출
 2. password (UTF-8 bytes) → PKCS1 v1.5 RSA 암호화 (pointycastle) → hex 문자열 (512자)
 3. POST /oauth/token (form-urlencoded)
-   ↳ JSESSIONID 자동 전달 (서버가 RSA 키를 세션에 바인딩)
+   ↳ 토큰 요청 cookies에 JSESSIONID 명시적 추가 (서버가 RSA 키를 세션에 바인딩)
    ↳ client_id=web, grant_type=password, loginType=1, username, password(hex)
    → { access_token: "eyJ...", expires_in: 3599 }
 ```
 
-**왜 `dart:io HttpClient` 인가**: `package:http` 의 정적 메서드는 매 호출마다 별도 클라이언트 → 쿠키 공유 안 됨. `HttpClient` 인스턴스 하나로 쿠키 자동 관리되므로 JSESSIONID 수동 추출 불필요.
+**왜 `dart:io HttpClient` 인가**: `package:http` 의 정적 메서드는 매 호출마다 별도 클라이언트 → 쿠키 공유 안 됨. `login()`은 RSA 응답의 JSESSIONID를 읽어 토큰 요청에 직접 추가한다. 자동 쿠키 보관을 계약으로 가정하지 않는다. 네트워크 재시도마다 소유한 연결을 닫고, 인증 응답은 1MiB 이내에서 읽는다.
 
 ### Demo 보기 (Play Console 검토에도 사용)
 

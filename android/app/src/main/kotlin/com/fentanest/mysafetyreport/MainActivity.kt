@@ -11,6 +11,7 @@ import android.content.pm.ShortcutManager
 import android.content.res.Configuration
 import android.graphics.drawable.Icon
 import android.os.Build
+import android.util.Log
 import android.provider.Settings
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -36,6 +37,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var exportSource: java.io.File? = null
     private val EXPORT_REQUEST = 9136
     private var methodChannel: MethodChannel? = null
+    private var syncStoppedListener: ((String, String) -> Unit)? = null
     private var communityAuthChannel: MethodChannel? = null
     /** Dart 가 `takePendingLink` 를 한 번이라도 불렀으면(핸들러 등록 완료) 새 링크 때 신호를 보낸다. */
     private var communityDartReady = false
@@ -57,6 +59,19 @@ class MainActivity : FlutterFragmentActivity() {
         // 링크 원문(인가 코드 포함)은 로그에 남기지 않는다.
         private val communityLinkLock = Any()
         private var pendingCommunityAuthLink: String? = null
+    }
+
+    override fun onDestroy() {
+        if (SyncForegroundService.stoppedListener === syncStoppedListener) {
+            if (shouldDestroyEngineWithHost()) {
+                SyncForegroundService.activeOwner?.let { owner -> syncStoppedListener?.invoke(owner, "engine_destroyed") }
+                stopService(Intent(this, SyncForegroundService::class.java))
+            }
+            SyncForegroundService.stoppedListener = null
+        }
+        syncStoppedListener = null
+        methodChannel = null
+        super.onDestroy()
     }
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
@@ -110,16 +125,27 @@ class MainActivity : FlutterFragmentActivity() {
         val raw = prefs.getString(key, null) ?: return
         if (!raw.startsWith(flutterListPrefix)) return  // 이미 CSV 또는 빈 값
 
-        val csv = try {
-            val jsonStr = raw.substring(flutterListPrefix.length)
-            val arr = org.json.JSONArray(jsonStr)
+        try {
+            val arr = org.json.JSONArray(raw.substring(flutterListPrefix.length))
             val list = mutableListOf<String>()
-            for (i in 0 until arr.length()) list.add(arr.getString(i))
-            list.joinToString(",")
+            for (i in 0 until arr.length()) {
+                val value = arr.get(i)
+                check(value is String && value.isNotEmpty() && !value.contains(','))
+                list.add(value)
+            }
+            NativeProcessingRecovery.quarantine(this, raw)
+            check(prefs.edit().putString(key, list.joinToString(",")).commit())
         } catch (_: Exception) {
-            ""  // 파싱 실패 — 미처리 알림 손실 감수
+            // getAll cannot decode this entry. Remove it only after a durable
+            // private copy and an explicit recovery flag, never replace by empty.
+            try {
+                NativeProcessingRecovery.quarantine(this, raw)
+                NativeProcessingRecovery.mark(this)
+                check(prefs.edit().remove(key).commit())
+            } catch (_: Exception) {
+                Log.w("ProcessingRecovery", "legacy queue retained; quarantine not confirmed")
+            }
         }
-        prefs.edit().putString(key, csv).apply()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -189,6 +215,10 @@ class MainActivity : FlutterFragmentActivity() {
         val eventType = intent.getStringExtra("nav_event_type") ?: ""
         val payloadJson = intent.getStringExtra("nav_payload_json") ?: ""
         if (navTab >= 0) {
+            intent.removeExtra("nav_tab")
+            intent.removeExtra("nav_subtab")
+            intent.removeExtra("nav_event_type")
+            intent.removeExtra("nav_payload_json")
             // MethodChannel이 준비되기 전(앱 콜드 스타트) 처리를 위해 약간 지연
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                 methodChannel?.invokeMethod("navigateToTab", mapOf(
@@ -202,6 +232,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun createAppNotifChannel() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (nm.getNotificationChannel(NOTIF_CHANNEL_APP) == null) {
             val ch = NotificationChannel(
@@ -225,6 +256,7 @@ class MainActivity : FlutterFragmentActivity() {
         shortcutManager.dynamicShortcuts = listOf(shortcut)
     }
 
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.N_MR1)
     private fun buildPrimaryShortcut(): ShortcutInfo? {
         if (isConfiguredStandalone()) {
             return buildShortcut(
@@ -245,6 +277,7 @@ class MainActivity : FlutterFragmentActivity() {
         return null
     }
 
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.N_MR1)
     private fun buildShortcut(
         id: String,
         shortLabel: String,
@@ -300,6 +333,7 @@ class MainActivity : FlutterFragmentActivity() {
     ) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val openIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+            data = android.net.Uri.parse("mysafetyreport://notification/app/${java.util.UUID.randomUUID()}")
             if (navTab != null) putExtra("nav_tab", navTab)
             if (navSubTab != null) putExtra("nav_subtab", navSubTab)
             if (!eventType.isNullOrEmpty()) putExtra("nav_event_type", eventType)
@@ -309,7 +343,7 @@ class MainActivity : FlutterFragmentActivity() {
             this, notifIdGen.get(), openIntent ?: Intent(),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        val notif = Notification.Builder(this, NOTIF_CHANNEL_APP)
+        val notif = NativeNotifications.builder(this, NOTIF_CHANNEL_APP)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(Notification.BigTextStyle().bigText(body))
@@ -317,7 +351,7 @@ class MainActivity : FlutterFragmentActivity() {
             .setAutoCancel(true)
             .setContentIntent(pi)
             .build()
-        nm.notify(notifIdGen.getAndIncrement(), notif)
+        nm.notify("app", notifIdGen.getAndIncrement(), notif)
     }
 
     /**
@@ -346,8 +380,12 @@ class MainActivity : FlutterFragmentActivity() {
         Thread {
             try {
                 DbExportLocation.copy(this, source, uri)
-                try { contentResolver.takePersistableUriPermission(uri,
-                    (data.flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)))
+                try {
+                    val read = data.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0
+                    val write = data.flags and Intent.FLAG_GRANT_WRITE_URI_PERMISSION != 0
+                    if (read && write) contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                    else if (read) contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    else if (write) contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
                 } catch (_: Exception) { }
                 var filename = source.name
                 contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
@@ -391,6 +429,10 @@ class MainActivity : FlutterFragmentActivity() {
 
         val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
         methodChannel = channel
+        syncStoppedListener = { owner, reason ->
+            channel.invokeMethod("syncFgsStopped", mapOf("owner" to owner, "reason" to reason))
+        }
+        SyncForegroundService.stoppedListener = syncStoppedListener
         channel.setMethodCallHandler { call, result ->
                 when (call.method) {
 
@@ -456,6 +498,28 @@ class MainActivity : FlutterFragmentActivity() {
                     }
 
                     // ── WsService 제어 ─────────────────────────────────────
+                    "processingInboxPut", "processingInboxRead", "processingInboxAck" -> {
+                        Thread {
+                            try {
+                                val inbox = ProcessingInboxStore.get(this)
+                                val value: Any? = when (call.method) {
+                                    "processingInboxPut" -> {
+                                        val prefix = "flutter." + (call.argument<String>("prefix") ?: "")
+                                        inbox.put(prefix, call.argument<String>("value") ?: throw IllegalArgumentException("missing value"), scope = inbox.scope(getSharedPreferences(PREFS_NAME, MODE_PRIVATE), prefix))
+                                    }
+                                    "processingInboxRead" -> {
+                                        check(!NativeProcessingRecovery.required(this)) { "processing recovery required" }
+                                        inbox.read(getSharedPreferences(PREFS_NAME, MODE_PRIVATE), "flutter." + (call.argument<String>("prefix") ?: ""), call.argument<List<String>>("mirrors") ?: emptyList(), call.argument<String>("owner") ?: throw IllegalArgumentException("missing owner"))
+                                    }
+                                    else -> { inbox.acknowledge((call.argument<List<String>>("keys") ?: emptyList()).map { "flutter.$it" }, call.argument<String>("owner") ?: throw IllegalArgumentException("missing owner")); true }
+                                }
+                                runOnUiThread { result.success(value) }
+                            } catch (_: Exception) {
+                                runOnUiThread { result.error("PROCESSING_INBOX_FAILED", "처리 대기 자료를 확인하지 못했습니다.", null) }
+                            }
+                        }.start()
+                    }
+
                     "startWsService" -> {
                         try {
                             val intent = Intent(this, WsService::class.java).apply {
@@ -473,10 +537,7 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                     "stopWsService" -> {
                         try {
-                            val intent = Intent(this, WsService::class.java).apply {
-                                action = WsService.ACTION_STOP
-                            }
-                            startService(intent)
+                            stopService(Intent(this, WsService::class.java))
                             result.success(true)
                         } catch (e: Exception) {
                             result.error("WS_STOP_FAILED", e.message, null)
@@ -512,29 +573,40 @@ class MainActivity : FlutterFragmentActivity() {
                     "startSyncFgs" -> {
                         try {
                             val message = call.argument<String>("message") ?: "동기화 진행 중..."
+                            val owner = call.argument<String>("owner") ?: throw IllegalArgumentException("missing owner")
+                            val handler = android.os.Handler(android.os.Looper.getMainLooper())
+                            val replied = java.util.concurrent.atomic.AtomicBoolean(false)
+                            val timeout = Runnable { if (replied.compareAndSet(false, true)) result.error("SYNC_FGS_START_FAILED", "서비스 시작 확인 시간 초과", null) }
+                            val receipt = object : android.os.ResultReceiver(handler) {
+                                override fun onReceiveResult(code: Int, data: android.os.Bundle?) {
+                                    if (!replied.compareAndSet(false, true)) return
+                                    handler.removeCallbacks(timeout)
+                                    if (code == 1) result.success(true) else result.error("SYNC_FGS_START_FAILED", "서비스 시작 실패", null)
+                                }
+                            }
                             val intent = Intent(this, SyncForegroundService::class.java).apply {
                                 action = SyncForegroundService.ACTION_START
                                 putExtra(SyncForegroundService.EXTRA_MESSAGE, message)
+                                putExtra(SyncForegroundService.EXTRA_OWNER, owner)
+                                putExtra(SyncForegroundService.EXTRA_RECEIPT, receipt)
                             }
                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                                 startForegroundService(intent)
                             } else {
                                 startService(intent)
                             }
-                            result.success(true)
+                            handler.postDelayed(timeout, 5_000L)
                         } catch (e: Exception) {
                             result.error("SYNC_FGS_START_FAILED", e.message, null)
                         }
                     }
                     "stopSyncFgs" -> {
                         try {
-                            val intent = Intent(this, SyncForegroundService::class.java).apply {
-                                action = SyncForegroundService.ACTION_STOP
-                            }
-                            startService(intent)
+                            val owner = call.argument<String>("owner")
+                            if (owner == SyncForegroundService.activeOwner) stopService(Intent(this, SyncForegroundService::class.java))
                             result.success(true)
                         } catch (e: Exception) {
-                            result.error("SYNC_FGS_STOP_FAILED", e.message, null)
+                            result.error("SYNC_FGS_STOP_FAILED", e.javaClass.simpleName, null)
                         }
                     }
 

@@ -95,6 +95,8 @@ void main() {
       await LocalDbService.closeDb();
       SyncEngine.retryFileForTest = File('${dir.path}/community_capture_retry.json');
       if (await SyncEngine.retryFileForTest!.exists()) await SyncEngine.retryFileForTest!.delete();
+      final events = Directory('${SyncEngine.retryFileForTest!.path}.events-v1');
+      if (await events.exists()) await events.delete(recursive: true);
       await deleteDatabase(await LocalDbService.getDbPath());
       await LocalDbService.upsertReport(
         _report('SPP-9'),

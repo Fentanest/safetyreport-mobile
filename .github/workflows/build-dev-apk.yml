@@ -16,8 +16,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify:
+    uses: ./.github/workflows/verify.yml
+    permissions:
+      contents: read
+
   build-dev-apk:
     if: ${{ github.ref == 'refs/heads/dev' }}
+    needs: verify
     runs-on: [self-hosted, Linux, X64, 235]
     permissions:
       contents: read

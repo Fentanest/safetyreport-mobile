@@ -1,6 +1,8 @@
 package com.fentanest.mysafetyreport
 
 import android.content.SharedPreferences
+import android.content.Context
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -12,17 +14,22 @@ import java.util.concurrent.atomic.AtomicInteger
 object PrefsInbox {
     const val HISTORY = "flutter.inbox.history."
     const val PENDING = "flutter.inbox.pending."
+    const val ENQUEUE = "flutter.inbox.enqueue."
     const val QUEUE = "flutter.inbox.queue."
     private const val MAX_KEYS = 200
     private val seq = AtomicInteger(0)
 
     /** [prefix] 아래 새 키에 [value] 를 쓴다. 앱이 오래 안 열리면 오래된 것부터 [MAX_KEYS] 개로 자른다. */
-    fun put(prefs: SharedPreferences, prefix: String, value: String) {
+    fun put(context: Context, prefs: SharedPreferences, prefix: String, value: String) {
+        if (prefix == QUEUE || prefix == PENDING) {
+            ProcessingInboxStore.get(context).let { it.put(prefix, value, scope = it.scope(prefs, prefix)) }
+            return
+        }
         val key = prefix + System.currentTimeMillis().toString().padStart(15, '0') +
-            "_" + seq.incrementAndGet().toString().padStart(6, '0')
+            "_" + seq.incrementAndGet().toString().padStart(6, '0') + "_" + UUID.randomUUID()
         val editor = prefs.edit().putString(key, value)
         val keys = prefs.all.keys.filter { it.startsWith(prefix) }.sorted()
-        if (keys.size >= MAX_KEYS) keys.take(keys.size - MAX_KEYS + 1).forEach { editor.remove(it) }
-        editor.apply()
+        if (prefix == HISTORY && keys.size >= MAX_KEYS) keys.take(keys.size - MAX_KEYS + 1).forEach { editor.remove(it) }
+        check(editor.commit()) { "inbox history persistence failed" }
     }
 }

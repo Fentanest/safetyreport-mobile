@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 import 'dart:typed_data';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart' show ValueNotifier, visibleForTesting;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -97,39 +97,100 @@ class StandaloneAuthService {
     'Origin': 'https://www.safetyreport.go.kr',
   };
 
-  // ── 로그인 (dart:io HttpClient → 쿠키 자동 관리) ──────────────
+  // ── 로그인 (dart:io HttpClient + 명시적 JSESSIONID 전달) ──────────────
 
   /// RSA 공개키 조회 → 비밀번호 암호화(hex) → OAuth2 토큰 발급
   /// [saveCredentials] true이면 재로그인용 비밀번호를 secure storage에 저장
+  static int _credentialGeneration = 0;
+  static final _activeClients = <HttpClient>{};
+  static Future<void>? _credentialWrites;
+  static Future<T> _writeCredentials<T>(Future<T> Function() body) {
+    final previous = _credentialWrites;
+    final result = previous == null
+        ? Future<T>.sync(body)
+        : previous.then((_) => body());
+    late final Future<void> tail;
+    void idle() {
+      if (identical(_credentialWrites, tail)) _credentialWrites = null;
+    }
+
+    tail = result.then<void>(
+      (_) => idle(),
+      onError: (Object _, StackTrace _) => idle(),
+    );
+    _credentialWrites = tail;
+    return result;
+  }
+
+  static void _checkGeneration(int? generation) {
+    if (generation != null && generation != _credentialGeneration) {
+      throw const AuthTemporarilyUnavailableException('로그인 문맥이 변경되었습니다.');
+    }
+  }
+
+  static void invalidateOperations() {
+    _credentialGeneration++;
+    _reloginInFlight = null;
+    for (final client in _activeClients.toList()) {
+      client.close(force: true);
+    }
+    _activeClients.clear();
+  }
+
   static Future<String> login(
     String username,
     String password, {
     bool saveCredentials = true,
   }) async {
-    final client = HttpClient();
-    // 타임아웃 설정
-    client.connectionTimeout = const Duration(seconds: 15);
+    if (saveCredentials) invalidateOperations();
+    final generation = _credentialGeneration;
+    void checkCurrent() {
+      if (generation != _credentialGeneration) {
+        throw const AuthTemporarilyUnavailableException(
+          '로그인 설정이 변경되었습니다. 다시 확인해 주세요.',
+        );
+      }
+    }
+
+    var client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    _activeClients.add(client);
 
     try {
       // ── Step 1: RSA 키 조회 (최대 3회 재시도) ──
       late HttpClientResponse keyRes;
       late String keyBody;
       for (var attempt = 1; attempt <= mobileMaxRetryAttempts; attempt++) {
+        checkCurrent();
+        final owned = client;
+        final deadline = Timer(
+          const Duration(seconds: 30),
+          () => owned.close(force: true),
+        );
         try {
           final req = await client.getUrl(
             Uri.parse('$_base/api/v1/common/rsa/getPublicKey'),
           );
           _commonHeaders.forEach((k, v) => req.headers.set(k, v));
           keyRes = await req.close().timeout(const Duration(seconds: 15));
-          keyBody = await keyRes.transform(utf8.decoder).join();
+          keyBody = await _boundedAuthBody(
+            keyRes,
+          ).timeout(const Duration(seconds: 15));
           break;
         } catch (e) {
+          checkCurrent();
+          client.close(force: true);
+          _activeClients.remove(client);
+          client = HttpClient()
+            ..connectionTimeout = const Duration(seconds: 15);
+          _activeClients.add(client);
           if (attempt == mobileMaxRetryAttempts) {
             throw AuthTemporarilyUnavailableException(
               '안전신문고에 연결하지 못했습니다. 네트워크를 확인하고 잠시 후 다시 시도해 주세요. ($e)',
             );
           }
           await Future.delayed(Duration(seconds: attempt));
+        } finally {
+          deadline.cancel();
         }
       }
 
@@ -182,6 +243,12 @@ class StandaloneAuthService {
       Object? tokenLastError;
       var tokenSuccess = false;
       for (var attempt = 1; attempt <= mobileMaxRetryAttempts; attempt++) {
+        checkCurrent();
+        final owned = client;
+        final deadline = Timer(
+          const Duration(seconds: 30),
+          () => owned.close(force: true),
+        );
         try {
           final tokenReq = await client.postUrl(
             Uri.parse('$_base/oauth/token'),
@@ -200,16 +267,26 @@ class StandaloneAuthService {
           tokenRes = await tokenReq.close().timeout(
             const Duration(seconds: 15),
           );
-          tokenBody = await tokenRes.transform(utf8.decoder).join();
+          tokenBody = await _boundedAuthBody(
+            tokenRes,
+          ).timeout(const Duration(seconds: 15));
           tokenSuccess = true;
           break;
         } catch (e) {
+          checkCurrent();
+          client.close(force: true);
+          _activeClients.remove(client);
+          client = HttpClient()
+            ..connectionTimeout = const Duration(seconds: 15);
+          _activeClients.add(client);
           // errno 104 (connection reset), 110 (timeout) 등 일시 오류는 조용히 재시도.
           // 4xx/5xx 응답은 close() 가 throw 하지 않으므로 위 분기에서 처리됨.
           tokenLastError = e;
           if (attempt < mobileMaxRetryAttempts) {
             await Future.delayed(Duration(seconds: attempt));
           }
+        } finally {
+          deadline.cancel();
         }
       }
       if (!tokenSuccess) {
@@ -263,30 +340,58 @@ class StandaloneAuthService {
           .millisecondsSinceEpoch;
 
       // 토큰 + 만료 시간 저장
-      await saveToken(token, expiresAt: expiresAt);
+      checkCurrent();
+      await saveToken(token, expiresAt: expiresAt, generation: generation);
+      checkCurrent();
 
       // 재로그인용 비밀번호 저장 (secure storage)
       if (saveCredentials) {
-        await _secureStorage.write(key: _securePasswordKey, value: password);
+        await _writeCredentials(() async {
+          checkCurrent();
+          await _secureStorage.write(key: _securePasswordKey, value: password);
+          checkCurrent();
+        });
         // 사용자가 직접 로그인에 성공하면 이전 실패 기록·경고는 해소된 것이다.
-        await _recordResult(const ReloginResult(ReloginOutcome.success));
+        await _recordResult(
+          const ReloginResult(ReloginOutcome.success),
+          generation: generation,
+        );
       }
 
       return token;
     } finally {
-      client.close();
+      _activeClients.remove(client);
+      client.close(force: true);
     }
+  }
+
+  static Future<String> _boundedAuthBody(HttpClientResponse response) async {
+    final bytes = BytesBuilder(copy: false);
+    await for (final chunk in response) {
+      if (bytes.length + chunk.length > 1024 * 1024) {
+        throw const FormatException('인증 응답이 너무 큽니다.');
+      }
+      bytes.add(chunk);
+    }
+    return utf8.decode(bytes.takeBytes());
   }
 
   // ── 토큰 저장/조회/삭제 ──────────────────────────────────────
 
-  static Future<void> saveToken(String token, {int? expiresAt}) async {
+  static Future<void> saveToken(
+    String token, {
+    int? expiresAt,
+    int? generation,
+  }) => _writeCredentials(() async {
+    _checkGeneration(generation);
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_tokenKey, token);
-    if (expiresAt != null) {
-      await prefs.setInt(_expiresAtKey, expiresAt);
+    _checkGeneration(generation);
+    if (!await prefs.setString(_tokenKey, token)) throw StateError('토큰 저장 실패');
+    if (expiresAt != null && !await prefs.setInt(_expiresAtKey, expiresAt)) {
+      throw StateError('토큰 만료 시간 저장 실패');
     }
-  }
+    _checkGeneration(generation);
+  });
 
   static Future<String?> getStoredToken() async {
     final prefs = await SharedPreferences.getInstance();
@@ -321,14 +426,17 @@ class StandaloneAuthService {
   }
 
   static Future<void> clearToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_tokenKey);
-    await prefs.remove(_expiresAtKey);
-    await prefs.remove(AppPrefsKeys.standaloneAuthLastAt);
-    await prefs.remove(AppPrefsKeys.standaloneAuthLastOutcome);
-    await prefs.remove(AppPrefsKeys.standaloneAuthLastMessage);
-    status.value = null;
-    await _secureStorage.delete(key: _securePasswordKey);
+    invalidateOperations();
+    await _writeCredentials(() async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_tokenKey);
+      await prefs.remove(_expiresAtKey);
+      await prefs.remove(AppPrefsKeys.standaloneAuthLastAt);
+      await prefs.remove(AppPrefsKeys.standaloneAuthLastOutcome);
+      await prefs.remove(AppPrefsKeys.standaloneAuthLastMessage);
+      status.value = null;
+      await _secureStorage.delete(key: _securePasswordKey);
+    });
   }
 
   static void startKeepAlive({
@@ -371,12 +479,17 @@ class StandaloneAuthService {
 
   /// 저장된 자격증명으로 재로그인. 동시에 여러 곳에서 불러도 로그인은 한 번만 한다.
   static Future<ReloginResult> relogin() {
-    return _reloginInFlight ??= _reloginOnce().whenComplete(() {
-      _reloginInFlight = null;
+    final existing = _reloginInFlight;
+    if (existing != null) return existing;
+    late final Future<ReloginResult> pending;
+    pending = _reloginOnce().whenComplete(() {
+      if (identical(_reloginInFlight, pending)) _reloginInFlight = null;
     });
+    return _reloginInFlight = pending;
   }
 
   static Future<ReloginResult> _reloginOnce() async {
+    final generation = _credentialGeneration;
     final prefs = await SharedPreferences.getInstance();
     final username = prefs.getString(AppPrefsKeys.standaloneUsername) ?? '';
     String? password;
@@ -397,7 +510,22 @@ class StandaloneAuthService {
     } else {
       result = await _loginWithRetry(username, password);
     }
-    await _recordResult(result);
+    await prefs.reload();
+    if (generation != _credentialGeneration ||
+        prefs.getString(AppPrefsKeys.standaloneUsername) != username) {
+      return const ReloginResult(
+        ReloginOutcome.transient,
+        message: '로그인 문맥이 변경되었습니다.',
+      );
+    }
+    try {
+      await _recordResult(result, generation: generation);
+    } on AuthTemporarilyUnavailableException {
+      return const ReloginResult(
+        ReloginOutcome.transient,
+        message: '로그인 문맥이 변경되었습니다.',
+      );
+    }
     return result;
   }
 
@@ -440,23 +568,29 @@ class StandaloneAuthService {
     status.value = await lastReloginStatus();
   }
 
-  static Future<void> _recordResult(ReloginResult r) async {
-    final prefs = await SharedPreferences.getInstance();
-    final now = DateTime.now();
-    status.value = ReloginStatus(now, r.outcome, r.message);
-    if (r.outcome != ReloginOutcome.success) {
-      ReviewPromptService.markSessionError();
-    }
-    await prefs.setInt(
-      AppPrefsKeys.standaloneAuthLastAt,
-      now.millisecondsSinceEpoch,
-    );
-    await prefs.setString(
-      AppPrefsKeys.standaloneAuthLastOutcome,
-      r.outcome.name,
-    );
-    await prefs.setString(AppPrefsKeys.standaloneAuthLastMessage, r.message);
-  }
+  static Future<void> _recordResult(ReloginResult r, {int? generation}) =>
+      _writeCredentials(() async {
+        _checkGeneration(generation);
+        final prefs = await SharedPreferences.getInstance();
+        final now = DateTime.now();
+        status.value = ReloginStatus(now, r.outcome, r.message);
+        if (r.outcome != ReloginOutcome.success) {
+          ReviewPromptService.markSessionError();
+        }
+        await prefs.setInt(
+          AppPrefsKeys.standaloneAuthLastAt,
+          now.millisecondsSinceEpoch,
+        );
+        await prefs.setString(
+          AppPrefsKeys.standaloneAuthLastOutcome,
+          r.outcome.name,
+        );
+        await prefs.setString(
+          AppPrefsKeys.standaloneAuthLastMessage,
+          r.message,
+        );
+        _checkGeneration(generation);
+      });
 
   /// 마지막 자동/수동 로그인 결과. 기록이 없으면 null.
   static Future<ReloginStatus?> lastReloginStatus() async {

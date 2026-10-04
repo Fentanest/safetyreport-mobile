@@ -1,0 +1,330 @@
+{
+  "document_version": "mobile-refactor-plan-2026-10-04.1",
+  "request_mode": "PLAN_ONLY",
+  "repository": "Fentanest/safetyreport-mobile",
+  "ref": "dev",
+  "verified_head": "ea183b2a94b62ec9bd51b0f2ab8bd9e72f075b60",
+  "head_delta_from_source_audit": false,
+  "runtime_validation": "NOT_RUN",
+  "finding_count": 27,
+  "findings": [
+    {
+      "id": "DB-01",
+      "title": "외부 snapshot의 WAL 실패를 무시하고 sidecar 제거",
+      "priority": "P1 / P0 안전성 게이트",
+      "evidence_level_this_turn": "RECHECKED_STATIC",
+      "planned_work_units": "PR1B",
+      "test_status": "NOT_RUN",
+      "acceptance": "필요 sidecar/검증 실패 시 publish 0, 기존 정상 destination 불변. 지원된 snapshot은 모든 commit 보존."
+    },
+    {
+      "id": "DB-02",
+      "title": "서버 DB 가져오기에서 원본 모집단 보존을 증명하지 않음",
+      "priority": "P1 / P0 안전성 게이트",
+      "evidence_level_this_turn": "AUDIT_SOURCE",
+      "planned_work_units": "PR1B",
+      "test_status": "NOT_RUN",
+      "acceptance": "지원 입력 완전 보존 또는 명확한 거절. count>0 또는 일부 행 검사로 성공 판정 금지."
+    },
+    {
+      "id": "DB-03",
+      "title": "기관 TEMP lookup 동시 준비 충돌",
+      "priority": "P2",
+      "evidence_level_this_turn": "AUDIT_SOURCE",
+      "planned_work_units": "PR3A",
+      "test_status": "NOT_RUN",
+      "acceptance": "부분 lookup 노출/숨긴 UNIQUE 오류0, 정확한 기관/경찰 필터. transaction executor 재진입 deadlock0."
+    },
+    {
+      "id": "DB-04",
+      "title": "지도 unknown을 중첩 처분 합계의 잔여로 재계산",
+      "priority": "P2",
+      "evidence_level_this_turn": "AUDIT_SOURCE",
+      "planned_work_units": "PR3A",
+      "test_status": "NOT_RUN",
+      "acceptance": "unknown 비음수뿐 아니라 정확한 개수·전체/셀/overview 일치. clamp(0)만으로 반례를 숨기지 않는다."
+    },
+    {
+      "id": "DB-05",
+      "title": "집계 날짜와 좌표 유효성 규칙의 분기",
+      "priority": "P2",
+      "evidence_level_this_turn": "AUDIT_SOURCE",
+      "planned_work_units": "PR3A",
+      "test_status": "NOT_RUN",
+      "acceptance": "동일 모집단·유효 표본과 일치, 원본 날짜/좌표 문자열 불변. 유효 자료를 표본 제한으로 버리지 않는다."
+    },
+    {
+      "id": "DB-06",
+      "title": "실패한 DB open Future와 다중 조회 snapshot",
+      "priority": "P2",
+      "evidence_level_this_turn": "AUDIT_SOURCE",
+      "planned_work_units": "PR3A",
+      "test_status": "NOT_RUN",
+      "acceptance": "영구 재시작 요구 없이 정상 retry 회복, 불가능한 total/row 조합·rows.first 예외0, 사용 중 DB 강제close0."
+    },
+    {
+      "id": "UI-01",
+      "title": "최근 답변 더보기가 200건 preview를 전체처럼 표시",
+      "priority": "P1",
+      "evidence_level_this_turn": "BOUNDARY_RECHECKED",
+      "planned_work_units": "PR3B + PR5B(C-03)",
+      "test_status": "NOT_RUN",
+      "acceptance": "로컬 page union과 전체 query oracle 동일, 정확한 total. 실패를 최근답변 없음으로 표시하지 않음."
+    },
+    {
+      "id": "UI-02",
+      "title": "외부 첨부 캐시가 filename만으로 재사용",
+      "priority": "P1",
+      "evidence_level_this_turn": "AUDIT_SOURCE",
+      "planned_work_units": "PR3B",
+      "test_status": "NOT_RUN",
+      "acceptance": "서로 다른 identity 파일 재사용0, 미완성 파일 열기0, 오래된 credential 전송0. 사용자에게 저장한 export와 임시 cache를 구분한다."
+    },
+    {
+      "id": "UI-03",
+      "title": "bounded 목록의 요청 비용과 legacy 분기 정리",
+      "priority": "P2",
+      "evidence_level_this_turn": "AUDIT_SOURCE",
+      "planned_work_units": "PR3B / PR4A / PR5A / PR6A",
+      "test_status": "NOT_RUN",
+      "acceptance": "구응답 반영0, bounded ListView/선택 의미 유지. 빨라 보이는 대신 마지막 요청까지 오래 대기하게 만들지 않음."
+    },
+    {
+      "id": "UI-04",
+      "title": "Client full-response와 UI-isolate JSON/모델 비용",
+      "priority": "P2",
+      "evidence_level_this_turn": "AUDIT_SOURCE",
+      "planned_work_units": "PR5A / PR5B",
+      "test_status": "NOT_RUN",
+      "acceptance": "현재 전체 결과 누락0, UI jank와 memory 전후 제시. 모바일 페이지200만으로 Client 전부 bounded라는 완료 보고 금지."
+    },
+    {
+      "id": "N-01",
+      "title": "Android24–25의 API26 notification 무조건 호출",
+      "priority": "P1",
+      "evidence_level_this_turn": "AUDIT_SOURCE",
+      "planned_work_units": "PR2C",
+      "test_status": "NOT_RUN",
+      "acceptance": "실제 지원하는 낮은 API에서 startup/알림 정상. 단순 lint annotation으로 runtime 경로 문제를 숨기지 않음."
+    },
+    {
+      "id": "N-02",
+      "title": "서버 변경 뒤 기존 WS와 native side effect 세대 불일치",
+      "priority": "P1",
+      "evidence_level_this_turn": "AUDIT_SOURCE",
+      "planned_work_units": "PR2B",
+      "test_status": "NOT_RUN",
+      "acceptance": "새 세대에 old 결과/알림 반영0, 변경 뒤 stale work 신규 dispatch0. 이미 접수 가능한 요청을 취소성공으로 위장하지 않음."
+    },
+    {
+      "id": "N-03",
+      "title": "native gate freshness와 concurrent compatibility 결과",
+      "priority": "P1/P2",
+      "evidence_level_this_turn": "AUDIT_SOURCE",
+      "planned_work_units": "PR2B",
+      "test_status": "NOT_RUN",
+      "acceptance": "권한 거절을 다른 probe의 성공이 덮지 않음. 승인 정책과 native/Dart 결과 일치. timeout시 무한한 stale 허용 없음."
+    },
+    {
+      "id": "N-04",
+      "title": "알림 processing inbox의 200개 eviction",
+      "priority": "P1",
+      "evidence_level_this_turn": "RECHECKED_STATIC",
+      "planned_work_units": "PR2A",
+      "test_status": "NOT_RUN",
+      "acceptance": "ack 전 unique pending 유실0. storage 거절/overflow를 성공처리로 보고하지 않음. 오래된 이력 정리와 작업 삭제가 독립적."
+    },
+    {
+      "id": "N-05",
+      "title": "무관한 앱 알림 본문까지 필터 전에 로그",
+      "priority": "P1/P2",
+      "evidence_level_this_turn": "RECHECKED_STATIC",
+      "planned_work_units": "PR2C",
+      "test_status": "NOT_RUN",
+      "acceptance": "기본 로그의 raw 알림/신고번호0, 정상 enqueue 유지. 단순 release logstrip에만 의존하지 않음."
+    },
+    {
+      "id": "N-06",
+      "title": "native enqueue fan-out·deadline·알림 correlation",
+      "priority": "P2",
+      "evidence_level_this_turn": "RECHECKED_STATIC",
+      "planned_work_units": "PR2B / PR2C",
+      "test_status": "NOT_RUN",
+      "acceptance": "무한 thread/대기0, 실패한 auto시도가 이후 수동알림 억제하지 않음, unknown POST 자동중복전송0."
+    },
+    {
+      "id": "N-07",
+      "title": "notification/PendingIntent ID 충돌과 shortcut 재실행",
+      "priority": "P2",
+      "evidence_level_this_turn": "AUDIT_SOURCE",
+      "planned_work_units": "PR2C",
+      "test_status": "NOT_RUN",
+      "acceptance": "서로 다른 알림 tap이 올바른 대상, 다른 progress를 cancel하지 않음. 소비된 command의 무심코 반복실행0."
+    },
+    {
+      "id": "N-08",
+      "title": "FGS와 실제 Dart 실행 소유권은 별개",
+      "priority": "P2",
+      "evidence_level_this_turn": "AUDIT_SOURCE",
+      "planned_work_units": "PR2D",
+      "test_status": "NOT_RUN",
+      "acceptance": "실제 일은 끝났는데 running알림만 남는 등 상태 불일치0, 미완료 작업 복구 또는 명시중단. 지원범위 증거와 일치."
+    },
+    {
+      "id": "N-09",
+      "title": "CI 검증·release 진단 보존과 보안 문서 불일치",
+      "priority": "P2",
+      "evidence_level_this_turn": "AUDIT_SOURCE",
+      "planned_work_units": "PR6B",
+      "test_status": "NOT_RUN",
+      "acceptance": "빌드성공이 테스트성공으로 보고되지 않음. 문서와 실제 보장 일치, 서명/secret유출0. 미검증 플랫폼 NOT_RUN."
+    },
+    {
+      "id": "S-01",
+      "title": "rebuild가 pending/retryable 상세를 남긴 채 완료",
+      "priority": "P1 / P0 안전성 게이트",
+      "evidence_level_this_turn": "BOUNDARY_RECHECKED",
+      "planned_work_units": "PR1C",
+      "test_status": "NOT_RUN",
+      "acceptance": "미처리item이 남은 completed0; no-delete merge유지; local완료와 중앙ACK구분; publish직전owner/lease/gen일치."
+    },
+    {
+      "id": "S-02",
+      "title": "불완전한 HTTP 성공 목록으로 fullSync 삭제",
+      "priority": "P1 / P0 안전성 게이트",
+      "evidence_level_this_turn": "RECHECKED_STATIC",
+      "planned_work_units": "PR1A",
+      "test_status": "NOT_RUN",
+      "acceptance": "불완전 inventory의 reports/raw/override 삭제0, 정상 cleanup은 계약상 증거 있는 경우만. 기존 예외/stop 방어 유지."
+    },
+    {
+      "id": "S-03",
+      "title": "실패·busy fallback과 일시 HTTP 오류가 큐에서 제거",
+      "priority": "P1",
+      "evidence_level_this_turn": "AUDIT_SOURCE",
+      "planned_work_units": "PR1C / PR2A",
+      "test_status": "NOT_RUN",
+      "acceptance": "일시실패로 pending제거0, unknown을notfound로축소하지 않음, retry폭주0. 별점POST자동재시도금지."
+    },
+    {
+      "id": "S-04",
+      "title": "sync/drain 소유권과 retry journal·queue ack 경쟁",
+      "priority": "P1 위험",
+      "evidence_level_this_turn": "AUDIT_SOURCE",
+      "planned_work_units": "PR2A",
+      "test_status": "NOT_RUN",
+      "acceptance": "pending/retryintent합집합보존,새event잘못ACK0,deadlock0,atomic저장결과일치."
+    },
+    {
+      "id": "S-05",
+      "title": "전체 인증 body deadline과 실제 취소 경계 부족",
+      "priority": "P2",
+      "evidence_level_this_turn": "AUDIT_SOURCE",
+      "planned_work_units": "PR2B",
+      "test_status": "NOT_RUN",
+      "acceptance": "무한body대기0,폐기작업추가예약상한검증. 취소되지않은SQL을취소완료라표시하지않음."
+    },
+    {
+      "id": "S-06",
+      "title": "uploader·gate의 나중 await에서 세대 검증 누락",
+      "priority": "P2",
+      "evidence_level_this_turn": "AUDIT_SOURCE",
+      "planned_work_units": "PR2B",
+      "test_status": "NOT_RUN",
+      "acceptance": "새세대oldcontext활성화0,oldbatch신규dispatch0,불확실ACK보존. eventID/payload/revision/lease규칙유지."
+    },
+    {
+      "id": "S-07",
+      "title": "정기 gate poll의 full manifest와 lease/client 소유권",
+      "priority": "P2",
+      "evidence_level_this_turn": "AUDIT_SOURCE",
+      "planned_work_units": "PR4B (중앙 계약 확인)",
+      "test_status": "NOT_RUN",
+      "acceptance": "실패시기존manifest보존,반복cursor무한루프0,정확한client수명. bytes/SQL/작업시간각각계측."
+    },
+    {
+      "id": "S-08",
+      "title": "UI bounded 개선 뒤에도 sync 전량 상태와 반복 재집계",
+      "priority": "P2",
+      "evidence_level_this_turn": "BOUNDARY_RECHECKED",
+      "planned_work_units": "PR1A / PR4B",
+      "test_status": "NOT_RUN",
+      "acceptance": "단순최대batch뿐아니라누적작업량감소확인.legacyoracle동등·ACK/progress정확·cancel후추가작업상한."
+    }
+  ],
+  "repository_files_reopened": [
+    {
+      "id": "R01",
+      "path": "AGENTS.md",
+      "scope": "전체",
+      "limitation": "제품/구조/문서 지도. 과거 test 수치는 현baseline으로 사용하지 않음"
+    },
+    {
+      "id": "R02",
+      "path": "PROJECT_RULES.md",
+      "scope": "전체",
+      "limitation": "기능·권한·DB교환·금액 분리·5탭 불변 조건"
+    },
+    {
+      "id": "R03",
+      "path": "docs/architecture/bounded-reads.md",
+      "scope": "반환된 핵심 구간; 긴 응답 일부 잘림",
+      "limitation": "기존 bounded read/cache/cancel/duplicate/import 보호. 문서 설명과 모든 런타임 분기 동등은 미검증"
+    },
+    {
+      "id": "R04",
+      "path": "docs/architecture/client-read-handoff.md",
+      "scope": "전체",
+      "limitation": "현재서버계약과제안 구분. giant PC복원 과거보고는 서버현재실행증거 아님"
+    },
+    {
+      "id": "R05",
+      "path": "lib/services/sync_engine.dart",
+      "scope": "270–335, 450–583",
+      "limitation": "목록수집/cleanup/후처리/결과 반환 경계"
+    },
+    {
+      "id": "R06",
+      "path": "lib/services/local_db_service.dart",
+      "scope": "3290–3355",
+      "limitation": "외부 snapshot 복사·checkpoint·sidecar 제거. 거대파일 전체 재감사 아님"
+    },
+    {
+      "id": "R07",
+      "path": "lib/community/rebuild/community_rebuild.dart",
+      "scope": "330–402",
+      "limitation": "_runToCompletion / _commit 경계"
+    },
+    {
+      "id": "R08",
+      "path": "android/app/src/main/kotlin/com/fentanest/mysafetyreport/PrefsInbox.kt",
+      "scope": "전체",
+      "limitation": "unique key append와 공통MAX200 eviction"
+    },
+    {
+      "id": "R09",
+      "path": "android/app/src/main/kotlin/com/fentanest/mysafetyreport/NotificationService.kt",
+      "scope": "25–163",
+      "limitation": "prefilter로그·native enqueue·thread/connection 구간"
+    },
+    {
+      "id": "R10",
+      "path": "lib/screens/recent_answers_screen.dart",
+      "scope": "1–110",
+      "limitation": "Provider목록·empty/건수·화면페이지 경계"
+    },
+    {
+      "id": "R11",
+      "path": "docs/reviews/2026-10-03-runtime-validation.md",
+      "scope": "1–100 요청의 실제 반환구간; 긴 응답 일부 잘림",
+      "limitation": "역사적 환경/검수/혼합 성능수치. 후속60585ms등은 첨부감사[A] 인용"
+    },
+    {
+      "id": "R12",
+      "path": "contracts/storage-contract.json",
+      "scope": "1–70",
+      "limitation": "contract_version2, schema5/16, NULL/owner/change추적 일부. 모든entity본문 신규검토 아님"
+    }
+  ],
+  "note": "Evidence levels describe reading only, not tests, runtime reproduction or production incidents."
+}

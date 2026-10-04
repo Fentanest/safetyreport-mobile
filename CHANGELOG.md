@@ -8,6 +8,77 @@
 
 ---
 
+## 2026-10-04 (리팩터링 구현, 로컬 미배포)
+
+- 계획 제출 이후 사용자의 `계획대로 구현` 요청으로 모바일 독립 변경을 구현했다. 기준과 현재 HEAD는 `ea183b2a94b62ec9bd51b0f2ab8bd9e72f075b60`이며, 격리 worktree에서 검증한 74개 파일을 바이트 대조 후 원래 폴더에 반영했다. 이전 계획 기록과 사용자 기존 파일을 보존했다. commit/push/릴리즈/서명/APK 생성/앱·기기 조작/운영 계정·서버 작업은 하지 않았다. VERSION·패키지 잠금·서버/모바일 교환 스키마5/16·protocol3·공동 정본은 변경하지 않았다.
+- 동기화 목록의 shape·total·page·ID 유일성을 검증하고 불완전 목록은 상세 저장·full_resync dataset 선회전 전에 중단한다. 순회 완료를 부재 삭제 권한으로 취급하지 않는다. 목록·이전 상태·capture event 연결은 200행 TEMP staging과 실제 journal/outbox JOIN으로 처리한다. 상세 간격·건별 bounded 중복 계산과 공개 변경 알림의 의미를 유지했다.
+- 외부 DB는 read-only 일관 snapshot에서 128행씩 복사하고 값·타입을 대조한다. 서버 import의 충돌·orphan·빈ID·정수 손실을 사전 거절하며 모든 교환 컬럼을 비교한다. private 교환 journal로 이전 정상본·dataset·이력을 복구하고 목적지/계정 세대를 다시 검사한다. 기존 원본 WAL/sidecar를 지우지 않는다. 실패한 open 재시도와 COUNT/page/기관/missing 조회의 동일 snapshot을 보강했다.
+- 동기화/drain admission, immutable retry add/ACK, native private processing inbox·claim owner·정확한 event ACK, 손상 자료 격리를 구현했다. 일시 오류·busy·취소·unknown은 의무를 남긴다. rebuild는 list_complete와 모든 item terminal·명시적 gap·활성 scope/lease/세대를 같은 transaction에서 검사한 뒤 merge·완료를 기록한다. uploader·gate·manifest의 후속 await와 최종 publish에도 소유권 검사를 추가했다.
+- Android API24/25 알림 경로, 알림 tag·PendingIntent·바로가기 소비를 보강하고 필터 전 원문 로그를 제거했다. native enqueue는 직렬 실행·30초 deadline·요청별 완료 알림 정리를 사용하며 응답 유실을 자동 재POST하지 않는다. 인증 body·요청 Client 수명을 제한하고 FGS의 실제 시작 응답·소유자 종료를 Dart와 연결했다. 이 변경만으로 task removal/process death 뒤 Dart 실행 지속을 보장하지 않는다.
+- 최근 답변은 Standalone의 정확한 조건·total과 200행 페이지를 사용하고 Client는 미리보기임을 표시한다. 첨부 cache는 scope+전체 URI·content hash·검증 메타로 식별하고 stream·취소·deadline을 적용한다. 통계 표의 동일 결과 계산을 재사용하며 private 누산기를 같은 library part로 분리했다. Client 단일 분류는 page의 total을 사용하고 동일 진행 요청만 공유한다. 모든 소비자의 취소/epoch 변경은 해당 transport를 닫고 한 소비자 취소는 다른 소비자의 요청을 유지한다.
+- 고정 SDK 검증 스크립트·CI 선행 gate와 mapping 90일 보존을 추가했다. 기존 Kotlin plugin 버전을 명시 적용하여 Flutter assemble 없이 native 검증이 가능하게 했다. 개인정보 방침과 architecture 문서의 저장소·LAN HTTP·FGS·manifest hook·recent 설명을 실제 코드에 맞췄다.
+
+### 실제 실행 증거와 제한
+
+- 고정 Flutter **3.47.5 / Dart 3.13.4**에서 변경 전 HEAD를 별도 실행했다: 전체 **868 passed / 15 skipped / 0 failed**, analyze **error0 / warning9 / info10**. 변경 후 최종 `bash tool/verify_refactoring.sh` 종료코드0: 전체 **914 passed / 16 skipped / 0 failed**, analyze **error0 / 기존 warning9 / info0**, Kotlin 단위 테스트 **7 passed / 0 failed**, Android lint 오류0. 마지막 native gate는 이번 작업 중 이미 컴파일·통과한 동일 소스의 Gradle 결과를 재사용했다. 기존 9개 경고는 두 storage 테스트의 unnecessary_cast다.
+- 추가 반례를 실제 검사했다: live WAL 원본 불변·음수/0 rowid·opaque 컬럼/BLOB, 손상/중도 교환 복구, malformed/401행 중복 inventory, stop/busy/admission 실패, retry journal의 isolate 동시 add/ACK와 잘못된 ACK, 날짜·좌표·중첩 처분, 1,001행 최근 답변, 세대 변경 후 rebuild/manifest commit 거절, 인증 늦은 결과, 공유 Client 취소. 원래 목적의 테스트를 삭제하거나 golden을 갱신하지 않았다.
+- 기본 suite의 16 skip은 미준비 선택 fixture/환경 및 별도 `SR_LARGE_TEST=1` staging 검사다. 50만 staging은 별도 실행해 **1 passed**, 0/1/3천/58,388/10만/50만 조회·집계 합성 suite는 변경 전후 각각 **7 passed**다. 이 성공을 서버 양방향 왕복이나 기기 검증으로 대체하지 않는다.
+- 호스트 단일 실행의 합성 조회·수정·집계 시나리오 시간(ms, seed 준비 제외)은 아래와 같다. 순수 통계 cold 시간이나 Android 성능이 아니다. baseline 일부와 native Gradle 작업이 겹쳤으므로 통제된 개선율·p50/p95로 해석하지 않는다. generator는 동일 SHA256이며 RSS는 Dart heap이 아니다.
+
+| 건수 | 변경 전 ms | 변경 후 ms |
+|---|---:|---:|
+| 0 | 89 | 80 |
+| 1 | 145 | 120 |
+| 3,000 | 1,282 | 856 |
+| 58,388 | 20,945 | 12,186 |
+| 100,000 | 35,731 | 21,151 |
+| 500,000 | 175,671 | 105,428 |
+
+- 50만 동기화 TEMP staging은 준비15,744ms / 전체18,615ms / 최대 반환페이지200을 기록했다. 공개 변경 결과 목록까지 고정 메모리라고 주장하지 않는다. 모든 raw log·native XML·lint·파일 hash·환경·실패 후 수정 기록은 [.agent-runs/mobile-refactoring-20261004/](.agent-runs/mobile-refactoring-20261004/provenance.json)에 로컬 보존했다. 초기에 잘못 선택한 SDK3.41.6 결과는 최종 수치에서 제외하고, SDK 잠금과 JDK compiler 선택을 바로잡은 뒤 위 검증을 실행했다. 과거 보고서의 수치를 이번 결과로 쓰지 않았다.
+
+### 27개 발견의 구현 후 상태
+
+`구현·host 검증`은 기기/서버 통합 완료와 다르다. 최초 계획의 재분류는 당시 정적 검토 기록으로 그대로 보존한다.
+
+| ID | 반영 내용 | 남은 통과 조건 |
+|---|---|---|
+| DB-01 | readonly snapshot·전 셀 타입 대조·오류 중단, host 검증 | Android readonly transaction/live WAL 검증 |
+| DB-02 | 키/관계/타입 preflight·bounded 전 컬럼 reconcile, host 검증 | C-06/07 양쪽 실제 왕복·giant 자료 |
+| DB-03 | 기관 TEMP 준비와 page/count의 동일 transaction | native 동시 writer·계정 전환 검증 |
+| DB-04 | unknown 직접 union 개수, host 반례 통과 | 실제 지도 렌더 모집단 검수 |
+| DB-05 | 엄격한 UTC 달력·finite 세계 좌표, host 반례 통과 | 기기 지도/상세 검수 |
+| DB-06 | open Future 실패 재시도·같은 snapshot | Android 연결/복원 동시 수명 검증 |
+| UI-01 | Standalone exact recent paging·Client preview 라벨 | C-03 Client exact total·page |
+| UI-02 | URI/scope/hash cache·취소/stream·검증 메타 | 기기 외부 앱 열기·disk quota 측정 |
+| UI-03 | 단일 분류 total 재사용·inflight 공유·실제 취소 | all-category metadata·기기 탐색 비용 |
+| UI-04 | page 요청 수명/동일 요청 비용 개선 | C-02/04 full endpoint 제거·decode worker 측정 보류 |
+| N-01 | 고정 SDK의 min24 확인·26 API guard·lint 통과 | API24/25 실제 알림 |
+| N-02 | config stamp·WS 중지/교체·늦은 callback 거절 | native 계정 A→B→A/키만 변경 검증 |
+| N-03 | owner/freshness fence·immutable probe·bounded body, JVM 검증 | 기기 wallclock/백그라운드 gate |
+| N-04 | private native SQLite·미완료 무삭제·200행 claim | 종료 지점별 이관/claim crash 검증·legacy 소유권 복구 |
+| N-05 | package filter 전 이동·원문/번호 로그 제거 | native 실제 알림 로그 확인 |
+| N-06 | 직렬 enqueue·whole deadline·request별 알림 | C-08 unknown 접수 조회/멱등·native 네트워크 장애 |
+| N-07 | 알림 tag·URI identity·shortcut one-shot | 실제 알림 탭/바로가기 재실행 |
+| N-08 | actual FGS 시작/종료 owner 연결·실패 중단 | HOME/task removal/process death/API timeout 미재현 |
+| N-09 | signer-free CI gate·mapping90일·privacy 정정 | CI remote 실행·실제 release 진단 미실행 |
+| S-01 | terminal·gap·scope/lease/세대와 merge/완료 한 transaction | 서버/기기 recovery 통합 |
+| S-02 | 불완전 inventory 중단·부재 삭제 비활성, host 검증 | upstream authoritative snapshot 제공 전 삭제 금지 |
+| S-03 | 실패/busy/cancel/일시 오류 queue 유지·exact ACK | native drain crash/end-to-end |
+| S-04 | durable sync admission·immutable retry/claim owner, host 검증 | native 다중 writer·lease 만료/재시작 |
+| S-05 | 인증 단계 body/deadline·owned client·세대 fence | cross-isolate 인증 원자성·느린 실네트워크 |
+| S-06 | gate/uploader 후속 await·transaction claim 세대 보호 | 중앙 늦은 ACK·기기 계정 전환 통합 |
+| S-07 | manifest page TEMP·lease/renew·cursor 검증·원자 publish | 중앙 unchanged/version/delta 계약 전 full poll 유지 |
+| S-08 | sync 전량 상태 제거·실제 진행 JOIN·표 memo·누산기 분리 | cold index/RowMetrics/giant fast path/coalescing 측정 보류 |
+
+- **미완료 게이트:** C-02~08의 실제 서버 공동 계약/왕복, Android native SQLite·legacy 복구·FGS 종료/재시작·API24/25·외부 파일 앱, 두 모드/테마/폭/글꼴/IME의 실제 렌더, 통제된 device 성능·배터리 검수는 NOT_RUN이다. RowMetrics·cold 준비 지연·giant fast path·중복 checkpoint 결합·multipart의 owned abort·Client full-response decode worker는 정확성/측정 근거 전 채택하지 않고 기존 bounded 동작을 유지했다. 27개 전체나 모든 성능 목표를 완료로 표시하지 않는다.
+- **복구/배포 제한:** private processing inbox와 retry `.events-v1`를 이전 바이너리가 읽지 못하므로 미완료 의무가 있을 때 코드만 내려서 롤백하지 않는다. 동일 reader 유지 수정 또는 검증된 역이관이 필요하다. legacy 소유권 미확정·다른 scope의 미완료 작업은 보존하며 명시적으로 차단한다. legacy 삭제와 손상 자료 자동 폐기는 활성화하지 않았다. 배포 전 해당 기기/복구 게이트를 통과해야 한다.
+
+## 2026-10-04 (계획 문서만)
+
+- 전달된 리팩터링 계획 패키지를 지정 순서로 읽고 현재 dev HEAD의 코드·계약과 대조했다. [상세 계획](docs/plans/2026-10-04-mobile-refactoring/plan.md), 27개 발견 재분류·회귀 카드, 검토 범위와 전 컬럼 교환 인덱스, 미측정 기록 양식을 작성했다.
+- 입력 원문을 계획 폴더에 바이트 그대로 보존하고 체크섬을 기록했다. 제품 코드 수정과 앱·테스트·벤치마크·빌드·기기·실제 외부 작업은 수행하지 않았다. 계획 제출 뒤 구현으로 전환하지 않는다.
+- 보존 원문과 ZIP/manifest의 바이트·체크섬 일치를 확인한 뒤 요청된 루트 압축 파일과 이번 임시 해제 폴더를 정리했다. 사용자 기존 미추적 파일은 유지했다.
+
 ## 2026-10-03 (로컬 작업, 미배포)
 
 ### 대용량 조회·사유 입력·self-host protocol 3·DB 저장 위치

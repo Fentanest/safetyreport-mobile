@@ -7,8 +7,21 @@ import org.json.JSONObject
 object ClientGateGuard {
     fun isOpen(prefs: SharedPreferences): Boolean = try {
         JSONObject(prefs.getString("flutter.community_gate_cache_v1", "") ?: "")
-            .optString("state") == "ok"
+            .let { cache ->
+                val age = System.currentTimeMillis() - cache.optLong("verified_at", -1L)
+                cache.optString("state") == "ok" && age >= 0 && age <= 600_000
+            }
     } catch (_: Exception) {
         false
     }
+
+    fun configStamp(prefs: SharedPreferences): String {
+        val raw = listOf("flutter.appMode", "flutter.baseUrl", "flutter.apiKey", "flutter.standaloneUsername", "flutter.native_config_generation")
+            .joinToString("\u0000") { prefs.all[it]?.toString() ?: "" } + "\u0000" + ownerScope(prefs)
+        return java.security.MessageDigest.getInstance("SHA-256").digest(raw.toByteArray()).joinToString("") { "%02x".format(it) }
+    }
+
+    fun ownerScope(prefs: SharedPreferences): String = try {
+        JSONObject(prefs.getString("flutter.community_gate_cache_v1", "") ?: "").optString("owner", "")
+    } catch (_: Exception) { "" }
 }

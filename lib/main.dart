@@ -508,6 +508,7 @@ CommunityRebuild standaloneRebuild(
 }) => CommunityRebuild(
   store: store,
   localDatasetId: store.localDatasetId,
+  scopeGeneration: () => provider.datasetEpoch,
   sourceNamespace: () async {
     final id = provider.standaloneUsername;
     if (id.isEmpty) return '';
@@ -653,6 +654,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   }
 
   Future<dynamic> _handleNativeCall(MethodCall call) async {
+    if (call.method == 'syncFgsStopped') {
+      final args = call.arguments as Map?;
+      SyncEngine.onNativeFgsStopped(args?['owner'] as String?);
+      return;
+    }
     if (call.method == 'navigateToTab') {
       if (!_gateAllows) return;
       final args = call.arguments as Map?;
@@ -797,31 +803,50 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     }
   }
 
+  bool _checkingPendingChanges = false;
   Future<void> _checkPendingChanges() async {
-    final changes = await PendingChangesStore.readAndClear();
-    if (changes.isEmpty || !mounted || !_gateAllows) return;
-    final history = context.read<NotificationHistoryProvider>();
-    await history.ensureLoaded();
-    if (!mounted) return;
-    final unreadChanges = changes.where((change) {
-      final kind = change['notification_kind']?.toString() ?? 'report';
-      if (kind == 'duplicate') return true;
-      return !history.isPayloadRead(change);
-    }).toList();
-    if (unreadChanges.isEmpty) return;
+    if (_checkingPendingChanges || !mounted || !_gateAllows) return;
+    _checkingPendingChanges = true;
+    final epoch = context.read<ReportProvider>().datasetEpoch;
+    bool current() =>
+        mounted &&
+        _gateAllows &&
+        context.read<ReportProvider>().datasetEpoch == epoch;
+    try {
+      final claim = await PendingChangesStore.readPending();
+      final changes = claim.items;
+      if (changes.isEmpty || !current() || !mounted) return;
+      final history = context.read<NotificationHistoryProvider>();
+      await history.ensureLoaded();
+      if (!current()) return;
+      final unreadChanges = changes.where((change) {
+        final kind = change['notification_kind']?.toString() ?? 'report';
+        if (kind == 'duplicate') return true;
+        return !history.isPayloadRead(change);
+      }).toList();
+      if (unreadChanges.isEmpty) {
+        await PendingChangesStore.acknowledge(claim);
+        return;
+      }
 
-    // 알림 히스토리에 extraData 포함해서 저장 (신고 결과 탭에서 상세 조회 가능하도록)
-    history.setPreferredTabIndex(1, notify: false);
-    await history.addFromServerResults(unreadChanges);
-    if (!mounted) return;
+      // 알림 히스토리에 extraData 포함해서 저장 (신고 결과 탭에서 상세 조회 가능하도록)
+      history.setPreferredTabIndex(1, notify: false);
+      await history.addFromServerResults(unreadChanges);
+      if (!current()) return;
 
-    // 알림 탭으로 이동
-    setState(() => _selectedIndex = 4);
+      // 알림 탭으로 이동
+      setState(() => _selectedIndex = 4);
 
-    // 변경 신고건 카드 뷰 표시
-    await Future.delayed(const Duration(milliseconds: 200));
-    if (!mounted) return;
-    _showChangesBottomSheet(unreadChanges);
+      // 변경 신고건 카드 뷰 표시
+      await Future.delayed(const Duration(milliseconds: 200));
+      if (!current()) return;
+      _showChangesBottomSheet(unreadChanges);
+      await PendingChangesStore.acknowledge(claim);
+    } catch (_) {
+      SyncEngine.emitLog('대기 변경을 전달하지 못했습니다. 자료를 보존해 다시 확인합니다.');
+    } finally {
+      _checkingPendingChanges = false;
+    }
   }
 
   void _showChangesBottomSheet(List<Map<String, dynamic>> changes) {

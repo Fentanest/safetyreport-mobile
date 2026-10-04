@@ -2,6 +2,7 @@ import '../models/report_filter.dart';
 import 'report_query.dart';
 import 'performance_trace.dart';
 import 'app_prefs_keys.dart';
+import 'database_snapshot.dart';
 import 'community_auth_service.dart';
 import '../models/editor_schema.dart';
 import '../models/rating_lookup.dart';
@@ -10,7 +11,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show visibleForTesting, listEquals;
 import 'package:path/path.dart';
 import 'package:safetyreport/services/fine_estimate.dart' as fine_estimate;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -21,9 +22,13 @@ import '../models/report.dart';
 import 'agency_registry.dart';
 import 'duplicate_projection_service.dart';
 import 'geocode_utils.dart';
+import 'local_database_exchange.dart';
 import 'attachment_policy.dart';
 import 'photo_capture_time.dart';
+
 import 'standalone_parser.dart';
+
+part 'local_statistics.dart';
 
 /// registry 현행 기관 표시(확인된 1:1 승계만). 스냅샷 미로드·미확정이면
 /// 원문으로 폴백한다 — PC `_apply_registry_agency_display` 와 같은 규칙.
@@ -113,9 +118,15 @@ class LocalDbService {
   static Future<Database> get db async {
     if (_fileOp != null) await _waitForFileOp();
     if (_db != null) return _db!;
-    _initFuture ??= _open();
-    _db = await _initFuture;
-    return _db!;
+    final pending = _initFuture ??= _open();
+    try {
+      final opened = await pending;
+      if (identical(_initFuture, pending)) _db = opened;
+      return opened;
+    } catch (_) {
+      if (identical(_initFuture, pending)) _initFuture = null;
+      rethrow;
+    }
   }
 
   /// 데모 계정(심사용)은 별도 파일을 쓴다(결정 D-7, M-24). 원천은 설정 키 standaloneDemoMode.
@@ -185,6 +196,7 @@ class LocalDbService {
   }
 
   static Future<T> _withFileExclusive<T>(Future<T> Function() body) async {
+    if (Zone.current[_fileOpZoneKey] == true) return body();
     while (_fileOp != null) {
       await _fileOp!.future;
     }
@@ -216,7 +228,12 @@ class LocalDbService {
       }
       if (hold != null) _fileOp = hold;
       final pending = _initFuture;
-      final open = _db ?? (pending == null ? null : await pending);
+      Database? open = _db;
+      try {
+        open ??= pending == null ? null : await pending;
+      } catch (_) {
+        // A failed open owns no connection. Close still clears its admission.
+      }
       _db = null;
       _initFuture = null;
       await open?.close();
@@ -240,6 +257,7 @@ class LocalDbService {
 
   static Future<Database> _open() async {
     final path = await getDbPath();
+    await LocalDatabaseExchange.recover(path);
     // [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스] 이전 버전 DB 는 옮기지 않고 백업 뒤 비운다.
     // await backupBeforeUpgrade(path);
     // 데모 DB(심사용 합성 데이터)는 실제 계정의 커뮤니티 데이터셋과 무관하다 — 선회전하지 않는다(Sol 재검증 2).
@@ -630,6 +648,27 @@ class LocalDbService {
             );
             if (a != b) {
               throw LegacyDatabaseException('DB 사본의 $t 행 수가 다릅니다($a → $b).');
+            }
+          }
+          for (final table in copied) {
+            final columns = await copy.rawQuery(
+              'PRAGMA src.table_info("$table")',
+            );
+            final expressions = <String>[];
+            for (final column in columns) {
+              final name = (column['name'] as String).replaceAll('"', '""');
+              expressions.add('"$name"');
+              expressions.add('typeof("$name")');
+            }
+            final fields = expressions.join(',');
+            for (final direction in ['src', 'main']) {
+              final other = direction == 'src' ? 'main' : 'src';
+              final differences = await copy.rawQuery(
+                'SELECT $fields,COUNT(*) FROM $direction."$table" GROUP BY $fields EXCEPT SELECT $fields,COUNT(*) FROM $other."$table" GROUP BY $fields LIMIT 1',
+              );
+              if (differences.isNotEmpty) {
+                throw LegacyDatabaseException('DB 사본의 $table 값 또는 타입이 다릅니다.');
+              }
             }
           }
           await copy.execute('COMMIT');
@@ -1595,27 +1634,43 @@ class LocalDbService {
   }
 
   static String? _agencyLookupKey;
-  static Future<void> _ensureAgencyLookup(Database d) async {
-    final key =
-        '${identityHashCode(d)}:${await _readRevision(d)}:${identityHashCode(AgencyRegistry.cacheVersion)}';
-    if (_agencyLookupKey == key) return;
-    await d.execute(
-      'CREATE TEMP TABLE IF NOT EXISTS sr_agencies(code TEXT, raw TEXT, display TEXT, PRIMARY KEY(code,raw))',
-    );
-    await d.delete('sr_agencies');
-    final rows = await d.rawQuery(
-      'SELECT DISTINCT IFNULL(처리기관코드,\'\') AS code, IFNULL(처리기관,\'\') AS raw FROM $effectiveReportsView',
-    );
-    final batch = d.batch();
-    for (final row in rows) {
-      batch.insert('sr_agencies', {
-        'code': row['code'],
-        'raw': row['raw'],
-        'display': registryDisplayAgency(row['code'], row['raw'] as String),
-      });
+  static Future<void> _ensureAgencyLookup(
+    Database connection, {
+    DatabaseExecutor? executor,
+  }) async {
+    Future<void> prepare(DatabaseExecutor d) async {
+      final key =
+          '${identityHashCode(connection)}:${await _readRevision(d)}:${identityHashCode(AgencyRegistry.cacheVersion)}';
+      if (_agencyLookupKey == key) return;
+      await d.execute(
+        'CREATE TEMP TABLE IF NOT EXISTS sr_agencies(code TEXT, raw TEXT, display TEXT, PRIMARY KEY(code,raw))',
+      );
+      await d.delete('sr_agencies');
+      final rows = await d.rawQuery(
+        "SELECT DISTINCT IFNULL(처리기관코드,'') AS code, IFNULL(처리기관,'') AS raw FROM $effectiveReportsView",
+      );
+      final batch = d.batch();
+      for (final row in rows) {
+        batch.insert('sr_agencies', {
+          'code': row['code'],
+          'raw': row['raw'],
+          'display': registryDisplayAgency(row['code'], row['raw'] as String),
+        });
+      }
+      await batch.commit(noResult: true);
+      _agencyLookupKey = key;
     }
-    await batch.commit(noResult: true);
-    _agencyLookupKey = key;
+
+    try {
+      if (executor != null) {
+        await prepare(executor);
+      } else {
+        await connection.transaction(prepare);
+      }
+    } catch (_) {
+      _agencyLookupKey = null;
+      rethrow;
+    }
   }
 
   /// Only distinct short metadata; raw_content and report bodies are not read.
@@ -1643,93 +1698,112 @@ class LocalDbService {
     ReportFilter filter = const ReportFilter(),
     int page = 0,
     int pageSize = 200,
+    bool Function()? isCancelled,
     bool excludeWithdraw = false,
     bool useRepresentativeRecords = false,
   }) => runBackgroundWork(() async {
     if (page < 0 || pageSize < 1 || pageSize > 200) {
       throw ArgumentError('잘못된 페이지');
     }
-    final d = await db;
-    var agencyExpression = "trim(IFNULL(처리기관,''))";
-    if (filter.agency.isNotEmpty || filter.onlyPolice || filter.excludePolice) {
-      await _ensureAgencyLookup(d);
-      agencyExpression =
-          "(SELECT display FROM temp.sr_agencies a WHERE a.code = IFNULL(r.처리기관코드,'') AND a.raw = IFNULL(r.처리기관,''))";
-    }
-    final q = ReportQuery(filter, agencyExpression: agencyExpression);
-    if (answerYear != null && answerYear != 'all') {
-      q.clauses.add('r.답변일 LIKE ?');
-      q.args.add('$answerYear%');
-    }
-    if (scope == 'duplicates') {
-      return _getDuplicatePage(d, page, pageSize, excludeWithdraw, q);
-    }
-    if (metric != null) {
-      final condition = switch (metric) {
-        '전체' => '1=1',
-        '보완 요청' => "처리상태 = '보완요청'",
-        '처리 중' => "처리상태 IN ('처리중','진행','진행중','검토중')",
-        '수용' => "처리상태 = '수용'",
-        '일부수용' => "처리상태 = '일부수용'",
-        '불수용/기타' => "처리상태 IN ('불수용','기타')",
-        '취하' => "처리상태 = '취하'",
-        'traffic:과태료' => "instr(IFNULL(범칙금_과태료,''),'과태료') > 0",
-        'traffic:경고/범칙금' =>
-          "(instr(IFNULL(범칙금_과태료,''),'경고') > 0 OR instr(IFNULL(범칙금_과태료,''),'범칙금') > 0)",
-        'traffic:불수용' => "(instr(IFNULL(처리상태,''),'불수용') > 0 OR 처리상태 = '기타')",
-        'traffic:과태료 미확인' =>
-          "범칙금_과태료 = '미확인' AND instr(IFNULL(처리상태,''),'불수용') = 0 AND IFNULL(처리상태,'') != '기타'",
-        _ => throw ArgumentError('알 수 없는 요약 항목'),
-      };
-      q.clauses.add(condition);
-    }
-    q.clauses.add(_representativeWhere(useRepresentativeRecords));
-    if (scope == 'watchlist') {
-      q.clauses.add(_watchWhere(useRepresentativeRecords));
-    }
-    if (scope == 'missing') {
-      await _ensureMissingLookup(d);
-      q.clauses.add(
-        'EXISTS (SELECT 1 FROM temp.sr_missing_addresses m WHERE m.ID=r.ID${missingAddress == null ? "" : " AND m.address_key = ?"})',
+    if (isCancelled?.call() == true) throw const QueryCancelled();
+    final connection = await db;
+    return connection.transaction((d) async {
+      if (isCancelled?.call() == true) throw const QueryCancelled();
+      var agencyExpression = "trim(IFNULL(처리기관,''))";
+      if (filter.agency.isNotEmpty ||
+          filter.onlyPolice ||
+          filter.excludePolice) {
+        await _ensureAgencyLookup(connection, executor: d);
+        agencyExpression =
+            "(SELECT display FROM temp.sr_agencies a WHERE a.code = IFNULL(r.처리기관코드,'') AND a.raw = IFNULL(r.처리기관,''))";
+      }
+      final q = ReportQuery(filter, agencyExpression: agencyExpression);
+      if (answerYear != null && answerYear != 'all') {
+        q.clauses.add('r.답변일 LIKE ?');
+        q.args.add('$answerYear%');
+      }
+      if (scope == 'duplicates') {
+        return _getDuplicatePage(d, page, pageSize, excludeWithdraw, q);
+      }
+      if (metric != null) {
+        final condition = switch (metric) {
+          '전체' => '1=1',
+          '보완 요청' => "처리상태 = '보완요청'",
+          '처리 중' => "처리상태 IN ('처리중','진행','진행중','검토중')",
+          '수용' => "처리상태 = '수용'",
+          '일부수용' => "처리상태 = '일부수용'",
+          '불수용/기타' => "처리상태 IN ('불수용','기타')",
+          '취하' => "처리상태 = '취하'",
+          'traffic:과태료' => "instr(IFNULL(범칙금_과태료,''),'과태료') > 0",
+          'traffic:경고/범칙금' =>
+            "(instr(IFNULL(범칙금_과태료,''),'경고') > 0 OR instr(IFNULL(범칙금_과태료,''),'범칙금') > 0)",
+          'traffic:불수용' => "(instr(IFNULL(처리상태,''),'불수용') > 0 OR 처리상태 = '기타')",
+          'traffic:과태료 미확인' =>
+            "범칙금_과태료 = '미확인' AND instr(IFNULL(처리상태,''),'불수용') = 0 AND IFNULL(처리상태,'') != '기타'",
+          _ => throw ArgumentError('알 수 없는 요약 항목'),
+        };
+        q.clauses.add(condition);
+      }
+      q.clauses.add(_representativeWhere(useRepresentativeRecords));
+      if (scope == 'watchlist') {
+        q.clauses.add(_watchWhere(useRepresentativeRecords));
+      }
+      if (scope == 'missing') {
+        await _ensureMissingLookup(connection, executor: d);
+        q.clauses.add(
+          'EXISTS (SELECT 1 FROM temp.sr_missing_addresses m WHERE m.ID=r.ID${missingAddress == null ? "" : " AND m.address_key = ?"})',
+        );
+        if (missingAddress != null) q.args.add(missingAddress);
+      }
+      if (scope == 'recent') {
+        final today = DateTime.now();
+        String date(DateTime t) =>
+            '${t.year.toString().padLeft(4, '0')}-${t.month.toString().padLeft(2, '0')}-${t.day.toString().padLeft(2, '0')}';
+        q.clauses.add(
+          "처리상태 IN ('수용','일부수용','불수용','기타','답변완료') AND 답변일>=? AND 답변일<=?",
+        );
+        q.args.addAll([
+          date(today.subtract(const Duration(days: 3))),
+          '${date(today)} 99',
+        ]);
+      }
+      if (scope == 'rating') {
+        q.clauses.add("trim(IFNULL(만족도조사여부,'')) NOT IN ('참여 완료','참여 불가')");
+        q.clauses.add(
+          "trim(IFNULL(처리상태,'')) NOT IN ('취하','답변 대기','처리중','진행','진행중','검토중')",
+        );
+      }
+      if (category != 'all') {
+        q.clauses.add('category = ?');
+        q.args.add(category);
+      }
+      if (excludeWithdraw) q.clauses.add("IFNULL(처리상태,'') != '취하'");
+      final count = await PerformanceTrace.sql(
+        'list.sql_count',
+        () => d.rawQuery(
+          'SELECT COUNT(*) AS n FROM $effectiveReportsView r WHERE ${q.where}',
+          q.args,
+        ),
       );
-      if (missingAddress != null) q.args.add(missingAddress);
-    }
-    if (scope == 'rating') {
-      q.clauses.add("trim(IFNULL(만족도조사여부,'')) NOT IN ('참여 완료','참여 불가')");
-      q.clauses.add(
-        "trim(IFNULL(처리상태,'')) NOT IN ('취하','답변 대기','처리중','진행','진행중','검토중')",
+      final rows = await PerformanceTrace.sql(
+        'list.sql_page',
+        () => d.rawQuery(
+          'SELECT r.* FROM $effectiveReportsView r WHERE ${q.where} ORDER BY ${scope == 'recent' ? 'CAST(synced_at AS INTEGER) DESC, 답변일 DESC, 신고번호 DESC, ID DESC' : '신고번호 DESC, ID DESC'} LIMIT ? OFFSET ?',
+          [...q.args, pageSize, page * pageSize],
+        ),
       );
-    }
-    if (category != 'all') {
-      q.clauses.add('category = ?');
-      q.args.add(category);
-    }
-    if (excludeWithdraw) q.clauses.add("IFNULL(처리상태,'') != '취하'");
-    final count = await PerformanceTrace.sql(
-      'list.sql_count',
-      () => d.rawQuery(
-        'SELECT COUNT(*) AS n FROM $effectiveReportsView r WHERE ${q.where}',
-        q.args,
-      ),
-    );
-    final rows = await PerformanceTrace.sql(
-      'list.sql_page',
-      () => d.rawQuery(
-        'SELECT r.* FROM $effectiveReportsView r WHERE ${q.where} ORDER BY 신고번호 DESC, ID DESC LIMIT ? OFFSET ?',
-        [...q.args, pageSize, page * pageSize],
-      ),
-    );
-    return (
-      reports: PerformanceTrace.sync(
-        'list.report_objects',
-        () => rows.map(_rowToReport).toList(),
-      ),
-      total: count.first['n'] as int,
-    );
+      return (
+        reports: PerformanceTrace.sync(
+          'list.report_objects',
+          () => rows.map(_rowToReport).toList(),
+        ),
+        total: count.first['n'] as int,
+      );
+    }, exclusive: false);
   });
 
   static Future<({List<Report> reports, int total})> _getDuplicatePage(
-    Database d,
+    DatabaseExecutor d,
     int page,
     int pageSize,
     bool excludeWithdraw,
@@ -2653,22 +2727,44 @@ class LocalDbService {
     }, exclusive: false);
   });
 
+  static bool _validMapCoordinate(Object? lat, Object? lng) =>
+      lat is num &&
+      lng is num &&
+      lat.isFinite &&
+      lng.isFinite &&
+      lat >= -90 &&
+      lat <= 90 &&
+      lng >= -180 &&
+      lng <= 180;
+
   static String? _missingLookupKey;
-  static Future<void>? _missingLookupPending;
-  static Future<void> _ensureMissingLookup(Database d) async {
-    if (_missingLookupPending != null) await _missingLookupPending;
-    final key = '${identityHashCode(d)}:${await _readRevision(d)}';
-    if (key == _missingLookupKey) return;
-    final work = _buildMissingLookup(d, key);
-    _missingLookupPending = work;
+  static Future<void> _ensureMissingLookup(
+    Database connection, {
+    DatabaseExecutor? executor,
+  }) async {
+    Future<void> prepare(DatabaseExecutor d) async {
+      final key = '${identityHashCode(connection)}:${await _readRevision(d)}';
+      if (key == _missingLookupKey) return;
+      await _buildMissingLookup(d, key, connection);
+    }
+
     try {
-      await work;
-    } finally {
-      if (identical(_missingLookupPending, work)) _missingLookupPending = null;
+      if (executor != null) {
+        await prepare(executor);
+      } else {
+        await connection.transaction(prepare);
+      }
+    } catch (_) {
+      _missingLookupKey = null;
+      rethrow;
     }
   }
 
-  static Future<void> _buildMissingLookup(Database d, String key) async {
+  static Future<void> _buildMissingLookup(
+    DatabaseExecutor d,
+    String key,
+    Database connection,
+  ) async {
     final snapshot = 'sr_missing_${++_statsQuerySerial}';
     await d.execute(
       'CREATE TEMP TABLE IF NOT EXISTS sr_missing_addresses(ID TEXT PRIMARY KEY, address_key TEXT NOT NULL)',
@@ -2691,8 +2787,7 @@ class LocalDbService {
         if (rows.isEmpty) break;
         final batch = d.batch();
         for (final row in rows) {
-          if (parseGeoDouble(row['위도']) != null &&
-              parseGeoDouble(row['경도']) != null) {
+          if (_validMapCoordinate(row['위도'], row['경도'])) {
             continue;
           }
           final normalized = normalizeGeocodeAddress(row['주소정규화']?.toString());
@@ -2710,7 +2805,7 @@ class LocalDbService {
         last = rows.last['cursor'] as int;
         await Future<void>.delayed(Duration.zero);
       }
-      if (key == '${identityHashCode(d)}:${await _readRevision(d)}') {
+      if (key == '${identityHashCode(connection)}:${await _readRevision(d)}') {
         _missingLookupKey = key;
       }
     } finally {
@@ -2726,55 +2821,58 @@ class LocalDbService {
     int page = 0,
   }) => runBackgroundWork(() async {
     if (page < 0) throw ArgumentError('잘못된 페이지');
-    final d = await db;
-    await _ensureMissingLookup(d);
-    final q = ReportQuery(const ReportFilter(), agencyExpression: '처리기관');
-    q.clauses.add(_representativeWhere(useRepresentativeRecords));
-    if (category != 'all') {
-      q.clauses.add('r.category = ?');
-      q.args.add(category);
-    }
-    if (year != null && year != 'all') {
-      q.clauses.add('r.답변일 LIKE ?');
-      q.args.add('$year%');
-    }
-    if (excludeWithdraw) q.clauses.add("IFNULL(r.처리상태,'') != '취하'");
-    final source =
-        '$effectiveReportsView r JOIN temp.sr_missing_addresses m ON m.ID=r.ID WHERE ${q.where}';
-    final totals = await d.rawQuery(
-      'SELECT COUNT(*) AS n, COUNT(DISTINCT m.address_key) AS groups FROM $source',
-      q.args,
-    );
-    final groupRows = await d.rawQuery(
-      'SELECT m.address_key,COUNT(*) AS n FROM $source GROUP BY m.address_key ORDER BY n DESC,m.address_key LIMIT 100 OFFSET ?',
-      [...q.args, page * 100],
-    );
-    final groups = <Map<String, dynamic>>[];
-    for (final group in groupRows) {
-      final rows = await d.rawQuery(
-        'SELECT r.* FROM $source AND m.address_key = ? ORDER BY r.신고일 DESC,r.신고번호 LIMIT 10',
-        [...q.args, group['address_key']],
+    final connection = await db;
+    return connection.transaction((d) async {
+      await _ensureMissingLookup(connection, executor: d);
+      final q = ReportQuery(const ReportFilter(), agencyExpression: '처리기관');
+      q.clauses.add(_representativeWhere(useRepresentativeRecords));
+      if (category != 'all') {
+        q.clauses.add('r.category = ?');
+        q.args.add(category);
+      }
+      if (year != null && year != 'all') {
+        q.clauses.add('r.답변일 LIKE ?');
+        q.args.add('$year%');
+      }
+      if (excludeWithdraw) q.clauses.add("IFNULL(r.처리상태,'') != '취하'");
+      final source =
+          '$effectiveReportsView r JOIN temp.sr_missing_addresses m ON m.ID=r.ID WHERE ${q.where}';
+      final totals = await d.rawQuery(
+        'SELECT COUNT(*) AS n, COUNT(DISTINCT m.address_key) AS groups FROM $source',
+        q.args,
       );
-      final first = rows.first;
-      groups.add({
-        'address': _stringify(first['위반장소']).trim().isEmpty
-            ? group['address_key']
-            : _stringify(first['위반장소']).trim(),
-        'normalized_address': group['address_key'],
-        'region': _stringify(first['행정구역']).trim(),
-        'report_count': group['n'],
-        'reports': rows,
-      });
-    }
-    return {
-      'groups': groups,
-      'meta': {
-        'group_count': totals.first['groups'],
-        'report_count': totals.first['n'],
-        'page': page,
-        'page_size': 100,
-      },
-    };
+      final groupRows = await d.rawQuery(
+        'SELECT m.address_key,COUNT(*) AS n FROM $source GROUP BY m.address_key ORDER BY n DESC,m.address_key LIMIT 100 OFFSET ?',
+        [...q.args, page * 100],
+      );
+      final groups = <Map<String, dynamic>>[];
+      for (final group in groupRows) {
+        final rows = await d.rawQuery(
+          'SELECT r.* FROM $source AND m.address_key = ? ORDER BY r.신고일 DESC,r.신고번호 LIMIT 10',
+          [...q.args, group['address_key']],
+        );
+        if (rows.isEmpty) throw StateError('missing_group_snapshot_changed');
+        final first = rows.first;
+        groups.add({
+          'address': _stringify(first['위반장소']).trim().isEmpty
+              ? group['address_key']
+              : _stringify(first['위반장소']).trim(),
+          'normalized_address': group['address_key'],
+          'region': _stringify(first['행정구역']).trim(),
+          'report_count': group['n'],
+          'reports': rows,
+        });
+      }
+      return {
+        'groups': groups,
+        'meta': {
+          'group_count': totals.first['groups'],
+          'report_count': totals.first['n'],
+          'page': page,
+          'page_size': 100,
+        },
+      };
+    }, exclusive: false);
   });
 
   static String _normalizeMapCategory(String value) {
@@ -3312,34 +3410,13 @@ class LocalDbService {
       'mysafetyreport_import_',
     );
     final preparedDbPath = join(tmpDir.path, basename(sourceDbPath));
-    await src.copy(preparedDbPath);
-
-    for (final ext in ['-wal', '-shm']) {
-      final sidecar = File('$sourceDbPath$ext');
-      if (!sidecar.existsSync()) continue;
-      try {
-        await sidecar.copy('$preparedDbPath$ext');
-      } catch (_) {
-        // content URI/권한 제한 등으로 sidecar 접근이 안 되면 복사 가능한 파일만 사용
-      }
-    }
-
-    Database? preparedDb;
     try {
-      preparedDb = await openDatabase(preparedDbPath);
-      await preparedDb.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+      // Read all tables from one SQLite snapshot, including committed WAL rows.
+      // Never drop a required sidecar or turn an open/checkpoint failure into success.
+      await copyReadOnlyDatabaseSnapshot(sourceDbPath, preparedDbPath);
     } catch (_) {
-      // 이미 단일 스냅샷이면 그대로 사용
-    } finally {
-      await preparedDb?.close();
-    }
-
-    for (final ext in ['-wal', '-shm']) {
-      final sidecar = File('$preparedDbPath$ext');
-      if (!sidecar.existsSync()) continue;
-      try {
-        await sidecar.delete();
-      } catch (_) {}
+      await _cleanupPreparedSnapshot(preparedDbPath);
+      rethrow;
     }
 
     return preparedDbPath;
@@ -3363,13 +3440,11 @@ class LocalDbService {
     }
   }
 
-  static Future<void> _commitImportedDatabase(String importedDbPath) =>
-      _withFileExclusive(() => _commitImportedDatabaseLocked(importedDbPath));
-
   static Future<void> _commitImportedDatabaseLocked(
-    String importedDbPath,
-  ) async {
-    final dbPath = await getDbPath();
+    String importedDbPath, {
+    String? destination,
+  }) async {
+    final dbPath = destination ?? await getDbPath();
     final target = File(dbPath);
     final imported = File(importedDbPath);
     final stagedCopyPath =
@@ -3526,14 +3601,8 @@ class LocalDbService {
       'mysafetymerge_other',
     };
 
-    var hasAnyReport = false;
     for (final tableName in sourceTables) {
       if (!tableNames.contains(tableName)) continue;
-      final countRows = await serverDb.rawQuery(
-        'SELECT COUNT(*) AS cnt FROM $tableName',
-      );
-      final count = int.tryParse(countRows.first['cnt']?.toString() ?? '') ?? 0;
-      if (count > 0) hasAnyReport = true;
 
       final columns = await serverDb.rawQuery('PRAGMA table_info($tableName)');
       final columnNames = columns
@@ -3545,8 +3614,141 @@ class LocalDbService {
       }
     }
 
-    if (!hasAnyReport) {
-      throw Exception('서버 DB에 이식 가능한 신고 데이터가 없습니다.');
+    // A supported, authenticated zero-row snapshot is valid.
+  }
+
+  /// Reject rows the JOIN/converter could silently omit or replace.
+  static Future<void> _preflightServerPopulation(
+    Database serverDb,
+    Set<String> tables,
+  ) async {
+    final sources = <String>[];
+    final details = <String>[];
+    for (final category in ['traffic', 'parking', 'other']) {
+      final detail = 'mysafetydetail_$category';
+      final originals = tables.contains('mysafety') && tables.contains(detail);
+      final source = originals ? detail : 'mysafetymerge_$category';
+      if (!tables.contains(source)) continue;
+      sources.add('SELECT ID FROM "$source"');
+      if (originals) {
+        details.add('SELECT ID FROM "$detail"');
+        final orphan = await serverDb.rawQuery(
+          'SELECT 1 FROM "$detail" d LEFT JOIN mysafety t ON t.ID=d.ID WHERE t.ID IS NULL LIMIT 1',
+        );
+        if (orphan.isNotEmpty) {
+          throw const FormatException('상세에 대응하는 목록 행이 없습니다.');
+        }
+      }
+    }
+    if (sources.isEmpty) throw const FormatException('변환 대상 표가 없습니다.');
+    final union = sources.join(' UNION ALL ');
+    final invalid = await serverDb.rawQuery(
+      "SELECT 1 FROM ($union) WHERE ID IS NULL OR typeof(ID)!='text' OR trim(ID)='' OR trim(ID)!=ID LIMIT 1",
+    );
+    final duplicate = await serverDb.rawQuery(
+      'SELECT ID FROM ($union) GROUP BY ID HAVING COUNT(*)>1 LIMIT 1',
+    );
+    if (invalid.isNotEmpty || duplicate.isNotEmpty) {
+      throw const FormatException('신고 ID가 없거나 분류 사이에서 중복됩니다.');
+    }
+    if (details.isNotEmpty) {
+      // A mixed layout can keep another category in a merge table.
+      final missing = await serverDb.rawQuery(
+        'SELECT 1 FROM mysafety t WHERE NOT EXISTS (SELECT 1 FROM ($union) d WHERE d.ID=t.ID) LIMIT 1',
+      );
+      if (missing.isNotEmpty) {
+        throw const FormatException('목록에 대응하는 상세 또는 병합 행이 없습니다.');
+      }
+    }
+    for (final table in ['mysafety_raw_content', 'mysafety_entry_value']) {
+      if (!tables.contains(table)) continue;
+      final orphan = await serverDb.rawQuery(
+        'SELECT 1 FROM "$table" r WHERE NOT EXISTS (SELECT 1 FROM ($union) d WHERE d.ID=r.ID) LIMIT 1',
+      );
+      if (orphan.isNotEmpty) {
+        throw FormatException('$table 원문 행을 보존할 신고가 없습니다.');
+      }
+      final duplicate = await serverDb.rawQuery(
+        'SELECT ID FROM "$table" GROUP BY ID HAVING COUNT(*)>1 LIMIT 1',
+      );
+      if (duplicate.isNotEmpty) throw FormatException('$table ID가 중복됩니다.');
+    }
+  }
+
+  static Future<void> _verifyImportedTable(
+    Database source,
+    Set<String> sourceTables,
+    Database target,
+    String sourceTable,
+    String targetTable,
+  ) async {
+    if (!sourceTables.contains(sourceTable)) return;
+    final info = await target.rawQuery('PRAGMA table_info("$targetTable")');
+    final keys = info
+        .where((r) => (r['pk'] as int) > 0)
+        .map((r) => r['name'] as String)
+        .toList();
+    final types = await _columnTypes(target, targetTable);
+    if (keys.isEmpty) throw FormatException('$targetTable 검증 키가 없습니다.');
+    await for (final rows in _readServerTablePages(
+      source,
+      sourceTables,
+      sourceTable,
+    )) {
+      final expectedRows = [
+        for (final row in rows)
+          {
+            for (final entry in row.entries)
+              if (types.containsKey(entry.key))
+                entry.key: _coerceForColumn(entry.value, types[entry.key]),
+          },
+      ];
+      final args = <Object?>[];
+      for (final row in expectedRows) {
+        args.addAll(keys.map((k) => row[k]));
+      }
+      final actualRows = await target.query(
+        targetTable,
+        where: List.filled(
+          rows.length,
+          '(${keys.map((k) => '"$k" IS ?').join(' AND ')})',
+        ).join(' OR '),
+        whereArgs: args,
+      );
+      String key(Map<String, Object?> row) =>
+          jsonEncode(keys.map((k) => row[k]).toList());
+      final actual = {for (final row in actualRows) key(row): row};
+      if (actual.length != expectedRows.length) {
+        throw FormatException('$targetTable 원본 키 보존 실패');
+      }
+      for (final expected in expectedRows) {
+        final row = actual[key(expected)];
+        if (row == null) throw FormatException('$targetTable 원본 키 보존 실패');
+        _verifyCells(targetTable, expected, row);
+      }
+    }
+  }
+
+  static void _verifyCells(
+    String table,
+    Map<String, Object?> expected,
+    Map<String, Object?> actual,
+  ) {
+    for (final entry in expected.entries) {
+      final value = actual[entry.key];
+      final expectedValue = entry.value;
+      final equal = expectedValue is List<int> && value is List<int>
+          ? listEquals(expectedValue, value)
+          : value == expectedValue;
+      final sameType =
+          (expectedValue == null && value == null) ||
+          (expectedValue is int && value is int) ||
+          (expectedValue is double && value is double) ||
+          (expectedValue is String && value is String) ||
+          (expectedValue is List<int> && value is List<int>);
+      if (!equal || !sameType) {
+        throw FormatException('$table.${entry.key} 값 또는 타입 보존 실패');
+      }
     }
   }
 
@@ -3571,13 +3773,13 @@ class LocalDbService {
     String table,
   ) async* {
     if (!serverTables.contains(table)) return;
-    var cursor = 0;
+    int? cursor;
     while (true) {
       final rows = await PerformanceTrace.sql(
         'exchange.table_page',
         () => serverDb.rawQuery(
-          'SELECT rowid AS _sr_cursor, * FROM "$table" WHERE rowid>? ORDER BY rowid LIMIT 128',
-          [cursor],
+          'SELECT rowid AS _sr_cursor, * FROM "$table" ${cursor == null ? "" : "WHERE rowid>?"} ORDER BY rowid LIMIT 128',
+          cursor == null ? [] : [cursor],
         ),
       );
       if (rows.isEmpty) return;
@@ -3608,7 +3810,7 @@ class LocalDbService {
         : '';
     final hasEntry = serverTables.contains('mysafety_entry_value');
     final hasRaw = serverTables.contains('mysafety_raw_content');
-    var cursor = 0;
+    int? cursor;
     while (true) {
       final rows = await PerformanceTrace.sql(
         'exchange.report_page',
@@ -3623,8 +3825,8 @@ class LocalDbService {
           '${originals ? 'JOIN mysafety t ON t.ID=d.ID ' : ''}'
           '${hasEntry ? 'LEFT JOIN mysafety_entry_value e ON e.ID=d.ID ' : ''}'
           '${hasRaw ? 'LEFT JOIN mysafety_raw_content rr ON rr.ID=d.ID ' : ''}'
-          'WHERE d.rowid>? ORDER BY d.rowid LIMIT 128',
-          [cursor],
+          '${cursor == null ? "" : "WHERE d.rowid>?"} ORDER BY d.rowid LIMIT 128',
+          cursor == null ? [] : [cursor],
         ),
       );
       if (rows.isEmpty) return;
@@ -3635,17 +3837,31 @@ class LocalDbService {
 
   /// 계약 타입(integer/real)에 맞춘다. 숫자 문자열은 숫자로, 빈 문자열은 NULL 로(숫자 열에 '' 는 잘못된 값).
   static Object? _coerceForColumn(Object? value, String? declaredType) {
-    if (value is! String) return value;
     final type = (declaredType ?? '').toUpperCase();
+    if (value is num) {
+      if (!value.isFinite || (type.contains('INT') && value != value.toInt())) {
+        throw const FormatException('숫자 열에 보존할 수 없는 값이 있습니다.');
+      }
+      return value;
+    }
+    if (value is! String) return value;
     if (type.contains('INT')) {
       if (value.trim().isEmpty) return null;
-      return int.tryParse(value.trim()) ??
-          double.tryParse(value.trim())?.toInt() ??
-          value;
+      final integer = int.tryParse(value.trim());
+      if (integer != null) return integer;
+      final number = double.tryParse(value.trim());
+      if (number != null && number.isFinite && number == number.toInt()) {
+        return number.toInt();
+      }
+      throw const FormatException('정수 열에 보존할 수 없는 값이 있습니다.');
     }
     if (type.contains('REAL')) {
       if (value.trim().isEmpty) return null;
-      return double.tryParse(value.trim()) ?? value;
+      final number = double.tryParse(value.trim());
+      if (number == null || !number.isFinite) {
+        throw const FormatException('실수 열에 보존할 수 없는 값이 있습니다.');
+      }
+      return number;
     }
     return value;
   }
@@ -3734,6 +3950,14 @@ class LocalDbService {
   /// 반환: 임포트한 신고 건수.
   static Future<int> importFromServerDb(String serverDbPath) async {
     _refuseDuringBackgroundWork('서버 DB 가져오기를');
+    return _withFileExclusive(() => _importFromServerDbLocked(serverDbPath));
+  }
+
+  static Future<int> _importFromServerDbLocked(String serverDbPath) async {
+    final destination = await getDbPath();
+    final owner = await currentKakaoId();
+    final preferences = await SharedPreferences.getInstance();
+    final generation = preferences.getInt('native_config_generation') ?? 0;
     final preparedDbPath = await _prepareExternalDbSnapshot(serverDbPath);
     final serverDb = await openDatabase(preparedDbPath, readOnly: true);
     Directory? stagingDir;
@@ -3763,6 +3987,8 @@ class LocalDbService {
         "SELECT name FROM sqlite_master WHERE type='table'",
       )).map((r) => r['name'] as String).toSet();
       final reportTypes = await _columnTypes(localDb, 'reports');
+
+      await _preflightServerPopulation(serverDb, serverTables);
 
       // 서버 sync_meta 의 'watchlist' 는 구서버의 낡은 사본일 수 있어 쓰지 않는다(S-15). 원천은 mysafety_watchlist.
       final syncMetaRows =
@@ -3799,11 +4025,7 @@ class LocalDbService {
         }
 
         Future<void> put(String table, Map<String, Object?> row) async {
-          batch.insert(
-            table,
-            row,
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
+          batch.insert(table, row, conflictAlgorithm: ConflictAlgorithm.abort);
           if (++queued >= 500) await flush();
         }
 
@@ -3816,7 +4038,7 @@ class LocalDbService {
           )) {
             for (final row in rows) {
               final reportId = row['ID']?.toString() ?? '';
-              if (reportId.isEmpty) continue;
+              if (reportId.isEmpty) throw const FormatException('빈 신고 ID');
               // 값은 바꾸지 않는다(NULL 은 NULL). 모바일에 있는 열만, 계약 타입에 맞춰.
               final importedRow = <String, Object?>{
                 for (final e in row.entries)
@@ -3889,9 +4111,82 @@ class LocalDbService {
         await flush();
       });
 
-      if (imported <= 0) {
-        throw Exception('임포트할 신고 데이터가 없습니다.');
+      for (final entry in sourceTableMap.entries) {
+        await for (final rows in _readServerReportRows(
+          serverDb,
+          serverTables,
+          mergeTable: entry.key,
+          category: entry.value,
+        )) {
+          final ids = rows.map((r) => r['ID']).toList();
+          final marks = List.filled(ids.length, '?').join(',');
+          final actualReports = {
+            for (final r in await localDb.query(
+              'reports',
+              where: 'ID IN ($marks)',
+              whereArgs: ids,
+            ))
+              r['ID']: r,
+          };
+          final actualRaw = {
+            for (final r in await localDb.query(
+              'report_raw',
+              where: 'ID IN ($marks)',
+              whereArgs: ids,
+            ))
+              r['ID']: r,
+          };
+          for (final row in rows) {
+            final expected = <String, Object?>{
+              for (final e in row.entries)
+                if (reportTypes.containsKey(e.key))
+                  e.key: _coerceForColumn(e.value, reportTypes[e.key]),
+              'category': entry.value,
+              'entry_value': row['_sr_entry_value'],
+              'raw_content': '',
+              '감시목록': watchNumbers.contains(row['신고번호']) ? 'Y' : 'N',
+            };
+            final actual = actualReports[row['ID']];
+            if (actual == null) throw const FormatException('신고 원본 키 보존 실패');
+            _verifyCells('reports', expected, actual);
+            if (row['_sr_raw_present'] != null) {
+              final raw = actualRaw[row['ID']];
+              if (raw == null) throw const FormatException('원문 원본 키 보존 실패');
+              _verifyCells('report_raw', {
+                'ID': row['ID'],
+                'raw_content': row['_sr_raw_content'],
+                'raw_type': row['_sr_raw_type'],
+                'saved_at': row['_sr_saved_at'],
+              }, raw);
+            }
+          }
+        }
       }
+      for (final pair in const {
+        'mysafety_geocode_cache': 'geocode_cache',
+        'mysafety_duplicate_group': DuplicateProjectionService.groupTable,
+        'mysafety_duplicate_member': DuplicateProjectionService.memberTable,
+        'mysafety_report_override': 'report_override',
+        'mysafety_duplicate_decision': 'duplicate_decision',
+      }.entries) {
+        await _verifyImportedTable(
+          serverDb,
+          serverTables,
+          localDb,
+          pair.key,
+          pair.value,
+        );
+      }
+      for (final row in syncMetaRows) {
+        final actual = await localDb.query(
+          'sync_meta',
+          where: 'key=?',
+          whereArgs: [row['key']],
+        );
+        if (actual.length != 1) throw const FormatException('메타데이터 키 보존 실패');
+        _verifyCells('sync_meta', row, actual.single);
+      }
+      await _refuseForeignOwner(serverDb, 'mysafety_sync_meta');
       final duplicateGroupCount =
           Sqflite.firstIntValue(
             await localDb.rawQuery(
@@ -3916,16 +4211,20 @@ class LocalDbService {
       final reportCountRows = await localDb.rawQuery(
         'SELECT COUNT(*) AS cnt FROM reports',
       );
-      if ((int.tryParse(reportCountRows.first['cnt']?.toString() ?? '') ?? 0) <=
-          0) {
-        throw Exception('임포트 결과 reports 데이터가 비어 있습니다.');
+      if (reportCountRows.single['cnt'] != imported) {
+        throw const FormatException('임포트 원본과 결과의 신고 수가 다릅니다.');
       }
 
       await localDb.close();
       localDb = null;
       // 개인 DB 교체 직전 커뮤니티 dataset 선회전 — 실패하면 교체하지 않는다(H-02).
-      await _rotateCommunityDataset('server_import');
-      await _commitImportedDatabase(stagedDbPath);
+      await _publishDatabaseExchange(
+        stagedDbPath,
+        'server_import',
+        destination: destination,
+        owner: owner,
+        generation: generation,
+      );
       _invalidateProjectRowsCache();
       return imported;
     } finally {
@@ -3942,6 +4241,41 @@ class LocalDbService {
       }
       await _cleanupPreparedSnapshot(preparedDbPath);
     }
+  }
+
+  static Future<void> _publishDatabaseExchange(
+    String prepared,
+    String reason, {
+    required String destination,
+    required String? owner,
+    required int generation,
+  }) async {
+    Future<void> checkScope() async {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.reload();
+      if ((preferences.getInt('native_config_generation') ?? 0) != generation ||
+          owner == null ||
+          await currentKakaoId() != owner ||
+          await getDbPath() != destination) {
+        throw ForeignDatabaseException(
+          'DB 준비 중 계정 또는 데이터 경로가 변경되었습니다. 자료를 바꾸지 않았습니다.',
+        );
+      }
+    }
+
+    await checkScope();
+    final store = await CommunityStore.open();
+    await LocalDatabaseExchange.publish(
+      destination: destination,
+      prepared: prepared,
+      reason: reason,
+      store: store,
+      copy: copyDatabaseConsistent,
+      commit: () async {
+        await checkScope();
+        await _commitImportedDatabaseLocked(prepared, destination: destination);
+      },
+    );
   }
 
   /// 커뮤니티 dataset 선회전 (보수적): 개인 DB 파일을 교체하기 직전에 호출한다.
@@ -3966,6 +4300,14 @@ class LocalDbService {
   /// (기존 DB 는 `<db>.before_import.<시각>.bak` 으로 남기고(최근 3개) 실패하면 되돌린다). 서버 DB 는 importFromServerDb 를 쓴다.
   static Future<void> replaceFromBackup(String backupDbPath) async {
     _refuseDuringBackgroundWork('백업 복원을');
+    return _withFileExclusive(() => _replaceFromBackupLocked(backupDbPath));
+  }
+
+  static Future<void> _replaceFromBackupLocked(String backupDbPath) async {
+    final destination = await getDbPath();
+    final owner = await currentKakaoId();
+    final preferences = await SharedPreferences.getInstance();
+    final generation = preferences.getInt('native_config_generation') ?? 0;
     _invalidateProjectRowsCache();
     if (!File(backupDbPath).existsSync()) {
       throw Exception('백업 파일이 존재하지 않습니다: $backupDbPath');
@@ -4030,8 +4372,13 @@ class LocalDbService {
       await staged.close();
       staged = null;
       // 개인 DB 교체 직전 커뮤니티 dataset 선회전 — 실패하면 교체하지 않는다(H-02).
-      await _rotateCommunityDataset('restore');
-      await _commitImportedDatabase(stagedPath);
+      await _publishDatabaseExchange(
+        stagedPath,
+        'restore',
+        destination: destination,
+        owner: owner,
+        generation: generation,
+      );
       _invalidateProjectRowsCache();
     } finally {
       if (staged != null) {
@@ -4180,441 +4527,3 @@ class LocalDbService {
 }
 
 // ── 집계 헬퍼 ────────────────────────────────────────────────────────────────
-
-class _AgencyAgg {
-  final String name;
-  final String person;
-  final String agencyKey;
-  int total = 0, fines = 0, warn = 0, reject = 0, unconfirmed = 0;
-
-  /// S-10: 완료도 취하도 아닌 상태(처리중·진행·검토중·보완요청·이송·빈 값 등). 미분류와 따로 센다.
-  int inProgress = 0;
-
-  int dispositionUnknown = 0;
-  int noPenalty = 0;
-  int unclassified = 0;
-
-  int totalFine = 0;
-  int fineAmountUnknown = 0; // S-05: 과태료인데 금액을 읽지 못한 건(0원과 구분)
-  int estimatedFineAmount = 0;
-  int estimatedFineCount = 0;
-
-  int responseDaySum = 0, responseDayCount = 0;
-  int ratingSum = 0, ratingCount = 0;
-
-  _AgencyAgg(this.name, this.person, [this.agencyKey = '']);
-
-  void add(Map<String, dynamic> r) {
-    final weight = (r['_weight'] as int?) ?? 1;
-    total += weight;
-    final status = (r['처리상태'] as String? ?? '').trim();
-    final fine = (r['범칙금_과태료'] as String? ?? '');
-    if (fine.contains('과태료')) fines += weight;
-    if (fine.contains('경고') || fine.contains('범칙금')) warn += weight;
-    if (status == '불수용' || status == '기타') reject += weight;
-    final completed = LocalDbService._overviewCompletedStatuses.contains(
-      status,
-    );
-    if (!fine.contains('과태료') &&
-        !fine.contains('경고') &&
-        !fine.contains('범칙금') &&
-        status != '불수용' &&
-        status != '기타') {
-      if (!completed && status != '취하') {
-        inProgress += weight;
-      } else {
-        unconfirmed += weight;
-        final category = (r['category'] as String? ?? '').trim();
-        final entry = (r['entry_value'] as String? ?? '').trim();
-        final eligible =
-            category == 'traffic' ||
-            category == 'parking' ||
-            entry.contains('자동차·교통위반') ||
-            entry.contains('불법주정차신고') ||
-            entry.contains('쓰레기, 폐기물');
-
-        // 과태료 미확인(2026-09-28 이름 변경): '미확인' 이거나, 저장된 주정차·버스전용차로·쓰레기 메뉴의 일부수용 + 처분 없음.
-        // 서버 `_stats_row_disposition_counts` 와 같은 규칙.
-        final partialMenu =
-            category == 'parking' ||
-            entry.contains('불법주정차신고') ||
-            entry.contains('버스전용차로 위반') ||
-            entry.contains('쓰레기, 폐기물');
-        final isUnknown =
-            fine.trim() == '미확인' ||
-            (status == '일부수용' && fine.trim().isEmpty && partialMenu);
-        if (isUnknown) {
-          dispositionUnknown += weight;
-        } else if (!eligible && completed) {
-          noPenalty += weight;
-        } else {
-          unclassified += weight;
-        }
-      }
-    }
-    final fineAmount = extractFineAmount(fine);
-    totalFine += fineAmount * weight;
-    if (fine.contains('과태료') && fineAmount == 0) {
-      fineAmountUnknown += weight;
-      final est = fine_estimate.estimate(r);
-      if (est != null) {
-        estimatedFineAmount += (est['amount'] as int) * weight;
-        estimatedFineCount += weight;
-      }
-    }
-
-    final date = r['신고일'] as String? ?? '';
-    final resp = r['답변일'] as String? ?? '';
-    // S-10: 처리기간은 완료 신고만(이송 답변일이 붙은 처리중·취하 제외).
-    if (completed && date.length >= 10 && resp.length >= 10) {
-      try {
-        final d = DateTime.parse(date.substring(0, 10));
-        final rd = DateTime.parse(resp.substring(0, 10));
-        final days = rd.difference(d).inDays;
-        // S-01: 서버와 같이 날짜가 뒤바뀐(음수) 건은 평균에서 제외.
-        if (days >= 0) {
-          responseDaySum += days * weight;
-          responseDayCount += weight;
-        }
-      } catch (_) {}
-    }
-
-    final rating = (r['별점'] as num?)?.toInt();
-    if (rating != null && rating >= 1 && rating <= 5) {
-      ratingSum += rating * weight;
-      ratingCount += weight;
-    }
-  }
-
-  Map<String, dynamic> toJson() {
-    final t = total > 0 ? total.toDouble() : 1.0;
-    final avgRating = ratingCount == 0
-        ? null
-        : double.parse((ratingSum / ratingCount).toStringAsFixed(2));
-    return {
-      'agency': name,
-      'agency_key': agencyKey,
-      'person': person,
-      'total': total,
-      'fines': fines,
-      'fines_pct': double.parse((fines / t * 100).toStringAsFixed(1)),
-      'warnings': warn,
-      'warnings_pct': double.parse((warn / t * 100).toStringAsFixed(1)),
-      'rejects': reject,
-      'rejects_pct': double.parse((reject / t * 100).toStringAsFixed(1)),
-      'unconfirmed': unconfirmed,
-      'unconfirmed_pct': double.parse(
-        (unconfirmed / t * 100).toStringAsFixed(1),
-      ),
-      'disposition_unknown': dispositionUnknown,
-      'disposition_unknown_pct': double.parse(
-        (dispositionUnknown / t * 100).toStringAsFixed(1),
-      ),
-      'no_penalty': noPenalty,
-      'no_penalty_pct': double.parse((noPenalty / t * 100).toStringAsFixed(1)),
-      'unclassified': unclassified,
-      'unclassified_pct': double.parse(
-        (unclassified / t * 100).toStringAsFixed(1),
-      ),
-      'in_progress': inProgress,
-      'in_progress_pct': double.parse(
-        (inProgress / t * 100).toStringAsFixed(1),
-      ),
-      'total_fine_amount': totalFine,
-      'fine_amount_unknown': fineAmountUnknown,
-      'estimated_fine_amount': estimatedFineAmount,
-      'estimated_fine_count': estimatedFineCount,
-      'avg_rating': avgRating,
-      'rating_count': ratingCount,
-      // 2026-09-28: 평균 처리기간 표본 수(서버 `avg_days_count`). 표 합계가 행 평균을 이 수로 가중한다.
-      'avg_days_count': responseDayCount,
-      // S-01: 서버 _calc_avg_days 와 같이 소수 1자리.
-      'avg_days': responseDayCount == 0
-          ? null
-          : double.parse(
-              (responseDaySum / responseDayCount).toStringAsFixed(1),
-            ),
-    };
-  }
-}
-
-/// Incremental table aggregation: memory grows with institutions/persons, never reports.
-class _StatsCategoryAccumulator {
-  final agencies = <String, _AgencyAgg>{};
-  final persons = <String, _AgencyAgg>{};
-  final laws = <String>{};
-  bool emptyLaw = false;
-  int fine = 0, estimated = 0, estimatedCount = 0;
-
-  void addLaw(Map<String, dynamic> r) {
-    final law = r['위반법규']?.toString() ?? '';
-    if (law.isEmpty) {
-      emptyLaw = true;
-    } else {
-      laws.add(law);
-    }
-  }
-
-  void add(Map<String, dynamic> r) {
-    final weight = (r['_weight'] as int?) ?? 1;
-    final amount = extractFineAmount(r['범칙금_과태료']?.toString() ?? '');
-    fine += amount * weight;
-    if ((r['범칙금_과태료']?.toString() ?? '').contains('과태료') && amount == 0) {
-      final est = fine_estimate.estimate(r);
-      if (est != null) {
-        estimated += (est['amount'] as int) * weight;
-        estimatedCount += weight;
-      }
-    }
-    if (!LocalDbService._overviewCompletedStatuses.contains(
-      (r['처리상태']?.toString() ?? '').trim(),
-    )) {
-      return;
-    }
-    final keyed = registryKeyedAgency(r['처리기관코드'], r['처리기관']?.toString() ?? '');
-    if (keyed.display.isEmpty) return;
-    agencies
-        .putIfAbsent(keyed.key, () => _AgencyAgg(keyed.display, '', keyed.key))
-        .add(r);
-    final person = (r['담당자']?.toString() ?? '').trim();
-    if (LocalDbService._unassignedPersonValues.contains(person)) return;
-    persons
-        .putIfAbsent(
-          '${keyed.key}\t$person',
-          () => _AgencyAgg(keyed.display, person, keyed.key),
-        )
-        .add(r);
-  }
-
-  Map<String, dynamic> toJson() {
-    List<Map<String, dynamic>> sorted(Iterable<_AgencyAgg> aggs) =>
-        aggs.map((a) => a.toJson()).toList()..sort((a, b) {
-          var c = (b['total'] as int).compareTo(a['total'] as int);
-          if (c == 0) {
-            c = (a['agency'] as String).compareTo(b['agency'] as String);
-          }
-          if (c == 0) {
-            c = (a['person'] as String).compareTo(b['person'] as String);
-          }
-          if (c == 0) {
-            c = (a['agency_key'] as String).compareTo(
-              b['agency_key'] as String,
-            );
-          }
-          return c;
-        });
-    final byAgency = sorted(agencies.values), byPerson = sorted(persons.values);
-    bool police(Map<String, dynamic> r) =>
-        (r['agency'] as String).contains('경찰');
-    return {
-      'by_agency': byAgency,
-      'by_person': byPerson,
-      'police_by_agency': byAgency.where(police).toList(),
-      'police_by_person': byPerson.where(police).toList(),
-      'other_by_agency': byAgency.where((r) => !police(r)).toList(),
-      'other_by_person': byPerson.where((r) => !police(r)).toList(),
-      'available_laws': laws.toList()..sort(),
-      'has_empty_law': emptyLaw,
-      'total_fine_amount': fine,
-      'estimated_fine_amount': estimated,
-      'estimated_fine_count': estimatedCount,
-    };
-  }
-}
-
-/// Merge exact counts and sums; round once after the final page.
-class _OverviewAccumulator {
-  final counts = <String, int>{};
-  final series = <String, Map<String, int>>{};
-  final types = <String, int>{};
-  final lawCounts = <String, int>{};
-  final resultDistribution = <String, int>{};
-  final disposition = <String, int>{};
-  final fine = <String, int>{};
-
-  void add(List<Map<String, dynamic>> rows) {
-    final json = LocalDbService.summarizeOverviewRows(
-      rows,
-      includeInternal: true,
-    );
-    for (final e in json.entries) {
-      if (e.value is int) {
-        counts[e.key] = (counts[e.key] ?? 0) + (e.value as int);
-      }
-      if (e.key.startsWith('monthly_')) {
-        final target = series.putIfAbsent(e.key, () => {});
-        for (final row in e.value as List) {
-          final month = row['month'] as String;
-          target[month] = (target[month] ?? 0) + (row['count'] as int);
-        }
-      }
-    }
-    for (final row in json['report_types'] as List) {
-      final name = row['name'] as String;
-      types[name] = (types[name] ?? 0) + (row['count'] as int);
-    }
-    for (final row in json['violation_laws'] as List) {
-      final name = row['name'] as String;
-      lawCounts[name] = (lawCounts[name] ?? 0) + (row['count'] as int);
-    }
-    for (final pair in [
-      ('disposition', disposition),
-      ('fine_amount', fine),
-      ('result_distribution', resultDistribution),
-    ]) {
-      for (final e in (json[pair.$1] as Map<String, dynamic>).entries) {
-        pair.$2[e.key] = (pair.$2[e.key] ?? 0) + (e.value as int);
-      }
-    }
-  }
-
-  Map<String, dynamic> toJson() {
-    // Add an empty page to provide all zero-valued fields even for 0 reports.
-    if (counts.isEmpty) add(const []);
-    final typeRows = types.entries.toList()
-      ..sort((a, b) {
-        final c = b.value.compareTo(a.value);
-        return c != 0 ? c : a.key.compareTo(b.key);
-      });
-    final n = counts['avg_days_count'] ?? 0;
-    return {
-      for (final e in counts.entries)
-        if (e.key != '_day_sum') e.key: e.value,
-      'avg_days': n == 0
-          ? null
-          : double.parse(((counts['_day_sum'] ?? 0) / n).toStringAsFixed(1)),
-      for (final e in series.entries)
-        e.key: [
-          for (final month in e.value.keys.toList()..sort())
-            {'month': month, 'count': e.value[month]},
-        ],
-      'disposition': disposition,
-      'fine_amount': fine,
-      'result_distribution': resultDistribution,
-      'violation_laws': [
-        for (final e
-            in lawCounts.entries.toList()..sort((a, b) {
-              final c = b.value.compareTo(a.value);
-              return c != 0 ? c : a.key.compareTo(b.key);
-            }))
-          {
-            'name': e.key,
-            'filter': e.key.isEmpty ? '__없음__' : e.key,
-            'count': e.value,
-          },
-      ],
-      'report_types': [
-        for (final e in typeRows) {'name': e.key, 'count': e.value},
-      ],
-    };
-  }
-}
-
-class _MapCellAccumulator {
-  int total = 0;
-  double latSum = 0, lngSum = 0;
-  String address = '';
-  bool multipleAddresses = false;
-  final statuses = <String, int>{},
-      dispositions = <String, int>{},
-      categories = <String, int>{},
-      agencies = <String, int>{};
-  final agencyNames = <String, String>{};
-  void add(Map<String, dynamic> r) {
-    final n = r['_weight'] as int;
-    if ((r['addresses'] as int? ?? 0) > 1 ||
-        r['min_lat'] != r['max_lat'] ||
-        r['min_lng'] != r['max_lng']) {
-      multipleAddresses = true;
-    }
-    total += n;
-    latSum += (r['lat'] as num).toDouble() * n;
-    lngSum += (r['lng'] as num).toDouble() * n;
-    final text = (r['address']?.toString() ?? '').trim();
-    if (address.isEmpty) {
-      address = text;
-    } else if (address != text) {
-      multipleAddresses = true;
-    }
-    void count(Map<String, int> target, String label) =>
-        target[label] = (target[label] ?? 0) + n;
-    final status = (r['처리상태']?.toString() ?? '').trim();
-    final label = const {'', '진행', '진행중', '검토중', '처리중'}.contains(status)
-        ? '처리중'
-        : status;
-    if (const {
-      '수용',
-      '일부수용',
-      '불수용',
-      '기타',
-      '답변완료',
-      '보완요청',
-      '처리중',
-      '취하',
-      '이송',
-    }.contains(label)) {
-      count(statuses, label);
-    }
-    final fine = r['범칙금_과태료']?.toString() ?? '';
-    var decided = false;
-    if (fine.contains('과태료')) {
-      count(dispositions, '과태료');
-      decided = true;
-    }
-    if (fine.contains('경고') || fine.contains('범칙금')) {
-      count(dispositions, '경고/범칙금');
-      decided = true;
-    }
-    if (status == '불수용' || status == '기타') {
-      count(dispositions, '불수용/기타');
-      decided = true;
-    }
-    if (!decided) count(dispositions, '미확인');
-    count(categories, switch (r['category']) {
-      'traffic' => '교통위반',
-      'parking' => '주정차위반',
-      'other' => '기타위반',
-      _ => '',
-    });
-    final keyed = registryKeyedAgency(r['처리기관코드'], r['처리기관']?.toString() ?? '');
-    if (keyed.display.isNotEmpty) {
-      count(agencies, keyed.key);
-      agencyNames[keyed.key] = keyed.display;
-    }
-  }
-
-  Map<String, dynamic> toJson() {
-    List<Map<String, dynamic>> series(Map<String, int> source) => [
-      for (final e in source.entries)
-        if (e.key.isNotEmpty)
-          {
-            'label': e.key,
-            'count': e.value,
-            'pct': double.parse((e.value / total * 100).toStringAsFixed(1)),
-          },
-    ];
-    dispositions.remove('미확인');
-    final pending = total - dispositions.values.fold<int>(0, (n, c) => n + c);
-    if (pending > 0) dispositions['미확인'] = pending;
-    return {
-      'lat': latSum / total,
-      'lng': lngSum / total,
-      'total': total,
-      'cluster': multipleAddresses,
-      'address': multipleAddresses ? '지도 구역 집계 · 확대하여 주소 확인' : address,
-      'region': '',
-      'status_breakdown': series(statuses),
-      'disposition_breakdown': series(dispositions),
-      'category_breakdown': series(categories),
-      'agency_breakdown': [
-        for (final e in agencies.entries)
-          {
-            'agency_key': e.key,
-            'name': agencyNames[e.key],
-            'count': e.value,
-            'pct': double.parse((e.value / total * 100).toStringAsFixed(1)),
-          },
-      ],
-    };
-  }
-}

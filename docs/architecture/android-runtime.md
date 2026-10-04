@@ -179,7 +179,7 @@ Dart CommunityAuthLinkChannel (main() 에서 등록) → "takePendingLink"(꺼�
 - `SyncEngine.acquireFgs / releaseFgs` 가 ref counting (drain → SyncEngine.start 중첩 안전)
 - "🔄 동기화 진행 중" 알림 (LOW priority)
 - START_NOT_STICKY (작업 끝나면 정지)
-- swipe-away 방어 + OS kill 후순위 격상 (강제종료는 못 막음)
+- FGS는 프로세스 우선순위를 높이지만 FlutterEngine 생존·작업 완료를 보장하지 않는다. Activity 소유 엔진 파괴 시 작업 중단과 서비스 종료를 요청한다.
 - `SyncEngine.runningListenable`은 전체 동기화와 개별 자동 동기화의 FGS 참조 수를 함께 반영한다. `SyncExitGuard`가 실행 화면과 앱 루트의 Android 뒤로 가기를 막아 Activity 종료를 방지한다. 작업이 끝나면 뒤로 가기가 다시 동작한다.
 
 ### 알림 채널
@@ -293,7 +293,7 @@ ALLOW_DEBUG_SIGNED_RELEASE=1 ./build_android_release.sh   # 검증 전용(debug 
 ```
 
 CI `build-apk.yml`: `workflow_dispatch` 입력 `verify_only` 면 태그 확인·GitHub Release 를 건너뛰고 산출물·`dist/`(mapping·메타)만 artifact 로 남긴다.
-정식 실행도 `dist/` 를 artifact(400일)로 올린다. Play 스택(`H2.h.b` 같은 난독화 이름)은 그 빌드의 mapping 으로 되돌린다
+정식 실행도 `dist/` 를 artifact(90일)로 올린다. Play 스택(`H2.h.b` 같은 난독화 이름)은 그 빌드의 mapping 으로 되돌린다
 (AAB 는 `BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map` 에도 들어 있다).
 
 CI `build-dev-apk.yml`(2026-09-27): `dev` push(문서만 바뀐 push 제외)·수동 실행 때 같은 셀프호스트 러너에서 `build_test_apk.sh --release` 로
@@ -308,3 +308,13 @@ CI `build-dev-apk.yml`(2026-09-27): `dev` push(문서만 바뀐 push 제외)·�
 ### DB 완료 알림의 파일 앱 fallback
 
 `DbExportLocation.notifyCompleted`는 finalize한 실제 content URI·파일명·위치를 PendingIntent에 넣는다. foreground 완료는 Dart에서 위치를 열고, background 완료는 알림 탭의 MainActivity만 위치 앱을 연다. location intent를 처리할 앱이 없으면 native Activity dialog로 정확한 파일명/위치와 파일 열기·공유·닫기를 제공한다. 파일 열기/공유도 실패하면 dialog를 유지한다. 오래된 알림 metadata는 content provider에서 조회하며 SAF URI나 document ID를 조립하지 않는다. intent extras는 한 번 소비해 회전/재생성에서 자동 반복 실행하지 않는다.
+
+## 코드 대조 정정: 처리 큐와 실행 수명
+
+- `ProcessingInboxStore`는 앱 전용 SQLite이며 교환 DB 스키마와 독립적이다. 새 이벤트마다 UUID를 사용하고 ACK는 처리 전에 claim한 event key와 owner·lease에 한정한다. 보관 상한 200은 알림 이력에만 적용하며 미완료 의도를 자르지 않는다. 한 번 읽는 native batch는 200개다.
+- 기존 prefs 이벤트는 복사·영수증 확인 후에도 원본을 남긴다. 소유권을 알 수 없는 기존 작업은 `legacy-unverified`로 격리하고 명시적 오류를 반환한다. 계정 변경으로 기존 작업을 새 계정에 넘기지 않는다. 네이티브 이관의 종료 지점별 기기 검증 전에는 legacy 삭제를 활성화하지 않는다.
+- 새 private processing DB와 capture retry `.events-v1`는 이전 바이너리가 읽지 못한다. 코드 롤백만으로 미완료 의무를 이전 prefs/JSON로 되돌릴 수 없다. 미완료 작업이 있는 상태의 바이너리 다운그레이드는 지원하지 않으며, 동일 reader를 유지한 수정 배포 또는 검증된 역이관이 필요하다. 재설치·앱 데이터 초기화로 복구하지 않는다.
+- 잘못된 Flutter List 원문은 앱 전용 quarantine 파일에 flush·sync·rename으로 보존한 뒤에만 원래 키를 정리한다. 해석 실패나 저장 실패는 recovery flag를 남기며 빈 큐로 완료시키지 않는다. 이 flag와 격리 자료의 복구·소유권 확인은 검증된 별도 복구 경로가 필요하다.
+- native FGS 시작은 `startForeground` 성공 receipt 이후 true다. Flutter의 작업 실행 상태와 실제 FGS 상태를 별도로 표시하고 native timeout·종료를 owner에 전달한다. 새 headless 엔진은 만들지 않는다. 서비스가 Activity 소유 엔진보다 오래 살아 동기화를 이어 간다고 가정하지 않는다.
+- 알림 builder·channel·device name은 실제 최소 API24/25에서 사용할 수 있는 분기로 나눈다. producer별 notification tag와 PendingIntent data URI를 쓰고 기존 nav5/6 매핑은 보존한다.
+- `verify.yml`/`tool/verify_refactoring.sh`는 고정 Flutter 버전·lockfile, 분석·fixture 테스트·Kotlin 단위 테스트·Android lint를 서명/패키징 전에 검사한다. 외부 fork PR은 개인 self-hosted runner에서 실행하지 않는다. 정식 mapping 보관은 90일이며 APK/AAB 보관 1일, dev 산출물 30일과 구분한다. CI를 새로 실행하거나 릴리즈를 발행했다는 뜻은 아니다.

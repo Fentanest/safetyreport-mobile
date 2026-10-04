@@ -106,12 +106,12 @@ grant 로 재요청), `공유한 자료 삭제 요청`(확인 문구 입력 → 
 ## T6 연결 자리 (`lib/community/upload_hooks.dart`)
 
 `refreshServerCompleted`·`registerBackgroundJobs`·`catchUp`·`onContributionsDeleted`.
-T6 병합 전까지 기본값(no-op/`true`). T6 는 같은 이름·시그니처로 채운다.
+기본 hook은 테스트·미연결 진입점용이다. 앱의 `CommunityWiring`이 gate·manifest·upload hook을 실제로 연결한다. hook 기본값만으로 운영 연결의 검증을 대신하지 않는다.
 
 ## 코드 대조 정정
 
-- `SyncEngine.start` 에는 `rebuildRunId` named 파라미터가 아직 없다(T6 소유).
-  rebuild 실행은 `start(fullSync: true)` 로 호출하고 runId 는 checkpoint 기록용이다.
+- `SyncEngine.start(fullSync: true, rebuildRunId: runId)`가 실제 초기화 run과 연결된다. 완료 표시는 list_complete, item terminal 상태, 명시적 gap 승인 집합, 활성 scope·owner·lease를 같은 community transaction에서 검사한 뒤 merge와 함께 기록한다.
+- UI 연결의 rebuild는 Provider.datasetEpoch를 scope 조회 전에 캡처하고 작업 등록·최종 merge transaction 안에서 재확인한다. 이전 세대의 run은 현재 dataset의 완료 표시를 갱신하지 않는다. 검사 실패와 pending/retryable/unknown 상태는 완료로 승격하지 않는다.
 - (2026-09-27) 동의문 번들 `assets/community/` 는 없앴다 — 동의문은 중앙에서 받는다.
 
 ## 업로드 연결 자동 전환 (2026-09-28)

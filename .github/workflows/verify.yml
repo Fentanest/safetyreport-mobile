@@ -1,0 +1,21 @@
+name: Verify mobile contracts
+
+on:
+  pull_request:
+    branches: [dev, main]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, Linux, X64, 235]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Verify with pinned SDK and fixtures
+        env:
+          FLUTTER_BIN: ${{ vars.FLUTTER_BIN }}
+        run: bash tool/verify_refactoring.sh

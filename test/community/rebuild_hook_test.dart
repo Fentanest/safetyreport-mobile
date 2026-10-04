@@ -52,15 +52,15 @@ void main() {
       expect(classifyDetailError(Exception('네트워크 오류 errno=104')),
           equals('failed_retryable'));
       expect(classifyDetailError(Exception('HTTP 503')), equals('failed_retryable'));
-      expect(classifyDetailError(Exception('삭제된 신고입니다')),
+      expect(classifyDetailError(const PermanentDetailFailure('deleted')),
           equals('failed_permanent'));
-      expect(classifyDetailError(Exception('접근 거부')), equals('failed_permanent'));
+      expect(classifyDetailError(const PermanentDetailFailure('access_denied')), equals('failed_permanent'));
     });
 
-    test('5회 초과면 permanent 승격', () {
+    test('일시 오류는 재시도 소진 후에도 의무를 보존', () {
       expect(nextItemStateAfterFailure(1), equals('failed_retryable'));
       expect(nextItemStateAfterFailure(4), equals('failed_retryable'));
-      expect(nextItemStateAfterFailure(5), equals('failed_permanent'));
+      expect(nextItemStateAfterFailure(5), equals('failed_retryable'));
     });
 
     test('registerRebuildItems: pending 등록·fetched 유지(재개)', () async {

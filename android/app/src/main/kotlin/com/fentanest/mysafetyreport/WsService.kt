@@ -107,6 +107,7 @@ class WsService : Service() {
                 val prefs   = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
                 val baseUrl = prefs.getString("flutter.baseUrl", "")?.trimEnd('/') ?: ""
                 val apiKey  = prefs.getString("flutter.apiKey",  "") ?: ""
+                val stamp = ClientGateGuard.configStamp(prefs)
 
                 if (!ClientGateGuard.isOpen(prefs)) {
                     updateForegroundNotif("카카오 인증·동의 확인 필요")
@@ -120,11 +121,12 @@ class WsService : Service() {
                     continue
                 }
 
-                if (!ServerVersionCompatibility.check(baseUrl, apiKey)) {
-                    updateForegroundNotif(ServerVersionCompatibility.failureMessage)
+                val probe = ServerVersionCompatibility.probe(baseUrl, apiKey)
+                if (!probe.accepted) {
+                    updateForegroundNotif(probe.message)
                     Log.w(TAG, "서버 버전 확인 실패 또는 v3 미만. WebSocket 연결 차단")
-                    if (ServerVersionCompatibility.failure != ServerVersionCompatibility.Failure.NETWORK) {
-                        shutdownService(ServerVersionCompatibility.failureMessage)
+                    if (probe.failure != ServerVersionCompatibility.Failure.NETWORK) {
+                        shutdownService(probe.message)
                         break
                     }
                     try { Thread.sleep(60_000) } catch (_: InterruptedException) { break }
@@ -137,7 +139,8 @@ class WsService : Service() {
                 Log.i(TAG, "WS 연결 시도 #$attempt")
                 updateForegroundNotif("서버 연결 중... (#$attempt)")
 
-                val connected = connectAndBlock(wsUrl)
+                if (stamp != ClientGateGuard.configStamp(prefs) || !ClientGateGuard.isOpen(prefs)) continue
+                val connected = connectAndBlock(wsUrl, stamp)
 
                 if (!running.get()) break
 
@@ -155,7 +158,9 @@ class WsService : Service() {
      * 단일 WebSocket 연결 시도. 연결이 끊어질 때까지 블로킹.
      * @return 정상 연결 후 종료되었으면 true, 연결 실패면 false
      */
-    private fun connectAndBlock(url: String): Boolean {
+    private fun connectAndBlock(url: String, stamp: String): Boolean {
+        val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+        fun current() = running.get() && ClientGateGuard.isOpen(prefs) && stamp == ClientGateGuard.configStamp(prefs)
         val latch = java.util.concurrent.CountDownLatch(1)
         var connected = false
 
@@ -169,6 +174,7 @@ class WsService : Service() {
         val request = Request.Builder().url(url).build()
         val ws = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                if (!current()) { webSocket.cancel(); latch.countDown(); return }
                 connected = true
                 activeWs = webSocket
                 Log.i(TAG, "WS 연결 성공")
@@ -176,12 +182,13 @@ class WsService : Service() {
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                if (!current()) { webSocket.cancel(); latch.countDown(); return }
                 handleEvent(text, webSocket)
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                Log.i(TAG, "WS 종료 중: $code $reason")
-                if (code == 4406) {
+                Log.i(TAG, "WS 종료 중: $code")
+                if (current() && code == 4406) {
                     shutdownService(ServerVersionCompatibility.upgradeMessage(reason))
                 }
                 webSocket.close(1000, null)
@@ -193,13 +200,13 @@ class WsService : Service() {
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                if (response?.code == 409) {
+                if (current() && response?.code == 409) {
                     val code = runCatching { org.json.JSONObject(response.body?.string() ?: "{}").optString("code") }.getOrDefault("")
                     shutdownService(ServerVersionCompatibility.upgradeMessage(code))
-                } else if (response?.code == 401 || response?.code == 403) {
+                } else if (current() && (response?.code == 401 || response?.code == 403)) {
                     shutdownService("서버 API 키를 확인하세요.")
                 }
-                Log.w(TAG, "WS 오류: ${t.message}")
+                Log.w(TAG, "WS transport failure: ${t.javaClass.simpleName}")
                 latch.countDown()
             }
         })
@@ -236,7 +243,7 @@ class WsService : Service() {
                 saveToHistory(type, data)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "이벤트 파싱 오류: ${e.message}")
+            Log.e(TAG, "이벤트 파싱 오류: ${e.javaClass.simpleName}")
         }
     }
 
@@ -301,7 +308,11 @@ class WsService : Service() {
 
         // Flutter가 앱 포어그라운드 복귀 시 카드 뷰로 표시할 수 있도록 저장
         val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
-        PrefsInbox.put(prefs, PrefsInbox.PENDING, changes.toString())
+        try { PrefsInbox.put(this, prefs, PrefsInbox.PENDING, changes.toString()) }
+        catch (e: Exception) {
+            try { NativeProcessingRecovery.mark(this) } catch (_: Exception) { Log.w(TAG, "processing storage unavailable") }
+            throw e
+        }
 
         // 알림 히스토리에도 extraData 포함해서 저장 (신고 결과 탭 표시용)
         saveCrawlChangesToHistory(changes, prefs)
@@ -438,9 +449,9 @@ class WsService : Service() {
                 newArr.put(item)
             }
             // 기존 기록과 합치기·200개 자르기는 Flutter(NotificationHistoryProvider)가 한다.
-            PrefsInbox.put(prefs, PrefsInbox.HISTORY, newArr.toString())
+            PrefsInbox.put(this, prefs, PrefsInbox.HISTORY, newArr.toString())
         } catch (e: Exception) {
-            Log.e(TAG, "crawl_changes 히스토리 저장 오류: ${e.message}")
+            Log.e(TAG, "crawl_changes 히스토리 저장 오류: ${e.javaClass.simpleName}")
         }
     }
 
@@ -454,6 +465,7 @@ class WsService : Service() {
         val openIntent = packageManager.getLaunchIntentForPackage(packageName)
             ?.apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                data = android.net.Uri.parse("mysafetyreport://notification/ws/${java.util.UUID.randomUUID()}")
                 putExtra("nav_tab", 4)        // 알림 탭 인덱스
                 putExtra("nav_event_type", type)
                 if (!payloadJson.isNullOrEmpty()) putExtra("nav_payload_json", payloadJson)
@@ -465,7 +477,7 @@ class WsService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val notif = Notification.Builder(this, NOTIF_CHANNEL_PUSH)
+        val notif = NativeNotifications.builder(this, NOTIF_CHANNEL_PUSH)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(Notification.BigTextStyle().bigText(body))
@@ -474,7 +486,7 @@ class WsService : Service() {
             .setContentIntent(pi)
             .build()
 
-        nm.notify(notifId, notif)
+        nm.notify("ws-push", notifId, notif)
 
         // 앱이 포그라운드일 때 in-app SnackBar 표시용 — SharedPreferences에 기록
         try {
@@ -524,9 +536,9 @@ class WsService : Service() {
                 ).format(java.util.Date()))
                 put("isRead", false)
             }
-            PrefsInbox.put(prefs, PrefsInbox.HISTORY, org.json.JSONArray().put(item).toString())
+            PrefsInbox.put(this, prefs, PrefsInbox.HISTORY, org.json.JSONArray().put(item).toString())
         } catch (e: Exception) {
-            Log.e(TAG, "히스토리 저장 오류: ${e.message}")
+            Log.e(TAG, "히스토리 저장 오류: ${e.javaClass.simpleName}")
         }
     }
 
@@ -550,7 +562,7 @@ class WsService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        return Notification.Builder(this, NOTIF_CHANNEL_WS)
+        return NativeNotifications.builder(this, NOTIF_CHANNEL_WS)
             .setContentTitle("나만의 안전신문고")
             .setContentText(text)
             .setSmallIcon(R.drawable.ic_stat_logo)
@@ -605,6 +617,7 @@ class WsService : Service() {
     }
 
     private fun createNotificationChannels() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) return
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         // 서비스 지속 알림 채널 (낮은 중요도 — 소리 없음)

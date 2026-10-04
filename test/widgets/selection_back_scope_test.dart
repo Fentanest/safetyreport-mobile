@@ -58,6 +58,7 @@ class _FixedReportProvider extends ReportProvider {
     String category, {
     int offset = 0,
     int limit = 200,
+    bool Function()? isCancelled,
   }) async => (
     reports: category == 'traffic' && offset == 0 ? traffic : <Report>[],
     total: category == 'traffic' ? traffic.length : 0,

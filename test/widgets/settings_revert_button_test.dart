@@ -113,10 +113,11 @@ void main() {
     await tester.tap(revertButton());
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, '되돌리기'));
-    for (var i = 0; i < 50 && provider.refreshes == 0; i++) {
-      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+    for (var i = 0; i < 1000 && provider.refreshes == 0; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 10)));
       await tester.pump();
     }
+    expect(provider.refreshes, greaterThan(0), reason: 'bounded async snapshot publication must finish before reading the DB');
     final name = await tester.runAsync(() async =>
         (await (await LocalDbService.db).query('reports', where: 'ID = ?', whereArgs: ['s1'])).single['신고명']);
     expect(name, 'A', reason: '버튼이 실제로 직전 DB 로 되돌린다');

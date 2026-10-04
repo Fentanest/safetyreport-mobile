@@ -12,6 +12,7 @@ void main() {
   late int loginCalls;
 
   setUp(() {
+    StandaloneAuthService.invalidateOperations();
     loginCalls = 0;
     SharedPreferences.setMockInitialValues({
       AppPrefsKeys.standaloneUsername: 'tester',
@@ -45,6 +46,43 @@ void main() {
     final status = await StandaloneAuthService.lastReloginStatus();
     expect(status!.outcome, ReloginOutcome.success);
   });
+
+  test(
+    'old relogin cannot overwrite the new account result or clear its in-flight future',
+    () async {
+      final oldStarted = Completer<void>();
+      final oldReply = Completer<String>();
+      final newStarted = Completer<void>();
+      final newReply = Completer<String>();
+      StandaloneAuthService.loginOverride = (username, password) {
+        if (username == 'tester') {
+          oldStarted.complete();
+          return oldReply.future;
+        }
+        if (!newStarted.isCompleted) newStarted.complete();
+        loginCalls++;
+        return newReply.future;
+      };
+      final old = StandaloneAuthService.relogin();
+      await oldStarted.future;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(AppPrefsKeys.standaloneUsername, 'new-account');
+      StandaloneAuthService.invalidateOperations();
+      final current = StandaloneAuthService.relogin();
+      await newStarted.future;
+      oldReply.complete('old-token');
+      expect((await old).outcome, ReloginOutcome.transient);
+      final joined = StandaloneAuthService.relogin();
+      newReply.complete('new-token');
+      expect((await current).token, 'new-token');
+      expect((await joined).token, 'new-token');
+      expect(loginCalls, 1);
+      expect(
+        (await StandaloneAuthService.lastReloginStatus())!.outcome,
+        ReloginOutcome.success,
+      );
+    },
+  );
 
   test('네트워크·점검 오류는 한 번 더 시도하고, 재로그인 안내가 아닌 일시 오류로 알린다', () async {
     StandaloneAuthService.loginOverride = (u, p) async {

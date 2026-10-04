@@ -1,11 +1,10 @@
 import '../services/attachment_policy.dart';
+import '../services/attachment_cache.dart';
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/foundation.dart'
     show ValueListenable, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
@@ -564,12 +563,6 @@ class ReportDetailSheet extends StatelessWidget {
     final uri = Uri.tryParse(url);
     if (uri == null) return;
 
-    // 파일명 추출 (쿼리스트링 제거)
-    final fileName = uri.pathSegments.lastWhere(
-      (s) => s.isNotEmpty,
-      orElse: () => 'file_${DateTime.now().millisecondsSinceEpoch}',
-    );
-
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('파일 불러오는 중...'),
@@ -578,28 +571,18 @@ class ReportDetailSheet extends StatelessWidget {
     );
 
     try {
+      final provider = context.read<ReportProvider>();
+      final epoch = provider.datasetEpoch;
+      final scope = '${provider.appMode}:${provider.baseUrl}:$epoch:${provider.statsRefreshNonce}';
       final headers = await _clientMediaHeaders(context, url);
       final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/$fileName');
-
-      // 이미 캐시에 있으면 재사용
-      if (!await file.exists()) {
-        final response = await http.get(uri, headers: headers);
-        if (response.statusCode == 409 && headers != null) {
-          if (context.mounted) {
-            final p = context.read<ReportProvider>();
-            ClientCompatibility.reject(
-              p.baseUrl,
-              p.apiKey,
-              '앱과 PC 서버의 protocol 3 지원을 확인하고 업데이트하세요.',
-            );
+      final file = await AttachmentCache.fetch(root: dir, uri: uri, scope: scope,
+        headers: headers, isCancelled: () => !context.mounted || provider.datasetEpoch != epoch,
+        onStatus: (status) {
+          if (status == 409 && headers != null && context.mounted && provider.datasetEpoch == epoch) {
+            ClientCompatibility.reject(provider.baseUrl, provider.apiKey, '앱과 PC 서버의 protocol 3 지원을 확인하고 업데이트하세요.');
           }
-        }
-        if (response.statusCode != 200) {
-          throw HttpException('첨부 다운로드 실패: ${response.statusCode}');
-        }
-        await file.writeAsBytes(response.bodyBytes);
-      }
+        });
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();

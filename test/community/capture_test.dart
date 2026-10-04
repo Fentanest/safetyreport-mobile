@@ -67,22 +67,43 @@ Future<void> closeTestStore(CommunityStore store) async {
 }
 
 void main() {
-  test('later official rating changes payload hash and emits a new observation without cause', () async {
-    final store = await openTestStore();
-    try {
-      final first = await capture(adapter(), sourceReportId: 'R-rating', trigger: 'realtime', store: store);
-      final rated = {...adapter(), 'rating': 4, 'rating_cause': '비공개 사유'};
-      final second = await capture(rated, sourceReportId: 'R-rating', trigger: 'realtime', store: store);
-      expect(second.eventType, 'completed_observation');
-      expect(second.payloadSha256, isNot(first.payloadSha256));
-      expect((await capture(rated, sourceReportId: 'R-rating', trigger: 'realtime', store: store)).eventId, isNull);
-      expect(buildPayload(rated)['rating'], 4);
-      expect(buildPayload(rated).containsKey('rating_cause'), isFalse);
-      expect(buildPayload({...rated, 'rating': 6})['rating'], isNull);
-    } finally {
-      await closeTestStore(store);
-    }
-  });
+  test(
+    'later official rating changes payload hash and emits a new observation without cause',
+    () async {
+      final store = await openTestStore();
+      try {
+        final first = await capture(
+          adapter(),
+          sourceReportId: 'R-rating',
+          trigger: 'realtime',
+          store: store,
+        );
+        final rated = {...adapter(), 'rating': 4, 'rating_cause': '비공개 사유'};
+        final second = await capture(
+          rated,
+          sourceReportId: 'R-rating',
+          trigger: 'realtime',
+          store: store,
+        );
+        expect(second.eventType, 'completed_observation');
+        expect(second.payloadSha256, isNot(first.payloadSha256));
+        expect(
+          (await capture(
+            rated,
+            sourceReportId: 'R-rating',
+            trigger: 'realtime',
+            store: store,
+          )).eventId,
+          isNull,
+        );
+        expect(buildPayload(rated)['rating'], 4);
+        expect(buildPayload(rated).containsKey('rating_cause'), isFalse);
+        expect(buildPayload({...rated, 'rating': 6})['rating'], isNull);
+      } finally {
+        await closeTestStore(store);
+      }
+    },
+  );
   test('Report 신고번호 reaches the private capture adapter', () {
     final report = Report.fromJson({
       'ID': '40871819',
@@ -95,7 +116,10 @@ void main() {
       buildReportAdapterInput(report, '불법주정차신고')['report_number'],
       'SPP-2609-8000001',
     );
-    expect(buildPayload(buildReportAdapterInput(report, '불법주정차신고'))['rating'], 5);
+    expect(
+      buildPayload(buildReportAdapterInput(report, '불법주정차신고'))['rating'],
+      5,
+    );
   });
   test('Report 원문 기관코드가 공유 payload 에 그대로 실린다 (observation-v3)', () {
     final report = Report.fromJson({
@@ -442,17 +466,23 @@ void main() {
         'SELECT blocked_reason, payload_json FROM source_journal WHERE event_id=?',
         [r.eventId],
       );
-      expect(journal.single['blocked_reason'],
-          equals('blocked:source_agency_code_too_long'));
       expect(
-          (journal.single['payload_json'] as String).contains('N' * 33), isFalse);
+        journal.single['blocked_reason'],
+        equals('blocked:source_agency_code_too_long'),
+      );
+      expect(
+        (journal.single['payload_json'] as String).contains('N' * 33),
+        isFalse,
+      );
       final outbox = await store.db.rawQuery(
         'SELECT state, last_error_code FROM outbox WHERE event_id=?',
         [r.eventId],
       );
       expect(outbox.single['state'], equals('blocked'));
-      expect(outbox.single['last_error_code'],
-          equals('source_agency_code_too_long'));
+      expect(
+        outbox.single['last_error_code'],
+        equals('source_agency_code_too_long'),
+      );
       // 같은 관측 반복 수집은 조용히 유지된다(저널 폭증 없음).
       final again = await capture(
         {...adapter(), 'agency_code': 'N' * 33},
@@ -505,17 +535,23 @@ void main() {
         'SELECT blocked_reason, payload_json FROM source_journal WHERE event_id=?',
         [blocked.eventId],
       );
-      expect(journal.single['blocked_reason'],
-          equals('blocked:source_agency_code_too_long'));
       expect(
-          (journal.single['payload_json'] as String).contains('N' * 33), isFalse);
+        journal.single['blocked_reason'],
+        equals('blocked:source_agency_code_too_long'),
+      );
+      expect(
+        (journal.single['payload_json'] as String).contains('N' * 33),
+        isFalse,
+      );
       final outbox = await store.db.rawQuery(
         'SELECT state, last_error_code FROM outbox WHERE event_id=?',
         [blocked.eventId],
       );
       expect(outbox.single['state'], equals('blocked'));
-      expect(outbox.single['last_error_code'],
-          equals('source_agency_code_too_long'));
+      expect(
+        outbox.single['last_error_code'],
+        equals('source_agency_code_too_long'),
+      );
       // 같은 장문 반복은 조용히 유지(이미 명시 기록됨).
       final again = await capture(
         {...adapter(), 'agency_code': 'N' * 33},
@@ -649,6 +685,57 @@ void main() {
       expect(await CaptureRetryStore.captureRetryIds(file), equals({'R2'}));
       await dir.delete(recursive: true);
     });
+
+    for (final fault in ['repeated-cursor', 'duplicate-key', 'lost-scope']) {
+      test(
+        'manifest $fault preserves the previous snapshot and drops only its TEMP tables',
+        () async {
+          await store.db.insert('server_completed', {
+            'dataset_key': 'ds-fenced',
+            'key_prefix': 'previous',
+            'fetched_at': 'fixture',
+          });
+          var calls = 0;
+          final result = await refreshServerCompleted(
+            datasetKey: 'ds-fenced',
+            writerEpoch: 1,
+            store: store,
+            fetchPage: (after, limit) async {
+              calls++;
+              if (after == null) {
+                return const ManifestPage(
+                  keys: ['first'],
+                  manifestToken: 'stable',
+                  after: 'cursor',
+                );
+              }
+              return ManifestPage(
+                keys: [fault == 'duplicate-key' ? 'first' : 'second'],
+                manifestToken: 'stable',
+                after: fault == 'repeated-cursor' ? 'cursor' : null,
+              );
+            },
+            commitAllowed: (_) async => fault != 'lost-scope',
+          );
+          expect(result, isFalse);
+          expect(calls, 2);
+          expect(
+            (await store.db.query(
+              'server_completed',
+              where: 'dataset_key=?',
+              whereArgs: ['ds-fenced'],
+            )).single['key_prefix'],
+            'previous',
+          );
+          expect(
+            await store.db.rawQuery(
+              "SELECT name FROM sqlite_temp_master WHERE name LIKE 'sr_manifest_%'",
+            ),
+            isEmpty,
+          );
+        },
+      );
+    }
 
     test('refreshServerCompleted: 교체·scope 기록·토큰 불일치 재시도', () async {
       var calls = 0;

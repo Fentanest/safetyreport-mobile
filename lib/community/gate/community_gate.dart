@@ -21,6 +21,8 @@ import 'gate_state.dart';
 export 'gate_state.dart';
 
 /// writer 연결 충돌 (`connections` 409 `writer_conflict`).
+class _GateScopeChanged implements Exception {}
+
 class WriterConflict {
   final String deviceLabel;
   final String platform;
@@ -56,20 +58,19 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     String Function()? platformName,
     String Function()? projectNamespace,
     Future<String> Function(String? kakaoId)? checkDataOwner,
-  })  : _config = config ?? CommunityAuthConfig.fromEnvironment,
-        _authOverride = auth,
-        _store = store,
-        _secureStorage =
-            secureStorage ?? const FlutterSecureStorage(),
-        _httpClient = httpClient,
-        _accountClientOverride = accountClient,
-        _configStatusOverride = configStatus,
-        _appModeOverride = appMode,
-        _officialAccountId = officialAccountId,
-        _deviceLabelOverride = deviceLabel,
-        _platformNameOverride = platformName,
-        _projectNamespaceOverride = projectNamespace,
-        _checkDataOwnerOverride = checkDataOwner {
+  }) : _config = config ?? CommunityAuthConfig.fromEnvironment,
+       _authOverride = auth,
+       _store = store,
+       _secureStorage = secureStorage ?? const FlutterSecureStorage(),
+       _httpClient = httpClient,
+       _accountClientOverride = accountClient,
+       _configStatusOverride = configStatus,
+       _appModeOverride = appMode,
+       _officialAccountId = officialAccountId,
+       _deviceLabelOverride = deviceLabel,
+       _platformNameOverride = platformName,
+       _projectNamespaceOverride = projectNamespace,
+       _checkDataOwnerOverride = checkDataOwner {
     WidgetsBinding.instance.addObserver(this);
     _authPhase = _auth.state.value.phase;
     _auth.state.addListener(_onAuthChanged);
@@ -90,6 +91,12 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
 
   /// 로그인 상태 세대 — 확정된 로그인 변화마다 올린다. 이전 세대에 시작한 확인 결과는 적용하지 않는다(Codex 검수 P1).
   int _authGen = 0;
+  int get generation => _authGen;
+  void _assertCurrent(int generation, String mode) {
+    if (_disposed || generation != _authGen || mode != appMode) {
+      throw _GateScopeChanged();
+    }
+  }
 
   /// 폐기 뒤에 끝난 확인(로그인 상태 변화로 시작된 refresh 등)은 조용히 멈춘다.
   @override
@@ -104,7 +111,8 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     _authPhase = phase;
     if (phase == was) return;
     // 로그인 진행 중 단계(브라우저 대기·교환·계정 확인)는 기존 세션이 그대로라 건드리지 않는다(설정의 "계정 변경" 중 튕기지 않게).
-    final settled = phase == CommunityAccountPhase.connected ||
+    final settled =
+        phase == CommunityAccountPhase.connected ||
         phase == CommunityAccountPhase.disconnected ||
         phase == CommunityAccountPhase.reauthRequired;
     if (!settled) return;
@@ -120,9 +128,11 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     // 진행 중인 확인이 있으면(이전 세션) 그것이 끝난 뒤 새 세션으로 다시 확인한다 — refreshNow 는 진행 중이면 같은 결과를 돌려준다.
     final pending = _inFlight;
     if (pending != null) {
-      unawaited(pending.whenComplete(() {
-        if (!_disposed) unawaited(refreshNow(silent: true));
-      }));
+      unawaited(
+        pending.whenComplete(() {
+          if (!_disposed) unawaited(refreshNow(silent: true));
+        }),
+      );
     } else {
       unawaited(refreshNow(silent: true));
     }
@@ -144,9 +154,13 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   final String Function()? _projectNamespaceOverride;
   final Future<String> Function(String? kakaoId)? _checkDataOwnerOverride;
 
-  CommunityAuthService get _auth => _authOverride ?? CommunityAuthService.instance;
+  CommunityAuthService get _auth =>
+      _authOverride ?? CommunityAuthService.instance;
 
-  GateState _state = const GateState(state: 'verification_required', canEnter: false);
+  GateState _state = const GateState(
+    state: 'verification_required',
+    canEnter: false,
+  );
   GateState get state => _state;
 
   /// 통과는 그때의 실행 모드에만 유효하다. Client·데모에서 통과한 뒤 실제 Standalone 으로 바꾸면 그 기기 DB 의 주인을
@@ -253,13 +267,15 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   void invalidate(String reason) {
     _invalidated = true;
     _passedMode = null;
-    _apply(evaluateGate(
-      config: configStatus(),
-      session: sessionStatus(),
-      status: _lastStatus?.toGateInput(),
-      ageSeconds: _ageSeconds(),
-      invalidated: true,
-    ));
+    _apply(
+      evaluateGate(
+        config: configStatus(),
+        session: sessionStatus(),
+        status: _lastStatus?.toGateInput(),
+        ageSeconds: _ageSeconds(),
+        invalidated: true,
+      ),
+    );
     unawaited(_deactivate(reason));
   }
 
@@ -273,9 +289,15 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     unawaited(refreshNow());
   }
 
-  Future<GateState> requireFresh({Duration maxAge = communityGateFreshMaxAge}) async {
+  Future<GateState> requireFresh({
+    Duration maxAge = communityGateFreshMaxAge,
+  }) async {
     final age = _ageSeconds();
-    if (_passedMode == appMode && !_invalidated && _lastStatus != null && age != null && age <= maxAge.inSeconds) {
+    if (_passedMode == appMode &&
+        !_invalidated &&
+        _lastStatus != null &&
+        age != null &&
+        age <= maxAge.inSeconds) {
       return _state;
     }
     return refreshNow();
@@ -284,15 +306,19 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   double? _ageSeconds() {
     final v = _verifiedAt;
     if (v == null) return null;
-    return DateTime.now().difference(v).inMilliseconds / 1000.0;
+    final age = DateTime.now().difference(v).inMilliseconds / 1000.0;
+    return age < 0 ? null : age;
   }
 
   Future<GateState> refreshNow({bool silent = false}) {
-    return _inFlight ??= _refresh(silent: silent).whenComplete(() => _inFlight = null);
+    return _inFlight ??= _refresh(
+      silent: silent,
+    ).whenComplete(() => _inFlight = null);
   }
 
   Future<GateState> _refresh({bool silent = false}) async {
     final authGen = _authGen;
+    final checkedMode = appMode;
     if (!silent) {
       _checking = true;
       notifyListeners();
@@ -335,7 +361,10 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         } else {
           _notice = e.message;
           final age = _ageSeconds();
-          if (_lastStatus != null && !_invalidated && age != null && age <= communityGateCacheTtl.inSeconds) {
+          if (_lastStatus != null &&
+              !_invalidated &&
+              age != null &&
+              age <= communityGateCacheTtl.inSeconds) {
             _checked = true;
             notifyListeners();
             return _state;
@@ -346,7 +375,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         notifyListeners();
         return _state;
       }
-      if (authGen != _authGen) {
+      if (authGen != _authGen || checkedMode != appMode) {
         // 이 확인을 시작한 뒤 로그인 상태가 바뀌었다(로그아웃·계정 변경) — 이전 세션의 응답으로 게이트를 열지 않는다.
         // 새 세션의 확인은 _onAuthChanged 가 이어서 한다.
         _checked = true;
@@ -374,9 +403,14 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         // 카카오 로그인·동의가 끝나도, 이 기기의 신고 자료가 다른 카카오 계정 것이면 들어가지 않는다(자료를 지우거나 로그아웃할 때까지).
         // 다른 계정의 자료가 남아 있으면 writer 연결도 만들지 않는다(PC services/community_gate.py _check_owner 와 같은 규칙).
         final owner = await _checkOwner();
+        _assertCurrent(authGen, checkedMode);
         if (owner != 'ok') {
           final blocked = owner == 'mismatch'
-              ? const GateState(state: 'db_owner_mismatch', canEnter: false, reasons: ['db_owner_mismatch'])
+              ? const GateState(
+                  state: 'db_owner_mismatch',
+                  canEnter: false,
+                  reasons: ['db_owner_mismatch'],
+                )
               : GateState(
                   state: 'verification_required',
                   canEnter: false,
@@ -389,9 +423,15 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
           return _state;
         }
         // 진입(K·C)과 업로드 연결은 별개다: 연결을 못 얻으면 화면은 쓰되 context 를 끄고 업로드만 멈춘다.
-        final blocked = await _ensureWriterConnection(status, token);
+        final blocked = await _ensureWriterConnection(
+          status,
+          token,
+          authGen,
+          checkedMode,
+        );
         if (blocked == null) {
-          await _activateContext(status);
+          _assertCurrent(authGen, checkedMode);
+          await _activateContext(status, authGen, checkedMode);
         } else {
           await _deactivate('writer:$blocked');
         }
@@ -399,12 +439,14 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         // Client: 폰은 writer 가 아니다(업로드·자정 없음). 서버가 자기 게이트로 올린다. 데모도 writer 가 아니다.
         await _deactivate(appMode == 'demo' ? 'demo_mode' : 'client_mode');
       }
+      _assertCurrent(authGen, checkedMode);
       _apply(next);
-      _passedMode = appMode;
+      _passedMode = checkedMode;
       _checked = true;
       final store = _store;
       if (store != null && await deletionState(store: store) == 'unconfirmed') {
-        _notice = '공유한 자료 삭제 요청의 결과를 확인하지 못해 업로드를 멈춘 상태입니다. 설정에서 삭제 요청을 다시 눌러 주세요.';
+        _notice =
+            '공유한 자료 삭제 요청의 결과를 확인하지 못해 업로드를 멈춘 상태입니다. 설정에서 삭제 요청을 다시 눌러 주세요.';
       }
       notifyListeners();
       if (!_firstPassFired) {
@@ -415,6 +457,8 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
           } catch (_) {}
         }
       }
+      return _state;
+    } on _GateScopeChanged {
       return _state;
     } finally {
       if (!silent) {
@@ -438,7 +482,9 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
       _ownerError = 'auth_unavailable';
     }
     try {
-      return await (_checkDataOwnerOverride ?? LocalDbService.checkOwner)(kakaoId);
+      return await (_checkDataOwnerOverride ?? LocalDbService.checkOwner)(
+        kakaoId,
+      );
     } catch (_) {
       return 'unknown';
     }
@@ -449,52 +495,102 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
 
   void _apply(GateState next) {
     _state = next;
-    unawaited(_writeGateCache(next));
+    final generation = _authGen;
+    final mode = appMode;
+    _gateCacheTail = _gateCacheTail.then(
+      (_) => _writeGateCache(next, generation, mode),
+    );
   }
 
-  Future<void> _writeGateCache(GateState next) async {
+  Future<void> _gateCacheTail = Future<void>.value();
+  Future<void> _writeGateCache(
+    GateState next,
+    int generation,
+    String mode,
+  ) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(gateCacheKey, jsonEncode({
-        'state': next.state,
-        'verified_at': (next.canEnter ? (_verifiedAt ?? DateTime.now()) : DateTime.now()).millisecondsSinceEpoch,
-      }));
+      if (_disposed ||
+          generation != _authGen ||
+          mode != appMode ||
+          !identical(next, _state)) {
+        return;
+      }
+      await prefs.setString(
+        gateCacheKey,
+        jsonEncode({
+          'state': next.state,
+          'owner': next.canEnter ? _lastStatus?.fingerprint : null,
+          'verified_at':
+              (next.canEnter ? (_verifiedAt ?? DateTime.now()) : DateTime.now())
+                  .millisecondsSinceEpoch,
+        }),
+      );
     } catch (_) {}
   }
 
   Future<void> _deactivate(String reason) async {
+    final generation = _authGen;
+    final mode = appMode;
+    final state = _state;
     if (!reason.startsWith('writer:')) _writerConflict = null;
     try {
-      await _store?.deactivateContext(reason);
+      await _store?.transaction((tx) async {
+        if (_disposed ||
+            generation != _authGen ||
+            mode != appMode ||
+            !identical(state, _state)) {
+          return;
+        }
+        await _store.deactivateContext(reason, executor: tx);
+      });
     } catch (_) {}
   }
 
-  Future<void> _activateContext(CommunityAccountStatus status) async {
+  Future<void> _activateContext(
+    CommunityAccountStatus status,
+    int generation,
+    String mode,
+  ) async {
     final store = _store;
     if (store == null) return;
     final stored = await _readStoredConnection();
+    _assertCurrent(generation, mode);
     try {
-      await store.setContext({
-        'contributor_fingerprint': status.fingerprint,
-        'connection_id': stored?['connection_id'],
-        'writer_epoch': stored?['writer_epoch'],
-        'dataset_key': stored?['dataset_key'],
-        'consent_grant_id': status.consentGrantId,
-        'policy_version': status.consentPolicyVersion,
-        'consent_text_sha256': status.grantConsentTextSha256,
-        'source_app': 'safetyreport-mobile',
-        'source_mode': isStandalone ? 'standalone' : 'client',
+      await store.transaction((tx) async {
+        _assertCurrent(generation, mode);
+        await store.setContext({
+          'contributor_fingerprint': status.fingerprint,
+          'connection_id': stored?['connection_id'],
+          'writer_epoch': stored?['writer_epoch'],
+          'dataset_key': stored?['dataset_key'],
+          'consent_grant_id': status.consentGrantId,
+          'policy_version': status.consentPolicyVersion,
+          'consent_text_sha256': status.grantConsentTextSha256,
+          'source_app': 'safetyreport-mobile',
+          'source_mode': isStandalone ? 'standalone' : 'client',
+        }, executor: tx);
       });
-    } catch (_) {}
+    } on _GateScopeChanged {
+      rethrow;
+    } catch (_) {
+      await _deactivate('activation_failed');
+    }
   }
 
   /// Standalone writer 연결 확보. null = 연결 정상(context 활성화), 문자열 = 업로드를 멈출 이유(context 비활성).
   /// PC `community_gate._ensure_writer` 와 같은 규칙: 같은 사용자·같은 공식 계정의 저장 연결이 status 에서 active 면
   /// (현재 세션에 묶이지 않았을 때만) rebind, superseded·suspended 면 멈춤(사용자가 전환 선택), 없거나 폐기면 새로 등록.
-  Future<String?> _ensureWriterConnection(CommunityAccountStatus status, String token) async {
+  Future<String?> _ensureWriterConnection(
+    CommunityAccountStatus status,
+    String token,
+    int generation,
+    String mode,
+  ) async {
     _writerConflict = null;
     _manifestError = null;
     final officialId = await _officialAccountId?.call();
+    _assertCurrent(generation, mode);
     if (officialId == null || officialId.trim().isEmpty) {
       return 'official_account_required';
     }
@@ -502,8 +598,11 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     final claim = _claimRequested;
     _claimRequested = false;
     final stored = await _readStoredConnection();
+    _assertCurrent(generation, mode);
     // status 는 저장 연결 id 로 요청했고, 그 연결이 이 사용자 것일 때만 connection 을 채운다(계약).
-    final conn = (stored != null && stored['dataset_key'] == datasetKey) ? status.connection : null;
+    final conn = (stored != null && stored['dataset_key'] == datasetKey)
+        ? status.connection
+        : null;
     int? lastAccepted;
     try {
       if (conn != null && conn['status'] == 'active') {
@@ -514,33 +613,46 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
             connectionId: (stored!['connection_id'] ?? '') as String,
             connectionSecret: (stored['connection_secret'] ?? '') as String,
           );
+          _assertCurrent(generation, mode);
           lastAccepted = rebound.lastAcceptedRevision ?? lastAccepted;
           await _writeStoredConnection(
             connectionId: rebound.connectionId,
             connectionSecret: (stored['connection_secret'] ?? '') as String,
             datasetKey: datasetKey,
             writerEpoch: rebound.writerEpoch,
+            generation: generation,
+            mode: mode,
           );
         }
       } else if (conn != null &&
-          (conn['status'] == 'suspended' || (conn['status'] == 'superseded' && !claim))) {
+          (conn['status'] == 'suspended' ||
+              (conn['status'] == 'superseded' && !claim))) {
         return 'connection_${conn['status']}';
       } else {
         // 저장 연결 없음·다른 공식 계정·다른 사용자(status 가 null 로 숨김)·폐기됨 → 새 등록.
         // 방금 이 기기에서 로그인·동의했으면 다른 기기의 연결을 가져온다(takeover). 계정 정지(suspended)는 가져오지 않는다.
-        final registered = await _registerFresh(token, datasetKey, takeover: claim);
+        final registered = await _registerFresh(
+          token,
+          datasetKey,
+          takeover: claim,
+          generation: generation,
+          mode: mode,
+        );
         if (registered == null) return 'writer_conflict';
       }
     } on CommunityAccountError catch (e) {
       _notice = e.message;
       return e.code;
     }
+    _assertCurrent(generation, mode);
     if (lastAccepted != null && lastAccepted > 0) {
       try {
         await _store?.raiseRevisionFloor(lastAccepted);
       } catch (_) {}
     }
+    _assertCurrent(generation, mode);
     final manifestOk = await CommunityUploadHooks.refreshServerCompletedNow();
+    _assertCurrent(generation, mode);
     if (!manifestOk) {
       // 수집 시작 전 scope 검사(SyncEngine.ensureManifestFresh)가 다시 시도하고, 실패하면 수집하지 않는다.
       _manifestError = '중앙 공유 목록을 확인하지 못했습니다. 다시 시도해 주세요.';
@@ -553,10 +665,16 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     String token,
     String datasetKey, {
     required bool takeover,
+    int? generation,
+    String? mode,
   }) async {
+    generation ??= _authGen;
+    mode ??= appMode;
     try {
       final secret = _newConnectionSecret();
-      final deviceLabel = _deviceLabelOverride?.call() ?? await CommunityDeviceLabel.read();
+      final deviceLabel =
+          _deviceLabelOverride?.call() ?? await CommunityDeviceLabel.read();
+      _assertCurrent(generation, mode);
       final result = await _client().registerConnection(
         accessToken: token,
         sourceMode: isStandalone ? 'standalone' : 'client',
@@ -566,16 +684,21 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         connectionSecret: secret,
         takeover: takeover,
       );
+      _assertCurrent(generation, mode);
       await _writeStoredConnection(
         connectionId: result.connectionId,
         connectionSecret: secret,
         datasetKey: datasetKey,
         writerEpoch: result.writerEpoch,
+        generation: generation,
+        mode: mode,
       );
       return result;
     } on CommunityAccountError catch (e) {
       if (e.code == 'writer_conflict' && !takeover) {
-        final w = (e.extra['active_writer'] as Map?)?.cast<String, Object?>() ?? const {};
+        final w =
+            (e.extra['active_writer'] as Map?)?.cast<String, Object?>() ??
+            const {};
         _writerConflict = WriterConflict(
           deviceLabel: (w['device_label'] as String?) ?? '',
           platform: (w['platform'] as String?) ?? '',
@@ -590,13 +713,22 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
 
   /// "이 기기로 업로드 전환" — takeover 등록.
   Future<bool> requestTakeover() async {
+    final generation = _authGen;
+    final mode = appMode;
     final token = await _auth.getAccessToken();
     final officialId = await _officialAccountId?.call();
+    if (_disposed || generation != _authGen || mode != appMode) return false;
     if (token == null || officialId == null || officialId.trim().isEmpty) {
       return false;
     }
     try {
-      await _registerFresh(token, datasetKeyForOfficialId(officialId), takeover: true);
+      await _registerFresh(
+        token,
+        datasetKeyForOfficialId(officialId),
+        takeover: true,
+        generation: generation,
+        mode: mode,
+      );
     } on CommunityAccountError catch (e) {
       _notice = e.message;
       notifyListeners();
@@ -614,7 +746,28 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     return base64Url.encode(bytes).replaceAll('=', '');
   }
 
+  static Future<void>? _connectionWrites;
+  static Future<T> _connectionOperation<T>(Future<T> Function() body) {
+    final previous = _connectionWrites;
+    final result = previous == null
+        ? Future<T>.sync(body)
+        : previous.then((_) => body());
+    late final Future<void> tail;
+    void idle() {
+      if (identical(_connectionWrites, tail)) _connectionWrites = null;
+    }
+
+    tail = result.then<void>(
+      (_) => idle(),
+      onError: (Object _, StackTrace _) => idle(),
+    );
+    _connectionWrites = tail;
+    return result;
+  }
+
   Future<Map<String, Object?>?> _readStoredConnection() async {
+    final pending = _connectionWrites;
+    if (pending != null) await pending;
     try {
       final raw = await _secureStorage.read(key: connectionStorageKey);
       if (raw == null || raw.isEmpty) return null;
@@ -631,37 +784,53 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     required String connectionSecret,
     required String datasetKey,
     required int writerEpoch,
-  }) async {
-    final ns = _projectNamespaceOverride?.call() ?? projectNamespace(_config.supabaseUrl);
-    await _secureStorage.write(
-      key: connectionStorageKey,
-      value: jsonEncode({
-        'v': 1,
-        'connection_id': connectionId,
-        'connection_secret': connectionSecret,
-        'dataset_key': datasetKey,
-        'project_namespace': ns,
-        'writer_epoch': writerEpoch,
-      }),
-    );
+    required int generation,
+    required String mode,
+  }) {
+    return _connectionOperation(() async {
+      _assertCurrent(generation, mode);
+      final ns =
+          _projectNamespaceOverride?.call() ??
+          projectNamespace(_config.supabaseUrl);
+      await _secureStorage.write(
+        key: connectionStorageKey,
+        value: jsonEncode({
+          'v': 1,
+          'connection_id': connectionId,
+          'connection_secret': connectionSecret,
+          'dataset_key': datasetKey,
+          'project_namespace': ns,
+          'writer_epoch': writerEpoch,
+        }),
+      );
+      if (_disposed || generation != _authGen || mode != appMode) {
+        await _secureStorage.delete(key: connectionStorageKey);
+        throw _GateScopeChanged();
+      }
+    });
   }
 
-  Future<void> _clearStoredConnection() async {
-    try {
+  Future<void> _clearStoredConnection(int generation, String mode) {
+    return _connectionOperation(() async {
+      _assertCurrent(generation, mode);
       await _secureStorage.delete(key: connectionStorageKey);
-    } catch (_) {}
+    });
   }
 
   /// 공유 자료 삭제 성공 뒤: T6 대기 행 차단 + 저장 연결 폐기 + 다음 통과 때 재등록.
   /// 로컬 정리가 끝나 남은 삭제 표시가 없으면 true. 아니면 notice 를 남기고 false(업로드는 표시로 계속 막힘).
   Future<bool> handleContributionsDeleted() async {
+    final generation = _authGen;
+    final mode = appMode;
     // 적용은 이미 한 번 시도됐을 수 있다(requestDeletion) — 표시가 없으면 아무 일도 하지 않으므로 다시 불러도 안전하다.
     final ok = await CommunityUploadHooks.contributionsDeletedNow();
     if (!ok) {
-      _notice = '중앙에서는 삭제했지만 이 기기의 대기 사본 정리를 끝내지 못했습니다. 정리될 때까지 업로드하지 않습니다. '
+      _notice =
+          '중앙에서는 삭제했지만 이 기기의 대기 사본 정리를 끝내지 못했습니다. 정리될 때까지 업로드하지 않습니다. '
           '설정에서 삭제 요청을 다시 눌러 주세요.';
     }
-    await _clearStoredConnection();
+    if (_disposed || generation != _authGen || mode != appMode) return false;
+    await _clearStoredConnection(generation, mode);
     invalidate('contributions_deleted');
     return ok;
   }

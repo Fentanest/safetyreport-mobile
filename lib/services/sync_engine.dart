@@ -18,6 +18,7 @@ import '../community/capture/report_adapter.dart';
 import '../community/community_store.dart';
 import '../models/report.dart';
 import 'app_prefs_keys.dart';
+import 'performance_trace.dart';
 import 'community_auth_config.dart';
 import 'duplicate_projection_service.dart';
 import 'local_db_service.dart';
@@ -27,6 +28,9 @@ import 'standalone_api_service.dart';
 import 'review_prompt_service.dart';
 import 'standalone_auth_service.dart';
 import 'standalone_parser.dart';
+import 'sync_inventory.dart';
+import 'sync_run_stage.dart';
+import 'sync_operation_admission.dart';
 
 /// 동기화 이벤트 타입
 enum SyncEventType { log, progress, done, error }
@@ -70,6 +74,9 @@ class SyncRunResult {
     this.rebuildRunId,
     this.failed = false,
     this.errorMessage,
+    this.listComplete = false,
+    this.cancelled = false,
+    this.busy = false,
   });
 
   final int done;
@@ -79,6 +86,9 @@ class SyncRunResult {
   final int orphans;
   final String? rebuildRunId;
   final bool failed;
+  final bool listComplete;
+  final bool cancelled;
+  final bool busy;
   final String? errorMessage;
 }
 
@@ -97,7 +107,14 @@ class SyncEngine {
   static bool _stopRequested = false;
 
   /// 사용자 중지 또는 DB 연결 닫기 요청(백업·복원·로그아웃 — M-25).
-  static bool get _stopping => _stopRequested || LocalDbService.closeRequested;
+  static bool get _stopping =>
+      _stopRequested ||
+      LocalDbService.closeRequested ||
+      SyncOperationAdmission.cancelled;
+  static bool get stopRequested => _stopping;
+  static void beginOperation() {
+    if (!_running && _fgsRefCount == 0) _stopRequested = false;
+  }
 
   static final _controller = StreamController<SyncEvent>.broadcast();
   static Stream<SyncEvent> get events => _controller.stream;
@@ -120,6 +137,15 @@ class SyncEngine {
   /// FGS ref counting — SyncEngine.start 와 drainIfPending 가 중첩 호출될 때
   /// (drain → SyncEngine.start) 한 번만 startSyncFgs / stopSyncFgs 호출되도록 관리.
   static int _fgsRefCount = 0;
+  static String? _fgsOwner;
+  static final fgsActive = ValueNotifier<bool>(false);
+
+  static void onNativeFgsStopped(String? owner) {
+    if (owner == null || owner != _fgsOwner) return;
+    fgsActive.value = false;
+    _stopRequested = true;
+    _log('백그라운드 보호가 끝나 동기화를 중지합니다. 처리 대기는 보존합니다.');
+  }
 
   /// 동기화 작업 시작 시 호출 — 첫 호출 시 Foreground Service 가동 → 프로세스 보호.
   static Future<void> acquireFgs(String message) async {
@@ -127,9 +153,23 @@ class SyncEngine {
     _refreshRunningNotifier();
     if (_fgsRefCount == 1) {
       try {
-        await _methodChannel.invokeMethod('startSyncFgs', {'message': message});
+        _fgsOwner = newUuidV4();
+        final started = await _methodChannel
+            .invokeMethod<bool>('startSyncFgs', {
+              'message': message,
+              'owner': _fgsOwner,
+            })
+            .timeout(const Duration(seconds: 6));
+        fgsActive.value = started == true;
+        if (Platform.isAndroid && started != true) {
+          throw StateError('FGS start not confirmed');
+        }
       } catch (_) {
-        // FGS 시작 실패 — 무시 (Android 12+ 백그라운드 제한 등)
+        fgsActive.value = false;
+        if (Platform.isAndroid) {
+          _log('백그라운드 보호를 시작하지 못했습니다. 작업을 시작하지 않았습니다.');
+          _stopRequested = true;
+        }
       }
     }
   }
@@ -139,8 +179,9 @@ class SyncEngine {
     if (_fgsRefCount > 0) _fgsRefCount--;
     _refreshRunningNotifier();
     if (_fgsRefCount == 0) {
+      fgsActive.value = false;
       try {
-        await _methodChannel.invokeMethod('stopSyncFgs');
+        await _methodChannel.invokeMethod('stopSyncFgs', {'owner': _fgsOwner});
       } catch (_) {}
     }
   }
@@ -165,6 +206,8 @@ class SyncEngine {
   /// 테스트·T5 주입점. null 이면 실제 community.db·앱 폴더를 쓴다.
   static Future<CommunityStore> Function()? openCommunityStoreForTest;
   static File? retryFileForTest;
+  @visibleForTesting
+  static Future<int> Function()? backfillForTest;
 
   /// 중앙 manifest 신선도 확보 (T5 가 refreshServerCompleted 로 연결).
   /// null 이면 scope 검사를 건너뛴다(연결 전 — REQUESTS.md).
@@ -177,11 +220,47 @@ class SyncEngine {
 
   static const rebuildBlockedMessage = '초기화 크롤링이 필요합니다. 먼저 초기화 크롤링을 완료해 주세요.';
 
-  static Future<SyncRunResult> start(
-      {bool fullSync = false, String? rebuildRunId}) async {
-    if (_running) {
-      return const SyncRunResult(done: 0, errors: 0);
+  static Future<SyncRunResult> start({
+    bool fullSync = false,
+    String? rebuildRunId,
+  }) async {
+    try {
+      return await SyncOperationAdmission.run(
+        () => _startOwned(fullSync: fullSync, rebuildRunId: rebuildRunId),
+        const SyncRunResult(
+          done: 0,
+          errors: 0,
+          failed: true,
+          busy: true,
+          errorMessage: 'sync_busy',
+        ),
+        openStore: openCommunityStoreForTest,
+      );
+    } catch (_) {
+      return SyncRunResult(
+        done: 0,
+        errors: 0,
+        failed: true,
+        rebuildRunId: rebuildRunId,
+        errorMessage: 'community_store_unavailable: 작업 소유권 저장소를 확인하지 못했습니다.',
+      );
     }
+  }
+
+  static Future<SyncRunResult> _startOwned({
+    bool fullSync = false,
+    String? rebuildRunId,
+  }) async {
+    if (_running) {
+      return const SyncRunResult(
+        done: 0,
+        errors: 0,
+        failed: true,
+        busy: true,
+        errorMessage: 'sync_busy',
+      );
+    }
+    _stopRequested = false;
     _running = true;
     _refreshRunningNotifier();
     final blocks = rebuildBlocks;
@@ -196,23 +275,43 @@ class SyncEngine {
         _running = false;
         _refreshRunningNotifier();
         _log('[community] $rebuildBlockedMessage');
-        _emit(SyncEvent(type: SyncEventType.error, message: rebuildBlockedMessage));
+        _emit(
+          SyncEvent(type: SyncEventType.error, message: rebuildBlockedMessage),
+        );
         return const SyncRunResult(
-            done: 0, errors: 0, failed: true, errorMessage: rebuildBlockedMessage);
+          done: 0,
+          errors: 0,
+          failed: true,
+          errorMessage: rebuildBlockedMessage,
+        );
       }
     }
-    _stopRequested = false;
+    if (_stopping) {
+      _running = false;
+      _refreshRunningNotifier();
+      return const SyncRunResult(
+        done: 0,
+        errors: 0,
+        failed: true,
+        cancelled: true,
+      );
+    }
     _lastChanges = [];
     await acquireFgs(fullSync ? '전체 재동기화 진행 중...' : '증분 동기화 진행 중...');
     try {
       return await LocalDbService.runBackgroundWork(
-          () => _run(fullSync: fullSync, rebuildRunId: rebuildRunId));
+        () => _run(fullSync: fullSync, rebuildRunId: rebuildRunId),
+      );
     } catch (e) {
       ReviewPromptService.markSessionError();
       _emit(SyncEvent(type: SyncEventType.error, message: e.toString()));
       return SyncRunResult(
-          done: 0, errors: 0, rebuildRunId: rebuildRunId,
-          failed: true, errorMessage: e.toString());
+        done: 0,
+        errors: 0,
+        rebuildRunId: rebuildRunId,
+        failed: true,
+        errorMessage: e.toString(),
+      );
     } finally {
       _running = false;
       _refreshRunningNotifier();
@@ -220,8 +319,18 @@ class SyncEngine {
     }
   }
 
-  static Future<SyncRunResult> _run(
-      {bool fullSync = false, String? rebuildRunId}) async {
+  static Future<SyncRunResult> _run({
+    bool fullSync = false,
+    String? rebuildRunId,
+  }) async {
+    if (_stopping) {
+      return const SyncRunResult(
+        done: 0,
+        errors: 0,
+        failed: true,
+        cancelled: true,
+      );
+    }
     _log('동기화 시작...');
 
     // 전체 건수 파악
@@ -236,7 +345,16 @@ class SyncEngine {
     } catch (e) {
       throw Exception('목록 조회 실패: $e');
     }
+    if (_stopping) {
+      return const SyncRunResult(
+        done: 0,
+        errors: 0,
+        failed: true,
+        cancelled: true,
+      );
+    }
     _log('총 $totalCount건 발견');
+    final inventory = ListInventory(totalCount, retainIds: false);
     final isRebuild = rebuildRunId != null;
     final trigger = isRebuild ? 'rebuild' : 'realtime';
 
@@ -247,22 +365,37 @@ class SyncEngine {
     var communityReady = true;
     if (community.store != null) {
       communityReady = await _ensureCommunityScope(
-          store: community.store!, isRebuild: isRebuild);
+        store: community.store!,
+        isRebuild: isRebuild,
+      );
     }
     if (community.store == null || !communityReady) {
-      final reason = community.store == null ? 'community_store_unavailable' : 'manifest_unavailable';
-      throw Exception('$reason: 로컬 공유 저장소 또는 공유 연결을 확인하지 못해 수집을 시작하지 않았습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.');
+      final reason = community.store == null
+          ? 'community_store_unavailable'
+          : 'manifest_unavailable';
+      throw Exception(
+        '$reason: 로컬 공유 저장소 또는 공유 연결을 확인하지 못해 수집을 시작하지 않았습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.',
+      );
     }
     await flushPendingUploadBeforeSync();
-    final captureActive = community.store != null && communityReady;
-    if (fullSync && !isRebuild) {
-      // 새 로컬 사본에서 전 건을 다시 capture 한다. 이전 journal/outbox 는 이미 보낸 사실과
-      // 미전송 수정 기록을 잃지 않도록 보존하고, 중앙 manifest 도 그대로 둔다.
-      await community.store!.rotateDataset('full_resync');
-      _log('로컬 공유 사본을 새로 시작합니다. 이전 전송 기록과 서버에 공유한 자료는 유지합니다.');
+    if (_stopping) {
+      return const SyncRunResult(
+        done: 0,
+        errors: 0,
+        failed: true,
+        cancelled: true,
+      );
     }
+    final captureActive = community.store != null && communityReady;
 
     if (totalCount == 0) {
+      if (fullSync && !isRebuild) {
+        // 새 로컬 사본에서 전 건을 다시 capture 한다. 이전 journal/outbox 는 이미 보낸 사실과
+        // 미전송 수정 기록을 잃지 않도록 보존하고, 중앙 manifest 도 그대로 둔다.
+        await community.store!.rotateDataset('full_resync');
+        _log('로컬 공유 사본을 새로 시작합니다. 이전 전송 기록과 서버에 공유한 자료는 유지합니다.');
+      }
+
       _log('신고 내역이 없습니다.');
       if (isRebuild) {
         // 정상 인증의 빈 목록(총 0건)도 목록 탐색 완료 → completed (rebuild.md). 예전엔 여기서 돌아가 list_complete 가
@@ -272,301 +405,322 @@ class SyncEngine {
       await _saveSyncTime();
       await _uploadCaptured();
       _emit(SyncEvent(type: SyncEventType.done, total: 0));
-      return SyncRunResult(done: 0, errors: 0, rebuildRunId: rebuildRunId);
-    }
-
-    // 기존 DB 상태 스냅샷: ID → {처리상태, 종결여부}
-    // 서버 _get_new_and_incomplete_ids 로직 동일:
-    //   신규 OR (종결여부='N' AND title.상태 ≠ detail.처리상태)
-    final existingStatus = <String, Map<String, String>>{};
-    if (!fullSync || isRebuild) {
-      // 사이트 원본 상태만(사용자 수정값 제외) — 사용자가 종결여부를 고쳐도 재조회는 사이트 기준으로 계속된다.
-      final states = await LocalDbService.getSyncStates();
-      for (final entry in states.entries) {
-        if (entry.key.isEmpty) continue;
-        existingStatus[entry.key] = {
-          '처리상태': entry.value.status,
-          '종결여부': entry.value.finished,
-          '보완_미응답': entry.value.supplementOpen == 'Y' ? 'Y' : 'N',
-        };
-      }
-      _log('기존 저장 ${existingStatus.length}건, 신규/변경 확인 시작');
-    } else {
-      // 먼저 지우지 않는다(M-1): 모든 신고를 다시 받아 제자리 갱신하고, 사용자 데이터(수정값·감시목록·중복 판단·지오코딩 캐시)는 둔다.
-      _log('전체 재동기화 모드 (모든 신고를 다시 받음, 사용자 데이터 유지)');
-    }
-
-    // 목록 페이지 순회 (200건씩)
-    final allItems = <Map<String, dynamic>>[];
-    var listPageErrors = 0;
-    int start = 1;
-    const pageSize = 200;
-
-    while (start <= totalCount) {
-      if (_stopping) {
-        listPageErrors++; // 목록을 다 받지 못함 → 정리·동기화 시각 기록 안 함
-        _log('중지 요청 — 목록 조회를 멈춤');
-        break;
-      }
-      final end = (start + pageSize - 1).clamp(1, totalCount);
-      _log('목록 $start~$end건 조회 중...');
-      try {
-        final data = await StandaloneApiService.fetchReportList(
-          startRow: start,
-          endRow: end,
-        );
-        final list = (data['result'] as List? ?? [])
-            .cast<Map<String, dynamic>>();
-        allItems.addAll(list);
-      } on TokenExpiredException {
-        rethrow;
-      } on AuthTemporarilyUnavailableException {
-        rethrow;
-      } catch (e) {
-        listPageErrors++;
-        _log('[오류] 목록 조회 실패: $e');
-      }
-      start += pageSize;
-    }
-
-    // 목록 값 갱신(서버 title_to_sql 과 같음): 상세를 다시 받지 않는 종결 신고의 상태·만족도도 사이트와 맞춘다.
-    if (allItems.isNotEmpty && !_stopping) {
-      final refreshed = await LocalDbService.updateTitlesFromList(allItems);
-      if (refreshed > 0) _log('목록 값 갱신: $refreshed건');
-    }
-
-    // 신규/증분 대상 필터.
-    // 증분은 vectors/list_refetch.json 규칙 그대로:
-    // 신규 ∨ 종결여부≠Y ∨ 보완_미응답=Y ∨ capture 재시도 ∨
-    // (detail_status 없음 ∧ (영구 실패 아님 ∨ 목록 라벨이 실패 당시와 다름)) ∨
-    // (detail_status 있음 ∧ 목록 C_NOW 라벨 ≠ detail_status 라벨).
-    // 비교 기준은 community.db 의 detail_status 라벨(개인 DB 상태 열 아님).
-    final List<Map<String, dynamic>> toSync;
-    // rebuild 재개용 item 상태 (run_id → {state, last_list_label}).
-    var rebuildStates = <String, Map<String, String>>{};
-    if (isRebuild) {
-      // 목록 전 페이지 성공일 때만 ID 를 rebuild_items(pending) 로 등록한다.
-      // 부분 실패 → 예외(0건 성공 금지), T5 오케스트레이터가 알림.
-      if (listPageErrors > 0 || _stopping) {
-        throw Exception(
-            '초기화 목록 수집 실패: $listPageErrors페이지 오류 — items 를 등록하지 않았습니다.');
-      }
-      final store = community.store;
-      if (store == null) {
-        throw Exception('community_store_unavailable: rebuild items 를 쓸 수 없습니다.');
-      }
-      final ids = allItems
-          .map((i) => i['C_NO']?.toString() ?? '')
-          .where((id) => id.isNotEmpty)
-          .toSet();
-      await registerRebuildItems(store, rebuildRunId, ids);
-      // 전 페이지 성공(빈 목록 0건 포함)만 list_complete — PC start.py 와 같은 규칙.
-      await markRebuildListComplete(store, rebuildRunId);
-      final rows = await store.db.rawQuery(
-        'SELECT source_report_id, state, last_list_label FROM rebuild_items WHERE run_id=?',
-        [rebuildRunId],
+      return SyncRunResult(
+        done: 0,
+        errors: 0,
+        rebuildRunId: rebuildRunId,
+        listComplete: true,
       );
-      rebuildStates = {
-        for (final r in rows)
-          (r['source_report_id'] as String): {
-            'state': (r['state'] as String?) ?? 'pending',
-            'last_list_label': (r['last_list_label'] as String?) ?? '',
-          },
-      };
-      toSync = filterRebuildTodo(allItems, rebuildStates);
-      _log('초기화 수집 대상: ${toSync.length}건 (fetched ${ids.length - toSync.length}건 건너뜀)');
-    } else if (fullSync) {
-      toSync = allItems;
-    } else {
-      final detailLabels = community.store == null
-          ? <String, String>{}
-          : await _detailStatusLabels(community.store!);
-      final permanentFails = community.store == null
-          ? <String, String>{}
-          : await _permanentFailLabels(community.store!);
-      final retryIds =
-          await CaptureRetryStore.captureRetryIds(community.retryFile);
-      toSync = allItems.where((item) {
-        final cNo = item['C_NO']?.toString() ?? '';
-        final snap = existingStatus[cNo];
-        final listLabel = _listLabel(item);
-        if (snap == null) return true; // 신규
-        return shouldRefetchListItem(
-          inPersonalDetail: true,
-          listLabel: listLabel,
-          detailStatusLabel: detailLabels[cNo],
-          closed: snap['종결여부'],
-          supplementOpen: snap['보완_미응답'],
-          rebuildFailedPermanent: permanentFails.containsKey(cNo),
-          failedListLabel: permanentFails[cNo],
-          inCaptureRetry: retryIds.contains(cNo),
-        );
-      }).toList();
     }
 
-    _log('상세 조회 대상: ${toSync.length}건');
+    final stage = await SyncRunStage.create(
+      await LocalDbService.db,
+      community.store!,
+    );
+    try {
+      _log(fullSync ? '전체 재동기화 모드 (사용자 데이터 유지)' : '신규/변경 확인 시작');
+      var listPageErrors = 0;
+      int start = 1;
+      const pageSize = 200;
 
-    int done = 0;
-    int errors = 0;
-    final cStore = community.store;
-    // 이번 실행에서 캡처한 공유 이벤트 — 10건 단위 '전송' 진행 표시용.
-    final capturedEventIds = <String>[];
-
-    for (final item in toSync) {
-      if (_stopping) {
-        _log('중지 요청 — 상세 조회를 멈춤 ($done/${toSync.length}건 저장됨)');
-        break;
+      while (start <= totalCount) {
+        if (_stopping) {
+          listPageErrors++; // 목록을 다 받지 못함 → 정리·동기화 시각 기록 안 함
+          _log('중지 요청 — 목록 조회를 멈춤');
+          break;
+        }
+        final end = (start + pageSize - 1).clamp(1, totalCount);
+        _log('목록 $start~$end건 조회 중...');
+        try {
+          final data = await StandaloneApiService.fetchReportList(
+            startRow: start,
+            endRow: end,
+          );
+          final list = inventory.addPage(data, start, end);
+          if (_stopping) break;
+          try {
+            await stage.addPage(list);
+          } catch (_) {
+            inventory.invalidReasons.add('목록 staging ID 또는 저장 검증 실패');
+            rethrow;
+          }
+        } on TokenExpiredException {
+          rethrow;
+        } on AuthTemporarilyUnavailableException {
+          rethrow;
+        } catch (e) {
+          listPageErrors++;
+          _log('[오류] 목록 조회 실패: $e');
+        }
+        start += pageSize;
       }
-      final cNo = item['C_NO']?.toString() ?? '';
-      if (cNo.isEmpty) continue;
 
+      if (_stopping) {
+        return SyncRunResult(
+          done: 0,
+          errors: 0,
+          rebuildRunId: rebuildRunId,
+          failed: true,
+          cancelled: true,
+        );
+      }
+      if (listPageErrors > 0 || !inventory.listComplete) {
+        throw const FormatException('목록 수집 검증 실패 — 상세 저장과 완료 처리를 시작하지 않았습니다.');
+      }
+      if (fullSync && !isRebuild) {
+        // 새 로컬 사본에서 전 건을 다시 capture 한다. 이전 journal/outbox 는 이미 보낸 사실과
+        // 미전송 수정 기록을 잃지 않도록 보존하고, 중앙 manifest 도 그대로 둔다.
+        await community.store!.rotateDataset('full_resync');
+        _log('로컬 공유 사본을 새로 시작합니다. 이전 전송 기록과 서버에 공유한 자료는 유지합니다.');
+      }
+
+      final retryIds = await CaptureRetryStore.captureRetryIds(
+        community.retryFile,
+      );
+      await for (final page in stage.pages()) {
+        if (_stopping) break;
+        final items = page.map((r) => r.item).toList();
+        final ids = items.map((i) => i['C_NO'].toString()).toSet();
+        if (isRebuild) {
+          await registerRebuildItems(community.store!, rebuildRunId, ids);
+        }
+        final rebuildRows = isRebuild
+            ? await community.store!.db.rawQuery(
+                'SELECT source_report_id,state,last_list_label FROM rebuild_items WHERE run_id=? AND source_report_id IN (${List.filled(ids.length, '?').join(',')})',
+                [rebuildRunId, ...ids],
+              )
+            : <Map<String, Object?>>[];
+        final states = {
+          for (final r in rebuildRows)
+            r['source_report_id'] as String: {
+              'state': r['state']?.toString() ?? 'pending',
+              'last_list_label': r['last_list_label']?.toString() ?? '',
+            },
+        };
+        final detailLabels = !fullSync && !isRebuild
+            ? await _detailStatusLabels(community.store!, ids: ids)
+            : <String, String>{};
+        final permanentFails = !fullSync && !isRebuild
+            ? await _permanentFailLabels(community.store!, ids: ids)
+            : <String, String>{};
+        final selected = isRebuild
+            ? filterRebuildTodo(items, states).map((i) => i['C_NO'].toString())
+            : page
+                  .where((r) {
+                    if (fullSync || r.previous == null) return true;
+                    final id = r.item['C_NO'].toString();
+                    return shouldRefetchListItem(
+                      inPersonalDetail: true,
+                      listLabel: _listLabel(r.item),
+                      detailStatusLabel: detailLabels[id],
+                      closed: r.previous!['종결여부'],
+                      supplementOpen: r.previous!['보완_미응답'],
+                      rebuildFailedPermanent: permanentFails.containsKey(id),
+                      failedListLabel: permanentFails[id],
+                      inCaptureRetry: retryIds.contains(id),
+                    );
+                  })
+                  .map((r) => r.item['C_NO'].toString());
+        await stage.select(selected);
+        // Eligibility used the original personal snapshot, before title updates.
+        await LocalDbService.updateTitlesFromList(items);
+      }
+      if (isRebuild && !_stopping) {
+        await markRebuildListComplete(community.store!, rebuildRunId);
+      }
+      final todoCount = await stage.todoCount;
+      _log('상세 조회 대상: $todoCount건');
+
+      int done = 0;
+      int errors = 0;
+      final cStore = community.store;
+      // 이번 실행에서 캡처한 공유 이벤트 — 10건 단위 '전송' 진행 표시용.
+      Future<void> reportProgress() async {
+        try {
+          final progress = await stage.progress();
+          if (progress.queued > 0) {
+            _log('${progress.acked}/${progress.queued}건 전송');
+          }
+        } catch (_) {
+          _log('전송 진행 집계를 확인하지 못했습니다. 완료 상태는 변경하지 않습니다.');
+        }
+      }
+
+      await for (final page in stage.pages(todoOnly: true)) {
+        for (final staged in page) {
+          final item = staged.item;
+          if (_stopping) {
+            _log('중지 요청 — 상세 조회를 멈춤 ($done/$todoCount건 저장됨)');
+            break;
+          }
+          final cNo = item['C_NO']?.toString() ?? '';
+          if (cNo.isEmpty) continue;
+
+          _emit(
+            SyncEvent(
+              type: SyncEventType.progress,
+              message: '상세 조회 중... ($cNo)',
+              current: done,
+              total: todoCount,
+            ),
+          );
+
+          try {
+            final detail = await StandaloneApiService.fetchReportDetail(cNo);
+            final saved = await captureAndSaveDetail(
+              cNo: cNo,
+              item: item,
+              detail: detail,
+              trigger: trigger,
+              rebuildRunId: rebuildRunId,
+              tracker: captureTracker,
+              communityStore: community.store,
+              retryFile: community.retryFile,
+              projectNamespace: community.projectNamespace,
+              captureActive: captureActive,
+              isCancelled: () => _stopping,
+            );
+            if (isRebuild && cStore != null) {
+              await _markRebuildItem(
+                cStore,
+                rebuildRunId,
+                cNo,
+                'fetched',
+                null,
+              );
+            }
+            if (!fullSync && !isRebuild) {
+              _trackChange(staged.previous, saved.report, saved.saved);
+            }
+            final eventId = saved.capture?.eventId;
+            if (eventId != null) await stage.recordEvent(eventId);
+            done++;
+
+            if (done % 10 == 0) {
+              _log('$done/$todoCount건 완료');
+              await reportProgress();
+            }
+          } on TokenExpiredException {
+            // API 계층이 이미 자동 재로그인을 해 봤고 실패했다(비밀번호 거부·로그인 정보 없음) — 동기화를 멈추고 안내.
+            rethrow;
+          } on AuthTemporarilyUnavailableException {
+            // 네트워크·점검 — 남은 건도 같은 이유로 실패하므로 멈춘다. '토큰 만료'로 안내하지 않는다.
+            rethrow;
+          } on CaptureStoreUnavailable catch (e) {
+            // 한 실행에서 연속 3회 capture 실패 → 공식 사이트 반복 호출 방지, 수집 중단.
+            _log('[community] 저장소 연속 실패로 동기화를 멈춥니다: $e');
+            rethrow;
+          } catch (e) {
+            errors++;
+            _log('[오류] $cNo: $e');
+            if (isRebuild && cStore != null) {
+              await _markRebuildItemFailed(
+                cStore,
+                rebuildRunId,
+                cNo,
+                _listLabel(item),
+                e,
+              );
+            }
+          }
+
+          // API 과부하 방지: 100ms 딜레이
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
+        if (_stopping) break;
+      }
+
+      if (!_stopping) {
+        // 종결돼 다시 받지 않는 주정차 신고의 촬영 시각 재시도(서버 크롤링 끝 backfill_missing 과 같음)
+        final filled =
+            await (backfillForTest ?? MaintenanceService.backfillMissing)();
+        if (filled > 0) _log('[photo] 촬영 시각 재시도로 $filled건 채움');
+      }
+
+      // 사이트 목록에서 사라진 신고 정리는 중복군 재계산보다 먼저(지운 신고를 가리키는 중복 멤버가 남지 않게).
+      // 정리 조건은 전체 재동기화이고 목록을 빠짐없이 받았을 때만(M-1, M-20).
+      // rebuild 모드에서는 목록 부재 행을 삭제하지 않는다(orphan 수만 결과에).
+      var orphans = 0;
+      if (isRebuild) {
+        orphans = await stage.orphanCount;
+        if (orphans > 0) _log('목록에 없는 기존 신고 $orphans건 유지 (rebuild 삭제 금지)');
+      } else if (fullSync) {
+        // Offset pages have no stable snapshot authority, even with matching totals.
+        // Keep absent reports, raw and user overrides until that contract exists.
+        _log('목록에 없는 기존 신고는 유지합니다.');
+      }
+
+      final duplicateRefresh =
+          await DuplicateProjectionService.refreshDuplicateGroups(
+            await LocalDbService.db,
+            trackChanges: !fullSync,
+          );
+      if (!fullSync) {
+        final duplicateChanges =
+            (duplicateRefresh['changes'] as List? ?? const [])
+                .whereType<Map<String, dynamic>>()
+                .toList();
+        if (duplicateChanges.isNotEmpty) {
+          _lastChanges = [..._lastChanges, ...duplicateChanges];
+        }
+      }
+
+      // 목록 페이지가 하나라도 실패하면 마지막 동기화 시각을 성공으로 남기지 않는다(M-20).
+      if (_stopping) {
+        _log('[주의] 중지됨 — 마지막 동기화 시각을 갱신하지 않음');
+      } else if (listPageErrors == 0 && inventory.listComplete && errors == 0) {
+        await _saveSyncTime();
+      } else {
+        _log('[주의] 목록 $listPageErrors페이지 실패 — 마지막 동기화 시각을 갱신하지 않음');
+      }
+
+      if (_lastChanges.isNotEmpty && !isRebuild) {
+        // 신고 변경은 서버와 같은 순서로, 중복군 변경은 그 뒤에
+        final reportChanges = _lastChanges
+            .where((c) => c['notification_kind'] == 'report')
+            .toList();
+        final others = _lastChanges
+            .where((c) => c['notification_kind'] != 'report')
+            .toList();
+        _sortReportChanges(reportChanges);
+        _lastChanges = [...reportChanges, ...others];
+        await emitChanges(_lastChanges);
+      }
+
+      final msg =
+          '${_stopping ? '동기화 중지' : '동기화 완료'}: $done건 저장${errors > 0 ? ', $errors건 오류' : ''}';
+      await _uploadCaptured();
+      await reportProgress();
+      _log(msg);
       _emit(
         SyncEvent(
-          type: SyncEventType.progress,
-          message: '상세 조회 중... ($cNo)',
+          type: SyncEventType.done,
+          message: msg,
           current: done,
-          total: toSync.length,
+          total: todoCount,
         ),
       );
-
-      try {
-        final detail = await StandaloneApiService.fetchReportDetail(cNo);
-        final saved = await captureAndSaveDetail(
-          cNo: cNo,
-          item: item,
-          detail: detail,
-          trigger: trigger,
-          rebuildRunId: rebuildRunId,
-          tracker: captureTracker,
-          communityStore: community.store,
-          retryFile: community.retryFile,
-          projectNamespace: community.projectNamespace,
-          captureActive: captureActive,
-        );
-        if (isRebuild && cStore != null) {
-          await _markRebuildItem(
-              cStore, rebuildRunId, cNo, 'fetched', null);
-        }
-        if (!fullSync && !isRebuild) {
-          _trackChange(existingStatus[cNo], saved.report, saved.saved);
-        }
-        final eventId = saved.capture?.eventId;
-        if (eventId != null) capturedEventIds.add(eventId);
-        done++;
-
-        if (done % 10 == 0) {
-          _log('$done/${toSync.length}건 완료');
-          await logUploadProgress(cStore, capturedEventIds);
-        }
-      } on TokenExpiredException {
-        // API 계층이 이미 자동 재로그인을 해 봤고 실패했다(비밀번호 거부·로그인 정보 없음) — 동기화를 멈추고 안내.
-        rethrow;
-      } on AuthTemporarilyUnavailableException {
-        // 네트워크·점검 — 남은 건도 같은 이유로 실패하므로 멈춘다. '토큰 만료'로 안내하지 않는다.
-        rethrow;
-      } on CaptureStoreUnavailable catch (e) {
-        // 한 실행에서 연속 3회 capture 실패 → 공식 사이트 반복 호출 방지, 수집 중단.
-        _log('[community] 저장소 연속 실패로 동기화를 멈춥니다: $e');
-        rethrow;
-      } catch (e) {
-        errors++;
-        _log('[오류] $cNo: $e');
-        if (isRebuild && cStore != null) {
-          await _markRebuildItemFailed(
-              cStore, rebuildRunId, cNo, _listLabel(item), e);
-        }
-      }
-
-      // API 과부하 방지: 100ms 딜레이
-      await Future.delayed(const Duration(milliseconds: 100));
-    }
-
-    if (!_stopping) {
-      // 종결돼 다시 받지 않는 주정차 신고의 촬영 시각 재시도(서버 크롤링 끝 backfill_missing 과 같음)
-      final filled = await MaintenanceService.backfillMissing();
-      if (filled > 0) _log('[photo] 촬영 시각 재시도로 $filled건 채움');
-    }
-
-    // 사이트 목록에서 사라진 신고 정리는 중복군 재계산보다 먼저(지운 신고를 가리키는 중복 멤버가 남지 않게).
-    // 정리 조건은 전체 재동기화이고 목록을 빠짐없이 받았을 때만(M-1, M-20).
-    // rebuild 모드에서는 목록 부재 행을 삭제하지 않는다(orphan 수만 결과에).
-    var orphans = 0;
-    if (isRebuild) {
-      final listIds = allItems
-          .map((i) => i['C_NO']?.toString() ?? '')
-          .where((id) => id.isNotEmpty)
-          .toSet();
-      orphans = countRebuildOrphans(existingStatus.keys.toSet(), listIds);
-      if (orphans > 0) _log('목록에 없는 기존 신고 $orphans건 유지 (rebuild 삭제 금지)');
-    } else if (fullSync &&
-        !_stopping &&
-        listPageErrors == 0 &&
-        allItems.isNotEmpty) {
-      final removed = await LocalDbService.removeReportsNotIn(
-        allItems
-            .map((i) => i['C_NO']?.toString() ?? '')
-            .where((id) => id.isNotEmpty)
-            .toSet(),
+      return SyncRunResult(
+        done: done,
+        errors: errors,
+        orphans: orphans,
+        rebuildRunId: rebuildRunId,
+        listComplete: inventory.listComplete && listPageErrors == 0,
+        cancelled: _stopping,
+        failed:
+            _stopping ||
+            errors > 0 ||
+            !inventory.listComplete ||
+            listPageErrors > 0,
+        errorMessage: _stopping
+            ? 'sync_cancelled'
+            : (errors > 0 || !inventory.listComplete || listPageErrors > 0
+                  ? 'sync_incomplete'
+                  : null),
       );
-      if (removed > 0) _log('사이트 목록에 없는 신고 $removed건 정리');
+    } finally {
+      await stage.close();
     }
-
-    final duplicateRefresh =
-        await DuplicateProjectionService.refreshDuplicateGroups(
-          await LocalDbService.db,
-          trackChanges: !fullSync,
-        );
-    if (!fullSync) {
-      final duplicateChanges =
-          (duplicateRefresh['changes'] as List? ?? const [])
-              .whereType<Map<String, dynamic>>()
-              .toList();
-      if (duplicateChanges.isNotEmpty) {
-        _lastChanges = [..._lastChanges, ...duplicateChanges];
-      }
-    }
-
-    // 목록 페이지가 하나라도 실패하면 마지막 동기화 시각을 성공으로 남기지 않는다(M-20).
-    if (_stopping) {
-      _log('[주의] 중지됨 — 마지막 동기화 시각을 갱신하지 않음');
-    } else if (listPageErrors == 0) {
-      await _saveSyncTime();
-    } else {
-      _log('[주의] 목록 $listPageErrors페이지 실패 — 마지막 동기화 시각을 갱신하지 않음');
-    }
-
-    if (_lastChanges.isNotEmpty && !isRebuild) {
-      // 신고 변경은 서버와 같은 순서로, 중복군 변경은 그 뒤에
-      final reportChanges = _lastChanges
-          .where((c) => c['notification_kind'] == 'report')
-          .toList();
-      final others = _lastChanges
-          .where((c) => c['notification_kind'] != 'report')
-          .toList();
-      _sortReportChanges(reportChanges);
-      _lastChanges = [...reportChanges, ...others];
-      await emitChanges(_lastChanges);
-    }
-
-    final msg =
-        '${_stopping ? '동기화 중지' : '동기화 완료'}: $done건 저장${errors > 0 ? ', $errors건 오류' : ''}';
-    await _uploadCaptured();
-    await logUploadProgress(cStore, capturedEventIds);
-    _log(msg);
-    _emit(
-      SyncEvent(
-        type: SyncEventType.done,
-        message: msg,
-        current: done,
-        total: toSync.length,
-      ),
-    );
-    return SyncRunResult(
-      done: done,
-      errors: errors,
-      orphans: orphans,
-      rebuildRunId: rebuildRunId,
-    );
   }
 
   static Future<void> flushPendingUploadBeforeSync() async {
@@ -581,7 +735,9 @@ class SyncEngine {
         _log('대기 중인 공유 자료가 없습니다.');
         return;
       }
-      if (upload.run.result == 'busy_other_run' && DateTime.now().isBefore(leaseDeadline) && !_stopping) {
+      if (upload.run.result == 'busy_other_run' &&
+          DateTime.now().isBefore(leaseDeadline) &&
+          !_stopping) {
         if (!waitingForLease) {
           _log('다른 업로드의 저장소 잠금이 풀리기를 기다립니다.');
           waitingForLease = true;
@@ -591,7 +747,9 @@ class SyncEngine {
       }
       if (upload.run.result == 'more_pending' && !_stopping) continue;
       final reason = upload.run.errorCode ?? upload.run.result;
-      throw Exception('이전 공유 자료 ${upload.remaining}건이 업로드되지 않았습니다 ($reason). 업로드 후 다시 동기화해 주세요.');
+      throw Exception(
+        '이전 공유 자료 ${upload.remaining}건이 업로드되지 않았습니다 ($reason). 업로드 후 다시 동기화해 주세요.',
+      );
     }
   }
 
@@ -611,7 +769,9 @@ class SyncEngine {
           _log('대기 중인 공유 자료가 없습니다.');
           return;
         }
-        if (outcome.run.result == 'busy_other_run' && DateTime.now().isBefore(leaseDeadline) && !_stopping) {
+        if (outcome.run.result == 'busy_other_run' &&
+            DateTime.now().isBefore(leaseDeadline) &&
+            !_stopping) {
           if (!waitingForLease) {
             _log('다른 업로드의 저장소 잠금이 풀리기를 기다립니다.');
             waitingForLease = true;
@@ -625,7 +785,9 @@ class SyncEngine {
           return;
         }
         if (outcome.run.result != 'more_pending') {
-          _log('${outcome.remaining}건 업로드 대기 중 (${outcome.run.errorCode ?? outcome.run.result}).');
+          _log(
+            '${outcome.remaining}건 업로드 대기 중 (${outcome.run.errorCode ?? outcome.run.result}).',
+          );
           return;
         }
       }
@@ -639,7 +801,9 @@ class SyncEngine {
   /// 업로드 대상이 없으면 출력하지 않는다. 집계 실패가 동기화를 막지 않게 한다.
   @visibleForTesting
   static Future<void> logUploadProgress(
-      CommunityStore? store, List<String> eventIds) async {
+    CommunityStore? store,
+    List<String> eventIds,
+  ) async {
     if (store == null || eventIds.isEmpty) return;
     try {
       var acked = 0;
@@ -654,8 +818,7 @@ class SyncEngine {
           ' FROM source_journal j LEFT JOIN outbox o ON o.event_id = j.event_id'
           ' WHERE j.event_id IN ($marks)',
           chunk,
-        ))
-            .first;
+        )).first;
         acked += (row['acked'] as num?)?.toInt() ?? 0;
         queued += (row['queued'] as num?)?.toInt() ?? 0;
       }
@@ -668,7 +831,10 @@ class SyncEngine {
 
   /// rebuild item 등록 (목록 전 페이지 성공일 때만 호출한다).
   static Future<void> registerRebuildItems(
-      CommunityStore store, String runId, Set<String> ids) async {
+    CommunityStore store,
+    String runId,
+    Set<String> ids,
+  ) async {
     for (final id in ids) {
       await store.db.insert('rebuild_items', {
         'run_id': runId,
@@ -679,31 +845,36 @@ class SyncEngine {
   }
 
   /// 목록 전 페이지 성공(빈 목록 0건 포함) 표시 — 이것이 있어야 초기화가 validating 으로 넘어간다.
-  static Future<void> markRebuildListComplete(CommunityStore store, String runId) async {
-    await store.db.rawUpdate('UPDATE rebuild_jobs SET list_complete=1 WHERE run_id=?', [runId]);
+  static Future<void> markRebuildListComplete(
+    CommunityStore store,
+    String runId,
+  ) async {
+    await store.db.rawUpdate(
+      'UPDATE rebuild_jobs SET list_complete=1 WHERE run_id=?',
+      [runId],
+    );
   }
 
   /// rebuild 수집 대상: fetched 는 건너뛴다(재개).
   static List<Map<String, dynamic>> filterRebuildTodo(
     List<Map<String, dynamic>> allItems,
     Map<String, Map<String, String>> states,
-  ) =>
-      allItems.where((item) {
-        final cNo = item['C_NO']?.toString() ?? '';
-        final state = states[cNo]?['state'];
-        return state == null ||
-            state == 'pending' ||
-            state == 'failed_retryable';
-      }).toList();
+  ) => allItems.where((item) {
+    final cNo = item['C_NO']?.toString() ?? '';
+    final state = states[cNo]?['state'];
+    return state == null || state == 'pending' || state == 'failed_retryable';
+  }).toList();
 
   /// rebuild orphan 수 (목록 부재 행 — 삭제하지 않는다).
   static int countRebuildOrphans(
-          Set<String> personalIds, Set<String> listIds) =>
-      personalIds.where((id) => !listIds.contains(id)).length;
+    Set<String> personalIds,
+    Set<String> listIds,
+  ) => personalIds.where((id) => !listIds.contains(id)).length;
 
   /// 커뮤니티 저장소·재시도 파일·네임스페이스를 연다. 실패해도 throw 하지 않는다.
   static Future<
-      ({CommunityStore? store, File retryFile, String projectNamespace})>
+    ({CommunityStore? store, File retryFile, String projectNamespace})
+  >
   openCommunitySession() async {
     final File retryFile;
     if (retryFileForTest != null) {
@@ -730,9 +901,19 @@ class SyncEngine {
   /// 사이트가 숫자 별점을 확인한 신고는 다음 증분 동기화에서 공식 상세를 다시 읽는다.
   /// 개인 DB의 별점사유를 공유하지 않고 상세 파서의 숫자만 캡처한다.
   static Future<void> queueRatingRecapture(String sourceReportId) async {
-    final file = retryFileForTest ?? File(p.join(
-      (await getApplicationDocumentsDirectory()).path, 'community_capture_retry.json'));
-    await CaptureRetryStore.addIntent(file, sourceReportId, 'rating_confirmed_refetch');
+    final file =
+        retryFileForTest ??
+        File(
+          p.join(
+            (await getApplicationDocumentsDirectory()).path,
+            'community_capture_retry.json',
+          ),
+        );
+    await CaptureRetryStore.addIntent(
+      file,
+      sourceReportId,
+      'rating_confirmed_refetch',
+    );
   }
 
   /// manifest scope 검사. context 가 없으면(journal-only) true.
@@ -740,8 +921,10 @@ class SyncEngine {
   static Future<bool> communityCaptureReady(CommunityStore store) =>
       _ensureCommunityScope(store: store, isRebuild: false);
 
-  static Future<bool> _ensureCommunityScope(
-      {required CommunityStore store, required bool isRebuild}) async {
+  static Future<bool> _ensureCommunityScope({
+    required CommunityStore store,
+    required bool isRebuild,
+  }) async {
     Map<String, Object?>? context;
     try {
       context = await store.activeContext();
@@ -767,12 +950,14 @@ class SyncEngine {
   }
 
   static Future<Map<String, String>> _detailStatusLabels(
-      CommunityStore store) async {
+    CommunityStore store, {
+    Set<String>? ids,
+  }) async {
     try {
       final ds = await store.localDatasetId();
       final rows = await store.db.rawQuery(
-        'SELECT source_report_id, c_now_label FROM detail_status WHERE local_dataset_id=?',
-        [ds],
+        'SELECT source_report_id, c_now_label FROM detail_status WHERE local_dataset_id=? ${ids == null ? '' : "AND source_report_id IN (${List.filled(ids.length, '?').join(',')})"}',
+        [ds, ...?ids],
       );
       return {
         for (final r in rows)
@@ -786,7 +971,9 @@ class SyncEngine {
 
   /// 마지막 rebuild run 의 영구 실패 item → 실패 당시 목록 라벨.
   static Future<Map<String, String>> _permanentFailLabels(
-      CommunityStore store) async {
+    CommunityStore store, {
+    Set<String>? ids,
+  }) async {
     try {
       final ds = await store.localDatasetId();
       final jobs = await store.db.rawQuery(
@@ -795,8 +982,8 @@ class SyncEngine {
       );
       if (jobs.isEmpty) return {};
       final items = await store.db.rawQuery(
-        "SELECT source_report_id, last_list_label FROM rebuild_items WHERE run_id=? AND state='failed_permanent'",
-        [jobs.first['run_id']],
+        "SELECT source_report_id, last_list_label FROM rebuild_items WHERE run_id=? AND state='failed_permanent' ${ids == null ? '' : "AND source_report_id IN (${List.filled(ids.length, '?').join(',')})"}",
+        [jobs.first['run_id'], ...?ids],
       );
       return {
         for (final r in items)
@@ -809,8 +996,7 @@ class SyncEngine {
   }
 
   /// 목록 item 의 C_NOW 라벨 (detail_status 비교용).
-  static String listLabelForTest(Map<String, dynamic> item) =>
-      _listLabel(item);
+  static String listLabelForTest(Map<String, dynamic> item) => _listLabel(item);
 
   static String _listLabel(Map<String, dynamic> item) {
     try {
@@ -837,7 +1023,13 @@ class SyncEngine {
     required File retryFile,
     required String projectNamespace,
     required bool captureActive,
+    bool Function()? isCancelled,
   }) async {
+    void checkCancel() {
+      if (isCancelled?.call() == true) throw const QueryCancelled();
+    }
+
+    checkCancel();
     if (!captureActive || communityStore == null) {
       // 공유 사본(journal) 없이 개인 저장을 하지 않는다 — 큐·재조회 대상은 그대로 남는다(H-01).
       throw CaptureStoreUnavailable('community_capture_unavailable: $cNo');
@@ -853,17 +1045,21 @@ class SyncEngine {
       final adapterInput = buildReportAdapterInput(report, ev);
       // capture 전에 의도를 기록한다. 기록 실패 → 즉시 중단.
       await recordCaptureIntent(retryFile, cNo);
+      checkCancel();
       try {
-        cap = await capture(adapterInput,
-            sourceReportId: cNo,
-            trigger: trigger,
-            rebuildRunId: rebuildRunId,
-            store: communityStore,
-            projectNamespace: projectNamespace);
+        cap = await capture(
+          adapterInput,
+          sourceReportId: cNo,
+          trigger: trigger,
+          rebuildRunId: rebuildRunId,
+          store: communityStore,
+          projectNamespace: projectNamespace,
+        );
       } catch (_) {
         if (tracker.recordFailure()) {
           throw CaptureStoreUnavailable(
-              'community_store_unavailable: $cNo (연속 ${tracker.consecutiveFailures}회 실패)');
+            'community_store_unavailable: $cNo (연속 ${tracker.consecutiveFailures}회 실패)',
+          );
         }
         throw DetailFailed('community_capture_failed: $cNo');
       }
@@ -871,6 +1067,7 @@ class SyncEngine {
 
     // 별점이 있는 신고 한정으로 사유 추가 fetch (인증 불필요 별도 API)
     final augmented = await _augmentRatingCause(report);
+    checkCancel();
     report = augmented.report;
     // 주정차 사진 촬영 시각(서버 상세 저장과 같은 시점·규칙)
     final photo = await MaintenanceService.prefetchForSave(
@@ -880,6 +1077,7 @@ class SyncEngine {
       report.attachedPhotos,
     );
 
+    checkCancel();
     ({bool isNew, bool changed, int syncedAt}) saved;
     try {
       saved = await LocalDbService.upsertReport(
@@ -903,15 +1101,21 @@ class SyncEngine {
     } catch (_) {}
     tracker.recordSuccess();
     return SavedDetail(
-        report: report,
-        entryValue: ev,
-        category: cat,
-        saved: saved,
-        capture: cap);
+      report: report,
+      entryValue: ev,
+      category: cat,
+      saved: saved,
+      capture: cap,
+    );
   }
 
-  static Future<void> _markRebuildItem(CommunityStore store, String runId,
-      String cNo, String state, String? error) async {
+  static Future<void> _markRebuildItem(
+    CommunityStore store,
+    String runId,
+    String cNo,
+    String state,
+    String? error,
+  ) async {
     try {
       await store.db.rawUpdate(
         'UPDATE rebuild_items SET state=?, attempts=attempts+1, last_error=? WHERE run_id=? AND source_report_id=?',
@@ -920,8 +1124,13 @@ class SyncEngine {
     } catch (_) {}
   }
 
-  static Future<void> _markRebuildItemFailed(CommunityStore store,
-      String runId, String cNo, String listLabel, Object error) async {
+  static Future<void> _markRebuildItemFailed(
+    CommunityStore store,
+    String runId,
+    String cNo,
+    String listLabel,
+    Object error,
+  ) async {
     try {
       var state = classifyDetailError(error);
       final rows = await store.db.rawQuery(
@@ -962,7 +1171,9 @@ class SyncEngine {
           'event_type': 'crawl_changes',
         });
       } catch (_) {}
-      if (!_changesEmittedController.isClosed) _changesEmittedController.add(null);
+      if (!_changesEmittedController.isClosed) {
+        _changesEmittedController.add(null);
+      }
       return;
     }
 
@@ -1166,7 +1377,7 @@ class SyncEngine {
 
   /// 멈춤을 요청한다. 진행 중인 요청 하나가 끝나면 루프가 빠져나가고, 그때 [isRunning] 이 false 가 된다.
   static void stop() {
-    if (_running) _stopRequested = true;
+    if (_running || _fgsRefCount > 0) _stopRequested = true;
   }
 }
 

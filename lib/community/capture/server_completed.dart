@@ -1,5 +1,6 @@
 // 중앙 manifest → server_completed 교체 + 삭제 처리 (S-04).
 import 'dart:convert';
+import 'package:sqflite/sqflite.dart';
 
 import '../community_store.dart';
 
@@ -49,55 +50,69 @@ Future<bool> refreshServerCompleted({
   required Future<ManifestPage?> Function(String? after, int limit) fetchPage,
   CommunityStore? store,
   DateTime? now,
+  Future<bool> Function(Transaction tx)? commitAllowed,
 }) async {
   const limit = 5000;
-  List<String>? accepted;
-  for (var attempt = 0; attempt < 3; attempt++) {
-    final keys = <String>[];
-    String? token;
-    int? total;
-    String? after;
-    var retry = false;
-    while (true) {
-      final page = await fetchPage(after, limit);
-      if (page == null) return false;
-      if ((page.datasetKey != null && page.datasetKey != datasetKey) ||
-          (page.writerEpoch != null && page.writerEpoch != writerEpoch)) {
-        return false;
-      }
-      if (token == null) {
-        token = page.manifestToken;
-        total = page.total;
-        if (token.isEmpty) return false;
-      } else if (page.manifestToken != token || page.total != total) {
-        retry = true;
-        break;
-      }
-      keys.addAll(page.keys);
-      if (page.after == null) break;
-      after = page.after;
-    }
-    if (retry) continue;
-    if ((total != null && keys.length != total) || keys.toSet().length != keys.length) return false;
-    accepted = keys;
-    break;
-  }
-  if (accepted == null) return false;
   final s = store ?? await CommunityStore.open();
-  final at = isoUtc(now ?? DateTime.now());
-  await s.transaction((tx) async {
-    await tx.rawDelete(
-        'DELETE FROM server_completed WHERE dataset_key=?', [datasetKey]);
-    for (final key in accepted!) {
-      await tx.insert('server_completed', {
-        'dataset_key': datasetKey,
-        'key_prefix': key,
-        'fetched_at': at,
+  final suffix = newUuidV4().replaceAll('-', '');
+  final stage = 'sr_manifest_$suffix';
+  final cursors = '${stage}_cursors';
+  await s.db.execute('CREATE TEMP TABLE $stage (key_prefix TEXT PRIMARY KEY NOT NULL)');
+  try {
+    await s.db.execute('CREATE TEMP TABLE $cursors (cursor TEXT PRIMARY KEY NOT NULL)');
+    for (var attempt = 0; attempt < 3; attempt++) {
+      await s.db.delete(stage);
+      await s.db.delete(cursors);
+      String? token;
+      int? total;
+      String? after;
+      var count = 0;
+      var retry = false;
+      while (true) {
+        final page = await fetchPage(after, limit);
+        if (page == null || page.keys.length > limit || page.keys.any((k) => k.isEmpty)) return false;
+        if ((page.datasetKey != null && page.datasetKey != datasetKey) ||
+            (page.writerEpoch != null && page.writerEpoch != writerEpoch)) {
+          return false;
+        }
+        if (token == null) {
+          token = page.manifestToken;
+          total = page.total;
+          if (token.isEmpty || (total != null && total < 0)) return false;
+        } else if (page.manifestToken != token || page.total != total) {
+          retry = true;
+          break;
+        }
+        try {
+          await s.transaction((tx) async {
+            final batch = tx.batch();
+            for (final key in page.keys) { batch.insert(stage, {'key_prefix': key}, conflictAlgorithm: ConflictAlgorithm.abort); }
+            if (page.after != null) batch.insert(cursors, {'cursor': page.after}, conflictAlgorithm: ConflictAlgorithm.abort);
+            await batch.commit(noResult: true);
+          });
+        } on DatabaseException { return false; }
+        count += page.keys.length;
+        if (total != null && count > total) return false;
+        if (page.after == null) break;
+        if (page.keys.isEmpty || (total != null && count >= total)) return false;
+        after = page.after;
+      }
+      if (retry) continue;
+      if (total != null && count != total) return false;
+      final at = isoUtc(now ?? DateTime.now());
+      return await s.transaction((tx) async {
+        if (commitAllowed != null && !await commitAllowed(tx)) return false;
+        await tx.rawDelete('DELETE FROM server_completed WHERE dataset_key=?', [datasetKey]);
+        await tx.rawInsert('INSERT INTO server_completed(dataset_key,key_prefix,fetched_at) SELECT ?,key_prefix,? FROM $stage', [datasetKey, at]);
+        await s.setMeta('manifest_scope', '$datasetKey:$writerEpoch', tx);
+        return true;
       });
     }
-    await s.setMeta('manifest_scope', '$datasetKey:$writerEpoch', tx);
-  });
-  return true;
+    return false;
+  } finally {
+    await s.db.execute('DROP TABLE IF EXISTS temp.$cursors');
+    await s.db.execute('DROP TABLE IF EXISTS temp.$stage');
+  }
 }
 
 /// 삭제 대기 표시: journal 과 같은 community.db 의 meta 행(삭제별). 값 {"state":"prepared"|"confirmed"} — PC 와 같은 규칙.

@@ -58,16 +58,15 @@ void main() {
       },
     );
 
-    test('readAndClear returns empty list for malformed payload', () async {
+    test('malformed pending payload is retained and requires recovery', () async {
       SharedPreferences.setMockInitialValues({
         AppPrefsKeys.pendingCrawlChanges: '{not-json',
       });
 
-      final stored = await PendingChangesStore.readAndClear();
-      expect(stored, isEmpty);
+      await expectLater(PendingChangesStore.readAndClear(), throwsFormatException);
 
       final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString(AppPrefsKeys.pendingCrawlChanges), isNull);
+      expect(prefs.getString(AppPrefsKeys.pendingCrawlChanges), '{not-json');
     });
   });
 

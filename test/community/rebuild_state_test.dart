@@ -3,12 +3,15 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/community/community_store.dart';
+import 'package:safetyreport/community/capture/community_capture.dart';
 import 'package:safetyreport/community/rebuild/community_rebuild.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 class _FakeEngine extends RebuildEngine {
   _FakeEngine({this.outcome});
 
+  CommunityStore? store;
+  Future<void> Function(String runId)? afterItems;
   RebuildRunOutcome? outcome;
   Object? error;
   final List<String> runs = [];
@@ -17,13 +20,53 @@ class _FakeEngine extends RebuildEngine {
   Future<RebuildRunOutcome> run({required String runId}) async {
     runs.add(runId);
     if (error != null) throw error!;
-    return outcome ??
+    final result =
+        outcome ??
         const RebuildRunOutcome(
           listComplete: true,
           fetched: 5,
           permanentFailures: [],
           orphanCount: 2,
         );
+    if (result.listComplete) {
+      for (var i = 0; i < result.fetched; i++) {
+        final id = 'fetched-$i';
+        await capture(
+          {
+            'processing_status': '처리중',
+            'penalty_amount': '',
+            'report_date': '2026-09-01',
+            'response_date': '',
+            'processing_agency': '합성기관',
+            'person_in_charge': '',
+            'car_number': '',
+            'violation_location': '',
+            'entry_value': '',
+            'penalty_points': '',
+            'progress_status': '처리중',
+          },
+          sourceReportId: id,
+          trigger: 'rebuild',
+          rebuildRunId: runId,
+          store: store,
+          projectNamespace: 'fixture',
+        );
+        await store!.db.insert('rebuild_items', {
+          'run_id': runId,
+          'source_report_id': id,
+          'state': 'fetched',
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      for (final id in result.permanentFailures) {
+        await store!.db.insert('rebuild_items', {
+          'run_id': runId,
+          'source_report_id': id,
+          'state': 'failed_permanent',
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    }
+    await afterItems?.call(runId);
+    return result;
   }
 }
 
@@ -37,7 +80,10 @@ void main() {
   setUp(() async {
     tmp = await Directory.systemTemp.createTemp('rebuild_state_test');
     dbPath = '${tmp.path}/community.db';
-    store = await CommunityStore.open(path: dbPath, factory: databaseFactoryFfi);
+    store = await CommunityStore.open(
+      path: dbPath,
+      factory: databaseFactoryFfi,
+    );
   });
 
   tearDown(() async {
@@ -53,14 +99,18 @@ void main() {
     Future<bool> Function()? manifestCheck,
     String namespace = 'ns-1',
   }) {
+    engine ??= _FakeEngine();
+    engine.store = store;
     final rebuild = CommunityRebuild(
       store: store,
       localDatasetId: store.localDatasetId,
       sourceNamespace: () async => namespace,
       gateFresh: gateFresh ?? () async => true,
-      engine: engine ?? _FakeEngine(),
+      engine: engine,
       backup:
-          backup ?? (_) async => const RebuildBackupResult(ok: true, ref: 'b', check: 'ok'),
+          backup ??
+          (_) async =>
+              const RebuildBackupResult(ok: true, ref: 'b', check: 'ok'),
       manifestCheck: manifestCheck ?? () async => true,
     );
     addTearDown(rebuild.dispose);
@@ -98,7 +148,10 @@ void main() {
 
   test('G05: manifest failure blocks engine start', () async {
     final engine = _FakeEngine();
-    final rebuild = makeRebuild(engine: engine, manifestCheck: () async => false);
+    final rebuild = makeRebuild(
+      engine: engine,
+      manifestCheck: () async => false,
+    );
     expect(await rebuild.start(confirmedBy: 'user'), isFalse);
     expect((rebuild.job?['last_error'] as String?), 'manifest_unavailable');
     expect(engine.runs, isEmpty);
@@ -108,7 +161,8 @@ void main() {
     final engine = _FakeEngine();
     final rebuild = makeRebuild(
       engine: engine,
-      backup: (_) async => const RebuildBackupResult(ok: false, error: 'no_space'),
+      backup: (_) async =>
+          const RebuildBackupResult(ok: false, error: 'no_space'),
     );
     expect(await rebuild.start(confirmedBy: 'user'), isFalse);
     expect(rebuild.state, RebuildStates.failed);
@@ -166,6 +220,79 @@ void main() {
     await rebuild.resume();
     expect(rebuild.state, RebuildStates.completed);
   });
+
+  test(
+    'pending work cannot publish or complete despite a successful return',
+    () async {
+      final engine = _FakeEngine()
+        ..afterItems = (runId) async {
+          await store.db.insert('rebuild_items', {
+            'run_id': runId,
+            'source_report_id': 'late',
+            'state': 'failed_retryable',
+          });
+        };
+      final rebuild = makeRebuild(engine: engine);
+      expect(await rebuild.start(confirmedBy: 'user'), isFalse);
+      expect(rebuild.state, RebuildStates.paused);
+      expect(await store.meta('source_generation'), isNull);
+      expect(await store.db.query('report_latest'), isEmpty);
+    },
+  );
+
+  test(
+    'generation changes after scope await prevent final projection publication',
+    () async {
+      var generation = 0;
+      final engine = _FakeEngine()..store = store;
+      late final CommunityRebuild rebuild;
+      rebuild = CommunityRebuild(
+        store: store,
+        localDatasetId: store.localDatasetId,
+        scopeGeneration: () => generation,
+        sourceNamespace: () async {
+          if (rebuild.state == RebuildStates.validating) generation++;
+          return 'ns-1';
+        },
+        gateFresh: () async => true,
+        engine: engine,
+        backup: (_) async =>
+            const RebuildBackupResult(ok: true, ref: 'b', check: 'ok'),
+        manifestCheck: () async => true,
+      );
+      addTearDown(rebuild.dispose);
+      expect(await rebuild.start(confirmedBy: 'user'), isFalse);
+      expect(rebuild.state, RebuildStates.paused);
+      expect(await store.db.query('report_latest'), isEmpty);
+      expect(await store.meta('source_generation'), isNull);
+    },
+  );
+
+  test(
+    'gap acceptance rejects new pending work and preserves the previous projection',
+    () async {
+      final rebuild = makeRebuild(
+        engine: _FakeEngine(
+          outcome: const RebuildRunOutcome(
+            listComplete: true,
+            fetched: 1,
+            permanentFailures: ['missing'],
+            orphanCount: 0,
+          ),
+        ),
+      );
+      await rebuild.start(confirmedBy: 'user');
+      await store.db.insert('rebuild_items', {
+        'run_id': rebuild.job!['run_id'],
+        'source_report_id': 'late',
+        'state': 'pending',
+      });
+      await rebuild.acceptGaps();
+      expect(rebuild.state, RebuildStates.paused);
+      expect(await store.meta('source_generation'), isNull);
+      expect(await store.db.query('report_latest'), isEmpty);
+    },
+  );
 
   test('app restart resumes the same run', () async {
     final engine = _FakeEngine();

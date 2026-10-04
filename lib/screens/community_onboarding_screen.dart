@@ -106,8 +106,9 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
     } on CommunityAccountError catch (e) {
       if (mounted) setState(() => _policyError = e.message);
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(() => _policyError = '동의 문서를 불러오지 못했습니다. 잠시 뒤 다시 시도해 주세요.');
+      }
     } finally {
       if (mounted) setState(() => _policyLoading = false);
     }
@@ -139,8 +140,9 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
   bool get _canGoNext => _kakaoOk && _consentDone;
 
   String? get _blockedReason {
-    if (!_kakaoOk && !_consentDone)
+    if (!_kakaoOk && !_consentDone) {
       return '카카오 인증과 신고내용 공유 동의를 모두 완료하면 다음 단계로 이동할 수 있습니다.';
+    }
     if (!_kakaoOk) return '카카오 인증을 완료하면 다음 단계로 이동할 수 있습니다.';
     if (!_consentDone) return '신고내용 공유 동의를 완료하면 다음 단계로 이동할 수 있습니다.';
     return null;

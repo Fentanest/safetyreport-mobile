@@ -49,6 +49,14 @@ String _canonicalStatusLabel(String status) {
 
 const _recentAnswerStatuses = <String>{'수용', '일부수용', '불수용', '기타', '답변완료'};
 
+typedef _ReportPage = ({List<Report> reports, int total});
+
+class _PageRead {
+  final readers = <bool Function()>{};
+  late final Future<_ReportPage> future;
+  bool cancelled = false;
+}
+
 class ReportProvider with ChangeNotifier {
   AppMode _appMode = AppMode.server;
   AppThemeMode _themeMode = AppThemeMode.system;
@@ -635,7 +643,10 @@ class ReportProvider with ChangeNotifier {
   final _ratingInFlight = <String>{};
   bool _gatePassed = false;
 
+  final _serverPageInFlight = <(int, int, bool, String, int, int), _PageRead>{};
+
   void _resetDatasetView() {
+    _serverPageInFlight.clear();
     _stats = null;
     _trafficReports = [];
     _parkingReports = [];
@@ -730,6 +741,8 @@ class ReportProvider with ChangeNotifier {
 
   @override
   void dispose() {
+    _datasetEpoch++;
+    _serverPageInFlight.clear();
     _changesEmittedSub?.cancel();
     StandaloneAuthService.stopKeepAlive();
     super.dispose();
@@ -766,6 +779,9 @@ class ReportProvider with ChangeNotifier {
   }
 
   Future<void> setConfig(String url, String key) async {
+    SyncEngine.stop();
+    StandaloneAuthService.invalidateOperations();
+    await PermissionService.stopWsService();
     StandaloneAuthService.stopKeepAlive();
     unawaited(BackgroundLoginCheck.cancel());
     unawaited(
@@ -786,6 +802,10 @@ class ReportProvider with ChangeNotifier {
     _loadedCategories.clear();
 
     final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(
+      'native_config_generation',
+      (prefs.getInt('native_config_generation') ?? 0) + 1,
+    );
     await prefs.setString(AppPrefsKeys.appMode, AppMode.server.name);
     await prefs.setString(AppPrefsKeys.baseUrl, _baseUrl);
     await prefs.setString(AppPrefsKeys.apiKey, _apiKey);
@@ -793,6 +813,7 @@ class ReportProvider with ChangeNotifier {
     await LocalDbService.closeDb();
 
     notifyListeners();
+    if (_gatePassed && isConfigured) await PermissionService.startWsService();
   }
 
   Future<void> setStandaloneConfig(
@@ -800,6 +821,8 @@ class ReportProvider with ChangeNotifier {
     required String phoneNumber,
     bool isDemoMode = false,
   }) async {
+    SyncEngine.stop();
+    StandaloneAuthService.invalidateOperations();
     await PermissionService.stopWsService();
     final wasStandaloneLive =
         _appMode == AppMode.standalone && !_isStandaloneDemo;
@@ -835,6 +858,10 @@ class ReportProvider with ChangeNotifier {
     _loadedCategories.clear();
 
     final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(
+      'native_config_generation',
+      (prefs.getInt('native_config_generation') ?? 0) + 1,
+    );
     await prefs.setString(AppPrefsKeys.appMode, AppMode.standalone.name);
     await prefs.setString(AppPrefsKeys.standaloneUsername, username);
     await prefs.setString(
@@ -859,6 +886,8 @@ class ReportProvider with ChangeNotifier {
   }
 
   Future<void> resetConfig() async {
+    SyncEngine.stop();
+    StandaloneAuthService.invalidateOperations();
     await PermissionService.stopWsService();
     _gatePassed = false;
     StandaloneAuthService.stopKeepAlive();
@@ -980,6 +1009,54 @@ class ReportProvider with ChangeNotifier {
     String category, {
     int offset = 0,
     int limit = 200,
+    bool Function()? isCancelled,
+  }) {
+    final epoch = _datasetEpoch;
+    final key = (
+      epoch,
+      _statsRefreshNonce,
+      _useRepresentativeRecords,
+      category,
+      offset,
+      limit,
+    );
+    final reader = isCancelled ?? () => false;
+    var owner = _serverPageInFlight[key];
+    if (owner == null || owner.cancelled) {
+      final next = _PageRead();
+      next.readers.add(reader);
+      bool cancelled() {
+        if (epoch != _datasetEpoch || next.readers.every((r) => r())) {
+          next.cancelled = true;
+        }
+        return next.cancelled;
+      }
+
+      next.future =
+          _readServerPageOwned(
+            category,
+            offset: offset,
+            limit: limit,
+            isCancelled: cancelled,
+          ).whenComplete(() {
+            if (identical(_serverPageInFlight[key], next)) {
+              _serverPageInFlight.remove(key);
+            }
+          });
+      _serverPageInFlight[key] = next;
+      owner = next;
+    } else {
+      owner.readers.add(reader);
+    }
+    final pending = owner;
+    return pending.future.whenComplete(() => pending.readers.remove(reader));
+  }
+
+  Future<({List<Report> reports, int total})> _readServerPageOwned(
+    String category, {
+    int offset = 0,
+    int limit = 200,
+    bool Function()? isCancelled,
   }) async {
     final epoch = _datasetEpoch;
     final page = await _api.getReportsPage(
@@ -987,6 +1064,7 @@ class ReportProvider with ChangeNotifier {
       offset: offset,
       limit: limit,
       dedupe: _useRepresentativeRecords ? 'canonical' : 'raw',
+      isCancelled: isCancelled,
     );
     if (epoch == _datasetEpoch) {
       // Preserve custom values discovered on visible pages; keep only metadata.

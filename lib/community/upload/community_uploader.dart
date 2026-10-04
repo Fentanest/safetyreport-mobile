@@ -46,6 +46,15 @@ abstract class CommunityGateCheck {
   void invalidate(String reason);
 }
 
+/// Optional synchronous fence for a live foreground authentication owner.
+abstract class CommunityGenerationFence {
+  Object get generation;
+}
+
+abstract class CommunityScopeFence {
+  String? get contributorFingerprint;
+}
+
 /// 토큰 공급 (CommunityAuthService.getAccessTokenResult, 테스트는 가짜).
 abstract class CommunityTokenSource {
   /// [rejected]: 서버가 401 로 거절한 토큰. 주면 실제로 강제 갱신한다(같은 토큰을 다시 주지 않음).
@@ -324,8 +333,9 @@ class CommunityUploader {
   /// (realtime 이 연달아 먼저 시작해도 기다리는 manual/midnight/recovery 가 굶지 않는다 — PC `_effective_trigger` 와 같음).
   @visibleForTesting
   static String effectiveTrigger(String trigger) {
-    if (_enqueueTriggers.contains(trigger) || trigger == 'reshare')
+    if (_enqueueTriggers.contains(trigger) || trigger == 'reshare') {
       return trigger;
+    }
     for (final waiting in const ['midnight', 'recovery', 'manual']) {
       if ((_waitingEnqueue[waiting] ?? 0) > 0) return waiting;
     }
@@ -352,8 +362,9 @@ class CommunityUploader {
       // 앞선 실행이면 다시 돌아 새 실행을 시작하거나 뒤에 시작한 실행에 합류한다 — 재귀·무한 대기 없음(PC 와 같음).
       if (!_rerunTriggers.contains(trigger)) return joined;
       if (activeSeq > arrived &&
-          (trigger == 'reshare' || _enqueueTriggers.contains(activeTrigger)))
+          (trigger == 'reshare' || _enqueueTriggers.contains(activeTrigger))) {
         return joined;
+      }
     }
     trigger = effectiveTrigger(trigger);
     final done = Completer<UploadRunResult>();
@@ -571,8 +582,9 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
   static String _gateResult(String? state) {
     final s = state ?? '';
     if (s.contains('consent') || s.contains('suspend')) return 'needs_consent';
-    if (s.contains('kakao') || s.contains('session') || s.contains('auth'))
+    if (s.contains('kakao') || s.contains('session') || s.contains('auth')) {
       return 'needs_auth';
+    }
     return 'blocked_gate';
   }
 
@@ -626,7 +638,8 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
       return finish(_gateResult(gate.blockedState));
     }
     final ctx = await store.activeContext();
-    if (ctx == null) return finish('needs_auth');
+    if (ctx == null || (gate is CommunityScopeFence && (gate as CommunityScopeFence).contributorFingerprint != ctx['contributor_fingerprint'])) return finish('needs_auth');
+    if (gate is CommunityGenerationFence) ctx['_gateGeneration'] = (gate as CommunityGenerationFence).generation;
     final epoch = ctx['writer_epoch'];
     if (epoch is! int || epoch < 1) {
       state.errorCode = 'writer_epoch_missing'; // 지어낸 epoch 로 보내지 않는다
@@ -640,8 +653,9 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
       return finish('cooldown');
     }
     final owner = 'run:$runId:$trigger';
-    if (!await store.acquireLease('upload', owner, uploadLeaseDuration))
+    if (!await store.acquireLease('upload', owner, uploadLeaseDuration)) {
       return finish('busy_other_run');
+    }
     final client = CommunityIngestClient(
       supabaseUrl: supabaseUrl,
       publishableKey: publishableKey,
@@ -717,13 +731,17 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
         budgetHit = true; // 남은 것은 앱 제어기가 곧바로 이어서(요청 간격은 다음 실행도 지킨다)
         break;
       }
+      if (!await _sameScope(store, ctx)) {
+        state.errorCode = 'scope_changed';
+        return finish('blocked_gate');
+      }
       List<_Row> batch;
       if (run.queue.isNotEmpty) {
         batch = run.queue.removeAt(0);
       } else {
         final rows = await _frontRows(
           store,
-          (await store.activeContext()) ?? ctx,
+          ctx,
           isoUtc(_now()),
           pageRows,
           tried,
@@ -843,8 +861,9 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
         }
         if (interp.missing.isNotEmpty ||
             counts['dead']! > 0 ||
-            counts['blocked']! > 0)
+            counts['blocked']! > 0) {
           hadProblem = true;
+        }
         continue;
       }
       final outcome = await _applyError(
@@ -860,8 +879,9 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
         '진행: 전송 ${counts['sent']}건, 확인 ${counts['acked']}건, 재시도 ${counts['retry']}건'
         '${state.errorCode == null ? '' : ' (${state.errorCode})'}',
       );
-      if (outcome == 'continue')
+      if (outcome == 'continue') {
         continue; // 이분·대조는 문제가 아니다 — 최종 결과는 격리·차단·재시도 집계로 정한다
+      }
       await _holdSuspects(store, run, state);
       return finish(outcome);
     }
@@ -945,7 +965,9 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
         policy.errorOf('request_too_large', null, code: 'payload_too_large'),
       );
     }
-    await _markInFlight(store, batch, owner);
+    if (!await _sameScope(store, ctx) || !await _markInFlight(store, batch, owner, ctx)) {
+      return (const _Sent(notSent: true), policy.errorOf('auth_required', null, code: 'scope_changed'));
+    }
     counts['requests'] = counts['requests']! + 1;
     counts['sent'] = counts['sent']! + batch.length;
     final transport = await client.postEnvelopeBytes(token, body);
@@ -956,8 +978,9 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
       transport.body,
       _now(),
     );
-    if (interp.requestId != null && interp.requestId!.isNotEmpty)
+    if (interp.requestId != null && interp.requestId!.isNotEmpty) {
       requestIds.add(interp.requestId!);
+    }
     return (_Sent(token: token, httpStatus: transport.status), interp);
   }
 
@@ -996,8 +1019,9 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
       if (ambiguous && !run.succeeded) {
         // 단건 schema_invalid/invalid_request 인데 이번 실행에서 정상 저장된 것이 없다 → envelope 공통 문제일 수 있다.
         run.suspects.add((batch.first, code));
-        if (run.suspects.length >= 2)
+        if (run.suspects.length >= 2) {
           return 'failed'; // 다른 이벤트도 같은 거절 → 공통 문제: 버리지 않고 모두 보류(_holdSuspects)
+        }
         run.singleNext = true; // 다음 이벤트 하나로 대조
         return 'continue';
       }
@@ -1445,22 +1469,36 @@ OR j.connection_id IS NOT ? OR j.consent_grant_id IS NOT ?)
   });
 
   /// 실제 HTTP 요청 직전: 이 요청의 이벤트만 attempt_count+1(UC-1 §1-3).
-  Future<void> _markInFlight(
-    CommunityStore store,
-    List<_Row> rows,
-    String owner,
-  ) {
+  static const _scopeFields = ['connection_id','dataset_key','writer_epoch','contributor_fingerprint','consent_grant_id'];
+
+  bool _sameGeneration(Map<String, Object?> ctx) =>
+      (gate is! CommunityGenerationFence || (gate as CommunityGenerationFence).generation == ctx['_gateGeneration']) &&
+      (gate is! CommunityScopeFence || (gate as CommunityScopeFence).contributorFingerprint == ctx['contributor_fingerprint']);
+
+  Future<bool> _sameScope(CommunityStore store, Map<String, Object?> ctx) async {
+    if (await appMode() != AppMode.standalone || await _demoMode()) return false;
+    if (!await gate.requireFresh()) return false;
+    final current = await store.activeContext();
+    return _sameGeneration(ctx) && current != null && _scopeFields.every((key) => current[key] == ctx[key]);
+  }
+
+  Future<bool> _markInFlight(CommunityStore store, List<_Row> rows, String owner, Map<String, Object?> ctx) async {
     final until = isoUtc(_now().add(uploadLeaseDuration));
-    return store.transaction((tx) async {
-      for (final row in rows) {
-        await tx.rawUpdate(
-          "UPDATE outbox SET state='in_flight', attempt_count=attempt_count+1, lease_owner=?, lease_until=?"
-          ' WHERE event_id=?',
-          [owner, until, row.eventId],
-        );
-        row.attempts = row.attempts + 1;
-      }
-    });
+    try {
+      await store.transaction((tx) async {
+        final contexts = await tx.query('context', where: 'id=1 AND state=?', whereArgs: ['active']);
+        final leases = await tx.query('leases', where: 'name=? AND owner=? AND until>?', whereArgs: ['upload', owner, isoUtc(DateTime.now())]);
+        if (!_sameGeneration(ctx) || contexts.isEmpty || leases.isEmpty || !_scopeFields.every((key) => contexts.single[key] == ctx[key])) throw StateError('scope_changed');
+        for (final row in rows) {
+          final n = await tx.rawUpdate("UPDATE outbox SET state='in_flight', attempt_count=attempt_count+1, lease_owner=?, lease_until=? WHERE event_id=? AND (state IN ('pending','retry_wait','auth_required') OR (state='in_flight' AND lease_owner=?)) AND event_id IN (SELECT event_id FROM source_journal WHERE source_revision=? AND acked_at IS NULL)", [owner, until, row.eventId, owner, row.data['source_revision']]);
+          if (n != 1) throw StateError('outbox_claim_changed');
+        }
+      });
+      for (final row in rows) { row.attempts = row.attempts + 1; }
+      return true;
+    } on StateError {
+      return false;
+    }
   }
 
   /// [owner] 를 주면 그 실행이 잡고 있는 in_flight 행만 바꾼다(lease 를 잃은 뒤 새 실행이 회수한 행을 덮지 않게).

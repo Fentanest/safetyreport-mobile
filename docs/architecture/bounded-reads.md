@@ -30,6 +30,8 @@ Standalone 중복 관리: 전체 상태 COUNT와 50그룹 페이지, 각 그룹 
 
 ## 무효화와 비동기 결과
 
+Client 단일 분류는 limit=200 응답의 정확한 total을 사용한다. 동일 epoch·필터·분류·offset·limit의 진행 중 요청만 공유하며, 완료 후 재조회는 새 total을 받는다. 각 화면의 취소 조건을 등록하고 모든 소비자가 취소하거나 datasetEpoch가 바뀌면 해당 요청의 소유 Client를 닫는다. 한 소비자의 취소로 다른 소비자의 연결을 닫지 않는다. 호환성 probe는 별도 공유 수명이며 진행 중 native SQL 즉시 중단과 같은 보장을 하지 않는다. 전체 분류의 메타 조회와 서버 full-response 경로는 공동 계약 확정 전 유지한다.
+
 캐시는 요약 4개, 통계 4개, 지도 8개 및 전체 지도 메타 4개 결과로 한정한다. 키에는 DB 연결 identity, TEMP 쓰기 revision(원문·수정값·중복·sync_meta 트리거), `PRAGMA data_version`(다른 연결의 변경), registry snapshot identity, 필터·중복 모드를 넣는다. 지도 범위/줌, 요약의 현재 날짜도 키에 포함한다. 전체 지도 메타는 viewport와 독립된 scope 키로 재사용하며, viewport 단계가 취소돼도 이미 계산한 작은 메타를 재사용한다. 건수만으로 판정하지 않는다. DB 닫기·복원은 캐시를 비우고 새 연결을 사용한다. 조회 중 revision이 바뀐 결과는 재사용하지 않는다.
 
 Provider의 `datasetEpoch`는 모드·계정·주소/키·게이트·Standalone 공통 필터 변경마다 증가한다. 화면별 요청 sequence와 epoch로 늦게 도착한 결과를 버린다. Client 차단 시 화면 자료를 비우지만 로컬 DB를 삭제하지 않는다. 통계 탭의 TickerMode 비활성화·dispose는 취소를 전달하고 복귀 시 다시 조회한다. 로컬 요약도 트랜잭션 대기 후 취소를 확인한다. 변경 후 refreshAll은 진행 중이던 이전 요약 완료를 기다린 다음 현재 revision으로 다시 조회한다. 로컬 요약의 5초 제한은 제거했다. 5초는 측정 목표이며, 준비 중에도 탐색이 가능하도록 한다.
@@ -57,3 +59,14 @@ Client는 정상 서버 DB를 `.part` 스트리밍→완료 임시 파일로 만
 완료 결과는 실제 content URI·파일명·저장 위치다. foreground는 완료 Snackbar의 위치 열기와 자동 파일 화면 전환, background는 완료 알림 클릭으로 연다. MediaStore가 돌려준 실제 document URI를 얻을 수 있으면 EXTRA_INITIAL_URI로 시작하고, 얻을 수 없으면 시스템 Downloads/문서 화면으로 대체한다. URI를 파일 경로로 추측하지 않는다. 파일 강조는 파일 앱마다 달라 보장하지 않는다. 위치 열기 실패는 파일명/위치와 파일 열기·공유 대체 동작을 보여 준다.
 
 정식 URI/초기 위치 동작의 근거: [Android 문서 파일 가이드](https://developer.android.com/training/data-storage/shared/documents-files), [MediaStore API](https://developer.android.com/reference/android/provider/MediaStore#getDocumentUri(android.content.Context,%20android.net.Uri)).
+
+## 코드 대조 정정: snapshot·동기화·표 계산
+
+- `database_snapshot.dart`는 외부 DB를 read-only read transaction으로 열고 메인/WAL의 같은 snapshot을 128행씩 사본에 복사한다. rowid -1/0, WITHOUT ROWID, BLOB·NULL·빈 값과 opaque 컬럼을 보존하며 값을 타입과 함께 대조한다. 실패 시 private 미완료 사본만 지우고 원본 checkpoint·sidecar 삭제를 하지 않는다. read-only transaction을 지원하지 않는 런타임은 실패로 중단한다.
+- 서버 import는 ID 충돌·orphan·빈/부정확한 타입을 preflight에서 거절한다. 페이지별 교환 모든 컬럼 대조 후에만 개인 파일을 바꾼다. `local_database_exchange.dart`의 private journal이 이전 정상본·dataset/history·다음 dataset과 파일 해시를 연결한다. published marker는 뒤늦은 사용자 쓰기를 예전 사본으로 되돌리지 않는다. 알 수 없는 파일 변경이나 손상 복구 사본은 보존하고 중단한다.
+- 교환 전체 준비/발행은 file fence 안에서 수행한다. 준비 시 목적지와 계정을 캡처하고 발행 시 재검사한다. 교환 schema5/16과 프로토콜3·컬럼 의미는 변경하지 않는다.
+- `sync_inventory.dart`의 listComplete는 순회 완료이며 authoritative와 다르다. 현 offset API에는 안정된 snapshot token이 없으므로 부재 기반 삭제를 승인하지 않는다. invalid/중복/short page면 상세 저장·dataset 선회전을 시작하지 않는다.
+- `sync_run_stage.dart`는 200행 TEMP 페이지와 ID UNIQUE 검사를 사용한다. 이전 상태·재조회 대상·이번 capture event 연결을 SQLite에 두고 전송 진행을 실제 journal/outbox JOIN으로 계산한다. 중간 ACK를 자체 카운터나 추정값으로 대체하지 않는다. 원래 상세 간격과 건별 중복 projection을 유지한다. 알림 변경 결과는 기존 공개 계약대로 보관하므로 그 목록까지 고정 메모리라고 주장하지 않는다.
+- 통계의 private 누산기는 `local_statistics.dart` part로 분리되어 같은 Dart library에서 기존 facade와 계산 의미를 유지한다. 결과 identity와 필터/정렬이 같으면 화면 표 계산을 재사용한다. 미검증 RowMetrics·cold index 변경·giant 중복 fast path·checkpoint coalescing은 기존 bounded oracle을 대체하지 않는다.
+- 지도 unknown은 겹칠 수 있는 처분 집합의 합을 total에서 빼지 않고 직접 union predicate로 센다. missing 목록과 지도는 finite numeric 세계 좌표 범위를 공유한다. 기관별 처리기간은 엄격한 UTC 달력 날짜를 사용하며 잘못된 날짜의 건은 기간 표본에서만 제외한다.
+- 첨부 private cache는 scope+전체 URI의 SHA256과 검증한 content hash를 사용한다. `.part`를 stream으로 쓰고 주기적 flush로 압력을 제한한 뒤 길이·해시를 확인하여 immutable 파일을 공개한다. filename만 같다고 동일 첨부로 보지 않으며 취소·timeout은 소유 transport를 닫는다. 캐시 보관량 정책은 기기 디스크 측정 전 별도 보류다.

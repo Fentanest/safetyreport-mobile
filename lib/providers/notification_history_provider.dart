@@ -291,10 +291,12 @@ class NotificationHistoryProvider with ChangeNotifier {
       _items = [...fresh, ..._items];
     }
     if (_items.length > _maxItems) _items = _items.sublist(0, _maxItems);
-    await prefs.setString(
+    if (!await prefs.setString(
       _key,
       jsonEncode(_items.map((i) => i.toJson()).toList()),
-    );
+    )) {
+      throw StateError('notification history handoff failed');
+    }
     await PrefsInbox.remove(prefs, inbox.map((e) => e.key));
   }
 

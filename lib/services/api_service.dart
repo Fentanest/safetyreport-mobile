@@ -74,15 +74,39 @@ class ApiService {
   Map<String, String> get _headers => ServerContract.apiHeaders(apiKey);
 
   Future<http.Response> _sendWithRetry(
-    Future<http.Response> Function() request, {
+    Future<http.Response> Function(http.Client) request, {
+    bool retry = true,
     Duration timeout = const Duration(seconds: 20),
+    bool Function()? isCancelled,
   }) async {
+    void checkCancelled() {
+      if (isCancelled?.call() == true) throw const QueryCancelled();
+    }
+
+    checkCancelled();
     await ClientCompatibility.ensure(baseUrl, apiKey);
+    checkCancelled();
     Object? lastError;
-    for (var attempt = 1; attempt <= mobileMaxRetryAttempts; attempt++) {
+    final attempts = retry ? mobileMaxRetryAttempts : 1;
+    for (var attempt = 1; attempt <= attempts; attempt++) {
+      checkCancelled();
+      final owned = http.Client();
+      final cancelled = Completer<http.Response>();
+      final poll = isCancelled == null
+          ? null
+          : Timer.periodic(const Duration(milliseconds: 50), (_) {
+              if (isCancelled() && !cancelled.isCompleted) {
+                owned.close();
+                cancelled.completeError(const QueryCancelled());
+              }
+            });
       try {
         final networkTimer = Stopwatch()..start();
-        final response = await request().timeout(timeout);
+        final response = await Future.any([
+          request(owned),
+          cancelled.future,
+        ]).timeout(timeout);
+        checkCancelled();
         PerformanceTrace.record('client.http_request_and_buffer', networkTimer);
         if (response.statusCode == 409) {
           final message = ServerConnectionService.upgradeMessage(response.body);
@@ -97,8 +121,11 @@ class ApiService {
         lastError = e;
       } on TimeoutException catch (e) {
         lastError = e;
+      } finally {
+        poll?.cancel();
+        owned.close();
       }
-      if (attempt < mobileMaxRetryAttempts) {
+      if (attempt < attempts) {
         await Future.delayed(const Duration(seconds: mobileRetryDelaySeconds));
       }
     }
@@ -173,7 +200,7 @@ class ApiService {
 
   Future<DashboardStats> getSummary() async {
     final response = await _sendWithRetry(
-      () => http.get(
+      (client) => client.get(
         ServerContract.apiUri(baseUrl, ServerContract.summaryPath),
         headers: _headers,
       ),
@@ -194,6 +221,7 @@ class ApiService {
     int offset = 0,
     int limit = 200,
     String dedupe = 'canonical',
+    bool Function()? isCancelled,
   }) async {
     if (!['traffic', 'parking', 'other'].contains(category) ||
         offset < 0 ||
@@ -211,8 +239,10 @@ class ApiService {
       },
     );
     final response = await _sendWithRetry(
-      () => http.get(uri, headers: _headers),
+      (client) => client.get(uri, headers: _headers),
+      isCancelled: isCancelled,
     );
+    if (isCancelled?.call() == true) throw const QueryCancelled();
     if (response.statusCode == 404) {
       throw const ApiFeatureUnavailableException(
         'PC 서버에 페이지 조회 기능이 없습니다. PC 서버를 업데이트하세요.',
@@ -251,7 +281,7 @@ class ApiService {
           : {'dedupe': dedupe},
     );
     final response = await _sendWithRetry(
-      () => http.get(uri, headers: _headers),
+      (client) => client.get(uri, headers: _headers),
     );
     if (response.statusCode == 200) {
       final json = _decodeResponse(response);
@@ -275,7 +305,7 @@ class ApiService {
 
   Future<List<DuplicateGroup>> getDuplicateGroups({String? status}) async {
     final response = await _sendWithRetry(
-      () => http.get(
+      (client) => client.get(
         ServerContract.apiUri(
           baseUrl,
           ServerContract.duplicateGroupsPath,
@@ -312,7 +342,7 @@ class ApiService {
     String? note,
   }) async {
     final response = await _sendWithRetry(
-      () => http.post(
+      (client) => client.post(
         ServerContract.apiUri(
           baseUrl,
           ServerContract.duplicateGroupPath(groupId),
@@ -333,7 +363,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> getEditorSchema() async {
     final response = await _sendWithRetry(
-      () => http.get(
+      (client) => client.get(
         ServerContract.apiUri(baseUrl, ServerContract.editorSchemaPath),
         headers: _headers,
       ),
@@ -355,7 +385,7 @@ class ApiService {
     String recordId,
   ) async {
     final response = await _sendWithRetry(
-      () => http.get(
+      (client) => client.get(
         ServerContract.apiUri(
           baseUrl,
           ServerContract.editorRecordPath(category, recordId),
@@ -381,7 +411,7 @@ class ApiService {
     Map<String, dynamic> values,
   ) async {
     final response = await _sendWithRetry(
-      () => http.post(
+      (client) => client.post(
         ServerContract.apiUri(
           baseUrl,
           ServerContract.editorRecordPath(category, recordId),
@@ -407,7 +437,7 @@ class ApiService {
       queryParameters: path.isNotEmpty ? {'path': path} : null,
     );
     final response = await _sendWithRetry(
-      () => http.get(uri, headers: _headers),
+      (client) => client.get(uri, headers: _headers),
     );
     if (response.statusCode == 200) {
       final json = _decodeResponse(response);
@@ -425,7 +455,7 @@ class ApiService {
       queryParameters: {'path': path},
     );
     final response = await _sendWithRetry(
-      () => http.get(
+      (client) => client.get(
         uri,
         headers: ServerContract.apiHeaders(
           apiKey,
@@ -450,7 +480,7 @@ class ApiService {
 
   Future<DownloadedFilePayload> downloadFilesArchive(List<String> paths) async {
     final response = await _sendWithRetry(
-      () => http.post(
+      (client) => client.post(
         ServerContract.apiUri(baseUrl, ServerContract.filesMultiDownloadPath),
         headers: _headers,
         body: jsonEncode({'paths': paths}),
@@ -476,7 +506,7 @@ class ApiService {
 
   Future<DeleteFilesResult> deleteFiles(List<String> paths) async {
     final response = await _sendWithRetry(
-      () => http.post(
+      (client) => client.post(
         ServerContract.apiUri(baseUrl, ServerContract.filesDeleteMultiPath),
         headers: _headers,
         body: jsonEncode({'paths': paths}),
@@ -504,7 +534,7 @@ class ApiService {
   Future<({List<String> statuses, List<String> laws})>
   getFilterOptions() async {
     final response = await _sendWithRetry(
-      () => http.get(
+      (client) => client.get(
         ServerContract.apiUri(baseUrl, ServerContract.statsOverviewPath),
         headers: _headers,
       ),
@@ -535,7 +565,7 @@ class ApiService {
       queryParameters: params.isNotEmpty ? params : null,
     );
     final response = await _sendWithRetry(
-      () => http.get(uri, headers: _headers),
+      (client) => client.get(uri, headers: _headers),
     );
     if (response.statusCode == 404) {
       throw const ApiFeatureUnavailableException(
@@ -559,7 +589,7 @@ class ApiService {
       queryParameters: params.isNotEmpty ? params : null,
     );
     final response = await _sendWithRetry(
-      () => http.get(uri, headers: _headers),
+      (client) => client.get(uri, headers: _headers),
     );
     if (response.statusCode == 200) {
       final json = _decodeResponse(response);
@@ -590,7 +620,7 @@ class ApiService {
       queryParameters: params.isNotEmpty ? params : null,
     );
     final response = await _sendWithRetry(
-      () => http.get(uri, headers: _headers),
+      (client) => client.get(uri, headers: _headers),
       timeout: const Duration(minutes: 2),
     );
     if (response.statusCode == 404) {
@@ -613,7 +643,7 @@ class ApiService {
 
   Future<GeocodeBackfillProgress> getReportMapProgress() async {
     final response = await _sendWithRetry(
-      () => http.get(
+      (client) => client.get(
         ServerContract.apiUri(baseUrl, ServerContract.statsMapProgressPath),
         headers: _headers,
       ),
@@ -642,7 +672,7 @@ class ApiService {
       queryParameters: params.isNotEmpty ? params : null,
     );
     final response = await _sendWithRetry(
-      () => http.get(uri, headers: _headers),
+      (client) => client.get(uri, headers: _headers),
       timeout: const Duration(minutes: 2),
     );
     if (response.statusCode == 200) {
@@ -657,7 +687,7 @@ class ApiService {
 
   Future<SunwiPayload> getSunwiPayload() async {
     final response = await _sendWithRetry(
-      () => http.get(
+      (client) => client.get(
         ServerContract.apiUri(baseUrl, ServerContract.sunwiPayloadPath),
         headers: _headers,
       ),
@@ -672,7 +702,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> exportSunwiCsv(String kind) async {
     final response = await _sendWithRetry(
-      () => http.post(
+      (client) => client.post(
         ServerContract.apiUri(baseUrl, ServerContract.sunwiExportPath(kind)),
         headers: _headers,
       ),
@@ -686,7 +716,7 @@ class ApiService {
 
   Future<List<Report>> getWatchlist() async {
     final response = await _sendWithRetry(
-      () => http.get(
+      (client) => client.get(
         ServerContract.apiUri(baseUrl, ServerContract.watchlistPath),
         headers: _headers,
       ),
@@ -705,7 +735,7 @@ class ApiService {
     bool add = false,
   }) async {
     final response = await _sendWithRetry(
-      () => http.post(
+      (client) => client.post(
         ServerContract.apiUri(baseUrl, ServerContract.watchlistPath),
         headers: _headers,
         body: jsonEncode({
@@ -721,11 +751,12 @@ class ApiService {
 
   Future<void> enqueueCrawl(String reportNumber) async {
     final response = await _sendWithRetry(
-      () => http.post(
+      (client) => client.post(
         ServerContract.apiUri(baseUrl, ServerContract.crawlEnqueuePath),
         headers: _headers,
         body: jsonEncode({'report_number': reportNumber}),
       ),
+      retry: false,
     );
     if (response.statusCode != 200) {
       // 서버가 이유를 주면 그대로 보인다(예: 여러 신고에 걸리는 번호 400 — 서버 감사 R8-02).
@@ -742,7 +773,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> getCrawlStatus() async {
     final response = await _sendWithRetry(
-      () => http.get(
+      (client) => client.get(
         ServerContract.apiUri(baseUrl, ServerContract.crawlStatusPath),
         headers: _headers,
       ),
@@ -755,7 +786,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> getCrawlDone() async {
     final response = await _sendWithRetry(
-      () => http.get(
+      (client) => client.get(
         ServerContract.apiUri(baseUrl, ServerContract.crawlDonePath),
         headers: _headers,
       ),
@@ -790,7 +821,7 @@ class ApiService {
     // 기기별 읽은 위치(서버 결정 D-5). 구서버는 모르는 매개변수를 무시하고 예전처럼 응답한다.
     final deviceId = await deviceInstallId();
     final response = await _sendWithRetry(
-      () => http.get(
+      (client) => client.get(
         ServerContract.apiUri(
           baseUrl,
           ServerContract.crawlResultsPath,
@@ -808,7 +839,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> getCrawlConfig() async {
     final response = await _sendWithRetry(
-      () => http.get(
+      (client) => client.get(
         ServerContract.apiUri(baseUrl, ServerContract.crawlConfigPath),
         headers: _headers,
       ),
@@ -826,7 +857,7 @@ class ApiService {
     required String queueList,
   }) async {
     final response = await _sendWithRetry(
-      () => http.post(
+      (client) => client.post(
         ServerContract.apiUri(baseUrl, ServerContract.crawlStartPath),
         headers: _headers,
         body: jsonEncode({'crawl_mode': crawlMode, 'queue_list': queueList}),
@@ -841,7 +872,7 @@ class ApiService {
 
   Future<void> killCrawl() async {
     final response = await _sendWithRetry(
-      () => http.post(
+      (client) => client.post(
         ServerContract.apiUri(baseUrl, ServerContract.crawlKillPath),
         headers: _headers,
       ),
@@ -854,7 +885,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> getAppConfig() async {
     final response = await _sendWithRetry(
-      () => http.get(
+      (client) => client.get(
         ServerContract.apiUri(baseUrl, ServerContract.appConfigPath),
         headers: _headers,
       ),
@@ -974,7 +1005,7 @@ class ApiService {
 
   Future<void> updateSettings(Map<String, dynamic> settings) async {
     final response = await _sendWithRetry(
-      () => http.post(
+      (client) => client.post(
         ServerContract.apiUri(baseUrl, ServerContract.settingsPath),
         headers: _headers,
         body: jsonEncode(settings),
@@ -991,7 +1022,7 @@ class ApiService {
     String cause = '',
   }) async {
     final response = await _sendWithRetry(
-      () => http.post(
+      (client) => client.post(
         ServerContract.apiUri(baseUrl, ServerContract.ratingStartPath),
         headers: _headers,
         body: jsonEncode({
@@ -1030,7 +1061,7 @@ class ApiService {
       queryParameters: {'path': 'logs/current_rating.log'},
     );
     final response = await _sendWithRetry(
-      () => http.get(
+      (client) => client.get(
         uri,
         headers: ServerContract.apiHeaders(
           apiKey,

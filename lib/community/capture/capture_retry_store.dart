@@ -5,25 +5,100 @@
 // 원자적 쓰기(임시 파일 → rename).
 import 'dart:convert';
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 
 import '../community_store.dart';
 import 'community_capture.dart';
 
 class CaptureRetryStore {
-  /// 증분 선정에 항상 포함할 ID 집합.
-  static Future<Set<String>> captureRetryIds(File file) async {
-    try {
-      if (!await file.exists()) return <String>{};
-      final raw = await file.readAsString();
-      final list = jsonDecode(raw) as List;
-      return list
-          .whereType<Map>()
-          .map((e) => e['source_report_id']?.toString() ?? '')
-          .where((id) => id.isNotEmpty)
-          .toSet();
-    } catch (_) {
-      return <String>{};
+  static Directory _events(File legacy) =>
+      Directory('${legacy.path}.events-v1');
+
+  static Future<List<Map<String, Object?>>> _legacy(File file) async {
+    if (!await file.exists()) return [];
+    final value = jsonDecode(await file.readAsString());
+    if (value is! List ||
+        value.any(
+          (e) =>
+              e is! Map ||
+              e['source_report_id'] is! String ||
+              (e['source_report_id'] as String).isEmpty,
+        )) {
+      throw const FormatException('capture retry journal is malformed');
     }
+    return value.map((e) => Map<String, Object?>.from(e as Map)).toList();
+  }
+
+  static Future<List<Map<String, Object?>>> _records(File file) async {
+    final folder = _events(file);
+    if (!await folder.exists()) return [];
+    final records = <Map<String, Object?>>[];
+    await for (final entry in folder.list()) {
+      if (entry is! File || !entry.path.endsWith('.json')) continue;
+      Object? value;
+      try {
+        value = jsonDecode(await entry.readAsString());
+      } on FileSystemException catch (e) {
+        if (e.osError?.errorCode == 2) continue;
+        rethrow;
+      }
+      if (value is! Map ||
+          value['format_version'] != 1 ||
+          !['add', 'ack'].contains(value['kind']) ||
+          value['source_report_id'] is! String ||
+          (value['source_report_id'] as String).isEmpty ||
+          value['event_id'] is! String) {
+        throw const FormatException('capture retry event is malformed');
+      }
+      if (!RegExp(r'^[a-f0-9-]{36}$').hasMatch(value['event_id'] as String) ||
+          !entry.path.endsWith('/${value['event_id']}.json')) {
+        throw const FormatException('capture event identity malformed');
+      }
+      if (value['kind'] == 'ack' &&
+          (value['observed'] is! List ||
+              (value['observed'] as List).any((v) => v is! String))) {
+        throw const FormatException('capture retry ACK is malformed');
+      }
+      records.add(Map<String, Object?>.from(value));
+    }
+    final owners = <String, String>{
+      for (final row in records.where((r) => r['kind'] == 'add'))
+        row['event_id'] as String: row['source_report_id'] as String,
+      for (final row in await _legacy(file))
+        _legacyKey(row): row['source_report_id'] as String,
+    };
+    for (final ack in records.where((r) => r['kind'] == 'ack')) {
+      for (final id in (ack['observed'] as List).cast<String>()) {
+        if (!(RegExp(r'^[a-f0-9-]{36}$').hasMatch(id) ||
+                RegExp(r'^legacy:[a-f0-9]{64}$').hasMatch(id)) ||
+            (owners.containsKey(id) && owners[id] != ack['source_report_id'])) {
+          throw const FormatException('capture ACK source mismatch');
+        }
+      }
+    }
+    return records;
+  }
+
+  static String _legacyKey(Map<String, Object?> row) =>
+      'legacy:${sha256.convert(utf8.encode(jsonEncode(row)))}';
+
+  /// Immutable add/ACK records avoid read-modify-write across isolates and
+  /// processes. Linux advisory file locks alone do not serialize isolates.
+  static Future<Set<String>> captureRetryIds(File file) async {
+    final legacy = await _legacy(file);
+    final records = await _records(file);
+    final acknowledged = <String>{
+      for (final r in records.where((r) => r['kind'] == 'ack'))
+        ...(r['observed'] as List).cast<String>(),
+    };
+    return {
+      for (final row in legacy)
+        if (!acknowledged.contains(_legacyKey(row)))
+          row['source_report_id'] as String,
+      for (final row in records.where((r) => r['kind'] == 'add'))
+        if (!acknowledged.contains(row['event_id']))
+          row['source_report_id'] as String,
+    };
   }
 
   static Future<void> addIntent(
@@ -32,62 +107,97 @@ class CaptureRetryStore {
     String reason, {
     DateTime? now,
   }) async {
-    List<Map<String, Object?>> entries = [];
-    try {
-      if (await file.exists()) {
-        final raw = await file.readAsString();
-        entries = (jsonDecode(raw) as List)
-            .whereType<Map>()
-            .map((e) => Map<String, Object?>.from(e))
-            .toList();
-      }
-    } catch (_) {
-      entries = [];
+    if (sourceReportId.isEmpty) {
+      throw const FormatException('empty capture source ID');
     }
-    final at = isoUtc(now ?? DateTime.now());
-    var found = false;
-    for (final e in entries) {
-      if (e['source_report_id'] == sourceReportId) {
-        e['reason'] = reason;
-        e['failed_at'] = at;
-        e['attempts'] = ((e['attempts'] as int?) ?? 0) + 1;
-        found = true;
-      }
-    }
-    if (!found) {
-      entries.add({
-        'source_report_id': sourceReportId,
-        'reason': reason,
-        'failed_at': at,
-        'attempts': 1,
-      });
-    }
-    await _writeAtomic(file, entries);
+    await _legacy(file);
+    final records = await _records(
+      file,
+    ); // Corrupt obligations never become empty.
+    await _retireAcknowledged(file, records);
+    await _append(file, {
+      'kind': 'add',
+      'source_report_id': sourceReportId,
+      'reason': reason,
+      'failed_at': isoUtc(now ?? DateTime.now()),
+    });
   }
 
+  /// A newer intent published after this snapshot cannot be acknowledged.
   static Future<void> removeIntent(File file, String sourceReportId) async {
-    List<Map<String, Object?>> entries = [];
-    try {
-      if (!await file.exists()) return;
-      final raw = await file.readAsString();
-      entries = (jsonDecode(raw) as List)
-          .whereType<Map>()
-          .map((e) => Map<String, Object?>.from(e))
-          .toList();
-    } catch (_) {
-      return;
+    final legacy = await _legacy(file);
+    final records = await _records(file);
+    final observed = [
+      for (final row in legacy)
+        if (row['source_report_id'] == sourceReportId) _legacyKey(row),
+      for (final row in records)
+        if (row['kind'] == 'add' && row['source_report_id'] == sourceReportId)
+          row['event_id'] as String,
+    ];
+    if (observed.isNotEmpty) {
+      final ack = await _append(file, {
+        'kind': 'ack',
+        'source_report_id': sourceReportId,
+        'observed': observed,
+      });
+      await _retireAcknowledged(file, [ack]);
     }
-    entries.removeWhere((e) => e['source_report_id'] == sourceReportId);
-    await _writeAtomic(file, entries);
   }
 
-  static Future<void> _writeAtomic(
-      File file, List<Map<String, Object?>> entries) async {
-    final parent = file.parent;
-    if (!await parent.exists()) await parent.create(recursive: true);
-    final tmp = File('${file.path}.tmp.${DateTime.now().microsecondsSinceEpoch}');
-    await tmp.writeAsString(jsonEncode(entries), flush: true);
-    await tmp.rename(file.path);
+  static Future<void> _retireAcknowledged(
+    File file,
+    List<Map<String, Object?>> records,
+  ) async {
+    for (final ack in records.where((r) => r['kind'] == 'ack')) {
+      final observed = (ack['observed'] as List).cast<String>();
+      for (final id in observed.where((id) => !id.startsWith('legacy:'))) {
+        if (!RegExp(r'^[a-f0-9-]{36}$').hasMatch(id)) {
+          throw const FormatException('invalid capture ACK identity');
+        }
+        final retired = File('${_events(file).path}/$id.json');
+        try {
+          final add = jsonDecode(await retired.readAsString());
+          if (add is! Map ||
+              add['kind'] != 'add' ||
+              add['event_id'] != id ||
+              add['source_report_id'] != ack['source_report_id']) {
+            throw const FormatException('capture ACK source mismatch');
+          }
+          await retired.delete();
+        } on FileSystemException catch (e) {
+          if (e.osError?.errorCode != 2) rethrow;
+        }
+      }
+      // A crash before this point leaves an ACK, so unfinished retirement can
+      // resume. Legacy receipts remain while their immutable input is retained.
+      if (!observed.any((id) => id.startsWith('legacy:'))) {
+        final receipt = File('${_events(file).path}/${ack['event_id']}.json');
+        try {
+          await receipt.delete();
+        } on FileSystemException catch (e) {
+          if (e.osError?.errorCode != 2) rethrow;
+        }
+      }
+    }
+  }
+
+  static Future<Map<String, Object?>> _append(
+    File file,
+    Map<String, Object?> data,
+  ) async {
+    final folder = _events(file);
+    await folder.create(recursive: true);
+    final id = newUuidV4();
+    final target = File('${folder.path}/$id.json');
+    final part = File('${target.path}.part');
+    final record = <String, Object?>{
+      'format_version': 1,
+      'event_id': id,
+      ...data,
+    };
+    await part.writeAsString(jsonEncode(record), flush: true);
+    await part.rename(target.path);
+    return record;
   }
 }
 
@@ -106,14 +216,21 @@ class CaptureTracker {
 
 /// capture 전에 의도를 기록한다. 기록 자체가 실패하면 그 건을 저장하지 않고
 /// 호출자가 수집을 즉시 멈춰야 한다 ([CaptureStoreUnavailable] throw).
-Future<void> recordCaptureIntent(File retryFile, String sourceReportId,
-    {DateTime? now}) async {
+Future<void> recordCaptureIntent(
+  File retryFile,
+  String sourceReportId, {
+  DateTime? now,
+}) async {
   try {
     await CaptureRetryStore.addIntent(
-        retryFile, sourceReportId, 'capture_pending',
-        now: now);
+      retryFile,
+      sourceReportId,
+      'capture_pending',
+      now: now,
+    );
   } catch (_) {
     throw CaptureStoreUnavailable(
-        'community_capture_retry 기록 실패: $sourceReportId');
+      'community_capture_retry 기록 실패: $sourceReportId',
+    );
   }
 }

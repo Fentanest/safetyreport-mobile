@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/report.dart';
+import '../models/app_mode.dart';
+import '../widgets/local_paged_report_list.dart';
 import '../providers/report_provider.dart';
 import '../server_palette.dart';
 import '../theme/sr_colors.dart';
@@ -8,7 +10,7 @@ import '../widgets/report_detail_sheet.dart';
 import '../widgets/status_badge.dart';
 
 /// 대시보드의 "최근 답변 완료 (3일)" 더보기 화면.
-/// 실제 카테고리 목록을 기준으로 최근 답변을 재구성해 모두 보여준다.
+/// Standalone은 정확한 로컬 페이지, Client는 서버가 제공한 미리보기다.
 class RecentAnswersScreen extends StatefulWidget {
   const RecentAnswersScreen({super.key});
 
@@ -22,21 +24,29 @@ class _RecentAnswersScreenState extends State<RecentAnswersScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      await context.read<ReportProvider>().refreshSummaryAndRecentAnswers();
+      final provider = context.read<ReportProvider>();
+      if (provider.appMode == AppMode.server) {
+        await provider.refreshSummaryAndRecentAnswers();
+      }
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<ReportProvider>();
+    if (provider.appMode == AppMode.standalone) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('최근 답변 완료 (3일)')),
+        body: LocalPagedReportList(
+          scope: 'recent',
+          itemBuilder: (_, report) => _RecentCard(report: report),
+        ),
+      );
+    }
     final items = provider.recentAnswerReports;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          '최근 답변 완료 (3일)${items.isNotEmpty ? ' (${items.length})' : ''}',
-        ),
-      ),
+      appBar: AppBar(title: Text('최근 답변 완료 (3일) · 미리보기')),
       body: items.isEmpty
           ? Center(
               child: Column(
@@ -49,7 +59,7 @@ class _RecentAnswersScreenState extends State<RecentAnswersScreen> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    '3일 내 답변 완료된 신고가 없습니다.',
+                    provider.errorMessage ?? '최근 답변 미리보기가 없습니다.',
                     style: TextStyle(
                       color: context.sr.textSecondary,
                       fontSize: 15,

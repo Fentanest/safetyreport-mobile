@@ -248,9 +248,8 @@ fire-and-forget 으로 시작한다. 사용자는 즉시 선택 모드에서 빠
   `RecentAnswersScreen` 은 가능하면 `ReportProvider.recentAnswerReports` 를 사용한다.
 - Client 모드 `fetchSummary()` 는 서버 `/summary` 가 `exclude_withdraw=true` 를 함께 보내면
   `withdrawCount=0`, recent answers/watchlist 취하 제거를 한 번 더 적용해 서버/앱 배포 순서가 엇갈려도 화면 기준을 유지한다.
-- `ReportProvider.ensureCategoryReportsLoaded()` 는 traffic / parking / other 원본 목록을
-  한 번 확보하고, `recentAnswerReports` 는 그 실제 목록에서 최근 3일 답변을 다시 계산한다.
-  그래서 summary 쿼리 한도에 잘리지 않고 카테고리도 유지된다.
+- Standalone `RecentAnswersScreen`은 `scope=recent` 로 정확한 count와 200건 페이지를 조회한다. 답변 완료·최근 3일·취하/대표건 설정을 같은 SQL 모집단에 적용한다.
+- Client 화면은 서버 summary 기반 미리보기로 명시한다. 전체 최근 답변 endpoint와 정확한 total 계약 없이 전체 목록으로 표시하지 않는다.
 - `recentAnswerReports` 의 최종 정렬 기준은 서버 대시보드와 맞춰 `synced_at DESC`,
   fallback `답변일 DESC`, `신고번호 DESC` 이다.
   `답변일`만 보면 같은 날 여러 건이 섞일 수 있으므로, `Report` 모델이 `syncedAt` 을

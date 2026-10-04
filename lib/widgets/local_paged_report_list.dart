@@ -100,32 +100,54 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
           answerYear: widget.answerYear,
           filter: widget.filter,
           page: _page,
+          isCancelled: () => !mounted || seq != _seq || epoch != p.datasetEpoch,
           excludeWithdraw: p.excludeWithdraw,
           useRepresentativeRecords: p.useRepresentativeRecords,
         );
         _candidateCount = widget.predicate != null;
       } else {
+        bool cancelled() => !mounted || seq != _seq || epoch != p.datasetEpoch;
         final categories = widget.category == 'all'
             ? ['traffic', 'parking', 'other']
             : [widget.category];
         var total = 0, offset = _page * 200;
         final reports = <Report>[];
-        for (final category in categories) {
-          final first = await p.readServerPage(category, offset: 0, limit: 1);
-          final size = first.total;
-          total += size;
-          if (offset >= size) {
-            offset -= size;
-            continue;
-          }
-          if (reports.length < 200) {
-            final page = await p.readServerPage(
+        if (categories.length == 1) {
+          if (!mounted || seq != _seq || epoch != p.datasetEpoch) return;
+          final page = await p.readServerPage(
+            categories.single,
+            offset: offset,
+            limit: 200,
+            isCancelled: cancelled,
+          );
+          total = page.total;
+          reports.addAll(page.reports);
+        } else {
+          for (final category in categories) {
+            if (!mounted || seq != _seq || epoch != p.datasetEpoch) return;
+            final first = await p.readServerPage(
               category,
-              offset: offset,
-              limit: 200 - reports.length,
+              offset: 0,
+              limit: 1,
+              isCancelled: cancelled,
             );
-            reports.addAll(page.reports);
-            offset = 0;
+            if (!mounted || seq != _seq || epoch != p.datasetEpoch) return;
+            final size = first.total;
+            total += size;
+            if (offset >= size) {
+              offset -= size;
+              continue;
+            }
+            if (reports.length < 200) {
+              final page = await p.readServerPage(
+                category,
+                offset: offset,
+                limit: 200 - reports.length,
+                isCancelled: cancelled,
+              );
+              reports.addAll(page.reports);
+              offset = 0;
+            }
           }
         }
         _candidateCount =

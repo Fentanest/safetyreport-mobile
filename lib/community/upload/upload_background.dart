@@ -159,7 +159,7 @@ Future<HeadlessGate> refreshGateHeadless(
       ctx['consent_text_sha256'] == status.grantConsentTextSha256;
   if (!usable) return HeadlessGate.needsForeground;
   await p.setString('community_gate_cache_v1',
-      jsonEncode({'state': 'ok', 'verified_at': clock().millisecondsSinceEpoch}));
+      jsonEncode({'state': 'ok', 'owner': status.fingerprint, 'verified_at': clock().millisecondsSinceEpoch}));
   return HeadlessGate.ok;
 }
 

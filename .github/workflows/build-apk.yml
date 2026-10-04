@@ -12,7 +12,13 @@ on:
       - main
 
 jobs:
+  verify:
+    uses: ./.github/workflows/verify.yml
+    permissions:
+      contents: read
+
   build-apk:
+    needs: verify
     runs-on: [self-hosted, Linux, X64, 235]
     permissions:
       contents: write
@@ -84,7 +90,7 @@ jobs:
         name: mysafetyreport-${{ steps.version.outputs.build_name }}+${{ steps.version.outputs.build_number }}-${{ github.sha }}-mapping
         path: dist/
         if-no-files-found: error
-        retention-days: 1
+        retention-days: 90
 
     - name: Upload APK artifact
       if: ${{ inputs.verify_only || steps.check_tag.outputs.tag_exists == 'false' }}

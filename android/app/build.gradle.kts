@@ -2,7 +2,8 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
-    // kotlin-android 는 적용하지 않는다(AGP 9). builtInKotlin=false 동안 Flutter Gradle Plugin 이 붙인다.
+    // Pinned KGP is explicit while builtInKotlin=false; unit/lint tasks do not run Flutter assembly.
+    id("org.jetbrains.kotlin.android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
@@ -17,6 +18,7 @@ if (keystorePropertiesFile.exists()) {
 // 빌드 스크립트가 산출물 이름·메타에 debug 서명을 표시한다(배포용 성공으로 취급하지 않는다).
 val allowDebugSignedRelease = System.getenv("ALLOW_DEBUG_SIGNED_RELEASE") == "1"
 
+@Suppress("DEPRECATION_ERROR")
 android {
     namespace = "com.fentanest.mysafetyreport"
     compileSdk = flutter.compileSdkVersion

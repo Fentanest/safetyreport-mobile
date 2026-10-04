@@ -107,8 +107,15 @@ const Map<int, List<String>> _migrations = {
 };
 
 const List<String> contextFields = [
-  'contributor_fingerprint', 'connection_id', 'writer_epoch', 'dataset_key', 'consent_grant_id',
-  'policy_version', 'consent_text_sha256', 'source_app', 'source_mode',
+  'contributor_fingerprint',
+  'connection_id',
+  'writer_epoch',
+  'dataset_key',
+  'consent_grant_id',
+  'policy_version',
+  'consent_text_sha256',
+  'source_app',
+  'source_mode',
 ];
 
 String isoUtc(DateTime t) {
@@ -145,19 +152,26 @@ class CommunityStore {
   static final Map<String, Future<CommunityStore>> _open = {};
 
   /// `path` 를 주지 않으면 앱 DB 폴더의 `community.db`. 테스트는 databaseFactory(ffi)·임시 경로를 준다.
-  static Future<CommunityStore> open({String? path, DatabaseFactory? factory}) async {
-    final resolved = path ?? p.join(await getDatabasesPath(), communityStoreFileName);
+  static Future<CommunityStore> open({
+    String? path,
+    DatabaseFactory? factory,
+  }) async {
+    final resolved =
+        path ?? p.join(await getDatabasesPath(), communityStoreFileName);
     return _open.putIfAbsent(resolved, () async {
       final f = factory ?? databaseFactory;
-      final db = await f.openDatabase(resolved, options: OpenDatabaseOptions(
-        singleInstance: true,
-        onConfigure: (d) async {
-          await d.rawQuery('PRAGMA journal_mode=WAL');
-          await d.rawQuery('PRAGMA busy_timeout=30000');
-          await d.execute('PRAGMA foreign_keys=ON');
-          await d.execute('PRAGMA synchronous=FULL');
-        },
-      ));
+      final db = await f.openDatabase(
+        resolved,
+        options: OpenDatabaseOptions(
+          singleInstance: true,
+          onConfigure: (d) async {
+            await d.rawQuery('PRAGMA journal_mode=WAL');
+            await d.rawQuery('PRAGMA busy_timeout=30000');
+            await d.execute('PRAGMA foreign_keys=ON');
+            await d.execute('PRAGMA synchronous=FULL');
+          },
+        ),
+      );
       final store = CommunityStore._(db, resolved);
       await store._migrate();
       return store;
@@ -176,12 +190,23 @@ class CommunityStore {
       await db.execute(sql);
     }
     final version = await db.transaction((tx) async {
-      final rows = await tx.rawQuery("SELECT value FROM meta WHERE key='schema_version'");
+      final rows = await tx.rawQuery(
+        "SELECT value FROM meta WHERE key='schema_version'",
+      );
       if (rows.isEmpty) {
         await tx.insert('meta', {'key': 'schema_version', 'value': '1'});
-        await tx.insert('meta', {'key': 'local_dataset_id', 'value': newUuidV4()}, conflictAlgorithm: ConflictAlgorithm.ignore);
-        await tx.insert('meta', {'key': 'next_revision', 'value': '1'}, conflictAlgorithm: ConflictAlgorithm.ignore);
-        await tx.insert('meta', {'key': 'dataset_history', 'value': '[]'}, conflictAlgorithm: ConflictAlgorithm.ignore);
+        await tx.insert('meta', {
+          'key': 'local_dataset_id',
+          'value': newUuidV4(),
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+        await tx.insert('meta', {
+          'key': 'next_revision',
+          'value': '1',
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+        await tx.insert('meta', {
+          'key': 'dataset_history',
+          'value': '[]',
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
         return 1;
       }
       final v = int.parse(rows.first['value'] as String);
@@ -203,25 +228,39 @@ class CommunityStore {
     }
   }
 
-  Future<T> transaction<T>(Future<T> Function(Transaction tx) action) => db.transaction(action, exclusive: true);
+  Future<T> transaction<T>(Future<T> Function(Transaction tx) action) =>
+      db.transaction(action, exclusive: true);
 
   Future<String?> meta(String key, [DatabaseExecutor? ex]) async {
-    final rows = await (ex ?? db).rawQuery('SELECT value FROM meta WHERE key=?', [key]);
+    final rows = await (ex ?? db).rawQuery(
+      'SELECT value FROM meta WHERE key=?',
+      [key],
+    );
     return rows.isEmpty ? null : rows.first['value'] as String;
   }
 
   Future<void> setMeta(String key, String value, [DatabaseExecutor? ex]) =>
-      (ex ?? db).insert('meta', {'key': key, 'value': value}, conflictAlgorithm: ConflictAlgorithm.replace);
+      (ex ?? db).insert('meta', {
+        'key': key,
+        'value': value,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
 
-  Future<String> localDatasetId() async => (await meta('local_dataset_id')) ?? '';
+  Future<String> localDatasetId() async =>
+      (await meta('local_dataset_id')) ?? '';
 
   /// 개인 DB 가 다른 데이터셋이 됐을 때(복원·서버 DB 가져오기·모드 전환·공식 계정 변경). 이전 journal/outbox 는 지우지 않는다.
-  Future<String> rotateDataset(String reason) async {
-    final newId = newUuidV4();
+  Future<String> rotateDataset(String reason, {String? newDatasetId}) async {
+    final newId = newDatasetId ?? newUuidV4();
     await transaction((tx) async {
       final old = await meta('local_dataset_id', tx);
-      final history = (jsonDecode(await meta('dataset_history', tx) ?? '[]') as List).cast<Object?>();
-      history.add({'dataset_id': old, 'reason': reason, 'rotated_at': isoUtc(DateTime.now())});
+      final history =
+          (jsonDecode(await meta('dataset_history', tx) ?? '[]') as List)
+              .cast<Object?>();
+      history.add({
+        'dataset_id': old,
+        'reason': reason,
+        'rotated_at': isoUtc(DateTime.now()),
+      });
       await setMeta('dataset_history', jsonEncode(history), tx);
       await setMeta('local_dataset_id', newId, tx);
     });
@@ -236,9 +275,11 @@ class CommunityStore {
   }
 
   Future<void> raiseRevisionFloor(int lastAccepted) => transaction((tx) async {
-        final value = int.tryParse(await meta('next_revision', tx) ?? '1') ?? 1;
-        if (value <= lastAccepted) await setMeta('next_revision', '${lastAccepted + 1}', tx);
-      });
+    final value = int.tryParse(await meta('next_revision', tx) ?? '1') ?? 1;
+    if (value <= lastAccepted) {
+      await setMeta('next_revision', '${lastAccepted + 1}', tx);
+    }
+  });
 
   Future<Map<String, Object?>?> context() async {
     final rows = await db.rawQuery('SELECT * FROM context WHERE id=1');
@@ -250,39 +291,94 @@ class CommunityStore {
     return (c != null && c['state'] == 'active') ? c : null;
   }
 
-  Future<void> setContext(Map<String, Object?> fields) async {
-    final unknown = fields.keys.where((k) => !contextFields.contains(k)).toList();
-    if (unknown.isNotEmpty) throw ArgumentError('unknown context fields: $unknown');
-    final row = <String, Object?>{'id': 1, 'state': 'active', 'verified_at': isoUtc(DateTime.now()), 'inactive_reason': null};
+  Future<void> setContext(
+    Map<String, Object?> fields, {
+    DatabaseExecutor? executor,
+  }) async {
+    final unknown = fields.keys
+        .where((k) => !contextFields.contains(k))
+        .toList();
+    if (unknown.isNotEmpty) {
+      throw ArgumentError('unknown context fields: $unknown');
+    }
+    final row = <String, Object?>{
+      'id': 1,
+      'state': 'active',
+      'verified_at': isoUtc(DateTime.now()),
+      'inactive_reason': null,
+    };
     for (final k in contextFields) {
       row[k] = fields[k];
     }
-    await db.insert('context', row, conflictAlgorithm: ConflictAlgorithm.replace);
+    await (executor ?? db).insert(
+      'context',
+      row,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
-  Future<void> deactivateContext(String reason) => transaction((tx) async {
-        final n = await tx.rawUpdate("UPDATE context SET state='inactive', inactive_reason=? WHERE id=1", [reason]);
-        if (n == 0) await tx.insert('context', {'id': 1, 'state': 'inactive', 'inactive_reason': reason});
-      });
+  Future<void> deactivateContext(
+    String reason, {
+    DatabaseExecutor? executor,
+  }) async {
+    Future<void> apply(DatabaseExecutor tx) async {
+      final n = await tx.rawUpdate(
+        "UPDATE context SET state='inactive', inactive_reason=? WHERE id=1",
+        [reason],
+      );
+      if (n == 0) {
+        await tx.insert('context', {
+          'id': 1,
+          'state': 'inactive',
+          'inactive_reason': reason,
+        });
+      }
+    }
 
-  Future<bool> acquireLease(String name, String owner, Duration duration) => transaction((tx) async {
+    if (executor != null) {
+      await apply(executor);
+    } else {
+      await transaction(apply);
+    }
+  }
+
+  Future<bool> acquireLease(String name, String owner, Duration duration) =>
+      transaction((tx) async {
         final now = DateTime.now();
-        final rows = await tx.rawQuery('SELECT owner, until FROM leases WHERE name=?', [name]);
-        if (rows.isNotEmpty && rows.first['owner'] != owner && (rows.first['until'] as String).compareTo(isoUtc(now)) > 0) {
+        final rows = await tx.rawQuery(
+          'SELECT owner, until FROM leases WHERE name=?',
+          [name],
+        );
+        if (rows.isNotEmpty &&
+            rows.first['owner'] != owner &&
+            (rows.first['until'] as String).compareTo(isoUtc(now)) > 0) {
           return false;
         }
-        await tx.insert('leases', {'name': name, 'owner': owner, 'until': isoUtc(now.add(duration))},
-            conflictAlgorithm: ConflictAlgorithm.replace);
+        await tx.insert('leases', {
+          'name': name,
+          'owner': owner,
+          'until': isoUtc(now.add(duration)),
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
         return true;
       });
 
   /// 소유자가 같을 때만 연장(heartbeat). 다른 실행이 가져갔으면 false — 그 뒤로는 새 배치를 보내지 않는다.
   Future<bool> renewLease(String name, String owner, Duration duration) async {
-    final n = await db.rawUpdate('UPDATE leases SET until=? WHERE name=? AND owner=?',
-        [isoUtc(DateTime.now().add(duration)), name, owner]);
+    final n = await db.rawUpdate(
+      'UPDATE leases SET until=? WHERE name=? AND owner=? AND until>?',
+      [
+        isoUtc(DateTime.now().add(duration)),
+        name,
+        owner,
+        isoUtc(DateTime.now()),
+      ],
+    );
     return n == 1;
   }
 
-  Future<void> releaseLease(String name, String owner) =>
-      db.delete('leases', where: 'name=? AND owner=?', whereArgs: [name, owner]);
+  Future<void> releaseLease(String name, String owner) => db.delete(
+    'leases',
+    where: 'name=? AND owner=?',
+    whereArgs: [name, owner],
+  );
 }

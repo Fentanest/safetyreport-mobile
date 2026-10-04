@@ -192,7 +192,17 @@ class _ReportListScreenState extends State<ReportListScreen>
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<ReportProvider>();
+    // 이 화면이 그리는 값만 구독한다(SQ-P07). 분류 탭 목록은 LocalPagedReportList 가 자료 변경을 따로 본다.
+    context.select<ReportProvider, Object>(
+      (p) => (
+        p.filter,
+        p.appMode,
+        p.duplicateReports,
+        p.isLoading,
+        p.excludeWithdraw,
+      ),
+    );
+    final provider = context.read<ReportProvider>();
     final filter = _effectiveFilter(provider);
     if (filter != _totalsFilter) {
       // 조건이 바뀌면 이전 조건의 건수를 보이지 않는다(새 조회가 다시 알린다).

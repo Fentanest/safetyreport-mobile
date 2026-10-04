@@ -17,8 +17,10 @@ class ReloginRequiredBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<ReportProvider>();
-    if (provider.appMode != AppMode.standalone || provider.isStandaloneDemo) {
+    final (appMode, isDemo) = context.select<ReportProvider, (AppMode, bool)>(
+      (p) => (p.appMode, p.isStandaloneDemo),
+    );
+    if (appMode != AppMode.standalone || isDemo) {
       return const SizedBox.shrink();
     }
     return ValueListenableBuilder<ReloginStatus?>(

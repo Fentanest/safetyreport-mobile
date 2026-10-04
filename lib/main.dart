@@ -63,29 +63,37 @@ Future<void> main() async {
     runApp(const SecureStorageRecoveryApp());
     return;
   }
-  // Standalone 하루 1회 로그인 점검(BackgroundLoginCheck). 등록/해제는 ReportProvider 가 모드에 따라 한다.
-  try {
-    await Workmanager().initialize(backgroundTaskDispatcher);
-  } catch (_) {}
-  // 보안 저장소의 기존 카카오 세션을 게이트 생성·첫 검사 전에 복원한다.
-  // 그렇지 않으면 재실행 때 기본 disconnected 상태를 보고 연결 화면을 다시 연다.
+  // 아래 네 준비는 서로 기다릴 필요가 없어 함께 기다린다(SQ-P12). 순서가 필요한 보안 저장소 이관은 위에서 먼저 끝냈다.
+  // 각 단계의 실패 처리는 예전과 같다(카카오 세션 복원 실패만 시작을 멈춘다).
   final communityAuth = CommunityAuthService.instance;
-  await communityAuth.load();
-  // 기관·지역 registry 스냅샷(통계·표시용 현행명). 실패해도 앱은 기존 normalize 로 동작한다.
-  try {
-    await AgencyRegistry.ensureLoaded();
-  } catch (_) {}
+  final communityStoreFuture = CommunityStore.open().then<CommunityStore?>(
+    (store) => store,
+    onError: (Object _) => null,
+  );
+  await Future.wait<void>([
+    // Standalone 하루 1회 로그인 점검(BackgroundLoginCheck). 등록/해제는 ReportProvider 가 모드에 따라 한다.
+    () async {
+      try {
+        await Workmanager().initialize(backgroundTaskDispatcher);
+      } catch (_) {}
+    }(),
+    // 보안 저장소의 기존 카카오 세션을 게이트 생성·첫 검사 전에 복원한다.
+    // 그렇지 않으면 재실행 때 기본 disconnected 상태를 보고 연결 화면을 다시 연다.
+    communityAuth.load(),
+    // 기관·지역 registry 스냅샷(통계·표시용 현행명). 실패해도 앱은 기존 normalize 로 동작한다.
+    () async {
+      try {
+        await AgencyRegistry.ensureLoaded();
+      } catch (_) {}
+    }(),
+    communityStoreFuture,
+  ]);
   // 커뮤니티 계정(Standalone) 로그인 복귀 링크 — SetupScreen·설정 등 어느 화면에서든 받도록 앱 시작 때 등록.
-  // 게이트 중에도 수신한다(게이트가 끝나면 상태가 반영된다).
+  // 게이트 중에도 수신한다(게이트가 끝나면 상태가 반영된다). 세션 복원(load)이 끝난 뒤에 받는다.
   CommunityAuthLinkChannel.start((link) async {
     await communityAuth.handleCallbackLink(link);
   });
-  CommunityStore? communityStore;
-  try {
-    communityStore = await CommunityStore.open();
-  } catch (_) {
-    communityStore = null;
-  }
+  final CommunityStore? communityStore = await communityStoreFuture;
   final reportProvider = ReportProvider()..init();
   final gate = CommunityGate(
     auth: communityAuth,
@@ -195,10 +203,11 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
   }
 
   void _onCompatibilityFailure() {
+    // 화면이 닫힌 뒤 온 알림이면 context 를 쓰지 않는다(SQ-B09).
+    if (!mounted) return;
     final failure = ClientCompatibility.failure.value;
     final provider = context.read<ReportProvider>();
-    if (!mounted ||
-        failure == null ||
+    if (failure == null ||
         provider.appMode != AppMode.server ||
         failure.normalizedUrl !=
             ServerContract.normalizeBaseUrl(provider.baseUrl)) {
@@ -855,6 +864,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
       final claim = await PendingChangesStore.readPending();
       final changes = claim.items;
       if (changes.isEmpty || !current() || !mounted) return;
+      // Client: 서버가 알린 변경은 이 기기가 쓰지 않은 실제 자료 변경이다 — 보이는 목록·통계가 다시 읽는다(SQ-P02).
+      // Standalone 은 동기화 뒤 refreshAll 이 DB 쓰기 표시로 판정한다.
+      final reports = context.read<ReportProvider>();
+      if (reports.appMode == AppMode.server) reports.markDataChanged();
       final history = context.read<NotificationHistoryProvider>();
       // 읽음 판정은 변경 하나 단위다(SQ-B01). 판정·기록 추가·저장을 한 번에 끝낸 뒤에만 ack 한다(SQ-B02).
       // 알림 히스토리에 extraData 포함해서 저장 (신고 결과 탭에서 상세 조회 가능하도록)
@@ -1272,7 +1285,16 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
 
   @override
   Widget build(BuildContext context) {
-    final p = context.watch<ReportProvider>();
+    // 탭 화면은 캐시된 위젯이라 여기서 다시 그릴 필요가 있는 값만 구독한다(SQ-P07).
+    context.select<ReportProvider, Object>(
+      (p) => (
+        p.appMode,
+        p.isConfigured,
+        p.isStandaloneDemo,
+        p.pendingChangesNonce,
+      ),
+    );
+    final p = context.read<ReportProvider>();
     // 하단 배지는 읽지 않은 수가 바뀔 때만 다시 그린다(SQ-P08).
     final unread = context.select<NotificationHistoryProvider, int>(
       (h) => h.unreadCount,

@@ -136,21 +136,31 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     });
   }
 
+  /// 자료가 바뀌었는데 화면이 가려져 있던 동안(TickerMode 꺼짐) 미뤄 둔 다시 조회(SQ-P02).
+  bool _stale = false;
+
   /// Provider 중 이 화면이 실제로 쓰는 값만 구독한다(SQ-P05). 값이 바뀌면 처음부터 다시 조회한다.
+  /// 자료 변경은 dataRevision 으로만 본다(통계 탭 진입은 자료 변경이 아니다 — SQ-P02).
+  /// 다른 화면에 가려져 있으면 표시만 해 두고 다시 보일 때 한 번 읽는다.
   void _watchDatasetScope(BuildContext context) {
+    final visible = TickerMode.valuesOf(context).enabled;
     final scope = context.select<ReportProvider, String>(
       (p) =>
-          '${p.datasetEpoch}:${p.statsRefreshNonce}:${p.excludeWithdraw}:${p.useRepresentativeRecords}',
+          '${p.datasetEpoch}:${p.dataRevision}:${p.excludeWithdraw}:${p.useRepresentativeRecords}',
     );
     if (_datasetScope != null && _datasetScope != scope) {
       _loadSeq++;
       _payload = null;
       _loading = true;
+      _stale = true;
+    }
+    _datasetScope = scope;
+    if (_stale && visible) {
+      _stale = false;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _loadMap();
       });
     }
-    _datasetScope = scope;
   }
 
   @override

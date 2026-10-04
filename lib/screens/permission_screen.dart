@@ -61,6 +61,8 @@ class _PermissionScreenState extends State<PermissionScreen>
   }
 
   Future<void> _checkAll() async {
+    // 권한 요청·서비스 시작을 기다린 뒤 불리므로 그사이 화면이 닫혔을 수 있다(SQ-B09).
+    if (!mounted) return;
     setState(() => _loading = true);
     final results = await Future.wait([
       PermissionService.supportsNotificationListener
@@ -144,7 +146,8 @@ class _PermissionScreenState extends State<PermissionScreen>
     }
 
     final isStandalone =
-        context.watch<ReportProvider>().appMode == AppMode.standalone;
+        context.select<ReportProvider, AppMode>((p) => p.appMode) ==
+        AppMode.standalone;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),

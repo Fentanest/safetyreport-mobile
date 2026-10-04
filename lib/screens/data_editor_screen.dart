@@ -62,7 +62,9 @@ class _DataEditorPanelState extends State<DataEditorPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<ReportProvider>();
+    // 검색 조건만 구독한다(SQ-P07). 목록은 LocalPagedReportList 가 자료 변경을 따로 본다.
+    context.select<ReportProvider, ReportFilter>((p) => p.filter);
+    final provider = context.read<ReportProvider>();
     return Column(
       children: [
         Padding(

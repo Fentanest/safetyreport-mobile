@@ -21,7 +21,9 @@ class _SyncStatusCardState extends State<SyncStatusCard> {
   bool? _lastSyncing;
   AppMode? _lastMode;
 
-  void _refreshIfNeeded(ReportProvider p) {
+  void _refreshIfNeeded(
+    ({AppMode appMode, bool isSyncing, bool isStandaloneDemo}) p,
+  ) {
     if (_lastSync != null &&
         _lastSyncing == p.isSyncing &&
         _lastMode == p.appMode) {
@@ -43,7 +45,18 @@ class _SyncStatusCardState extends State<SyncStatusCard> {
 
   @override
   Widget build(BuildContext context) {
-    final p = context.watch<ReportProvider>();
+    // 모드·동기화 중·데모 여부만 구독한다(SQ-P07).
+    final p = context
+        .select<
+          ReportProvider,
+          ({AppMode appMode, bool isSyncing, bool isStandaloneDemo})
+        >(
+          (p) => (
+            appMode: p.appMode,
+            isSyncing: p.isSyncing,
+            isStandaloneDemo: p.isStandaloneDemo,
+          ),
+        );
     _refreshIfNeeded(p);
     final sr = context.sr;
     final scheme = Theme.of(context).colorScheme;
@@ -190,7 +203,10 @@ class _SyncActionButtonState extends State<SyncActionButton>
 
   @override
   Widget build(BuildContext context) {
-    final p = context.watch<ReportProvider>();
+    final p = context
+        .select<ReportProvider, ({AppMode appMode, bool isSyncing})>(
+          (p) => (appMode: p.appMode, isSyncing: p.isSyncing),
+        );
     if (p.isSyncing) {
       if (!_controller.isAnimating) _controller.repeat();
     } else if (_controller.isAnimating) {

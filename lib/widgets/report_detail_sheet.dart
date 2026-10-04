@@ -23,6 +23,7 @@ import '../services/standalone_auth_service.dart';
 import '../models/app_mode.dart';
 import '../services/client_media_access.dart';
 import '../services/client_compatibility.dart';
+import '../services/local_db_service.dart';
 
 Future<Map<String, String>?> _clientMediaHeaders(
   BuildContext context,
@@ -54,6 +55,32 @@ Uri buildSafetyReportAppUri(String reportId) {
 }
 
 void showReportDetailSheet(BuildContext context, Report report) {
+  if (!report.detailLoaded) {
+    unawaited(_showLoadedReportDetailSheet(context, report));
+    return;
+  }
+  _showReportDetailSheetNow(context, report);
+}
+
+/// 목록용 열만 읽은 신고(SQ-P06)는 Standalone 로컬 DB 에서 한 건을 다시 읽어 상세를 연다.
+/// 다시 읽지 못하면(Client 로 바뀐 뒤 보관된 결과 등) 받은 내용 그대로 연다.
+Future<void> _showLoadedReportDetailSheet(
+  BuildContext context,
+  Report report,
+) async {
+  var full = report;
+  try {
+    final standalone =
+        context.read<ReportProvider>().appMode == AppMode.standalone;
+    if (standalone && report.id.isNotEmpty) {
+      full = await LocalDbService.getReport(report.id) ?? report;
+    }
+  } catch (_) {}
+  if (!context.mounted) return;
+  _showReportDetailSheetNow(context, full);
+}
+
+void _showReportDetailSheetNow(BuildContext context, Report report) {
   final reportNumber = report.reportNumber.trim();
   if (reportNumber.isNotEmpty) {
     try {
@@ -585,7 +612,7 @@ class ReportDetailSheet extends StatelessWidget {
     try {
       final provider = context.read<ReportProvider>();
       final epoch = provider.datasetEpoch;
-      final scope = '${provider.appMode}:${provider.baseUrl}:$epoch:${provider.statsRefreshNonce}';
+      final scope = '${provider.appMode}:${provider.baseUrl}:$epoch:${provider.dataRevision}';
       final headers = await _clientMediaHeaders(context, url);
       final dir = await getTemporaryDirectory();
       final file = await AttachmentCache.fetch(root: dir, uri: uri, scope: scope,

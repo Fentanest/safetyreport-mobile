@@ -95,6 +95,7 @@ class _WatchlistPanelState extends State<WatchlistPanel> {
     if (confirmed != true) return;
     try {
       await provider.removeFromWatchlist([r.reportNumber]);
+      if (!mounted) return;
       setState(
         () => _items.removeWhere((i) => i.reportNumber == r.reportNumber),
       );
@@ -147,7 +148,8 @@ class _WatchlistPanelState extends State<WatchlistPanel> {
       );
       if (confirmed != true || epoch != provider.datasetEpoch) return;
       await provider.removeFromWatchlist(rnums);
-      provider.bumpStatsRefresh();
+      // 감시 목록이 바뀌었다 — 이 목록을 보여 주는 화면들이 다시 읽는다(SQ-P02, 통계 탭 신호가 아님).
+      provider.markDataChanged();
       if (mounted) setState(() => _items.clear());
       if (mounted) {
         ScaffoldMessenger.of(
@@ -167,7 +169,8 @@ class _WatchlistPanelState extends State<WatchlistPanel> {
 
   @override
   Widget build(BuildContext context) {
-    if (context.watch<ReportProvider>().appMode == AppMode.standalone) {
+    if (context.select<ReportProvider, AppMode>((p) => p.appMode) ==
+        AppMode.standalone) {
       return Column(
         children: [
           Align(

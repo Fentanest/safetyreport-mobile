@@ -21,6 +21,10 @@ import '../widgets/stats_fine_breakdown.dart';
 /// → 신고 지도 열기 → 상세 통계(여섯 보기·검색·정렬·기관/담당자 카드) → 전국 안전신고 현황.
 /// 여섯 보기는 상세 영역의 집계 단위·기관 범위만 바꾼다(요약 수치는 그대로).
 class StatisticsScreen extends StatefulWidget {
+  /// Client 통계를 탭 재진입 때 다시 받을 기준 나이(SQ-P02 보완). 시험에서만 바꾼다.
+  @visibleForTesting
+  static Duration clientStatsMaxAge = const Duration(seconds: 60);
+
   const StatisticsScreen({super.key});
 
   @override
@@ -54,9 +58,17 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
 
   /// 조건을 빠르게 바꿀 때 늦게 온 이전 응답이 최신 화면을 덮지 않게 요청 번호를 비교한다.
   int _loadSeq = 0;
-  int _lastRefreshNonce = 0;
+  int? _lastRefreshNonce;
   bool? _wasActive;
   String? _datasetScope;
+
+  /// 마지막으로 반영한 자료 revision(SQ-P02). 숨은 동안 바뀌면 [_stale] 로 두고 다시 보일 때 읽는다.
+  int? _dataRevision;
+  bool _stale = false;
+
+  /// Client 통계를 마지막으로 받아 온 시각. PC 쪽에서 알림 없이 바뀐 자료를 놓치지 않도록, 탭에 다시 들어왔을 때
+  /// 이보다 오래됐으면 지금 수치를 보인 채 다시 받는다(SQ-P02 보완). Standalone 은 [_dataRevision] 으로 충분하다.
+  DateTime? _clientLoadedAt;
 
   @override
   void initState() {
@@ -71,43 +83,82 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     super.dispose();
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
+  /// build 에서 부른다(context.select 는 build 안에서만 쓸 수 있다). 다시 읽기는 다음 프레임에 한다.
+  void _watchDependencies(BuildContext context) {
     final active = TickerMode.valuesOf(context).enabled;
-    final p = context.watch<ReportProvider>();
-    final scope =
-        '${p.datasetEpoch}:${p.excludeWithdraw}:${p.useRepresentativeRecords}';
+    // 이 화면이 쓰는 값만 구독한다(SQ-P07).
+    final (
+      scope,
+      revision,
+      nonce,
+    ) = context.select<ReportProvider, (String, int, int)>(
+      (p) => (
+        '${p.datasetEpoch}:${p.excludeWithdraw}:${p.useRepresentativeRecords}',
+        p.dataRevision,
+        p.statsRefreshNonce,
+      ),
+    );
     var reload = _wasActive == false && active && _loading;
+    var keepShown = false;
     if (_datasetScope != null && _datasetScope != scope) {
       reload = true;
+      _stale = false;
       _stats = null;
       _overview = null;
       _loading = true;
+    } else if (_dataRevision != null && _dataRevision != revision) {
+      // 자료가 바뀌었다(SQ-P02). 숨은 동안에는 표시만 해 두고 다시 보일 때 한 번 읽는다.
+      _stale = true;
     }
     _datasetScope = scope;
-    _wasActive = active;
-    final nonce = p.statsRefreshNonce;
-    if (nonce != _lastRefreshNonce) {
-      _lastRefreshNonce = nonce;
-      reload = reload || nonce != 0;
+    _dataRevision = revision;
+    if (_stale && active) {
+      _stale = false;
+      if (!reload) keepShown = true;
+      reload = true;
     }
+    // 통계 탭 진입 신호: 자료가 그대로면 이미 보이는 결과를 그대로 둔다(빈 화면 깜박임·Client 재요청 없음).
+    // 이전 조회가 실패했을 때만 다시 시도한다. 첫 구독은 기준값만 잡는다(initState 가 이미 읽는다).
+    if (nonce != _lastRefreshNonce) {
+      final entered = _lastRefreshNonce != null;
+      _lastRefreshNonce = nonce;
+      if (entered && active && !_loading) {
+        if (_error != null) {
+          reload = true;
+        } else if (_isClientStatsStale()) {
+          reload = true;
+          keepShown = true;
+        }
+      }
+    }
+    _wasActive = active;
     if (reload) {
       _loadSeq++;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _load();
+        if (mounted) _load(keepShown: keepShown);
       });
     }
   }
 
-  Future<void> _load() async {
+  bool _isClientStatsStale() {
+    if (context.read<ReportProvider>().appMode != AppMode.server) return false;
+    final loadedAt = _clientLoadedAt;
+    return loadedAt == null ||
+        DateTime.now().difference(loadedAt) >=
+            StatisticsScreen.clientStatsMaxAge;
+  }
+
+  /// [keepShown] 이 true 면(같은 조건의 자료 변경) 새 결과가 올 때까지 지금 수치를 그대로 보인다.
+  Future<void> _load({bool keepShown = false}) async {
     final seq = ++_loadSeq;
     setState(() {
       _loading = true;
       _error = null;
-      // 새 조건의 요약이 오기 전까지 이전 조건의 요약 수치를 보이지 않는다(불러오는 중 안내).
-      _overview = null;
-      _overviewNotice = null;
+      if (!keepShown) {
+        // 새 조건의 요약이 오기 전까지 이전 조건의 요약 수치를 보이지 않는다(불러오는 중 안내).
+        _overview = null;
+        _overviewNotice = null;
+      }
     });
     final p = context.read<ReportProvider>();
     final epoch = p.datasetEpoch;
@@ -140,6 +191,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         if (localOverview != null) _overview = localOverview;
         _loading = false;
       });
+      if (p.appMode == AppMode.server) _clientLoadedAt = DateTime.now();
     } on QueryCancelled {
       return;
     } catch (e) {
@@ -457,10 +509,13 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => PerformanceTrace.sync(
-    'statistics.screen_build',
-    () => _buildMeasured(context),
-  );
+  Widget build(BuildContext context) {
+    _watchDependencies(context);
+    return PerformanceTrace.sync(
+      'statistics.screen_build',
+      () => _buildMeasured(context),
+    );
+  }
 
   Widget _buildMeasured(BuildContext context) {
     return Scaffold(

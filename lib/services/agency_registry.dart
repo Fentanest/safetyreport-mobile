@@ -361,14 +361,26 @@ class AgencyRegistry {
   static Future<void> ensureLoaded() async {
     if (_loaded != null) return;
     try {
-      Future<String> read(String file) =>
-          rootBundle.loadString('shared/agency-region-registry/$file');
-      final sources = <String, String>{
-        'manifest': await read('manifest.json'),
-        'links': await read('data/agency_links.json'),
-        'index': await read('data/agency_index.json'),
-        'legacy': await read('data/agency_legacy.json'),
-        'institutions': await read('data/agency_institutions.json'),
+      // 바이트만 읽어 넘기고 UTF-8 해독·JSON 해석·색인을 isolate 한 곳에서 한 번에 한다(SQ-P12).
+      // loadString 은 큰 파일을 따로 해독한 뒤 그 문자열을 다시 isolate 로 복사했다. 문자열 캐시도 남기지 않는다.
+      Future<Uint8List> read(String file) async {
+        final data = await rootBundle.load('shared/agency-region-registry/$file');
+        return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+      }
+
+      final parts = await Future.wait([
+        read('manifest.json'),
+        read('data/agency_links.json'),
+        read('data/agency_index.json'),
+        read('data/agency_legacy.json'),
+        read('data/agency_institutions.json'),
+      ]);
+      final sources = <String, Uint8List>{
+        'manifest': parts[0],
+        'links': parts[1],
+        'index': parts[2],
+        'legacy': parts[3],
+        'institutions': parts[4],
       };
       // 약 11.7MB JSON 해석과 9만 행 색인을 UI isolate 밖에서 한다(시작 멈춤 방지).
       _loaded = await compute(_buildSnapshot, sources);
@@ -397,12 +409,14 @@ class AgencyRegistry {
   }
 }
 
-/// [AgencyRegistry.ensureLoaded] 가 별도 isolate 에서 실행한다.
-AgencyRegistrySnapshot _buildSnapshot(Map<String, String> sources) {
-  final manifest = jsonDecode(sources['manifest']!) as Map<String, dynamic>;
-  final links =
-      (jsonDecode(sources['links']!) as Map<String, dynamic>)['links'] as List;
-  final indexBlob = jsonDecode(sources['index']!) as Map<String, dynamic>;
+/// [AgencyRegistry.ensureLoaded] 가 별도 isolate 에서 실행한다. asset 바이트를 UTF-8 해독과 JSON 해석을 한 번에 한다
+/// (`loadString` + `jsonDecode` 와 같은 결과 — 잘못된 UTF-8 은 똑같이 오류).
+AgencyRegistrySnapshot _buildSnapshot(Map<String, Uint8List> sources) {
+  final decoder = const Utf8Decoder().fuse(const JsonDecoder());
+  Object? decode(String key) => decoder.convert(sources[key]!);
+  final manifest = decode('manifest') as Map<String, dynamic>;
+  final links = (decode('links') as Map<String, dynamic>)['links'] as List;
+  final indexBlob = decode('index') as Map<String, dynamic>;
   final rows = indexBlob['rows'] as List;
   // resolve.dart 규격: index 행은 [name, agg, type, created](코드 제외).
   final index = <String, dynamic>{
@@ -411,10 +425,9 @@ AgencyRegistrySnapshot _buildSnapshot(Map<String, String> sources) {
   final compact = <String, dynamic>{
     for (final r in indexBlob['compact_rows'] as List) (r as List)[0] as String: r[1],
   };
-  final legacy = jsonDecode(sources['legacy']!) as Map<String, dynamic>;
+  final legacy = decode('legacy') as Map<String, dynamic>;
   final institutions =
-      (jsonDecode(sources['institutions']!) as Map<String, dynamic>)['institutions']
-          as Map;
+      (decode('institutions') as Map<String, dynamic>)['institutions'] as Map;
   return AgencyRegistrySnapshot(
     links: links,
     index: index,

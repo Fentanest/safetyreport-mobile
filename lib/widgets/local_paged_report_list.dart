@@ -49,6 +49,9 @@ class LocalPagedReportList extends StatefulWidget {
 class _LocalPagedReportListState extends State<LocalPagedReportList> {
   int _page = 0, _total = 0, _seq = 0;
   String? _datasetSettings;
+
+  /// 숨은 탭(TickerMode 꺼짐)에서 자료가 바뀌면 표시만 해 두고, 다시 보일 때 한 번 읽는다(SQ-P02).
+  bool _stale = false;
   List<Report> _reports = [];
   bool _loading = true;
   String? _error;
@@ -60,18 +63,28 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final p = context.watch<ReportProvider>();
-    final next =
-        '${p.datasetEpoch}:${p.statsRefreshNonce}:${p.excludeWithdraw}:${p.useRepresentativeRecords}';
+  /// build 에서 부른다(context.select 는 build 안에서만 쓸 수 있다).
+  /// 이 목록이 쓰는 값만 구독한다(SQ-P07). 자료 변경은 dataRevision 으로만 본다 — 통계 탭 진입 신호는 보지 않는다(SQ-P02).
+  /// 숨은 탭이면 표시만 해 두고, 다시 보일 때(TickerMode 켜짐) 한 번 읽는다.
+  void _watchDataset(BuildContext context) {
+    final visible = TickerMode.valuesOf(context).enabled;
+    final next = context.select<ReportProvider, String>(
+      (p) =>
+          '${p.datasetEpoch}:${p.dataRevision}:${p.excludeWithdraw}:${p.useRepresentativeRecords}',
+    );
     if (_datasetSettings != null && _datasetSettings != next) {
+      _seq++; // 이전 자료의 늦은 응답을 버린다.
       _reports = [];
       _page = 0;
-      _load();
+      _stale = true;
     }
     _datasetSettings = next;
+    if (_stale && visible) {
+      _stale = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _load();
+      });
+    }
   }
 
   @override
@@ -102,6 +115,8 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
       final ({List<Report> reports, int total}) result;
       if (p.appMode == AppMode.standalone) {
         result = await LocalDbService.getReportPage(
+          // 카드·선택 동작이 쓰는 열만 읽는다. 상세 시트는 열 때 한 건을 다시 읽는다(SQ-P06).
+          compact: true,
           category: widget.category,
           scope: widget.scope,
           metric: widget.metric,
@@ -201,7 +216,12 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
         : _selected.add(r.reportNumber);
   });
   @override
-  Widget build(BuildContext context) => SelectionBackScope(
+  Widget build(BuildContext context) {
+    _watchDataset(context);
+    return _buildList(context);
+  }
+
+  Widget _buildList(BuildContext context) => SelectionBackScope(
     selectionMode: _selected.isNotEmpty,
     onCancel: () => setState(_selected.clear),
     child: Column(

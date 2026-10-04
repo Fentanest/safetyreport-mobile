@@ -302,6 +302,45 @@ void main() {
     });
   });
 
+  group('SQ-P02 자료 변경 신호', () {
+    testWidgets('통계 탭 진입 신호로는 다시 조회하지 않고, 실제 변경이면 한 번 다시 조회한다', (tester) async {
+      final h = _Harness();
+      await h.pump(tester);
+      expect(h.loads, 1);
+
+      h.provider.bumpStatsRefresh();
+      await h.settle(tester);
+      expect(h.loads, 1);
+
+      h.provider.markDataChanged();
+      await h.settle(tester);
+      expect(h.loads, 2);
+    });
+
+    testWidgets('다른 화면에 가려진 동안의 변경은 다시 보일 때 한 번만 조회한다', (tester) async {
+      final h = _Harness();
+      await h.pump(tester);
+      expect(h.loads, 1);
+
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('위 화면')),
+        ),
+      );
+      await tester.pumpAndSettle();
+      h.provider.markDataChanged();
+      h.provider.markDataChanged();
+      await h.settle(tester);
+      expect(h.loads, 1, reason: '가려진 지도는 조회하지 않는다');
+
+      navigator.pop();
+      await tester.pumpAndSettle();
+      await h.settle(tester);
+      expect(h.loads, 2);
+    });
+  });
+
   testWidgets('SQ-U10 지도에 OpenStreetMap 출처를 보인다', (tester) async {
     final h = _Harness();
     await h.pump(tester);

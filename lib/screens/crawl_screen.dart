@@ -542,7 +542,9 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
   // ── 스탠드어론 UI ────────────────────────────────────────────────────────────
 
   Widget _buildStandalone() {
-    final isDemo = context.watch<ReportProvider>().isStandaloneDemo;
+    final isDemo = context.select<ReportProvider, bool>(
+      (p) => p.isStandaloneDemo,
+    );
     return Scaffold(
       appBar: AppBar(
         title: const Text('데이터 동기화'),
@@ -740,7 +742,9 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
   }
 
   Widget _syncButtons() {
-    final isDemo = context.watch<ReportProvider>().isStandaloneDemo;
+    final isDemo = context.select<ReportProvider, bool>(
+      (p) => p.isStandaloneDemo,
+    );
     return Row(
       children: [
         Expanded(

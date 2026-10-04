@@ -79,6 +79,17 @@
 - 병합: WP3의 "관리" 탭 전환과 충돌을 수동 해결. 신고내역 본문 건수 쉼표 표기에 맞춰 WP4 테스트의 본문 파싱을 쉼표 허용으로 바꿨다.
 - 검증: analyze error 0 / warning 9 / info 0, test **1092 passed / 16 skipped / 0 failed**(신규 29).
 
+### WP8 Provider·조회 비용 (SQ-P02 P06 P07 P12 P13 B10 B11, B09 나머지)
+- "자료 변경" 신호를 `dataRevision`으로 분리했다. Standalone은 DB 쓰기 stamp(연결·TEMP 쓰기 revision·`PRAGMA data_version`)가 바뀔 때, Client는 refreshAll·서버 변경 수신 때만 오른다. `statsRefreshNonce`는 통계 탭 진입 신호로만 쓴다. 숨은 탭(목록·지도·통계)은 표시만 해 두고 보일 때 한 번 읽는다. 같은 조건의 자료 변경은 지금 수치를 보인 채 다시 읽는다. 측정(Client, 탭 왕복): 목록 요청 1→4가 1→1, 통계 HTTP 3→7이 2→2.
+- 보완: Client 통계는 마지막으로 받은 지 60초가 지났으면 탭 재진입 때 지금 수치를 보인 채 다시 받는다(PC 쪽에서 변경 알림 없이 바뀐 자료를 놓치지 않게).
+- Standalone 목록 페이지는 카드에 쓰는 28개 열만 읽고(신고내용·처리내용·첨부 등 제외, 3천 행 합성 기준 페이지 JSON 약 48% 감소), 상세 시트를 열 때 한 건을 다시 읽어 전체 내용을 보인다(`Report.detailLoaded`).
+- `context.watch`를 쓰는 값만 `context.select`로 좁히고, 설정 조회·감시 목록·필터 setter는 값이 바뀔 때만 알린다. 대시보드·신고내역은 무관한 알림에 다시 그리지 않는다(4→0, 2→0).
+- 로딩 표시를 진행 중 카운터로 바꿔 먼저 끝난 조회가 스피너를 끄지 않게 했다. 감시 목록 추가·해제는 데이터셋 세대를 확인하고 새 Set을 대입한다.
+- 앱 시작: 보안 저장소 이관 뒤 서로 무관한 초기화 4개를 함께 기다린다. 기관 registry는 바이트를 isolate에 넘겨 디코딩·파싱을 한 번에 한다(결과 스냅숏 동일 테스트).
+- 쓰지 않던 `cached_network_image` 의존성 제거(`pubspec.lock`은 그 패키지와 전이 의존 5개 삭제만, 업그레이드 없음).
+- await 뒤 mounted 확인 4곳 추가(main 호환성 실패 처리, 감시 목록 삭제, 커뮤니티 계정 해지, 권한 화면).
+- 검증: analyze error 0 / warning 9 / info 0, test **1107 passed / 16 skipped / 0 failed**(신규 15).
+
 ## 2026-10-04 (서버 dev 리팩터링 WS 소비자 연동, 로컬 미배포)
 
 - 서버의 optional terminal event_id/after/replay_gap/cursor_reset을 Android WsService에 연결했다. 서버 설정별 cursor를 분리하고 같은 event_id의 완료 알림 중복을 막는다. PrefsInbox가 알림 history와 cursor를 한 Editor.commit에 저장하며 실패하면 메모리의 실패 history/cursor/trim만 복구한 뒤 reconnect한다. rollback disk 실패에서도 메모리 cursor를 되돌리는 회귀를 확인했다.

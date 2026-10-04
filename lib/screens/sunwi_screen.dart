@@ -104,7 +104,13 @@ class _SunwiSectionState extends State<SunwiSection>
       _tickerEnabled = tickerEnabled;
       _resetAutoPageTimer();
     }
-    final nonce = context.watch<ReportProvider>().sunwiRefreshNonce;
+  }
+
+  /// build 에서 부른다(context.select 는 build 안에서만 쓸 수 있다). 새로고침 신호와 모드만 구독한다(SQ-P07).
+  void _watchProvider(BuildContext context) {
+    final (nonce, _) = context.select<ReportProvider, (int, AppMode)>(
+      (p) => (p.sunwiRefreshNonce, p.appMode),
+    );
     if (nonce != _lastRefreshNonce) {
       _lastRefreshNonce = nonce;
       if (nonce != 0) {
@@ -307,7 +313,8 @@ class _SunwiSectionState extends State<SunwiSection>
 
   @override
   Widget build(BuildContext context) {
-    context.watch<ReportProvider>();
+    // 값을 쓰지 않던 전체 구독을 새로고침 신호·모드 구독으로 좁힌다(SQ-P07).
+    _watchProvider(context);
     final children = _buildChildren();
 
     if (widget.embedded) {

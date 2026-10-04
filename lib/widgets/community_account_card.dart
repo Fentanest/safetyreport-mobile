@@ -502,6 +502,7 @@ class _CommunityShareSectionState extends State<_CommunityShareSection> {
     if (ok != true) return;
     await widget.run(() async {
       final token = await _token();
+      if (!mounted) return; // 토큰을 읽는 동안 화면이 닫혔으면 상태를 바꾸지 않는다(SQ-B09).
       if (token == null || token.isEmpty) {
         setState(() => _message = '로그인이 필요합니다.');
         return;

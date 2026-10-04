@@ -44,7 +44,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
   );
 
   Widget _buildMeasured(BuildContext context) {
-    final provider = context.watch<ReportProvider>();
+    // 이 화면이 그리는 값만 구독한다(SQ-P07). 최근 답변은 요약 또는 분류 미리보기에서 계산한다.
+    context.select<ReportProvider, Object>(
+      (p) => (
+        p.appMode,
+        p.isStandaloneDemo,
+        p.isLoading,
+        p.stats,
+        p.errorMessage,
+        p.hasLoadedCategoryReports,
+        p.trafficReports,
+        p.parkingReports,
+        p.otherReports,
+      ),
+    );
+    final provider = context.read<ReportProvider>();
     final stats = provider.stats;
 
     return Scaffold(

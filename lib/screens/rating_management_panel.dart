@@ -62,7 +62,9 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<ReportProvider>();
+    // 두 모드 모두 페이지 목록(LocalPagedReportList)을 쓴다. 조건·모드만 구독한다(SQ-P07).
+    context.select<ReportProvider, Object>((p) => (p.filter, p.appMode));
+    final provider = context.read<ReportProvider>();
     final effectiveFilter = provider.filter.withoutRatingStateFilters();
     if (provider.appMode == AppMode.standalone ||
         provider.appMode == AppMode.server) {

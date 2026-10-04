@@ -129,4 +129,75 @@ void main() {
     expect(find.text('수동 고정'), findsOneWidget);
     expect(find.text('자동 선정'), findsNothing);
   });
+
+  // SQ-B14: 편집 시트의 메모 컨트롤러를 시트가 닫힌 뒤 해제한다.
+  testWidgets('closing the editor sheet disposes the note controller', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    await tester.runAsync(() async {
+      await LocalDbService.closeDb();
+      await deleteDatabase(await LocalDbService.getDbPath());
+      const body = '같은 신고 본문입니다 — 메모 컨트롤러 해제 시험';
+      await LocalDbService.upsertReport(
+        _report('d1', 'SPP-1'),
+        'traffic',
+        '자동차·교통위반-신호위반',
+        rawContent: body,
+      );
+      await LocalDbService.upsertReport(
+        _report('d2', 'SPP-2'),
+        'traffic',
+        '자동차·교통위반-신호위반',
+        rawContent: body,
+      );
+      await DuplicateProjectionService.refreshDuplicateGroups(
+        await LocalDbService.db,
+      );
+    });
+    final provider = _StandaloneProvider();
+    addTearDown(provider.dispose);
+    await tester.binding.setSurfaceSize(const Size(420, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      ChangeNotifierProvider<ReportProvider>.value(
+        value: provider,
+        child: const MaterialApp(
+          home: Scaffold(body: DuplicateManagementPanel()),
+        ),
+      ),
+    );
+    for (
+      var i = 0;
+      i < 50 && find.textContaining('SPP-').evaluate().isEmpty;
+      i++
+    ) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 100)),
+      );
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('SPP-').first);
+    await tester.pumpAndSettle();
+
+    final note = find.descendant(
+      of: find.byType(BottomSheet),
+      matching: find.byType(TextField),
+    );
+    expect(note, findsOneWidget);
+    final controller = tester.widget<TextField>(note).controller!;
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byType(BottomSheet), findsNothing);
+
+    var disposed = false;
+    try {
+      controller.addListener(() {});
+    } on FlutterError {
+      disposed = true;
+    }
+    expect(disposed, isTrue);
+  });
 }

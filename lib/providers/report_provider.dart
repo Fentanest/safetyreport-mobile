@@ -92,14 +92,28 @@ class ReportProvider with ChangeNotifier {
   /// 서버가 `/api/v1/app/config` 의 `capabilities` 로 알린 기능(Client 모드). 구서버는 빈 목록.
   List<String> _serverCapabilities = const [];
 
+  /// 지금 연결한 서버의 기능 목록을 받았는가. 서버·모드를 바꾸면 false(알 수 없음)로 돌아가고,
+  /// 그동안 기능 게이트 UI 는 숨긴다(SQ-B08 — 예전에는 이전 서버 목록이 남아 지원하지 않는 API 를 불렀다).
+  bool _serverCapabilitiesKnown = false;
+  bool get serverCapabilitiesKnown => _serverCapabilitiesKnown;
+
+  /// 서버·모드가 바뀔 때 이전 서버의 기능 목록과 진행 중 조회를 버린다.
+  void _forgetServerCapabilities() {
+    _serverCapabilities = const [];
+    _serverCapabilitiesKnown = false;
+    _appConfigLoadFuture = null;
+  }
+
   /// 별점 공통 사유를 보낼 수 있는가 — Standalone 은 항상, Client 는 서버가 rating_cause 를 알릴 때만.
   bool get ratingCauseSupported =>
       _appMode == AppMode.standalone ||
-      _serverCapabilities.contains('rating_cause');
+      (_serverCapabilitiesKnown &&
+          _serverCapabilities.contains('rating_cause'));
 
   /// 연결된 서버가 "서버의 커뮤니티 계정" API 를 알리는가(Client 모드). 구서버는 false.
   bool get communityAccountSupported =>
       _appMode == AppMode.server &&
+      _serverCapabilitiesKnown &&
       _serverCapabilities.contains(ServerContract.communityAccountCapability);
 
   ReportFilter _filter = const ReportFilter();
@@ -567,8 +581,12 @@ class ReportProvider with ChangeNotifier {
       _serverCapabilities = [
         for (final c in (cfg['capabilities'] as List? ?? const [])) '$c',
       ];
+      _serverCapabilitiesKnown = true;
       notifyListeners();
-    } catch (_) {}
+    } catch (e) {
+      // 기능 목록은 "알 수 없음"으로 남는다(게이트 UI 숨김). 다음 refreshAll 이 다시 묻는다.
+      debugPrint('[ReportProvider] 서버 앱 설정 조회 실패: $e');
+    }
   }
 
   /// standalone 전용 설정 토글 — SharedPreferences 영속화 + 데이터 재로드
@@ -790,6 +808,7 @@ class ReportProvider with ChangeNotifier {
     final cleanUrl = url.endsWith('/') ? url.substring(0, url.length - 1) : url;
     _datasetEpoch++;
     _resetDatasetView();
+    _forgetServerCapabilities();
     ratingCauseDraft = '';
     ClientCompatibility.invalidate();
     _appMode = AppMode.server;
@@ -844,6 +863,7 @@ class ReportProvider with ChangeNotifier {
     }
     _datasetEpoch++;
     _resetDatasetView();
+    _forgetServerCapabilities();
     ratingCauseDraft = '';
     ClientCompatibility.invalidate();
     _appMode = AppMode.standalone;
@@ -926,7 +946,7 @@ class ReportProvider with ChangeNotifier {
     await prefs.remove(AppPrefsKeys.standaloneDemoMode);
     await StandaloneAuthService.clearToken();
     // 실제 모드 변경: Standalone 커뮤니티 세션·대기 로그인을 지운다(M05). 서버의 커뮤니티 계정은 건드리지 않는다.
-    _serverCapabilities = const [];
+    _forgetServerCapabilities();
     try {
       await CommunityAuthService.instance.clearForModeChange();
     } catch (_) {}

@@ -22,7 +22,7 @@
 | WP | 주제 | 항목 | 주요 파일 | 상태 |
 |---|---|---|---|---|
 | WP1 | 알림 경로 | B01 B02 B04 B12 P08 U08 | notification_history_provider, main(_checkPendingChanges), notifications_screen, report_detail_sheet(markReportRead), WsService.kt(ID) | 완료 |
-| WP2 | DB 가져오기·설정 화면 결함 | B03 B06 B08 B14 B09(settings·setup) | pending_db_import_action, setup_screen, settings_screen, report_provider(capabilities) | 대기 |
+| WP2 | DB 가져오기·설정 화면 결함 | B03 B06 B08 B14 B09(settings·setup) | pending_db_import_action, setup_screen, settings_screen, report_provider(capabilities) | 완료 |
 | WP3 | 루트·내비·테마 | P01 U05 U06 B05 B13 U07 U04(탭 막대) | main, app_theme, community_gate, sr_tab_bar, dashboard(관리), 시트 9곳, MainActivity.kt | 대기 |
 | WP4 | 목록·드릴다운·상세 | U01 U02 P09 U12 U13 U14 U20(상세) | report_list_screen, local_paged_report_list, statistics/map/detail 드릴다운, report_detail_sheet, status_badge | 대기 |
 | WP5 | 지도 | U03 U10 U11 P05 U24(범례) | report_map_screen | 대기 |
@@ -80,18 +80,18 @@
 | P13 | cached_network_image 미사용 | WP8 | 대기 |
 | B01 | 읽은 신고의 새 변경 유실 | WP1 | 완료 |
 | B02 | 알림 기록 lost update | WP1 | 완료 |
-| B03 | DB 변환 대기 작업 선삭제 | WP2 | 대기 |
+| B03 | DB 변환 대기 작업 선삭제 | WP2 | 완료 |
 | B04 | 소비형 완료 신호 순서 | WP1 | 완료 |
 | B05 | MethodChannel 처리기 수명 | WP3 | 대기 |
-| B06 | 다운로드 진행 창 뒤로가기 | WP2 | 대기 |
+| B06 | 다운로드 진행 창 뒤로가기 | WP2 | 완료 |
 | B07 | 크롤링 화면 폴링·dispose | WP7 | 대기 |
-| B08 | 서버 변경 시 capabilities·저장 이중 실행 | WP2 | 대기 |
+| B08 | 서버 변경 시 capabilities·저장 이중 실행 | WP2 | 완료 |
 | B09 | await 뒤 mounted 누락 | WP2·WP7·WP8 | 대기 |
 | B10 | 감시 목록 epoch | WP8 | 대기 |
 | B11 | _isLoading 공유 | WP8 | 대기 |
 | B12 | 알림 기록 ID 충돌 | WP1 | 완료 |
 | B13 | 재구성 게이트 onDone 반복 | WP3 | 대기 |
-| B14 | 재로그인 컨트롤러 미해제 | WP2 | 대기 |
+| B14 | 재로그인 컨트롤러 미해제 | WP2 | 완료 |
 
 ## 기준선
 

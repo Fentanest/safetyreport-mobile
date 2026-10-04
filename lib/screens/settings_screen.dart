@@ -30,6 +30,7 @@ import '../community/client_account_notice.dart';
 import '../community/gate/community_gate.dart';
 import '../widgets/community_account_card.dart';
 import '../widgets/community_server_account_card.dart';
+import '../widgets/dispose_on_unmount.dart';
 import '../widgets/mode_badge.dart';
 import '../server_palette.dart';
 import '../widgets/status_badge.dart';
@@ -52,6 +53,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _apiController = TextEditingController();
   bool _obscureKey = true;
   bool _testing = false;
+
+  /// "저장" 진행 중(연결 확인 → setConfig). 두 번 실행·연결 테스트와 겹침을 막는다(SQ-B08).
+  bool _saving = false;
   _TestResult? _testResult;
   bool _wsRunning = false;
   bool _wsToggling = false;
@@ -196,7 +200,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await PermissionService.startWsService();
     }
     await Future.delayed(const Duration(seconds: 1));
+    if (!mounted) return;
     await _checkWsStatus();
+    if (!mounted) return;
     setState(() => _wsToggling = false);
   }
 
@@ -226,6 +232,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _testConnection() async {
+    if (_testing || _saving) return;
     final url = _urlController.text.trim();
     final key = _apiController.text.trim();
     if (url.isEmpty || key.isEmpty) {
@@ -262,6 +269,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             headers: ServerContract.apiHeaders(key),
           )
           .timeout(const Duration(seconds: 10));
+      if (!mounted) return;
 
       final status = response.statusCode;
       String body = response.body;
@@ -299,15 +307,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
         });
       }
     } on Exception catch (e) {
+      if (!mounted) return;
       setState(() {
         _testResult = _TestResult.error('연결 실패: $e');
       });
     } finally {
-      setState(() => _testing = false);
+      if (mounted) setState(() => _testing = false);
     }
   }
 
   Future<void> _save() async {
+    if (_saving || _testing) return;
     final url = _urlController.text.trim();
     final key = _apiController.text.trim();
     if (url.isEmpty || key.isEmpty) {
@@ -316,41 +326,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ).showSnackBar(const SnackBar(content: Text('모든 필드를 입력해주세요.')));
       return;
     }
-    setState(() => _testing = true);
-    ServerConnectionResult result;
+    setState(() {
+      _saving = true;
+      _testing = true;
+    });
     try {
-      result = await ServerConnectionService.testConnection(
-        baseUrl: url,
-        apiKey: key,
-      );
-    } catch (e) {
-      if (mounted) {
-        setState(() => _testResult = _TestResult.error('서버에 연결할 수 없습니다: $e'));
+      ServerConnectionResult result;
+      try {
+        result = await ServerConnectionService.testConnection(
+          baseUrl: url,
+          apiKey: key,
+        );
+      } catch (e) {
+        if (mounted) {
+          setState(() => _testResult = _TestResult.error('서버에 연결할 수 없습니다: $e'));
+        }
+        return;
+      } finally {
+        if (mounted) setState(() => _testing = false);
       }
-      return;
+      if (!mounted) return;
+      if (!result.isOk) {
+        setState(
+          () => _testResult = _TestResult.error(
+            result.message ?? '서버에 연결할 수 없습니다.',
+          ),
+        );
+        return;
+      }
+      final provider = context.read<ReportProvider>();
+      await provider.setConfig(result.normalizedUrl, key);
+      // 설정 변경 후 모든 데이터 새로고침(서버 기능 목록 포함 — setConfig 가 이전 서버 것을 비웠다)
+      unawaited(provider.refreshAll());
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('설정이 저장되었습니다. 데이터를 불러오는 중...'),
+            backgroundColor: srSnackSuccess,
+          ),
+        );
+      }
     } finally {
-      if (mounted) setState(() => _testing = false);
-    }
-    if (!mounted) return;
-    if (!result.isOk) {
-      setState(
-        () => _testResult = _TestResult.error(
-          result.message ?? '서버에 연결할 수 없습니다.',
-        ),
-      );
-      return;
-    }
-    final provider = context.read<ReportProvider>();
-    await provider.setConfig(result.normalizedUrl, key);
-    // 설정 변경 후 모든 데이터 새로고침
-    provider.refreshAll();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('설정이 저장되었습니다. 데이터를 불러오는 중...'),
-          backgroundColor: srSnackSuccess,
-        ),
-      );
+      if (mounted) setState(() => _saving = false);
     }
   }
 
@@ -371,139 +388,151 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlg) => AlertDialog(
-          title: const Text('안전신문고 재로그인'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: usernameCtrl,
-                decoration: const InputDecoration(
-                  labelText: '아이디',
-                  prefixIcon: Icon(Icons.person_outline),
+      // 창이 완전히 닫힌 뒤 컨트롤러를 해제한다. 비밀번호는 먼저 지운다(SQ-B14).
+      builder: (ctx) => DisposeOnUnmount(
+        onDispose: () {
+          passwordCtrl.clear();
+          usernameCtrl.dispose();
+          passwordCtrl.dispose();
+          phoneCtrl.dispose();
+        },
+        child: StatefulBuilder(
+          builder: (ctx, setDlg) => AlertDialog(
+            title: const Text('안전신문고 재로그인'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: usernameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: '아이디',
+                    prefixIcon: Icon(Icons.person_outline),
+                  ),
+                  autocorrect: false,
+                  textInputAction: TextInputAction.next,
                 ),
-                autocorrect: false,
-                textInputAction: TextInputAction.next,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: passwordCtrl,
-                decoration: InputDecoration(
-                  labelText: '비밀번호',
-                  prefixIcon: const Icon(Icons.lock_outline),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      obscurePw ? Icons.visibility_off : Icons.visibility,
-                      size: 20,
+                const SizedBox(height: 12),
+                TextField(
+                  controller: passwordCtrl,
+                  decoration: InputDecoration(
+                    labelText: '비밀번호',
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        obscurePw ? Icons.visibility_off : Icons.visibility,
+                        size: 20,
+                      ),
+                      onPressed: () => setDlg(() => obscurePw = !obscurePw),
                     ),
-                    onPressed: () => setDlg(() => obscurePw = !obscurePw),
                   ),
+                  obscureText: obscurePw,
+                  autocorrect: false,
                 ),
-                obscureText: obscurePw,
-                autocorrect: false,
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: phoneCtrl,
-                decoration: const InputDecoration(
-                  labelText: '휴대폰번호',
-                  helperText: '별점 사유 조회에 사용됩니다.',
-                  helperMaxLines: 2,
-                  prefixIcon: Icon(Icons.phone_outlined),
-                ),
-                keyboardType: TextInputType.phone,
-                autocorrect: false,
-              ),
-              if (err != null) ...[
-                const SizedBox(height: 10),
-                Text(
-                  err!,
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.error,
-                    fontSize: 13,
+                const SizedBox(height: 12),
+                TextField(
+                  controller: phoneCtrl,
+                  decoration: const InputDecoration(
+                    labelText: '휴대폰번호',
+                    helperText: '별점 사유 조회에 사용됩니다.',
+                    helperMaxLines: 2,
+                    prefixIcon: Icon(Icons.phone_outlined),
                   ),
+                  keyboardType: TextInputType.phone,
+                  autocorrect: false,
                 ),
+                if (err != null) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    err!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
               ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: loggingIn ? null : () => Navigator.pop(ctx),
+                child: const Text('취소'),
+              ),
+              FilledButton(
+                onPressed: loggingIn
+                    ? null
+                    : () async {
+                        setDlg(() {
+                          loggingIn = true;
+                          err = null;
+                        });
+                        try {
+                          final username = usernameCtrl.text.trim();
+                          final rawPhone = phoneCtrl.text.trim();
+                          final phone = rawPhone.replaceAll(
+                            RegExp(r'[^0-9]'),
+                            '',
+                          );
+                          final isDemoLogin =
+                              LocalDbService.isPlayReviewDemoLogin(
+                                username: username,
+                                password: passwordCtrl.text,
+                                rawPhone: rawPhone,
+                              );
+                          if (!isDemoLogin && phone.isEmpty) {
+                            throw Exception('휴대폰번호를 입력해주세요.');
+                          }
+                          if (isDemoLogin) {
+                            await LocalDbService.seedPlayReviewDemo();
+                          } else {
+                            await StandaloneAuthService.login(
+                              username,
+                              passwordCtrl.text,
+                            );
+                          }
+                          if (ctx.mounted) {
+                            await ctx
+                                .read<ReportProvider>()
+                                .setStandaloneConfig(
+                                  username,
+                                  phoneNumber: isDemoLogin
+                                      ? (rawPhone.isEmpty
+                                            ? LocalDbService.playReviewDemoPhone
+                                            : rawPhone)
+                                      : phone,
+                                  isDemoMode: isDemoLogin,
+                                );
+                            if (!ctx.mounted || !mounted) return;
+                            Navigator.pop(ctx);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  isDemoLogin ? '데모 모드 전환 완료' : '재로그인 완료',
+                                ),
+                                backgroundColor: srSnackSuccess,
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          if (!ctx.mounted) return;
+                          setDlg(() {
+                            err = e.toString().replaceFirst('Exception: ', '');
+                            loggingIn = false;
+                          });
+                        }
+                      },
+                child: loggingIn
+                    ? SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Theme.of(ctx).colorScheme.onPrimary,
+                        ),
+                      )
+                    : const Text('로그인'),
+              ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: loggingIn ? null : () => Navigator.pop(ctx),
-              child: const Text('취소'),
-            ),
-            FilledButton(
-              onPressed: loggingIn
-                  ? null
-                  : () async {
-                      setDlg(() {
-                        loggingIn = true;
-                        err = null;
-                      });
-                      try {
-                        final username = usernameCtrl.text.trim();
-                        final rawPhone = phoneCtrl.text.trim();
-                        final phone = rawPhone.replaceAll(
-                          RegExp(r'[^0-9]'),
-                          '',
-                        );
-                        final isDemoLogin =
-                            LocalDbService.isPlayReviewDemoLogin(
-                              username: username,
-                              password: passwordCtrl.text,
-                              rawPhone: rawPhone,
-                            );
-                        if (!isDemoLogin && phone.isEmpty) {
-                          throw Exception('휴대폰번호를 입력해주세요.');
-                        }
-                        if (isDemoLogin) {
-                          await LocalDbService.seedPlayReviewDemo();
-                        } else {
-                          await StandaloneAuthService.login(
-                            username,
-                            passwordCtrl.text,
-                          );
-                        }
-                        if (ctx.mounted) {
-                          await ctx.read<ReportProvider>().setStandaloneConfig(
-                            username,
-                            phoneNumber: isDemoLogin
-                                ? (rawPhone.isEmpty
-                                      ? LocalDbService.playReviewDemoPhone
-                                      : rawPhone)
-                                : phone,
-                            isDemoMode: isDemoLogin,
-                          );
-                          if (!ctx.mounted || !mounted) return;
-                          Navigator.pop(ctx);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                isDemoLogin ? '데모 모드 전환 완료' : '재로그인 완료',
-                              ),
-                              backgroundColor: srSnackSuccess,
-                            ),
-                          );
-                        }
-                      } catch (e) {
-                        setDlg(() {
-                          err = e.toString().replaceFirst('Exception: ', '');
-                          loggingIn = false;
-                        });
-                      }
-                    },
-              child: loggingIn
-                  ? SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Theme.of(ctx).colorScheme.onPrimary,
-                      ),
-                    )
-                  : const Text('로그인'),
-            ),
-          ],
         ),
       ),
     );
@@ -528,6 +557,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await LocalDbService.exportBackup(targetFile.path);
       } else {
         final api = ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
+        // 화면이 닫혔으면 받지 않는다(dispose 가 취소할 수 없는 다운로드가 남는다).
+        if (!mounted) return;
         final cancel = DownloadCancel();
         _dbDownloadProgress.value = (0, null);
         setState(() => _dbDownloadCancel = cancel);
@@ -720,7 +751,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
 
-    if (confirmed != true) return;
+    if (confirmed != true || !mounted) return;
 
     setState(() => _isRestoringDb = true);
 
@@ -939,30 +970,70 @@ class _SettingsScreenState extends State<SettingsScreen> {
           final st = await Permission.storage.status;
           if (!st.isGranted) await Permission.storage.request();
         }
-        // 화면이 닫혔으면 다운로드·모드 전환을 시작하지 않는다.
-        if (!mounted) return;
-        // 진행 다이얼로그(받은 크기·취소)
-        final cancel = DownloadCancel();
-        final progress = ValueNotifier<(int, int?)>((0, null));
-        unawaited(
-          showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (ctx) => AlertDialog(
-              content: ValueListenableBuilder<(int, int?)>(
-                valueListenable: progress,
-                builder: (_, v, _) => DbDownloadProgressView(
-                  title: '서버 DB 다운로드 중',
-                  received: v.$1,
-                  total: v.$2,
-                ),
-              ),
-              actions: [
-                TextButton(onPressed: cancel.cancel, child: const Text('취소')),
-              ],
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('서버 DB 다운로드 실패: $e'),
+              backgroundColor: srSnackError,
             ),
+          );
+        }
+        return;
+      }
+      // 화면이 닫혔으면 다운로드·모드 전환을 시작하지 않는다.
+      if (!mounted) return;
+      // 진행 다이얼로그(받은 크기·취소). 뒤로가기도 취소로 처리하고(SQ-B06),
+      // 닫을 때는 이 route 만 닫는다 — Navigator.of(context).pop() 은 그 사이 맨 위가 바뀌면 설정 화면을 닫는다.
+      final cancel = DownloadCancel();
+      final progress = ValueNotifier<(int, int?)>((0, null));
+      // showDialog 와 같은 설정(루트 navigator·테마 캡처·배경색)으로 route 를 직접 만들어 그 route 만 닫을 수 있게 한다.
+      final dialogNavigator = Navigator.of(context, rootNavigator: true);
+      final dialogRoute = DialogRoute<void>(
+        context: context,
+        themes: InheritedTheme.capture(
+          from: context,
+          to: dialogNavigator.context,
+        ),
+        barrierColor:
+            DialogTheme.of(context).barrierColor ??
+            Theme.of(context).dialogTheme.barrierColor ??
+            Colors.black54,
+        barrierDismissible: false,
+        traversalEdgeBehavior: TraversalEdgeBehavior.closedLoop,
+        builder: (ctx) => PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) cancel.cancel();
+          },
+          child: AlertDialog(
+            content: ValueListenableBuilder<(int, int?)>(
+              valueListenable: progress,
+              builder: (_, v, _) => DbDownloadProgressView(
+                title: '서버 DB 다운로드 중',
+                received: v.$1,
+                total: v.$2,
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: cancel.cancel, child: const Text('취소')),
+            ],
           ),
-        );
+        ),
+      );
+      unawaited(dialogNavigator.push(dialogRoute));
+      void closeDialog() {
+        if (!dialogRoute.isActive) return;
+        final navigator = dialogRoute.navigator;
+        if (navigator == null) return;
+        if (dialogRoute.isCurrent) {
+          navigator.pop();
+        } else {
+          navigator.removeRoute(dialogRoute);
+        }
+      }
+
+      try {
         final api = ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
         final dir = _backupDir();
         final fileName =
@@ -974,10 +1045,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           onProgress: (received, total) => progress.value = (received, total),
         );
         pendingAction = ConvertServerDbAction(target.path);
-        if (mounted) Navigator.of(context).pop(); // 진행 다이얼로그 닫기
       } on DownloadCancelled {
         if (mounted) {
-          Navigator.of(context).pop(); // 진행 다이얼로그 닫기
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('서버 DB 다운로드를 취소했습니다. 모드는 바꾸지 않았습니다.')),
           );
@@ -985,7 +1054,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return;
       } catch (e) {
         if (mounted) {
-          Navigator.of(context).pop(); // 진행 다이얼로그 닫기 (실패 시)
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('서버 DB 다운로드 실패: $e'),
@@ -994,6 +1062,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           );
         }
         return;
+      } finally {
+        closeDialog();
+        progress.dispose();
       }
     } else if (choice == 'pick_backup') {
       try {
@@ -1019,10 +1090,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
     // 'fresh' 는 pendingAction = null
 
-    await PendingDbImportAction.save(pendingAction);
-
+    // 대기 작업 저장과 모드 초기화는 함께 하거나 둘 다 하지 않는다(SQ-B06). 다운로드·파일 선택 중 화면이
+    // 사라졌으면 여기서 멈춘다 — 대기 작업만 남으면 나중에 엉뚱한 Standalone 로그인에서 적용된다.
+    // 받은 파일은 지우지 않는다(사용자 자료).
     if (!mounted) return;
-    await context.read<ReportProvider>().resetConfig();
+    await PendingDbImportAction.save(pendingAction);
+    await p.resetConfig();
     if (mounted) {
       Navigator.of(context).popUntil((route) => route.isFirst);
     }
@@ -1553,7 +1626,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     )
                                   : const Icon(Icons.wifi_find, size: 18),
                               label: Text(_testing ? '테스트 중...' : '연결 테스트'),
-                              onPressed: _testing ? null : _testConnection,
+                              onPressed: _testing || _saving
+                                  ? null
+                                  : _testConnection,
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -1561,7 +1636,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             child: FilledButton.icon(
                               icon: const Icon(Icons.save, size: 18),
                               label: const Text('저장'),
-                              onPressed: _save,
+                              onPressed: _testing || _saving ? null : _save,
                             ),
                           ),
                         ],

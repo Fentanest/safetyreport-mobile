@@ -22,6 +22,13 @@
 - Standalone의 "크롤링 현황"·"신고 결과" 빈 상태 문구를 동기화 기준으로 바꿨다(탭 이름은 불변 항목이라 유지).
 - 검증: analyze error 0 / warning 9 / info 0, test **934 passed / 16 skipped / 0 failed**(신규 20). WsService.kt는 컴파일 미확인(통합 검증 때 확인).
 
+### WP2 DB 가져오기·설정 화면 결함 (SQ-B03 B06 B08 B14, B09 일부)
+- 서버 DB 변환·백업 사용 대기 작업을 적용 전에 지우던 것을 고쳤다. 안전신문고 로그인 뒤 **Standalone 모드를 켜기 전에** 가져오고, 성공했을 때만 키를 지운다. 실패하면 받은 파일 경로와 함께 "다시 시도 / 버리고 빈 DB로 시작"을 묻고, 결정이 없으면 키를 남긴 채 모드를 켜지 않는다(`docs/architecture/data-contracts.md` 갱신). 모드를 먼저 켜면 게이트 흐름이 빈 DB에 먼저 쓰거나 가져오기를 거절할 수 있었다.
+- 서버 DB 다운로드 진행 창: 뒤로가기는 다운로드 취소로 연결하고, 창은 자기 route만 닫는다(설정 화면이 같이 닫히던 결함). 다운로드 뒤 대기 작업 저장과 모드 초기화를 반쪽 없이 처리한다.
+- 서버 주소·모드가 바뀌면 이전 서버의 기능 목록을 비우고 "알 수 없음"으로 둔다(조회 실패 로그). 설정 저장·연결 테스트에 진행 중 잠금을 걸었다.
+- 재로그인 대화상자의 비밀번호를 지운 뒤 컨트롤러를 해제하고(`DisposeOnUnmount`), 중복 메모 컨트롤러도 해제한다. 설정·설정 마법사의 await 뒤 mounted 확인을 보강했다.
+- 검증: analyze error 0 / warning 9 / info 0, test **954 passed / 16 skipped / 0 failed**(신규 20). 다운로드 성공 경로는 저장 경로가 기기 고정이라 자동 테스트 없음, 에뮬레이터 확인은 통합 검증 때.
+
 ## 2026-10-04 (서버 dev 리팩터링 WS 소비자 연동, 로컬 미배포)
 
 - 서버의 optional terminal event_id/after/replay_gap/cursor_reset을 Android WsService에 연결했다. 서버 설정별 cursor를 분리하고 같은 event_id의 완료 알림 중복을 막는다. PrefsInbox가 알림 history와 cursor를 한 Editor.commit에 저장하며 실패하면 메모리의 실패 history/cursor/trim만 복구한 뒤 reconnect한다. rollback disk 실패에서도 메모리 cursor를 되돌리는 회귀를 확인했다.

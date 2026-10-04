@@ -7,6 +7,8 @@ import '../providers/report_provider.dart';
 import '../server_palette.dart';
 import '../theme/sr_colors.dart';
 import '../widgets/report_detail_sheet.dart';
+import '../widgets/sr_empty_state.dart';
+import '../widgets/sr_page_padding.dart';
 import '../widgets/status_badge.dart';
 
 /// 대시보드의 "최근 답변 완료 (3일)" 더보기 화면.
@@ -47,33 +49,29 @@ class _RecentAnswersScreenState extends State<RecentAnswersScreen> {
 
     return Scaffold(
       appBar: AppBar(title: Text('최근 답변 완료 (3일) · 미리보기')),
+      // 빈 미리보기와 조회 오류를 구분하고, 오류에는 "다시 시도"를 단다(SQ-U21).
       body: items.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.notifications_off_outlined,
-                    size: 64,
-                    color: context.sr.textDisabled,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    provider.errorMessage ?? '최근 답변 미리보기가 없습니다.',
-                    style: TextStyle(
-                      color: context.sr.textSecondary,
-                      fontSize: 15,
+          ? RefreshIndicator(
+              onRefresh: provider.refreshSummaryAndRecentAnswers,
+              child: provider.errorMessage != null
+                  ? SrEmptyState.error(
+                      title: '최근 답변을 불러오지 못했습니다',
+                      message: '서버 연결을 확인한 뒤 다시 시도하세요.',
+                      detail: provider.errorMessage,
+                      onRetry: provider.refreshSummaryAndRecentAnswers,
+                    )
+                  : const SrEmptyState(
+                      icon: Icons.notifications_off_outlined,
+                      title: '최근 답변 미리보기가 없습니다',
+                      message: '최근 3일 안에 답변이 완료된 신고가 여기에 보입니다.',
                     ),
-                  ),
-                ],
-              ),
             )
           : RefreshIndicator(
               onRefresh: provider.refreshSummaryAndRecentAnswers,
               child: ListView.separated(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 8,
-                  horizontal: 12,
+                padding: srPagePadding(
+                  context,
+                  const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
                 ),
                 itemCount: items.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 6),

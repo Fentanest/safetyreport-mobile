@@ -14,6 +14,7 @@ import '../services/api_service.dart';
 import '../services/app_storage_paths.dart';
 import '../services/excel_export_service.dart';
 import '../theme/sr_colors.dart';
+import '../widgets/sr_page_padding.dart';
 import '../server_palette.dart';
 
 /// 확장자 → MIME type 매핑 (top-level — 모든 State 에서 공유).
@@ -775,6 +776,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     final entries = _localFiles;
     return ListView.builder(
       physics: const AlwaysScrollableScrollPhysics(),
+      padding: srPagePadding(context), // SQ-U26
       itemCount: entries.length + 1,
       itemBuilder: (context, index) => index == 0
           ? _buildLocalPathCard(displayPath, hasParent: hasParent)
@@ -877,6 +879,8 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
                     Icons.delete_outline,
                     color: Theme.of(context).colorScheme.error,
                   ),
+                  // 파괴적 동작: 스크린리더 이름을 분명히(SQ-U20).
+                  tooltip: '파일 삭제',
                   onPressed: () => _deleteLocalFile(entity),
                 ),
               ],
@@ -1042,6 +1046,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
           : RefreshIndicator(
               onRefresh: () => _loadServer(''),
               child: ListView.builder(
+                padding: srPagePadding(context), // SQ-U26
                 itemCount: _rootItems?.length ?? 0,
                 itemBuilder: (context, i) => _TreeNode(
                   item: _rootItems![i],

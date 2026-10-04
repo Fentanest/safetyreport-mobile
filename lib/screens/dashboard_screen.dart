@@ -16,6 +16,8 @@ import 'filtered_list_screen.dart';
 import '../theme/sr_colors.dart';
 import '../widgets/mode_badge.dart';
 import '../widgets/status_badge.dart';
+import '../widgets/sr_app_bar_actions.dart';
+import '../widgets/sr_page_padding.dart';
 import '../widgets/sync_status_card.dart';
 import '../navigation/main_tabs.dart';
 import '../utils/format.dart';
@@ -87,17 +89,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ],
           ),
         ),
-        actions: [
-          const SyncActionButton(),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            tooltip: '설정',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SettingsScreen()),
-            ),
-          ),
-        ],
+        // 탭별 동작은 왼쪽, 설정은 항상 맨 끝(SQ-U16).
+        actions: const [SyncActionButton(), SettingsActionButton()],
       ),
       body: RefreshIndicator(
         onRefresh: provider.refreshSummaryAndRecentAnswers,
@@ -207,7 +200,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         stats.tUnconfirmedCount;
     return SingleChildScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(16),
+      // 가로 모드 좌우 컷아웃·내비 여백(SQ-U26).
+      padding: srPagePadding(context, const EdgeInsets.all(16)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

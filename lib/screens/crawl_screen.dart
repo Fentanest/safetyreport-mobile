@@ -14,7 +14,7 @@ import '../services/local_db_service.dart';
 import '../services/sync_engine.dart';
 import '../widgets/auth_status_notice.dart';
 import '../widgets/sync_exit_guard.dart';
-import 'settings_screen.dart';
+import '../widgets/sr_app_bar_actions.dart';
 import '../theme/sr_colors.dart';
 
 class CrawlScreen extends StatefulWidget {
@@ -549,13 +549,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
       appBar: AppBar(
         title: const Text('데이터 동기화'),
         actions: [
-          IconButton(
-            icon: Icon(Icons.settings_outlined),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SettingsScreen()),
-            ),
-          ),
+          const SettingsActionButton(),
         ],
       ),
       body: _withLogPanel(
@@ -827,13 +821,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
       appBar: AppBar(
         title: const Text('크롤링 제어'),
         actions: [
-          IconButton(
-            icon: Icon(Icons.settings_outlined),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SettingsScreen()),
-            ),
-          ),
+          const SettingsActionButton(),
         ],
       ),
       body: _withLogPanel(

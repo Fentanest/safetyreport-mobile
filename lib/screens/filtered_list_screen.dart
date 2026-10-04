@@ -4,10 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/report_provider.dart';
 import '../models/report.dart';
-import '../theme/sr_colors.dart';
 import '../widgets/report_detail_sheet.dart';
 import '../widgets/report_list_card.dart';
 import '../widgets/selection_action_bar.dart';
+import '../widgets/sr_empty_state.dart';
+import '../widgets/sr_page_padding.dart';
 
 /// 대시보드/통계 카드 탭 시 해당 조건에 맞는 신고만 보여주는 화면
 class FilteredListScreen extends StatefulWidget {
@@ -85,6 +86,7 @@ class _FilteredListScreenState extends State<FilteredListScreen> {
           ? AppBar(
               leading: IconButton(
                 icon: const Icon(Icons.close),
+                tooltip: '선택 취소',
                 onPressed: _clearSelection,
               ),
               title: Text('${_selected.length}개 선택됨'),
@@ -110,18 +112,14 @@ class _FilteredListScreenState extends State<FilteredListScreen> {
           provider.isLoading && reports.isEmpty
               ? const Center(child: CircularProgressIndicator())
               : reports.isEmpty
-              ? Center(
-                  child: Text(
-                    '해당하는 신고가 없습니다.',
-                    style: TextStyle(color: context.sr.textSecondary),
-                  ),
+              ? const SrEmptyState(
+                  icon: Icons.inbox_outlined,
+                  title: '해당하는 신고가 없습니다',
                 )
               : ListView.builder(
-                  padding: EdgeInsets.fromLTRB(
-                    12,
-                    8,
-                    12,
-                    _selectionMode ? 100 : 20,
+                  padding: srPagePadding(
+                    context,
+                    EdgeInsets.fromLTRB(12, 8, 12, _selectionMode ? 100 : 20),
                   ),
                   itemCount: reports.length,
                   itemBuilder: (ctx, i) => _buildCard(reports[i]),

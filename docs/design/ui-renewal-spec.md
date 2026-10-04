@@ -14,19 +14,25 @@
 
 `ThemeData` + `ThemeExtension<SrColors>` 한 곳에서 정의한다. 화면 코드는 `context.sr` / `Theme.of(context).colorScheme` 을 읽고 색을 직접 쓰지 않는다(잔여 하드코딩은 화면 그룹별로 순차 교체).
 
-| 역할 | 라이트 | 다크 (D-01: 슬레이트) |
+| 역할 | 라이트 | 다크 (B안 "딥 다크", 2026-09-25 — [dark-palette.md](dark-palette.md)) |
 |---|---|---|
-| background | `#F8FAFC` | `#0B1220` |
-| surface (카드·시트·하단 내비) | `#FFFFFF` | `#111827` |
-| surfaceAlt | `#F1F5F9` | `#1F2937` |
-| border | `#E2E8F0` | `#334155` |
-| textPrimary / Secondary / Disabled | `#0F172A` / `#64748B` / `#94A3B8` | `#F8FAFC` / `#CBD5E1` / `#64748B` |
-| brand (차트·장식) | `#0D6EFD` | `#0D6EFD` |
-| **ColorScheme.primary** (글자·채움) | **`#0B5ED7`** — 토큰 `#0D6EFD` 는 흰 글자 대비 4.50:1 경계라 한 단계 어둡게(5.84:1) | **`#60A5FA`** + onPrimary `#0B1220` (슬레이트 위 6.98:1) |
+| background | `#F8FAFC` | `#0B0B0C` |
+| surface (카드·시트·하단 내비) | `#FFFFFF` | `#131314` |
+| surfaceAlt | `#F1F5F9` | `#1B1B1C` |
+| surfaceContainerHigh (표면 3) | `#E9EEF5` | `#232324` |
+| border | `#E2E8F0` | `#2D2D2F` |
+| textPrimary / Secondary / Disabled | `#0F172A` / `#64748B` / `#94A3B8` | `#F3F3F4` / `#9EA0A4` / `#6B6D72` |
+| brand (차트·장식, `SrColors.brand`) | `#0D6EFD` | `#2563EB` |
+| **ColorScheme.primary** (글자·아이콘) | **`#0B5ED7`** — 토큰 `#0D6EFD` 는 흰 글자 대비 4.50:1 경계라 한 단계 어둡게(5.84:1) | **`#60A5FA`** + onPrimary `#0B0B0C` (바탕 위 7.7:1, 표면 위 7.3:1) |
+| 채움(FilledButton·선택 탭, 흰 글자) | `#0B5ED7` (5.84:1) | `#2563EB` (`AppTheme.darkPrimaryFill`, 흰 글자 5.17:1) |
 | 모드 식별 (D-03) | Client `#0D6EFD` / Standalone `#16A34A` | Client `#60A5FA` / Standalone `#4ADE80` |
 
 - 앱바는 시안처럼 배경색(파란 앱바 폐지), 상단 탭은 알약형(`SrTabBar`).
 - D-01 결정 전 참고로 잰 다크 시안 픽셀(`#011128`~`#081C35`, 네이비)은 채택하지 않았다.
+- **코드 대조 정정 (2026-10-04, SQ-U28):** 이 표의 다크 열은 처음(2026-09-24) D-01 "슬레이트" 값(`#0B1220`·`#111827`·`#1F2937`·`#334155`,
+  글자 `#F8FAFC`/`#CBD5E1`, onPrimary `#0B1220` 6.98:1)으로 적혀 있었다. 2026-09-25 사용자 결정으로 다크는 B안 "딥 다크"로 바뀌었고
+  코드(`lib/theme/sr_colors.dart` `SrColors.dark`, `lib/theme/app_theme.dart`)와 [dark-palette.md](dark-palette.md)·`contracts/dark-palette.json` 은
+  이미 새 값이다. 표와 대비 수치를 코드 기준으로 고쳤다. 웹과 모바일은 같은 다크 값을 쓴다(`test/theme/dark_palette_contract_test.dart`).
 
 ### 상태·처분 색 (D-02: 선택지 c — 모바일 먼저 변경, 서버 웹은 별도 추종)
 `lib/server_palette.dart` 값을 토큰 보드 상태색으로 바꿨다. 서버 웹이 따라오기 전까지 **웹과 모바일 배지 색이 다르다**.
@@ -82,7 +88,7 @@
 ## 8. 결정 현황
 | ID | 항목 | 상태 |
 |---|---|---|
-| D-01 | 다크 배경 | **결정: 슬레이트(토큰 보드)** — 구현 |
+| D-01 | 다크 배경 | **결정: 슬레이트(토큰 보드, 2026-09-24) → B안 "딥 다크"로 대체(2026-09-25, [dark-palette.md](dark-palette.md))** — 구현 |
 | D-02 | 상태·처분 색 | **결정: c (모바일 먼저, 웹은 별도)** — 구현, StatusTone 으로 AA 보정 |
 | D-03 | 모드 식별 | **결정: primary 통합 + 별도 표시** — ModeBadge 구현(대시보드) |
 | D-04 | 글꼴 | **결정: 기기 기본** — 구현 |

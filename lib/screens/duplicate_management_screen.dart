@@ -10,6 +10,7 @@ import '../theme/sr_colors.dart';
 import '../widgets/dispose_on_unmount.dart';
 import '../widgets/duplicate_group_detail_sheet.dart';
 import '../widgets/report_detail_sheet.dart';
+import '../widgets/sr_empty_state.dart';
 import '../widgets/status_badge.dart';
 import '../utils/format.dart';
 
@@ -440,25 +441,11 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.error_outline,
-              size: 48,
-              color: Theme.of(context).colorScheme.error,
-            ),
-            const SizedBox(height: 12),
-            Text(_error!, textAlign: TextAlign.center),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              icon: const Icon(Icons.refresh),
-              label: const Text('다시 시도'),
-              onPressed: _load,
-            ),
-          ],
-        ),
+      // 공용 오류 상태(SQ-U21).
+      return SrEmptyState.error(
+        title: '중복 신고를 불러오지 못했습니다',
+        detail: _error,
+        onRetry: _load,
       );
     }
 
@@ -518,15 +505,10 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
           ),
           const SizedBox(height: 12),
           if (_filteredGroups.isEmpty)
-            Padding(
-              padding: const EdgeInsets.all(24),
-              child: Center(
-                child: Text(
-                  _infoMessage ?? '현재 조건에 맞는 중복 신고 그룹이 없습니다.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: context.sr.textSecondary),
-                ),
-              ),
+            SrEmptyState(
+              icon: Icons.content_copy_outlined,
+              title: _infoMessage ?? '현재 조건에 맞는 중복 신고 그룹이 없습니다.',
+              scrollable: false,
             )
           else
             ..._filteredGroups.map(

@@ -415,6 +415,7 @@ class _SetupScreenState extends State<SetupScreen> {
             children: [
               IconButton(
                 icon: Icon(Icons.arrow_back),
+                tooltip: '모드 선택으로 돌아가기',
                 onPressed: () => _goToStep(_Step.selectMode),
               ),
               const SizedBox(width: 4),
@@ -501,6 +502,7 @@ class _SetupScreenState extends State<SetupScreen> {
             children: [
               IconButton(
                 icon: Icon(Icons.arrow_back),
+                tooltip: '모드 선택으로 돌아가기',
                 // 로그인·DB 가져오기 중에는 떠나지 않는다(SQ-B03).
                 onPressed: _loading ? null : () => _goToStep(_Step.selectMode),
               ),
@@ -559,6 +561,7 @@ class _SetupScreenState extends State<SetupScreen> {
                   _obscurePw ? Icons.visibility_off : Icons.visibility,
                   size: 20,
                 ),
+                tooltip: _obscurePw ? '비밀번호 보기' : '비밀번호 숨기기',
                 onPressed: () => setState(() => _obscurePw = !_obscurePw),
               ),
             ),

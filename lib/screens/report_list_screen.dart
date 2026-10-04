@@ -9,10 +9,10 @@ import '../widgets/report_list_card.dart';
 import '../widgets/search_filter_sheet.dart';
 import '../widgets/selection_action_bar.dart';
 import '../widgets/selection_back_scope.dart';
-import 'settings_screen.dart';
+import '../widgets/sr_app_bar_actions.dart';
+import '../widgets/sr_empty_state.dart';
 import '../widgets/sr_tab_bar.dart';
 import '../widgets/status_badge.dart';
-import '../theme/sr_colors.dart';
 import '../server_palette.dart';
 import '../utils/format.dart';
 
@@ -70,7 +70,6 @@ class _ReportListScreenState extends State<ReportListScreen>
   /// 탭별 전체 건수(LocalPagedReportList 가 조회 뒤 알린다). 조건이 바뀌면 비운다.
   final Map<int, PagedReportTotal?> _totals = {};
   ReportFilter? _totalsFilter;
-
 
   bool get _isDrillDown => widget.filter != null;
 
@@ -190,6 +189,29 @@ class _ReportListScreenState extends State<ReportListScreen>
     );
   }
 
+  /// 칩 × — 그 조건 하나만 푼다. 드릴다운은 이 화면의 조건만, 하단 탭은 공용 조건을 바꾼다(SQ-U16).
+  void _removeCondition(ReportFilterField field) {
+    if (_isDrillDown) {
+      setState(
+        () => _localFilter = (_localFilter ?? const ReportFilter()).without(
+          field,
+        ),
+      );
+      return;
+    }
+    final provider = context.read<ReportProvider>();
+    provider.setFilter(provider.filter.without(field));
+  }
+
+  /// 칩 줄 "초기화" — 상세 검색 시트의 "전체 초기화"와 같다.
+  void _clearConditions() {
+    if (_isDrillDown) {
+      setState(() => _localFilter = const ReportFilter());
+      return;
+    }
+    context.read<ReportProvider>().clearFilter();
+  }
+
   @override
   Widget build(BuildContext context) {
     // 이 화면이 그리는 값만 구독한다(SQ-P07). 분류 탭 목록은 LocalPagedReportList 가 자료 변경을 따로 본다.
@@ -210,7 +232,6 @@ class _ReportListScreenState extends State<ReportListScreen>
       _totalsFilter = filter;
     }
     final hasFilter = !filter.isEmpty;
-    final activeLabels = filter.activeLabels;
     final countText = _countBadgeText(provider, hasFilter);
     final countFiltered = countText != null && countText.startsWith('검색 ');
     final scheme = Theme.of(context).colorScheme;
@@ -219,8 +240,8 @@ class _ReportListScreenState extends State<ReportListScreen>
       provider,
     ).where((r) => _selected.contains(r.reportNumber)).toList();
     final title = _isDrillDown && _localFilter == widget.filter
-        ? (widget.title ?? '신고 내역')
-        : '신고 내역';
+        ? (widget.title ?? '신고내역')
+        : '신고내역';
 
     return SelectionBackScope(
       selectionMode: _selectionMode,
@@ -283,22 +304,11 @@ class _ReportListScreenState extends State<ReportListScreen>
                         ),
                       ),
                     ),
-                  IconButton(
-                    icon: Badge(
-                      isLabelVisible: hasFilter,
-                      child: const Icon(Icons.filter_list),
-                    ),
-                    tooltip: '검색/필터',
+                  FilterActionButton(
+                    active: hasFilter,
                     onPressed: () => _showSearchPopup(context),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.settings),
-                    tooltip: '설정',
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const SettingsScreen()),
-                    ),
-                  ),
+                  const SettingsActionButton(),
                 ],
                 bottom: SrTabBar(
                   controller: _tabController,
@@ -310,44 +320,11 @@ class _ReportListScreenState extends State<ReportListScreen>
           children: [
             Column(
               children: [
-                if (hasFilter && activeLabels.isNotEmpty)
-                  Container(
-                    width: double.infinity,
-                    color: context.sr.brandSoft,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: activeLabels
-                            .map(
-                              (label) => Padding(
-                                padding: const EdgeInsets.only(right: 6),
-                                child: Chip(
-                                  label: Text(
-                                    label,
-                                    style: const TextStyle(fontSize: 11),
-                                  ),
-                                  backgroundColor: Theme.of(
-                                    context,
-                                  ).colorScheme.surface,
-                                  side: BorderSide(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
-                                  ),
-                                  padding: EdgeInsets.zero,
-                                  materialTapTargetSize:
-                                      MaterialTapTargetSize.shrinkWrap,
-                                ),
-                              ),
-                            )
-                            .toList(),
-                      ),
-                    ),
-                  ),
+                ActiveFilterChipBar(
+                  conditions: filter.activeConditions,
+                  onRemove: _removeCondition,
+                  onClear: _clearConditions,
+                ),
                 Expanded(
                   child: TabBarView(
                     controller: _tabController,
@@ -400,35 +377,11 @@ class _ReportListScreenState extends State<ReportListScreen>
       return const Center(child: CircularProgressIndicator());
     }
     if (reports.isEmpty) {
-      return LayoutBuilder(
-        builder: (context, constraints) => RefreshIndicator(
-          onRefresh: provider.fetchDuplicateReports,
-          child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: constraints.maxHeight),
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.content_copy,
-                      size: 56,
-                      color: context.sr.textDisabled,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      '중복 신고 차량이 없습니다.',
-                      style: TextStyle(
-                        color: context.sr.textSecondary,
-                        fontSize: 15,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+      return RefreshIndicator(
+        onRefresh: provider.fetchDuplicateReports,
+        child: const SrEmptyState(
+          icon: Icons.content_copy,
+          title: '중복 신고 차량이 없습니다.',
         ),
       );
     }

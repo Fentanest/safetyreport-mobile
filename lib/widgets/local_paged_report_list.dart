@@ -9,6 +9,8 @@ import 'report_detail_sheet.dart';
 import 'report_list_card.dart';
 import 'selection_action_bar.dart';
 import 'selection_back_scope.dart';
+import 'sr_empty_state.dart';
+import 'sr_page_padding.dart';
 import 'status_badge.dart';
 import '../utils/format.dart';
 
@@ -210,6 +212,25 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
     }
   }
 
+  /// 빈 목록과 조회 오류를 구분한다. 오류는 오류 톤 + "다시 시도"(SQ-U21).
+  Widget _buildEmptyOrError() {
+    final error = _error;
+    if (error != null) {
+      return SrEmptyState.error(
+        title: '목록을 불러오지 못했습니다',
+        message: '아래로 당기거나 다시 시도를 누르세요.',
+        detail: error,
+        onRetry: _load,
+      );
+    }
+    final filtered = !widget.filter.isEmpty || widget.predicate != null;
+    return SrEmptyState(
+      icon: filtered ? Icons.search_off_rounded : Icons.inbox_outlined,
+      title: filtered ? '조건에 맞는 신고가 없습니다' : '해당하는 신고가 없습니다',
+      message: filtered ? '검색 조건을 바꾸거나 초기화해 보세요.' : null,
+    );
+  }
+
   void _toggle(Report r) => setState(() {
     _selected.contains(r.reportNumber)
         ? _selected.remove(r.reportNumber)
@@ -272,64 +293,69 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
         Expanded(
           child: RefreshIndicator(
             onRefresh: _load,
-            child: ListView.builder(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(12),
-              itemCount: _reports.isEmpty ? 1 : _reports.length,
-              itemBuilder: (context, index) {
-                if (_reports.isEmpty) {
-                  return Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(
-                      _error ?? (_loading ? '불러오는 중…' : '해당하는 신고가 없습니다.'),
-                    ),
-                  );
-                }
-                final r = _reports[index];
-                if (widget.itemBuilder != null) {
-                  return widget.itemBuilder!(context, r);
-                }
-                return ReportListCard(
-                  report: r,
-                  selectionMode: _selected.isNotEmpty,
-                  isSelected: _selected.contains(r.reportNumber),
-                  onTap: () => _selected.isNotEmpty
-                      ? _toggle(r)
-                      : showReportDetailSheet(context, r),
-                  onLongPress: () => _toggle(r),
-                  headerSuffix: widget.onRemove != null
-                      ? IconButton(
-                          tooltip: '감시 목록에서 제거',
-                          icon: const Icon(Icons.bookmark_remove_outlined),
-                          onPressed: () async {
-                            await widget.onRemove!(r);
-                            if (mounted) _load();
-                          },
-                        )
-                      : r.totalCount > 0
-                      ? StatusBadge(
-                          label: '${r.validCount}/${r.totalCount}회',
-                          color: Theme.of(context).colorScheme.primary,
-                        )
-                      : null,
-                  metaItems: [
-                    ReportCardMetaItem(
-                      icon: Icons.calendar_today,
-                      text: r.date,
-                    ),
-                    ReportCardMetaItem(icon: Icons.business, text: r.agency),
-                    ReportCardMetaItem(
-                      icon: Icons.person_outline,
-                      text: r.manager,
-                    ),
-                    ReportCardMetaItem(
-                      icon: Icons.location_on_outlined,
-                      text: r.location,
-                    ),
-                  ],
-                );
-              },
-            ),
+            child: !_loading && _reports.isEmpty
+                ? _buildEmptyOrError()
+                : ListView.builder(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: srPagePadding(context, const EdgeInsets.all(12)),
+                    itemCount: _reports.isEmpty ? 1 : _reports.length,
+                    itemBuilder: (context, index) {
+                      if (_reports.isEmpty) {
+                        return const Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Text('불러오는 중…'),
+                        );
+                      }
+                      final r = _reports[index];
+                      if (widget.itemBuilder != null) {
+                        return widget.itemBuilder!(context, r);
+                      }
+                      return ReportListCard(
+                        report: r,
+                        selectionMode: _selected.isNotEmpty,
+                        isSelected: _selected.contains(r.reportNumber),
+                        onTap: () => _selected.isNotEmpty
+                            ? _toggle(r)
+                            : showReportDetailSheet(context, r),
+                        onLongPress: () => _toggle(r),
+                        headerSuffix: widget.onRemove != null
+                            ? IconButton(
+                                tooltip: '감시 목록에서 제거',
+                                icon: const Icon(
+                                  Icons.bookmark_remove_outlined,
+                                ),
+                                onPressed: () async {
+                                  await widget.onRemove!(r);
+                                  if (mounted) _load();
+                                },
+                              )
+                            : r.totalCount > 0
+                            ? StatusBadge(
+                                label: '${r.validCount}/${r.totalCount}회',
+                                color: Theme.of(context).colorScheme.primary,
+                              )
+                            : null,
+                        metaItems: [
+                          ReportCardMetaItem(
+                            icon: Icons.calendar_today,
+                            text: r.date,
+                          ),
+                          ReportCardMetaItem(
+                            icon: Icons.business,
+                            text: r.agency,
+                          ),
+                          ReportCardMetaItem(
+                            icon: Icons.person_outline,
+                            text: r.manager,
+                          ),
+                          ReportCardMetaItem(
+                            icon: Icons.location_on_outlined,
+                            text: r.location,
+                          ),
+                        ],
+                      );
+                    },
+                  ),
           ),
         ),
         if (_selected.isNotEmpty)

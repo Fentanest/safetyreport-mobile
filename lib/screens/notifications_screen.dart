@@ -15,6 +15,8 @@ import '../server_palette.dart';
 import '../services/api_service.dart';
 import '../widgets/duplicate_group_detail_sheet.dart';
 import '../widgets/report_detail_sheet.dart';
+import '../widgets/sr_app_bar_actions.dart';
+import '../widgets/sr_empty_state.dart';
 import '../widgets/sr_tab_bar.dart';
 import '../theme/sr_colors.dart';
 import '../widgets/status_badge.dart';
@@ -420,7 +422,8 @@ class _NotificationsScreenState extends State<NotificationsScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('알림 기록'),
+        // 제목은 하단 탭 이름과 같게, 설정은 맨 끝(SQ-U16).
+        title: const Text('알림'),
         actions: [
           if (allItems.isNotEmpty && provider.unreadCount > 0)
             TextButton.icon(
@@ -438,6 +441,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                 }
               },
             ),
+          const SettingsActionButton(),
         ],
         bottom: SrTabBar(
           controller: _tabController,
@@ -540,44 +544,13 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     required String emptyMessage,
     required String emptySubMessage,
   }) {
+    // 공용 빈 상태(SQ-U21). 모드별 문구(SQ-U08)는 부르는 쪽이 정한다.
     return RefreshIndicator(
       onRefresh: _refresh,
-      child: ListView(
-        children: [
-          SizedBox(
-            height: 320,
-            child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.notifications_none,
-                    size: 72,
-                    color: context.sr.border,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    emptyMessage,
-                    style: TextStyle(
-                      color: context.sr.textSecondary,
-                      fontSize: 15,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    emptySubMessage,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: context.sr.textSecondary,
-                      fontSize: 12,
-                      height: 1.5,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
+      child: SrEmptyState(
+        icon: Icons.notifications_none,
+        title: emptyMessage,
+        message: emptySubMessage,
       ),
     );
   }

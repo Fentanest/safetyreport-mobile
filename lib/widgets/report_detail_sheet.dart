@@ -759,12 +759,17 @@ class ReportDetailSheet extends StatelessWidget {
     ReportFilter filter,
   ) {
     final color = Theme.of(context).colorScheme.primary;
+    // 누르는 줄은 48dp 이상(SQ-U20). 글자는 가운데 두어 위아래 여백이 다른 줄의 간격(12)을 대신한다.
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 2),
       child: InkWell(
         borderRadius: BorderRadius.circular(6),
         onTap: () => _navigateToFiltered(context, filter, value),
-        child: Padding(
+        child: Container(
+          constraints: const BoxConstraints(
+            minHeight: kMinInteractiveDimension,
+          ),
+          alignment: Alignment.centerLeft,
           padding: const EdgeInsets.symmetric(vertical: 2),
           child: _DetailFieldRow(
             icon: icon,

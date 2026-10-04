@@ -132,7 +132,7 @@ monthly_reported[{month:"YYYY-MM",count}](신고일 기준), monthly_answered[�
 
 정본 설명은 서버 레포 `docs/design/statistics-spec.md` §9 이고, 이 절은 모바일 쪽 사실만 적는다.
 
-- 구성: 공통 조건(연도·분류·위반법규 선택 줄) → 요약(접기 가능, 2열 카드 6개 → 월별 처리 추이 → '처분 분포·위반 유형 펼치기') → '신고 지도 열기' → 상세 통계(3+3 여섯 보기·검색·정렬·카드 목록) → 전국 안전신고 현황(대시보드에서 이동).
+- 구성: 공통 조건(연도·분류·위반법규 선택 줄) → 요약(접기 가능, 2열 카드 6개 → 월별 처리 추이 → '처분 분포·위반 유형 펼치기') → 상세 통계(3+3 여섯 보기·검색·정렬·카드 목록) → 전국 안전신고 현황(대시보드에서 이동). 지도는 앱바 '지도' 한 곳에서 연다(2026-10-04, SQ-U16 — 본문 '신고 지도 열기' 제거).
 - 요약 추가 필드(`disposition`·`fine_amount`·`report_types`·`monthly_answered_fine`, 기관 행 `avg_days_count`)는 Standalone `LocalDbService.summarizeOverviewRows`·`_AgencyAgg` 가 서버와 같은 규칙으로 계산한다.
   같은 입력·기대값 `contracts/stats-overview-vectors.json`(서버와 바이트 동일, `test/services/stats_overview_vectors_test.dart`), 실제 fixture DB 동등성 `scripts/dev/logic_parity_check.py`(서버 레포) 48개 조합 차이 0.
 - 구서버(필드 없음): 과태료·경고/범칙금·확정 과태료 카드는 '미지원', 처분 분포·유형 카드는 제공하지 않는다는 안내. 0 으로 바꾸지 않는다.

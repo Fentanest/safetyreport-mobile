@@ -4,12 +4,13 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:safetyreport/theme/app_theme.dart';
 import 'package:safetyreport/widgets/consent_markdown.dart';
 
 import '../support/ui_harness.dart';
 
 /// Evidence only: CONSENT_SCREENSHOT=1 writes docs/reviews/screenshots/consent-markdown/mobile-390-*.png
-/// (the whole consent document at phone width with the real Korean font). Skipped in normal runs.
+/// (the whole consent document at phone width with the real Korean font, app light/dark theme). Skipped in normal runs.
 void main() {
   final enabled = Platform.environment['CONSENT_SCREENSHOT'] == '1';
   testWidgets('consent document at 390 wide (screenshot)', (tester) async {
@@ -27,10 +28,8 @@ void main() {
       tester.view.devicePixelRatio = 1;
       await tester.pumpWidget(
         MaterialApp(
-          theme: ThemeData(
-            brightness: dark ? Brightness.dark : Brightness.light,
-            fontFamily: 'Roboto',
-          ),
+          // 앱 테마로 렌더한다(SQ-U28). 예전에는 기본 ThemeData(보라 #FEF7FF 바탕)라 실제 화면과 달랐다.
+          theme: dark ? AppTheme.dark() : AppTheme.light(),
           home: Scaffold(
             body: RepaintBoundary(
               key: key,

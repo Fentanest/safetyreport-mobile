@@ -278,7 +278,7 @@ void main() {
 
       await tester.pageBack();
       await tester.pumpAndSettle();
-      expect(find.text('신고 내역'), findsOneWidget);
+      expect(find.text('신고내역'), findsOneWidget);
       expect(find.text('담당자: 담당자 가'), findsNothing);
       expect(find.text('테스트 신고 SPP-2608-0000002'), findsOneWidget);
       expect(p.filter, const ReportFilter());

@@ -10,7 +10,8 @@ import '../services/api_service.dart';
 import '../services/local_db_service.dart';
 import 'report_map_screen.dart';
 import 'report_list_screen.dart';
-import 'settings_screen.dart';
+import '../widgets/sr_app_bar_actions.dart';
+import '../widgets/sr_page_padding.dart';
 import 'sunwi_screen.dart';
 import '../theme/sr_colors.dart';
 import '../widgets/stats_overview_section.dart';
@@ -18,7 +19,7 @@ import '../widgets/stats_fine_breakdown.dart';
 
 /// 통계 화면(2026-09-28 개편).
 /// 위에서부터: 공통 조건(연도·분류·법규) → 요약(2열 카드·월별 처리 추이·펼치는 차트, 접기 가능)
-/// → 신고 지도 열기 → 상세 통계(여섯 보기·검색·정렬·기관/담당자 카드) → 전국 안전신고 현황.
+/// → 상세 통계(여섯 보기·검색·정렬·기관/담당자 카드) → 전국 안전신고 현황.
 /// 여섯 보기는 상세 영역의 집계 단위·기관 범위만 바꾼다(요약 수치는 그대로).
 class StatisticsScreen extends StatefulWidget {
   /// Client 통계를 탭 재진입 때 다시 받을 기준 나이(SQ-P02 보완). 시험에서만 바꾼다.
@@ -521,20 +522,15 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('통계'),
+        // 지도 진입은 앱바 한 곳(SQ-U16). 설정은 항상 맨 끝.
         actions: [
           TextButton.icon(
+            key: const ValueKey('stats-open-map'),
             onPressed: _openMap,
             icon: const Icon(Icons.map_outlined, size: 18),
             label: const Text('지도'),
           ),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            tooltip: '설정',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SettingsScreen()),
-            ),
-          ),
+          const SettingsActionButton(),
         ],
       ),
       body: _loading && _stats == null
@@ -553,7 +549,11 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       onRefresh: _load,
       child: ListView.builder(
         key: const PageStorageKey('stats-list'),
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+        // 가로 모드 좌우 컷아웃·내비 여백(SQ-U26).
+        padding: srPagePadding(
+          context,
+          const EdgeInsets.fromLTRB(12, 8, 12, 24),
+        ),
         itemCount: 1 + cardCount + 1,
         itemBuilder: (context, index) {
           if (index == 0) return _buildHeader(rows);
@@ -663,17 +663,11 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                 _overviewNotice ??
                 (_overview == null ? '요약을 불러오는 중입니다…' : null),
           ),
-        OutlinedButton.icon(
-          key: const ValueKey('stats-open-map'),
-          onPressed: _openMap,
-          icon: const Icon(Icons.map_outlined),
-          label: const Text('신고 지도 열기'),
-        ),
         if (_law != null)
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
-              '신고 지도에는 답변 연도·분류만 적용됩니다(위반법규 조건은 지도에서 지원하지 않음).',
+              '상단 "지도"에는 답변 연도·분류만 적용됩니다(위반법규 조건은 지도에서 지원하지 않음).',
               style: TextStyle(fontSize: 11, color: sr.textSecondary),
             ),
           ),
@@ -1209,7 +1203,7 @@ class _RowCard extends StatelessWidget {
         responseDateStart: responseDateStart,
         responseDateEnd: responseDateEnd,
       ),
-      title: condition.isEmpty ? '신고 내역' : '$condition · 신고',
+      title: condition.isEmpty ? '신고내역' : '$condition · 신고',
       initialTabIndex: switch (category) {
         'parking' => 1,
         'other' => 2,

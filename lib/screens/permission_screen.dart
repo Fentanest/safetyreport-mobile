@@ -5,6 +5,7 @@ import '../models/app_mode.dart';
 import '../providers/report_provider.dart';
 import '../main.dart';
 import '../theme/sr_colors.dart';
+import '../widgets/sr_page_padding.dart';
 
 class PermissionScreen extends StatefulWidget {
   /// true면 초기 설정 단계(완료 버튼으로 대시보드 이동), false면 설정 화면 내 탭
@@ -150,7 +151,8 @@ class _PermissionScreenState extends State<PermissionScreen>
         AppMode.standalone;
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
+      // 시스템 바 여백(SQ-U26).
+      padding: srPagePadding(context, const EdgeInsets.all(20)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

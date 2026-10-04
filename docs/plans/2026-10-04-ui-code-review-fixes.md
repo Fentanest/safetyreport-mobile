@@ -27,7 +27,7 @@
 | WP4 | 목록·드릴다운·상세 | U01 U02 P09 U12 U13 U14 U20(상세) | report_list_screen, local_paged_report_list, statistics/map/detail 드릴다운, report_detail_sheet, status_badge | 대기 |
 | WP5 | 지도 | U03 U10 U11 P05 U24(범례) | report_map_screen | 완료 |
 | WP6 | 대시보드·통계 표시 | U15 U04(대시보드 그리드) U09 U24(당월) U25 U22 | dashboard_screen, stats_overview_section, stats_fine_breakdown, utils/format | 대기 |
-| WP7 | 크롤링/동기화 화면·타이머 | B07 U18 P04 P10 B09(crawl) | crawl_screen, maintenance_status_bar, sunwi_screen | 대기 |
+| WP7 | 크롤링/동기화 화면·타이머 | B07 U18 P04 P10 B09(crawl) | crawl_screen, maintenance_status_bar, sunwi_screen | 완료 |
 | WP8 | Provider·조회 비용 | P02 P06 P07 B10 B11 P12 P13 B09(나머지) | report_provider, local_db_service, local_paged_report_list, main(시작), pubspec | 대기 |
 | WP9 | 파일·내보내기 | P03 P11 | file_browser_screen, local_db_service(export) | 대기 |
 | WP10 | 디자인 일관성·접근성 | U16 U17 U19 U20 U21 U23 U26 U27 U28 | 앱바들, settings_screen 재배치, sr_colors/app_theme 토큰, 공용 빈 상태, search_filter_sheet, docs | 대기 |
@@ -54,7 +54,7 @@
 | U15 | 대시보드 요약 카드 밀도 | WP6 | 대기 |
 | U16 | 탭별 앱바·검색 위치 불일치 | WP10 | 대기 |
 | U17 | 설정 화면 순서·중복 | WP10 | 대기 |
-| U18 | 동기화 화면 빈 로그 패널·대비 | WP7 | 대기 |
+| U18 | 동기화 화면 빈 로그 패널·대비 | WP7 | 완료 |
 | U19 | 12 미만 글자 | WP10 | 대기 |
 | U20 | 툴팁·터치 영역 | WP10(상세 시트는 WP4) | 대기 |
 | U21 | 빈/오류 상태 공용화·재시도 | WP10 | 대기 |
@@ -68,13 +68,13 @@
 | P01 | 테마 재생성·루트 재빌드 | WP3 | 대기 |
 | P02 | statsRefreshNonce 전역 재조회 | WP8 | 대기 |
 | P03 | 엑셀 내보내기 전량·UI isolate | WP9 | 대기 |
-| P04 | 유지보수 폴링 백그라운드 | WP7 | 대기 |
+| P04 | 유지보수 폴링 백그라운드 | WP7 | 완료 |
 | P05 | 지도 마커 매 빌드 재생성 | WP5 | 완료 |
 | P06 | 목록 SELECT r.* | WP8 | 대기 |
 | P07 | Selector 부재·무변경 알림 | WP8 | 대기 |
 | P08 | 알림 기록 반복 reload·저장 | WP1 | 완료 |
 | P09 | 상세 "같은 조건 검색" 200행 | WP4 | 대기 |
-| P10 | 전국 현황 타이머 화면 밖 | WP7 | 대기 |
+| P10 | 전국 현황 타이머 화면 밖 | WP7 | 완료 |
 | P11 | 파일 화면 동기 stat | WP9 | 대기 |
 | P12 | 시작 초기화 직렬 | WP8 | 대기 |
 | P13 | cached_network_image 미사용 | WP8 | 대기 |
@@ -84,7 +84,7 @@
 | B04 | 소비형 완료 신호 순서 | WP1 | 완료 |
 | B05 | MethodChannel 처리기 수명 | WP3 | 대기 |
 | B06 | 다운로드 진행 창 뒤로가기 | WP2 | 완료 |
-| B07 | 크롤링 화면 폴링·dispose | WP7 | 대기 |
+| B07 | 크롤링 화면 폴링·dispose | WP7 | 완료 |
 | B08 | 서버 변경 시 capabilities·저장 이중 실행 | WP2 | 완료 |
 | B09 | await 뒤 mounted 누락 | WP2·WP7·WP8 | 대기 |
 | B10 | 감시 목록 epoch | WP8 | 대기 |

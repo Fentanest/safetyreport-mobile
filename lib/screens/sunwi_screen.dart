@@ -25,13 +25,22 @@ class SunwiScreen extends StatelessWidget {
 class SunwiSection extends StatefulWidget {
   final bool embedded;
 
-  const SunwiSection({super.key, this.embedded = false});
+  /// 테스트 주입용. null 이면 Provider 의 실행 모드로 저장소를 고른다.
+  @visibleForTesting
+  final SunwiRepository? repository;
+
+  const SunwiSection({super.key, this.embedded = false, this.repository});
+
+  /// 테스트 사이에 모드별 캐시가 남지 않게 비운다.
+  @visibleForTesting
+  static void debugClearCache() => _SunwiSectionState._cacheByMode.clear();
 
   @override
   State<SunwiSection> createState() => _SunwiSectionState();
 }
 
-class _SunwiSectionState extends State<SunwiSection> {
+class _SunwiSectionState extends State<SunwiSection>
+    with WidgetsBindingObserver {
   static const _resyncInterval = Duration(hours: 3);
   static const _autoPageInterval = Duration(seconds: 5);
   static final Map<AppMode, _SunwiCacheEntry> _cacheByMode = {};
@@ -46,21 +55,55 @@ class _SunwiSectionState extends State<SunwiSection> {
   bool _requestInFlight = false;
   Timer? _autoPageTimer;
 
+  /// 자동 넘김은 보일 때만 돈다(SQ-P10): 숨은 탭·덮인 화면은 TickerMode 가 꺼지고,
+  /// 앱이 백그라운드(hidden/paused)면 생명주기로 멈춘다.
+  bool _tickerEnabled = true;
+  bool _appVisible = true;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    WidgetsBinding.instance.addObserver(this);
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    _appVisible =
+        lifecycle != AppLifecycleState.hidden &&
+        lifecycle != AppLifecycleState.paused &&
+        lifecycle != AppLifecycleState.detached;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _load();
+    });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _autoPageTimer?.cancel();
+    _autoPageTimer = null;
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final visible = switch (state) {
+      AppLifecycleState.resumed => true,
+      AppLifecycleState.hidden ||
+      AppLifecycleState.paused ||
+      AppLifecycleState.detached => false,
+      AppLifecycleState.inactive => _appVisible,
+    };
+    if (visible == _appVisible) return;
+    _appVisible = visible;
+    _resetAutoPageTimer();
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    final tickerEnabled = TickerMode.valuesOf(context).enabled;
+    if (tickerEnabled != _tickerEnabled) {
+      _tickerEnabled = tickerEnabled;
+      _resetAutoPageTimer();
+    }
     final nonce = context.watch<ReportProvider>().sunwiRefreshNonce;
     if (nonce != _lastRefreshNonce) {
       _lastRefreshNonce = nonce;
@@ -100,7 +143,7 @@ class _SunwiSectionState extends State<SunwiSection> {
 
     _requestInFlight = true;
     try {
-      final repo = SunwiRepository.fromProvider(provider);
+      final repo = widget.repository ?? SunwiRepository.fromProvider(provider);
       final snapshot = await repo.fetch(
         onProgress: (completed, total, label) {
           if (!mounted) return;
@@ -209,9 +252,15 @@ class _SunwiSectionState extends State<SunwiSection> {
 
   void _resetAutoPageTimer() {
     _autoPageTimer?.cancel();
-    if (!_shouldAutoPage) return;
-    _autoPageTimer = Timer.periodic(_autoPageInterval, (_) {
-      if (!mounted) return;
+    _autoPageTimer = null;
+    if (!mounted || !_tickerEnabled || !_appVisible || !_shouldAutoPage) {
+      return;
+    }
+    _autoPageTimer = Timer.periodic(_autoPageInterval, (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
       _advancePage();
     });
   }

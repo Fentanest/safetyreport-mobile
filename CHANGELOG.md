@@ -29,6 +29,14 @@
 - 재로그인 대화상자의 비밀번호를 지운 뒤 컨트롤러를 해제하고(`DisposeOnUnmount`), 중복 메모 컨트롤러도 해제한다. 설정·설정 마법사의 await 뒤 mounted 확인을 보강했다.
 - 검증: analyze error 0 / warning 9 / info 0, test **954 passed / 16 skipped / 0 failed**(신규 20). 다운로드 성공 경로는 저장 경로가 기기 고정이라 자동 테스트 없음, 에뮬레이터 확인은 통합 검증 때.
 
+### WP5 지도 (SQ-U03 U10 U11 P05 U24 지도)
+- 지역 라벨: 지도 타일이 늘 밝으므로 라벨 글자를 어두운 고정색(약 17:1)·11pt로 바꾸고, "지도 구역 집계 …" 대신 시·군·구 이름(묶음은 "강남구 외", 이름 없으면 "N건 묶음")을 보인다. 표시용 묶음(`visibleMapCells`)이 대표 지역 이름을 채운다(개수·분포·좌표 불변).
+- 지도 왼쪽 아래에 "© OpenStreetMap contributors" 출처를 표시하고 저작권 페이지로 연결한다(타일 URL·UA 불변).
+- 위치 권한: 화면 진입 때는 조용히 확인만 하고, "현재 위치"를 누르면 안내 대화상자 뒤 시스템 권한을 요청한다. 영구 거부 시 기존 설정 안내 유지.
+- 마커·클러스터 목록을 자료가 바뀔 때만 만들고, Provider 구독을 쓰는 값 4개로 좁혀 무관한 갱신에 재조회·재클러스터하지 않는다.
+- 과태료율 색 범례(접이식)와 마커 스크린리더 라벨을 추가했다(색 경계 60%/50% 불변).
+- 검증: test 975 passed 상당(신규 21, WP7과 합친 전체 988 passed). 에뮬레이터 확인은 통합 검증 때.
+
 ## 2026-10-04 (서버 dev 리팩터링 WS 소비자 연동, 로컬 미배포)
 
 - 서버의 optional terminal event_id/after/replay_gap/cursor_reset을 Android WsService에 연결했다. 서버 설정별 cursor를 분리하고 같은 event_id의 완료 알림 중복을 막는다. PrefsInbox가 알림 history와 cursor를 한 Editor.commit에 저장하며 실패하면 메모리의 실패 history/cursor/trim만 복구한 뒤 reconnect한다. rollback disk 실패에서도 메모리 cursor를 되돌리는 회귀를 확인했다.

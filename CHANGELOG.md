@@ -20,7 +20,7 @@
 - 알림 ID에 순번과 임의 꼬리를 붙여 한 묶음 안 충돌을 없앴다(Dart·WsService.kt). 옛 충돌 ID는 읽을 때 `_dupN`으로 구분한다.
 - 변하지 않은 기록은 다시 해석·알림하지 않고, 읽음 저장을 몰아서 한다. 하단 배지는 unreadCount 변경에만 다시 그린다.
 - Standalone의 "크롤링 현황"·"신고 결과" 빈 상태 문구를 동기화 기준으로 바꿨다(탭 이름은 불변 항목이라 유지).
-- 검증: analyze error 0 / warning 9 / info 0, test **934 passed / 16 skipped / 0 failed**(신규 20). WsService.kt는 컴파일 미확인(통합 검증 때 확인).
+- 검증: analyze error 0 / warning 9 / info 0, test **934 passed / 16 skipped / 0 failed**(신규 20). WsService.kt는 WP9 병합 뒤 Gradle `:app:testDebugUnitTest`로 컴파일·Kotlin 테스트 12 passed 확인.
 
 ### WP2 DB 가져오기·설정 화면 결함 (SQ-B03 B06 B08 B14, B09 일부)
 - 서버 DB 변환·백업 사용 대기 작업을 적용 전에 지우던 것을 고쳤다. 안전신문고 로그인 뒤 **Standalone 모드를 켜기 전에** 가져오고, 성공했을 때만 키를 지운다. 실패하면 받은 파일 경로와 함께 "다시 시도 / 버리고 빈 DB로 시작"을 묻고, 결정이 없으면 키를 남긴 채 모드를 켜지 않는다(`docs/architecture/data-contracts.md` 갱신). 모드를 먼저 켜면 게이트 흐름이 빈 DB에 먼저 쓰거나 가져오기를 거절할 수 있었다.
@@ -52,7 +52,13 @@
 - Standalone 초기 재구성 게이트의 onDone을 한 번만, mounted일 때만 부른다.
 - 바텀시트 손잡이: 수동 손잡이 9곳을 지우고 테마 손잡이·모서리만 쓴다. 높은 시트는 `useSafeArea`(상세 검색 시트가 상태 표시줄 아래로 가던 문제).
 - 하위 탭 막대: 높이를 글자 배율에 맞추고, 라벨이 칸에 안 들어가면 가로 스크롤 탭으로 바꾼다(개수·순서·스와이프 불변). 알림 미읽음 배지를 탭 막대 안으로 옮겼다.
-- 검증: analyze error 0 / warning 9 / info 0, test **1025 passed / 16 skipped / 0 failed**(신규 37), 골든 변경 없음. MainActivity.kt 컴파일은 WP9 병합 뒤 함께 확인.
+- 검증: analyze error 0 / warning 9 / info 0, test **1025 passed / 16 skipped / 0 failed**(신규 37), 골든 변경 없음. MainActivity.kt는 WP9 병합 뒤 Gradle `:app:testDebugUnitTest`로 컴파일·Kotlin 테스트 12 passed 확인.
+
+### WP9 파일·엑셀 내보내기 (SQ-P03 P11)
+- 엑셀 내보내기: 필요한 26개 열만 ID keyset 1,000행 페이지로 읽고(기존 필터·순서·`_rowToReport` 동일), 각 페이지를 작업자 isolate로 보내 정렬·시트 작성·인코딩을 UI 밖에서 한다. UI isolate는 한 페이지만 들고 있다. 진행률·취소를 붙였고 `.part`로 쓴 뒤 완료 시에만 이름을 바꿔 부분 파일을 남기지 않는다. 저장 위치·파일명·열기/공유 동작 불변.
+- 동등성: 이전 경로(기존 코드 그대로)와 새 경로가 같은 fixture(1,400+57+5행, NULL/빈 문자열, 한글·줄바꿈·이모지, 수정값·취하, 중복군, 감시 목록)에서 인코딩 바이트 길이·시트·모든 셀의 값/타입/스타일이 같음을 확인(취하 포함/제외). 확정 과태료 열만 있고 추정 열은 없음을 확인.
+- 파일 목록: 디렉터리를 비동기로 한 번 읽고 항목마다 stat 한 번, `ListView.builder`·정적 DateFormat, build에서 동기 파일시스템 호출 제거. Provider 구독을 `filesRefreshNonce`로 좁혔다. 정렬(폴더 먼저, 이름 내림차순)·삭제/공유/열기 동작 불변.
+- 검증: analyze error 0 / warning 9 / info 0, test **1034 passed / 16 skipped / 0 failed**(신규 9). Kotlin 단위 테스트 12 passed(Gradle, 데몬 없이).
 
 ## 2026-10-04 (서버 dev 리팩터링 WS 소비자 연동, 로컬 미배포)
 

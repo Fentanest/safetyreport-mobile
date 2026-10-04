@@ -29,7 +29,7 @@
 | WP6 | 대시보드·통계 표시 | U15 U04(대시보드 그리드) U09 U24(당월) U25 U22 | dashboard_screen, stats_overview_section, stats_fine_breakdown, utils/format | 대기 |
 | WP7 | 크롤링/동기화 화면·타이머 | B07 U18 P04 P10 B09(crawl) | crawl_screen, maintenance_status_bar, sunwi_screen | 완료 |
 | WP8 | Provider·조회 비용 | P02 P06 P07 B10 B11 P12 P13 B09(나머지) | report_provider, local_db_service, local_paged_report_list, main(시작), pubspec | 대기 |
-| WP9 | 파일·내보내기 | P03 P11 | file_browser_screen, local_db_service(export) | 대기 |
+| WP9 | 파일·내보내기 | P03 P11 | file_browser_screen, local_db_service(export) | 완료 |
 | WP10 | 디자인 일관성·접근성 | U16 U17 U19 U20 U21 U23 U26 U27 U28 | 앱바들, settings_screen 재배치, sr_colors/app_theme 토큰, 공용 빈 상태, search_filter_sheet, docs | 대기 |
 | VER | 통합 검증 | 전체 | analyze/test, 에뮬레이터 라이트·다크·1.3/2.0배, 골든 재검토 | 대기 |
 
@@ -67,7 +67,7 @@
 | U28 | 문서 불일치·동의 화면 증거 | WP10 | 대기 |
 | P01 | 테마 재생성·루트 재빌드 | WP3 | 완료 |
 | P02 | statsRefreshNonce 전역 재조회 | WP8 | 대기 |
-| P03 | 엑셀 내보내기 전량·UI isolate | WP9 | 대기 |
+| P03 | 엑셀 내보내기 전량·UI isolate | WP9 | 완료 |
 | P04 | 유지보수 폴링 백그라운드 | WP7 | 완료 |
 | P05 | 지도 마커 매 빌드 재생성 | WP5 | 완료 |
 | P06 | 목록 SELECT r.* | WP8 | 대기 |
@@ -75,7 +75,7 @@
 | P08 | 알림 기록 반복 reload·저장 | WP1 | 완료 |
 | P09 | 상세 "같은 조건 검색" 200행 | WP4 | 대기 |
 | P10 | 전국 현황 타이머 화면 밖 | WP7 | 완료 |
-| P11 | 파일 화면 동기 stat | WP9 | 대기 |
+| P11 | 파일 화면 동기 stat | WP9 | 완료 |
 | P12 | 시작 초기화 직렬 | WP8 | 대기 |
 | P13 | cached_network_image 미사용 | WP8 | 대기 |
 | B01 | 읽은 신고의 새 변경 유실 | WP1 | 완료 |

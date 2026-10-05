@@ -1,8 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../models/report.dart';
 import '../models/app_mode.dart';
 import '../services/rating_service.dart';
+import '../services/client_report_scan.dart';
+import '../services/performance_trace.dart';
 import '../providers/report_provider.dart';
 import '../services/local_db_service.dart';
 import 'report_detail_sheet.dart';
@@ -14,11 +19,11 @@ import 'sr_page_padding.dart';
 import 'status_badge.dart';
 import '../utils/format.dart';
 
-/// 페이지 목록이 받은 전체 모집단 건수. [exact] 가 false 면 Client 의 필터처럼
-/// 현재 페이지 안에서만 걸러, 조건에 맞는 전체 건수를 알 수 없다는 뜻이다.
+/// 페이지 목록이 받은 전체 모집단 건수. [exact] 가 false 면 로컬 legacy predicate로
+/// 현재 페이지를 추가 필터링해 조건에 맞는 전체 건수를 알 수 없다는 뜻이다.
 typedef PagedReportTotal = ({int total, bool exact});
 
-/// Keeps one page of Report objects. The count belongs to the full SQL population.
+/// Keeps at most three pages of Report objects, including a prefetched next page.
 /// An optional legacy predicate streams candidates; its label never claims that
 /// the current page is a whole-population total.
 class LocalPagedReportList extends StatefulWidget {
@@ -59,6 +64,30 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
   String? _error;
   bool _candidateCount = false;
   final _selected = <String>{};
+  int _generation = 0;
+  // Per visible list: current/previous/next, at most 600 Report objects.
+  final _pages = <int, ReportPage>{};
+  final _pending = <int, Future<ReportPage>>{};
+
+  void _invalidate() {
+    _generation++;
+    _pages.clear();
+    _pending.clear();
+  }
+
+  void _remember(int page, ReportPage result) {
+    _pages.remove(page);
+    _pages[page] = result;
+    while (_pages.length > 3) {
+      _pages.remove(_pages.keys.first);
+    }
+  }
+
+  Future<void> _refresh() async {
+    _invalidate();
+    await _load();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -75,6 +104,7 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
           '${p.datasetEpoch}:${p.dataRevision}:${p.excludeWithdraw}:${p.useRepresentativeRecords}',
     );
     if (_datasetSettings != null && _datasetSettings != next) {
+      _invalidate();
       _seq++; // 이전 자료의 늦은 응답을 버린다.
       _reports = [];
       _page = 0;
@@ -97,7 +127,9 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
         oldWidget.scope != widget.scope ||
         oldWidget.answerYear != widget.answerYear ||
         oldWidget.missingAddress != widget.missingAddress ||
-        oldWidget.metric != widget.metric) {
+        oldWidget.metric != widget.metric ||
+        oldWidget.predicate != widget.predicate) {
+      _invalidate();
       _page = 0;
       _selected.clear();
       _load();
@@ -114,93 +146,24 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
       _selected.clear();
     });
     try {
-      final ({List<Report> reports, int total}) result;
-      if (p.appMode == AppMode.standalone) {
-        result = await LocalDbService.getReportPage(
-          // 카드·선택 동작이 쓰는 열만 읽는다. 상세 시트는 열 때 한 건을 다시 읽는다(SQ-P06).
-          compact: true,
-          category: widget.category,
-          scope: widget.scope,
-          metric: widget.metric,
-          missingAddress: widget.missingAddress,
-          answerYear: widget.answerYear,
-          filter: widget.filter,
-          page: _page,
-          isCancelled: () => !mounted || seq != _seq || epoch != p.datasetEpoch,
-          excludeWithdraw: p.excludeWithdraw,
-          useRepresentativeRecords: p.useRepresentativeRecords,
-        );
-        _candidateCount = widget.predicate != null;
-      } else {
-        bool cancelled() => !mounted || seq != _seq || epoch != p.datasetEpoch;
-        final categories = widget.category == 'all'
-            ? ['traffic', 'parking', 'other']
-            : [widget.category];
-        var total = 0, offset = _page * 200;
-        final reports = <Report>[];
-        if (categories.length == 1) {
-          if (!mounted || seq != _seq || epoch != p.datasetEpoch) return;
-          final page = await p.readServerPage(
-            categories.single,
-            offset: offset,
-            limit: 200,
-            isCancelled: cancelled,
-          );
-          total = page.total;
-          reports.addAll(page.reports);
-        } else {
-          for (final category in categories) {
-            if (!mounted || seq != _seq || epoch != p.datasetEpoch) return;
-            final first = await p.readServerPage(
-              category,
-              offset: 0,
-              limit: 1,
-              isCancelled: cancelled,
-            );
-            if (!mounted || seq != _seq || epoch != p.datasetEpoch) return;
-            final size = first.total;
-            total += size;
-            if (offset >= size) {
-              offset -= size;
-              continue;
-            }
-            if (reports.length < 200) {
-              final page = await p.readServerPage(
-                category,
-                offset: offset,
-                limit: 200 - reports.length,
-                isCancelled: cancelled,
-              );
-              reports.addAll(page.reports);
-              offset = 0;
-            }
-          }
-        }
-        _candidateCount =
-            !widget.filter.isEmpty ||
-            widget.predicate != null ||
-            widget.scope == 'rating';
-        result = (
-          reports: reports
-              .where(
-                (r) =>
-                    p.matchesFilter(r, filter: widget.filter) &&
-                    (widget.scope != 'rating' ||
-                        RatingService.isListEligible(r)),
-              )
-              .toList(),
-          total: total,
-        );
-      }
+      final result = _pages[_page] ?? await _readPage(_page);
+      _candidateCount =
+          p.appMode == AppMode.standalone && widget.predicate != null;
       if (!mounted || seq != _seq || epoch != p.datasetEpoch) return;
       setState(() {
-        _reports = widget.predicate == null
+        _reports = widget.predicate == null || p.appMode == AppMode.server
             ? result.reports
             : result.reports.where(widget.predicate!).toList();
         _total = result.total;
         _loading = false;
       });
       widget.onTotalChanged?.call((total: _total, exact: !_candidateCount));
+      if ((_page + 1) * 200 < _total) {
+        // A speculative failure must not hide the current page; navigation retries.
+        unawaited(
+          _readPage(_page + 1).then<void>((_) {}, onError: (Object _) {}),
+        );
+      }
     } catch (e) {
       if (!mounted || seq != _seq || epoch != p.datasetEpoch) return;
       setState(() {
@@ -212,6 +175,82 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
     }
   }
 
+  Future<ReportPage> _readPage(int page) {
+    final cached = _pages[page];
+    if (cached != null) return Future.value(cached);
+    return _pending[page] ??= _readPageOwned(page);
+  }
+
+  Future<ReportPage> _readPageOwned(int page) async {
+    final p = context.read<ReportProvider>();
+    final generation = _generation,
+        epoch = p.datasetEpoch,
+        revision = p.dataRevision;
+    final query = widget;
+    bool cancelled() =>
+        !mounted ||
+        generation != _generation ||
+        epoch != p.datasetEpoch ||
+        revision != p.dataRevision;
+    try {
+      final ReportPage result;
+      if (p.appMode == AppMode.standalone) {
+        result = await LocalDbService.getReportPage(
+          compact: true,
+          category: query.category,
+          scope: query.scope,
+          metric: query.metric,
+          missingAddress: query.missingAddress,
+          answerYear: query.answerYear,
+          filter: query.filter,
+          page: page,
+          isCancelled: cancelled,
+          excludeWithdraw: p.excludeWithdraw,
+          useRepresentativeRecords: p.useRepresentativeRecords,
+        );
+      } else if (query.category != 'all' &&
+          query.filter.isEmpty &&
+          query.predicate == null &&
+          query.scope.isEmpty) {
+        result = await p.readServerPage(
+          query.category,
+          offset: page * 200,
+          limit: 200,
+          isCancelled: cancelled,
+        );
+      } else {
+        final window = await scanClientReports(
+          read: p.readServerPage,
+          categories: query.category == 'all'
+              ? ['traffic', 'parking', 'other']
+              : [query.category],
+          matches: (r) =>
+              p.matchesFilter(r, filter: query.filter) &&
+              (query.scope != 'rating' || RatingService.isListEligible(r)) &&
+              (query.predicate?.call(r) ?? true),
+          isCancelled: cancelled,
+          offset: page * 200,
+        );
+        if (cancelled()) throw const QueryCancelled();
+        if (window.reports.length > 200) {
+          _remember(page + 1, (
+            reports: window.reports.skip(200).toList(),
+            total: window.total,
+          ));
+        }
+        result = (
+          reports: window.reports.take(200).toList(),
+          total: window.total,
+        );
+      }
+      if (cancelled()) throw const QueryCancelled();
+      _remember(page, result);
+      return result;
+    } finally {
+      if (generation == _generation) _pending.remove(page);
+    }
+  }
+
   /// 빈 목록과 조회 오류를 구분한다. 오류는 오류 톤 + "다시 시도"(SQ-U21).
   Widget _buildEmptyOrError() {
     final error = _error;
@@ -220,7 +259,7 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
         title: '목록을 불러오지 못했습니다',
         message: '아래로 당기거나 다시 시도를 누르세요.',
         detail: error,
-        onRetry: _load,
+        onRetry: _refresh,
       );
     }
     final filtered = !widget.filter.isEmpty || widget.predicate != null;
@@ -292,7 +331,7 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
         if (_loading) const LinearProgressIndicator(),
         Expanded(
           child: RefreshIndicator(
-            onRefresh: _load,
+            onRefresh: _refresh,
             child: !_loading && _reports.isEmpty
                 ? _buildEmptyOrError()
                 : ListView.builder(
@@ -326,7 +365,7 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
                                 ),
                                 onPressed: () async {
                                   await widget.onRemove!(r);
-                                  if (mounted) _load();
+                                  if (mounted) _refresh();
                                 },
                               )
                             : r.totalCount > 0
@@ -366,7 +405,7 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
             onCancel: () => setState(_selected.clear),
             onActionDone: () {
               setState(_selected.clear);
-              _load();
+              _refresh();
             },
           ),
       ],

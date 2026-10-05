@@ -1154,6 +1154,7 @@ class _RetryableImageState extends State<_RetryableImage> {
   Timer? _retryTimer;
   Map<String, String>? _headers;
   bool _headersReady = false;
+  bool _authRetried = false;
 
   @override
   void initState() {
@@ -1164,11 +1165,7 @@ class _RetryableImageState extends State<_RetryableImage> {
   Future<void> _prepareHeaders() async {
     try {
       _headers = await _clientMediaHeaders(context, widget.url);
-      // 안전신문고 직접 URL은 Bearer 토큰이 필요
-      if (widget.url.contains('safetyreport.go.kr')) {
-        final token = await StandaloneAuthService.getStoredToken();
-        if (token != null) _headers = {'Authorization': 'BEARER $token'};
-      }
+      _authRetried = false; // 공개 첨부는 만료된 저장 토큰 없이 먼저 읽는다.
       if (mounted) setState(() => _headersReady = true);
     } catch (_) {
       if (mounted) {
@@ -1186,8 +1183,31 @@ class _RetryableImageState extends State<_RetryableImage> {
     super.dispose();
   }
 
-  void _onError(Object error) {
-    if (!mounted) return;
+  Future<void> _onError(Object error) async {
+    if (!mounted || _retrying || _failed) return;
+    final host = Uri.tryParse(widget.url)?.host ?? '';
+    if (error is NetworkImageLoadException &&
+        (error.statusCode == 401 || error.statusCode == 403) &&
+        (host == 'safetyreport.go.kr' ||
+            host.endsWith('.safetyreport.go.kr')) &&
+        !_authRetried) {
+      _authRetried = true;
+      setState(() => _retrying = true);
+      String? token;
+      try {
+        token = await StandaloneAuthService.getStoredToken();
+      } catch (_) {}
+      if (!mounted) return;
+      if (token != null && token.isNotEmpty) {
+        setState(() {
+          _headers = {'Authorization': 'BEARER $token'};
+          _attempt++;
+          _retrying = false;
+        });
+        return;
+      }
+      _retrying = false;
+    }
     if (error is NetworkImageLoadException &&
         (error.statusCode == 409 ||
             error.statusCode == 401 ||
@@ -1567,127 +1587,134 @@ class _VideoPlayerState extends State<_VideoPlayer>
               ),
             ),
           ),
-          // 하단 컨트롤 바
-          ValueListenableBuilder<VideoPlayerValue>(
-            valueListenable: _ctrl,
-            builder: (_, value, _) {
-              final pos = _seeking ? _seekPosition : value.position;
-              final dur = value.duration;
-              final maxMs = dur.inMilliseconds > 0
-                  ? dur.inMilliseconds.toDouble()
-                  : 1.0;
-              final posMs = pos.inMilliseconds.toDouble().clamp(0.0, maxMs);
-              return AnimatedOpacity(
-                opacity: _showControls ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 200),
-                child: IgnorePointer(
-                  ignoring: !_showControls,
-                  child: Container(
-                    color: Colors.black54,
-                    padding: const EdgeInsets.only(
-                      left: 4,
-                      right: 8,
-                      bottom: 2,
-                    ),
-                    child: Row(
-                      children: [
-                        // 재생/일시정지 버튼
-                        IconButton(
-                          tooltip: value.isPlaying ? '일시정지' : '재생',
-                          padding: EdgeInsets.zero,
-                          constraints: _kVideoButtonConstraints,
-                          icon: Icon(
-                            value.isPlaying ? Icons.pause : Icons.play_arrow,
-                            color: Colors.white,
-                            size: 22,
-                          ),
-                          onPressed: () {
-                            if (value.isPlaying) {
-                              _ctrl.pause();
-                              _hideTimer?.cancel();
-                              setState(() => _showControls = true);
-                            } else {
-                              _ctrl.play();
-                              _scheduleHide();
-                              setState(() {});
-                            }
-                          },
-                        ),
-                        // 현재 위치
-                        Text(
-                          _fmt(pos),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: SrFontSize.caption,
-                          ),
-                        ),
-                        // 시크 바
-                        Expanded(
-                          child: SliderTheme(
-                            data: SliderTheme.of(context).copyWith(
-                              thumbShape: const RoundSliderThumbShape(
-                                enabledThumbRadius: 6,
-                              ),
-                              overlayShape: const RoundSliderOverlayShape(
-                                overlayRadius: 12,
-                              ),
-                              trackHeight: 2,
-                              activeTrackColor: Colors.white,
-                              inactiveTrackColor: Colors.white30,
-                              thumbColor: Colors.white,
-                              overlayColor: Colors.white24,
+          // 프레임의 tight 높이를 컨트롤 바에 전달하지 않는다.
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: ValueListenableBuilder<VideoPlayerValue>(
+              valueListenable: _ctrl,
+              builder: (_, value, _) {
+                final pos = _seeking ? _seekPosition : value.position;
+                final dur = value.duration;
+                final maxMs = dur.inMilliseconds > 0
+                    ? dur.inMilliseconds.toDouble()
+                    : 1.0;
+                final posMs = pos.inMilliseconds.toDouble().clamp(0.0, maxMs);
+                return AnimatedOpacity(
+                  opacity: _showControls ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 200),
+                  child: IgnorePointer(
+                    ignoring: !_showControls,
+                    child: Container(
+                      color: Colors.black54,
+                      padding: const EdgeInsets.only(
+                        left: 4,
+                        right: 8,
+                        bottom: 2,
+                      ),
+                      child: Row(
+                        children: [
+                          // 재생/일시정지 버튼
+                          IconButton(
+                            tooltip: value.isPlaying ? '일시정지' : '재생',
+                            padding: EdgeInsets.zero,
+                            constraints: _kVideoButtonConstraints,
+                            icon: Icon(
+                              value.isPlaying ? Icons.pause : Icons.play_arrow,
+                              color: Colors.white,
+                              size: 22,
                             ),
-                            child: Slider(
-                              value: posMs,
-                              min: 0,
-                              max: maxMs,
-                              onChangeStart: (_) {
-                                _wasPlaying = value.isPlaying;
-                                if (_wasPlaying) _ctrl.pause();
-                                setState(() {
-                                  _seeking = true;
-                                  _seekPosition = pos;
-                                });
-                              },
-                              onChanged: (v) => setState(
-                                () => _seekPosition = Duration(
-                                  milliseconds: v.toInt(),
+                            onPressed: () {
+                              if (value.isPlaying) {
+                                _ctrl.pause();
+                                _hideTimer?.cancel();
+                                setState(() => _showControls = true);
+                              } else {
+                                _ctrl.play();
+                                _scheduleHide();
+                                setState(() {});
+                              }
+                            },
+                          ),
+                          // 현재 위치
+                          Text(
+                            _fmt(pos),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: SrFontSize.caption,
+                            ),
+                          ),
+                          // 시크 바
+                          Expanded(
+                            child: SliderTheme(
+                              data: SliderTheme.of(context).copyWith(
+                                thumbShape: const RoundSliderThumbShape(
+                                  enabledThumbRadius: 6,
                                 ),
+                                overlayShape: const RoundSliderOverlayShape(
+                                  overlayRadius: 12,
+                                ),
+                                trackHeight: 2,
+                                activeTrackColor: Colors.white,
+                                inactiveTrackColor: Colors.white30,
+                                thumbColor: Colors.white,
+                                overlayColor: Colors.white24,
                               ),
-                              onChangeEnd: (v) {
-                                _ctrl.seekTo(Duration(milliseconds: v.toInt()));
-                                if (_wasPlaying) _ctrl.play();
-                                setState(() => _seeking = false);
-                              },
+                              child: Slider(
+                                value: posMs,
+                                min: 0,
+                                max: maxMs,
+                                onChangeStart: (_) {
+                                  _wasPlaying = value.isPlaying;
+                                  if (_wasPlaying) _ctrl.pause();
+                                  setState(() {
+                                    _seeking = true;
+                                    _seekPosition = pos;
+                                  });
+                                },
+                                onChanged: (v) => setState(
+                                  () => _seekPosition = Duration(
+                                    milliseconds: v.toInt(),
+                                  ),
+                                ),
+                                onChangeEnd: (v) {
+                                  _ctrl.seekTo(
+                                    Duration(milliseconds: v.toInt()),
+                                  );
+                                  if (_wasPlaying) _ctrl.play();
+                                  setState(() => _seeking = false);
+                                },
+                              ),
                             ),
                           ),
-                        ),
-                        // 전체 길이
-                        Text(
-                          _fmt(dur),
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: SrFontSize.caption,
+                          // 전체 길이
+                          Text(
+                            _fmt(dur),
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: SrFontSize.caption,
+                            ),
                           ),
-                        ),
-                        // 전체화면
-                        IconButton(
-                          tooltip: '전체화면',
-                          padding: EdgeInsets.zero,
-                          constraints: _kVideoButtonConstraints,
-                          icon: Icon(
-                            Icons.fullscreen,
-                            color: Colors.white,
-                            size: 22,
+                          // 전체화면
+                          IconButton(
+                            tooltip: '전체화면',
+                            padding: EdgeInsets.zero,
+                            constraints: _kVideoButtonConstraints,
+                            icon: Icon(
+                              Icons.fullscreen,
+                              color: Colors.white,
+                              size: 22,
+                            ),
+                            onPressed: _openFullscreen,
                           ),
-                          onPressed: _openFullscreen,
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           ),
         ],
       ),

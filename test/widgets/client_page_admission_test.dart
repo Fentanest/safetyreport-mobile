@@ -68,7 +68,7 @@ void main() {
   );
 
   testWidgets(
-    'one-category navigation uses the requested page total without a limit-1 probe',
+    'next page is prefetched without a limit-1 probe and navigation reuses it',
     (tester) async {
       final provider = ReportProvider();
       await provider.init();
@@ -84,13 +84,28 @@ void main() {
             ),
           );
           await tester.pumpAndSettle();
-          expect(requests, hasLength(1));
-          expect(requests.single.queryParameters['limit'], '200');
+          expect(requests, hasLength(2));
+          expect(requests.first.queryParameters['limit'], '200');
+          expect(requests.last.queryParameters['offset'], '200');
           expect(find.textContaining('전체 401건'), findsOneWidget);
           await tester.tap(find.byTooltip('다음 페이지'));
           await tester.pumpAndSettle();
-          expect(requests, hasLength(2));
-          expect(requests.last.queryParameters['offset'], '200');
+          expect(requests, hasLength(3));
+          expect(requests.last.queryParameters['offset'], '400');
+          expect(
+            requests.where((r) => r.queryParameters['offset'] == '200'),
+            hasLength(1),
+          );
+          provider.markDataChanged();
+          await tester.pumpAndSettle();
+          expect(
+            requests.where((r) => r.queryParameters['offset'] == '0'),
+            hasLength(2),
+          );
+          expect(
+            requests.where((r) => r.queryParameters['offset'] == '200'),
+            hasLength(2),
+          );
           await tester.pumpWidget(const SizedBox.shrink());
         },
         () => selfhostMockClient((request) async {

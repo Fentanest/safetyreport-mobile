@@ -45,6 +45,11 @@ class _ClientProvider extends ReportProvider {
   final List<Report> traffic = [
     _report('SPP-2608-0000001'),
     _report('SPP-2608-0000002', manager: '담당자 나'),
+    for (var i = 2; i < 1234; i++)
+      _report(
+        'SPP-2608-${(i + 1).toString().padLeft(7, '0')}',
+        manager: i == 1233 ? '담당자 가' : '담당자 나',
+      ),
   ];
   final List<ReportFilter> filtersSeen = [];
   int categoryLoads = 0;
@@ -56,7 +61,9 @@ class _ClientProvider extends ReportProvider {
     int limit = 200,
     bool Function()? isCancelled,
   }) async => (
-    reports: category == 'traffic' && offset == 0 ? traffic : <Report>[],
+    reports: category == 'traffic'
+        ? traffic.skip(offset).take(limit).toList()
+        : <Report>[],
     total: category == 'traffic' ? 1234 : 0,
   );
 
@@ -239,15 +246,16 @@ void main() {
       );
     });
 
-    testWidgets('필터 있음 → 페이지 안에서만 거르므로 확정 건수 배지를 보이지 않는다', (tester) async {
+    testWidgets('필터 있음 → 마지막 서버 페이지까지 검색해 정확한 배지를 표시한다', (tester) async {
       final p = _ClientProvider();
       addTearDown(p.dispose);
       p.setFilter(const ReportFilter(manager: '담당자 가'));
       await _pumpApp(tester, p, const ReportListScreen());
       await tester.pump();
       await tester.pump();
-      expect(_inAppBar(find.textContaining('건')), findsNothing);
-      expect(find.textContaining('전체 대상 1,234건'), findsOneWidget);
+      expect(_inAppBar(find.text('검색 2건')), findsOneWidget);
+      expect(find.textContaining('전체 2건'), findsOneWidget);
+      expect(find.text('테스트 신고 SPP-2608-0001234'), findsOneWidget);
     });
   });
 

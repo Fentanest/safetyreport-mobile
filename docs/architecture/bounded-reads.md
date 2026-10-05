@@ -70,3 +70,9 @@ Client는 정상 서버 DB를 `.part` 스트리밍→완료 임시 파일로 만
 - 통계의 private 누산기는 `local_statistics.dart` part로 분리되어 같은 Dart library에서 기존 facade와 계산 의미를 유지한다. 결과 identity와 필터/정렬이 같으면 화면 표 계산을 재사용한다. 미검증 RowMetrics·cold index 변경·giant 중복 fast path·checkpoint coalescing은 기존 bounded oracle을 대체하지 않는다.
 - 지도 unknown은 겹칠 수 있는 처분 집합의 합을 total에서 빼지 않고 직접 union predicate로 센다. missing 목록과 지도는 finite numeric 세계 좌표 범위를 공유한다. 기관별 처리기간은 엄격한 UTC 달력 날짜를 사용하며 잘못된 날짜의 건은 기간 표본에서만 제외한다.
 - 첨부 private cache는 scope+전체 URI의 SHA256과 검증한 content hash를 사용한다. `.part`를 stream으로 쓰고 주기적 flush로 압력을 제한한 뒤 길이·해시를 확인하여 immutable 파일을 공개한다. filename만 같다고 동일 첨부로 보지 않으며 취소·timeout은 소유 transport를 닫는다. 캐시 보관량 정책은 기기 디스크 측정 전 별도 보류다.
+
+## 코드 대조 정정: Client 전체 검색과 목록 미리 받기
+
+Client 검색·상세 필터·별점 후보는 기존 페이지 API를 끝까지 순회해 같은 ReportFilterSpec/Provider 규칙으로 판정하고 정확한 전체 일치 건수를 표시한다. 분류별 신고번호 DESC, ID DESC 스트림을 병합해 전체 분류 검색도 같은 순서를 유지한다. 서버 페이지 정렬 수정이 함께 필요하며 API 필드는 그대로다. 첫 필터 조회는 전체 페이지 전송 시간이 들고, 서버가 snapshot token을 제공하지 않으므로 외부 변경 중의 여러 페이지를 하나의 DB snapshot으로 보장하지는 않는다.
+
+LocalPagedReportList는 모드와 무관하게 현재 페이지 표시 뒤 다음 페이지를 미리 받고, 화면별 완료 캐시는 최대 3페이지(600 Report)다. Client 전체 검색은 분류별 입력 1페이지와 현재·다음 결과 400건만 유지한다. 중간 필터 결과 전체를 누적하지 않는다. 검색 창 밖의 더 먼 페이지로 이동하면 다음 창을 위한 전체 순회가 다시 필요할 수 있다. 진행 중 페이지는 화면에서 공유하고 Client HTTP는 Provider의 기존 `_serverPageInFlight`도 공유한다. datasetEpoch/dataRevision/공통 설정/검색 조건 변경·사용자 새로고침 때 캐시를 무효화한다. 미리 받기 오류는 현재 목록에 영향을 주지 않고 실제 이동에서 재시도한다. 일반 Provider 직접 조회 자체는 완료 결과를 캐시하지 않아 기존 새 total 조회 계약을 유지한다.

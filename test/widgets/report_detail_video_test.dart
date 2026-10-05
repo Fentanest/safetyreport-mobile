@@ -110,5 +110,22 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsNothing);
     expect(find.byType(VideoPlayer), findsNWidgets(2));
     expect(position.maxScrollExtent, extentBefore);
+    for (final video in find.byType(VideoPlayer).evaluate()) {
+      final frame = video.findAncestorWidgetOfExactType<Stack>()!;
+      final frameRect = tester.getRect(find.byWidget(frame));
+      final slider = find.descendant(
+        of: find.byWidget(frame),
+        matching: find.byType(Slider),
+      );
+      final sliderRect = tester.getRect(slider);
+      expect(sliderRect.center.dy, greaterThan(frameRect.center.dy));
+      final bar = slider
+          .evaluate()
+          .single
+          .findAncestorWidgetOfExactType<AnimatedOpacity>()!;
+      final barRect = tester.getRect(find.byWidget(bar));
+      expect(barRect.bottom, frameRect.bottom);
+      expect(barRect.height, lessThanOrEqualTo(60));
+    }
   });
 }

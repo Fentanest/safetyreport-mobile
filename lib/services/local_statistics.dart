@@ -300,6 +300,7 @@ class _MapCellAccumulator {
   int total = 0;
   double latSum = 0, lngSum = 0;
   String address = '';
+  String? addressHex;
   bool multipleAddresses = false;
   // 칸 전체 좌표 범위. SQL 그룹이 주소키로 더 잘게 나뉘어도(2026-10-05 후속 B) 묶음 판정은
   // 칸 단위로 한다: 칸 안에 서로 다른 좌표나 서로 다른 장소 문구가 있으면 묶음(Sol 1차 M2).
@@ -329,10 +330,13 @@ class _MapCellAccumulator {
     total += n;
     latSum += (r['lat'] as num).toDouble() * n;
     lngSum += (r['lng'] as num).toDouble() * n;
+    // 장소 문구 비교는 hex(바이트)로 한다(Dart 디코더가 맨 앞 BOM 을 지움). 빈 문구도 하나의 값이다(Sol 3차 중간4).
     final text = (r['address']?.toString() ?? '').trim();
-    if (address.isEmpty) {
+    final textHex = r['address_hex']?.toString() ?? '';
+    if (addressHex == null) {
       address = text;
-    } else if (address != text) {
+      addressHex = textHex;
+    } else if (addressHex != textHex) {
       multipleAddresses = true;
     }
     // 주소키는 hex(UTF-8 바이트)로 구분·비교한다. Dart 로 읽은 문자열은 맨 앞 BOM 을 잃어
@@ -394,6 +398,7 @@ class _MapCellAccumulator {
             'pct': double.parse((e.value / total * 100).toStringAsFixed(1)),
           },
     ];
+    // 표시문구는 원문만 쓴다(비교용 hex 키가 화면에 나오지 않게, Sol 3차 낮음2).
     final label = LocalDbService.clusterLabelFromKeyStats(keyCounts, {
       for (final key in keyCounts.keys)
         key: (keyDisplays[key]?.isNotEmpty ?? false)

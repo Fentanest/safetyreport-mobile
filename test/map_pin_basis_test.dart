@@ -432,6 +432,80 @@ void main() {
       expect(cell.addressCount, 2);
     });
 
+    test('3차 중간2 한 주소에 좌표 5천 개도 대표 좌표를 빠르게 고른다', () async {
+      final db = await LocalDbService.db;
+      final batch = db.batch();
+      for (var i = 0; i < 5000; i++) {
+        batch.insert('reports', {
+          'ID': 'P$i',
+          '신고번호': 'PERF-$i',
+          '답변일': '2026-01-02',
+          '위반장소': '서울 중구',
+          '주소정규화': '서울 중구',
+          '위도': 37.5 + (4999 - i) * 0.000001,
+          '경도': 127.0,
+          'category': 'traffic',
+        });
+      }
+      await batch.commit(noResult: true);
+      final watch = Stopwatch()..start();
+      final rows = await LocalDbService.debugMapEffectivePoints(
+        pinBasis: 'address',
+      );
+      watch.stop();
+      expect(rows.single['total'], 5000);
+      // 모두 1건이면 위도가 가장 작은 쌍이 대표다.
+      expect(rows.single['lat'], 37.5);
+      expect(watch.elapsed, lessThan(const Duration(seconds: 5)));
+    });
+
+    test('3차 중간4 빈 장소와 장소가 같은 좌표에 섞이면 묶음이다', () async {
+      await insert('E1', '', '', 37.5, 127.0);
+      await insert('E2', '서울 중구', '서울 중구', 37.5, 127.0);
+      final payload = ReportMapPayload.fromJson(
+        await LocalDbService.computeReportMapStats(),
+      );
+      expect(payload.points.single.isCluster, isTrue);
+    });
+
+    test('3차 중간4 BOM 만 다른 장소 문구도 서로 다른 장소로 본다', () async {
+      await insert('H1', '서울 중구', '\uFEFF서울 중구', 37.5, 127.0, status: '수용');
+      await insert('H2', '서울 중구', '서울 중구', 37.5, 127.0, status: '불수용');
+      final payload = ReportMapPayload.fromJson(
+        await LocalDbService.computeReportMapStats(),
+      );
+      expect(payload.points.single.isCluster, isTrue);
+    });
+
+    test('3차 중간3 주소 모드 카드의 전체 신고 보기 키로 목록이 열린다', () async {
+      await insert('X1', '\u001C서울 중구', '\u001C서울 중구', null, null);
+      final missing = ReportMapMissingPayload.fromJson(
+        await LocalDbService.computeReportMapMissingGroups(pinBasis: 'address'),
+      );
+      expect(missing.groups.single.reportCount, 1);
+      final page = await LocalDbService.getReportPage(
+        scope: 'missing',
+        missingAddress: missing.groups.single.normalizedAddress,
+      );
+      expect(page.total, 1);
+    });
+
+    test('3차 낮음1 핀 기준 값은 Client·Standalone 이 같은 집합으로 정규화한다', () {
+      expect(LocalDbService.normalizeMapPinBasis('\u001CADDRESS\u001F'), 'address');
+      expect(LocalDbService.normalizeMapPinBasis('\uFEFFADDRESS'), 'coords');
+    });
+
+    test('3차 낮음2 BOM 만 있는 주소키는 묶음 이름에 hex 를 내지 않는다', () async {
+      await insert('Z1', '\uFEFF', '', 37.5, 127.0);
+      await insert('Z2', '서울 중구', '서울 중구', 37.6, 127.1);
+      final payload = ReportMapPayload.fromJson(
+        await LocalDbService.computeReportMapStats(),
+      );
+      final point = payload.points.single;
+      expect(point.address, isNot(contains('EFBBBF')));
+      expect(point.region, isNot(contains('EFBBBF')));
+    });
+
     test('L1 동률 주소는 코드포인트 순서로 고른다(서버 Python 과 같음)', () {
       const bmp = '서울 \uF900';
       const astral = '서울 \u{20000}';

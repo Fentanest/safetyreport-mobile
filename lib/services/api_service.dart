@@ -17,6 +17,7 @@ import '../models/agency_stats.dart';
 import '../models/sunwi.dart';
 import 'network_retry_config.dart';
 import 'server_contract.dart';
+import 'map_pin_basis.dart';
 import '../models/stats_overview.dart';
 
 class ApiFeatureUnavailableException implements Exception {
@@ -612,7 +613,9 @@ class ApiService {
       'zoom': '${zoom.round().clamp(0, 19)}',
       'dedupe': dedupe,
     };
-    if (pinBasis == 'address') params['pin_basis'] = 'address';
+    if (normalizeMapPinBasis(pinBasis) == 'address') {
+      params['pin_basis'] = 'address';
+    }
     if (bounds != null) params['bounds'] = bounds.join(',');
     if (year != null && year != 'all') params['year'] = year;
     if (category != 'all') params['category'] = category;
@@ -667,7 +670,9 @@ class ApiService {
     String pinBasis = 'coords',
   }) async {
     final params = <String, String>{};
-    if (pinBasis == 'address') params['pin_basis'] = 'address';
+    if (normalizeMapPinBasis(pinBasis) == 'address') {
+      params['pin_basis'] = 'address';
+    }
     if (year != null && year != 'all') params['year'] = year;
     if (category != 'all') params['category'] = category;
     final uri = ServerContract.apiUri(

@@ -22,6 +22,7 @@ import '../models/report.dart';
 import 'agency_registry.dart';
 import 'duplicate_projection_service.dart';
 import 'geocode_utils.dart';
+import 'map_pin_basis.dart' as pin_rules;
 import 'local_database_exchange.dart';
 import 'attachment_policy.dart';
 import 'photo_capture_time.dart';
@@ -2698,32 +2699,21 @@ class LocalDbService {
 
   /// 신고 지도 핀 기준(2026-10-05, 서버 apply_pin_basis 와 같은 규칙).
   /// 'address' 외 모두 'coords' 로 정규화한다.
-  /// 앞뒤 공백·대소문자는 무시한다(서버 `normalize_pin_basis` 와 같음).
+  /// 핀 기준 값 정규화([map_pin_basis.dart] 의 규칙).
   static String normalizeMapPinBasis(String? value) =>
-      (value ?? '').trim().toLowerCase() == 'address' ? 'address' : 'coords';
+      pin_rules.normalizeMapPinBasis(value);
 
-  /// 주소키·장소 문구 앞뒤에서 지우는 문자(서버 Python `str.strip()` 기본 집합).
-  /// 정본 목록은 공용 벡터 `contracts/map-pin-basis-vectors.json` 의 `strip_code_points`.
-  /// Dart `trim()`(BOM 을 지우고 U+001C~U+001F 는 남김)·SQLite `trim()`(공백만) 과 다르다(Sol 2차 중간4).
-  static const mapStripCodePoints = <int>[
-    0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x85, 0xa0,
-    0x1680, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007,
-    0x2008, 0x2009, 0x200a, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000,
-  ];
-  static final _mapStripSet = mapStripCodePoints.toSet();
-  static final _mapStripSql = 'char(${mapStripCodePoints.join(',')})';
-
-  static String stripMapText(Object? value) {
-    final runes = (value?.toString() ?? '').runes.toList();
-    var start = 0, end = runes.length;
-    while (start < end && _mapStripSet.contains(runes[start])) {
-      start++;
-    }
-    while (end > start && _mapStripSet.contains(runes[end - 1])) {
-      end--;
-    }
-    return String.fromCharCodes(runes, start, end);
+  /// '이 주소의 전체 신고 보기'가 거르는 기존 목록 키(sr_missing_addresses 와 같은 계산).
+  static String _missingListKey(Map<String, Object?> row) {
+    final normalized = normalizeGeocodeAddress(row['주소정규화']?.toString());
+    return normalized.isEmpty
+        ? normalizeGeocodeAddress(row['위반장소']?.toString())
+        : normalized;
   }
+
+  static const mapStripCodePoints = pin_rules.mapStripCodePoints;
+  static final _mapStripSql = 'char(${mapStripCodePoints.join(',')})';
+  static String stripMapText(Object? value) => pin_rules.stripMapText(value);
 
   /// 핀 기준 주소키 = strip(주소정규화), 비면 strip(위반장소).
   static String mapPinBasisKey(Object? normalized, Object? location) {
@@ -2796,10 +2786,8 @@ class LocalDbService {
         topCount = entry.value;
       }
     }
-    final display = minDisplay[topKey];
-    final address = (display != null && display.isNotEmpty)
-        ? display
-        : topKey;
+    // 표시문구 항목이 없을 때만 키를 쓴다(칸 집계는 hex 키 대신 원문을 항상 넣는다).
+    final address = minDisplay[topKey] ?? topKey;
     final region = addressCount == 1
         ? address
         : '$address 외 ${addressCount - 1}곳';
@@ -2866,16 +2854,34 @@ class LocalDbService {
         );
         await d.execute('CREATE INDEX temp.${pairs}_key ON $pairs(addr_key)');
         checkCancelled();
-        // 주소키마다 한 쌍만 남는다((addr_key, plat, plng) 는 유일). window 함수를 쓰지 않는다.
-        const best =
-            'NOT EXISTS (SELECT 1 FROM temp.{p} q WHERE q.addr_key = p.addr_key AND '
-            '(q.n > p.n OR (q.n = p.n AND (q.plat < p.plat OR (q.plat = p.plat AND q.plng < p.plng)))))';
-        final winner = best.replaceAll('{p}', pairs);
-        await d.execute(
-          "UPDATE temp.$table SET lat = (SELECT p.plat FROM temp.$pairs p WHERE p.addr_key = $table.addr_key AND $winner), "
-          'lng = (SELECT p.plng FROM temp.$pairs p WHERE p.addr_key = $table.addr_key AND $winner) '
-          "WHERE addr_key != ''",
-        );
+        // 주소키마다 승자 한 쌍을 한 번만 고른다(건수 최대 → 위도 최소 → 경도 최소). window 함수를 쓰지 않고
+        // GROUP BY 세 단계로 고른 뒤 고유 인덱스로 각 신고에 적용한다(Sol 3차 중간2: 신고마다 후보 재탐색 제거).
+        final best = 'sr_map_best_${++_statsQuerySerial}';
+        try {
+          await d.execute(
+            'CREATE TEMP TABLE ${best}_n AS SELECT addr_key, MAX(n) AS mn FROM temp.$pairs GROUP BY addr_key',
+          );
+          await d.execute(
+            'CREATE TEMP TABLE ${best}_lat AS SELECT p.addr_key AS addr_key, MIN(p.plat) AS mlat '
+            'FROM temp.$pairs p JOIN temp.${best}_n w ON w.addr_key = p.addr_key AND p.n = w.mn GROUP BY p.addr_key',
+          );
+          await d.execute(
+            'CREATE TEMP TABLE $best AS SELECT p.addr_key AS addr_key, w2.mlat AS plat, MIN(p.plng) AS plng '
+            'FROM temp.$pairs p JOIN temp.${best}_n w ON w.addr_key = p.addr_key AND p.n = w.mn '
+            'JOIN temp.${best}_lat w2 ON w2.addr_key = p.addr_key AND p.plat = w2.mlat GROUP BY p.addr_key',
+          );
+          await d.execute('CREATE UNIQUE INDEX temp.${best}_key ON $best(addr_key)');
+          checkCancelled();
+          await d.execute(
+            "UPDATE temp.$table SET lat = (SELECT b.plat FROM temp.$best b WHERE b.addr_key = $table.addr_key), "
+            'lng = (SELECT b.plng FROM temp.$best b WHERE b.addr_key = $table.addr_key) '
+            "WHERE addr_key != ''",
+          );
+        } finally {
+          for (final t in [best, '${best}_n', '${best}_lat']) {
+            await d.execute('DROP TABLE IF EXISTS temp.$t');
+          }
+        }
       }
       checkCancelled();
       _mapEffectiveKeys[table] = cacheKey;
@@ -3116,7 +3122,7 @@ class LocalDbService {
           'CAST((e.lat-?)/? AS INTEGER) AS cy, CAST((e.lng-?)/? AS INTEGER) AS cx, '
           'AVG(e.lat) AS lat, AVG(e.lng) AS lng, COUNT(*) AS _weight, '
           'e.처리상태 AS 처리상태, e.범칙금_과태료 AS 범칙금_과태료, e.처리기관 AS 처리기관, e.처리기관코드 AS 처리기관코드, '
-          'e.category AS category, MIN(e.위반장소) AS address, '
+          'e.category AS category, MIN(e.위반장소) AS address, hex(MIN(e.위반장소)) AS address_hex, '
           'COUNT(DISTINCT e.위반장소) AS addresses, MIN(e.lat) AS min_lat, MAX(e.lat) AS max_lat, MIN(e.lng) AS min_lng, MAX(e.lng) AS max_lng, '
           // 2026-10-05 후속 B: 칸 묶음 이름용 주소키별 건수·최소 표시문구(SQLite BINARY = 코드포인트 순서).
           // Dart UTF-8 디코더는 맨 앞 BOM 을 지우므로 키·문구 비교는 hex(바이트 = 코드포인트 순서)로 한다.
@@ -3356,7 +3362,7 @@ class LocalDbService {
             // '이 주소의 전체 신고 보기'는 기존 목록 키(sr_missing_addresses, 내부 공백 합침)로 거른다.
             'normalized_address': groupKey == 'm.address_key'
                 ? group['address_key']
-                : normalizeGeocodeAddress(group['address_key']?.toString()),
+                : _missingListKey(first),
             'region': _stringify(first['행정구역']).trim(),
             'report_count': group['n'],
             'reports': rows,

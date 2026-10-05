@@ -5,7 +5,10 @@
 class SupportLinks {
   static const _repo = 'https://github.com/Fentanest/safetyreport-mobile';
   static const issueList = '$_repo/issues';
-  static const userGuide = 'https://hb.worklazy.net/mysafetyreport/';
+
+  /// PC·Android 사용 안내 글(제작자 블로그). 설정의 '사용 가이드'와 '홈페이지 바로가기'가 함께 쓴다.
+  static const userGuide =
+      'https://hb.worklazy.net/mysafetyreport-pc-android-guide/';
 
   /// 커뮤니티 지도(여러 사용자가 공유한 신고를 함께 보는 지도). 신고 지도 화면에서 연다.
   static const communityMap = 'https://safemap.worklazy.net/';

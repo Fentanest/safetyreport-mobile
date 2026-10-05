@@ -2124,9 +2124,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 icon: const Icon(Icons.language, size: 18),
                 label: const Text('홈페이지 바로가기'),
                 onPressed: () async {
-                  final url = Uri.parse(
-                    'https://hb.worklazy.net/mysafetyreport/',
-                  );
+                  final url = Uri.parse(SupportLinks.userGuide);
                   await launchUrl(url, mode: LaunchMode.externalApplication);
                 },
               ),

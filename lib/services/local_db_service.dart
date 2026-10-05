@@ -2957,7 +2957,7 @@ class LocalDbService {
         null,
       );
       return d.rawQuery(
-        'SELECT lat, lng, addr_key, COUNT(*) AS total FROM temp.$_mapEffectiveTable '
+        'SELECT lat, lng, addr_key, hex(addr_key) AS addr_key_hex, COUNT(*) AS total FROM temp.$_mapEffectiveTable '
         'WHERE lat IS NOT NULL GROUP BY lat, lng, addr_key',
       );
     });

@@ -7,6 +7,9 @@ class SupportLinks {
   static const issueList = '$_repo/issues';
   static const userGuide = 'https://hb.worklazy.net/mysafetyreport/';
 
+  /// 커뮤니티 지도(여러 사용자가 공유한 신고를 함께 보는 지도). 신고 지도 화면에서 연다.
+  static const communityMap = 'https://safemap.worklazy.net/';
+
   static String environmentBlock({
     required String appVersion,
     required String modeLabel,

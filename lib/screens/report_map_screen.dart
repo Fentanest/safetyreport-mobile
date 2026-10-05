@@ -30,6 +30,7 @@ import 'settings_screen.dart';
 import '../theme/sr_colors.dart';
 import '../theme/sr_tokens.dart';
 import '../widgets/sr_snack_bar.dart';
+import '../services/support_links.dart';
 
 const double _kMapMarkerWidth = 100;
 const double _kMapMarkerHeight = 98;
@@ -1086,6 +1087,15 @@ class _ReportMapScreenState extends State<ReportMapScreen>
           ),
           // SQ-U24: 마커 색(과태료율) 범례.
           const Positioned(left: 8, top: 8, child: MapFineRateLegend()),
+          // 커뮤니티 지도 바로가기(오른쪽 위). 좁은 화면은 범례와 겹치지 않게 아이콘만.
+          Positioned(
+            right: 8,
+            top: 8,
+            child: MapCommunityMapButton(
+              compact: MediaQuery.sizeOf(context).width < 360,
+              onPressed: _openCommunityMap,
+            ),
+          ),
           // SQ-U10: OSM 타일 사용 조건(ODbL·OSMF 타일 정책)인 출처 표기.
           // 오른쪽 아래는 현재 위치 버튼 자리라 그만큼 비우고 왼쪽 아래에 둔다.
           Positioned(
@@ -1110,6 +1120,25 @@ class _ReportMapScreenState extends State<ReportMapScreen>
         ],
       ),
     );
+  }
+
+  /// 커뮤니티 지도는 폰의 기본 브라우저 앱으로 연다(앱 안 웹뷰·Custom Tab 금지). 커뮤니티 지도의
+  /// 카카오 로그인·세션이 앱 안 브라우저에서는 끊기거나 섞일 수 있다(2026-10-05 사용자 지시).
+  Future<void> _openCommunityMap() async {
+    var ok = false;
+    try {
+      ok = await launchUrl(
+        Uri.parse(SupportLinks.communityMap),
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {
+      ok = false;
+    }
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('브라우저를 열지 못했습니다. 다시 시도해 주세요.')),
+      );
+    }
   }
 
   Widget _buildCurrentLocationButton() {

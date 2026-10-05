@@ -274,3 +274,88 @@ class MapOsmAttribution extends StatelessWidget {
     );
   }
 }
+
+/// 신고 지도 오른쪽 위의 '커뮤니티 지도'(safemap.worklazy.net) 바로가기.
+/// 범례와 같은 재질(반투명 표면·테두리·둥근 모서리, 높이 44). [compact] 면 아이콘만 둥글게 보인다(좁은 화면).
+class MapCommunityMapButton extends StatelessWidget {
+  const MapCommunityMapButton({
+    super.key,
+    required this.onPressed,
+    this.compact = false,
+  });
+
+  final VoidCallback onPressed;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final sr = context.sr;
+    final icon = Container(
+      width: 28,
+      height: 28,
+      decoration: BoxDecoration(color: sr.brandSoft, shape: BoxShape.circle),
+      alignment: Alignment.center,
+      child: Icon(Icons.public, size: 17, color: sr.brand),
+    );
+    return Tooltip(
+      message: '커뮤니티 지도 열기 (safemap.worklazy.net)',
+      child: Semantics(
+        button: true,
+        link: true,
+        label: '커뮤니티 지도 열기, safemap.worklazy.net, 브라우저에서 열림',
+        excludeSemantics: true,
+        child: Material(
+          color: sr.surface.withValues(alpha: 0.96),
+          shape: compact
+              ? CircleBorder(side: BorderSide(color: sr.border))
+              : RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(999),
+                  side: BorderSide(color: sr.border),
+                ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            key: const ValueKey('map-community-map-button'),
+            onTap: onPressed,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 44, minWidth: 44),
+              child: compact
+                  ? Center(
+                      widthFactor: 1,
+                      heightFactor: 1,
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: icon,
+                      ),
+                    )
+                  : Padding(
+                      padding: const EdgeInsets.fromLTRB(8, 0, 12, 0),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          icon,
+                          const SizedBox(width: 8),
+                          Text(
+                            '커뮤니티 지도',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              color: sr.textPrimary,
+                              height: 1.2,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Icon(
+                            Icons.open_in_new,
+                            size: 14,
+                            color: sr.textSecondary,
+                          ),
+                        ],
+                      ),
+                    ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

@@ -164,6 +164,7 @@ class _Harness {
   final provider = _ScopeProvider();
   final brightness = ValueNotifier<Brightness>(Brightness.light);
   int loads = 0;
+  String lastPinBasis = 'coords';
 
   Future<void> pump(WidgetTester tester) async {
     SharedPreferences.setMockInitialValues({});
@@ -183,8 +184,15 @@ class _Harness {
               locationGateway: location,
               tileProvider: _BlankTileProvider(),
               payloadLoader:
-                  ({bounds, required zoom, year, required category}) async {
+                  ({
+                    bounds,
+                    required zoom,
+                    year,
+                    required category,
+                    required pinBasis,
+                  }) async {
                     loads++;
+                    lastPinBasis = pinBasis;
                     return _payload();
                   },
             ),
@@ -341,8 +349,45 @@ void main() {
     });
   });
 
-  testWidgets('SQ-U10 지도에 OpenStreetMap 출처를 보인다', (tester) async {
-    final h = _Harness();
+  group('핀 기준 토글(위도·경도/주소)', () {
+    testWidgets('전환하면 다시 조회하고 주소 모드 안내를 보인다', (tester) async {
+      final h = _Harness();
+      await h.pump(tester);
+      expect(h.loads, 1);
+      expect(h.lastPinBasis, 'coords');
+      expect(find.text('핀 기준'), findsOneWidget);
+      expect(
+        find.text(
+          '같은 주소의 신고를 한 핀으로 묶고, 그 주소에서 가장 많이 신고된 공식 좌표에 표시합니다.',
+        ),
+        findsNothing,
+      );
+
+      await tester.tap(find.widgetWithText(ChoiceChip, '주소'));
+      await h.settle(tester);
+      expect(h.loads, 2);
+      expect(h.lastPinBasis, 'address');
+      expect(
+        find.text(
+          '같은 주소의 신고를 한 핀으로 묶고, 그 주소에서 가장 많이 신고된 공식 좌표에 표시합니다.',
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.widgetWithText(ChoiceChip, '위도·경도'));
+      await h.settle(tester);
+      expect(h.loads, 3);
+      expect(h.lastPinBasis, 'coords');
+      expect(
+        find.text(
+          '같은 주소의 신고를 한 핀으로 묶고, 그 주소에서 가장 많이 신고된 공식 좌표에 표시합니다.',
+        ),
+        findsNothing,
+      );
+    });
+  });
+
+  testWidgets('SQ-U10 지도에 OpenStreetMap 출처를 보인다', (tester) async {    final h = _Harness();
     await h.pump(tester);
     expect(find.text('© OpenStreetMap contributors'), findsOneWidget);
     expect(find.bySemanticsLabel('OpenStreetMap 저작권 안내 열기'), findsOneWidget);

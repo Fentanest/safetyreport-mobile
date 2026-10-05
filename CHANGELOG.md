@@ -8,6 +8,14 @@
 
 ---
 
+## 2026-10-05 (신고 지도 핀 기준 위도·경도/주소, 로컬 미배포)
+
+- 근거: [핀 기준 명세](docs/plans/2026-10-05-map-pin-basis.md) §1·§3(서버 명세 사본). 정본 벡터 `contracts/map-pin-basis-vectors.json`(서버와 바이트 동일)으로 Standalone 계산을 검증한다. DB 스키마·저장 좌표·교환 형식·pubspec 변경 없음.
+- Standalone: `LocalDbService.computeReportMapStats`/`computeReportMapMissingGroups`에 `pinBasis`(기본 coords, address 외 모두 coords). address 모드는 같은 주소키(`trim(주소정규화)`, 비면 `trim(위반장소)`) 신고들의 유효 공식 좌표 중 가장 많이 나온 (위도,경도) 쌍(동률이면 위도 작은 것→경도 작은 것)을 effective 좌표로 쓰고, meta geocoded/missing 건수·bounds 거르기·셀 묶기·좌표 없는 목록이 이를 따른다. 유효 좌표 판정은 기존 그대로, DB 원값은 바꾸지 않는다. 캐시 키·meta에 `pin_basis` 포함. 대표 좌표는 Dart(`resolveMapPinBasis`)에서 계산해 TEMP 표로 조인한다(기기 SQLite window 함수 미사용).
+- Client: `ApiService.getReportMapStats`/`getReportMapMissingGroups`에 `pinBasis`(기본 coords). address일 때만 `pin_basis=address` 쿼리를 붙인다(구 서버는 무시하므로 하위호환, coords는 기존 요청과 동일). 서버 경로 상수는 그대로.
+- 지도 화면: 필터 바에 "핀 기준" 토글(위도·경도/주소, 분류 선택과 같은 유지 방식) + 주소 모드 안내 "같은 주소의 신고를 한 핀으로 묶고, 그 주소에서 가장 많이 신고된 공식 좌표에 표시합니다." 바꾸면 지도·좌표 없는 신고 목록을 다시 읽는다. `ReportMapMeta.pinBasis`(구 응답에 없으면 coords).
+- 검증: `flutter analyze` error 0 / warning 9(기존). `flutter test` 1210 passed / 16 skipped / 0 failed(작업 전 기준선 1205 + 신규 5: 벡터 4·위젯 토글 1).
+
 ## 2026-10-05 (서버 기술일지 EO 구조 개선 중 모바일 해당분, refactor/eo-2026-10-05)
 
 - 근거: 서버 레포 기술일지 EO(구조 개선). 서버와 같은 규칙을 같은 벡터로 검사하도록 맞춘다. 기능·DB 교환 형식은 바꾸지 않는다.

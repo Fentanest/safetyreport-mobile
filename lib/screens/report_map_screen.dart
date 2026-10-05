@@ -70,11 +70,15 @@ typedef ReportMapPayloadLoader =
       required double zoom,
       String? year,
       required String category,
+      required String pinBasis,
     });
 
 class ReportMapScreen extends StatefulWidget {
   final String initialYear;
   final String initialCategory;
+
+  /// 핀 기준 초기값. 분류 선택과 같이 화면 상태로 유지한다.
+  final String initialPinBasis;
   final ReportMapLocationGateway locationGateway;
 
   /// 테스트 전용: 지도 집계 조회를 바꿔 끼운다.
@@ -89,6 +93,7 @@ class ReportMapScreen extends StatefulWidget {
     super.key,
     this.initialYear = 'all',
     this.initialCategory = 'all',
+    this.initialPinBasis = 'coords',
     this.locationGateway = const ReportMapLocationGateway(),
     this.payloadLoader,
     this.tileProvider,
@@ -115,6 +120,9 @@ class _ReportMapScreenState extends State<ReportMapScreen>
   String _selectedYear = 'all';
   String _selectedCategory = 'all';
 
+  /// 핀 기준. 'coords'(위도·경도) 또는 'address'(주소). 분류 선택과 같이 화면 상태로 유지한다.
+  String _selectedPinBasis = 'coords';
+
   // SQ-P05: 마커는 조회 결과(_payload)가 바뀔 때만 다시 만든다. marker_cluster 는 마커 리스트를
   // 동일성으로 비교하므로, 매 build 마다 새 리스트를 주면 줌 단계 전체 클러스터를 다시 계산한다.
   _MapMarkerCache? _markerCache;
@@ -130,6 +138,9 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     WidgetsBinding.instance.addObserver(this);
     _selectedYear = widget.initialYear;
     _selectedCategory = widget.initialCategory;
+    _selectedPinBasis = widget.initialPinBasis == 'address'
+        ? 'address'
+        : 'coords';
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadMap();
       // SQ-U11: 진입 시에는 권한을 요청하지 않는다. 이미 허용된 경우에만 현재 위치를 보인다.
@@ -201,6 +212,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
           zoom: _viewportZoom,
           year: _selectedYear == 'all' ? null : _selectedYear,
           category: _selectedCategory,
+          pinBasis: _selectedPinBasis,
         );
       } else if (provider.appMode == AppMode.standalone) {
         payload = ReportMapPayload.fromJson(
@@ -213,6 +225,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
             category: _selectedCategory,
             excludeWithdraw: provider.excludeWithdraw,
             useRepresentativeRecords: provider.useRepresentativeRecords,
+            pinBasis: _selectedPinBasis,
           ),
         );
       } else {
@@ -226,6 +239,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
           dedupe: provider.useRepresentativeRecords ? 'canonical' : 'raw',
           year: _selectedYear == 'all' ? null : _selectedYear,
           category: _selectedCategory,
+          pinBasis: _selectedPinBasis,
         );
       }
 
@@ -534,6 +548,32 @@ class _ReportMapScreenState extends State<ReportMapScreen>
               _categoryChip('other', '기타'),
             ],
           ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              const Text(
+                '핀 기준',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+              ),
+              _pinBasisChip('coords', '위도·경도'),
+              _pinBasisChip('address', '주소'),
+            ],
+          ),
+          if (_selectedPinBasis == 'address')
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                '같은 주소의 신고를 한 핀으로 묶고, 그 주소에서 가장 많이 신고된 공식 좌표에 표시합니다.',
+                style: TextStyle(
+                  fontSize: 12,
+                  height: 1.45,
+                  color: cs.onSurfaceVariant,
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -551,6 +591,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
           category: _selectedCategory,
           excludeWithdraw: provider.excludeWithdraw,
           useRepresentativeRecords: provider.useRepresentativeRecords,
+          pinBasis: _selectedPinBasis,
         ),
       );
     }
@@ -559,6 +600,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     return api.getReportMapMissingGroups(
       year: _selectedYear == 'all' ? null : _selectedYear,
       category: _selectedCategory,
+      pinBasis: _selectedPinBasis,
     );
   }
 
@@ -730,6 +772,18 @@ class _ReportMapScreenState extends State<ReportMapScreen>
       onSelected: (selected) {
         if (!selected) return;
         setState(() => _selectedCategory = value);
+        _loadMap();
+      },
+    );
+  }
+
+  Widget _pinBasisChip(String value, String label) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: _selectedPinBasis == value,
+      onSelected: (selected) {
+        if (!selected) return;
+        setState(() => _selectedPinBasis = value);
         _loadMap();
       },
     );
@@ -918,7 +972,9 @@ class _ReportMapScreenState extends State<ReportMapScreen>
       child: Stack(
         children: [
           FlutterMap(
-            key: ValueKey('${_selectedYear}_$_selectedCategory'),
+            key: ValueKey(
+              '${_selectedYear}_${_selectedCategory}_$_selectedPinBasis',
+            ),
             mapController: _mapController,
             options: MapOptions(
               onPositionChanged: (camera, hasGesture) {

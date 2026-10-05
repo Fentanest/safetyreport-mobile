@@ -163,6 +163,9 @@ class ReportMapMeta {
   final String currentYear;
   final String selectedCategory;
   final String dedupeMode;
+
+  /// 신고 지도 핀 기준(2026-10-05): 'coords' | 'address'. 구 응답에는 없어 기본값.
+  final String pinBasis;
   final int totalReports;
   final int geocodedReports;
   final int missingReports;
@@ -174,6 +177,7 @@ class ReportMapMeta {
     required this.currentYear,
     required this.selectedCategory,
     required this.dedupeMode,
+    this.pinBasis = 'coords',
     required this.totalReports,
     required this.geocodedReports,
     required this.missingReports,
@@ -188,6 +192,9 @@ class ReportMapMeta {
       currentYear: json['current_year']?.toString() ?? 'all',
       selectedCategory: json['selected_category']?.toString() ?? 'all',
       dedupeMode: json['dedupe_mode']?.toString() ?? 'raw',
+      pinBasis: json['pin_basis']?.toString() == 'address'
+          ? 'address'
+          : 'coords',
       totalReports: _toIntOrNull(json['total_reports']) ?? 0,
       geocodedReports: _toIntOrNull(json['geocoded_reports']) ?? 0,
       missingReports: _toIntOrNull(json['missing_reports']) ?? 0,

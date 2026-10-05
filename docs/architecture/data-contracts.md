@@ -488,3 +488,18 @@ Standalone은 저장된 `standaloneNormalizePolice`를 읽거나 적용하지 �
 서버 `/ws/events`의 추가형 `event_id`와 `connected.data.latest_event_id/replay_gap/cursor_reset`을 사용한다. `WsService`는 서버/API key 설정 scope별 커서를 `after`로 보내고 이미 처리한 종료 이벤트를 건너뛴다. `PrefsInbox.put`의 terminalCursor 인자로 이력과 커서를 같은 Editor commit에 저장한다. 저장 실패는 1013 재연결로 복구하며, 오래된 이벤트가 서버의 256개 보존 범위를 벗어나면 현황 확인 알림을 표시한다. crawl_finished의 outcome succeeded/partial/failed/cancelled/unknown을 구별하고 결과 불명을 성공으로 표시하지 않는다. 기존 event payload와 DB 교환 schema는 유지한다.
 
 SharedPreferences의 disk commit 실패는 메모리 변경을 되돌리지 않는다. PrefsInbox는 정상 history/cursor를 한 commit으로 쓰고 실패하면 이번 새 history 키·잘린 기존 history·기존/부재 cursor만 메모리에 복구한 뒤 오류를 전달한다. WsService는 오류 후1013으로 재연결하여 아직 저장하지 못한 terminal을 건너뛰지 않는다. OS 알림 표시 자체의 exactly-once를 보장하는 계약은 아니다.
+
+## 신고 지도 핀 기준 pin_basis (2026-10-05)
+
+- 근거: [핀 기준 명세](../plans/2026-10-05-map-pin-basis.md) §1·§3. 정본 벡터 `contracts/map-pin-basis-vectors.json`(서버와 바이트 동일). DB 스키마·저장 좌표·교환 형식 변경 없음.
+- 주소키 = `trim(주소정규화)`, 비면 `trim(위반장소)` (`COALESCE(NULLIF(trim(주소정규화),''),trim(위반장소))`).
+- Standalone `LocalDbService.computeReportMapStats` / `computeReportMapMissingGroups` 에 `pinBasis`(기본 `'coords'`, `'address'` 외 모두 coords).
+  address 모드는 같은 주소키 신고들(연도·분류·중복 모드·필터 적용 뒤 모집단)의 유효 공식 좌표 중 가장 많이 나온 (위도,경도) 쌍(동률이면 위도 작은 것→경도 작은 것)을 effective 좌표로 쓴다.
+  유효 좌표 판정은 기존 지도 것과 같고(`_validMapCoordinate` ≒ SQL typeof·범위), DB 원값은 바꾸지 않는다.
+  meta geocoded/missing 건수·bounds 거르기·셀 묶기·좌표 없는 목록이 모두 effective 기준이다. 캐시 키(metaKey/cacheKey)와 meta(`pin_basis`)에 핀 기준을 포함한다.
+  대표 좌표는 모집단 읽기 뒤 Dart(`resolveMapPinBasis`)에서 계산해 TEMP 표(`sr_pin_rep_*`)로 SQL 과 조인한다 — 기기 SQLite window 함수에 의존하지 않는다.
+- Client `ApiService.getReportMapStats` / `getReportMapMissingGroups` 에 `pinBasis`(기본 coords). address 일 때만 `pin_basis=address` 쿼리를 붙인다(구 서버는 무시하므로 하위호환, coords 는 기존 요청과 바이트 동일). 서버 경로 상수는 그대로.
+- 지도 화면 `report_map_screen.dart`: 필터 바에 "핀 기준" ChoiceChip 2개(위도·경도/주소, 분류 선택과 같은 화면 상태 유지) + 주소 모드 안내
+  "같은 주소의 신고를 한 핀으로 묶고, 그 주소에서 가장 많이 신고된 공식 좌표에 표시합니다." 바꾸면 지도·좌표 없는 신고 목록을 다시 읽는다.
+  `ReportMapMeta.pinBasis`(구 응답에 없으면 coords).
+- 테스트: `test/map_pin_basis_test.dart`(벡터 effective 좌표·건수·점 집합·좌표 없는 그룹 수/건수·구성원), 지도 위젯 토글 확인 1건.

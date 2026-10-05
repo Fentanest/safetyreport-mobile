@@ -605,12 +605,14 @@ class ApiService {
     List<double>? bounds,
     double zoom = 7,
     String dedupe = 'canonical',
+    String pinBasis = 'coords',
   }) async {
     final params = <String, String>{
       'max_points': '1024',
       'zoom': '${zoom.round().clamp(0, 19)}',
       'dedupe': dedupe,
     };
+    if (pinBasis == 'address') params['pin_basis'] = 'address';
     if (bounds != null) params['bounds'] = bounds.join(',');
     if (year != null && year != 'all') params['year'] = year;
     if (category != 'all') params['category'] = category;
@@ -662,8 +664,10 @@ class ApiService {
   Future<ReportMapMissingPayload> getReportMapMissingGroups({
     String? year,
     String category = 'all',
+    String pinBasis = 'coords',
   }) async {
     final params = <String, String>{};
+    if (pinBasis == 'address') params['pin_basis'] = 'address';
     if (year != null && year != 'all') params['year'] = year;
     if (category != 'all') params['category'] = category;
     final uri = ServerContract.apiUri(

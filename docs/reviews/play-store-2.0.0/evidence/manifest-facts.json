@@ -1,0 +1,461 @@
+{
+  "old": {
+    "permissions": [
+      [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        null
+      ],
+      [
+        "android.permission.ACCESS_FINE_LOCATION",
+        null
+      ],
+      [
+        "android.permission.ACCESS_NETWORK_STATE",
+        null
+      ],
+      [
+        "android.permission.CALL_PHONE",
+        null
+      ],
+      [
+        "android.permission.FOREGROUND_SERVICE",
+        null
+      ],
+      [
+        "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+        null
+      ],
+      [
+        "android.permission.FOREGROUND_SERVICE_SPECIAL_USE",
+        null
+      ],
+      [
+        "android.permission.INTERNET",
+        null
+      ],
+      [
+        "android.permission.POST_NOTIFICATIONS",
+        null
+      ],
+      [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "32"
+      ],
+      [
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        null
+      ],
+      [
+        "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+        null
+      ],
+      [
+        "android.permission.WAKE_LOCK",
+        null
+      ],
+      [
+        "com.fentanest.mysafetyreport.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
+        null
+      ]
+    ],
+    "sdk": {
+      "minSdkVersion": "24",
+      "targetSdkVersion": "36"
+    },
+    "components": [
+      {
+        "name": "com.fentanest.mysafetyreport.MainActivity",
+        "configChanges": "orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode",
+        "exported": "true",
+        "hardwareAccelerated": "true",
+        "launchMode": "singleTop",
+        "taskAffinity": "",
+        "theme": "@style/LaunchTheme",
+        "windowSoftInputMode": "adjustResize"
+      },
+      {
+        "name": "com.fentanest.mysafetyreport.NotificationService",
+        "exported": "true",
+        "label": "SafetyReport Notification Listener",
+        "permission": "android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+      },
+      {
+        "name": "com.fentanest.mysafetyreport.WsService",
+        "exported": "false",
+        "foregroundServiceType": "specialUse"
+      },
+      {
+        "name": "com.fentanest.mysafetyreport.SyncForegroundService",
+        "exported": "false",
+        "foregroundServiceType": "dataSync"
+      },
+      {
+        "name": "com.baseflow.geolocator.GeolocatorLocationService",
+        "enabled": "true",
+        "exported": "false",
+        "foregroundServiceType": "location"
+      },
+      {
+        "name": "com.crazecoder.openfile.FileProvider",
+        "authorities": "com.fentanest.mysafetyreport.fileProvider.com.crazecoder.openfile",
+        "exported": "false",
+        "grantUriPermissions": "true"
+      },
+      {
+        "name": "dev.fluttercommunity.plus.share.ShareFileProvider",
+        "authorities": "com.fentanest.mysafetyreport.flutter.share_provider",
+        "exported": "false",
+        "grantUriPermissions": "true"
+      },
+      {
+        "name": "dev.fluttercommunity.plus.share.SharePlusPendingIntent",
+        "exported": "false"
+      },
+      {
+        "name": "io.flutter.plugins.urllauncher.WebViewActivity",
+        "exported": "false",
+        "theme": "@android:style/Theme.NoTitleBar.Fullscreen"
+      },
+      {
+        "name": "com.google.android.gms.common.api.GoogleApiActivity",
+        "exported": "false",
+        "theme": "@android:style/Theme.Translucent.NoTitleBar"
+      },
+      {
+        "name": "androidx.startup.InitializationProvider",
+        "authorities": "com.fentanest.mysafetyreport.androidx-startup",
+        "exported": "false"
+      },
+      {
+        "name": "androidx.profileinstaller.ProfileInstallReceiver",
+        "directBootAware": "false",
+        "enabled": "true",
+        "exported": "true",
+        "permission": "android.permission.DUMP"
+      }
+    ],
+    "queries": "<queries xmlns:ns0=\"http://schemas.android.com/apk/res/android\">\n        <intent>\n            <action ns0:name=\"android.intent.action.PROCESS_TEXT\" />\n\n            <data ns0:mimeType=\"text/plain\" />\n        </intent>\n        \n        <intent>\n            <action ns0:name=\"android.intent.action.VIEW\" />\n\n            <data ns0:scheme=\"https\" />\n        </intent>\n        <intent>\n            <action ns0:name=\"android.intent.action.VIEW\" />\n\n            <data ns0:scheme=\"http\" />\n        </intent>\n        <intent>\n            <action ns0:name=\"android.intent.action.VIEW\" />\n\n            <data ns0:scheme=\"appsafetyreport\" />\n        </intent>\n        \n        <intent>\n            <action ns0:name=\"android.intent.action.DIAL\" />\n\n            <data ns0:scheme=\"tel\" />\n        </intent>\n        <intent>\n            <action ns0:name=\"android.intent.action.GET_CONTENT\" />\n\n            <data ns0:mimeType=\"*/*\" />\n        </intent>\n    </queries>\n\n    "
+  },
+  "new": {
+    "permissions": [
+      [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        null
+      ],
+      [
+        "android.permission.ACCESS_FINE_LOCATION",
+        null
+      ],
+      [
+        "android.permission.ACCESS_NETWORK_STATE",
+        null
+      ],
+      [
+        "android.permission.CALL_PHONE",
+        null
+      ],
+      [
+        "android.permission.FOREGROUND_SERVICE",
+        null
+      ],
+      [
+        "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+        null
+      ],
+      [
+        "android.permission.FOREGROUND_SERVICE_SHORT_SERVICE",
+        null
+      ],
+      [
+        "android.permission.FOREGROUND_SERVICE_SPECIAL_USE",
+        null
+      ],
+      [
+        "android.permission.INTERNET",
+        null
+      ],
+      [
+        "android.permission.POST_NOTIFICATIONS",
+        null
+      ],
+      [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "32"
+      ],
+      [
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        null
+      ],
+      [
+        "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+        null
+      ],
+      [
+        "android.permission.WAKE_LOCK",
+        null
+      ],
+      [
+        "com.fentanest.mysafetyreport.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
+        null
+      ]
+    ],
+    "sdk": {
+      "minSdkVersion": "24",
+      "targetSdkVersion": "36"
+    },
+    "components": [
+      {
+        "name": "com.fentanest.mysafetyreport.MainActivity",
+        "configChanges": "orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode",
+        "exported": "true",
+        "hardwareAccelerated": "true",
+        "launchMode": "singleTop",
+        "taskAffinity": "",
+        "theme": "@style/LaunchTheme",
+        "windowSoftInputMode": "adjustResize"
+      },
+      {
+        "name": "com.fentanest.mysafetyreport.NotificationService",
+        "exported": "true",
+        "label": "SafetyReport Notification Listener",
+        "permission": "android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+      },
+      {
+        "name": "com.fentanest.mysafetyreport.WsService",
+        "exported": "false",
+        "foregroundServiceType": "specialUse"
+      },
+      {
+        "name": "com.fentanest.mysafetyreport.SyncForegroundService",
+        "exported": "false",
+        "foregroundServiceType": "dataSync"
+      },
+      {
+        "name": "com.baseflow.geolocator.GeolocatorLocationService",
+        "enabled": "true",
+        "exported": "false",
+        "foregroundServiceType": "location"
+      },
+      {
+        "name": "com.crazecoder.openfile.FileProvider",
+        "authorities": "com.fentanest.mysafetyreport.fileProvider.com.crazecoder.openfile",
+        "exported": "false",
+        "grantUriPermissions": "true"
+      },
+      {
+        "name": "dev.fluttercommunity.plus.share.ShareFileProvider",
+        "authorities": "com.fentanest.mysafetyreport.flutter.share_provider",
+        "exported": "false",
+        "grantUriPermissions": "true"
+      },
+      {
+        "name": "dev.fluttercommunity.plus.share.SharePlusPendingIntent",
+        "exported": "false"
+      },
+      {
+        "name": "io.flutter.plugins.urllauncher.WebViewActivity",
+        "exported": "false",
+        "theme": "@android:style/Theme.NoTitleBar.Fullscreen"
+      },
+      {
+        "name": "androidx.work.impl.foreground.SystemForegroundService",
+        "directBootAware": "false",
+        "enabled": "@bool/enable_system_foreground_service_default",
+        "exported": "false",
+        "foregroundServiceType": "shortService"
+      },
+      {
+        "name": "com.google.android.gms.common.api.GoogleApiActivity",
+        "exported": "false",
+        "theme": "@android:style/Theme.Translucent.NoTitleBar"
+      },
+      {
+        "name": "androidx.startup.InitializationProvider",
+        "authorities": "com.fentanest.mysafetyreport.androidx-startup",
+        "exported": "false"
+      },
+      {
+        "name": "androidx.work.impl.background.systemjob.SystemJobService",
+        "directBootAware": "false",
+        "enabled": "@bool/enable_system_job_service_default",
+        "exported": "true",
+        "permission": "android.permission.BIND_JOB_SERVICE"
+      },
+      {
+        "name": "androidx.work.impl.utils.ForceStopRunnable$BroadcastReceiver",
+        "directBootAware": "false",
+        "enabled": "true",
+        "exported": "false"
+      },
+      {
+        "name": "androidx.work.impl.background.systemalarm.RescheduleReceiver",
+        "directBootAware": "false",
+        "enabled": "false",
+        "exported": "false"
+      },
+      {
+        "name": "androidx.work.impl.diagnostics.DiagnosticsReceiver",
+        "directBootAware": "false",
+        "enabled": "true",
+        "exported": "true",
+        "permission": "android.permission.DUMP"
+      },
+      {
+        "name": "androidx.profileinstaller.ProfileInstallReceiver",
+        "directBootAware": "false",
+        "enabled": "true",
+        "exported": "true",
+        "permission": "android.permission.DUMP"
+      },
+      {
+        "name": "androidx.room.MultiInstanceInvalidationService",
+        "directBootAware": "true",
+        "exported": "false"
+      },
+      {
+        "name": "com.google.android.play.core.common.PlayCoreDialogWrapperActivity",
+        "exported": "false",
+        "stateNotNeeded": "true",
+        "theme": "@style/Theme.PlayCore.Transparent"
+      }
+    ],
+    "queries": "<queries xmlns:ns0=\"http://schemas.android.com/apk/res/android\">\n        <intent>\n            <action ns0:name=\"android.intent.action.PROCESS_TEXT\" />\n\n            <data ns0:mimeType=\"text/plain\" />\n        </intent>\n        \n        <intent>\n            <action ns0:name=\"android.intent.action.VIEW\" />\n\n            <data ns0:scheme=\"https\" />\n        </intent>\n        <intent>\n            <action ns0:name=\"android.intent.action.VIEW\" />\n\n            <data ns0:scheme=\"http\" />\n        </intent>\n        <intent>\n            <action ns0:name=\"android.intent.action.VIEW\" />\n\n            <data ns0:scheme=\"appsafetyreport\" />\n        </intent>\n        \n        <intent>\n            <action ns0:name=\"android.intent.action.DIAL\" />\n\n            <data ns0:scheme=\"tel\" />\n        </intent>\n        <intent>\n            <action ns0:name=\"android.intent.action.GET_CONTENT\" />\n\n            <data ns0:mimeType=\"*/*\" />\n        </intent>\n    </queries>\n\n    "
+  },
+  "published": {
+    "permissions": [
+      [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        null
+      ],
+      [
+        "android.permission.ACCESS_FINE_LOCATION",
+        null
+      ],
+      [
+        "android.permission.ACCESS_NETWORK_STATE",
+        null
+      ],
+      [
+        "android.permission.CALL_PHONE",
+        null
+      ],
+      [
+        "android.permission.FOREGROUND_SERVICE",
+        null
+      ],
+      [
+        "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+        null
+      ],
+      [
+        "android.permission.FOREGROUND_SERVICE_SPECIAL_USE",
+        null
+      ],
+      [
+        "android.permission.INTERNET",
+        null
+      ],
+      [
+        "android.permission.POST_NOTIFICATIONS",
+        null
+      ],
+      [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "32"
+      ],
+      [
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        null
+      ],
+      [
+        "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+        null
+      ],
+      [
+        "android.permission.WAKE_LOCK",
+        null
+      ],
+      [
+        "com.fentanest.mysafetyreport.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION",
+        null
+      ]
+    ],
+    "sdk": {
+      "minSdkVersion": "24",
+      "targetSdkVersion": "36"
+    },
+    "components": [
+      {
+        "theme": "@ref/0x7f0e00a2",
+        "name": "com.fentanest.mysafetyreport.MainActivity",
+        "exported": "true",
+        "taskAffinity": "",
+        "launchMode": "1",
+        "configChanges": "0x40003fb4",
+        "windowSoftInputMode": "0x10",
+        "hardwareAccelerated": "true"
+      },
+      {
+        "label": "SafetyReport Notification Listener",
+        "name": "com.fentanest.mysafetyreport.NotificationService",
+        "permission": "android.permission.BIND_NOTIFICATION_LISTENER_SERVICE",
+        "exported": "true"
+      },
+      {
+        "name": "com.fentanest.mysafetyreport.WsService",
+        "exported": "false",
+        "foregroundServiceType": "0x40000000"
+      },
+      {
+        "name": "com.fentanest.mysafetyreport.SyncForegroundService",
+        "exported": "false",
+        "foregroundServiceType": "0x1"
+      },
+      {
+        "name": "dev.fluttercommunity.plus.share.ShareFileProvider",
+        "exported": "false",
+        "authorities": "com.fentanest.mysafetyreport.flutter.share_provider",
+        "grantUriPermissions": "true"
+      },
+      {
+        "name": "dev.fluttercommunity.plus.share.SharePlusPendingIntent",
+        "exported": "false"
+      },
+      {
+        "name": "com.baseflow.geolocator.GeolocatorLocationService",
+        "enabled": "true",
+        "exported": "false",
+        "foregroundServiceType": "0x8"
+      },
+      {
+        "name": "com.crazecoder.openfile.FileProvider",
+        "exported": "false",
+        "authorities": "com.fentanest.mysafetyreport.fileProvider.com.crazecoder.openfile",
+        "grantUriPermissions": "true"
+      },
+      {
+        "theme": "@ref/0x1030007",
+        "name": "io.flutter.plugins.urllauncher.WebViewActivity",
+        "exported": "false"
+      },
+      {
+        "theme": "@ref/0x1030010",
+        "name": "com.google.android.gms.common.api.GoogleApiActivity",
+        "exported": "false"
+      },
+      {
+        "name": "androidx.startup.InitializationProvider",
+        "exported": "false",
+        "authorities": "com.fentanest.mysafetyreport.androidx-startup"
+      },
+      {
+        "name": "androidx.profileinstaller.ProfileInstallReceiver",
+        "permission": "android.permission.DUMP",
+        "enabled": "true",
+        "exported": "true",
+        "directBootAware": "false"
+      }
+    ],
+    "queries": "<queries xmlns:ns0=\"http://schemas.android.com/apk/res/android\">\n\n        <intent>\n\n            <action ns0:name=\"android.intent.action.PROCESS_TEXT\" />\n\n            <data ns0:mimeType=\"text/plain\" />\n        </intent>\n\n        <intent>\n\n            <action ns0:name=\"android.intent.action.VIEW\" />\n\n            <data ns0:scheme=\"https\" />\n        </intent>\n\n        <intent>\n\n            <action ns0:name=\"android.intent.action.VIEW\" />\n\n            <data ns0:scheme=\"http\" />\n        </intent>\n\n        <intent>\n\n            <action ns0:name=\"android.intent.action.VIEW\" />\n\n            <data ns0:scheme=\"appsafetyreport\" />\n        </intent>\n\n        <intent>\n\n            <action ns0:name=\"android.intent.action.DIAL\" />\n\n            <data ns0:scheme=\"tel\" />\n        </intent>\n\n        <intent>\n\n            <action ns0:name=\"android.intent.action.GET_CONTENT\" />\n\n            <data ns0:mimeType=\"*/*\" />\n        </intent>\n    </queries>\n\n    "
+  }
+}

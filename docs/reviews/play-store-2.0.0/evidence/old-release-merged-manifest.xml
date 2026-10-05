@@ -1,0 +1,242 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.fentanest.mysafetyreport"
+    android:versionCode="30"
+    android:versionName="1.3.5" >
+
+    <uses-sdk
+        android:minSdkVersion="24"
+        android:targetSdkVersion="36" />
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Android 14+ Foreground Service 타입 권한 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- 전화걸기 권한 -->
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <!--
+         Required to query activities that can process text, see:
+         https://developer.android.com/training/package-visibility and
+         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
+
+         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT" />
+
+            <data android:mimeType="text/plain" />
+        </intent>
+        <!-- url_launcher: https/http 링크 실행을 위해 필요 (Android 11+) -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+
+            <data android:scheme="http" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+
+            <data android:scheme="appsafetyreport" />
+        </intent>
+        <!-- url_launcher: tel: 링크 실행을 위해 필요 -->
+        <intent>
+            <action android:name="android.intent.action.DIAL" />
+
+            <data android:scheme="tel" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.GET_CONTENT" />
+
+            <data android:mimeType="*/*" />
+        </intent>
+    </queries>
+
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <permission
+        android:name="com.fentanest.mysafetyreport.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+        android:protectionLevel="signature" />
+
+    <uses-permission android:name="com.fentanest.mysafetyreport.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
+
+    <application
+        android:name="android.app.Application"
+        android:allowBackup="false"
+        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
+        android:extractNativeLibs="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="나만의 안전신문고"
+        android:usesCleartextTraffic="true" >
+        <activity
+            android:name="com.fentanest.mysafetyreport.MainActivity"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:exported="true"
+            android:hardwareAccelerated="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:windowSoftInputMode="adjustResize" >
+
+            <!--
+                 Specifies an Android theme to apply to this Activity as soon as
+                 the Android process has started. This theme is visible to the user
+                 while the Flutter UI initializes. After that, this theme continues
+                 to determine the Window background behind the Flutter UI.
+            -->
+            <meta-data
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/NormalTheme" />
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <!--
+             Don't delete the meta-data below.
+             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java
+        -->
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+
+        <!-- 카카오톡/안전신문고 알림 가로채기 서비스 -->
+        <service
+            android:name="com.fentanest.mysafetyreport.NotificationService"
+            android:exported="true"
+            android:label="SafetyReport Notification Listener"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" >
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- WebSocket Foreground Service — 앱 종료 후에도 서버 이벤트 수신 -->
+        <service
+            android:name="com.fentanest.mysafetyreport.WsService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse" >
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Maintains a user-enabled WebSocket connection so crawl event alerts can continue while the app is backgrounded." />
+        </service>
+
+        <!-- 동기화 진행 중 프로세스 보호 (Standalone 모드 SyncEngine / drainIfPending) -->
+        <service
+            android:name="com.fentanest.mysafetyreport.SyncForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+        <service
+            android:name="com.baseflow.geolocator.GeolocatorLocationService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
+        <provider
+            android:name="com.crazecoder.openfile.FileProvider"
+            android:authorities="com.fentanest.mysafetyreport.fileProvider.com.crazecoder.openfile"
+            android:exported="false"
+            android:grantUriPermissions="true" >
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/filepaths" />
+        </provider>
+        <!--
+           Declares a provider which allows us to store files to share in
+           '.../caches/share_plus' and grant the receiving action access
+        -->
+        <provider
+            android:name="dev.fluttercommunity.plus.share.ShareFileProvider"
+            android:authorities="com.fentanest.mysafetyreport.flutter.share_provider"
+            android:exported="false"
+            android:grantUriPermissions="true" >
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/flutter_share_file_paths" />
+        </provider>
+        <!--
+           This manifest declared broadcast receiver allows us to use an explicit
+           Intent when creating a PendingItent to be informed of the user's choice
+        -->
+        <receiver
+            android:name="dev.fluttercommunity.plus.share.SharePlusPendingIntent"
+            android:exported="false" >
+            <intent-filter>
+                <action android:name="EXTRA_CHOSEN_COMPONENT" />
+            </intent-filter>
+        </receiver>
+
+        <activity
+            android:name="io.flutter.plugins.urllauncher.WebViewActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.NoTitleBar.Fullscreen" />
+
+        <uses-library
+            android:name="androidx.window.extensions"
+            android:required="false" />
+        <uses-library
+            android:name="androidx.window.sidecar"
+            android:required="false" />
+
+        <activity
+            android:name="com.google.android.gms.common.api.GoogleApiActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <meta-data
+            android:name="com.google.android.gms.version"
+            android:value="@integer/google_play_services_version" />
+
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="com.fentanest.mysafetyreport.androidx-startup"
+            android:exported="false" >
+            <meta-data
+                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+                android:value="androidx.startup" />
+            <meta-data
+                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
+                android:value="androidx.startup" />
+            <meta-data
+                android:name="androidx.profileinstaller.ProfileInstallerInitializer"
+                android:value="androidx.startup" />
+        </provider>
+
+        <receiver
+            android:name="androidx.profileinstaller.ProfileInstallReceiver"
+            android:directBootAware="false"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.DUMP" >
+            <intent-filter>
+                <action android:name="androidx.profileinstaller.action.INSTALL_PROFILE" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="androidx.profileinstaller.action.SKIP_FILE" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="androidx.profileinstaller.action.SAVE_PROFILE" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="androidx.profileinstaller.action.BENCHMARK_OPERATION" />
+            </intent-filter>
+        </receiver>
+    </application>
+
+</manifest>

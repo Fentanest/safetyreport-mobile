@@ -1,0 +1,6 @@
+PASS: old/new release manifest tasks successful
+PASS: old published APK matches rebuilt permission and SDK sets
+PASS: permission counts 14 -> 15, added 1, removed 0
+PASS: component counts 12 -> 19, exported true 3 -> 5
+PASS: evidence links exist
+PASS: report verified against fixed a19aa950 source snapshot

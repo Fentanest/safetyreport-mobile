@@ -2698,14 +2698,38 @@ class LocalDbService {
 
   /// 신고 지도 핀 기준(2026-10-05, 서버 apply_pin_basis 와 같은 규칙).
   /// 'address' 외 모두 'coords' 로 정규화한다.
+  /// 앞뒤 공백·대소문자는 무시한다(서버 `normalize_pin_basis` 와 같음).
   static String normalizeMapPinBasis(String? value) =>
-      value == 'address' ? 'address' : 'coords';
+      (value ?? '').trim().toLowerCase() == 'address' ? 'address' : 'coords';
 
-  /// 핀 기준 주소키 = trim(주소정규화), 비면 trim(위반장소).
+  /// 주소키·장소 문구 앞뒤에서 지우는 문자(서버 Python `str.strip()` 기본 집합).
+  /// 정본 목록은 공용 벡터 `contracts/map-pin-basis-vectors.json` 의 `strip_code_points`.
+  /// Dart `trim()`(BOM 을 지우고 U+001C~U+001F 는 남김)·SQLite `trim()`(공백만) 과 다르다(Sol 2차 중간4).
+  static const mapStripCodePoints = <int>[
+    0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x85, 0xa0,
+    0x1680, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007,
+    0x2008, 0x2009, 0x200a, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000,
+  ];
+  static final _mapStripSet = mapStripCodePoints.toSet();
+  static final _mapStripSql = 'char(${mapStripCodePoints.join(',')})';
+
+  static String stripMapText(Object? value) {
+    final runes = (value?.toString() ?? '').runes.toList();
+    var start = 0, end = runes.length;
+    while (start < end && _mapStripSet.contains(runes[start])) {
+      start++;
+    }
+    while (end > start && _mapStripSet.contains(runes[end - 1])) {
+      end--;
+    }
+    return String.fromCharCodes(runes, start, end);
+  }
+
+  /// 핀 기준 주소키 = strip(주소정규화), 비면 strip(위반장소).
   static String mapPinBasisKey(Object? normalized, Object? location) {
-    final primary = (normalized?.toString() ?? '').trim();
+    final primary = stripMapText(normalized);
     if (primary.isNotEmpty) return primary;
-    return (location?.toString() ?? '').trim();
+    return stripMapText(location);
   }
 
   /// 문자열을 유니코드 코드포인트 순서로 비교한다(서버 Python 비교·SQLite BINARY 와 같음).
@@ -2737,7 +2761,7 @@ class LocalDbService {
       final key = mapPinBasisKey(row['주소정규화'], row['위반장소']);
       if (key.isEmpty) continue;
       counts[key] = (counts[key] ?? 0) + 1;
-      final display = (row['위반장소']?.toString() ?? '').trim();
+      final display = stripMapText(row['위반장소']);
       if (display.isEmpty) continue;
       final prev = minDisplay[key];
       if (prev == null || compareCodePoints(display, prev) < 0) {
@@ -2782,71 +2806,12 @@ class LocalDbService {
     return (address: address, addressCount: addressCount, region: region);
   }
 
-  /// 표시용 effective 좌표 계산. DB 의 위도·경도·지오코딩상태는 바꾸지 않는다.
-  /// rows: {'ID','주소정규화','위반장소','위도','경도'}.
-  /// effective: ID → [위도, 경도] (없으면 null).
-  /// representatives: 주소키 → 그 주소 신고들의 유효 공식 좌표 중 가장 많이 나온
-  /// 쌍(동률이면 위도 작은 것→경도 작은 것). 유효 좌표 판정은 기존 지도 것과 같다.
-  @visibleForTesting
-  static ({
-    Map<String, List<double>?> effective,
-    Map<String, List<double>> representatives,
-  }) resolveMapPinBasis(List<Map<String, Object?>> rows, String pinBasis) {
-    final basis = normalizeMapPinBasis(pinBasis);
-    final keys = <String, String>{};
-    final ownValid = <String, List<double>>{};
-    final counts = <String, Map<(double, double), int>>{};
-    for (final row in rows) {
-      final id = row['ID']?.toString() ?? '';
-      if (id.isEmpty) continue;
-      final key = mapPinBasisKey(row['주소정규화'], row['위반장소']);
-      keys[id] = key;
-      final latRaw = row['위도'];
-      final lngRaw = row['경도'];
-      if (!_validMapCoordinate(latRaw, lngRaw)) continue;
-      final lat = (latRaw as num).toDouble();
-      final lng = (lngRaw as num).toDouble();
-      ownValid[id] = [lat, lng];
-      if (basis == 'address' && key.isNotEmpty) {
-        final perKey = counts.putIfAbsent(key, () => {});
-        final pair = (lat, lng);
-        perKey[pair] = (perKey[pair] ?? 0) + 1;
-      }
-    }
-    final representatives = <String, List<double>>{};
-    if (basis == 'address') {
-      for (final entry in counts.entries) {
-        final ranked = entry.value.entries.toList()
-          ..sort((a, b) {
-            var c = b.value.compareTo(a.value);
-            if (c != 0) return c;
-            c = a.key.$1.compareTo(b.key.$1);
-            if (c != 0) return c;
-            return a.key.$2.compareTo(b.key.$2);
-          });
-        representatives[entry.key] = [
-          ranked.first.key.$1,
-          ranked.first.key.$2,
-        ];
-      }
-    }
-    final effective = <String, List<double>?>{};
-    for (final id in keys.keys) {
-      if (basis != 'address') {
-        effective[id] = ownValid[id];
-      } else {
-        final key = keys[id]!;
-        effective[id] = key.isEmpty ? ownValid[id] : representatives[key];
-      }
-    }
-    return (effective: effective, representatives: representatives);
-  }
-
-  /// 지도 계산용 신고별 표(temp): ID → effective 좌표·주소키·대표 표시문구·장소 유무.
-  /// 주소키·표시문구는 Dart trim(서버 `str.strip()` 과 같음). SQLite `trim()` 은 탭·줄바꿈을 남겨
-  /// 서버와 달라진다(Sol 1차 M1). DB revision·모집단·핀 기준이 같으면 다시 만들지 않는다(M6).
-  /// 표마다 마지막으로 만든 키를 둔다. 트랜잭션이 되돌려지면 표 내용도 되돌려지므로 호출자는
-  /// 실패 때 [_mapEffectiveKeys] 를 비운다.
+  /// 지도 계산용 신고별 표(temp): 지도 칸 집계에 쓰는 열 + effective 좌표·주소키·장소 문구.
+  /// 모두 SQLite 안에서 만든다(행을 Dart 로 올리지 않음, Sol 2차 중간2). 칸 집계·meta 는 이 표만 읽어
+  /// ID 가 비거나 NULL 인 신고도 빠지지 않는다(Sol 2차 중간1). 주소키·문구는 [mapStripCodePoints] 로 strip.
+  /// address 면 같은 주소키 신고들의 유효 공식 좌표 중 가장 많이 나온 쌍(동률이면 위도→경도 작은 것).
+  /// DB revision·모집단·핀 기준이 같으면 다시 만들지 않는다. 트랜잭션이 되돌려지면 표도 되돌려지므로
+  /// 호출자는 실패 때 [_mapEffectiveKeys] 를 비운다.
   static final _mapEffectiveKeys = <String, String>{};
   static const _mapEffectiveTable = 'sr_map_effective';
   static const _mapEffectiveMissingTable = 'sr_map_effective_missing';
@@ -2862,64 +2827,60 @@ class LocalDbService {
   }) async {
     if (_mapEffectiveKeys[table] == cacheKey) return;
     _mapEffectiveKeys.remove(table);
-    final snapshot = 'sr_map_snap_${++_statsQuerySerial}';
+    void checkCancelled() {
+      if (isCancelled?.call() == true || closeRequested) {
+        throw const QueryCancelled();
+      }
+    }
+
+    final ws = _mapStripSql;
+    const valid =
+        "typeof(r.위도) IN ('integer','real') AND typeof(r.경도) IN ('integer','real') "
+        'AND CAST(r.위도 AS REAL) BETWEEN -90 AND 90 AND CAST(r.경도 AS REAL) BETWEEN -180 AND 180';
+    final pairs = 'sr_map_pairs_${++_statsQuerySerial}';
     try {
-      await d.execute(
-        'CREATE TEMP TABLE $snapshot AS SELECT r.ID AS ID, r.주소정규화 AS 주소정규화, '
-        'r.위반장소 AS 위반장소, r.위도 AS 위도, r.경도 AS 경도 '
-        'FROM $effectiveReportsView r WHERE $scope',
-        args,
-      );
-      final rows = <Map<String, Object?>>[];
-      var last = 0;
-      while (true) {
-        if (isCancelled?.call() == true || closeRequested) {
-          throw const QueryCancelled();
-        }
-        final page = await PerformanceTrace.sql(
-          'map.sql_effective',
-          () => d.rawQuery(
-            'SELECT rowid AS cursor, ID, 주소정규화, 위반장소, 위도, 경도 FROM $snapshot '
-            'WHERE rowid > ? ORDER BY rowid LIMIT 2000',
-            [last],
-          ),
+      await d.execute('DROP TABLE IF EXISTS temp.$table');
+      await PerformanceTrace.sql('map.sql_effective', () async {
+        await d.execute(
+          'CREATE TEMP TABLE $table AS SELECT r.ID AS ID, r.처리상태 AS 처리상태, '
+          'r.범칙금_과태료 AS 범칙금_과태료, r.처리기관 AS 처리기관, r.처리기관코드 AS 처리기관코드, '
+          'r.category AS category, r.위반장소 AS 위반장소, '
+          "COALESCE(NULLIF(trim(IFNULL(r.주소정규화,''), $ws),''), trim(IFNULL(r.위반장소,''), $ws)) AS addr_key, "
+          "trim(IFNULL(r.위반장소,''), $ws) AS addr_display, "
+          'CASE WHEN $valid THEN CAST(r.위도 AS REAL) END AS own_lat, '
+          'CASE WHEN $valid THEN CAST(r.경도 AS REAL) END AS own_lng, '
+          'CASE WHEN $valid THEN CAST(r.위도 AS REAL) END AS lat, '
+          'CASE WHEN $valid THEN CAST(r.경도 AS REAL) END AS lng '
+          'FROM $effectiveReportsView r WHERE $scope',
+          args,
         );
-        if (page.isEmpty) break;
-        rows.addAll(page);
-        last = page.last['cursor'] as int;
-        await Future<void>.delayed(Duration.zero);
+        return const <Map<String, Object?>>[];
+      });
+      checkCancelled();
+      await d.execute('CREATE INDEX temp.${table}_key ON $table(addr_key)');
+      await d.execute('CREATE INDEX temp.${table}_id ON $table(ID)');
+      if (basis == 'address') {
+        await d.execute(
+          'CREATE TEMP TABLE $pairs AS SELECT addr_key, own_lat AS plat, own_lng AS plng, COUNT(*) AS n '
+          "FROM temp.$table WHERE addr_key != '' AND own_lat IS NOT NULL GROUP BY addr_key, own_lat, own_lng",
+        );
+        await d.execute('CREATE INDEX temp.${pairs}_key ON $pairs(addr_key)');
+        checkCancelled();
+        // 주소키마다 한 쌍만 남는다((addr_key, plat, plng) 는 유일). window 함수를 쓰지 않는다.
+        const best =
+            'NOT EXISTS (SELECT 1 FROM temp.{p} q WHERE q.addr_key = p.addr_key AND '
+            '(q.n > p.n OR (q.n = p.n AND (q.plat < p.plat OR (q.plat = p.plat AND q.plng < p.plng)))))';
+        final winner = best.replaceAll('{p}', pairs);
+        await d.execute(
+          "UPDATE temp.$table SET lat = (SELECT p.plat FROM temp.$pairs p WHERE p.addr_key = $table.addr_key AND $winner), "
+          'lng = (SELECT p.plng FROM temp.$pairs p WHERE p.addr_key = $table.addr_key AND $winner) '
+          "WHERE addr_key != ''",
+        );
       }
-      final resolved = resolveMapPinBasis(rows, basis);
-      await d.execute(
-        'CREATE TEMP TABLE IF NOT EXISTS $table(ID TEXT PRIMARY KEY, lat REAL, lng REAL, '
-        'addr_key TEXT NOT NULL, addr_display TEXT NOT NULL, has_place INTEGER NOT NULL)',
-      );
-      await d.execute('DELETE FROM temp.$table');
-      for (var i = 0; i < rows.length; i += 2000) {
-        if (isCancelled?.call() == true || closeRequested) {
-          throw const QueryCancelled();
-        }
-        final batch = d.batch();
-        for (final row in rows.skip(i).take(2000)) {
-          final id = row['ID']?.toString() ?? '';
-          if (id.isEmpty) continue;
-          final point = resolved.effective[id];
-          final place = (row['위반장소']?.toString() ?? '').trim();
-          batch.insert(table, {
-            'ID': id,
-            'lat': point?[0],
-            'lng': point?[1],
-            'addr_key': mapPinBasisKey(row['주소정규화'], row['위반장소']),
-            'addr_display': place,
-            'has_place': place.isEmpty ? 0 : 1,
-          });
-        }
-        await batch.commit(noResult: true);
-        await Future<void>.delayed(Duration.zero);
-      }
+      checkCancelled();
       _mapEffectiveKeys[table] = cacheKey;
     } finally {
-      await d.execute('DROP TABLE IF EXISTS temp.$snapshot');
+      await d.execute('DROP TABLE IF EXISTS temp.$pairs');
     }
   }
 
@@ -3002,6 +2963,29 @@ class LocalDbService {
     });
   }
 
+  /// 시험 전용: 신고별 effective 좌표·주소키(지도 집계와 같은 표).
+  @visibleForTesting
+  static Future<List<Map<String, Object?>>> debugMapEffectiveRows({
+    String pinBasis = 'coords',
+  }) async {
+    final database = await db;
+    return database.transaction((d) async {
+      await _ensureStatsMapEffective(
+        d,
+        database,
+        'all',
+        null,
+        false,
+        false,
+        normalizeMapPinBasis(pinBasis),
+        null,
+      );
+      return d.rawQuery(
+        'SELECT ID, lat, lng, addr_key, hex(addr_key) AS addr_key_hex FROM temp.$_mapEffectiveTable',
+      );
+    });
+  }
+
   static final _mapCache = <String, Map<String, dynamic>>{};
   static final _mapMetaCache = <String, Map<String, dynamic>>{};
   static Future<Map<String, dynamic>> computeReportMapStats({
@@ -3063,7 +3047,7 @@ class LocalDbService {
               'map.sql_meta',
               () => d.rawQuery(
                 'SELECT COUNT(*) AS total, COUNT(lat) AS geo, '
-                'COUNT(CASE WHEN lat IS NULL AND has_place = 1 THEN 1 END) AS missing, '
+                "COUNT(CASE WHEN lat IS NULL AND addr_display != '' THEN 1 END) AS missing, "
                 // 2026-10-05 후속 A(서버 정의가 정본): effective 좌표가 있는 신고의 서로 다른
                 // (위도, 경도, 주소키) 수. 실수는 문자열로 바꾸지 않고 숫자 그대로 비교한다(Sol 1차 M3).
                 '(SELECT COUNT(*) FROM (SELECT DISTINCT lat, lng, addr_key FROM temp.$eff WHERE lat IS NOT NULL)) AS address_groups '
@@ -3131,13 +3115,17 @@ class LocalDbService {
           'CREATE TEMP TABLE $table AS SELECT '
           'CAST((e.lat-?)/? AS INTEGER) AS cy, CAST((e.lng-?)/? AS INTEGER) AS cx, '
           'AVG(e.lat) AS lat, AVG(e.lng) AS lng, COUNT(*) AS _weight, '
-          '처리상태, 범칙금_과태료, 처리기관, 처리기관코드, category, MIN(위반장소) AS address, '
-          'COUNT(DISTINCT 위반장소) AS addresses, MIN(e.lat) AS min_lat, MAX(e.lat) AS max_lat, MIN(e.lng) AS min_lng, MAX(e.lng) AS max_lng, '
+          'e.처리상태 AS 처리상태, e.범칙금_과태료 AS 범칙금_과태료, e.처리기관 AS 처리기관, e.처리기관코드 AS 처리기관코드, '
+          'e.category AS category, MIN(e.위반장소) AS address, '
+          'COUNT(DISTINCT e.위반장소) AS addresses, MIN(e.lat) AS min_lat, MAX(e.lat) AS max_lat, MIN(e.lng) AS min_lng, MAX(e.lng) AS max_lng, '
           // 2026-10-05 후속 B: 칸 묶음 이름용 주소키별 건수·최소 표시문구(SQLite BINARY = 코드포인트 순서).
-          "e.addr_key AS addr_key, MIN(CASE WHEN e.addr_display != '' THEN e.addr_display END) AS addr_display "
-          'FROM $effectiveReportsView r JOIN temp.$eff e ON e.ID = r.ID '
+          // Dart UTF-8 디코더는 맨 앞 BOM 을 지우므로 키·문구 비교는 hex(바이트 = 코드포인트 순서)로 한다.
+          "e.addr_key AS addr_key, hex(e.addr_key) AS addr_key_hex, "
+          "MIN(CASE WHEN e.addr_display != '' THEN e.addr_display END) AS addr_display, "
+          "hex(MIN(CASE WHEN e.addr_display != '' THEN e.addr_display END)) AS addr_display_hex "
+          'FROM temp.$eff e '
           'WHERE e.lat IS NOT NULL AND e.lat >= ? AND e.lat < ? AND e.lng >= ? AND e.lng < ? '
-          'GROUP BY cy, cx, 처리상태, 범칙금_과태료, 처리기관, 처리기관코드, category, e.addr_key',
+          'GROUP BY cy, cx, e.처리상태, e.범칙금_과태료, e.처리기관, e.처리기관코드, e.category, e.addr_key',
           [
             box[0],
             latStep,
@@ -3325,6 +3313,7 @@ class LocalDbService {
       // effective 좌표가 생겨 목록에서 빠진다(지도 표와 같은 계산, ID 로 조인).
       var source =
           '$effectiveReportsView r JOIN temp.sr_missing_addresses m ON m.ID=r.ID WHERE ${q.where}';
+      var groupKey = 'm.address_key';
       try {
         if (basis == 'address') {
           await _ensureMapEffective(
@@ -3336,24 +3325,27 @@ class LocalDbService {
             args: q.args,
             basis: basis,
           );
+          // 묶음 기준도 지도와 같은 주소키(e.addr_key, strip 만)로 한다. coords 목록의 기존 키
+          // (sr_missing_addresses, 내부 공백 합침)와 다르다(Sol 2차 중간3).
           source =
-              '$effectiveReportsView r JOIN temp.sr_missing_addresses m ON m.ID=r.ID '
-              'JOIN temp.$_mapEffectiveMissingTable e ON e.ID=r.ID '
-              'WHERE ${q.where} AND e.lat IS NULL';
+              '$effectiveReportsView r JOIN temp.$_mapEffectiveMissingTable e ON e.ID=r.ID '
+              "WHERE ${q.where} AND e.lat IS NULL AND e.addr_key != ''";
+          groupKey = 'e.addr_key';
         }
         final totals = await d.rawQuery(
-          'SELECT COUNT(*) AS n, COUNT(DISTINCT m.address_key) AS groups FROM $source',
+          'SELECT COUNT(*) AS n, COUNT(DISTINCT $groupKey) AS groups FROM $source',
           q.args,
         );
         final groupRows = await d.rawQuery(
-          'SELECT m.address_key,COUNT(*) AS n FROM $source GROUP BY m.address_key ORDER BY n DESC,m.address_key LIMIT 100 OFFSET ?',
+          'SELECT $groupKey AS address_key,hex($groupKey) AS key_hex,COUNT(*) AS n FROM $source GROUP BY $groupKey ORDER BY n DESC,$groupKey LIMIT 100 OFFSET ?',
           [...q.args, page * 100],
         );
         final groups = <Map<String, dynamic>>[];
         for (final group in groupRows) {
           final rows = await d.rawQuery(
-            'SELECT r.* FROM $source AND m.address_key = ? ORDER BY r.신고일 DESC,r.신고번호 LIMIT 10',
-            [...q.args, group['address_key']],
+            // 키는 hex 로 되찾는다(Dart 로 읽은 문자열은 맨 앞 BOM 을 잃는다).
+            'SELECT r.* FROM $source AND hex($groupKey) = ? ORDER BY r.신고일 DESC,r.신고번호 LIMIT 10',
+            [...q.args, group['key_hex']],
           );
           if (rows.isEmpty) throw StateError('missing_group_snapshot_changed');
           final first = rows.first;
@@ -3361,7 +3353,10 @@ class LocalDbService {
             'address': _stringify(first['위반장소']).trim().isEmpty
                 ? group['address_key']
                 : _stringify(first['위반장소']).trim(),
-            'normalized_address': group['address_key'],
+            // '이 주소의 전체 신고 보기'는 기존 목록 키(sr_missing_addresses, 내부 공백 합침)로 거른다.
+            'normalized_address': groupKey == 'm.address_key'
+                ? group['address_key']
+                : normalizeGeocodeAddress(group['address_key']?.toString()),
             'region': _stringify(first['행정구역']).trim(),
             'report_count': group['n'],
             'reports': rows,

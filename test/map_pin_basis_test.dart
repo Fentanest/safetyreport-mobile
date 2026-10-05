@@ -15,11 +15,6 @@ Map<String, dynamic> _vectors() => jsonDecode(
   File('contracts/map-pin-basis-vectors.json').readAsStringSync(),
 ) as Map<String, dynamic>;
 
-List<Map<String, Object?>> _vectorRows(Map<String, dynamic> vectors) => [
-  for (final row in (vectors['rows'] as List))
-    Map<String, Object?>.from(row as Map),
-];
-
 Map<String, List<double>?> _expectedEffective(Map<String, dynamic> mode) {
   final out = <String, List<double>?>{};
   (mode['effective'] as Map).forEach((key, value) {
@@ -91,28 +86,73 @@ void main() {
   });
 
   group('map pin basis vectors', () {
-    test('pure: effective 좌표가 양 모드 벡터와 같다', () {
+    test('standalone: 신고별 effective 좌표가 양 모드 벡터와 같다', () async {
       final vectors = _vectors();
-      final rows = _vectorRows(vectors);
+      await _seedVectors(vectors);
       final expected = vectors['expected'] as Map<String, dynamic>;
       for (final basis in ['coords', 'address']) {
-        final resolved = LocalDbService.resolveMapPinBasis(rows, basis);
         final want = _expectedEffective(
           expected[basis] as Map<String, dynamic>,
         );
-        expect(resolved.effective.keys.toSet(), want.keys.toSet());
+        final rows = await LocalDbService.debugMapEffectiveRows(
+          pinBasis: basis,
+        );
+        final got = {
+          for (final r in rows)
+            r['ID'] as String: r['lat'] == null
+                ? null
+                : [(r['lat'] as num).toDouble(), (r['lng'] as num).toDouble()],
+        };
+        expect(got.keys.toSet(), want.keys.toSet(), reason: basis);
         for (final id in want.keys) {
-          final got = resolved.effective[id];
-          final w = want[id];
-          if (w == null) {
-            expect(got, isNull, reason: '$basis $id');
-          } else {
-            expect(got, isNotNull, reason: '$basis $id');
-            expect(got![0], closeTo(w[0], 1e-9), reason: '$basis $id lat');
-            expect(got[1], closeTo(w[1], 1e-9), reason: '$basis $id lng');
-          }
+          expect(got[id], want[id], reason: '$basis $id');
         }
       }
+    });
+
+    test('주소키 strip 집합·경계 사례가 서버와 같다(Dart·SQLite 둘 다)', () async {
+      final vectors = _vectors();
+      expect(
+        LocalDbService.mapStripCodePoints,
+        (vectors['strip_code_points'] as List).cast<int>(),
+      );
+      final cases = (vectors['key_cases'] as List).cast<Map>();
+      final db = await LocalDbService.db;
+      for (var i = 0; i < cases.length; i++) {
+        final c = cases[i];
+        expect(
+          LocalDbService.mapPinBasisKey(c['주소정규화'], c['위반장소']),
+          c['key'],
+          reason: 'dart $i',
+        );
+        await db.insert('reports', {
+          'ID': 'K$i',
+          '신고번호': 'KEY-$i',
+          '답변일': '2026-01-02',
+          '주소정규화': c['주소정규화'],
+          '위반장소': c['위반장소'],
+          '위도': 37.5,
+          '경도': 127.0,
+          'category': 'traffic',
+        });
+      }
+      // SQLite 안의 키를 바이트(hex)로 비교한다. Dart UTF-8 디코더는 맨 앞 BOM 을 지우기 때문이다.
+      String hex(String text) => utf8
+          .encode(text)
+          .map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase())
+          .join();
+      final rows = await LocalDbService.debugMapEffectiveRows();
+      final keys = {for (final r in rows) r['ID']: r['addr_key_hex']};
+      for (var i = 0; i < cases.length; i++) {
+        expect(keys['K$i'], hex(cases[i]['key'] as String), reason: 'sqlite $i');
+      }
+    });
+
+    test('핀 기준 값은 앞뒤 공백·대소문자를 무시한다(서버와 같음)', () {
+      expect(LocalDbService.normalizeMapPinBasis(' ADDRESS '), 'address');
+      expect(LocalDbService.normalizeMapPinBasis('Address'), 'address');
+      expect(LocalDbService.normalizeMapPinBasis(null), 'coords');
+      expect(LocalDbService.normalizeMapPinBasis('geocode'), 'coords');
     });
 
     test('standalone stats: meta 건수·pin_basis (양 모드)', () async {
@@ -325,6 +365,71 @@ void main() {
       );
       expect(payload.meta.geocodedReports, 2);
       expect(payload.meta.missingReports, 0);
+    });
+
+    test('2차 중간1 ID 가 NULL·빈 신고도 지도 건수·점에서 빠지지 않는다', () async {
+      final db = await LocalDbService.db;
+      for (final id in [null, null, '']) {
+        await db.insert('reports', {
+          'ID': id,
+          '신고번호': 'NOID',
+          '답변일': '2026-01-02',
+          '위반장소': '서울 중구',
+          '주소정규화': '서울 중구',
+          '위도': 37.5,
+          '경도': 127.0,
+          'category': 'traffic',
+        });
+      }
+      for (final basis in ['coords', 'address']) {
+        final payload = ReportMapPayload.fromJson(
+          await LocalDbService.computeReportMapStats(pinBasis: basis),
+        );
+        expect(payload.meta.totalReports, 3, reason: basis);
+        expect(payload.meta.geocodedReports, 3, reason: basis);
+        expect(payload.points.single.total, 3, reason: basis);
+      }
+    });
+
+    test('2차 중간3 주소 모드 좌표 없는 목록은 지도와 같은 주소키로 묶는다', () async {
+      await insert('W1', '서울  중구', '서울  중구', null, null);
+      await insert('W2', '서울 중구', '서울 중구', null, null);
+      final address = ReportMapMissingPayload.fromJson(
+        await LocalDbService.computeReportMapMissingGroups(pinBasis: 'address'),
+      );
+      expect(address.groupCount, 2);
+      expect(address.reportCount, 2);
+    });
+
+    test('2차 중간4 BOM 은 남기고 U+001C 는 지운다(서버 strip 과 같음)', () async {
+      await insert('B1', '\uFEFF서울 중구', '\uFEFF서울 중구', 37.5, 127.0);
+      await insert('B2', '서울 중구', '서울 중구', null, null);
+      await insert('U1', '\u001C부산', '\u001C부산', 35.1, 129.0);
+      await insert('U2', '부산', '부산', null, null);
+      final payload = ReportMapPayload.fromJson(
+        await LocalDbService.computeReportMapStats(pinBasis: 'address'),
+      );
+      // 서울: BOM 키와 일반 키는 다른 주소 → B2 는 좌표 없음. 부산: 같은 주소 → U2 도 찍힘.
+      expect(payload.meta.geocodedReports, 3);
+      expect(payload.meta.missingReports, 1);
+    });
+
+    test('2차 중간4 BOM 주소: 좌표 없는 목록이 오류 없이 열리고 묶음 이름은 두 곳으로 센다', () async {
+      await insert('M1', '\uFEFF대구', '\uFEFF대구', null, null);
+      await insert('M2', '대구', '대구', null, null);
+      final missing = ReportMapMissingPayload.fromJson(
+        await LocalDbService.computeReportMapMissingGroups(pinBasis: 'address'),
+      );
+      expect(missing.groupCount, 2);
+      expect(missing.groups.expand((g) => g.reports), hasLength(2));
+      await insert('M3', '\uFEFF광주', '\uFEFF광주', 35.15, 126.85);
+      await insert('M4', '광주', '광주', 35.16, 126.86);
+      final payload = ReportMapPayload.fromJson(
+        await LocalDbService.computeReportMapStats(),
+      );
+      final cell = payload.points.singleWhere((p) => p.total == 2);
+      expect(cell.isCluster, isTrue);
+      expect(cell.addressCount, 2);
     });
 
     test('L1 동률 주소는 코드포인트 순서로 고른다(서버 Python 과 같음)', () {

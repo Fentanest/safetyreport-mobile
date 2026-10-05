@@ -305,8 +305,11 @@ class _MapCellAccumulator {
   // 칸 단위로 한다: 칸 안에 서로 다른 좌표나 서로 다른 장소 문구가 있으면 묶음(Sol 1차 M2).
   double? minLat, maxLat, minLng, maxLng;
   // 2026-10-05 후속 B: 칸 묶음 이름용 주소키별 집계(벡터 description 정본).
+  // 키 = hex(주소키). keyDisplays/keyTexts 는 화면 문자열, displayHexes 는 비교용.
   final keyCounts = <String, int>{};
   final keyDisplays = <String, String>{};
+  final displayHexes = <String, String>{};
+  final keyTexts = <String, String>{};
   final statuses = <String, int>{},
       dispositions = <String, int>{},
       categories = <String, int>{},
@@ -332,16 +335,19 @@ class _MapCellAccumulator {
     } else if (address != text) {
       multipleAddresses = true;
     }
-    final key = r['addr_key']?.toString() ?? '';
-    if (key.isNotEmpty) {
-      keyCounts[key] = (keyCounts[key] ?? 0) + n;
-      final display = r['addr_display']?.toString() ?? '';
-      if (display.isNotEmpty) {
-        final prev = keyDisplays[key];
-        if (prev == null || LocalDbService.compareCodePoints(display, prev) < 0) {
-          keyDisplays[key] = display;
-        }
+    // 주소키는 hex(UTF-8 바이트)로 구분·비교한다. Dart 로 읽은 문자열은 맨 앞 BOM 을 잃어
+    // 서버에서 다른 두 키가 합쳐질 수 있다. hex 순서 = 바이트 순서 = 코드포인트 순서.
+    final keyHex = r['addr_key_hex']?.toString() ?? '';
+    if (keyHex.isNotEmpty) {
+      keyCounts[keyHex] = (keyCounts[keyHex] ?? 0) + n;
+      final displayHex = r['addr_display_hex']?.toString() ?? '';
+      final prevHex = displayHexes[keyHex];
+      if (displayHex.isNotEmpty &&
+          (prevHex == null || displayHex.compareTo(prevHex) < 0)) {
+        displayHexes[keyHex] = displayHex;
+        keyDisplays[keyHex] = r['addr_display']?.toString() ?? '';
       }
+      keyTexts.putIfAbsent(keyHex, () => r['addr_key']?.toString() ?? '');
     }
     void count(Map<String, int> target, String label) =>
         target[label] = (target[label] ?? 0) + n;
@@ -388,10 +394,12 @@ class _MapCellAccumulator {
             'pct': double.parse((e.value / total * 100).toStringAsFixed(1)),
           },
     ];
-    final label = LocalDbService.clusterLabelFromKeyStats(
-      keyCounts,
-      keyDisplays,
-    );
+    final label = LocalDbService.clusterLabelFromKeyStats(keyCounts, {
+      for (final key in keyCounts.keys)
+        key: (keyDisplays[key]?.isNotEmpty ?? false)
+            ? keyDisplays[key]!
+            : keyTexts[key] ?? '',
+    });
     return {
       'lat': latSum / total,
       'lng': lngSum / total,

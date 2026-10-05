@@ -8,6 +8,17 @@
 
 ---
 
+## 2026-10-05 (신고 지도 핀 기준 — Sol 2차 검수 반영, 로컬 미배포)
+
+- 신고별 effective 표(temp `sr_map_effective`)를 SQLite 안에서 만든다: `CREATE TABLE AS SELECT` 로 지도 칸 집계에 쓰는 열과 주소키·장소 문구·자기 좌표를 담고,
+  주소 모드는 (주소키, 좌표)별 건수 표에서 window 함수 없이 대표 좌표를 골라 `UPDATE` 한다. 행을 Dart 로 올리지 않는다(1차 반영 때의 전량 적재 회귀 제거).
+  칸 집계·meta 는 이 표만 읽어 ID 가 NULL·빈 신고도 빠지지 않는다(1차 반영 때의 ID 조인 회귀 제거).
+- 주소키·문구 strip 집합을 서버 Python `str.strip()` 기본 집합(29자, 공용 벡터 `strip_code_points`)으로 명시: SQLite `trim(x, char(...))` 와 Dart `stripMapText`. BOM 은 남기고 U+001C~U+001F 는 지운다.
+- Dart UTF-8 디코더가 문자열 맨 앞 BOM 을 지우는 것을 확인했다(`utf8.decode`). 칸 묶음 이름의 주소키 구분·비교와 좌표 없는 목록의 그룹 재조회는 `hex()` 값으로 한다
+  (BOM 주소 그룹을 열면 `missing_group_snapshot_changed` 로 실패하던 경로 포함).
+- 주소 모드 좌표 없는 목록은 지도와 같은 주소키(strip 만)로 묶는다. 위도·경도 모드 목록은 그대로. `pin_basis` 값은 앞뒤 공백·대소문자를 무시(서버와 같음).
+- 시험: 공용 벡터 effective 좌표를 DB 경로로 비교(`debugMapEffectiveRows`), strip 집합·주소키 경계 7사례(Dart·SQLite), NULL·빈 ID, 내부 이중 공백 목록, BOM·U+001C 대표 좌표, BOM 주소 목록·묶음 이름.
+
 ## 2026-10-05 (신고 지도 핀 기준 — Sol 1차 검수 반영, 로컬 미배포)
 
 - 근거: [핀 기준 명세](docs/plans/2026-10-05-map-pin-basis.md) §7, 서버 레포 검수 기록 `docs/reviews/2026-10-05-map-pin-basis-sol.md`.

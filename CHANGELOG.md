@@ -8,6 +8,21 @@
 
 ---
 
+## 2026-10-05 (신고 지도 핀 기준 — Sol 1차 검수 반영, 로컬 미배포)
+
+- 근거: [핀 기준 명세](docs/plans/2026-10-05-map-pin-basis.md) §7, 서버 레포 검수 기록 `docs/reviews/2026-10-05-map-pin-basis-sol.md`.
+- 신고별 effective 좌표 표(temp `sr_map_effective`): ID → effective 위도·경도·주소키·장소 문구를 Dart 에서 만든다(주소키·문구는 Dart `trim()` = 서버 `str.strip()`).
+  SQLite `trim()` 은 탭·줄바꿈·NBSP 를 남겨 주소 모드에서 좌표 있는 신고가 빠지던 문제(M1)를 고쳤다. DB revision·모집단·핀 기준이 같으면 다시 만들지 않고, 스냅샷 rowid 키셋으로 읽는다(M6, OFFSET 순회 제거).
+  지도 칸 집계·meta 건수·좌표 없는 목록(주소 모드)이 이 표를 ID 로 조인한다. 트랜잭션이 되돌려지면 다음 조회가 다시 만든다.
+- `address_groups` 는 숫자 좌표 그대로 `SELECT DISTINCT lat, lng, addr_key` 로 센다(M3, 실수 문자열 변환 제거).
+- 묶음 판정은 칸 전체 좌표 범위와 장소 문구로 한다(M2). 주소키로 SQL 그룹이 나뉘어 다른 좌표가 일반 핀이 되던 회귀를 고쳤고,
+  기존에도 처리상태 등이 달라 그룹이 갈리면 다른 좌표가 묶음이 아니던 점도 함께 바로잡았다. 같은 좌표·같은 문구는 기존처럼 일반 핀.
+- 구 서버가 `pin_basis` 를 무시하면(응답 `meta.pin_basis` 가 address 아님) 토글을 위도·경도로 되돌리고 "서버를 업데이트해야 주소 기준을 쓸 수 있습니다." 안내(M4).
+- 동률 문자열 비교를 코드포인트 순서로(`LocalDbService.compareCodePoints`, 서버·SQLite BINARY 와 같음)(L1).
+- 시험: 공용 벡터 점 집합을 `debugMapEffectivePoints` 한 번의 조회로 비교(M5, 점마다 좁은 bounds 조회 우회 제거). Sol 이 든 입력마다 재현 시험 추가
+  (탭·NBSP 주소, 같은 칸 다른 주소키·다른 처리상태 묶음, 같은 좌표 비묶음 유지, 37.5 vs 37.50000000000001, revision 변경 시 재계산, U+F900 vs U+20000, 구 서버 위젯).
+  묶음 판정 수정을 빼면 M2 시험 2건이 실패함을 확인했다.
+
 ## 2026-10-05 (신고 지도 핀 기준 후속 A·B: 주소 그룹 수·묶음 원 이름, 로컬 미배포)
 
 - 근거: [핀 기준 명세](docs/plans/2026-10-05-map-pin-basis.md) §5·§6(모바일 범위만, 서버는 별도 담당). 계약 벡터 2종(`contracts/map-pin-basis-vectors.json`, `contracts/map-cluster-label-vectors.json`)은 수정 없이 서버와 바이트 동일 유지.

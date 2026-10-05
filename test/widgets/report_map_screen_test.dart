@@ -138,17 +138,18 @@ ReportMapPoint _point(
 
 /// 첫 조회(화면 범위 없음)의 표시용 셀 집계에서 서울 두 지점은 한 셀로 묶이고(과태료 5/7 → 60% 이상),
 /// 제주 한 지점은 따로 남는다(과태료 1/3 → 50% 미만).
-ReportMapPayload _payload() => ReportMapPayload(
+ReportMapPayload _payload({String pinBasis = 'coords'}) => ReportMapPayload(
   points: [
     _point(37.5, 127.03, '서울특별시 강남구 테헤란로 1', total: 5, fines: 4),
     _point(37.56, 126.9, '서울특별시 마포구 월드컵로 2', total: 2, fines: 1),
     _point(33.5, 126.53, '제주특별자치도 제주시 문연로 6', total: 3, fines: 1),
   ],
-  meta: const ReportMapMeta(
-    availableYears: ['2026'],
+  meta: ReportMapMeta(
+    availableYears: const ['2026'],
     currentYear: 'all',
     selectedCategory: 'all',
     dedupeMode: 'raw',
+    pinBasis: pinBasis,
     totalReports: 10,
     geocodedReports: 10,
     missingReports: 0,
@@ -158,7 +159,11 @@ ReportMapPayload _payload() => ReportMapPayload(
 );
 
 class _Harness {
-  _Harness({_FakeLocation? location}) : location = location ?? _FakeLocation();
+  _Harness({_FakeLocation? location, this.serverKnowsPinBasis = true})
+    : location = location ?? _FakeLocation();
+
+  /// false 면 구 서버처럼 pin_basis 를 무시하고 위도·경도 기준으로 답한다.
+  final bool serverKnowsPinBasis;
 
   final _FakeLocation location;
   final provider = _ScopeProvider();
@@ -193,7 +198,9 @@ class _Harness {
                   }) async {
                     loads++;
                     lastPinBasis = pinBasis;
-                    return _payload();
+                    return _payload(
+                      pinBasis: serverKnowsPinBasis ? pinBasis : 'coords',
+                    );
                   },
             ),
           ),
@@ -384,6 +391,33 @@ void main() {
         ),
         findsNothing,
       );
+    });
+  });
+
+  group('핀 기준: 구 서버(Sol 1차 M4)', () {
+    testWidgets('주소 기준을 모르는 서버면 토글을 위도·경도로 되돌리고 안내한다', (tester) async {
+      final h = _Harness(serverKnowsPinBasis: false);
+      await h.pump(tester);
+      await tester.tap(find.widgetWithText(ChoiceChip, '주소'));
+      await h.settle(tester);
+      expect(h.lastPinBasis, 'address');
+      ChoiceChip chip(String label) =>
+          tester.widget<ChoiceChip>(find.widgetWithText(ChoiceChip, label));
+      expect(chip('위도·경도').selected, isTrue);
+      expect(chip('주소').selected, isFalse);
+      expect(find.text('서버를 업데이트해야 주소 기준을 쓸 수 있습니다.'), findsOneWidget);
+      expect(
+        find.text(
+          '같은 주소의 신고를 한 핀으로 묶고, 그 주소에서 가장 많이 신고된 공식 좌표에 표시합니다.',
+        ),
+        findsNothing,
+      );
+      // 다시 주소를 누르면 서버에 다시 묻는다(서버가 업데이트됐을 수 있다).
+      final before = h.loads;
+      await tester.tap(find.widgetWithText(ChoiceChip, '주소'));
+      await h.settle(tester);
+      expect(h.loads, before + 1);
+      expect(h.lastPinBasis, 'address');
     });
   });
 

@@ -160,47 +160,36 @@ void main() {
       expect(a3['경도'], 126.979);
     });
 
-    test('standalone stats: 점 집합(lat,lng,total)이 벡터와 같다', () async {
+    test('standalone stats: 점 집합(lat,lng,total)이 벡터와 같다(한 번의 조회)', () async {
+      // 모바일 Standalone 은 기존부터 화면 칸으로 점을 묶는다. 칸으로 묶기 직전의
+      // (effective 위도, 경도, 주소키)별 건수를 지도 집계와 같은 표에서 한 번에 읽어
+      // 서버 점 집합과 비교한다(명세 §7, Sol 1차 M5).
       final vectors = _vectors();
       await _seedVectors(vectors);
       final expected = vectors['expected'] as Map<String, dynamic>;
       for (final basis in ['coords', 'address']) {
-        final wantPoints = [
+        final want = {
           for (final p in ((expected[basis] as Map<String, dynamic>)['points']
               as List))
-            (
-              (p['lat'] as num).toDouble(),
-              (p['lng'] as num).toDouble(),
-              p['total'] as int,
-            ),
-        ];
-        // 셀 집계는 화면 범위로 묶으므로 기대 점마다 그 점만 담는 좁은 범위로
-        // 조회해 (lat,lng,total)을 확인한다. bounds 거르기도 effective 기준이다.
-        final seen = <String>{};
-        for (final want in wantPoints) {
-          const eps = 0.0002;
-          final raw = await LocalDbService.computeReportMapStats(
-            pinBasis: basis,
-            bounds: [
-              want.$1 - eps,
-              want.$2 - eps,
-              want.$1 + eps,
-              want.$2 + eps,
-            ],
-          );
-          final payload = ReportMapPayload.fromJson(raw);
-          expect(
-            payload.points,
-            hasLength(1),
-            reason: '$basis ${want.$1},${want.$2}',
-          );
-          final point = payload.points.single;
-          expect(point.lat, closeTo(want.$1, 1e-9));
-          expect(point.lng, closeTo(want.$2, 1e-9));
-          expect(point.total, want.$3);
-          seen.add('${point.lat},${point.lng},${point.total}');
-        }
-        expect(seen, hasLength(wantPoints.length));
+            '${(p['lat'] as num).toDouble()},${(p['lng'] as num).toDouble()},${p['total']}',
+        };
+        final rows = await LocalDbService.debugMapEffectivePoints(
+          pinBasis: basis,
+        );
+        final got = {
+          for (final r in rows)
+            '${(r['lat'] as num).toDouble()},${(r['lng'] as num).toDouble()},${r['total']}',
+        };
+        expect(got, want, reason: basis);
+        expect(rows, hasLength(want.length), reason: basis);
+        // 지도 칸 집계도 같은 표를 쓴다: 전체 범위 한 번 조회의 건수 합 = 좌표 반영 건수.
+        final raw = await LocalDbService.computeReportMapStats(pinBasis: basis);
+        final payload = ReportMapPayload.fromJson(raw);
+        expect(
+          payload.points.fold<int>(0, (n, p) => n + p.total),
+          (expected[basis] as Map<String, dynamic>)['geocoded_reports'],
+          reason: basis,
+        );
       }
     });
 
@@ -237,5 +226,120 @@ void main() {
         {'C1', 'C2'},
       );
     });
+  
+  group('Sol 1차 회귀', () {
+    Future<void> insert(
+      String id,
+      Object? normalized,
+      Object? place,
+      Object? lat,
+      Object? lng, {
+      String status = '수용',
+    }) async {
+      final db = await LocalDbService.db;
+      await db.insert('reports', {
+        'ID': id,
+        '신고번호': 'REG-$id',
+        '신고일': '2026-01-01',
+        '답변일': '2026-01-02',
+        '위반장소': place,
+        '주소정규화': normalized,
+        '위도': lat,
+        '경도': lng,
+        '처리상태': status,
+        'category': 'traffic',
+      });
+    }
+
+    test('M1 탭·줄바꿈·NBSP 주소도 서버 strip 과 같은 주소키로 묶는다', () async {
+      await insert('T1', '\t서울 중구\t', '\t서울 중구\t', 37.5, 127.0);
+      await insert('T2', '서울 중구', '서울 중구', null, null);
+      await insert('T3', '\n서울 중구\u00a0', '서울 중구', null, null);
+      final address = ReportMapPayload.fromJson(
+        await LocalDbService.computeReportMapStats(pinBasis: 'address'),
+      );
+      expect(address.meta.geocodedReports, 3);
+      expect(address.meta.missingReports, 0);
+      expect(address.meta.addressGroups, 1);
+      final points = await LocalDbService.debugMapEffectivePoints(
+        pinBasis: 'address',
+      );
+      expect(points.single['addr_key'], '서울 중구');
+      expect(points.single['total'], 3);
+      final missing = ReportMapMissingPayload.fromJson(
+        await LocalDbService.computeReportMapMissingGroups(pinBasis: 'address'),
+      );
+      expect(missing.reportCount, 0);
+    });
+
+    test('M2 같은 칸의 다른 좌표는 주소키가 달라도 묶음이다(coords·address)', () async {
+      await insert('C1', 'A', '서울 중구', 37.5, 127.0);
+      await insert('C2', 'B', '서울 중구', 37.6, 127.1);
+      for (final basis in ['coords', 'address']) {
+        final payload = ReportMapPayload.fromJson(
+          await LocalDbService.computeReportMapStats(pinBasis: basis),
+        );
+        expect(payload.points, hasLength(1), reason: basis);
+        expect(payload.points.single.isCluster, isTrue, reason: basis);
+        expect(payload.points.single.total, 2, reason: basis);
+      }
+    });
+
+    test('M2 칸 안 처리상태가 달라도 좌표가 다르면 묶음이다', () async {
+      await insert('S1', 'A', '서울 중구', 37.5, 127.0, status: '수용');
+      await insert('S2', 'A', '서울 중구', 37.6, 127.1, status: '불수용');
+      final payload = ReportMapPayload.fromJson(
+        await LocalDbService.computeReportMapStats(),
+      );
+      expect(payload.points.single.isCluster, isTrue);
+    });
+
+    test('M2 같은 좌표·같은 장소 문구는 묶음이 아니다(기존 동작 유지)', () async {
+      await insert('P1', 'A', '서울 중구', 37.5, 127.0, status: '수용');
+      await insert('P2', 'A', '서울 중구', 37.5, 127.0, status: '불수용');
+      final payload = ReportMapPayload.fromJson(
+        await LocalDbService.computeReportMapStats(),
+      );
+      expect(payload.points.single.isCluster, isFalse);
+      expect(payload.points.single.total, 2);
+    });
+
+    test('M3 실수 좌표는 문자열이 아니라 숫자 그대로 센다', () async {
+      await insert('F1', '서울 중구', '서울 중구', 37.5, 127.0);
+      await insert('F2', '서울 중구', '서울 중구', 37.50000000000001, 127.0);
+      final payload = ReportMapPayload.fromJson(
+        await LocalDbService.computeReportMapStats(),
+      );
+      expect(payload.meta.addressGroups, 2);
+    });
+
+    test('M6 대표 좌표 표는 DB 가 바뀌면 다시 만든다', () async {
+      await insert('R1', '서울 중구', '서울 중구', null, null);
+      var payload = ReportMapPayload.fromJson(
+        await LocalDbService.computeReportMapStats(pinBasis: 'address'),
+      );
+      expect(payload.meta.missingReports, 1);
+      await insert('R2', '서울 중구', '서울 중구', 37.5, 127.0);
+      payload = ReportMapPayload.fromJson(
+        await LocalDbService.computeReportMapStats(pinBasis: 'address'),
+      );
+      expect(payload.meta.geocodedReports, 2);
+      expect(payload.meta.missingReports, 0);
+    });
+
+    test('L1 동률 주소는 코드포인트 순서로 고른다(서버 Python 과 같음)', () {
+      const bmp = '서울 \uF900';
+      const astral = '서울 \u{20000}';
+      // UTF-16 비교로는 보조 평면 문자가 앞선다. 코드포인트로는 U+F900 이 앞선다.
+      expect(astral.compareTo(bmp), lessThan(0));
+      expect(LocalDbService.compareCodePoints(bmp, astral), lessThan(0));
+      final label = LocalDbService.resolveMapClusterLabel([
+        {'주소정규화': astral, '위반장소': astral},
+        {'주소정규화': bmp, '위반장소': bmp},
+      ]);
+      expect(label.address, bmp);
+      expect(label.region, '$bmp 외 1곳');
+    });
   });
+});
 }

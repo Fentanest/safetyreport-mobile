@@ -123,6 +123,9 @@ class _ReportMapScreenState extends State<ReportMapScreen>
   /// 핀 기준. 'coords'(위도·경도) 또는 'address'(주소). 분류 선택과 같이 화면 상태로 유지한다.
   String _selectedPinBasis = 'coords';
 
+  /// 서버가 주소 기준을 지원하지 않을 때의 안내(토글을 다시 누르면 지운다).
+  String? _pinBasisNotice;
+
   // SQ-P05: 마커는 조회 결과(_payload)가 바뀔 때만 다시 만든다. marker_cluster 는 마커 리스트를
   // 동일성으로 비교하므로, 매 build 마다 새 리스트를 주면 줌 단계 전체 클러스터를 다시 계산한다.
   _MapMarkerCache? _markerCache;
@@ -244,10 +247,18 @@ class _ReportMapScreenState extends State<ReportMapScreen>
       }
 
       if (!mounted || seq != _loadSeq || epoch != provider.datasetEpoch) return;
+      // 구 서버는 pin_basis 를 모르고 위도·경도 기준으로 답한다. 받은 기준으로 토글을 되돌려
+      // 화면 표시와 실제 핀이 어긋나지 않게 한다(Sol 1차 M4).
+      final unsupported =
+          _selectedPinBasis == 'address' && payload.meta.pinBasis != 'address';
       setState(() {
         _payload = payload;
         _loading = false;
         _error = null;
+        if (unsupported) {
+          _selectedPinBasis = 'coords';
+          _pinBasisNotice = '서버를 업데이트해야 주소 기준을 쓸 수 있습니다.';
+        }
       });
     } on QueryCancelled {
       return;
@@ -562,6 +573,15 @@ class _ReportMapScreenState extends State<ReportMapScreen>
               _pinBasisChip('address', '주소'),
             ],
           ),
+          if (_pinBasisNotice != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                _pinBasisNotice!,
+                key: const ValueKey('map-pin-basis-notice'),
+                style: TextStyle(fontSize: 12, height: 1.45, color: cs.error),
+              ),
+            ),
           if (_selectedPinBasis == 'address')
             Padding(
               padding: const EdgeInsets.only(top: 8),
@@ -783,7 +803,10 @@ class _ReportMapScreenState extends State<ReportMapScreen>
       selected: _selectedPinBasis == value,
       onSelected: (selected) {
         if (!selected) return;
-        setState(() => _selectedPinBasis = value);
+        setState(() {
+          _selectedPinBasis = value;
+          _pinBasisNotice = null;
+        });
         _loadMap();
       },
     );

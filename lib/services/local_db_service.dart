@@ -242,6 +242,7 @@ class LocalDbService {
       _summaryCache.clear();
       _mapCache.clear();
       _mapMetaCache.clear();
+      _mapEffectiveKeys.clear();
       _agencyLookupKey = null;
       _missingLookupKey = null;
     } finally {
@@ -1353,6 +1354,7 @@ class LocalDbService {
     _summaryCache.clear();
     _mapCache.clear();
     _mapMetaCache.clear();
+    _mapEffectiveKeys.clear();
   }
 
   // Legacy export/detail callers still project originals. Retaining copies of
@@ -2706,11 +2708,23 @@ class LocalDbService {
     return (location?.toString() ?? '').trim();
   }
 
+  /// 문자열을 유니코드 코드포인트 순서로 비교한다(서버 Python 비교·SQLite BINARY 와 같음).
+  /// Dart `compareTo` 는 UTF-16 코드 단위 순서라 보조 평면 문자에서 달라진다(Sol 1차 L1).
+  static int compareCodePoints(String a, String b) {
+    final ar = a.runes.iterator, br = b.runes.iterator;
+    while (true) {
+      final an = ar.moveNext(), bn = br.moveNext();
+      if (!an || !bn) return an == bn ? 0 : (an ? 1 : -1);
+      final c = ar.current.compareTo(br.current);
+      if (c != 0) return c;
+    }
+  }
+
   /// 지도 묶음 원(cluster) 이름(2026-10-05 후속 B, 벡터 description 이 정본).
   /// contracts/map-cluster-label-vectors.json 과 같은 규칙.
   /// rows: {'주소정규화','위반장소'} (값 null 허용).
   /// address_count = 비지 않은 주소키 종류 수.
-  /// 대표 주소키 = 신고 수가 가장 많은 주소키(동률이면 문자열 비교로 작은 것).
+  /// 대표 주소키 = 신고 수가 가장 많은 주소키(동률이면 코드포인트 순서로 작은 것).
   /// address = 대표 주소키 신고들의 비지 않은 trim(위반장소) 중 가장 작은 값,
   /// 없으면 대표 주소키, 주소키가 하나도 없으면 빈 문자열.
   /// region = 0곳 '주소 정보 없음' / 1곳 address / 2곳 이상 '{address} 외 {N-1}곳'.
@@ -2726,7 +2740,7 @@ class LocalDbService {
       final display = (row['위반장소']?.toString() ?? '').trim();
       if (display.isEmpty) continue;
       final prev = minDisplay[key];
-      if (prev == null || display.compareTo(prev) < 0) {
+      if (prev == null || compareCodePoints(display, prev) < 0) {
         minDisplay[key] = display;
       }
     }
@@ -2752,7 +2766,8 @@ class LocalDbService {
     var topCount = nonEmpty.entries.first.value;
     for (final entry in nonEmpty.entries.skip(1)) {
       if (entry.value > topCount ||
-          (entry.value == topCount && entry.key.compareTo(topKey) < 0)) {
+          (entry.value == topCount &&
+              compareCodePoints(entry.key, topKey) < 0)) {
         topKey = entry.key;
         topCount = entry.value;
       }
@@ -2766,20 +2781,6 @@ class LocalDbService {
         : '$address 외 ${addressCount - 1}곳';
     return (address: address, addressCount: addressCount, region: region);
   }
-
-  /// 핀 기준 SQL 조각(address 모드 effective 좌표). FROM 에
-  /// `$effectiveReportsView r` 과 `temp.<rep> rep` 조인이 있어야 한다.
-  static const _pinKeyExpr =
-      "COALESCE(NULLIF(trim(r.주소정규화),''),trim(r.위반장소))";
-  static const _pinKeyEmpty = "(IFNULL(($_pinKeyExpr),'') = '')";
-  static const _pinOwnValid =
-      "typeof(r.위도) IN ('integer','real') AND typeof(r.경도) IN ('integer','real') AND CAST(r.위도 AS REAL) BETWEEN -90 AND 90 AND CAST(r.경도 AS REAL) BETWEEN -180 AND 180";
-  static const _pinEffValid =
-      "(CASE WHEN $_pinKeyEmpty THEN ($_pinOwnValid) ELSE (rep.lat IS NOT NULL AND rep.lng IS NOT NULL) END)";
-  static const _pinEffLat =
-      "(CASE WHEN $_pinKeyEmpty THEN r.위도 ELSE rep.lat END)";
-  static const _pinEffLng =
-      "(CASE WHEN $_pinKeyEmpty THEN r.경도 ELSE rep.lng END)";
 
   /// 표시용 effective 좌표 계산. DB 의 위도·경도·지오코딩상태는 바꾸지 않는다.
   /// rows: {'ID','주소정규화','위반장소','위도','경도'}.
@@ -2841,59 +2842,164 @@ class LocalDbService {
     return (effective: effective, representatives: representatives);
   }
 
-  /// 핀 기준 계산용 모집단 행(ID·주소·좌표) 읽기. 호출자 트랜잭션 안에서 읽는다.
-  static Future<List<Map<String, Object?>>> _fetchPinBasisRows(
-    DatabaseExecutor d,
-    String scope,
-    List<Object?> args,
+  /// 지도 계산용 신고별 표(temp): ID → effective 좌표·주소키·대표 표시문구·장소 유무.
+  /// 주소키·표시문구는 Dart trim(서버 `str.strip()` 과 같음). SQLite `trim()` 은 탭·줄바꿈을 남겨
+  /// 서버와 달라진다(Sol 1차 M1). DB revision·모집단·핀 기준이 같으면 다시 만들지 않는다(M6).
+  /// 표마다 마지막으로 만든 키를 둔다. 트랜잭션이 되돌려지면 표 내용도 되돌려지므로 호출자는
+  /// 실패 때 [_mapEffectiveKeys] 를 비운다.
+  static final _mapEffectiveKeys = <String, String>{};
+  static const _mapEffectiveTable = 'sr_map_effective';
+  static const _mapEffectiveMissingTable = 'sr_map_effective_missing';
+
+  static Future<void> _ensureMapEffective(
+    DatabaseExecutor d, {
+    required String table,
+    required String cacheKey,
+    required String scope,
+    required List<Object?> args,
+    required String basis,
     bool Function()? isCancelled,
-  ) async {
-    const pageSize = 2000;
-    final rows = <Map<String, Object?>>[];
-    var offset = 0;
-    while (true) {
-      if (isCancelled?.call() == true || closeRequested) {
-        throw const QueryCancelled();
-      }
-      final page = await PerformanceTrace.sql(
-        'map.sql_pin_basis',
-        () => d.rawQuery(
-          'SELECT ID, 주소정규화, 위반장소, 위도, 경도 FROM $effectiveReportsView r WHERE $scope LIMIT ? OFFSET ?',
-          [...args, pageSize, offset],
-        ),
+  }) async {
+    if (_mapEffectiveKeys[table] == cacheKey) return;
+    _mapEffectiveKeys.remove(table);
+    final snapshot = 'sr_map_snap_${++_statsQuerySerial}';
+    try {
+      await d.execute(
+        'CREATE TEMP TABLE $snapshot AS SELECT r.ID AS ID, r.주소정규화 AS 주소정규화, '
+        'r.위반장소 AS 위반장소, r.위도 AS 위도, r.경도 AS 경도 '
+        'FROM $effectiveReportsView r WHERE $scope',
+        args,
       );
-      if (page.isEmpty) break;
-      for (final row in page) {
-        rows.add(Map<String, Object?>.from(row));
+      final rows = <Map<String, Object?>>[];
+      var last = 0;
+      while (true) {
+        if (isCancelled?.call() == true || closeRequested) {
+          throw const QueryCancelled();
+        }
+        final page = await PerformanceTrace.sql(
+          'map.sql_effective',
+          () => d.rawQuery(
+            'SELECT rowid AS cursor, ID, 주소정규화, 위반장소, 위도, 경도 FROM $snapshot '
+            'WHERE rowid > ? ORDER BY rowid LIMIT 2000',
+            [last],
+          ),
+        );
+        if (page.isEmpty) break;
+        rows.addAll(page);
+        last = page.last['cursor'] as int;
+        await Future<void>.delayed(Duration.zero);
       }
-      offset += page.length;
-      if (page.length < pageSize) break;
-      await Future<void>.delayed(Duration.zero);
+      final resolved = resolveMapPinBasis(rows, basis);
+      await d.execute(
+        'CREATE TEMP TABLE IF NOT EXISTS $table(ID TEXT PRIMARY KEY, lat REAL, lng REAL, '
+        'addr_key TEXT NOT NULL, addr_display TEXT NOT NULL, has_place INTEGER NOT NULL)',
+      );
+      await d.execute('DELETE FROM temp.$table');
+      for (var i = 0; i < rows.length; i += 2000) {
+        if (isCancelled?.call() == true || closeRequested) {
+          throw const QueryCancelled();
+        }
+        final batch = d.batch();
+        for (final row in rows.skip(i).take(2000)) {
+          final id = row['ID']?.toString() ?? '';
+          if (id.isEmpty) continue;
+          final point = resolved.effective[id];
+          final place = (row['위반장소']?.toString() ?? '').trim();
+          batch.insert(table, {
+            'ID': id,
+            'lat': point?[0],
+            'lng': point?[1],
+            'addr_key': mapPinBasisKey(row['주소정규화'], row['위반장소']),
+            'addr_display': place,
+            'has_place': place.isEmpty ? 0 : 1,
+          });
+        }
+        await batch.commit(noResult: true);
+        await Future<void>.delayed(Duration.zero);
+      }
+      _mapEffectiveKeys[table] = cacheKey;
+    } finally {
+      await d.execute('DROP TABLE IF EXISTS temp.$snapshot');
     }
-    return rows;
   }
 
-  /// 주소키 → 대표 좌표를 TEMP 표로 올린다. 호출자가 finally 에서 지운다.
-  static Future<String> _createPinRepTable(
-    DatabaseExecutor d,
-    Map<String, List<double>> representatives,
-  ) async {
-    final table = 'sr_pin_rep_${++_statsQuerySerial}';
-    await d.execute(
-      'CREATE TEMP TABLE $table(address_key TEXT PRIMARY KEY, lat REAL, lng REAL)',
-    );
-    if (representatives.isNotEmpty) {
-      final batch = d.batch();
-      for (final entry in representatives.entries) {
-        batch.insert(table, {
-          'address_key': entry.key,
-          'lat': entry.value[0],
-          'lng': entry.value[1],
-        });
-      }
-      await batch.commit(noResult: true);
+  /// 지도 집계 모집단 조건(연도·분류·중복 대표·철회 제외).
+  static ({String scope, List<Object?> args}) _mapScope(
+    String normalizedCategory,
+    String? year,
+    bool excludeWithdraw,
+    bool useRepresentativeRecords,
+  ) {
+    final args = <Object?>[];
+    final clauses = [_representativeWhere(useRepresentativeRecords)];
+    if (normalizedCategory != 'all') {
+      clauses.add('category = ?');
+      args.add(normalizedCategory);
     }
-    return table;
+    if (year != null && year != 'all' && year.isNotEmpty) {
+      clauses.add('답변일 LIKE ?');
+      args.add('$year%');
+    }
+    if (excludeWithdraw) clauses.add(ReportPolicy.sqlNotWithdrawn('처리상태'));
+    return (scope: clauses.join(' AND '), args: args);
+  }
+
+  static Future<void> _ensureStatsMapEffective(
+    DatabaseExecutor d,
+    Database database,
+    String normalizedCategory,
+    String? year,
+    bool excludeWithdraw,
+    bool useRepresentativeRecords,
+    String basis,
+    bool Function()? isCancelled,
+  ) async {
+    final (:scope, :args) = _mapScope(
+      normalizedCategory,
+      year,
+      excludeWithdraw,
+      useRepresentativeRecords,
+    );
+    await _ensureMapEffective(
+      d,
+      table: _mapEffectiveTable,
+      cacheKey:
+          '${identityHashCode(database)}:${await _readRevision(d)}:$normalizedCategory:$year:$excludeWithdraw:$useRepresentativeRecords:$basis',
+      scope: scope,
+      args: args,
+      basis: basis,
+      isCancelled: isCancelled,
+    );
+  }
+
+  /// 시험 전용: 지도 칸으로 묶기 직전의 (effective 위도, 경도, 주소키)별 건수.
+  /// [computeReportMapStats] 와 같은 표·같은 모집단을 쓴다. 공용 벡터의 점 집합을
+  /// 한 번의 조회로 비교하는 데 쓴다(Sol 1차 M5).
+  @visibleForTesting
+  static Future<List<Map<String, Object?>>> debugMapEffectivePoints({
+    String? year,
+    String category = 'all',
+    bool excludeWithdraw = false,
+    bool useRepresentativeRecords = false,
+    String pinBasis = 'coords',
+  }) async {
+    final database = await db;
+    return database.transaction((d) async {
+      await _ensureStatsMapEffective(
+        d,
+        database,
+        _normalizeMapCategory(category),
+        year,
+        excludeWithdraw,
+        useRepresentativeRecords,
+        normalizeMapPinBasis(pinBasis),
+        null,
+      );
+      return d.rawQuery(
+        'SELECT lat, lng, addr_key, COUNT(*) AS total FROM temp.$_mapEffectiveTable '
+        'WHERE lat IS NOT NULL GROUP BY lat, lng, addr_key',
+      );
+    });
   }
 
   static final _mapCache = <String, Map<String, dynamic>>{};
@@ -2919,48 +3025,35 @@ class LocalDbService {
     final cacheKey = '$metaKey:${bounds?.join(',')}:$zoom';
     final cached = _mapCache[cacheKey];
     if (cached != null) return cached;
+    final database = d;
     // Metadata and cell weights share a read snapshot, including while a sync
     // writer is queued. Pages still yield to navigation on the Dart isolate.
-    return d.transaction((d) async {
+    try {
+      return await d.transaction((d) async {
       // The transaction may have waited behind a native statistics snapshot.
       if (isCancelled?.call() == true || closeRequested) {
         throw const QueryCancelled();
       }
       final normalizedCategory = _normalizeMapCategory(category);
-      final args = <Object?>[];
-      final clauses = [_representativeWhere(useRepresentativeRecords)];
-      if (normalizedCategory != 'all') {
-        clauses.add('category = ?');
-        args.add(normalizedCategory);
-      }
-      if (year != null && year != 'all' && year.isNotEmpty) {
-        clauses.add('답변일 LIKE ?');
-        args.add('$year%');
-      }
-      if (excludeWithdraw) clauses.add(ReportPolicy.sqlNotWithdrawn('처리상태'));
-      final scope = clauses.join(' AND ');
-      const valid =
-          "typeof(위도) IN ('integer','real') AND typeof(경도) IN ('integer','real') AND CAST(위도 AS REAL) BETWEEN -90 AND 90 AND CAST(경도 AS REAL) BETWEEN -180 AND 180";
-      // 핀 기준이 address 면 같은 주소 대표 좌표(effective)로 읽는다.
-      // coords 면 아래 SQL 은 기존과 같다(위도·경도 원값).
-      String? pinRepTable;
-      var mapFrom = '$effectiveReportsView r';
-      var mapValid = valid;
-      var mapLat = '위도';
-      var mapLng = '경도';
-      var mapGroupKey =
-          "COALESCE(NULLIF(trim(주소정규화),''),trim(위반장소))";
-      if (basis == 'address') {
-        final pinRows = await _fetchPinBasisRows(d, scope, args, isCancelled);
-        final resolved = resolveMapPinBasis(pinRows, 'address');
-        pinRepTable = await _createPinRepTable(d, resolved.representatives);
-        mapFrom =
-            '$effectiveReportsView r LEFT JOIN temp.$pinRepTable rep ON rep.address_key = ($_pinKeyExpr)';
-        mapValid = _pinEffValid;
-        mapLat = _pinEffLat;
-        mapLng = _pinEffLng;
-        mapGroupKey = _pinKeyExpr;
-      }
+      final (:scope, :args) = _mapScope(
+        normalizedCategory,
+        year,
+        excludeWithdraw,
+        useRepresentativeRecords,
+      );
+      // 신고별 effective 좌표 표(핀 기준 적용, 주소키는 Dart trim). coords 면 좌표는 원값 그대로다.
+      // revision·모집단·핀 기준이 같으면 다시 만들지 않는다(Sol 1차 M1·M6).
+      const eff = _mapEffectiveTable;
+      await _ensureStatsMapEffective(
+        d,
+        database,
+        normalizedCategory,
+        year,
+        excludeWithdraw,
+        useRepresentativeRecords,
+        basis,
+        isCancelled,
+      );
       // Full population metadata is independent of the viewport. Retain this
       // small result even if a later viewport read is abandoned.
       final meta =
@@ -2969,13 +3062,12 @@ class LocalDbService {
             final metaRows = await PerformanceTrace.sql(
               'map.sql_meta',
               () => d.rawQuery(
-                "SELECT COUNT(*) AS total, COUNT(CASE WHEN $mapValid THEN 1 END) AS geo, "
-                // 2026-10-05 후속 A(서버 정의가 정본): effective 좌표가 있는 신고의
-                // 서로 다른 (위도, 경도, 주소키) 조합 수. 주소키 빈 신고도 (lat,lng,'') 로 센다.
-                "COUNT(DISTINCT CASE WHEN $mapValid THEN (CAST($mapLat AS REAL) || CHAR(31) || CAST($mapLng AS REAL) || CHAR(31) || IFNULL(($mapGroupKey),'')) END) AS address_groups, "
-                "COUNT(CASE WHEN NOT ($mapValid) AND trim(IFNULL(위반장소,'')) != '' THEN 1 END) AS missing "
-                'FROM $mapFrom WHERE $scope',
-                args,
+                'SELECT COUNT(*) AS total, COUNT(lat) AS geo, '
+                'COUNT(CASE WHEN lat IS NULL AND has_place = 1 THEN 1 END) AS missing, '
+                // 2026-10-05 후속 A(서버 정의가 정본): effective 좌표가 있는 신고의 서로 다른
+                // (위도, 경도, 주소키) 수. 실수는 문자열로 바꾸지 않고 숫자 그대로 비교한다(Sol 1차 M3).
+                '(SELECT COUNT(*) FROM (SELECT DISTINCT lat, lng, addr_key FROM temp.$eff WHERE lat IS NOT NULL)) AS address_groups '
+                'FROM temp.$eff',
               ),
             );
             final agencyRows = await d.rawQuery(
@@ -3037,23 +3129,20 @@ class LocalDbService {
       try {
         await d.execute(
           'CREATE TEMP TABLE $table AS SELECT '
-          'CAST((CAST($mapLat AS REAL)-?)/? AS INTEGER) AS cy, CAST((CAST($mapLng AS REAL)-?)/? AS INTEGER) AS cx, '
-          'AVG(CAST($mapLat AS REAL)) AS lat, AVG(CAST($mapLng AS REAL)) AS lng, COUNT(*) AS _weight, '
+          'CAST((e.lat-?)/? AS INTEGER) AS cy, CAST((e.lng-?)/? AS INTEGER) AS cx, '
+          'AVG(e.lat) AS lat, AVG(e.lng) AS lng, COUNT(*) AS _weight, '
           '처리상태, 범칙금_과태료, 처리기관, 처리기관코드, category, MIN(위반장소) AS address, '
-          'COUNT(DISTINCT 위반장소) AS addresses, MIN(CAST($mapLat AS REAL)) AS min_lat, MAX(CAST($mapLat AS REAL)) AS max_lat, MIN(CAST($mapLng AS REAL)) AS min_lng, MAX(CAST($mapLng AS REAL)) AS max_lng, '
-          // 2026-10-05 후속 B: 칸 묶음 이름용 주소키별 집계. 표시문구는 그룹 내 최소값이며
-          // _MapCellAccumulator 가 그룹 행들의 최소값 중 최소값을 대표 표시로 쓴다.
-          "IFNULL(($mapGroupKey),'') AS addr_key, "
-          "MIN(CASE WHEN trim(IFNULL(위반장소,'')) != '' THEN trim(위반장소) END) AS addr_display "
-          'FROM $mapFrom WHERE $scope AND $mapValid AND '
-          'CAST($mapLat AS REAL) >= ? AND CAST($mapLat AS REAL) < ? AND CAST($mapLng AS REAL) >= ? AND CAST($mapLng AS REAL) < ? '
-          'GROUP BY cy, cx, 처리상태, 범칙금_과태료, 처리기관, 처리기관코드, category, addr_key',
+          'COUNT(DISTINCT 위반장소) AS addresses, MIN(e.lat) AS min_lat, MAX(e.lat) AS max_lat, MIN(e.lng) AS min_lng, MAX(e.lng) AS max_lng, '
+          // 2026-10-05 후속 B: 칸 묶음 이름용 주소키별 건수·최소 표시문구(SQLite BINARY = 코드포인트 순서).
+          "e.addr_key AS addr_key, MIN(CASE WHEN e.addr_display != '' THEN e.addr_display END) AS addr_display "
+          'FROM $effectiveReportsView r JOIN temp.$eff e ON e.ID = r.ID '
+          'WHERE e.lat IS NOT NULL AND e.lat >= ? AND e.lat < ? AND e.lng >= ? AND e.lng < ? '
+          'GROUP BY cy, cx, 처리상태, 범칙금_과태료, 처리기관, 처리기관코드, category, e.addr_key',
           [
             box[0],
             latStep,
             box[1],
             lngStep,
-            ...args,
             box[0],
             box[2],
             box[1],
@@ -3110,12 +3199,14 @@ class LocalDbService {
         return result;
       } finally {
         await d.execute('DROP TABLE IF EXISTS temp.$table');
-        if (pinRepTable != null) {
-          await d.execute('DROP TABLE IF EXISTS temp.$pinRepTable');
-        }
         PerformanceTrace.record('map.total', timer, rows: cells.length);
       }
     }, exclusive: false);
+    } catch (_) {
+      // 되돌려진 트랜잭션은 temp 표 내용도 되돌린다. 다음 조회가 다시 만들게 한다.
+      _mapEffectiveKeys.remove(_mapEffectiveTable);
+      rethrow;
+    }
   });
 
   static bool _validMapCoordinate(Object? lat, Object? lng) =>
@@ -3231,19 +3322,24 @@ class LocalDbService {
         q.clauses.add(ReportPolicy.sqlNotWithdrawn('r.처리상태'));
       }
       // 핀 기준이 address 면 같은 주소에 유효 좌표가 있는 신고는
-      // effective 좌표가 생겨 목록에서 빠진다.
-      String? pinRepTable;
+      // effective 좌표가 생겨 목록에서 빠진다(지도 표와 같은 계산, ID 로 조인).
       var source =
           '$effectiveReportsView r JOIN temp.sr_missing_addresses m ON m.ID=r.ID WHERE ${q.where}';
       try {
         if (basis == 'address') {
-          final pinRows = await _fetchPinBasisRows(d, q.where, q.args, null);
-          final resolved = resolveMapPinBasis(pinRows, 'address');
-          pinRepTable = await _createPinRepTable(d, resolved.representatives);
+          await _ensureMapEffective(
+            d,
+            table: _mapEffectiveMissingTable,
+            cacheKey:
+                '${identityHashCode(connection)}:${await _readRevision(d)}:$category:$year:$excludeWithdraw:$useRepresentativeRecords:$basis',
+            scope: q.where,
+            args: q.args,
+            basis: basis,
+          );
           source =
               '$effectiveReportsView r JOIN temp.sr_missing_addresses m ON m.ID=r.ID '
-              'LEFT JOIN temp.$pinRepTable rep ON rep.address_key = ($_pinKeyExpr) '
-              'WHERE ${q.where} AND ($_pinKeyEmpty OR rep.lat IS NULL)';
+              'JOIN temp.$_mapEffectiveMissingTable e ON e.ID=r.ID '
+              'WHERE ${q.where} AND e.lat IS NULL';
         }
         final totals = await d.rawQuery(
           'SELECT COUNT(*) AS n, COUNT(DISTINCT m.address_key) AS groups FROM $source',
@@ -3281,10 +3377,9 @@ class LocalDbService {
             'pin_basis': basis,
           },
         };
-      } finally {
-        if (pinRepTable != null) {
-          await d.execute('DROP TABLE IF EXISTS temp.$pinRepTable');
-        }
+      } catch (_) {
+        _mapEffectiveKeys.remove(_mapEffectiveMissingTable);
+        rethrow;
       }
     }, exclusive: false);
   });

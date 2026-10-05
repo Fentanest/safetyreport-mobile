@@ -301,9 +301,10 @@ class _MapCellAccumulator {
   double latSum = 0, lngSum = 0;
   String address = '';
   bool multipleAddresses = false;
+  // 칸 전체 좌표 범위. SQL 그룹이 주소키로 더 잘게 나뉘어도(2026-10-05 후속 B) 묶음 판정은
+  // 칸 단위로 한다: 칸 안에 서로 다른 좌표나 서로 다른 장소 문구가 있으면 묶음(Sol 1차 M2).
+  double? minLat, maxLat, minLng, maxLng;
   // 2026-10-05 후속 B: 칸 묶음 이름용 주소키별 집계(벡터 description 정본).
-  // cluster 판정(multipleAddresses)은 기존 그대로 두어 지도 동작·라벨을 유지하고,
-  // address/address_count/region 출력만 새 규칙으로 낸다.
   final keyCounts = <String, int>{};
   final keyDisplays = <String, String>{};
   final statuses = <String, int>{},
@@ -313,11 +314,15 @@ class _MapCellAccumulator {
   final agencyNames = <String, String>{};
   void add(Map<String, dynamic> r) {
     final n = r['_weight'] as int;
-    if ((r['addresses'] as int? ?? 0) > 1 ||
-        r['min_lat'] != r['max_lat'] ||
-        r['min_lng'] != r['max_lng']) {
-      multipleAddresses = true;
-    }
+    if ((r['addresses'] as int? ?? 0) > 1) multipleAddresses = true;
+    double edge(Object? v) => (v as num).toDouble();
+    final rowMinLat = edge(r['min_lat']), rowMaxLat = edge(r['max_lat']);
+    final rowMinLng = edge(r['min_lng']), rowMaxLng = edge(r['max_lng']);
+    minLat = minLat == null || rowMinLat < minLat! ? rowMinLat : minLat;
+    maxLat = maxLat == null || rowMaxLat > maxLat! ? rowMaxLat : maxLat;
+    minLng = minLng == null || rowMinLng < minLng! ? rowMinLng : minLng;
+    maxLng = maxLng == null || rowMaxLng > maxLng! ? rowMaxLng : maxLng;
+    if (minLat != maxLat || minLng != maxLng) multipleAddresses = true;
     total += n;
     latSum += (r['lat'] as num).toDouble() * n;
     lngSum += (r['lng'] as num).toDouble() * n;
@@ -327,13 +332,13 @@ class _MapCellAccumulator {
     } else if (address != text) {
       multipleAddresses = true;
     }
-    final key = (r['addr_key']?.toString() ?? '').trim();
+    final key = r['addr_key']?.toString() ?? '';
     if (key.isNotEmpty) {
       keyCounts[key] = (keyCounts[key] ?? 0) + n;
-      final display = (r['addr_display']?.toString() ?? '').trim();
+      final display = r['addr_display']?.toString() ?? '';
       if (display.isNotEmpty) {
         final prev = keyDisplays[key];
-        if (prev == null || display.compareTo(prev) < 0) {
+        if (prev == null || LocalDbService.compareCodePoints(display, prev) < 0) {
           keyDisplays[key] = display;
         }
       }

@@ -2706,6 +2706,67 @@ class LocalDbService {
     return (location?.toString() ?? '').trim();
   }
 
+  /// 지도 묶음 원(cluster) 이름(2026-10-05 후속 B, 벡터 description 이 정본).
+  /// contracts/map-cluster-label-vectors.json 과 같은 규칙.
+  /// rows: {'주소정규화','위반장소'} (값 null 허용).
+  /// address_count = 비지 않은 주소키 종류 수.
+  /// 대표 주소키 = 신고 수가 가장 많은 주소키(동률이면 문자열 비교로 작은 것).
+  /// address = 대표 주소키 신고들의 비지 않은 trim(위반장소) 중 가장 작은 값,
+  /// 없으면 대표 주소키, 주소키가 하나도 없으면 빈 문자열.
+  /// region = 0곳 '주소 정보 없음' / 1곳 address / 2곳 이상 '{address} 외 {N-1}곳'.
+  @visibleForTesting
+  static ({String address, int addressCount, String region})
+  resolveMapClusterLabel(List<Map<String, Object?>> rows) {
+    final counts = <String, int>{};
+    final minDisplay = <String, String>{};
+    for (final row in rows) {
+      final key = mapPinBasisKey(row['주소정규화'], row['위반장소']);
+      if (key.isEmpty) continue;
+      counts[key] = (counts[key] ?? 0) + 1;
+      final display = (row['위반장소']?.toString() ?? '').trim();
+      if (display.isEmpty) continue;
+      final prev = minDisplay[key];
+      if (prev == null || display.compareTo(prev) < 0) {
+        minDisplay[key] = display;
+      }
+    }
+    return clusterLabelFromKeyStats(counts, minDisplay);
+  }
+
+  /// 칸 집계(SQL 그룹 행)에서 모은 주소키별 건수·최소 표시문구로 같은 라벨을 낸다.
+  /// counts: 비지 않은 주소키 → 그 키 신고 수. minDisplay: 키 → 그 키 신고들의
+  /// 비지 않은 trim(위반장소) 중 가장 작은 값(없으면 항목 없음).
+  @visibleForTesting
+  static ({String address, int addressCount, String region})
+  clusterLabelFromKeyStats(
+    Map<String, int> counts,
+    Map<String, String> minDisplay,
+  ) {
+    final nonEmpty = Map<String, int>.from(counts)
+      ..removeWhere((key, _) => key.isEmpty);
+    final addressCount = nonEmpty.length;
+    if (addressCount == 0) {
+      return (address: '', addressCount: 0, region: '주소 정보 없음');
+    }
+    var topKey = nonEmpty.entries.first.key;
+    var topCount = nonEmpty.entries.first.value;
+    for (final entry in nonEmpty.entries.skip(1)) {
+      if (entry.value > topCount ||
+          (entry.value == topCount && entry.key.compareTo(topKey) < 0)) {
+        topKey = entry.key;
+        topCount = entry.value;
+      }
+    }
+    final display = minDisplay[topKey];
+    final address = (display != null && display.isNotEmpty)
+        ? display
+        : topKey;
+    final region = addressCount == 1
+        ? address
+        : '$address 외 ${addressCount - 1}곳';
+    return (address: address, addressCount: addressCount, region: region);
+  }
+
   /// 핀 기준 SQL 조각(address 모드 effective 좌표). FROM 에
   /// `$effectiveReportsView r` 과 `temp.<rep> rep` 조인이 있어야 한다.
   static const _pinKeyExpr =
@@ -2909,7 +2970,9 @@ class LocalDbService {
               'map.sql_meta',
               () => d.rawQuery(
                 "SELECT COUNT(*) AS total, COUNT(CASE WHEN $mapValid THEN 1 END) AS geo, "
-                "COUNT(DISTINCT CASE WHEN $mapValid THEN ($mapGroupKey) END) AS address_groups, "
+                // 2026-10-05 후속 A(서버 정의가 정본): effective 좌표가 있는 신고의
+                // 서로 다른 (위도, 경도, 주소키) 조합 수. 주소키 빈 신고도 (lat,lng,'') 로 센다.
+                "COUNT(DISTINCT CASE WHEN $mapValid THEN (CAST($mapLat AS REAL) || CHAR(31) || CAST($mapLng AS REAL) || CHAR(31) || IFNULL(($mapGroupKey),'')) END) AS address_groups, "
                 "COUNT(CASE WHEN NOT ($mapValid) AND trim(IFNULL(위반장소,'')) != '' THEN 1 END) AS missing "
                 'FROM $mapFrom WHERE $scope',
                 args,
@@ -2977,10 +3040,14 @@ class LocalDbService {
           'CAST((CAST($mapLat AS REAL)-?)/? AS INTEGER) AS cy, CAST((CAST($mapLng AS REAL)-?)/? AS INTEGER) AS cx, '
           'AVG(CAST($mapLat AS REAL)) AS lat, AVG(CAST($mapLng AS REAL)) AS lng, COUNT(*) AS _weight, '
           '처리상태, 범칙금_과태료, 처리기관, 처리기관코드, category, MIN(위반장소) AS address, '
-          'COUNT(DISTINCT 위반장소) AS addresses, MIN(CAST($mapLat AS REAL)) AS min_lat, MAX(CAST($mapLat AS REAL)) AS max_lat, MIN(CAST($mapLng AS REAL)) AS min_lng, MAX(CAST($mapLng AS REAL)) AS max_lng '
+          'COUNT(DISTINCT 위반장소) AS addresses, MIN(CAST($mapLat AS REAL)) AS min_lat, MAX(CAST($mapLat AS REAL)) AS max_lat, MIN(CAST($mapLng AS REAL)) AS min_lng, MAX(CAST($mapLng AS REAL)) AS max_lng, '
+          // 2026-10-05 후속 B: 칸 묶음 이름용 주소키별 집계. 표시문구는 그룹 내 최소값이며
+          // _MapCellAccumulator 가 그룹 행들의 최소값 중 최소값을 대표 표시로 쓴다.
+          "IFNULL(($mapGroupKey),'') AS addr_key, "
+          "MIN(CASE WHEN trim(IFNULL(위반장소,'')) != '' THEN trim(위반장소) END) AS addr_display "
           'FROM $mapFrom WHERE $scope AND $mapValid AND '
           'CAST($mapLat AS REAL) >= ? AND CAST($mapLat AS REAL) < ? AND CAST($mapLng AS REAL) >= ? AND CAST($mapLng AS REAL) < ? '
-          'GROUP BY cy, cx, 처리상태, 범칙금_과태료, 처리기관, 처리기관코드, category',
+          'GROUP BY cy, cx, 처리상태, 범칙금_과태료, 처리기관, 처리기관코드, category, addr_key',
           [
             box[0],
             latStep,

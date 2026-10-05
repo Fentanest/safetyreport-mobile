@@ -81,6 +81,8 @@ class ReportMapPoint {
   final String address;
   final String region;
   final int total;
+  // 2026-10-05 후속 B: 칸 안 비지 않은 주소키 종류 수. 구 응답·클라이언트 합성 셀에는 없어 기본값.
+  final int addressCount;
   final List<ReportMapBreakdownItem> statusBreakdown;
   final List<ReportMapBreakdownItem> dispositionBreakdown;
   final List<ReportMapAgencyItem> agencyBreakdown;
@@ -93,6 +95,7 @@ class ReportMapPoint {
     required this.address,
     required this.region,
     required this.total,
+    this.addressCount = 0,
     required this.statusBreakdown,
     required this.dispositionBreakdown,
     required this.agencyBreakdown,
@@ -123,6 +126,7 @@ class ReportMapPoint {
       address: json['address']?.toString() ?? '',
       region: json['region']?.toString() ?? '',
       total: _toIntOrNull(json['total']) ?? 0,
+      addressCount: _toIntOrNull(json['address_count']) ?? 0,
       statusBreakdown: statusList
           .whereType<Map>()
           .map(

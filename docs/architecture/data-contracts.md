@@ -503,3 +503,9 @@ SharedPreferences의 disk commit 실패는 메모리 변경을 되돌리지 않�
   "같은 주소의 신고를 한 핀으로 묶고, 그 주소에서 가장 많이 신고된 공식 좌표에 표시합니다." 바꾸면 지도·좌표 없는 신고 목록을 다시 읽는다.
   `ReportMapMeta.pinBasis`(구 응답에 없으면 coords).
 - 테스트: `test/map_pin_basis_test.dart`(벡터 effective 좌표·건수·점 집합·좌표 없는 그룹 수/건수·구성원), 지도 위젯 토글 확인 1건.
+- 후속 A(§5, 2026-10-05): meta `address_groups` 를 서버 정의와 같게 — effective 좌표가 있는 신고의 서로 다른 (위도, 경도, 주소키) 조합 수(주소키 빈 신고도 `(lat,lng,'')` 로 셈, `pin_basis=address` 면 effective 좌표 기준). 벡터 expected(coords 6, address 4)를 `test/map_pin_basis_test.dart` 에서 확인한다.
+- 후속 B(§6, 2026-10-05): Standalone 칸 점(`_MapCellAccumulator.toJson`)의 `address`/`address_count`/`region` 을 `contracts/map-cluster-label-vectors.json` 규칙대로 낸다(정본은 벡터 description).
+  주소키=`trim(주소정규화)`, 비면 `trim(위반장소)`. `address_count`=비지 않은 주소키 종류 수. 대표 주소키=신고 수 최다(동률이면 문자열 작은 것).
+  `address`=대표 키 신고들의 비지 않은 `trim(위반장소)` 중 최소값, 없으면 대표 키, 키가 하나도 없으면 `''`.
+  `region`=0곳 `'주소 정보 없음'` / 1곳 `address` / 2곳 이상 `'{address} 외 {N-1}곳'`. 점에 `address_count` 추가(하위호환, `ReportMapPoint.addressCount` 없으면 0).
+  칸 `cluster` 판정은 기존 그대로(묶음 점 탭=확대 유지). 새 region 이 마커 라벨로 새지 않도록 `mapPointRegionName` 은 실제 주소 보유 묶음 점에 `''`을 돌려 마커 라벨 `'N건 묶음'`을 유지하고, `'주소 정보 없음'`은 일반 문구로 취급한다. 화면 범위 합성 셀(`visibleMapCells`, 주소가 일반 문구)은 기존처럼 region 을 보인다.

@@ -301,6 +301,11 @@ class _MapCellAccumulator {
   double latSum = 0, lngSum = 0;
   String address = '';
   bool multipleAddresses = false;
+  // 2026-10-05 후속 B: 칸 묶음 이름용 주소키별 집계(벡터 description 정본).
+  // cluster 판정(multipleAddresses)은 기존 그대로 두어 지도 동작·라벨을 유지하고,
+  // address/address_count/region 출력만 새 규칙으로 낸다.
+  final keyCounts = <String, int>{};
+  final keyDisplays = <String, String>{};
   final statuses = <String, int>{},
       dispositions = <String, int>{},
       categories = <String, int>{},
@@ -321,6 +326,17 @@ class _MapCellAccumulator {
       address = text;
     } else if (address != text) {
       multipleAddresses = true;
+    }
+    final key = (r['addr_key']?.toString() ?? '').trim();
+    if (key.isNotEmpty) {
+      keyCounts[key] = (keyCounts[key] ?? 0) + n;
+      final display = (r['addr_display']?.toString() ?? '').trim();
+      if (display.isNotEmpty) {
+        final prev = keyDisplays[key];
+        if (prev == null || display.compareTo(prev) < 0) {
+          keyDisplays[key] = display;
+        }
+      }
     }
     void count(Map<String, int> target, String label) =>
         target[label] = (target[label] ?? 0) + n;
@@ -367,13 +383,18 @@ class _MapCellAccumulator {
             'pct': double.parse((e.value / total * 100).toStringAsFixed(1)),
           },
     ];
+    final label = LocalDbService.clusterLabelFromKeyStats(
+      keyCounts,
+      keyDisplays,
+    );
     return {
       'lat': latSum / total,
       'lng': lngSum / total,
       'total': total,
       'cluster': multipleAddresses,
-      'address': multipleAddresses ? '지도 구역 집계 · 확대하여 주소 확인' : address,
-      'region': '',
+      'address': label.address,
+      'address_count': label.addressCount,
+      'region': label.region,
       'status_breakdown': series(statuses),
       'disposition_breakdown': series(dispositions),
       'category_breakdown': series(categories),

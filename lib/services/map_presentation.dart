@@ -85,10 +85,12 @@ List<ReportMapPoint> visibleMapCells(
 }
 
 /// 지도 집계가 지역 이름 대신 넣는 일반 문구(서버 `report_stats_service`, 로컬 `local_statistics`, 위 셀 집계).
+/// '주소 정보 없음'(2026-10-05 후속 B 묶음 원 제목)도 지역 이름이 아니라 건수로 보인다.
 const Set<String> _genericMapLabels = {
   '지도 구역 집계 · 확대하여 주소 확인',
   '영역 집계',
   '이 영역의 신고',
+  '주소 정보 없음',
 };
 
 bool isGenericMapLabel(String text) => _genericMapLabels.contains(text.trim());
@@ -159,7 +161,16 @@ String mapRegionShortLabel(String text) {
 }
 
 /// 지점의 지역 이름(시·군·구 우선). 일반 문구는 건너뛰고, 시·군·구를 못 찾으면 원문을 쓴다. 없으면 빈 문자열.
+/// 2026-10-05 후속 B: Standalone/서버 칸 묶음 점(cluster=true, 실제 주소·region 보유)은
+/// 기존처럼 마커 라벨 'N건 묶음'을 유지하도록 여기서는 빈 문자열을 돌려준다.
+/// 화면 범위 합성 셀(visibleMapCells, 주소가 일반 문구)은 기존처럼 region 을 쓴다.
 String mapPointRegionName(ReportMapPoint point) {
+  if (point.isCluster) {
+    final addr = point.address.trim();
+    if (addr.isNotEmpty && !isGenericMapLabel(addr)) {
+      return '';
+    }
+  }
   for (final raw in [point.region, point.address]) {
     final text = raw.trim();
     if (text.isEmpty || isGenericMapLabel(text)) continue;

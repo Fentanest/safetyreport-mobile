@@ -130,6 +130,9 @@ void main() {
         expect(payload.meta.totalReports, 11);
         expect(payload.meta.geocodedReports, want['geocoded_reports']);
         expect(payload.meta.missingReports, want['missing_reports']);
+        // 2026-10-05 후속 A: 서버 정의와 같은 (위도, 경도, 주소키) 조합 수.
+        expect(raw['meta']['address_groups'], want['address_groups']);
+        expect(payload.meta.addressGroups, want['address_groups']);
       }
       // 기본값(인자 생략)은 coords 와 같다. 모르는 값도 coords 로 정규화한다.
       final def = ReportMapPayload.fromJson(

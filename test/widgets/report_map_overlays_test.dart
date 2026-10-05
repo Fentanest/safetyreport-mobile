@@ -92,6 +92,63 @@ void main() {
         '',
       );
     });
+
+    test('2026-10-05 후속 B: 새 묶음 region 이 마커 라벨로 새어 나가지 않는다', () {
+      // Standalone/서버 칸 묶음 점(실제 주소·region 보유)은 기존처럼 'N건 묶음'.
+      ReportMapPoint cluster({
+        required String address,
+        required String region,
+        required int total,
+        int addressCount = 3,
+      }) => ReportMapPoint(
+        isCluster: true,
+        lat: 37.5,
+        lng: 127.0,
+        address: address,
+        region: region,
+        total: total,
+        addressCount: addressCount,
+        statusBreakdown: const [],
+        dispositionBreakdown: const [],
+        agencyBreakdown: const [],
+        categoryBreakdown: const [],
+      );
+      final multi = cluster(
+        address: '서울 강서구 등촌동 101',
+        region: '서울 강서구 등촌동 101 외 2곳',
+        total: 5,
+      );
+      expect(mapPointRegionName(multi), '');
+      expect(mapMarkerRegionLabel(multi), '5건 묶음');
+
+      final singleAddress = cluster(
+        address: '부산 해운대구 우동 1',
+        region: '부산 해운대구 우동 1',
+        total: 2,
+        addressCount: 1,
+      );
+      expect(mapPointRegionName(singleAddress), '');
+      expect(mapMarkerRegionLabel(singleAddress), '2건 묶음');
+
+      final noAddress = cluster(address: '', region: '주소 정보 없음', total: 2);
+      expect(mapPointRegionName(noAddress), '');
+      expect(mapMarkerRegionLabel(noAddress), '2건 묶음');
+
+      // 화면 범위 합성 셀(주소가 일반 문구)은 기존처럼 region 을 보인다.
+      final merged = _p(
+        cluster: true,
+        address: '지도 구역 집계 · 확대하여 주소 확인',
+        region: '강남구 외',
+        total: 7,
+      );
+      expect(mapMarkerRegionLabel(merged), '강남구 외');
+
+      // 단일 점은 새 region 규칙과 무관하게 시·군·구를 보인다.
+      expect(
+        mapMarkerRegionLabel(_p(address: '서울 강서구 등촌동 101', total: 1)),
+        mapMarkerRegionLabel(_p(address: '서울 강서구 등촌동 101', total: 1)),
+      );
+    });
   });
 
   group('SQ-U24 과태료율 구간', () {

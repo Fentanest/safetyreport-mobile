@@ -8,6 +8,13 @@
 
 ---
 
+## 2026-10-05 (신고 지도 핀 기준 후속 A·B: 주소 그룹 수·묶음 원 이름, 로컬 미배포)
+
+- 근거: [핀 기준 명세](docs/plans/2026-10-05-map-pin-basis.md) §5·§6(모바일 범위만, 서버는 별도 담당). 계약 벡터 2종(`contracts/map-pin-basis-vectors.json`, `contracts/map-cluster-label-vectors.json`)은 수정 없이 서버와 바이트 동일 유지.
+- §5: `computeReportMapStats` meta `address_groups` 를 서버 정의로 — effective 좌표가 있는 신고의 서로 다른 (위도, 경도, 주소키) 조합 수(주소키 빈 신고도 `(lat,lng,'')` 로 셈, `pin_basis=address` 면 effective 좌표 기준). 벡터 expected(coords 6, address 4)를 `test/map_pin_basis_test.dart` 에서 확인.
+- §6: Standalone 칸 점(`_MapCellAccumulator.toJson`)의 `address`/`address_count`/`region` 을 클러스터 라벨 벡터 규칙대로(칸 이름 계산을 `resolveMapClusterLabel`/`clusterLabelFromKeyStats` 순수 함수로 분리, `test/map_cluster_label_test.dart` 에서 벡터 5셀 직접 + 실제 `computeReportMapStats` 2칸 대조). `ReportMapPoint.addressCount` 추가(없으면 0, 하위호환). 칸 `cluster` 판정·묶음 점 탭=확대·마커 라벨 `'N건 묶음'` 유지: 실제 주소 보유 묶음 점은 `mapPointRegionName` 이 `''`을 돌리고 `'주소 정보 없음'`은 일반 문구로 취급(위젯/단위 테스트로 확인).
+- 검증: `flutter analyze` error 0 / warning 9(기존). `flutter test` 1216 passed / 16 skipped / 0 failed(작업 전 1210 + 신규 6: 클러스터 벡터 5·라벨 유지 1, pin 기준 address_groups 단언은 기존 테스트 내 추가).
+
 ## 2026-10-05 (신고 지도 핀 기준 위도·경도/주소, 로컬 미배포)
 
 - 근거: [핀 기준 명세](docs/plans/2026-10-05-map-pin-basis.md) §1·§3(서버 명세 사본). 정본 벡터 `contracts/map-pin-basis-vectors.json`(서버와 바이트 동일)으로 Standalone 계산을 검증한다. DB 스키마·저장 좌표·교환 형식·pubspec 변경 없음.

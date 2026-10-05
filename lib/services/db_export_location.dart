@@ -28,6 +28,9 @@ class SavedDbExport {
 }
 
 class DbExportLocation {
+  static const backupLocationHint =
+      'Android 10 이상: Download/mysafetyreport/\nAndroid 7~9: 저장할 위치를 직접 선택합니다.';
+
   static const _channel = MethodChannel(
     'com.fentanest.mysafetyreport/permissions',
   );

@@ -648,6 +648,11 @@ class CommunityGateLinkResult {
   bool get isOk => data != null;
   bool get needsOnboarding => code == 'COMMUNITY_ONBOARDING_REQUIRED';
   bool get needsRebuild => code == 'COMMUNITY_REBUILD_REQUIRED';
+  bool get needsPermission => code == 'permission_required';
+
+  static const permissionMessage =
+      '이 API 키에는 서버의 커뮤니티 계정 관리 권한이 없습니다.\n'
+      'PC 앱 설정 > 4. 커뮤니티 계정에서 이 키의 “모바일 앱의 커뮤니티 계정 관리 권한”을 켠 뒤 다시 확인해 주세요.';
 
   static CommunityGateLinkResult parse(int statusCode, String body) {
     Object? json;
@@ -676,7 +681,9 @@ class CommunityGateLinkResult {
     }
     return CommunityGateLinkResult.failure(
       code: code.isEmpty ? 'server_error' : code,
-      message: message ?? '서버 오류: HTTP $statusCode',
+      message: code == 'permission_required'
+          ? permissionMessage
+          : message ?? '서버 오류: HTTP $statusCode',
       httpStatus: statusCode,
     );
   }

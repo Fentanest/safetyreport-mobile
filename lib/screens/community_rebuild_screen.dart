@@ -63,6 +63,7 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen> {
   String? _error;
   Map<String, dynamic>? _serverJob;
   bool _serverLoading = false;
+  bool _permissionRequired = false;
 
   CommunityAuthService get _auth =>
       widget.auth ?? CommunityAuthService.instance;
@@ -118,10 +119,18 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen> {
           .fetch(widget.serverBaseUrl, widget.serverApiKey, token);
       if (!mounted) return;
       if (res.isOk) {
-        setState(() => _serverJob = res.data);
+        setState(() {
+          _serverJob = res.data;
+          _permissionRequired = false;
+        });
         // 서버가 초기화 필요 없음(완료했거나 새 설치)이라고 하면 이 화면에 머물지 않는다.
         // 예전엔 완료된 서버에서도 앱을 켤 때마다 시작 버튼을 눌러야 했다.
         if (res.data?['required'] == false) await widget.onDone?.call();
+      } else if (res.needsPermission) {
+        setState(() {
+          _serverJob = null;
+          _permissionRequired = true;
+        });
       } else if (res.needsOnboarding) {
         setState(() => _error = '서버에서 커뮤니티 설정을 먼저 완료해야 합니다.');
       } else {
@@ -147,6 +156,34 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.isClient && _permissionRequired) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('서버 권한 확인')),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text(
+                    CommunityGateLinkResult.permissionMessage,
+                    style: TextStyle(fontSize: 13, height: 1.5),
+                  ),
+                ),
+              ),
+              if (_error != null) Text(_error!),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: _serverLoading ? null : _loadServer,
+                child: Text(_serverLoading ? '확인 중...' : '상태 다시 확인'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return Scaffold(
       appBar: AppBar(title: const Text('초기화 크롤링')),
       body: SingleChildScrollView(

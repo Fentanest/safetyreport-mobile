@@ -46,6 +46,20 @@ void main() {
     },
   );
 
+  test('old server rebuild permission denial explains the PC key setting', () async {
+    final mock = selfhostMockClient((_) async => http.Response(
+      jsonEncode({'code': 'permission_required', 'detail': '관리 권한이 없는 키입니다.'}),
+      403, headers: {'content-type': 'application/json; charset=utf-8'},
+    ));
+    final res = await CommunityServerLinkService.fetchCommunityRebuild(
+      baseUrl: 'https://srv.test', apiKey: 'k', client: mock,
+    );
+    expect(res.needsPermission, isTrue);
+    expect(res.isOk, isFalse);
+    expect(res.message, contains('PC 앱 설정 > 4. 커뮤니티 계정'));
+    expect(res.message, isNot(contains('HTTP 403')));
+  });
+
   test('409 COMMUNITY_REBUILD_REQUIRED surfaces for rebuild start', () async {
     final mock = selfhostMockClient(
       (_) async => http.Response(

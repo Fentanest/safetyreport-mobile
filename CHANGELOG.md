@@ -8,6 +8,15 @@
 
 ---
 
+## 2026-10-05 (릴리스 촬영에서 확인한 백업 안내·Client 권한 오류 수정)
+
+- 설정의 DB 백업 안내를 Android 10 이상 `Download/mysafetyreport/`, Android 7~9 저장 위치 직접 선택으로 정정했다. 실제 저장 동작은 유지했다.
+- 별도 경로를 쓰는 Standalone→Client 모드 전환 백업 안내에는 Documents 저장이 불가능할 때 Download로 대체하는 기존 동작을 명시했다.
+- 구 서버가 초기화 상태 조회에 `permission_required`를 반환하면 초기화 크롤링 시작 안내 대신 PC 앱 설정 > 4. 커뮤니티 계정의 API 키 관리 권한 해결 방법과 상태 재확인을 표시한다. 권한 허용 후 초기화가 필요 없으면 기존 진입 흐름으로 복귀한다.
+- 권한 오류 HTTP 파싱·안내/재시도 위젯·설정 백업 위치 문구의 회귀 검증을 추가했다.
+
+---
+
 ## 2026-10-05 (사용 안내 글 공개에 맞춘 README·사용 가이드 링크)
 
 - 서버 레포 기록과 같은 PC·Android 통합 사용 안내 글: <https://hb.worklazy.net/mysafetyreport-pc-android-guide/>.

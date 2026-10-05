@@ -818,7 +818,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: const Text('Client 모드로 전환'),
         content: const Text(
           '현재 Standalone DB 를 자동으로 백업한 후 Client 모드로 전환됩니다.\n'
-          '백업 위치: Documents/mysafetyreport/\n\n'
+          '백업 위치: Documents/mysafetyreport/\n'
+          '(저장할 수 없으면 Download/mysafetyreport/)\n\n'
           '계속하시겠습니까?',
         ),
         actions: [
@@ -1657,7 +1658,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const SizedBox(height: 14),
                     Text(
-                      '현재 기기(또는 서버)의 데이터를 파일로 백업합니다.\n저장 경로: Documents/mysafetyreport/',
+                      '현재 기기(또는 서버)의 데이터를 파일로 백업합니다.\n${DbExportLocation.backupLocationHint}',
                       style: TextStyle(
                         fontSize: 12,
                         color: mutedColor,

@@ -147,6 +147,9 @@ void main() {
       expectInSection(tester, find.text('서버 연결'), 'connection');
       expectInSection(tester, find.text('백그라운드 서버 연결'), 'connection');
       expectInSection(tester, find.text('DB 백업 (다운로드)'), 'data');
+      expect(find.textContaining('Android 10 이상: Download/mysafetyreport/'), findsOneWidget);
+      expect(find.textContaining('Android 7~9: 저장할 위치를 직접 선택합니다.'), findsOneWidget);
+      expect(find.textContaining('저장 경로: Documents/mysafetyreport/'), findsNothing);
       expectInSection(tester, find.text('파일 관리 (서버 파일)'), 'data');
       expectInSection(tester, find.text('크롤링 자동 저장'), 'data');
       expectInSection(tester, find.text('화면 테마'), 'display');

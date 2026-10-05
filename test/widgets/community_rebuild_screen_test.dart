@@ -80,6 +80,15 @@ class _FakeServerClient extends CommunityServerRebuildClient {
       CommunityGateLinkResult.success(data);
 }
 
+class _PermissionServerClient extends CommunityServerRebuildClient {
+  bool allowed = false;
+  @override
+  Future<CommunityGateLinkResult> fetch(String baseUrl, String apiKey, String? token) async =>
+      allowed
+          ? CommunityGateLinkResult.success({'required': false, 'state': 'completed'})
+          : CommunityGateLinkResult.parse(403, '{"code":"permission_required"}');
+}
+
 void main() {
   sqfliteFfiInit();
 
@@ -150,6 +159,28 @@ void main() {
     await tester.pumpWidget(MaterialApp(home: CommunityRebuildScreen(rebuild: rebuild)));
     await tester.pumpAndSettle();
     expect(tester.widget<Text>(find.byKey(const Key('rebuildPreservedText'))).data, communityRebuildPreservedText);
+  });
+
+  testWidgets('permission denial shows recovery instead of rebuild, then retries', (tester) async {
+    var done = 0;
+    final client = _PermissionServerClient();
+    await tester.pumpWidget(MaterialApp(home: CommunityRebuildScreen(
+      isClient: true,
+      serverClient: client,
+      onDone: () async => done++,
+    )));
+    await tester.pumpAndSettle();
+    expect(find.text('서버 권한 확인'), findsOneWidget);
+    expect(find.textContaining('PC 앱 설정 > 4. 커뮤니티 계정'), findsOneWidget);
+    expect(find.text('확인 — 초기화 크롤링 시작'), findsNothing);
+    expect(find.textContaining('초기화 크롤링을 한 번 진행해야 합니다'), findsNothing);
+    expect(find.textContaining('HTTP 403'), findsNothing);
+    expect(done, 0);
+    client.allowed = true;
+    await tester.tap(find.text('상태 다시 확인'));
+    await tester.pumpAndSettle();
+    expect(done, 1);
+    expect(find.text('서버 권한 확인'), findsNothing);
   });
 
   testWidgets('client mode leaves at once when the server needs no rebuild', (tester) async {

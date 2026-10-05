@@ -2,13 +2,8 @@ name: Build dev APK
 
 # dev 브랜치 시험용 APK. 릴리즈 워크플로(build-apk.yml)와 같은 셀프호스트 러너·고정 Flutter·러너의 업로드 키를 쓴다.
 # GitHub Release·태그·AAB 는 만들지 않고 artifact 로만 남긴다(배포용이 아니다 — Play 업로드·릴리즈에 쓰지 않는다).
+# dev push 자동 실행은 끔(2026-10-06 사용자 결정). 필요할 때 Actions 에서 수동 실행한다.
 on:
-  push:
-    branches:
-      - dev
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
   workflow_dispatch:
 
 concurrency:

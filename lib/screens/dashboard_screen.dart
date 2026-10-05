@@ -755,8 +755,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     children: sections
                         .map(
                           (e) => Padding(
+                            key: ValueKey('dashboard-legend-${e.$3}'),
                             padding: const EdgeInsets.symmetric(vertical: 4),
-                            // 좁은 폭·큰 글자에서는 건수·비율이 다음 줄로 내려간다(넘치지 않게).
+                            // 이름과 건수·비율은 항상 한 줄. 폭이 모자라면 건수·비율 글자만 줄인다
+                            // (예전엔 다음 줄로 내려가 '일부수용' 줄만 두 줄이 됐다).
                             child: Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -772,16 +774,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   ),
                                 ),
                                 const SizedBox(width: 6),
+                                Text(
+                                  e.$3,
+                                  maxLines: 1,
+                                  softWrap: false,
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                                const SizedBox(width: 6),
                                 Expanded(
-                                  child: Wrap(
-                                    alignment: WrapAlignment.spaceBetween,
-                                    spacing: 6,
-                                    children: [
-                                      Text(
-                                        e.$3,
-                                        style: const TextStyle(fontSize: 12),
-                                      ),
-                                      Text.rich(
+                                  child: Align(
+                                    alignment: Alignment.centerRight,
+                                    child: FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      alignment: Alignment.centerRight,
+                                      child: Text.rich(
                                         TextSpan(
                                           children: [
                                             TextSpan(
@@ -800,9 +806,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                             ),
                                           ],
                                         ),
+                                        maxLines: 1,
+                                        softWrap: false,
                                         style: const TextStyle(fontSize: 12),
                                       ),
-                                    ],
+                                    ),
                                   ),
                                 ),
                               ],

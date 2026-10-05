@@ -162,6 +162,26 @@ void main() {
     }
   }
 
+  for (final scale in uiTextScales) {
+    testWidgets('처리 현황 범례는 360dp 글꼴 $scale배에서도 줄마다 한 줄이다', (tester) async {
+      final errors = await _pump(
+        tester,
+        brightness: Brightness.light,
+        textScale: scale,
+      );
+      expect(errors, isEmpty, reason: describeErrors(errors));
+      final rows = find.byWidgetPredicate(
+        (w) =>
+            w.key is ValueKey<String> &&
+            (w.key! as ValueKey<String>).value.startsWith('dashboard-legend-'),
+      );
+      expect(rows, findsWidgets);
+      final heights = rows.evaluate().map((e) => e.size!.height).toSet();
+      // '일부수용'처럼 긴 이름의 줄만 건수·비율이 다음 줄로 내려가면 높이가 달라진다.
+      expect(heights, hasLength(1), reason: '범례 줄 높이: $heights');
+    });
+  }
+
   testWidgets('처리 상태 요약이 첫 화면 절반 안에 들어가 동기화 상태 카드가 바로 보인다', (tester) async {
     final errors = await _pump(tester, brightness: Brightness.light);
     expect(errors, isEmpty, reason: describeErrors(errors));

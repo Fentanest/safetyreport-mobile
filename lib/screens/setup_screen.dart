@@ -106,7 +106,7 @@ class _SetupScreenState extends State<SetupScreen> {
   }
 
   void _selectMode(AppMode mode) {
-    if (widget.onModeSelected != null) {
+    if (widget.onModeSelected != null && mode == AppMode.server) {
       widget.onModeSelected!(mode);
     } else {
       _goToStep(
@@ -184,9 +184,14 @@ class _SetupScreenState extends State<SetupScreen> {
     final password = _passwordController.text;
     final rawPhone = _phoneController.text.trim();
     final phoneNumber = rawPhone.replaceAll(RegExp(r'[^0-9]'), '');
-    if (!widget.accountRecovery &&
-        _isPlayReviewDemoLogin(username, password, rawPhone)) {
+    if (_isPlayReviewDemoLogin(username, password, rawPhone)) {
       await _enterDemo();
+      return;
+    }
+    // 새 설치에서도 심사용 demo/demo 입력은 카카오 없이 판별한다.
+    // 실제 로그인·DB 가져오기는 기존 게이트와 권한 안내를 통과한 뒤 실행한다.
+    if (widget.onModeSelected != null) {
+      widget.onModeSelected!(AppMode.standalone);
       return;
     }
     if (username.isEmpty || password.isEmpty || phoneNumber.isEmpty) {

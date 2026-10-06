@@ -1,0 +1,33 @@
+{
+  "baseline": "450938b4",
+  "version": "2.0.4+35",
+  "flutter": "3.47.5",
+  "analyze": {
+    "exit_code": 1,
+    "errors": 0,
+    "existing_warnings": 9,
+    "new_diagnostics": 0
+  },
+  "flutter_test": {
+    "exit_code": 0,
+    "passed": 1306,
+    "skipped": 16,
+    "failed": 0
+  },
+  "debug_build_exit_code": 0,
+  "device": "emulator-5580",
+  "avd": "sr_uitest_api35",
+  "application_id": "com.fentanest.mysafetyreport.demorc",
+  "emulator_stage_exit_codes": {
+    "online_tabs_and_relaunch": 0,
+    "offline_login": 0,
+    "offline_tabs_and_relaunch": 0,
+    "offline_demo_button": 0
+  },
+  "screenshots": 17,
+  "app_fatal_or_flutter_exceptions": 0,
+  "committed": false,
+  "sqlite_journal_mode_lock_entries": 3,
+  "database_integrity": "ok",
+  "synthetic_reports": 100
+}

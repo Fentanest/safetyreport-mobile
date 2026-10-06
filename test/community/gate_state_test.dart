@@ -192,7 +192,8 @@ void main() {
         calls++;
         return 'mismatch';
       }, mode: mode);
-      expect((await gate.refreshNow()).canEnter, isTrue, reason: mode);
+      // 데모 UI는 게이트를 우회하지만 커뮤니티 작업 권한은 열지 않는다.
+      expect((await gate.refreshNow()).canEnter, mode != 'demo', reason: mode);
       expect(calls, 0, reason: mode);
     }
   });

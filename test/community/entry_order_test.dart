@@ -137,7 +137,7 @@ void main() {
   );
 
   testWidgets(
-    'pending import cannot reach official login before Kakao onboarding',
+    'pending import and live login wait for Kakao after demo credential check',
     (tester) async {
       final provider = await _providerWith({
         AppPrefsKeys.pendingDbImport: 'copy:/synthetic/backup.db',
@@ -154,6 +154,13 @@ void main() {
             ),
           )
           .onTap!();
+      await tester.pumpAndSettle();
+      // Play 심사 자격을 게이트 전에 입력할 수 있어야 한다. 일반 자격은
+      // 로그인 API·대기 가져오기를 시작하기 전에 기존 온보딩으로 이동한다.
+      expect(find.widgetWithText(TextField, '아이디'), findsOneWidget);
+      await tester.enterText(find.widgetWithText(TextField, '아이디'), 'user');
+      await tester.enterText(find.widgetWithText(TextField, '비밀번호'), 'pw');
+      await tester.tap(find.text('로그인'));
       await tester.pumpAndSettle();
       expect(find.byType(CommunityOnboardingScreen), findsOneWidget);
       expect(find.widgetWithText(TextField, '아이디'), findsNothing);
@@ -410,52 +417,73 @@ void main() {
     expect(find.byType(MainNavigationScreen), findsNothing);
   });
 
-  testWidgets(
-    'demo requires Kakao consent and closes pushed pages when gate is lost',
-    (tester) async {
-      final provider = await _providerWith({
-        AppPrefsKeys.appMode: 'standalone',
-        AppPrefsKeys.standaloneUsername: 'demo',
-        AppPrefsKeys.standaloneDemoMode: true,
-      });
-      final gate = StubGate(enter: false);
-      addTearDown(gate.dispose);
-      await tester.pumpWidget(_app(provider, gate));
-      await tester.pumpAndSettle();
-      expect(find.byType(CommunityOnboardingScreen), findsOneWidget);
-      expect(find.byType(MainNavigationScreen), findsNothing);
-      gate.setEnter(true);
-      for (var i = 0; i < 20; i++) {
-        await tester.pump(const Duration(milliseconds: 200));
-        if (find.byType(MainNavigationScreen).evaluate().isNotEmpty) break;
-      }
-      expect(find.byType(MainNavigationScreen), findsOneWidget);
-      Navigator.of(tester.element(find.byType(MainNavigationScreen))).push(
-        MaterialPageRoute(
-          builder: (_) => const Scaffold(body: Text('other screen')),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('other screen'), findsOneWidget);
-      gate.setEnter(false);
-      await tester.pumpAndSettle();
-      expect(find.byType(CommunityOnboardingScreen), findsOneWidget);
-      expect(find.text('other screen'), findsNothing);
-      gate.blockedState = 'cloud_unavailable';
-      gate.setEnter(false);
-      await tester.pumpAndSettle();
-      expect(find.byType(CloudUnavailableScreen), findsOneWidget);
-      await tester.pump(const Duration(seconds: 6));
-      await tester.pump(const Duration(seconds: 6));
-    },
-  );
-
   /// MainNavigationScreen 은 유지 애니메이션 때문에 고정 pump 로 진행한다.
   Future<void> pumpMain(WidgetTester tester) async {
     await tester.pump();
     for (var i = 0; i < 5; i++) {
       await tester.pump(const Duration(milliseconds: 200));
     }
+  }
+
+  // 2.0.3에서 추가된 '데모도 게이트 필수/하위 화면 닫기' 기대를 정정한다.
+  // 합성 자료는 카카오·클라우드·실계정 바인딩 상태와 무관하게 탐색한다.
+  for (final blockedState in [
+    'verification_required',
+    'cloud_unavailable',
+    'official_account_mismatch',
+    'official_account_taken',
+    'official_account_change_required',
+  ]) {
+    testWidgets('demo enters and keeps navigation despite $blockedState', (
+      tester,
+    ) async {
+      final provider = await _providerWith({
+        AppPrefsKeys.appMode: 'standalone',
+        AppPrefsKeys.standaloneUsername: 'demo',
+        AppPrefsKeys.standaloneDemoMode: true,
+      });
+      final gate = StubGate(enter: false)..blockedState = blockedState;
+      addTearDown(gate.dispose);
+      var serviceStarts = 0;
+      ReportProvider.scheduleLoginCheckHook = () async => serviceStarts++;
+      ReportProvider.drainAndRefreshHook = () async => serviceStarts++;
+      ReportProvider.startWsServiceHook = () async {
+        serviceStarts++;
+        return true;
+      };
+      await tester.pumpWidget(_app(provider, gate));
+      await pumpMain(tester);
+      expect(find.byType(MainNavigationScreen), findsOneWidget);
+      expect(find.byType(CommunityOnboardingScreen), findsNothing);
+      expect(find.byType(CloudUnavailableScreen), findsNothing);
+      expect(find.byType(PermissionScreen), findsNothing);
+      expect(find.byType(SetupScreen), findsNothing);
+      expect(
+        communityNavAllowed(tester.element(find.byType(NavigationBar))),
+        isTrue,
+      );
+      expect(serviceStarts, 0);
+      expect(
+        permCalls.where(
+          (c) => c.startsWith('request') || c.startsWith('start'),
+        ),
+        isEmpty,
+      );
+      gate.setEnter(true);
+      await pumpMain(tester);
+      Navigator.of(tester.element(find.byType(MainNavigationScreen))).push(
+        MaterialPageRoute(
+          builder: (_) => const Scaffold(body: Text('demo detail')),
+        ),
+      );
+      await tester.pumpAndSettle();
+      gate.setEnter(false);
+      await tester.pumpAndSettle();
+      expect(find.text('demo detail'), findsOneWidget);
+      expect(find.byType(CommunityOnboardingScreen), findsNothing);
+      await tester.pump(const Duration(seconds: 6));
+      await tester.pump(const Duration(seconds: 6));
+    });
   }
 
   testWidgets('F06: navigation allowed again after gate passes', (

@@ -1,0 +1,264 @@
+--------- beginning of main
+10-07 00:22:52.656  4574  4574 I tyreport.demorc: Late-enabling -Xcheck:jni
+10-07 00:22:53.661  4574  4574 I tyreport.demorc: Using CollectorTypeCMC GC.
+10-07 00:22:53.686  4574  4574 W tyreport.demorc: Unexpected CPU variant for x86: x86_64.
+10-07 00:22:53.686  4574  4574 W tyreport.demorc: Known variants: atom, sandybridge, silvermont, goldmont, goldmont-plus, goldmont-without-sha-xsaves, tremont, kabylake, default
+10-07 00:22:54.005  4574  4574 D nativeloader: Load libframework-connectivity-tiramisu-jni.so using APEX ns com_android_tethering for caller /apex/com.android.tethering/javalib/framework-connectivity-t.jar: ok
+10-07 00:22:54.485  4574  4574 D ApplicationLoaders: Returning zygote-cached class loader: /system_ext/framework/androidx.window.extensions.jar
+10-07 00:22:54.485  4574  4574 D ApplicationLoaders: Returning zygote-cached class loader: /system_ext/framework/androidx.window.sidecar.jar
+10-07 00:22:54.487  4574  4574 W ziparchive: Unable to open '/data/app/~~emN9z2oj7b64dasYhQbl7A==/com.fentanest.mysafetyreport.demorc-7q2BH8HdIOQKJcUZJZiSkw==/base.dm': No such file or directory
+10-07 00:22:54.487  4574  4574 W ziparchive: Unable to open '/data/app/~~emN9z2oj7b64dasYhQbl7A==/com.fentanest.mysafetyreport.demorc-7q2BH8HdIOQKJcUZJZiSkw==/base.dm': No such file or directory
+10-07 00:22:55.806  4574  4574 D nativeloader: Configuring clns-7 for other apk /data/app/~~emN9z2oj7b64dasYhQbl7A==/com.fentanest.mysafetyreport.demorc-7q2BH8HdIOQKJcUZJZiSkw==/base.apk. target_sdk_version=36, uses_libraries=, library_path=/data/app/~~emN9z2oj7b64dasYhQbl7A==/com.fentanest.mysafetyreport.demorc-7q2BH8HdIOQKJcUZJZiSkw==/lib/x86_64:/data/app/~~emN9z2oj7b64dasYhQbl7A==/com.fentanest.mysafetyreport.demorc-7q2BH8HdIOQKJcUZJZiSkw==/base.apk!/lib/x86_64, permitted_path=/data:/mnt/expand:/data/user/0/com.fentanest.mysafetyreport.demorc
+10-07 00:22:55.844  4574  4574 V GraphicsEnvironment: Currently set values for:
+10-07 00:22:55.844  4574  4574 V GraphicsEnvironment:   angle_gl_driver_selection_pkgs=[]
+10-07 00:22:55.844  4574  4574 V GraphicsEnvironment:   angle_gl_driver_selection_values=[]
+10-07 00:22:55.845  4574  4574 V GraphicsEnvironment: Global.Settings values are invalid: number of packages: 0, number of values: 0
+10-07 00:22:55.845  4574  4574 V GraphicsEnvironment: Neither updatable production driver nor prerelease driver is supported.
+10-07 00:22:55.888  4574  4574 D WM-WrkMgrInitializer: Initializing WorkManager with default configuration.
+10-07 00:22:56.036  4574  4574 D WM-PackageManagerHelper: Skipping component enablement for androidx.work.impl.background.systemjob.SystemJobService
+10-07 00:22:56.036  4574  4574 D WM-Schedulers: Created SystemJobScheduler and enabled SystemJobService
+10-07 00:22:56.044  4574  4647 D WM-ForceStopRunnable: The default process name was not specified.
+10-07 00:22:56.050  4574  4647 D WM-ForceStopRunnable: Performing cleanup operations.
+10-07 00:22:56.395  4574  4647 D WM-ForceStopRunnable: Application was force-stopped, rescheduling.
+10-07 00:22:56.470  4574  4669 D WM-PackageManagerHelper: Skipping component enablement for androidx.work.impl.background.systemalarm.RescheduleReceiver
+10-07 00:22:56.622  4574  4687 D FlutterJNI: Beginning load of flutter...
+10-07 00:22:56.648  4574  4688 I ResourceExtractor: Resource version mismatch res_timestamp-35-1791300025651
+10-07 00:22:57.024  4574  4687 D nativeloader: Load /data/app/~~emN9z2oj7b64dasYhQbl7A==/com.fentanest.mysafetyreport.demorc-7q2BH8HdIOQKJcUZJZiSkw==/base.apk!/lib/x86_64/libflutter.so using ns clns-7 from class loader (caller=/data/app/~~emN9z2oj7b64dasYhQbl7A==/com.fentanest.mysafetyreport.demorc-7q2BH8HdIOQKJcUZJZiSkw==/base.apk!classes20.dex): ok
+10-07 00:22:57.029  4574  4687 D FlutterJNI: flutter (null) was loaded normally!
+10-07 00:22:57.062  4574  4700 D skia    : [SkFontMgr Android Parser] '/product/etc/fonts_customization.xml' could not be opened
+10-07 00:23:00.321  4574  4688 I ResourceExtractor: Extracted baseline resource assets/flutter_assets/kernel_blob.bin
+10-07 00:23:00.323  4574  4688 I ResourceExtractor: Extracted baseline resource assets/flutter_assets/vm_snapshot_data
+10-07 00:23:00.413  4574  4688 I ResourceExtractor: Extracted baseline resource assets/flutter_assets/isolate_snapshot_data
+10-07 00:23:00.456  4574  4786 I EGL_emulation: Opening libGLESv1_CM_emulation.so
+10-07 00:23:00.457  4574  4786 I EGL_emulation: Opening libGLESv2_emulation.so
+10-07 00:23:00.440  4574  4574 W tyreport.demorc: type=1400 audit(0.0:52): avc:  denied  { read } for  name="max_map_count" dev="proc" ino=34890 scontext=u:r:untrusted_app:s0:c211,c256,c512,c768 tcontext=u:object_r:proc_max_map_count:s0 tclass=file permissive=0 app=com.fentanest.mysafetyreport.demorc
+10-07 00:23:00.528  4574  4786 I flutter : [IMPORTANT:flutter/shell/platform/android/android_context_gl_impeller.cc(104)] Using the Impeller rendering backend (OpenGLES).
+10-07 00:23:04.587  4574  4574 D FlutterGeolocator: Attaching Geolocator to activity
+10-07 00:23:04.596  4574  4574 D nativeloader: Load /data/app/~~emN9z2oj7b64dasYhQbl7A==/com.fentanest.mysafetyreport.demorc-7q2BH8HdIOQKJcUZJZiSkw==/base.apk!/lib/x86_64/libdartjni.so using ns clns-7 from class loader (caller=/data/app/~~emN9z2oj7b64dasYhQbl7A==/com.fentanest.mysafetyreport.demorc-7q2BH8HdIOQKJcUZJZiSkw==/base.apk!classes10.dex): ok
+10-07 00:23:04.740  4574  4574 W tyreport.demorc: Accessing hidden method Landroid/view/accessibility/AccessibilityNodeInfo;->getSourceNodeId()J (unsupported,test-api, reflection, allowed)
+10-07 00:23:04.742  4574  4574 W tyreport.demorc: Accessing hidden method Landroid/view/accessibility/AccessibilityRecord;->getSourceNodeId()J (unsupported, reflection, allowed)
+10-07 00:23:04.743  4574  4574 W tyreport.demorc: Accessing hidden field Landroid/view/accessibility/AccessibilityNodeInfo;->mChildNodeIds:Landroid/util/LongArray; (unsupported, reflection, allowed)
+10-07 00:23:04.743  4574  4574 W tyreport.demorc: Accessing hidden method Landroid/util/LongArray;->get(I)J (unsupported, reflection, allowed)
+10-07 00:23:04.754  4574  4574 D AccessibilityBridge: Setting not found: accessibility_display_inversion_enabled, using default: 0
+10-07 00:23:04.868  4574  4574 D FlutterRenderer: Width is zero. 0,0
+10-07 00:23:04.894  4574  4574 W HWUI    : Unknown dataspace 0
+10-07 00:23:05.133  4574  4574 D FlutterGeolocator: Creating service.
+10-07 00:23:05.133  4574  4849 D ProfileInstaller: Installing profile for com.fentanest.mysafetyreport.demorc
+10-07 00:23:05.133  4574  4574 D FlutterGeolocator: Binding to location service.
+10-07 00:23:05.140  4574  4574 W WsService: WsService stop requested
+10-07 00:23:05.151  4574  4574 I WindowExtensionsImpl: Initializing Window Extensions, vendor API level=6, activity embedding enabled=true
+10-07 00:23:05.177  4574  4574 D FlutterRenderer: Width is zero. 0,0
+10-07 00:23:05.195  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:05.198  4574  4618 I tyreport.demorc: Compiler allocated 5174KB to compile void android.view.ViewRootImpl.performTraversals()
+10-07 00:23:05.204  4574  4649 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+10-07 00:23:05.227  4574  4618 I tyreport.demorc: Compiler allocated 5417KB to compile void android.view.ViewRootImpl.performTraversals()
+10-07 00:23:05.228  4574  4786 I Gralloc4: mapper 4.x is not supported
+10-07 00:23:07.506  4574  4574 D FlutterGeolocator: Geolocator foreground service connected
+10-07 00:23:07.507  4574  4574 D FlutterGeolocator: Initializing Geolocator services
+10-07 00:23:07.507  4574  4574 D FlutterGeolocator: Flutter engine connected. Connected engine count 1
+10-07 00:23:07.567  4574  4574 I Choreographer: Skipped 143 frames!  The application may be doing too much work on its main thread.
+10-07 00:23:07.690  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:07.702  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:08.318  4574  4620 I tyreport.demorc: Background concurrent mark compact GC freed 3695KB AllocSpace bytes, 11(380KB) LOS objects, 49% free, 4481KB/8962KB, paused 202us,7.859ms total 197.437ms
+10-07 00:23:08.398  4574  4833 D FlutterSecureStorage: No data found in EncryptedSharedPreferences.
+10-07 00:23:09.843  4574  4861 D SharedPreferencesImpl: Time required to fsync /data/user/0/com.fentanest.mysafetyreport.demorc/shared_prefs/flutter_workmanager_plugin.xml: [<1: 0, <2: 0, <4: 0, <8: 0, <16: 0, <32: 0, <64: 0, <128: 0, <256: 0, <512: 1, <1024: 0, <2048: 0, <4096: 0, <8192: 0, <16384: 0, >=16384: 0]
+10-07 00:23:10.064  4574  4574 I Choreographer: Skipped 58 frames!  The application may be doing too much work on its main thread.
+10-07 00:23:13.526  4574  4574 I Choreographer: Skipped 98 frames!  The application may be doing too much work on its main thread.
+10-07 00:23:13.681  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:15.312  4574  4649 D EGL_emulation: app_time_stats: avg=552.83ms min=34.82ms max=1070.84ms count=2
+10-07 00:23:15.318  4574  4786 D EGL_emulation: app_time_stats: avg=398.11ms min=61.80ms max=1026.12ms count=4
+10-07 00:23:16.340  4574  4786 D EGL_emulation: app_time_stats: avg=1021.61ms min=1021.61ms max=1021.61ms count=1
+10-07 00:23:16.356  4574  4649 D EGL_emulation: app_time_stats: avg=1043.97ms min=1043.97ms max=1043.97ms count=1
+10-07 00:23:20.258  4574  4649 D EGL_emulation: app_time_stats: avg=3901.34ms min=3901.34ms max=3901.34ms count=1
+10-07 00:23:20.309  4574  4786 D EGL_emulation: app_time_stats: avg=1977.91ms min=27.73ms max=3928.08ms count=2
+10-07 00:23:21.565  4574  4786 D EGL_emulation: app_time_stats: avg=1256.23ms min=1256.23ms max=1256.23ms count=1
+10-07 00:23:21.582  4574  4649 D EGL_emulation: app_time_stats: avg=1322.58ms min=1322.58ms max=1322.58ms count=1
+10-07 00:23:23.419  4574  4574 I Choreographer: Skipped 35 frames!  The application may be doing too much work on its main thread.
+10-07 00:23:23.623  4574  4786 D EGL_emulation: app_time_stats: avg=1017.64ms min=39.32ms max=1995.97ms count=2
+10-07 00:23:24.038  4574  4649 D EGL_emulation: app_time_stats: avg=2455.78ms min=2455.78ms max=2455.78ms count=1
+10-07 00:23:25.149  4574  4649 D EGL_emulation: app_time_stats: avg=1111.18ms min=1111.18ms max=1111.18ms count=1
+10-07 00:23:25.156  4574  4786 D EGL_emulation: app_time_stats: avg=303.12ms min=37.09ms max=1096.48ms count=5
+10-07 00:23:26.200  4574  4786 D EGL_emulation: app_time_stats: avg=1043.85ms min=1043.85ms max=1043.85ms count=1
+10-07 00:23:26.235  4574  4574 I ImeTracker: com.fentanest.mysafetyreport.demorc:dfc806d2: onRequestShow at ORIGIN_CLIENT reason SHOW_SOFT_INPUT fromUser false
+10-07 00:23:26.307  4574  4574 D InputMethodManager: showSoftInput() view=io.flutter.embedding.android.FlutterView{e379907 VFE...... .F....ID 0,0-1080,2400 #2 aid=1073741824} flags=0 reason=SHOW_SOFT_INPUT
+10-07 00:23:26.526  4574  4574 D InputConnectionAdaptor: The input method toggled cursor monitoring on
+10-07 00:23:26.531  4574  4649 D EGL_emulation: app_time_stats: avg=1382.38ms min=1382.38ms max=1382.38ms count=1
+10-07 00:23:26.552  4574  4574 I AssistStructure: Flattened final assist data: 444 bytes, containing 1 windows, 3 views
+10-07 00:23:27.624  4574  4786 D EGL_emulation: app_time_stats: avg=284.78ms min=34.38ms max=510.70ms count=5
+10-07 00:23:29.005  4574  4786 D EGL_emulation: app_time_stats: avg=689.70ms min=674.38ms max=705.01ms count=2
+10-07 00:23:29.501  4574  4574 D InsetsController: show(ime(), fromIme=true)
+10-07 00:23:29.617  4574  4574 W InteractionJankMonitor: Initializing without READ_DEVICE_CONFIG permission. enabled=false, interval=1, missedFrameThreshold=3, frameTimeThreshold=64, package=com.fentanest.mysafetyreport.demorc
+10-07 00:23:29.644  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:29.692  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:29.710  4574  4649 D EGL_emulation: app_time_stats: avg=3178.63ms min=3178.63ms max=3178.63ms count=1
+10-07 00:23:29.739  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:29.764  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:29.997  4574  4574 I ImeTracker: com.fentanest.mysafetyreport.demorc:dfc806d2: onShown
+10-07 00:23:30.000  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:30.001  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:30.138  4574  4786 D EGL_emulation: app_time_stats: avg=282.81ms min=141.65ms max=523.89ms count=4
+10-07 00:23:31.202  4574  4786 D EGL_emulation: app_time_stats: avg=195.59ms min=13.63ms max=576.90ms count=5
+10-07 00:23:32.275  4574  4786 D EGL_emulation: app_time_stats: avg=526.25ms min=487.08ms max=565.43ms count=2
+10-07 00:23:32.347  4574  4574 D InsetsController: hide(ime(), fromIme=true)
+10-07 00:23:32.368  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:32.385  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:32.402  4574  4649 D EGL_emulation: app_time_stats: avg=520.08ms min=11.36ms max=2360.18ms count=5
+10-07 00:23:32.464  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:32.545  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:32.639  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:32.716  4574  4574 I ImeTracker: com.fentanest.mysafetyreport.demorc:179dde0d: onRequestHide at ORIGIN_CLIENT reason HIDE_SOFT_INPUT_ON_ANIMATION_STATE_CHANGED fromUser false
+10-07 00:23:32.855  4574  4574 I ImeTracker: com.google.android.inputmethod.latin:fd36aa19: onHidden
+10-07 00:23:32.856  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:32.857  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:33.149  4574  4574 D InputConnectionAdaptor: The input method toggled cursor monitoring on
+10-07 00:23:33.278  4574  4786 D EGL_emulation: app_time_stats: avg=160.66ms min=28.27ms max=365.65ms count=6
+10-07 00:23:34.727  4574  4786 D EGL_emulation: app_time_stats: avg=481.70ms min=411.32ms max=527.81ms count=3
+10-07 00:23:35.733  4574  4786 D EGL_emulation: app_time_stats: avg=502.82ms min=492.41ms max=513.24ms count=2
+10-07 00:23:36.145  4574  4649 D EGL_emulation: app_time_stats: avg=610.01ms min=30.11ms max=3167.02ms count=6
+10-07 00:23:37.189  4574  4786 D EGL_emulation: app_time_stats: avg=356.04ms min=49.06ms max=502.04ms count=4
+10-07 00:23:37.272  4574  4649 D EGL_emulation: app_time_stats: avg=1126.54ms min=1126.54ms max=1126.54ms count=1
+10-07 00:23:38.203  4574  4574 I ImeTracker: com.fentanest.mysafetyreport.demorc:f8b94c89: onRequestShow at ORIGIN_CLIENT reason SHOW_SOFT_INPUT fromUser false
+10-07 00:23:38.204  4574  4574 D InputMethodManager: showSoftInput() view=io.flutter.embedding.android.FlutterView{e379907 VFE...... .F...... 0,0-1080,2400 #2 aid=1073741824} flags=0 reason=SHOW_SOFT_INPUT
+10-07 00:23:38.211  4574  4786 D EGL_emulation: app_time_stats: avg=251.21ms min=29.44ms max=520.63ms count=4
+10-07 00:23:38.247  4574  4574 D InputConnectionAdaptor: The input method toggled cursor monitoring on
+10-07 00:23:38.253  4574  4574 I AssistStructure: Flattened final assist data: 444 bytes, containing 1 windows, 3 views
+10-07 00:23:38.492  4574  4574 D InsetsController: show(ime(), fromIme=true)
+10-07 00:23:38.500  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:38.521  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:38.530  4574  4649 D EGL_emulation: app_time_stats: avg=1258.51ms min=1258.51ms max=1258.51ms count=1
+10-07 00:23:38.583  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:38.632  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:38.718  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:38.815  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:38.901  4574  4574 I ImeTracker: com.fentanest.mysafetyreport.demorc:f8b94c89: onShown
+10-07 00:23:38.901  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:38.902  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:38.929  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:39.274  4574  4786 D EGL_emulation: app_time_stats: avg=86.91ms min=27.93ms max=218.11ms count=11
+10-07 00:23:39.470  4574  4574 D InsetsController: hide(ime(), fromIme=true)
+10-07 00:23:39.479  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:39.525  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:39.554  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:39.596  4574  4649 D EGL_emulation: app_time_stats: avg=115.82ms min=53.96ms max=453.70ms count=8
+10-07 00:23:39.604  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:39.720  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:39.764  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:39.881  4574  4574 I ImeTracker: com.fentanest.mysafetyreport.demorc:29a8b56f: onRequestHide at ORIGIN_CLIENT reason HIDE_SOFT_INPUT_ON_ANIMATION_STATE_CHANGED fromUser false
+10-07 00:23:39.883  4574  4574 I ImeTracker: com.google.android.inputmethod.latin:e2d6a1cf: onHidden
+10-07 00:23:39.885  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:39.886  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:23:39.943  4574  4574 D InputConnectionAdaptor: The input method toggled cursor monitoring on
+10-07 00:23:40.281  4574  4786 D EGL_emulation: app_time_stats: avg=122.04ms min=24.48ms max=198.80ms count=8
+10-07 00:23:41.300  4574  4649 D EGL_emulation: app_time_stats: avg=216.91ms min=7.15ms max=1029.60ms count=7
+10-07 00:23:41.307  4574  4786 D EGL_emulation: app_time_stats: avg=342.03ms min=119.02ms max=503.62ms count=3
+10-07 00:23:42.832  4574  4786 D EGL_emulation: app_time_stats: avg=507.73ms min=113.93ms max=938.17ms count=3
+10-07 00:23:43.903  4574  4786 D EGL_emulation: app_time_stats: avg=324.20ms min=114.28ms max=484.18ms count=3
+10-07 00:23:44.914  4574  4786 D EGL_emulation: app_time_stats: avg=505.49ms min=482.12ms max=528.87ms count=2
+10-07 00:23:45.917  4574  4786 D EGL_emulation: app_time_stats: avg=501.07ms min=481.21ms max=520.92ms count=2
+10-07 00:23:46.129  4574  4649 D EGL_emulation: app_time_stats: avg=4829.39ms min=4829.39ms max=4829.39ms count=1
+10-07 00:23:47.455  4574  4786 D EGL_emulation: app_time_stats: avg=384.55ms min=211.46ms max=560.59ms count=4
+10-07 00:23:47.478  4574  4649 D EGL_emulation: app_time_stats: avg=1348.61ms min=1348.61ms max=1348.61ms count=1
+10-07 00:23:48.468  4574  4786 D EGL_emulation: app_time_stats: avg=336.37ms min=179.08ms max=567.15ms count=3
+10-07 00:23:49.898  4574  4786 D EGL_emulation: app_time_stats: avg=476.46ms min=453.06ms max=490.57ms count=3
+10-07 00:23:50.078  4574  4649 D EGL_emulation: app_time_stats: avg=2599.45ms min=2599.45ms max=2599.45ms count=1
+10-07 00:23:50.905  4574  4786 D EGL_emulation: app_time_stats: avg=334.46ms min=175.85ms max=488.25ms count=3
+10-07 00:23:51.144  4574  4649 D EGL_emulation: app_time_stats: avg=1065.96ms min=1065.96ms max=1065.96ms count=1
+10-07 00:23:51.911  4574  4786 D EGL_emulation: app_time_stats: avg=335.27ms min=179.20ms max=501.76ms count=3
+10-07 00:23:52.818  4574  4574 I ImeTracker: com.fentanest.mysafetyreport.demorc:5ae41c8c: onRequestHide at ORIGIN_CLIENT reason HIDE_SOFT_INPUT fromUser false
+10-07 00:23:52.938  4574  4786 D EGL_emulation: app_time_stats: avg=342.20ms min=145.15ms max=684.06ms count=3
+10-07 00:23:53.837  4574  4649 D EGL_emulation: app_time_stats: avg=2693.15ms min=2693.15ms max=2693.15ms count=1
+10-07 00:23:53.959  4574  4786 D EGL_emulation: app_time_stats: avg=63.65ms min=28.41ms max=113.42ms count=10
+10-07 00:23:55.005  4574  4649 D EGL_emulation: app_time_stats: avg=1167.91ms min=1167.91ms max=1167.91ms count=1
+10-07 00:23:55.035  4574  4786 D EGL_emulation: app_time_stats: avg=40.82ms min=22.39ms max=75.82ms count=12
+10-07 00:23:56.048  4574  4786 D EGL_emulation: app_time_stats: avg=39.40ms min=20.49ms max=66.68ms count=12
+10-07 00:23:57.103  4574  4786 D EGL_emulation: app_time_stats: avg=47.03ms min=26.09ms max=73.21ms count=12
+10-07 00:23:57.769  4574  4649 D EGL_emulation: app_time_stats: avg=2764.28ms min=2764.28ms max=2764.28ms count=1
+10-07 00:23:58.116  4574  4786 D EGL_emulation: app_time_stats: avg=37.21ms min=20.32ms max=71.28ms count=12
+10-07 00:23:58.893  4574  4649 D EGL_emulation: app_time_stats: avg=1123.36ms min=1123.36ms max=1123.36ms count=1
+10-07 00:23:59.163  4574  4786 D EGL_emulation: app_time_stats: avg=34.69ms min=19.28ms max=56.77ms count=14
+10-07 00:24:00.179  4574  4786 D EGL_emulation: app_time_stats: avg=44.68ms min=17.54ms max=76.33ms count=13
+10-07 00:24:01.185  4574  4786 D EGL_emulation: app_time_stats: avg=47.33ms min=19.64ms max=69.83ms count=10
+10-07 00:24:01.932  4574  4649 D EGL_emulation: app_time_stats: avg=3038.59ms min=3038.59ms max=3038.59ms count=1
+10-07 00:24:02.105  4574  4620 I tyreport.demorc: Background concurrent mark compact GC freed 3308KB AllocSpace bytes, 23(1024KB) LOS objects, 49% free, 4217KB/8435KB, paused 115us,8.115ms total 334.659ms
+10-07 00:24:02.135  4574  4622 W tyreport.demorc: ApkAssets: Deleting an ApkAssets object '<empty> and /product/app/talkback/talkback.apk' with 1 weak references
+10-07 00:24:02.150  4574  4622 W tyreport.demorc: ApkAssets: Deleting an ApkAssets object '/vendor/overlay/EmulatorTalkBackOverlay/EmulatorTalkBackOverlay.apk' with 1 weak references
+10-07 00:24:02.152  4574  4622 W tyreport.demorc: ApkAssets: Deleting an ApkAssets object '<empty> and /data/app/~~z8YlXoh8iPj-ipx70q5Sjg==/com.google.android.googlequicksearchbox-P1ay2VZH9seCe-islrvo2g==/base.apk' with 1 weak references
+10-07 00:24:02.193  4574  4622 W tyreport.demorc: ApkAssets: Deleting an ApkAssets object '<empty> and /data/app/~~z8YlXoh8iPj-ipx70q5Sjg==/com.google.android.googlequicksearchbox-P1ay2VZH9seCe-islrvo2g==/split_config.xxhdpi.apk' with 1 weak references
+10-07 00:24:02.193  4574  4622 W tyreport.demorc: ApkAssets: Deleting an ApkAssets object '<empty> and /data/app/~~z8YlXoh8iPj-ipx70q5Sjg==/com.google.android.googlequicksearchbox-P1ay2VZH9seCe-islrvo2g==/split_lens_ondevice_engine_play_ml_module.apk' with 1 weak references
+10-07 00:24:02.215  4574  4786 D EGL_emulation: app_time_stats: avg=83.08ms min=42.58ms max=125.31ms count=8
+10-07 00:24:03.031  4574  4864 E SQLiteLog: (5) statement aborts at 2: [PRAGMA journal_mode=TRUNCATE] database is locked
+10-07 00:24:03.038  4574  4864 W SQLiteConnection: Could not change the database journal mode of '/data/user/0/com.fentanest.mysafetyreport.demorc/databases/standalone_reports_demo.db' from 'wal' to 'TRUNCATE' because the database is locked.  This usually means that there are other open connections to the database which prevents the database from enabling or disabling write-ahead logging mode.  Proceeding without changing the journal mode.
+10-07 00:24:03.134  4574  4649 D EGL_emulation: app_time_stats: avg=1202.79ms min=1202.79ms max=1202.79ms count=1
+10-07 00:24:03.264  4574  4786 D EGL_emulation: app_time_stats: avg=81.69ms min=37.51ms max=140.44ms count=9
+10-07 00:24:04.355  4574  4574 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:24:04.391  4574  4786 D EGL_emulation: app_time_stats: avg=111.75ms min=20.73ms max=512.81ms count=8
+10-07 00:24:05.575  4574  4649 D EGL_emulation: app_time_stats: avg=2439.93ms min=2439.93ms max=2439.93ms count=1
+10-07 00:24:05.627  4574  4786 D EGL_emulation: app_time_stats: avg=171.29ms min=39.30ms max=529.95ms count=6
+10-07 00:24:06.809  4574  4786 D EGL_emulation: app_time_stats: avg=1182.18ms min=1182.18ms max=1182.18ms count=1
+10-07 00:24:06.822  4574  4649 D EGL_emulation: app_time_stats: avg=1247.78ms min=1247.78ms max=1247.78ms count=1
+10-07 00:24:07.913  4574  4649 D EGL_emulation: app_time_stats: avg=1090.43ms min=1090.43ms max=1090.43ms count=1
+10-07 00:24:07.950  4574  4786 D EGL_emulation: app_time_stats: avg=528.59ms min=69.81ms max=987.38ms count=2
+10-07 00:24:09.003  4574  4649 D EGL_emulation: app_time_stats: avg=1089.89ms min=1089.89ms max=1089.89ms count=1
+10-07 00:24:09.026  4574  4786 D EGL_emulation: app_time_stats: avg=1076.34ms min=1076.34ms max=1076.34ms count=1
+10-07 00:24:13.717  4574  4649 D EGL_emulation: app_time_stats: avg=4713.60ms min=4713.60ms max=4713.60ms count=1
+10-07 00:24:13.828  4574  4786 D EGL_emulation: app_time_stats: avg=2370.21ms min=49.27ms max=4691.14ms count=2
+10-07 00:24:15.153  4574  4649 D EGL_emulation: app_time_stats: avg=1434.54ms min=1434.54ms max=1434.54ms count=1
+10-07 00:24:15.189  4574  4786 D EGL_emulation: app_time_stats: avg=1361.33ms min=1361.33ms max=1361.33ms count=1
+10-07 00:24:17.020  4574  4574 W WindowOnBackDispatcher: OnBackInvokedCallback is not enabled for the application.
+10-07 00:24:17.020  4574  4574 W WindowOnBackDispatcher: Set 'android:enableOnBackInvokedCallback="true"' in the application manifest.
+10-07 00:24:17.052  4574  4786 D EGL_emulation: app_time_stats: avg=893.93ms min=98.72ms max=1689.15ms count=2
+10-07 00:24:17.994  4574  4649 D EGL_emulation: app_time_stats: avg=2841.03ms min=2841.03ms max=2841.03ms count=1
+10-07 00:24:19.036  4574  4786 D EGL_emulation: app_time_stats: avg=285.56ms min=40.15ms max=1034.75ms count=6
+10-07 00:24:19.083  4574  4649 D EGL_emulation: app_time_stats: avg=1086.81ms min=1086.81ms max=1086.81ms count=1
+10-07 00:24:23.987  4574  4649 D EGL_emulation: app_time_stats: avg=4903.27ms min=4903.27ms max=4903.27ms count=1
+10-07 00:24:24.085  4574  4786 D EGL_emulation: app_time_stats: avg=2524.05ms min=103.41ms max=4944.69ms count=2
+10-07 00:24:25.606  4574  4649 D EGL_emulation: app_time_stats: avg=1618.28ms min=1618.28ms max=1618.28ms count=1
+10-07 00:24:25.613  4574  4786 D EGL_emulation: app_time_stats: avg=1528.86ms min=1528.86ms max=1528.86ms count=1
+10-07 00:24:27.007  4574  4786 D EGL_emulation: app_time_stats: avg=631.38ms min=70.39ms max=1192.37ms count=2
+10-07 00:24:27.939  4574  4649 D EGL_emulation: app_time_stats: avg=2333.50ms min=2333.50ms max=2333.50ms count=1
+10-07 00:24:29.125  4574  4649 D EGL_emulation: app_time_stats: avg=1185.66ms min=1185.66ms max=1185.66ms count=1
+10-07 00:24:29.191  4574  4786 D EGL_emulation: app_time_stats: avg=292.62ms min=41.61ms max=1195.72ms count=7
+10-07 00:24:34.087  4574  4649 D EGL_emulation: app_time_stats: avg=4951.46ms min=4951.46ms max=4951.46ms count=1
+10-07 00:24:34.279  4574  4786 D EGL_emulation: app_time_stats: avg=2499.76ms min=70.94ms max=4928.59ms count=2
+10-07 00:24:36.169  4574  4649 D EGL_emulation: app_time_stats: avg=2081.49ms min=2081.49ms max=2081.49ms count=1
+10-07 00:24:36.188  4574  4786 D EGL_emulation: app_time_stats: avg=1908.71ms min=1908.71ms max=1908.71ms count=1
+10-07 00:24:37.286  4574  4786 D EGL_emulation: app_time_stats: avg=502.59ms min=99.83ms max=905.35ms count=2
+10-07 00:24:38.801  4574  4786 D EGL_emulation: app_time_stats: avg=183.55ms min=23.39ms max=798.76ms count=7
+10-07 00:27:12.991  4574  4649 D EGL_emulation: app_time_stats: avg=156821.69ms min=156821.69ms max=156821.69ms count=1
+10-07 00:27:13.075  4574  4786 D EGL_emulation: app_time_stats: avg=77118.74ms min=47.47ms max=154190.02ms count=2
+10-07 00:27:14.094  4574  4649 D EGL_emulation: app_time_stats: avg=1102.83ms min=1102.83ms max=1102.83ms count=1
+10-07 00:27:14.110  4574  4786 D EGL_emulation: app_time_stats: avg=1034.96ms min=1034.96ms max=1034.96ms count=1
+10-07 00:27:15.119  4574  4786 D EGL_emulation: app_time_stats: avg=504.43ms min=20.03ms max=988.82ms count=2
+10-07 00:27:15.957  4574  4649 D EGL_emulation: app_time_stats: avg=1863.21ms min=1863.21ms max=1863.21ms count=1
+10-07 00:27:17.035  4574  4649 D EGL_emulation: app_time_stats: avg=1078.08ms min=1078.08ms max=1078.08ms count=1
+10-07 00:27:17.056  4574  4786 D EGL_emulation: app_time_stats: avg=159.60ms min=34.43ms max=1062.59ms count=11
+10-07 00:27:20.935  4574  4649 D EGL_emulation: app_time_stats: avg=3898.57ms min=3898.57ms max=3898.57ms count=1
+10-07 00:27:21.047  4574  4786 D EGL_emulation: app_time_stats: avg=3991.06ms min=3991.06ms max=3991.06ms count=1
+10-07 00:27:22.416  4574  4786 D EGL_emulation: app_time_stats: avg=1368.68ms min=1368.68ms max=1368.68ms count=1
+10-07 00:27:22.418  4574  4649 D EGL_emulation: app_time_stats: avg=1482.16ms min=1482.16ms max=1482.16ms count=1
+10-07 00:27:23.498  4574  4786 D EGL_emulation: app_time_stats: avg=541.10ms min=80.68ms max=1001.52ms count=2
+10-07 00:27:24.351  4574  4649 D EGL_emulation: app_time_stats: avg=1933.55ms min=1933.55ms max=1933.55ms count=1
+10-07 00:27:25.440  4574  4786 D EGL_emulation: app_time_stats: avg=160.30ms min=26.02ms max=1056.13ms count=11
+10-07 00:27:25.452  4574  4649 D EGL_emulation: app_time_stats: avg=1100.57ms min=1100.57ms max=1100.57ms count=1
+10-07 00:27:29.442  4574  4649 D EGL_emulation: app_time_stats: avg=3989.39ms min=3989.39ms max=3989.39ms count=1
+10-07 00:27:29.597  4574  4786 D EGL_emulation: app_time_stats: avg=2078.32ms min=78.48ms max=4078.16ms count=2
+10-07 00:27:29.985  4574  4620 I tyreport.demorc: Background concurrent mark compact GC freed 3016KB AllocSpace bytes, 23(1004KB) LOS objects, 49% free, 4297KB/8595KB, paused 345us,6.612ms total 352.167ms
+10-07 00:27:29.994  4574  4622 W tyreport.demorc: ApkAssets: Deleting an ApkAssets object '<empty> and /product/app/talkback/talkback.apk' with 1 weak references
+10-07 00:27:29.997  4574  4622 W tyreport.demorc: ApkAssets: Deleting an ApkAssets object '/vendor/overlay/EmulatorTalkBackOverlay/EmulatorTalkBackOverlay.apk' with 1 weak references
+10-07 00:27:29.999  4574  4622 W tyreport.demorc: ApkAssets: Deleting an ApkAssets object '<empty> and /data/app/~~z8YlXoh8iPj-ipx70q5Sjg==/com.google.android.googlequicksearchbox-P1ay2VZH9seCe-islrvo2g==/base.apk' with 1 weak references
+10-07 00:27:30.002  4574  4622 W tyreport.demorc: ApkAssets: Deleting an ApkAssets object '<empty> and /data/app/~~z8YlXoh8iPj-ipx70q5Sjg==/com.google.android.googlequicksearchbox-P1ay2VZH9seCe-islrvo2g==/split_config.xxhdpi.apk' with 1 weak references
+10-07 00:27:30.002  4574  4622 W tyreport.demorc: ApkAssets: Deleting an ApkAssets object '<empty> and /data/app/~~z8YlXoh8iPj-ipx70q5Sjg==/com.google.android.googlequicksearchbox-P1ay2VZH9seCe-islrvo2g==/split_lens_ondevice_engine_play_ml_module.apk' with 1 weak references
+10-07 00:27:30.930  4574  4786 D EGL_emulation: app_time_stats: avg=1333.03ms min=1333.03ms max=1333.03ms count=1
+10-07 00:27:30.939  4574  4649 D EGL_emulation: app_time_stats: avg=1497.03ms min=1497.03ms max=1497.03ms count=1
+10-07 00:27:31.978  4574  4786 D EGL_emulation: app_time_stats: avg=523.55ms min=54.29ms max=992.81ms count=2
+10-07 00:27:32.760  4574  4649 D EGL_emulation: app_time_stats: avg=1820.72ms min=1820.72ms max=1820.72ms count=1
+10-07 00:27:33.937  4574  4649 D EGL_emulation: app_time_stats: avg=1176.42ms min=1176.42ms max=1176.42ms count=1
+10-07 00:27:33.941  4574  4786 D EGL_emulation: app_time_stats: avg=156.14ms min=41.20ms max=1146.15ms count=12
+10-07 00:27:37.745  4574  4649 D EGL_emulation: app_time_stats: avg=3807.94ms min=3807.94ms max=3807.94ms count=1
+10-07 00:27:37.852  4574  4786 D EGL_emulation: app_time_stats: avg=1955.17ms min=75.89ms max=3834.45ms count=2
+10-07 00:27:39.291  4574  4786 D EGL_emulation: app_time_stats: avg=1439.20ms min=1439.20ms max=1439.20ms count=1
+10-07 00:27:39.302  4574  4649 D EGL_emulation: app_time_stats: avg=1556.56ms min=1556.56ms max=1556.56ms count=1
+10-07 00:27:40.552  4574  4786 D EGL_emulation: app_time_stats: avg=630.20ms min=126.47ms max=1133.93ms count=2
+10-07 00:27:41.136  4574  4649 D EGL_emulation: app_time_stats: avg=1833.79ms min=1833.79ms max=1833.79ms count=1
+10-07 00:27:42.261  4574  4786 D EGL_emulation: app_time_stats: avg=226.81ms min=26.78ms max=1085.38ms count=7
+10-07 00:27:42.274  4574  4649 D EGL_emulation: app_time_stats: avg=1131.47ms min=1131.47ms max=1131.47ms count=1

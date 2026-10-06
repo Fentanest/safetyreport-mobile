@@ -1,12 +1,15 @@
 import 'services/client_compatibility.dart';
 import 'services/server_contract.dart';
+
 import 'dart:async';
 import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:workmanager/workmanager.dart';
+
 import 'screens/dashboard_screen.dart';
 import 'screens/report_list_screen.dart';
 import 'screens/report_management_screen.dart';
@@ -93,11 +96,15 @@ Future<void> main() async {
   ]);
   // 커뮤니티 계정(Standalone) 로그인 복귀 링크 — SetupScreen·설정 등 어느 화면에서든 받도록 앱 시작 때 등록.
   // 게이트 중에도 수신한다(게이트가 끝나면 상태가 반영된다). 세션 복원(load)이 끝난 뒤에 받는다.
+  final reportProvider = ReportProvider();
+  // 저장된 데모 모드를 첫 게이트 검사·인증 링크 처리 전에 확정한다.
+  await reportProvider.init();
   CommunityAuthLinkChannel.start((link) async {
-    await communityAuth.handleCallbackLink(link);
+    if (!reportProvider.isStandaloneDemo) {
+      await communityAuth.handleCallbackLink(link);
+    }
   });
   final CommunityStore? communityStore = await communityStoreFuture;
-  final reportProvider = ReportProvider()..init();
   final gate = CommunityGate(
     auth: communityAuth,
     store: communityStore,
@@ -235,7 +242,7 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
     final provider = context.read<ReportProvider>();
     final wasOpen = _gateWasOpen;
     _gateWasOpen = canEnter;
-    if (wasOpen && !canEnter) {
+    if (wasOpen && !canEnter && !provider.isStandaloneDemo) {
       provider.onGateBlocked();
       _returnToRoot();
     }
@@ -276,7 +283,9 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
       navigatorKey: communityAuthNavigatorKey,
       scaffoldMessengerKey: communityAuthMessengerKey,
       builder: (context, child) =>
-          CommunityAuthPrompt(child: child ?? const SizedBox.shrink()),
+          context.select<ReportProvider, bool>((p) => p.isStandaloneDemo)
+          ? (child ?? const SizedBox.shrink())
+          : CommunityAuthPrompt(child: child ?? const SizedBox.shrink()),
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
       themeMode: themeMode,
@@ -298,6 +307,7 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
           final provider = context.read<ReportProvider>();
           final gate = context.read<CommunityGate>();
           if (provider.isInitialized &&
+              !provider.isStandaloneDemo &&
               provider.appMode == AppMode.server &&
               provider.isConfigured) {
             return FutureBuilder<ServerConnectionResult>(
@@ -318,11 +328,12 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
     ServerConnectionResult? serverVersion,
   ) {
     // 최초 설정: 모드 선택 → 카카오 동의 → 공통 권한 → 해당 모드 설정.
-    // 데모도 카카오 인증·클라우드 확인 후 합성 자료 화면만 연다.
+    // 데모는 합성 자료만 쓰므로 인증·권한·서비스를 시작하지 않는다.
     if (!provider.isInitialized) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (provider.isConfigured) _initialModeChoice = null;
+    if (provider.isStandaloneDemo) return const MainNavigationScreen();
     if (!provider.isConfigured && _initialModeChoice == null) {
       return SetupScreen(
         onModeSelected: (mode) => setState(() => _initialModeChoice = mode),
@@ -365,7 +376,6 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
             : null,
       );
     }
-    if (provider.isStandaloneDemo) return const MainNavigationScreen();
     if (!provider.isConfigured) {
       return _SetupFlow(initialMode: _initialModeChoice);
     }
@@ -685,6 +695,9 @@ class MainNavigationScreen extends StatefulWidget {
 /// Provider 가 없으면(예전 테스트) 허용으로 둔다.
 bool communityNavAllowed(BuildContext context) {
   try {
+    if (Provider.of<ReportProvider>(context, listen: false).isStandaloneDemo) {
+      return true;
+    }
     return Provider.of<CommunityGate>(context, listen: false).canEnter;
   } catch (_) {
     return true;

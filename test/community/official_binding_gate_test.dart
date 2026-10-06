@@ -99,12 +99,27 @@ void main() {
 
   for (final mode in ['standalone', 'server', 'demo']) {
     test(
-      '$mode requires Kakao session and blocks cloud failure after authentication',
+      '$mode applies authentication and cloud checks only outside demo',
       () async {
         auth.setPhase(CommunityAccountPhase.disconnected);
         final g = gate(mode: mode);
         expect((await g.refreshNow()).canEnter, isFalse);
         expect(server.statusCalls, 0);
+        if (mode == 'demo') {
+          // 2.0.3의 '데모도 게이트 필수' 기대를 정정한다. UI는 직접 진입하고
+          // 커뮤니티 작업 권한은 열지 않으며 인증·클라우드 요청도 하지 않는다.
+          expect(g.state.state, 'demo_mode');
+          auth.setPhase(CommunityAccountPhase.connected);
+          localId = 'mismatching-account';
+          server.statusFailures = 10;
+          await g.refreshNow();
+          await g.requireFresh();
+          g.didChangeAppLifecycleState(AppLifecycleState.resumed);
+          await g.refreshNow();
+          expect(g.state.state, 'demo_mode');
+          expect(server.requests, isEmpty);
+          return;
+        }
         auth.setPhase(CommunityAccountPhase.connected);
         await g.refreshNow();
         expect(g.canEnter, isTrue);

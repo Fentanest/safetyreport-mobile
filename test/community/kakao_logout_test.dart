@@ -177,7 +177,8 @@ void main() {
     expect(gate.canEnter, isFalse, reason: '다른 모드에서 받은 통과로 들어가지 않는다(Codex 검수 P1)');
     expect((await gate.requireFresh()).state, 'db_owner_mismatch', reason: '새 작업 전 확인도 다시 한다');
     mode = 'demo';
-    expect((await gate.requireFresh()).canEnter, isTrue);
+    // 데모는 메인 UI에서 직접 허용하며 업로드용 freshness를 얻지 않는다.
+    expect((await gate.requireFresh()).state, 'demo_mode');
     mode = 'standalone';
     owner = 'ok';
     gate.onAppModeChanged();

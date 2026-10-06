@@ -1,0 +1,9 @@
+{
+  "standalone_reports_demo.db": {
+    "integrity_check": "ok",
+    "reports": 100
+  },
+  "community.db": {
+    "integrity_check": "ok"
+  }
+}

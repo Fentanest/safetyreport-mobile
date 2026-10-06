@@ -77,6 +77,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
        _projectNamespaceOverride = projectNamespace,
        _checkDataOwnerOverride = checkDataOwner {
     _observedDatasetGeneration = _datasetGeneration?.call();
+    _observedAppMode = this.appMode;
     WidgetsBinding.instance.addObserver(this);
     _authPhase = _auth.state.value.phase;
     _auth.state.addListener(_onAuthChanged);
@@ -84,6 +85,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
 
   final int Function()? _datasetGeneration;
   int? _observedDatasetGeneration;
+  late String _observedAppMode;
 
   late CommunityAccountPhase _authPhase;
 
@@ -310,6 +312,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void startPolling() {
+    if (appMode == 'demo') return;
     _pollTimer ??= Timer.periodic(const Duration(minutes: 5), (_) {
       if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
         unawaited(refreshNow(silent: true));
@@ -350,12 +353,17 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
 
   /// 실행 모드(Standalone·데모·Client)가 바뀌었을 수 있을 때(`ReportProvider` 변경 알림). 바뀌었으면 검사 중 화면을 보이고 다시 확인한다.
   void onAppModeChanged() {
+    final modeChanged = _observedAppMode != appMode;
+    _observedAppMode = appMode;
+    if (modeChanged && appMode != 'demo') startPolling();
     final generation = _datasetGeneration?.call();
     final changed = generation != _observedDatasetGeneration;
     _observedDatasetGeneration = generation;
     if (changed) _changingOfficialAccount = false;
     final passed = _passedMode;
-    if (!changed && (passed == null || passed == appMode)) return;
+    if (!changed && !modeChanged && (passed == null || passed == appMode)) {
+      return;
+    }
     _checked = false;
     _authGen++; // 이전 공식 계정으로 시작한 비동기 writer 확인도 무효화한다.
     invalidate(changed ? 'dataset_change' : 'mode_change');
@@ -544,6 +552,21 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   Future<GateState> _refresh({bool silent = false}) async {
     final authGen = _authGen;
     final checkedMode = appMode;
+    // 데모는 UI에서 직접 허용한다. 커뮤니티 게이트는 닫아 두어 작업·업로드
+    // 권한으로 오용되지 않게 하고 토큰 갱신·클라우드·계정 대조를 전혀 하지 않는다.
+    if (checkedMode == 'demo') {
+      stopPolling();
+      _passedMode = null;
+      _lastStatus = null;
+      _verifiedAt = null;
+      _invalidated = true;
+      _notice = null;
+      _apply(const GateState(state: 'demo_mode', canEnter: false));
+      await _deactivate('demo_mode');
+      _checked = true;
+      _notifyIfChanged();
+      return _state;
+    }
     if (_changingOfficialAccount) return _state;
     if (!silent) {
       _checking = true;

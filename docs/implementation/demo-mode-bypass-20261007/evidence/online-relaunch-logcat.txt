@@ -1,0 +1,63 @@
+--------- beginning of main
+10-07 00:27:46.438  5556  5556 I tyreport.demorc: Late-enabling -Xcheck:jni
+10-07 00:27:46.862  5556  5556 I tyreport.demorc: Using CollectorTypeCMC GC.
+10-07 00:27:46.869  5556  5556 W tyreport.demorc: Unexpected CPU variant for x86: x86_64.
+10-07 00:27:46.869  5556  5556 W tyreport.demorc: Known variants: atom, sandybridge, silvermont, goldmont, goldmont-plus, goldmont-without-sha-xsaves, tremont, kabylake, default
+10-07 00:27:46.965  5556  5556 D nativeloader: Load libframework-connectivity-tiramisu-jni.so using APEX ns com_android_tethering for caller /apex/com.android.tethering/javalib/framework-connectivity-t.jar: ok
+10-07 00:27:47.121  5556  5556 D ApplicationLoaders: Returning zygote-cached class loader: /system_ext/framework/androidx.window.extensions.jar
+10-07 00:27:47.121  5556  5556 D ApplicationLoaders: Returning zygote-cached class loader: /system_ext/framework/androidx.window.sidecar.jar
+10-07 00:27:47.122  5556  5556 W ziparchive: Unable to open '/data/app/~~emN9z2oj7b64dasYhQbl7A==/com.fentanest.mysafetyreport.demorc-7q2BH8HdIOQKJcUZJZiSkw==/base.dm': No such file or directory
+10-07 00:27:47.122  5556  5556 W ziparchive: Unable to open '/data/app/~~emN9z2oj7b64dasYhQbl7A==/com.fentanest.mysafetyreport.demorc-7q2BH8HdIOQKJcUZJZiSkw==/base.dm': No such file or directory
+10-07 00:27:48.541  5556  5556 D nativeloader: Configuring clns-7 for other apk /data/app/~~emN9z2oj7b64dasYhQbl7A==/com.fentanest.mysafetyreport.demorc-7q2BH8HdIOQKJcUZJZiSkw==/base.apk. target_sdk_version=36, uses_libraries=, library_path=/data/app/~~emN9z2oj7b64dasYhQbl7A==/com.fentanest.mysafetyreport.demorc-7q2BH8HdIOQKJcUZJZiSkw==/lib/x86_64:/data/app/~~emN9z2oj7b64dasYhQbl7A==/com.fentanest.mysafetyreport.demorc-7q2BH8HdIOQKJcUZJZiSkw==/base.apk!/lib/x86_64, permitted_path=/data:/mnt/expand:/data/user/0/com.fentanest.mysafetyreport.demorc
+10-07 00:27:48.597  5556  5556 V GraphicsEnvironment: Currently set values for:
+10-07 00:27:48.597  5556  5556 V GraphicsEnvironment:   angle_gl_driver_selection_pkgs=[]
+10-07 00:27:48.597  5556  5556 V GraphicsEnvironment:   angle_gl_driver_selection_values=[]
+10-07 00:27:48.597  5556  5556 V GraphicsEnvironment: Global.Settings values are invalid: number of packages: 0, number of values: 0
+10-07 00:27:48.598  5556  5556 V GraphicsEnvironment: Neither updatable production driver nor prerelease driver is supported.
+10-07 00:27:48.654  5556  5556 D WM-WrkMgrInitializer: Initializing WorkManager with default configuration.
+10-07 00:27:48.853  5556  5556 D WM-PackageManagerHelper: Skipping component enablement for androidx.work.impl.background.systemjob.SystemJobService
+10-07 00:27:48.853  5556  5556 D WM-Schedulers: Created SystemJobScheduler and enabled SystemJobService
+10-07 00:27:48.862  5556  5606 D WM-ForceStopRunnable: The default process name was not specified.
+10-07 00:27:48.863  5556  5606 D WM-ForceStopRunnable: Performing cleanup operations.
+10-07 00:27:49.288  5556  5606 D WM-ForceStopRunnable: Application was force-stopped, rescheduling.
+10-07 00:27:49.517  5556  5606 D WM-PackageManagerHelper: Skipping component enablement for androidx.work.impl.background.systemalarm.RescheduleReceiver
+10-07 00:27:49.593  5556  5614 D FlutterJNI: Beginning load of flutter...
+10-07 00:27:49.594  5556  5615 I ResourceExtractor: Found extracted resources res_timestamp-35-1791300025651
+10-07 00:27:50.152  5556  5614 D nativeloader: Load /data/app/~~emN9z2oj7b64dasYhQbl7A==/com.fentanest.mysafetyreport.demorc-7q2BH8HdIOQKJcUZJZiSkw==/base.apk!/lib/x86_64/libflutter.so using ns clns-7 from class loader (caller=/data/app/~~emN9z2oj7b64dasYhQbl7A==/com.fentanest.mysafetyreport.demorc-7q2BH8HdIOQKJcUZJZiSkw==/base.apk!classes20.dex): ok
+10-07 00:27:50.157  5556  5614 D FlutterJNI: flutter (null) was loaded normally!
+10-07 00:27:50.205  5556  5617 D skia    : [SkFontMgr Android Parser] '/product/etc/fonts_customization.xml' could not be opened
+10-07 00:27:50.224  5556  5556 W tyreport.demorc: type=1400 audit(0.0:53): avc:  denied  { read } for  name="max_map_count" dev="proc" ino=45663 scontext=u:r:untrusted_app:s0:c211,c256,c512,c768 tcontext=u:object_r:proc_max_map_count:s0 tclass=file permissive=0 app=com.fentanest.mysafetyreport.demorc
+10-07 00:27:50.305  5556  5620 I EGL_emulation: Opening libGLESv1_CM_emulation.so
+10-07 00:27:50.310  5556  5620 I EGL_emulation: Opening libGLESv2_emulation.so
+10-07 00:27:50.483  5556  5620 I flutter : [IMPORTANT:flutter/shell/platform/android/android_context_gl_impeller.cc(104)] Using the Impeller rendering backend (OpenGLES).
+10-07 00:27:54.231  5556  5556 D FlutterGeolocator: Attaching Geolocator to activity
+10-07 00:27:54.242  5556  5556 D nativeloader: Load /data/app/~~emN9z2oj7b64dasYhQbl7A==/com.fentanest.mysafetyreport.demorc-7q2BH8HdIOQKJcUZJZiSkw==/base.apk!/lib/x86_64/libdartjni.so using ns clns-7 from class loader (caller=/data/app/~~emN9z2oj7b64dasYhQbl7A==/com.fentanest.mysafetyreport.demorc-7q2BH8HdIOQKJcUZJZiSkw==/base.apk!classes10.dex): ok
+10-07 00:27:54.369  5556  5556 W tyreport.demorc: Accessing hidden method Landroid/view/accessibility/AccessibilityNodeInfo;->getSourceNodeId()J (unsupported,test-api, reflection, allowed)
+10-07 00:27:54.369  5556  5556 W tyreport.demorc: Accessing hidden method Landroid/view/accessibility/AccessibilityRecord;->getSourceNodeId()J (unsupported, reflection, allowed)
+10-07 00:27:54.369  5556  5556 W tyreport.demorc: Accessing hidden field Landroid/view/accessibility/AccessibilityNodeInfo;->mChildNodeIds:Landroid/util/LongArray; (unsupported, reflection, allowed)
+10-07 00:27:54.370  5556  5556 W tyreport.demorc: Accessing hidden method Landroid/util/LongArray;->get(I)J (unsupported, reflection, allowed)
+10-07 00:27:54.377  5556  5556 D AccessibilityBridge: Setting not found: accessibility_display_inversion_enabled, using default: 0
+10-07 00:27:54.421  5556  5556 D FlutterRenderer: Width is zero. 0,0
+10-07 00:27:54.453  5556  5556 W HWUI    : Unknown dataspace 0
+10-07 00:27:54.671  5556  5556 D FlutterGeolocator: Creating service.
+10-07 00:27:54.671  5556  5556 D FlutterGeolocator: Binding to location service.
+10-07 00:27:54.677  5556  5556 W WsService: WsService stop requested
+10-07 00:27:54.696  5556  5556 I WindowExtensionsImpl: Initializing Window Extensions, vendor API level=6, activity embedding enabled=true
+10-07 00:27:54.719  5556  5556 D FlutterRenderer: Width is zero. 0,0
+10-07 00:27:54.735  5556  5570 I tyreport.demorc: Compiler allocated 5174KB to compile void android.view.ViewRootImpl.performTraversals()
+10-07 00:27:54.773  5556  5556 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:27:54.812  5556  5570 I tyreport.demorc: Compiler allocated 5417KB to compile void android.view.ViewRootImpl.performTraversals()
+10-07 00:27:54.865  5556  5608 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+10-07 00:27:54.893  5556  5620 I Gralloc4: mapper 4.x is not supported
+10-07 00:27:57.569  5556  5556 D FlutterGeolocator: Geolocator foreground service connected
+10-07 00:27:57.569  5556  5556 D FlutterGeolocator: Initializing Geolocator services
+10-07 00:27:57.569  5556  5556 D FlutterGeolocator: Flutter engine connected. Connected engine count 1
+10-07 00:27:57.680  5556  5556 I Choreographer: Skipped 177 frames!  The application may be doing too much work on its main thread.
+10-07 00:27:57.724  5556  5672 D ProfileInstaller: Installing profile for com.fentanest.mysafetyreport.demorc
+10-07 00:27:57.904  5556  5556 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:27:57.928  5556  5556 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:27:58.633  5556  5571 I tyreport.demorc: Background concurrent mark compact GC freed 3693KB AllocSpace bytes, 12(272KB) LOS objects, 49% free, 4357KB/8714KB, paused 413us,16.490ms total 490.170ms
+10-07 00:27:58.731  5556  5650 D FlutterSecureStorage: No data found in EncryptedSharedPreferences.
+10-07 00:28:01.328  5556  5556 I Choreographer: Skipped 124 frames!  The application may be doing too much work on its main thread.
+10-07 00:28:01.495  5556  5556 D FlutterJNI: Sending viewport metrics to the engine.
+10-07 00:28:02.969  5556  5620 D EGL_emulation: app_time_stats: avg=329.83ms min=25.51ms max=713.27ms count=4

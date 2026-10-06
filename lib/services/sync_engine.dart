@@ -331,6 +331,7 @@ class SyncEngine {
         cancelled: true,
       );
     }
+    await LocalDbService.requireAccountChangeComplete();
     _log('동기화 시작...');
 
     // 전체 건수 파악

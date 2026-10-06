@@ -76,7 +76,8 @@ void main() {
       auth.tokenResult = null;
       final gate = makeGate();
       final state = await gate.refreshNow();
-      expect(state.state, 'verification_required');
+      expect(state.state, 'cloud_unavailable');
+      expect(gate.notice, CommunityGate.cloudUnavailableMessage);
       expect(state.canEnter, isFalse);
       expect(server.statusCalls, 0);
     },

@@ -182,3 +182,16 @@ flutter build apk --dart-define=COMMUNITY_SUPABASE_URL=https://<project>.supabas
   `community_server_link_service_test.dart`, `test/widgets/community_account_cards_test.dart` — MockClient·보안 저장소 mock 만 사용.
 - **미검증(NOT RUN)**: 실기기/에뮬레이터 콜드 스타트·onNewIntent 복귀(M01), 실제 hosted Supabase + 카카오 로그인, 두 액티비티 인스턴스 경합,
   백그라운드 isolate 에서의 실제 갱신(M09), 실서버(safetyreport) 커뮤니티 API 연동. **iOS 는 구현·검증하지 않았다**(URL scheme 등록 없음).
+
+## 공식 계정 바인딩 계약 확장
+
+중앙 계정 1개와 공식 계정 해시 1개를 양방향 1:1로 연결한다. `status`의 `official_account`
+(`dataset_key`, `bound_at`)는 호출한 사용자 자신의 바인딩이다. 연결 등록의 409
+`official_account_mismatch`는 재로그인/계정 변경 안내, `official_account_taken`은 운영자 문의 안내로 표시한다.
+상대 계정 정보는 표시하지 않는다.
+
+`contributions-delete` 응답의 `official_account_released:true`를 확인해야 로컬 계정 초기화를 완료한다.
+해제 확인 없는 구서버 응답도 성공으로 간주하지 않는다. 공식 계정 ID/해시는 개인 DB에 저장하지 않고,
+복원은 카카오 주인만 검사한다. 세부 규칙은
+[data-contracts.md](data-contracts.md#공식-계정과-개인-db-소유권), 진입/장애 정책은
+[community-gate.md](community-gate.md#공식-계정-11-대조와-복구)를 따른다.

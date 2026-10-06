@@ -20,6 +20,7 @@ import 'package:sqflite/sqflite.dart';
 import '../community/community_store.dart';
 import '../models/report.dart';
 import 'agency_registry.dart';
+import 'app_storage_paths.dart';
 import 'duplicate_projection_service.dart';
 import 'geocode_utils.dart';
 import 'map_pin_basis.dart' as pin_rules;
@@ -142,7 +143,9 @@ class LocalDbService {
   static Future<String> getDbPath() async {
     final dbPath = await getDatabasesPath();
     final prefs = await SharedPreferences.getInstance();
-    final demo = prefs.getBool(AppPrefsKeys.standaloneDemoMode) ?? false;
+    final demo =
+        Zone.current[_realDatabaseKey] != true &&
+        (prefs.getBool(AppPrefsKeys.standaloneDemoMode) ?? false);
     return join(dbPath, demo ? demoDbFileName : 'standalone_reports.db');
   }
 
@@ -313,6 +316,88 @@ class LocalDbService {
   // ── 신고 자료의 주인 = 로그인한 카카오 계정 (2026-09-27 사용자 결정, PC services/account_data.py 와 같은 규칙) ──
   /// 이 DB 의 주인 카카오 회원번호(카카오가 준 숫자 ID 원문). 서버 DB `mysafety_sync_meta` 와 같은 키 — 교환 때 그대로 옮겨진다.
   static const kakaoMemberMetaKey = 'kakao_member_id';
+
+  static const officialRestartKey = 'official_account_restart_required';
+  static const officialChangePendingKey = 'official_account_change_pending';
+  @visibleForTesting
+  static Directory Function() accountBackupDirectory =
+      AppStoragePaths.exportsRoot;
+  static const _realDatabaseKey = #realDatabase;
+
+  static const officialResetMessage =
+      '안전신문고 계정 변경을 완료해야 합니다. '
+      '계정별 자료가 섞이지 않도록 기존 신고 내역과 감시 목록을 비우고 다시 수집해야 합니다. '
+      '설정에서 재로그인하여 자료 초기화를 확인해 주세요.';
+
+  /// 정상 로그인 뒤 설정/서버 대조 결과로 변경을 준비한다. 개인 DB에는 공식 계정을 저장하지 않는다.
+  /// 확인 UI를 포함한 전체 구간을 파일 잠금으로 보호한다. 데모에서 나올 때도 실제 DB를 검사한다.
+  static Future<void> prepareOfficialAccountChange({
+    Future<bool> Function()? confirmReset,
+    required bool resetRequired,
+    Future<void> Function()? releaseBinding,
+  }) => _withFileExclusive(
+    () => runZoned(() async {
+      try {
+        final kakao = await currentKakaoId();
+        final owner = await dbOwner();
+        final prefs = await SharedPreferences.getInstance();
+        final quarantined =
+            owner == null &&
+            prefs.getBool(AppPrefsKeys.communityOwnerQuarantined) == true;
+        if (kakao == null || quarantined || (owner != null && owner != kakao)) {
+          throw ForeignDatabaseException(
+            '카카오 계정의 자료 소유권을 확인할 수 없습니다. 카카오 인증을 먼저 완료해 주세요.',
+          );
+        }
+        final pending = await getMeta(officialChangePendingKey);
+        if (resetRequired || pending != null) {
+          if (confirmReset == null || !await confirmReset()) {
+            throw ForeignDatabaseException(officialResetMessage);
+          }
+          // 확인 창을 기다리는 동안 카카오 계정이 바뀌면 자료를 건드리지 않는다.
+          if (await currentKakaoId() != kakao) {
+            throw ForeignDatabaseException('확인 중 카카오 계정이 변경되었습니다. 다시 시도해 주세요.');
+          }
+          if (releaseBinding == null) {
+            throw ForeignDatabaseException(
+              '클라우드 계정 변경을 준비하지 못했습니다. 다시 시도해 주세요.',
+            );
+          }
+          // 한 SQLite snapshot으로 WAL 포함 백업. 실패하면 중앙 삭제·로컬 초기화를 시작하지 않는다.
+          final backup = join(
+            accountBackupDirectory().path,
+            'standalone_backup_${DateTime.now().microsecondsSinceEpoch}.db',
+          );
+          await copyReadOnlyDatabaseSnapshot(await getDbPath(), backup);
+          // 중앙 응답 유실/앱 종료 때 이전 계정으로 자동 재등록하지 않도록 영속 차단.
+          await setMeta(officialChangePendingKey, 'true');
+          await releaseBinding();
+          if (await currentKakaoId() != kakao) {
+            throw ForeignDatabaseException(
+              '처리 중 카카오 계정이 변경되었습니다. 다시 로그인해 주세요.',
+            );
+          }
+          await _wipeReportDataLocked('official_account_change', kakao);
+          await setMeta(officialRestartKey, 'true');
+          await (await db).delete(
+            'sync_meta',
+            where: 'key = ?',
+            whereArgs: ['watchlist'],
+          );
+        }
+        await setMeta(kakaoMemberMetaKey, kakao);
+      } finally {
+        await closeDb();
+      }
+    }, zoneValues: {_realDatabaseKey: true}),
+  );
+
+  /// 계정 변경 중단 상태만 검사한다. 계정 식별자/백업 소유권과 무관하다.
+  static Future<void> requireAccountChangeComplete() async {
+    if (await getMeta(officialChangePendingKey) != null) {
+      throw ForeignDatabaseException(officialResetMessage);
+    }
+  }
 
   /// 지금 로그인한 카카오 회원번호(가져오기 검사용). 시험은 바꿔 끼운다. 확인할 수 없으면 null(→ 거절).
   @visibleForTesting
@@ -4807,14 +4892,13 @@ class LocalDbService {
   }
 
   /// 커뮤니티 dataset 선회전 (보수적): 개인 DB 파일을 교체하기 직전에 호출한다.
-  /// 교체가 실패해도 되돌리지 않는다(초기화 1회 추가 비용). 저장소를 열 수 없으면
-  /// 조용히 넘어간다 — 복원·가져오기를 막지 않는다.
-  /// 모드 전환 DB 이관은 ReportProvider 쪽이므로 T5 가 같은 함수를 호출한다(REQUESTS.md).
+  /// 교체가 실패해도 되돌리지 않는다(초기화 1회 추가 비용). 저장소를 열지 못하면 중단한다.
   /// 개인 DB 를 다른 데이터셋으로 바꾸기 직전: 커뮤니티 dataset 을 선회전한다(S-20, PC exchange.restore 와 같은 규칙).
   /// 실패하면 교체하지 않는다 — 옛 journal 과 새 개인 DB 신고가 섞이는 것을 막는다(Sol 통합 검토 H-02).
   static Future<void> _rotateCommunityDataset(String reason) async {
     try {
       final store = await CommunityStore.open();
+      await store.deactivateContext(reason);
       await store.rotateDataset(reason);
     } catch (e) {
       throw Exception(

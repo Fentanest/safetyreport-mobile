@@ -1,0 +1,169 @@
+--------- beginning of main
+10-06 21:23:15.251  7739  7739 I eport.bindingrc: Late-enabling -Xcheck:jni
+10-06 21:23:15.398  7739  7739 I eport.bindingrc: Using CollectorTypeCMC GC.
+10-06 21:23:15.399  7739  7739 W eport.bindingrc: Unexpected CPU variant for x86: x86_64.
+10-06 21:23:15.399  7739  7739 W eport.bindingrc: Known variants: atom, sandybridge, silvermont, goldmont, goldmont-plus, goldmont-without-sha-xsaves, tremont, kabylake, default
+10-06 21:23:15.862  7739  7739 D nativeloader: Load libframework-connectivity-tiramisu-jni.so using APEX ns com_android_tethering for caller /apex/com.android.tethering/javalib/framework-connectivity-t.jar: ok
+10-06 21:23:16.236  7739  7739 D ApplicationLoaders: Returning zygote-cached class loader: /system_ext/framework/androidx.window.extensions.jar
+10-06 21:23:16.236  7739  7739 D ApplicationLoaders: Returning zygote-cached class loader: /system_ext/framework/androidx.window.sidecar.jar
+10-06 21:23:16.239  7739  7739 W ziparchive: Unable to open '/data/app/~~HpDKVlZ0Bjgr-sEjBumzDw==/com.fentanest.mysafetyreport.bindingrc-s5PHgdsxnwZaVFnKlyeDFw==/base.dm': No such file or directory
+10-06 21:23:16.239  7739  7739 W ziparchive: Unable to open '/data/app/~~HpDKVlZ0Bjgr-sEjBumzDw==/com.fentanest.mysafetyreport.bindingrc-s5PHgdsxnwZaVFnKlyeDFw==/base.dm': No such file or directory
+10-06 21:23:16.749  7739  7739 D nativeloader: Configuring clns-7 for other apk /data/app/~~HpDKVlZ0Bjgr-sEjBumzDw==/com.fentanest.mysafetyreport.bindingrc-s5PHgdsxnwZaVFnKlyeDFw==/base.apk. target_sdk_version=36, uses_libraries=, library_path=/data/app/~~HpDKVlZ0Bjgr-sEjBumzDw==/com.fentanest.mysafetyreport.bindingrc-s5PHgdsxnwZaVFnKlyeDFw==/lib/x86_64:/data/app/~~HpDKVlZ0Bjgr-sEjBumzDw==/com.fentanest.mysafetyreport.bindingrc-s5PHgdsxnwZaVFnKlyeDFw==/base.apk!/lib/x86_64, permitted_path=/data:/mnt/expand:/data/user/0/com.fentanest.mysafetyreport.bindingrc
+10-06 21:23:16.787  7739  7739 V GraphicsEnvironment: Currently set values for:
+10-06 21:23:16.787  7739  7739 V GraphicsEnvironment:   angle_gl_driver_selection_pkgs=[]
+10-06 21:23:16.787  7739  7739 V GraphicsEnvironment:   angle_gl_driver_selection_values=[]
+10-06 21:23:16.787  7739  7739 V GraphicsEnvironment: Global.Settings values are invalid: number of packages: 0, number of values: 0
+10-06 21:23:16.787  7739  7739 V GraphicsEnvironment: Neither updatable production driver nor prerelease driver is supported.
+10-06 21:23:16.844  7739  7739 D WM-WrkMgrInitializer: Initializing WorkManager with default configuration.
+10-06 21:23:16.950  7739  7739 D WM-PackageManagerHelper: androidx.work.impl.background.systemjob.SystemJobService enabled
+10-06 21:23:16.950  7739  7739 D WM-Schedulers: Created SystemJobScheduler and enabled SystemJobService
+10-06 21:23:16.957  7739  7802 D WM-ForceStopRunnable: The default process name was not specified.
+10-06 21:23:16.960  7739  7802 D WM-ForceStopRunnable: Performing cleanup operations.
+10-06 21:23:17.158  7739  7802 D WM-PackageManagerHelper: Skipping component enablement for androidx.work.impl.background.systemalarm.RescheduleReceiver
+10-06 21:23:17.257  7739  7739 I FlutterActivityAndFragmentDelegate: If you are attempting to set --enable-dart-profiling via Intent extras to launch a Flutter component outside of using the Flutter CLI, note that support for setting engine flags on Android via Intent will soon be dropped; see https://github.com/flutter/flutter/issues/180686 for more information on this breaking change. To migrate, set --enable-dart-profiling or any other flags specified via Intent extras on the command line instead or see https://github.com/flutter/flutter/blob/main/docs/engine/Flutter-Android-Engine-Flags.md for alternative methods.
+10-06 21:23:17.275  7739  7810 I ResourceExtractor: Resource version mismatch res_timestamp-34-1791289394755
+10-06 21:23:17.276  7739  7809 D FlutterJNI: Beginning load of flutter...
+10-06 21:23:17.353  7739  7809 D nativeloader: Load /data/app/~~HpDKVlZ0Bjgr-sEjBumzDw==/com.fentanest.mysafetyreport.bindingrc-s5PHgdsxnwZaVFnKlyeDFw==/base.apk!/lib/x86_64/libflutter.so using ns clns-7 from class loader (caller=/data/app/~~HpDKVlZ0Bjgr-sEjBumzDw==/com.fentanest.mysafetyreport.bindingrc-s5PHgdsxnwZaVFnKlyeDFw==/base.apk!classes20.dex): ok
+10-06 21:23:17.357  7739  7809 D FlutterJNI: flutter (null) was loaded normally!
+10-06 21:23:17.364  7739  7812 D skia    : [SkFontMgr Android Parser] '/product/etc/fonts_customization.xml' could not be opened
+10-06 21:23:18.217  7739  7810 I ResourceExtractor: Extracted baseline resource assets/flutter_assets/kernel_blob.bin
+10-06 21:23:18.218  7739  7810 I ResourceExtractor: Extracted baseline resource assets/flutter_assets/vm_snapshot_data
+10-06 21:23:18.306  7739  7810 I ResourceExtractor: Extracted baseline resource assets/flutter_assets/isolate_snapshot_data
+10-06 21:23:18.341  7739  7739 W eport.bindingrc: type=1400 audit(0.0:157): avc:  denied  { read } for  name="max_map_count" dev="proc" ino=56231 scontext=u:r:untrusted_app:s0:c214,c256,c512,c768 tcontext=u:object_r:proc_max_map_count:s0 tclass=file permissive=0 app=com.fentanest.mysafetyreport.bindingrc
+10-06 21:23:18.365  7739  7815 I EGL_emulation: Opening libGLESv1_CM_emulation.so
+10-06 21:23:18.366  7739  7815 I EGL_emulation: Opening libGLESv2_emulation.so
+10-06 21:23:18.416  7739  7815 I flutter : [IMPORTANT:flutter/shell/platform/android/android_context_gl_impeller.cc(104)] Using the Impeller rendering backend (OpenGLES).
+10-06 21:23:18.961  7739  7739 D FlutterGeolocator: Attaching Geolocator to activity
+10-06 21:23:18.988  7739  7739 D nativeloader: Load /data/app/~~HpDKVlZ0Bjgr-sEjBumzDw==/com.fentanest.mysafetyreport.bindingrc-s5PHgdsxnwZaVFnKlyeDFw==/base.apk!/lib/x86_64/libdartjni.so using ns clns-7 from class loader (caller=/data/app/~~HpDKVlZ0Bjgr-sEjBumzDw==/com.fentanest.mysafetyreport.bindingrc-s5PHgdsxnwZaVFnKlyeDFw==/base.apk!classes10.dex): ok
+10-06 21:23:19.091  7739  7739 W eport.bindingrc: Accessing hidden method Landroid/view/accessibility/AccessibilityNodeInfo;->getSourceNodeId()J (unsupported,test-api, reflection, allowed)
+10-06 21:23:19.091  7739  7739 W eport.bindingrc: Accessing hidden method Landroid/view/accessibility/AccessibilityRecord;->getSourceNodeId()J (unsupported, reflection, allowed)
+10-06 21:23:19.091  7739  7739 W eport.bindingrc: Accessing hidden field Landroid/view/accessibility/AccessibilityNodeInfo;->mChildNodeIds:Landroid/util/LongArray; (unsupported, reflection, allowed)
+10-06 21:23:19.091  7739  7739 W eport.bindingrc: Accessing hidden method Landroid/util/LongArray;->get(I)J (unsupported, reflection, allowed)
+10-06 21:23:19.099  7739  7739 D AccessibilityBridge: Setting not found: accessibility_display_inversion_enabled, using default: 0
+10-06 21:23:19.156  7739  7739 D FlutterRenderer: Width is zero. 0,0
+10-06 21:23:19.186  7739  7739 W HWUI    : Unknown dataspace 0
+10-06 21:23:19.336  7739  7739 D FlutterGeolocator: Creating service.
+10-06 21:23:19.339  7739  7739 D FlutterGeolocator: Binding to location service.
+10-06 21:23:19.344  7739  7739 W WsService: WsService stop requested
+10-06 21:23:19.599  7739  7739 I WindowExtensionsImpl: Initializing Window Extensions, vendor API level=6, activity embedding enabled=true
+10-06 21:23:19.613  7739  7739 D FlutterRenderer: Width is zero. 0,0
+10-06 21:23:19.616  7739  7745 I eport.bindingrc: Compiler allocated 5174KB to compile void android.view.ViewRootImpl.performTraversals()
+10-06 21:23:19.622  7739  7739 D FlutterJNI: Sending viewport metrics to the engine.
+10-06 21:23:19.627  7739  7804 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+10-06 21:23:19.744  7739  7815 I Gralloc4: mapper 4.x is not supported
+10-06 21:23:22.519  7739  7739 D FlutterGeolocator: Geolocator foreground service connected
+10-06 21:23:22.520  7739  7739 D FlutterGeolocator: Initializing Geolocator services
+10-06 21:23:22.520  7739  7739 D FlutterGeolocator: Flutter engine connected. Connected engine count 1
+10-06 21:23:22.603  7739  7739 I Choreographer: Skipped 178 frames!  The application may be doing too much work on its main thread.
+10-06 21:23:22.955  7739  7783 I HWUI    : Davey! duration=3259ms; Flags=1, FrameTimelineVsyncId=63870, IntendedVsync=1808570085430, Vsync=1811536751978, InputEventId=0, HandleInputStart=1811548787066, AnimationStart=1811548789535, PerformTraversalsStart=1811548790675, DrawStart=1811572933197, FrameDeadline=1808586752096, FrameInterval=1811545782002, FrameStartTime=16666666, SyncQueued=1811591917993, SyncStart=1811593530414, IssueDrawCommandsStart=1811598207160, SwapBuffers=1811687411657, FrameCompleted=1811830727882, DequeueBufferDuration=1975464, QueueBufferDuration=2087932, GpuCompleted=1811828475711, SwapBuffersCompleted=1811830727882, DisplayPresentTime=0, CommandSubmissionCompleted=1811687411657, 
+10-06 21:23:22.995  7739  7832 D ProfileInstaller: Installing profile for com.fentanest.mysafetyreport.bindingrc
+10-06 21:23:23.057  7739  7739 D FlutterJNI: Sending viewport metrics to the engine.
+10-06 21:23:26.688  7739  7746 I eport.bindingrc: Background concurrent mark compact GC freed 3488KB AllocSpace bytes, 11(476KB) LOS objects, 49% free, 3853KB/7706KB, paused 516us,9.917ms total 204.678ms
+10-06 21:23:27.948  7739  7739 D FlutterJNI: Sending viewport metrics to the engine.
+10-06 21:23:29.435  7739  7739 D FlutterJNI: Sending viewport metrics to the engine.
+10-06 21:23:29.509  7739  7815 D EGL_emulation: app_time_stats: avg=1036.55ms min=112.78ms max=5640.21ms count=7
+10-06 21:23:35.781  7739  7815 D EGL_emulation: app_time_stats: avg=2090.43ms min=115.33ms max=5719.36ms count=3
+10-06 21:23:36.703  7739  7739 W WindowOnBackDispatcher: OnBackInvokedCallback is not enabled for the application.
+10-06 21:23:36.703  7739  7739 W WindowOnBackDispatcher: Set 'android:enableOnBackInvokedCallback="true"' in the application manifest.
+10-06 21:23:37.144  7739  7815 D EGL_emulation: app_time_stats: avg=681.55ms min=625.17ms max=737.94ms count=2
+10-06 21:23:38.178  7739  7815 D EGL_emulation: app_time_stats: avg=258.36ms min=91.53ms max=640.85ms count=4
+10-06 21:23:41.197  7739  7815 D EGL_emulation: app_time_stats: avg=1509.07ms min=411.84ms max=2606.29ms count=2
+10-06 21:23:46.208  7739  7815 D EGL_emulation: app_time_stats: avg=5008.53ms min=5008.53ms max=5008.53ms count=1
+10-06 21:23:50.043  7739  7815 D EGL_emulation: app_time_stats: avg=1916.40ms min=422.62ms max=3410.17ms count=2
+10-06 21:24:12.185  7739  7815 D EGL_emulation: app_time_stats: avg=7380.30ms min=279.71ms max=21432.18ms count=3
+10-06 21:24:15.426  7739  7815 D EGL_emulation: app_time_stats: avg=1620.18ms min=469.85ms max=2770.50ms count=2
+10-06 21:24:16.540  7739  7815 D EGL_emulation: app_time_stats: avg=100.30ms min=53.53ms max=131.99ms count=10
+10-06 21:24:17.660  7739  7815 D EGL_emulation: app_time_stats: avg=372.36ms min=202.93ms max=490.40ms count=3
+10-06 21:24:20.753  7739  7815 D EGL_emulation: app_time_stats: avg=3092.14ms min=3092.14ms max=3092.14ms count=1
+10-06 21:24:20.856  7739  7739 W WindowOnBackDispatcher: OnBackInvokedCallback is not enabled for the application.
+10-06 21:24:20.856  7739  7739 W WindowOnBackDispatcher: Set 'android:enableOnBackInvokedCallback="true"' in the application manifest.
+10-06 21:24:21.354  7739  7739 I ImeTracker: com.fentanest.mysafetyreport.bindingrc:9f9f623c: onRequestShow at ORIGIN_CLIENT reason SHOW_SOFT_INPUT fromUser false
+10-06 21:24:21.449  7739  7739 D InputMethodManager: showSoftInput() view=io.flutter.embedding.android.FlutterView{c9219c9 VFE...... .F....ID 0,0-1080,2400 #2 aid=1073741824} flags=0 reason=SHOW_SOFT_INPUT
+10-06 21:24:21.686  7739  7739 I ImeTracker: com.fentanest.mysafetyreport.bindingrc:33cebcf2: onRequestShow at ORIGIN_CLIENT reason SHOW_SOFT_INPUT fromUser false
+10-06 21:24:21.686  7739  7739 D InputMethodManager: showSoftInput() view=io.flutter.embedding.android.FlutterView{c9219c9 VFE...... .F....ID 0,0-1080,2400 #2 aid=1073741824} flags=0 reason=SHOW_SOFT_INPUT
+10-06 21:24:21.780  7739  7739 I ImeTracker: com.fentanest.mysafetyreport.bindingrc:1dad8cfe: onRequestShow at ORIGIN_CLIENT reason SHOW_SOFT_INPUT fromUser false
+10-06 21:24:21.780  7739  7739 D InputMethodManager: showSoftInput() view=io.flutter.embedding.android.FlutterView{c9219c9 VFE...... .F....ID 0,0-1080,2400 #2 aid=1073741824} flags=0 reason=SHOW_SOFT_INPUT
+10-06 21:24:21.789  7739  7739 I ImeTracker: com.fentanest.mysafetyreport.bindingrc:6003cd94: onRequestShow at ORIGIN_CLIENT reason SHOW_SOFT_INPUT fromUser false
+10-06 21:24:21.789  7739  7739 D InputMethodManager: showSoftInput() view=io.flutter.embedding.android.FlutterView{c9219c9 VFE...... .F....ID 0,0-1080,2400 #2 aid=1073741824} flags=0 reason=SHOW_SOFT_INPUT
+10-06 21:24:21.818  7739  7739 W RemoteInputConnectionImpl: requestCursorUpdates on inactive InputConnection
+10-06 21:24:21.848  7739  7739 I AssistStructure: Flattened final assist data: 448 bytes, containing 1 windows, 3 views
+10-06 21:24:21.877  7739  7739 I ImeTracker: com.fentanest.mysafetyreport.bindingrc:e16687ec: onRequestShow at ORIGIN_CLIENT reason SHOW_SOFT_INPUT fromUser false
+10-06 21:24:21.878  7739  7739 D InputMethodManager: showSoftInput() view=io.flutter.embedding.android.FlutterView{c9219c9 VFE...... .F...... 0,0-1080,2400 #2 aid=1073741824} flags=0 reason=SHOW_SOFT_INPUT
+10-06 21:24:21.914  7739  7739 I ImeTracker: com.fentanest.mysafetyreport.bindingrc:9bf690d9: onRequestShow at ORIGIN_CLIENT reason SHOW_SOFT_INPUT fromUser false
+10-06 21:24:21.914  7739  7739 D InputMethodManager: showSoftInput() view=io.flutter.embedding.android.FlutterView{c9219c9 VFE...... .F...... 0,0-1080,2400 #2 aid=1073741824} flags=0 reason=SHOW_SOFT_INPUT
+10-06 21:24:21.924  7739  7739 I ImeTracker: com.fentanest.mysafetyreport.bindingrc:886b9952: onRequestHide at ORIGIN_CLIENT reason HIDE_SOFT_INPUT fromUser false
+10-06 21:24:21.954  7739  7739 I AssistStructure: Flattened final assist data: 448 bytes, containing 1 windows, 3 views
+10-06 21:24:21.955  7739  7739 W RemoteInputConnectionImpl: getSurroundingText on inactive InputConnection
+10-06 21:24:21.957  7739  7739 I AssistStructure: Flattened final assist data: 448 bytes, containing 1 windows, 3 views
+10-06 21:24:21.961  7739  7739 I ImeTracker: com.fentanest.mysafetyreport.bindingrc:c7e45798: onRequestHide at ORIGIN_CLIENT reason HIDE_SOFT_INPUT fromUser false
+10-06 21:24:22.144  7739  7815 D EGL_emulation: app_time_stats: avg=277.99ms min=156.75ms max=392.37ms count=5
+10-06 21:24:23.194  7739  7815 D EGL_emulation: app_time_stats: avg=117.90ms min=21.56ms max=397.53ms count=8
+10-06 21:24:23.324  7739  7739 D InsetsController: show(ime(), fromIme=true)
+10-06 21:24:23.414  7739  7739 W InteractionJankMonitor: Initializing without READ_DEVICE_CONFIG permission. enabled=false, interval=1, missedFrameThreshold=3, frameTimeThreshold=64, package=com.fentanest.mysafetyreport.bindingrc
+10-06 21:24:23.440  7739  7739 D FlutterJNI: Sending viewport metrics to the engine.
+10-06 21:24:23.496  7739  7804 D EGL_emulation: app_time_stats: avg=30287.26ms min=1602.35ms max=58972.16ms count=2
+10-06 21:24:23.561  7739  7739 D FlutterJNI: Sending viewport metrics to the engine.
+10-06 21:24:23.622  7739  7739 D FlutterJNI: Sending viewport metrics to the engine.
+10-06 21:24:23.774  7739  7739 D FlutterJNI: Sending viewport metrics to the engine.
+10-06 21:24:23.777  7739  7739 W RemoteInputConnectionImpl: getSurroundingText on inactive InputConnection
+10-06 21:24:23.777  7739  7739 W RemoteInputConnectionImpl: requestCursorUpdates on inactive InputConnection
+10-06 21:24:23.849  7739  7739 I ImeTracker: com.fentanest.mysafetyreport.bindingrc:33cebcf2: onShown
+10-06 21:24:23.850  7739  7739 D FlutterJNI: Sending viewport metrics to the engine.
+10-06 21:24:23.851  7739  7739 D FlutterJNI: Sending viewport metrics to the engine.
+10-06 21:24:24.302  7739  7739 D InsetsController: show(ime(), fromIme=true)
+10-06 21:24:24.302  7739  7739 I ImeTracker: com.fentanest.mysafetyreport.bindingrc:6003cd94: onCancelled at PHASE_CLIENT_APPLY_ANIMATION
+10-06 21:24:24.303  7739  7815 D EGL_emulation: app_time_stats: avg=554.77ms min=443.89ms max=665.65ms count=2
+10-06 21:24:24.363  7739  7739 W RemoteInputConnectionImpl: getSurroundingText on inactive InputConnection
+10-06 21:24:24.363  7739  7739 W RemoteInputConnectionImpl: requestCursorUpdates on inactive InputConnection
+10-06 21:24:24.601  7739  7739 D InsetsController: show(ime(), fromIme=true)
+10-06 21:24:24.607  7739  7739 I ImeTracker: com.fentanest.mysafetyreport.bindingrc:e16687ec: onCancelled at PHASE_CLIENT_APPLY_ANIMATION
+10-06 21:24:24.608  7739  7739 D InsetsController: show(ime(), fromIme=true)
+10-06 21:24:24.608  7739  7739 I ImeTracker: com.fentanest.mysafetyreport.bindingrc:9bf690d9: onCancelled at PHASE_CLIENT_APPLY_ANIMATION
+10-06 21:24:24.609  7739  7739 D InsetsController: hide(ime(), fromIme=true)
+10-06 21:24:24.633  7739  7739 D FlutterJNI: Sending viewport metrics to the engine.
+10-06 21:24:24.650  7739  7804 D EGL_emulation: app_time_stats: avg=205.09ms min=59.62ms max=599.31ms count=5
+10-06 21:24:24.652  7739  7739 D FlutterJNI: Sending viewport metrics to the engine.
+10-06 21:24:24.666  7739  7739 D FlutterJNI: Sending viewport metrics to the engine.
+10-06 21:24:24.803  7739  7739 D FlutterJNI: Sending viewport metrics to the engine.
+10-06 21:24:24.972  7739  7739 I ImeTracker: com.fentanest.mysafetyreport.bindingrc:98528b27: onRequestHide at ORIGIN_CLIENT reason HIDE_SOFT_INPUT_ON_ANIMATION_STATE_CHANGED fromUser false
+10-06 21:24:24.973  7739  7739 I ImeTracker: com.fentanest.mysafetyreport.bindingrc:886b9952: onHidden
+10-06 21:24:24.973  7739  7739 D FlutterJNI: Sending viewport metrics to the engine.
+10-06 21:24:24.985  7739  7739 D FlutterJNI: Sending viewport metrics to the engine.
+10-06 21:24:25.368  7739  7746 I eport.bindingrc: Background concurrent mark compact GC freed 2222KB AllocSpace bytes, 28(1456KB) LOS objects, 49% free, 3905KB/7810KB, paused 411us,10.395ms total 390.278ms
+10-06 21:24:25.381  7739  7748 W eport.bindingrc: ApkAssets: Deleting an ApkAssets object '<empty> and /product/app/talkback/talkback.apk' with 1 weak references
+10-06 21:24:25.456  7739  7748 W eport.bindingrc: ApkAssets: Deleting an ApkAssets object '/vendor/overlay/EmulatorTalkBackOverlay/EmulatorTalkBackOverlay.apk' with 1 weak references
+10-06 21:24:25.467  7739  7748 W eport.bindingrc: ApkAssets: Deleting an ApkAssets object '<empty> and /data/app/~~z8YlXoh8iPj-ipx70q5Sjg==/com.google.android.googlequicksearchbox-P1ay2VZH9seCe-islrvo2g==/base.apk' with 1 weak references
+10-06 21:24:25.469  7739  7748 W eport.bindingrc: ApkAssets: Deleting an ApkAssets object '<empty> and /data/app/~~z8YlXoh8iPj-ipx70q5Sjg==/com.google.android.googlequicksearchbox-P1ay2VZH9seCe-islrvo2g==/split_config.xxhdpi.apk' with 1 weak references
+10-06 21:24:25.472  7739  7748 W eport.bindingrc: ApkAssets: Deleting an ApkAssets object '<empty> and /data/app/~~z8YlXoh8iPj-ipx70q5Sjg==/com.google.android.googlequicksearchbox-P1ay2VZH9seCe-islrvo2g==/split_lens_ondevice_engine_play_ml_module.apk' with 1 weak references
+10-06 21:24:28.682  7739  7815 D EGL_emulation: app_time_stats: avg=2189.10ms min=762.07ms max=3616.12ms count=2
+10-06 21:24:29.688  7739  7815 D EGL_emulation: app_time_stats: avg=125.58ms min=91.94ms max=174.09ms count=8
+10-06 21:24:29.769  7739  7739 W Sqflite : type=1400 audit(0.0:158): avc:  denied  { ioctl } for  path="/storage/emulated/0/Documents/mysafetyreport/standalone_backup_1791289468083943.db" dev="fuse" ino=229455 ioctlcmd=0xf50c scontext=u:r:untrusted_app:s0:c214,c256,c512,c768 tcontext=u:object_r:fuse:s0 tclass=file permissive=0 app=com.fentanest.mysafetyreport.bindingrc
+10-06 21:24:30.709  7739  7815 D EGL_emulation: app_time_stats: avg=145.87ms min=126.71ms max=209.21ms count=7
+10-06 21:24:30.969  7739  7739 W Sqflite : type=1400 audit(0.0:159): avc:  denied  { ioctl } for  path="/storage/emulated/0/Documents/mysafetyreport/standalone_backup_1791289468083943.db" dev="fuse" ino=229455 ioctlcmd=0xf50c scontext=u:r:untrusted_app:s0:c214,c256,c512,c768 tcontext=u:object_r:fuse:s0 tclass=file permissive=0 app=com.fentanest.mysafetyreport.bindingrc
+10-06 21:24:31.738  7739  7815 D EGL_emulation: app_time_stats: avg=171.46ms min=126.05ms max=247.26ms count=6
+10-06 21:24:32.307  7739  7739 W WindowOnBackDispatcher: OnBackInvokedCallback is not enabled for the application.
+10-06 21:24:32.307  7739  7739 W WindowOnBackDispatcher: Set 'android:enableOnBackInvokedCallback="true"' in the application manifest.
+10-06 21:24:32.976  7739  7815 D EGL_emulation: app_time_stats: avg=176.88ms min=106.46ms max=432.33ms count=7
+10-06 21:24:35.839  7739  7815 D EGL_emulation: app_time_stats: avg=2861.90ms min=2861.90ms max=2861.90ms count=1
+10-06 21:24:37.006  7739  7815 D EGL_emulation: app_time_stats: avg=161.85ms min=57.44ms max=396.14ms count=7
+10-06 21:24:38.090  7739  7739 W WindowOnBackDispatcher: OnBackInvokedCallback is not enabled for the application.
+10-06 21:24:38.090  7739  7739 W WindowOnBackDispatcher: Set 'android:enableOnBackInvokedCallback="true"' in the application manifest.
+10-06 21:24:38.328  7739  7815 D EGL_emulation: app_time_stats: avg=661.35ms min=616.79ms max=705.91ms count=2
+10-06 21:24:39.569  7739  7815 D EGL_emulation: app_time_stats: avg=175.70ms min=69.97ms max=418.97ms count=7
+10-06 21:24:40.636  7739  7815 D EGL_emulation: app_time_stats: avg=101.80ms min=41.64ms max=156.33ms count=10
+10-06 21:24:41.647  7739  7815 D EGL_emulation: app_time_stats: avg=144.39ms min=107.12ms max=225.15ms count=7
+10-06 21:24:45.682  7739  7815 D EGL_emulation: app_time_stats: avg=1007.12ms min=134.68ms max=3108.28ms count=4
+10-06 21:24:46.700  7739  7815 D EGL_emulation: app_time_stats: avg=142.36ms min=31.91ms max=255.10ms count=7
+10-06 21:24:47.347  7739  7746 I eport.bindingrc: Background concurrent mark compact GC freed 2757KB AllocSpace bytes, 21(912KB) LOS objects, 49% free, 4218KB/8436KB, paused 2.059ms,11.007ms total 425.372ms
+10-06 21:24:47.354  7739  7748 W eport.bindingrc: ApkAssets: Deleting an ApkAssets object '<empty> and /product/app/talkback/talkback.apk' with 1 weak references
+10-06 21:24:47.373  7739  7748 W eport.bindingrc: ApkAssets: Deleting an ApkAssets object '/vendor/overlay/EmulatorTalkBackOverlay/EmulatorTalkBackOverlay.apk' with 1 weak references
+10-06 21:24:47.376  7739  7748 W eport.bindingrc: ApkAssets: Deleting an ApkAssets object '<empty> and /data/app/~~z8YlXoh8iPj-ipx70q5Sjg==/com.google.android.googlequicksearchbox-P1ay2VZH9seCe-islrvo2g==/base.apk' with 1 weak references
+10-06 21:24:47.398  7739  7748 W eport.bindingrc: ApkAssets: Deleting an ApkAssets object '<empty> and /data/app/~~z8YlXoh8iPj-ipx70q5Sjg==/com.google.android.googlequicksearchbox-P1ay2VZH9seCe-islrvo2g==/split_config.xxhdpi.apk' with 1 weak references
+10-06 21:24:47.400  7739  7748 W eport.bindingrc: ApkAssets: Deleting an ApkAssets object '<empty> and /data/app/~~z8YlXoh8iPj-ipx70q5Sjg==/com.google.android.googlequicksearchbox-P1ay2VZH9seCe-islrvo2g==/split_lens_ondevice_engine_play_ml_module.apk' with 1 weak references
+10-06 21:24:47.774  7739  7815 D EGL_emulation: app_time_stats: avg=137.89ms min=45.95ms max=235.22ms count=7
+10-06 21:24:48.889  7739  7815 D EGL_emulation: app_time_stats: avg=139.32ms min=91.17ms max=224.16ms count=8
+10-06 21:24:49.001  7739  7842 E SQLiteLog: (5) statement aborts at 2: [PRAGMA journal_mode=TRUNCATE] database is locked
+10-06 21:24:49.010  7739  7842 W SQLiteConnection: Could not change the database journal mode of '/data/user/0/com.fentanest.mysafetyreport.bindingrc/code_cache/mysafetyreport_restore_staged_TKBQPB/standalone_reports_restore.db' from 'wal' to 'TRUNCATE' because the database is locked.  This usually means that there are other open connections to the database which prevents the database from enabling or disabling write-ahead logging mode.  Proceeding without changing the journal mode.
+10-06 21:24:50.010  7739  7815 D EGL_emulation: app_time_stats: avg=124.52ms min=108.55ms max=145.12ms count=9
+10-06 21:24:51.108  7739  7815 D EGL_emulation: app_time_stats: avg=156.86ms min=111.47ms max=234.43ms count=7
+10-06 21:24:54.046  7739  7815 D EGL_emulation: app_time_stats: avg=1468.63ms min=436.58ms max=2500.68ms count=2

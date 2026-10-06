@@ -9,14 +9,14 @@ import 'community_client_rules.dart';
 /// `community-account` 함수 REST 클라이언트 (`contracts/community-ingest/account-api.md`).
 ///
 /// 헤더: `apikey: <publishable key>`, `Authorization: Bearer <사용자 access token>`.
-/// 본문 `{"protocol":1, …}`, 10초 타임아웃. 네트워크·형식 오류는 [CommunityAccountError] 로.
+/// 본문 `{"protocol":1, …}`, 30초 타임아웃. 네트워크·형식 오류는 [CommunityAccountError] 로.
 /// 테스트는 `http.Client` 가짜를 주입한다.
 class CommunityAccountClient {
   CommunityAccountClient({
     required this.supabaseUrl,
     required this.publishableKey,
     http.Client? client,
-    this.timeout = const Duration(seconds: 10),
+    this.timeout = const Duration(seconds: 30),
   }) : _client = client;
 
   final String supabaseUrl;
@@ -128,7 +128,7 @@ class CommunityAccountClient {
     }, accessToken);
   }
 
-  // 공유한 자료 전체 삭제: 아직 구현하지 않는 기능이다(2026-09-27). 현재 이를 부르는 화면이 없다(설정 카드의 버튼을 주석 처리).
+  // 공식 계정 변경: 공유자료 삭제와 바인딩 해제 확인을 함께 사용한다.
   Future<CommunityDeleteResult> deleteContributions({
     required String accessToken,
   }) async {
@@ -193,7 +193,10 @@ class CommunityAccountClient {
     if (result.success) return result.data!;
     throw CommunityAccountError(
       code: result.code!,
-      message: result.message ?? _defaultMessage(statusCode, result.code!),
+      message:
+          officialAccountErrorMessage(result.code!) ??
+          result.message ??
+          _defaultMessage(statusCode, result.code!),
       httpStatus: statusCode,
       extra: result.extra,
       transient: result.transient,
@@ -222,6 +225,14 @@ class CommunityAccountClient {
     return '서버 오류: HTTP $status';
   }
 }
+
+String? officialAccountErrorMessage(String code) => switch (code) {
+  'official_account_mismatch' =>
+    '연결된 안전신문고 계정이 다릅니다. 바인딩된 계정으로 로그인하거나 계정 변경 절차를 완료해 주세요.',
+  'official_account_taken' =>
+    '이 안전신문고 계정은 이미 다른 카카오 계정에 연결되어 있습니다. 운영자에게 문의해 주세요.',
+  _ => null,
+};
 
 class CommunityAccountError implements Exception {
   final String code;
@@ -283,6 +294,20 @@ class CommunityAccountStatus {
       _map('consent')?['consent_text_sha256'] as String?;
   String? get fingerprint => _map('account')?['fingerprint'] as String?;
   String? get displayName => _map('account')?['display_name'] as String?;
+
+  /// 필드가 없는 구서버는 대조만 생략한다. 필드가 있는데 형식이 틀리면 차단한다.
+  bool get hasOfficialAccount => raw.containsKey('official_account');
+  bool get officialAccountValid {
+    final value = raw['official_account'];
+    if (value is! Map || !value.containsKey('dataset_key')) return false;
+    final key = value['dataset_key'];
+    return key == null ||
+        (key is String && RegExp(r'^[0-9a-f]{64}$').hasMatch(key));
+  }
+
+  String? get officialDatasetKey => officialAccountValid
+      ? (raw['official_account'] as Map)['dataset_key'] as String?
+      : null;
 
   Map<String, Object?>? get connection => _map('connection');
 
@@ -397,15 +422,18 @@ class CommunityConnectionResult {
 
 class CommunityDeleteResult {
   final String deletionId;
+  final bool officialAccountReleased;
   final List<Object?> revokedConnections;
   const CommunityDeleteResult({
     required this.deletionId,
+    this.officialAccountReleased = false,
     this.revokedConnections = const [],
   });
 
   static CommunityDeleteResult parse(Map<String, Object?> json) =>
       CommunityDeleteResult(
         deletionId: (json['deletion_id'] as String?) ?? '',
+        officialAccountReleased: json['official_account_released'] == true,
         revokedConnections: json['revoked_connections'] is List
             ? List<Object?>.from(json['revoked_connections'] as List)
             : const [],

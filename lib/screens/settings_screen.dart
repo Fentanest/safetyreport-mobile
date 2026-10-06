@@ -14,6 +14,7 @@ import '../providers/report_provider.dart';
 import '../services/api_service.dart';
 import '../services/app_storage_paths.dart';
 import '../services/local_db_service.dart';
+import '../widgets/official_account_reset_dialog.dart';
 import '../services/pending_db_import_action.dart';
 import '../services/permission_service.dart';
 import '../services/server_connection_service.dart';
@@ -501,6 +502,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                             : rawPhone)
                                       : phone,
                                   isDemoMode: isDemoLogin,
+                                  confirmAccountReset: () =>
+                                      confirmOfficialAccountReset(ctx),
                                 );
                             if (!ctx.mounted || !mounted) return;
                             Navigator.pop(ctx);

@@ -25,10 +25,19 @@ class _RecordingProvider extends ReportProvider {
   final List<String> events;
 
   @override
+  Future<void> prepareStandaloneAccount(
+    String username, {
+    Future<bool> Function()? confirmAccountReset,
+  }) async {
+    events.add('verify-account');
+  }
+
+  @override
   Future<void> setStandaloneConfig(
     String username, {
     required String phoneNumber,
     bool isDemoMode = false,
+    Future<bool> Function()? confirmAccountReset,
   }) async {
     events.add('activate:$username');
   }
@@ -100,7 +109,7 @@ void main() {
       'the action only after success', (tester) async {
     await login(tester);
 
-    expect(events, ['login', 'import#1', 'activate:user']);
+    expect(events, ['login', 'verify-account', 'import#1', 'activate:user']);
     expect(await pendingRaw(), isNull);
     expect(find.textContaining('서버 DB 변환 완료'), findsOneWidget);
   });
@@ -112,7 +121,11 @@ void main() {
 
     expect(find.text('DB 가져오기 실패'), findsOneWidget);
     expect(find.textContaining(_path), findsOneWidget);
-    expect(events, ['login', 'import#1'], reason: '가져오기 전에는 모드를 켜지 않는다');
+    expect(events, [
+      'login',
+      'verify-account',
+      'import#1',
+    ], reason: '가져오기 전에는 모드를 켜지 않는다');
     expect(await pendingRaw(), 'convert:$_path', reason: '실패하면 지우지 않는다');
 
     // 뒤로가기로 닫히지 않는다(결정 없이 모드가 켜지면 안 된다).
@@ -123,7 +136,13 @@ void main() {
     await tester.tap(find.text('다시 시도'));
     await settle(tester);
 
-    expect(events, ['login', 'import#1', 'import#2', 'activate:user']);
+    expect(events, [
+      'login',
+      'verify-account',
+      'import#1',
+      'import#2',
+      'activate:user',
+    ]);
     expect(await pendingRaw(), isNull);
   });
 
@@ -136,7 +155,7 @@ void main() {
     await tester.tap(find.text('버리고 빈 DB로 시작'));
     await settle(tester);
 
-    expect(events, ['login', 'import#1', 'activate:user']);
+    expect(events, ['login', 'verify-account', 'import#1', 'activate:user']);
     expect(await pendingRaw(), isNull);
     expect(find.textContaining(_path), findsOneWidget, reason: '받은 파일 위치 안내');
   });

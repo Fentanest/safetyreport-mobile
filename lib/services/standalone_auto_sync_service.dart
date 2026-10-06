@@ -100,6 +100,7 @@ class StandaloneAutoSyncService {
 
         if (!preflightDone) {
           try {
+            await LocalDbService.requireAccountChangeComplete();
             await SyncEngine.flushPendingUploadBeforeSync();
             preflightDone = true;
           } catch (e) {

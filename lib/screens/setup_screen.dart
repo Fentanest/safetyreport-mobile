@@ -8,6 +8,7 @@ import '../providers/report_provider.dart';
 import '../models/app_mode.dart';
 import '../services/app_prefs_keys.dart';
 import '../services/local_db_service.dart';
+import '../widgets/official_account_reset_dialog.dart';
 import '../services/pending_db_import_action.dart';
 import '../services/server_connection_service.dart';
 import '../services/standalone_auth_service.dart';
@@ -18,8 +19,16 @@ import '../theme/sr_tokens.dart';
 enum _Step { selectMode, serverConfig, standaloneConfig }
 
 class SetupScreen extends StatefulWidget {
-  const SetupScreen({super.key, this.initialMode, this.onModeSelected});
+  const SetupScreen({
+    super.key,
+    this.initialMode,
+    this.onModeSelected,
+    this.initialNotice,
+    this.accountRecovery = false,
+  });
 
+  final String? initialNotice;
+  final bool accountRecovery;
   final AppMode? initialMode;
   final ValueChanged<AppMode>? onModeSelected;
 
@@ -38,11 +47,21 @@ class _SetupScreenState extends State<SetupScreen> {
   @override
   void initState() {
     super.initState();
+    _errorMessage = widget.initialNotice;
     _step = switch (widget.initialMode) {
       AppMode.server => _Step.serverConfig,
       AppMode.standalone => _Step.standaloneConfig,
       null => _Step.selectMode,
     };
+  }
+
+  @override
+  void didUpdateWidget(covariant SetupScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.accountRecovery &&
+        oldWidget.initialNotice != widget.initialNotice) {
+      _errorMessage = widget.initialNotice;
+    }
   }
 
   final _urlController = TextEditingController();
@@ -165,7 +184,8 @@ class _SetupScreenState extends State<SetupScreen> {
     final password = _passwordController.text;
     final rawPhone = _phoneController.text.trim();
     final phoneNumber = rawPhone.replaceAll(RegExp(r'[^0-9]'), '');
-    if (_isPlayReviewDemoLogin(username, password, rawPhone)) {
+    if (!widget.accountRecovery &&
+        _isPlayReviewDemoLogin(username, password, rawPhone)) {
       await _enterDemo();
       return;
     }
@@ -191,6 +211,12 @@ class _SetupScreenState extends State<SetupScreen> {
       // (Client → Standalone 의 '서버 DB 변환' 또는 '백업 파일 사용' 선택 결과, SQ-B03).
       // setStandaloneConfig 가 먼저면 루트가 곧바로 게이트 통과 흐름(drain·자동 동기화·초기화 판정)을 시작해
       // 빈 DB 에 먼저 쓰거나 가져오기를 "작업 중"으로 거절시킬 수 있다. 모드가 꺼진 동안에는 그런 작업이 없다.
+      if (await PendingDbImportAction.read() != null) {
+        await provider.prepareStandaloneAccount(
+          username,
+          confirmAccountReset: () => confirmOfficialAccountReset(context),
+        );
+      }
       final imported = await _applyPendingDbImport();
       if (imported.status == PendingDbImportStatus.kept) {
         // 결정을 받지 못했다(화면이 닫힘 등). 대기 작업을 남기고 모드도 켜지 않는다 — 다음 로그인에서 다시 시도.
@@ -202,7 +228,11 @@ class _SetupScreenState extends State<SetupScreen> {
         }
         return;
       }
-      await provider.setStandaloneConfig(username, phoneNumber: phoneNumber);
+      await provider.setStandaloneConfig(
+        username,
+        phoneNumber: phoneNumber,
+        confirmAccountReset: () => confirmOfficialAccountReset(context),
+      );
       _showImportOutcome(messenger, imported);
       if (imported.status == PendingDbImportStatus.applied) {
         unawaited(provider.refreshAll());
@@ -305,17 +335,20 @@ class _SetupScreenState extends State<SetupScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 220),
-          transitionBuilder: (child, anim) =>
-              FadeTransition(opacity: anim, child: child),
-          child: switch (_step) {
-            _Step.selectMode => _buildModeSelect(),
-            _Step.serverConfig => _buildServerConfig(),
-            _Step.standaloneConfig => _buildStandaloneConfig(),
-          },
+    return PopScope(
+      canPop: !widget.accountRecovery,
+      child: Scaffold(
+        body: SafeArea(
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 220),
+            transitionBuilder: (child, anim) =>
+                FadeTransition(opacity: anim, child: child),
+            child: switch (_step) {
+              _Step.selectMode => _buildModeSelect(),
+              _Step.serverConfig => _buildServerConfig(),
+              _Step.standaloneConfig => _buildStandaloneConfig(),
+            },
+          ),
         ),
       ),
     );
@@ -400,7 +433,9 @@ class _SetupScreenState extends State<SetupScreen> {
               IconButton(
                 icon: Icon(Icons.arrow_back),
                 tooltip: '모드 선택으로 돌아가기',
-                onPressed: () => _goToStep(_Step.selectMode),
+                onPressed: widget.accountRecovery
+                    ? null
+                    : () => _goToStep(_Step.selectMode),
               ),
               const SizedBox(width: 4),
               Text(
@@ -488,7 +523,9 @@ class _SetupScreenState extends State<SetupScreen> {
                 icon: Icon(Icons.arrow_back),
                 tooltip: '모드 선택으로 돌아가기',
                 // 로그인·DB 가져오기 중에는 떠나지 않는다(SQ-B03).
-                onPressed: _loading ? null : () => _goToStep(_Step.selectMode),
+                onPressed: _loading || widget.accountRecovery
+                    ? null
+                    : () => _goToStep(_Step.selectMode),
               ),
               const SizedBox(width: 4),
               Text(
@@ -627,9 +664,7 @@ class _SetupScreenState extends State<SetupScreen> {
         decoration: BoxDecoration(
           color: context.tone(SrTone.danger).background,
           borderRadius: BorderRadius.circular(SrRadius.lg),
-          border: Border.all(
-            color: context.tone(SrTone.danger).border,
-          ),
+          border: Border.all(color: context.tone(SrTone.danger).border),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,

@@ -31,6 +31,26 @@ void main() {
     return g;
   }
 
+  test('official dataset change invalidates gate even in the same mode', () async {
+    var generation = 0;
+    final g = CommunityGate(
+      checkDataOwner: ownerOk,
+      config: testAuthConfig(), auth: auth,
+      accountClient: server.accountClient(), configStatus: () => 'ok',
+      appMode: () => 'server', datasetGeneration: () => generation,
+    );
+    addTearDown(g.dispose);
+    await g.refreshNow();
+    expect(g.canEnter, isTrue);
+    final checked = server.statusCalls;
+    generation++;
+    g.onAppModeChanged();
+    expect(g.canEnter, isFalse);
+    await g.refreshNow();
+    expect(g.canEnter, isTrue);
+    expect(server.statusCalls, greaterThan(checked));
+  });
+
   test('silent refresh with the same result does not notify', () async {
     final g = gate();
     expect((await g.refreshNow()).canEnter, isTrue);

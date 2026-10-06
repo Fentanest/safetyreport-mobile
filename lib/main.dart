@@ -12,6 +12,8 @@ import 'screens/report_list_screen.dart';
 import 'screens/report_management_screen.dart';
 import 'screens/statistics_screen.dart';
 import 'screens/setup_screen.dart';
+import 'screens/cloud_unavailable_screen.dart';
+import 'screens/official_account_start_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/permission_screen.dart';
 import 'screens/community_onboarding_screen.dart';
@@ -99,6 +101,12 @@ Future<void> main() async {
   final gate = CommunityGate(
     auth: communityAuth,
     store: communityStore,
+    datasetGeneration: () => reportProvider.accountConfigEpoch,
+    checkAccountChangeComplete: () async {
+      if (reportProvider.isConfigured) {
+        await LocalDbService.requireAccountChangeComplete();
+      }
+    },
     officialAccountId: () async => reportProvider.standaloneUsername.isEmpty
         ? null
         : reportProvider.standaloneUsername,
@@ -106,6 +114,8 @@ Future<void> main() async {
     appMode: () =>
         reportProvider.isStandaloneDemo ? 'demo' : reportProvider.appMode.name,
   );
+  reportProvider.officialAccountNeedsReset = gate.officialAccountNeedsReset;
+  reportProvider.releaseOfficialAccount = gate.releaseOfficialAccount;
   // 초기화 크롤링이 필요하거나 진행 중이면 일반 동기화(수동·공유 대기열 처리)를 시작하지 않는다(PC 크롤 시작 409 와 같음).
   // 초기화 화면보다 먼저 도는 게이트 통과 직후 처리도 여기서 막힌다.
   SyncEngine.rebuildBlocks = () async {
@@ -223,11 +233,12 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
   void _onGateChanged() {
     final canEnter = _gate.canEnter;
     final provider = context.read<ReportProvider>();
-    if (_gateWasOpen && !canEnter && !provider.isStandaloneDemo) {
+    final wasOpen = _gateWasOpen;
+    _gateWasOpen = canEnter;
+    if (wasOpen && !canEnter) {
       provider.onGateBlocked();
       _returnToRoot();
     }
-    _gateWasOpen = canEnter;
   }
 
   @override
@@ -282,7 +293,7 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
             ),
           );
           context.select<CommunityGate, Object>(
-            (g) => (g.isChecked, g.canEnter),
+            (g) => (g.isChecked, g.canEnter, g.state.state),
           );
           final provider = context.read<ReportProvider>();
           final gate = context.read<CommunityGate>();
@@ -307,12 +318,11 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
     ServerConnectionResult? serverVersion,
   ) {
     // 최초 설정: 모드 선택 → 카카오 동의 → 공통 권한 → 해당 모드 설정.
-    // 데모는 합성 자료만 쓰므로 인증·권한·서비스를 시작하지 않는다.
+    // 데모도 카카오 인증·클라우드 확인 후 합성 자료 화면만 연다.
     if (!provider.isInitialized) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (provider.isConfigured) _initialModeChoice = null;
-    if (provider.isStandaloneDemo) return const MainNavigationScreen();
     if (!provider.isConfigured && _initialModeChoice == null) {
       return SetupScreen(
         onModeSelected: (mode) => setState(() => _initialModeChoice = mode),
@@ -320,6 +330,22 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
     }
     if (!gate.isChecked) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (!gate.canEnter && gate.state.state == 'cloud_unavailable') {
+      return CloudUnavailableScreen(gate: gate);
+    }
+    if (!gate.canEnter &&
+        const {
+          'official_account_mismatch',
+          'official_account_taken',
+          'official_account_change_required',
+        }.contains(gate.state.state)) {
+      return SetupScreen(
+        key: const ValueKey('official-account-recovery'),
+        initialMode: AppMode.standalone,
+        accountRecovery: true,
+        initialNotice: gate.notice ?? LocalDbService.officialResetMessage,
+      );
     }
     if (!gate.canEnter) {
       return CommunityOnboardingScreen(
@@ -339,6 +365,7 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
             : null,
       );
     }
+    if (provider.isStandaloneDemo) return const MainNavigationScreen();
     if (!provider.isConfigured) {
       return _SetupFlow(initialMode: _initialModeChoice);
     }
@@ -352,6 +379,12 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
           onRetry: _retryServerVersion,
         );
       }
+    }
+    if (provider.appMode == AppMode.standalone) {
+      return OfficialAccountStartScreen(
+        key: ValueKey(provider.accountConfigEpoch),
+        child: const _PostGateFlow(),
+      );
     }
     return const _PostGateFlow();
   }
@@ -579,6 +612,7 @@ class _StandaloneRebuildGateState extends State<StandaloneRebuildGate> {
     final provider = context.read<ReportProvider>();
     final gate = context.read<CommunityGate>();
     if (!rebuildAppliesOnDevice(provider)) return null;
+    await LocalDbService.requireAccountChangeComplete();
     final store = await CommunityStore.open();
     final rebuild = standaloneRebuild(
       store,
@@ -603,6 +637,13 @@ class _StandaloneRebuildGateState extends State<StandaloneRebuildGate> {
     return FutureBuilder<CommunityRebuild?>(
       future: _future,
       builder: (context, snap) {
+        if (snap.error is ForeignDatabaseException) {
+          return SetupScreen(
+            initialMode: AppMode.standalone,
+            initialNotice: snap.error.toString(),
+            accountRecovery: true,
+          );
+        }
         if (snap.hasError) {
           // 저장소를 열지 못하면(테스트·손상) 초기화를 건너뛰고 메인으로 간다.
           _skipOnce();
@@ -644,9 +685,6 @@ class MainNavigationScreen extends StatefulWidget {
 /// Provider 가 없으면(예전 테스트) 허용으로 둔다.
 bool communityNavAllowed(BuildContext context) {
   try {
-    if (Provider.of<ReportProvider>(context, listen: false).isStandaloneDemo) {
-      return true;
-    }
     return Provider.of<CommunityGate>(context, listen: false).canEnter;
   } catch (_) {
     return true;

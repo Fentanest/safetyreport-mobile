@@ -11,6 +11,7 @@ import 'package:safetyreport/providers/report_provider.dart';
 import 'package:safetyreport/screens/community_onboarding_screen.dart';
 import 'package:safetyreport/screens/permission_screen.dart';
 import 'package:safetyreport/screens/setup_screen.dart';
+import 'package:safetyreport/screens/cloud_unavailable_screen.dart';
 import 'package:safetyreport/services/app_prefs_keys.dart';
 import 'package:safetyreport/services/server_connection_service.dart';
 import 'package:safetyreport/services/standalone_auth_service.dart';
@@ -21,6 +22,10 @@ class StubGate extends CommunityGate {
   StubGate({required this.enter}) : super(configStatus: () => 'ok');
 
   bool enter;
+  String blockedState = 'verification_required';
+  @override
+  GateState get state =>
+      GateState(state: enter ? 'ok' : blockedState, canEnter: enter);
 
   void setEnter(bool value) {
     enter = value;
@@ -91,6 +96,75 @@ void main() {
     ReportProvider.startWsServiceHook = null;
     StandaloneAuthService.stopKeepAlive();
   });
+
+  testWidgets(
+    'gate closes pushed route; cloud and account recovery switch while blocked',
+    (tester) async {
+      final provider = await _providerWith({
+        AppPrefsKeys.appMode: 'standalone',
+        AppPrefsKeys.standaloneUsername: 'user1',
+      });
+      final gate = StubGate(enter: true);
+      addTearDown(gate.dispose);
+      await tester.pumpWidget(_app(provider, gate));
+      await tester.pumpAndSettle();
+      final nav = tester.state<NavigatorState>(find.byType(Navigator).first);
+      nav.push(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('private pushed route')),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('private pushed route'), findsOneWidget);
+      gate.blockedState = 'cloud_unavailable';
+      gate.setEnter(false);
+      await tester.pumpAndSettle();
+      expect(find.text('private pushed route'), findsNothing);
+      expect(find.byType(CloudUnavailableScreen), findsOneWidget);
+      gate.blockedState = 'official_account_mismatch';
+      gate.setEnter(false);
+      await tester.pumpAndSettle();
+      expect(find.byType(CloudUnavailableScreen), findsNothing);
+      expect(
+        tester.widget<SetupScreen>(find.byType(SetupScreen)).accountRecovery,
+        isTrue,
+      );
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(SetupScreen), findsOneWidget);
+      expect(find.byType(MainNavigationScreen), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'pending import cannot reach official login before Kakao onboarding',
+    (tester) async {
+      final provider = await _providerWith({
+        AppPrefsKeys.pendingDbImport: 'copy:/synthetic/backup.db',
+      });
+      final gate = StubGate(enter: false);
+      addTearDown(gate.dispose);
+      await tester.pumpWidget(_app(provider, gate));
+      await tester.pumpAndSettle();
+      tester
+          .widget<InkWell>(
+            find.ancestor(
+              of: find.text('Standalone 모드'),
+              matching: find.byType(InkWell),
+            ),
+          )
+          .onTap!();
+      await tester.pumpAndSettle();
+      expect(find.byType(CommunityOnboardingScreen), findsOneWidget);
+      expect(find.widgetWithText(TextField, '아이디'), findsNothing);
+      expect(
+        (await SharedPreferences.getInstance()).getString(
+          AppPrefsKeys.pendingDbImport,
+        ),
+        'copy:/synthetic/backup.db',
+      );
+    },
+  );
 
   testWidgets(
     'F01: fresh install selects mode before onboarding, zero permission calls',
@@ -226,24 +300,25 @@ void main() {
     },
   );
 
-  testWidgets(
-    'S-21: standalone configured skips to main when store unavailable',
-    (tester) async {
-      final provider = await _providerWith({
-        AppPrefsKeys.appMode: 'standalone',
-        AppPrefsKeys.standaloneUsername: 'user1',
-      });
-      final gate = StubGate(enter: true);
-      addTearDown(gate.dispose);
-      await tester.pumpWidget(_app(provider, gate));
-      for (var i = 0; i < 20; i++) {
-        await tester.pump(const Duration(milliseconds: 300));
-        if (find.byType(MainNavigationScreen).evaluate().isNotEmpty) break;
-      }
-      expect(find.byType(MainNavigationScreen), findsOneWidget);
-      StandaloneAuthService.stopKeepAlive();
-    },
-  );
+  testWidgets('S-21: personal DB unavailable cannot bypass account binding', (
+    tester,
+  ) async {
+    final provider = await _providerWith({
+      AppPrefsKeys.appMode: 'standalone',
+      AppPrefsKeys.standaloneUsername: 'user1',
+    });
+    final gate = StubGate(enter: true);
+    addTearDown(gate.dispose);
+    await tester.pumpWidget(_app(provider, gate));
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(const Duration(milliseconds: 300));
+      if (find.byType(MainNavigationScreen).evaluate().isNotEmpty) break;
+    }
+    expect(find.byType(MainNavigationScreen), findsNothing);
+    expect(find.text('개인 DB를 확인하지 못했습니다. 다시 시도해 주세요.'), findsOneWidget);
+    expect(find.text('재시도'), findsOneWidget);
+    StandaloneAuthService.stopKeepAlive();
+  });
 
   testWidgets('stored Client config blocks a PC server below v3', (
     tester,
@@ -335,36 +410,45 @@ void main() {
     expect(find.byType(MainNavigationScreen), findsNothing);
   });
 
-  testWidgets('demo pages remain available without Kakao consent', (
-    tester,
-  ) async {
-    final provider = await _providerWith({
-      AppPrefsKeys.appMode: 'standalone',
-      AppPrefsKeys.standaloneUsername: 'demo',
-      AppPrefsKeys.standaloneDemoMode: true,
-    });
-    final gate = StubGate(enter: true);
-    addTearDown(gate.dispose);
-    await tester.pumpWidget(_app(provider, gate));
-    for (var i = 0; i < 20; i++) {
-      await tester.pump(const Duration(milliseconds: 200));
-      if (find.byType(MainNavigationScreen).evaluate().isNotEmpty) break;
-    }
-    expect(find.byType(MainNavigationScreen), findsOneWidget);
-    Navigator.of(tester.element(find.byType(MainNavigationScreen))).push(
-      MaterialPageRoute(
-        builder: (_) => const Scaffold(body: Text('other screen')),
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('other screen'), findsOneWidget);
-    gate.setEnter(false);
-    await tester.pumpAndSettle();
-    expect(find.byType(CommunityOnboardingScreen), findsNothing);
-    expect(find.text('other screen'), findsOneWidget);
-    await tester.pump(const Duration(seconds: 6));
-    await tester.pump(const Duration(seconds: 6));
-  });
+  testWidgets(
+    'demo requires Kakao consent and closes pushed pages when gate is lost',
+    (tester) async {
+      final provider = await _providerWith({
+        AppPrefsKeys.appMode: 'standalone',
+        AppPrefsKeys.standaloneUsername: 'demo',
+        AppPrefsKeys.standaloneDemoMode: true,
+      });
+      final gate = StubGate(enter: false);
+      addTearDown(gate.dispose);
+      await tester.pumpWidget(_app(provider, gate));
+      await tester.pumpAndSettle();
+      expect(find.byType(CommunityOnboardingScreen), findsOneWidget);
+      expect(find.byType(MainNavigationScreen), findsNothing);
+      gate.setEnter(true);
+      for (var i = 0; i < 20; i++) {
+        await tester.pump(const Duration(milliseconds: 200));
+        if (find.byType(MainNavigationScreen).evaluate().isNotEmpty) break;
+      }
+      expect(find.byType(MainNavigationScreen), findsOneWidget);
+      Navigator.of(tester.element(find.byType(MainNavigationScreen))).push(
+        MaterialPageRoute(
+          builder: (_) => const Scaffold(body: Text('other screen')),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('other screen'), findsOneWidget);
+      gate.setEnter(false);
+      await tester.pumpAndSettle();
+      expect(find.byType(CommunityOnboardingScreen), findsOneWidget);
+      expect(find.text('other screen'), findsNothing);
+      gate.blockedState = 'cloud_unavailable';
+      gate.setEnter(false);
+      await tester.pumpAndSettle();
+      expect(find.byType(CloudUnavailableScreen), findsOneWidget);
+      await tester.pump(const Duration(seconds: 6));
+      await tester.pump(const Duration(seconds: 6));
+    },
+  );
 
   /// MainNavigationScreen 은 유지 애니메이션 때문에 고정 pump 로 진행한다.
   Future<void> pumpMain(WidgetTester tester) async {

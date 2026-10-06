@@ -83,6 +83,40 @@ void main() {
   late Directory dir;
   useTestKakaoAccount();
 
+  for (final official in [null, 'another-official-account']) {
+    test(
+      'server import accepts missing/different official account for same Kakao owner: $official',
+      () async {
+        final path = await _serverDb(dir, watchlist: []);
+        final source = await openDatabase(path, singleInstance: false);
+        if (official == null) {
+          await source.delete(
+            'mysafety_sync_meta',
+            where: 'key=?',
+            whereArgs: ['official_account_key'],
+          );
+        } else {
+          await source.insert('mysafety_sync_meta', {
+            'key': 'official_account_key',
+            'value': official,
+          });
+        }
+        await source.close();
+        await (await LocalDbService.db).insert('reports', {
+          'ID': 'preserved',
+          'category': 'traffic',
+        });
+        expect(await LocalDbService.importFromServerDb(path), 2);
+        expect(
+          (await (await LocalDbService.db).query(
+            'reports',
+          )).map((r) => r['ID']),
+          unorderedEquals(['s1', 's2']),
+        );
+      },
+    );
+  }
+
   setUpAll(() async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;

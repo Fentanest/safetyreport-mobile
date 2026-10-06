@@ -112,7 +112,7 @@ void main() {
       await tmp.delete(recursive: true);
     });
 
-    test('status 일시 오류 + 오래된 확인 → verification_required, 화면 상태는 유지', () async {
+    test('status 일시 오류 → cloud_unavailable, 새 작업과 화면 진입 모두 차단', () async {
       var calls = 0;
       final server = FakeAccountServer(
         status: () {
@@ -139,9 +139,10 @@ void main() {
       final fresh = await gate.requireFresh(maxAge: Duration.zero);
       expect(calls, 2, reason: '오래됐으니 다시 확인을 시도했다');
       expect(fresh.canEnter, isFalse);
-      expect(fresh.state, 'verification_required');
-      expect(fresh.reasons, contains('status_stale'));
-      expect(gate.state.canEnter, isTrue, reason: '화면 이동용 10분 캐시는 그대로');
+      expect(fresh.state, 'cloud_unavailable');
+      expect(gate.notice, CommunityGate.cloudUnavailableMessage);
+      expect(gate.state.canEnter, isFalse, reason: '2026-10-06 확정 계약: 성공 캐시로 클라우드 대조 실패를 우회하지 않음');
+      expect(await store.activeContext(), isNull);
     });
   });
 }

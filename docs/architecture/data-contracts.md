@@ -516,3 +516,33 @@ SharedPreferences의 disk commit 실패는 메모리 변경을 되돌리지 않�
 - 소유자 검사 실패는 `local_db_unavailable`와 인증 실패 사유를 구분한다. CommunityStore 열기에 실패하면 연결과 실패한 Future를 해제하여 재시도한다.
 - DB 소유자를 확인할 수 없는 로그아웃은 삭제하지 않고 세션만 닫는다. 먼저 DB 밖 SharedPreferences에 `communityOwnerQuarantined=true`를 영속 기록한다. 이후 실제 소유자 표시가 있는 자료는 해당 계정만 접근하고, 주인 없는 자료는 `quarantined`로 차단하여 명시적인 자료 비우기/새 계정 시작을 요구한다. 비우기 성공 후 보호 표시를 해제한다. 게이트가 막힌 동안 writer 등록/업로드는 허용하지 않는다. 정상 소유자 로그아웃의 자료 삭제 및 다른 계정 자료 보존 규칙은 유지한다.
 - PC `services/community_gate.py`도 주인 확인 실패를 차단한다. PC `services/community_account_ops.py:logout`은 여전히 DB 주인 읽기 예외를 `OperationRefused`로 처리하여 로그아웃도 막는다. PC에도 세션만 닫는 복구를 제공하려면 별도의 영속 보호 표시와 회귀 테스트가 필요하다. 이번 모바일 변경은 PC 코드를 수정하지 않는다.
+
+## 공식 계정과 개인 DB 소유권
+
+안전신문고 로그인 ID와 그 해시는 개인 DB에 저장하지 않는다. 로그인 ID는 기존 설정
+`standaloneUsername`에서만 읽으며, `datasetKeyForOfficialId`로 계산한 해시와 중앙
+`status.official_account.dataset_key`를 대조한다. 등록 시 서버의 양방향 1:1 거절도 적용한다.
+
+- 모바일 백업 복원, 직전 DB 되돌리기, 서버 DB 가져오기, 파일 자동 판별, pending import의
+  주인 검사는 **카카오 회원번호만** 사용한다. 같은 카카오라면 다른 안신 계정 시절의 백업 및
+  안신 계정 정보가 없는 옛 백업도 허용한다. 카카오 주인이 없거나 다르면 기존대로 거절한다.
+  최종 교체 직전에도 카카오 계정·설정 세대·대상 경로를 재확인한다.
+- 개발 중 사용했던 `official_account_key`는 생성하거나 소유권 판정에 읽지 않는다.
+  배포 이력이 없으므로 별도 제거 마이그레이션은 없다. 기존 파일의 임의 메타 왕복 보존 계약은 유지한다.
+- 설정 ID가 바뀌거나 서버 바인딩이 후보 ID와 다르면 경고 → Documents/mysafetyreport
+  (실패 시 Download/mysafetyreport)의 `standalone_backup_<microseconds>.db` →
+  SQLite 일관 스냅샷·무결성 검사 → pending 기록 → 중앙 공유자료 삭제/바인딩 해제 확인 →
+  community dataset rotate → 개인 자료·감시목록 비우기 → 새 설정/연결 순서다.
+  백업 또는 서버 해제 확인 실패 시 개인 자료를 지우지 않는다.
+- `official_account_change_pending=true`는 계정 정보 없는 중단 상태값이다. 해제 응답 유실/중간 종료 시
+  명시적인 재시도 전까지 진입·동기화를 막는다. `official_account_restart_required=true`는
+  성공 후 새로 시작 안내를 유지한다. 두 키에 ID/해시를 쓰지 않는다.
+- Client→Standalone: resetConfig는 카카오 세션을 비우지만 루트에서 카카오 재인증 후 공식 로그인을
+  진행한다. 가져오기 전 설정/서버 기준 계정 변경 절차를 확인하고, 가져오기를 끝낸 뒤 모드를 활성화한다.
+  같은 준비를 두 번 수행해 방금 가져온 자료를 비우지 않도록 후보 ID를 Provider 메모리에만 보관한다.
+  가져오기에는 공식 ID가 필요 없다. 성공/명시적 버리기 전에는 pending 액션을 제거하지 않는다.
+
+### 코드 대조 정정
+
+사용자 r2 정정으로 개인 DB 공식 계정 해시와 복원 거절 규칙을 제거했다. PC 교환 DB에
+`official_account_key`를 요구하지 않으며 스키마/임의 메타 보존 계약도 변경하지 않는다.

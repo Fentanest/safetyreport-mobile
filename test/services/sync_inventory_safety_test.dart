@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:async';
+import '../support/kakao_owner.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -10,6 +11,7 @@ import 'package:safetyreport/services/sync_engine.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  useTestKakaoAccount();
   late Directory dir;
   late CommunityStore store;
   setUp(() async {
@@ -28,6 +30,7 @@ void main() {
     StandaloneApiService.detailForTest = (_) async =>
         throw const SocketException('synthetic offline');
     final db = await LocalDbService.db;
+    await stampOwner(db);
     await db.insert('reports', {
       'ID': '001',
       '신고번호': 'SPP-synthetic',

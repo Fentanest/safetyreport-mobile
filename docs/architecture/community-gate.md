@@ -12,7 +12,7 @@
   → 초기화 안내·확인(Standalone 로컬 job / Client 서버 job) → 메인
 ```
 
-- 새 설치의 모드 선택 화면은 게이트 검사 전에 보인다. Client·Standalone을 선택한 뒤 게이트를 검사한다. 검사 중에는 로딩 셸만 보이고 기존 신고 화면 flash 는 없다. `Demo 보기`는 합성 DB만 열므로 게이트를 통과하지 않는다.
+- 새 설치의 모드 선택 화면은 게이트 검사 전에 보인다. Client·Standalone을 선택한 뒤 게이트를 검사한다. 검사 중에는 로딩 셸만 보이고 기존 신고 화면 flash 는 없다. `Demo 보기`도 카카오 인증·클라우드 게이트를 통과한 뒤 합성 DB를 연다.
 - 기존 사용자(설정 완료)도 게이트 → 초기화 안내(필요 시) → 메인을 거친다.
 - prefs·SQLite 의 옛 "완료" 플래그는 게이트 판정에 쓰지 않는다.
 
@@ -29,11 +29,11 @@
 - 로그인 확정·로그아웃·만료(카카오 상태가 connected/disconnected/reauthRequired 로 바뀜)면 게이트가 곧바로 다시 확인한다
   (예전엔 60초 poll·앱 복귀까지 기다렸다). 브라우저 로그인 중 단계는 건드리지 않는다.
 - `community_account_client.dart`: `community-account` REST
-  (`apikey` + Bearer, 10초 타임아웃, `{"protocol":1,…}`).
+  (`apikey` + Bearer, 30초 타임아웃, `{"protocol":1,…}`).
 - `community_gate.dart` (`ChangeNotifier`): 캐시 10분, `requireFresh(60s)`,
-  `invalidate(reason)`, 포그라운드 60초 poll + resume 즉시 refresh.
-  `requireFresh` 는 재검증이 실패해 10분 탐색 캐시를 쓴 경우에도 60초 안의 확인이 없으면 `verification_required`(`status_stale`)를 돌려준다.
-  화면 이동용 상태는 그대로 둔다(서버 `require_fresh` 와 같음, 2026-10-04 서버 기술일지 D2-03).
+  `invalidate(reason)`, 포그라운드 5분 poll + resume 즉시 refresh.
+  `requireFresh(60s)`는 새 작업의 검증 상한이다. 대조 요청의 네트워크·시간초과·일시 서버 오류는
+  성공 캐시의 나이와 관계없이 `cloud_unavailable`로 화면·작업을 차단한다(2026-10-06 확정 계약).
   Standalone 이고 status active 면 `CommunityStore.setContext(...)`,
   상실이면 `deactivateContext`.
 - 자료 주인(2026-09-27, Standalone writer 만 — Client·데모는 확인하지 않음): 중앙 status 가 진입 허용이면
@@ -121,3 +121,28 @@ grant 로 재요청), `공유한 자료 삭제 요청`(확인 문구 입력 → 
 `CommunityGate._claimRequested` 가 서고, 다음 writer 확인 한 번에서 `superseded` 연결·`writer_conflict` 를 takeover 로 등록한다.
 앱 시작(세션 복원)·주기 확인만으로는 세우지 않는다(기기끼리 서로 뺏지 않게). `suspended` 는 가져오지 않는다. PC `community_gate.claim_for_this_device` 와 같은 규칙.
 설정의 '이 기기로 업로드 전환' 버튼은 그대로 둔다.
+
+## 공식 계정 1:1 대조와 복구
+
+- 앱 시작, 포그라운드 복귀, 포그라운드 5분 주기에 `status.official_account.dataset_key`를 읽는다.
+  Standalone은 현재 로그인 ID의 정규화 해시와 비교한다. Client의 공식 로그인은 PC 설정 소유이므로
+  모바일의 잔여 Standalone ID와 비교하지 않으며 PC가 대조·계정 변경을 담당한다.
+- 원격 계정 불일치 또는 `connections`의 `official_account_mismatch`/`official_account_taken`은
+  writer만 중단하는 오류가 아니다. 앱 진입을 막고 기존 push 경로를 닫아 공식 로그인 화면으로 보낸다.
+  뒤로가기·모드 선택·데모 전환으로 빠져나올 수 없다. taken 문구는 운영자 문의를 안내한다.
+- 개인 DB의 안신 계정 비교는 없다. 계정 변경 미완료 상태값만 있으면
+  재로그인·경고·백업·초기화 흐름으로 복구한다. 데이터 변경 세대와 별도로 `accountConfigEpoch`를 써서
+  차단으로 인한 화면 캐시 초기화가 다시 게이트를 무효화하는 재귀를 피한다.
+- 일시 접속 실패 페이지: “클라우드에 연결할 수 없습니다. 잠시 후 이용해 주세요”.
+  HTTP 제한 30초, 자동 재시도 2/5/10초(3회), 수동 재시도, 복귀 및 다음 주기에도 재검증한다.
+  실패 즉시 context 비활성·게이트 캐시 차단, 동기화/keep-alive/예약 업로드 중단.
+- 새 모드 선택 이후 카카오 인증·공유 동의는 기존 앱에서 필수다. 인증되지 않은 사용자는 기존 온보딩에
+  머물며, 아직 자기 바인딩을 조회할 토큰이 없어 별도 클라우드 장애 페이지로 치환하지 않는다.
+  데모도 인증·클라우드 게이트를 통과해야 하며 장애 시 열린 하위 경로를 닫는다.
+  데모는 공식 로그인 계정이 없으므로 바인딩 등록/비교와 업로드는 하지 않는다. 미연동 앱 사용 경로는 없다.
+- 구서버가 `official_account` 필드를 생략하면 원격 대조만 생략한다. 필드가 있지만 객체/해시가 잘못되면
+  확인 실패로 차단한다. `dataset_key:null`은 미바인딩이다. 새 연결 등록 오류는 구서버 호환 여부와 무관하게 처리한다.
+- 공식 계정 변경은 삭제 확인 후에만 새 연결을 등록한다. `contributions-delete`의
+  `official_account_released:true`가 없거나 결과가 불명확하면 개인 DB를 지우지 않고 중단한다.
+  기존 삭제 fence와 개인 DB의 pending 표시가 앱 재시작 뒤에도 재등록을 막는다.
+  성공한 변경은 `새로 시작` 화면을 거쳐 새 계정의 메인/초기화 흐름으로 진입한다.

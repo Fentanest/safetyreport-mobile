@@ -115,6 +115,10 @@ class FakeAccountServer {
 
   final requests = <http.Request>[];
   int statusCalls = 0;
+  int statusFailures = 0;
+  Map<String, Object?> deleteResponse = {'official_account_released': true};
+  void Function()? onDelete;
+
 
   /// `policy` 가 내려줄 동의문(바꾸면 해시도 따라 바뀐다). [policyHashOverride] 로 본문과 다른 해시(변조)를 흉내 낸다.
   String policyText = fakePolicyText;
@@ -134,9 +138,17 @@ class FakeAccountServer {
     final path = req.url.path;
     if (path.endsWith('/status')) {
       statusCalls++;
+      if (statusFailures > 0) {
+        statusFailures--;
+        return http.Response('{"error":{"code":"busy","retryable":true}}', 503);
+      }
       final delay = statusDelay;
       if (delay != null) await delay;
       return http.Response.bytes(utf8.encode(jsonEncode(statusFn())), 200);
+    }
+    if (path.endsWith('/contributions-delete')) {
+      onDelete?.call();
+      return http.Response(jsonEncode(deleteResponse), 200);
     }
     if (path.endsWith('/policy')) {
       if (policyFailures > 0) {
@@ -195,7 +207,7 @@ class FakeAccountServer {
       }
       if (registerThrows != null) {
         final code = registerThrows!['code'];
-        final status = code == 'writer_conflict' ? 409 : 400;
+        final status = code == 'writer_conflict' || code == 'official_account_mismatch' || code == 'official_account_taken' ? 409 : 400;
         return http.Response.bytes(utf8.encode(jsonEncode({'error': registerThrows})), status);
       }
       return http.Response(

@@ -1,0 +1,45 @@
+{
+  "baseline_commit": "bbb66d2a",
+  "branch": "fix/official-account-binding",
+  "version": "2.0.3+34",
+  "sdk": "Flutter 3.47.5",
+  "analyze": {
+    "exit_code": 1,
+    "error": 0,
+    "warning": 9,
+    "info": 0,
+    "new_diagnostics": 0
+  },
+  "unit_widget_suite": {
+    "exit_code": 0,
+    "passed": 1300,
+    "skipped": 16,
+    "failed": 0
+  },
+  "android_integration": {
+    "exit_code": 0,
+    "tests_passed": 1,
+    "scenarios_passed": 6,
+    "screenshots": 11,
+    "serial": "emulator-5580",
+    "avd": "sr_uitest_api35",
+    "application_id": "com.fentanest.mysafetyreport.bindingrc",
+    "synthetic_auth_and_http": true
+  },
+  "debug_build": {
+    "exit_code": 0,
+    "application_id": "com.fentanest.mysafetyreport",
+    "version_name": "2.0.3",
+    "version_code": 34
+  },
+  "logcat": {
+    "unhandled_flutter_exceptions": 0,
+    "fatal_or_anr": 0,
+    "overflow": 0,
+    "sqlite_journal_mode_warning": 1,
+    "restore_integrity_and_result_passed": true
+  },
+  "release_build": "NOT_RUN",
+  "production_auth": "NOT_RUN",
+  "commit_push_tag_upload": "NOT_RUN"
+}

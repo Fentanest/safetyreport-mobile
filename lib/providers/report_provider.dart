@@ -705,6 +705,9 @@ class ReportProvider with ChangeNotifier {
 
   /// 카카오 인증·동의가 풀리면 Client의 백그라운드 서버 연결도 끊는다.
   void onGateBlocked() {
+    SyncEngine.stop();
+    StandaloneAuthService.stopKeepAlive();
+    unawaited(CommunityUploadHooks.cancelBackgroundJobsNow());
     _datasetEpoch++;
     _resetDatasetView();
     _gatePassed = false;
@@ -854,18 +857,69 @@ class ReportProvider with ChangeNotifier {
     await prefs.remove(AppPrefsKeys.standaloneDemoMode);
     await LocalDbService.closeDb();
 
+    _preparedOfficialId = null;
+    accountConfigEpoch++;
     notifyListeners();
     if (_gatePassed && isConfigured) await PermissionService.startWsService();
+  }
+
+  /// 앱 조립 시 CommunityGate의 서버 계약 검증/바인딩 해제를 연결한다.
+  int accountConfigEpoch = 0;
+  bool _accountRestartPending = false;
+  String? _preparedOfficialId;
+  Future<bool> Function(String username)? officialAccountNeedsReset;
+  Future<void> Function()? releaseOfficialAccount;
+
+  Future<void> prepareStandaloneAccount(
+    String username, {
+    Future<bool> Function()? confirmAccountReset,
+  }) async {
+    SyncEngine.stop();
+    StandaloneAuthService.invalidateOperations();
+    StandaloneAuthService.stopKeepAlive();
+    try {
+      final candidate = username.trim().toLowerCase();
+      if (candidate.isEmpty) {
+        throw ForeignDatabaseException('안전신문고 로그인 계정을 확인할 수 없습니다.');
+      }
+      final previous =
+          _preparedOfficialId ?? _standaloneUsername.trim().toLowerCase();
+      final localReset =
+          previous.isNotEmpty && previous != candidate && !_isStandaloneDemo;
+      final remoteReset =
+          await officialAccountNeedsReset?.call(username) ?? false;
+      await LocalDbService.prepareOfficialAccountChange(
+        resetRequired: localReset || remoteReset,
+        releaseBinding: releaseOfficialAccount,
+        confirmReset: confirmAccountReset,
+      );
+      _preparedOfficialId = candidate;
+      _accountRestartPending =
+          _accountRestartPending ||
+          await LocalDbService.getMeta(LocalDbService.officialRestartKey) ==
+              'true';
+    } catch (_) {
+      // 로그인은 성공했지만 설정을 적용하지 못했다. 새 비밀번호/토큰을 옛 ID와 함께 쓰지 않는다.
+      await StandaloneAuthService.clearToken();
+      rethrow;
+    }
   }
 
   Future<void> setStandaloneConfig(
     String username, {
     required String phoneNumber,
     bool isDemoMode = false,
+    Future<bool> Function()? confirmAccountReset,
   }) async {
     SyncEngine.stop();
     StandaloneAuthService.invalidateOperations();
     await PermissionService.stopWsService();
+    if (!isDemoMode) {
+      await prepareStandaloneAccount(
+        username,
+        confirmAccountReset: confirmAccountReset,
+      );
+    }
     final wasStandaloneLive =
         _appMode == AppMode.standalone && !_isStandaloneDemo;
     if (!wasStandaloneLive) _gatePassed = false;
@@ -880,10 +934,9 @@ class ReportProvider with ChangeNotifier {
       // 새 모드의 게이트를 통과한 뒤 keep-alive·예약을 시작한다.
       if (!_gatePassed) {
         StandaloneAuthService.stopKeepAlive();
-      } else {
-        StandaloneAuthService.startKeepAlive();
       }
     }
+    _gatePassed = false;
     _datasetEpoch++;
     _resetDatasetView();
     _forgetServerCapabilities();
@@ -917,6 +970,12 @@ class ReportProvider with ChangeNotifier {
       await LocalDbService.closeDb(); // 데모 ↔ 실제 DB 파일 전환(M-24)
     }
 
+    if (!isDemoMode && _accountRestartPending) {
+      await LocalDbService.setMeta(LocalDbService.officialRestartKey, 'true');
+      _accountRestartPending = false;
+    }
+    _preparedOfficialId = null;
+    accountConfigEpoch++;
     notifyListeners();
   }
 
@@ -960,6 +1019,10 @@ class ReportProvider with ChangeNotifier {
     _errorMessage = null;
 
     final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(
+      'native_config_generation',
+      (prefs.getInt('native_config_generation') ?? 0) + 1,
+    );
     await prefs.remove(AppPrefsKeys.appMode);
     await prefs.remove(AppPrefsKeys.baseUrl);
     await prefs.remove(AppPrefsKeys.apiKey);
@@ -975,6 +1038,8 @@ class ReportProvider with ChangeNotifier {
     } catch (_) {}
     await LocalDbService.closeDb();
 
+    _preparedOfficialId = null;
+    accountConfigEpoch++;
     notifyListeners();
   }
 

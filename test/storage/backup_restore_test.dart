@@ -51,7 +51,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     await LocalDbService.closeDb();
     await deleteDatabase(await LocalDbService.getDbPath());
-    await LocalDbService.checkOwner(testKakaoId); // 게이트가 적는 이 기기 DB 의 주인 — 백업에 함께 들어간다
+    await stampOwner(await LocalDbService.db); // 게이트가 적는 이 기기 DB 의 주인 — 백업에 함께 들어간다
   });
   tearDownAll(() async {
     await LocalDbService.closeDb();

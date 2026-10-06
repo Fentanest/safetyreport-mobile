@@ -1,0 +1,39 @@
+r2 verification (2026-10-06)
+Flutter: /home/better0101/development/flutter-3.47.5/bin/flutter
+Environment: FLUTTER_SUPPRESS_ANALYTICS=true DART_SUPPRESS_ANALYTICS=true
+Branch: fix/official-account-binding
+HEAD: 1c6e27cb (uncommitted implementation)
+
+Command: flutter test --no-pub
+Exit: 0
+02:14 +1299 ~16: All tests passed!
+1299 passed, 0 failed, 16 pre-existing skipped
+
+Command: flutter analyze --no-pub
+Exit: 1 (pre-existing warnings)
+Analyzing mobile-account-binding...                             
+
+warning • Unnecessary cast. Try removing the cast • test/storage/agency_registry_wiring_test.dart:208:22 • unnecessary_cast
+warning • Unnecessary cast. Try removing the cast • test/storage/agency_registry_wiring_test.dart:214:59 • unnecessary_cast
+warning • Unnecessary cast. Try removing the cast • test/storage/agency_registry_wiring_test.dart:219:20 • unnecessary_cast
+warning • Unnecessary cast. Try removing the cast • test/storage/agency_registry_wiring_test.dart:283:22 • unnecessary_cast
+warning • Unnecessary cast. Try removing the cast • test/storage/agency_registry_wiring_test.dart:289:59 • unnecessary_cast
+warning • Unnecessary cast. Try removing the cast • test/storage/agency_registry_wiring_test.dart:294:20 • unnecessary_cast
+warning • Unnecessary cast. Try removing the cast • test/storage/registry_vectors_test.dart:14:20 • unnecessary_cast
+warning • Unnecessary cast. Try removing the cast • test/storage/registry_vectors_test.dart:21:57 • unnecessary_cast
+warning • Unnecessary cast. Try removing the cast • test/storage/registry_vectors_test.dart:27:7 • unnecessary_cast
+
+9 issues found. (ran in 8.5s)
+
+Command: flutter test --no-pub test/storage/official_account_binding_test.dart test/storage/server_import_test.dart test/community/official_binding_gate_test.dart test/community/entry_order_test.dart test/widgets/setup_pending_db_import_test.dart
+Exit: 0
+70 passed, 0 failed
+One further regression (prepare/import/activate without second reset) was added afterwards and passed in the full suite above.
+
+Command: git diff --check
+Exit: 0
+
+No production access, deployment, release build, commit, or push.
+Android device/emulator validation: NOT_RUN in r2.
+Previous attempt: specified sr_uitest_api35 exited 1 because /dev/kvm was absent.
+Real server/PC roundtrip integration: NOT_RUN.

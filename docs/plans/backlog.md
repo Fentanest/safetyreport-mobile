@@ -4,7 +4,7 @@
 
 | ID | 항목 | 상태 | 언제 |
 |---|---|---|---|
-| BL-1 | Play `H2.h.b` 2단계: flutter_secure_storage 11 + file_picker 13 | 대기 (1단계 dev 반영) | 1단계(v10) 릴리즈 뒤, 사용자 대부분이 v10 을 한 번 연 다음 릴리즈 |
+| BL-1 | Play `H2.h.b` 2단계: flutter_secure_storage 11 + file_picker 13 + **SQLite 엔진 버전 올리기** | 대기 (1단계 dev 반영) | 1단계(v10) 릴리즈 뒤, 사용자 대부분이 v10 을 한 번 연 다음 릴리즈 |
 
 ## BL-1 Play `H2.h.b` 2단계 — flutter_secure_storage 11 + file_picker 13
 
@@ -37,10 +37,21 @@
 4. 1단계 이관 코드(`lib/services/secure_storage_migration.dart`)의 역할 정리: 11 에서는 이관이 불가능하므로 "표시 확인 → 없으면 안내"로 바꾼다.
    표시 키는 지우지 않는다(다음 판단 근거).
 5. file_picker 13·share_plus 13·package_info_plus 10 의 API 변경 반영(파일 선택·공유·버전 표시 화면).
-6. 문서: `android-runtime.md` H2.h.b 절, `data-contracts.md` 자격증명 절, `CHANGELOG.md`.
+6. **SQLite 버전 올리기**(2026-10-06 사용자 지시 — 다음 패키지 버전 반영 때 함께).
+   - 지금 `sqflite` 는 Android 기기에 들어 있는 SQLite 를 쓴다. 그래서 기기마다 버전이 다르다(Android 7~10 기본 3.9~3.22).
+     2.0.2 에서 업로드 제어의 `ON CONFLICT … DO UPDATE`(3.24+)가 3.22 에서 문법 오류를 낸 것을 확인하고 3.9 호환 SQL 로 바꿨다(CHANGELOG 2026-10-06 v2.0.2).
+     기기 SQLite 에 묶여 있는 한 새 SQL 을 쓸 때마다 같은 위험이 있다.
+   - 할 일: 앱에 SQLite 를 함께 넣어(번들) 모든 기기에서 같은 최신 SQLite 를 쓰게 한다. 후보(시작할 때 조사로 확정 — 추측으로 고르지 않는다):
+     `sqlite3_flutter_libs`(번들 SQLite) + `sqflite_common_ffi` 로 Android 연결 교체, 또는 같은 효과의 다른 방법.
+     `sqflite` 자체 버전도 그때 최신으로.
+   - 지켜야 할 것: 기존 DB 파일을 그대로 연다(파일 형식 호환·`user_version`·WAL·FTS 보조 표). 서버↔모바일 DB 교환·왕복 무결성(PROJECT_RULES §3-1),
+     백그라운드 isolate(WorkManager)·첫 실행 이전 DB 비우기(`resetLegacyDatabase`)·백업/복원이 같은 엔진을 쓰는지, APK 크기 증가.
+   - 엔진을 바꾼 뒤에도 최소 지원 SQLite 를 문서에 적고, 새 SQL 은 그 버전 기준으로 검사한다(지금은 3.22 실라이브러리 회귀 테스트가 있다 — `.agent-runs/mobile-gate` 방식).
+7. 문서: `android-runtime.md` H2.h.b 절·SQLite 엔진 절, `data-contracts.md` 자격증명 절, `CHANGELOG.md`.
 
 ### 검증
 - `flutter analyze`·`flutter test`(고정 3.47.5 — 기본 `flutter` 3.41.6 은 골든·`pubspec.lock` 이 달라진다).
 - 에뮬레이터 제자리 업데이트: v10(표시 있음) → v11 값 그대로, v9(표시 없음) → v11 재로그인 안내. 배포 서명 빌드로도 한 번.
+- SQLite: 실기기·에뮬레이터에서 `SELECT sqlite_version()` 이 번들 버전인지, 1.3.5·2.0.x DB 제자리 업데이트·서버 DB 왕복·백업 복원이 그대로인지.
 - 새 AAB 의 R8 mapping 에서 file_picker `FileUtils` 의 옵션 없는 `BitmapFactory.decodeStream` 이 사라졌는지 확인.
   Play Console 경고 해소는 실제 업로드 뒤에만 "해소"라고 쓴다(로컬 확인을 경고 해소로 보고하지 않는다).

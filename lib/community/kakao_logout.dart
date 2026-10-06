@@ -9,13 +9,12 @@ import '../widgets/sr_snack_bar.dart';
 ///
 /// - 카카오 로그인은 필수다. 로그인만 푸는 "연결 해제"는 쓰지 않는다(주석 처리).
 /// - Standalone(데모 제외)만 자료를 지운다. 남기는 것은 감시목록·지오코딩 캐시([LocalDbService.wipeReportData]).
-/// - 지금 로그인한 카카오 계정이 자료 주인과 **다르다고 확인된** 경우만 자료를 남긴다(다른 계정의 자료이므로).
+/// - 다른 계정 자료와 주인을 읽지 못한 자료는 보호한다. 후자는 영속 보호 표시를 먼저 남기고 세션만 닫는다.
 /// - 동기화·지도 변환 중이면 아무것도 지우지 않고 로그인도 그대로 둔다.
 class KakaoLogout {
   KakaoLogout._();
 
-  /// 이 로그아웃이 신고 자료를 지우는가. 주인 표시를 읽지 못하면 예외 — 호출자는 로그아웃하지 않는다
-  /// ("주인 없음"으로 보고 남의 자료를 지우지 않게, PC `_logout_wipes` 와 같음).
+  /// 주인 표시를 읽지 못하면 예외. 확인 창은 자료를 보호하고 세션만 닫는 복구 경로를 제공한다.
   static Future<bool> wipesData({
     required CommunityGate? gate,
     required CommunityAuthService auth,
@@ -37,18 +36,13 @@ class KakaoLogout {
     Future<void> Function(String reason)? wipe,
     Future<void> Function()? afterWipe,
   }) async {
-    final bool wipes;
+    bool wipes;
+    var preserveUnverified = false;
     try {
       wipes = await wipesData(gate: gate, auth: auth, dbOwner: dbOwner);
     } catch (_) {
-      if (context.mounted) {
-        showSrSnack(
-          context,
-          '저장된 신고 내역을 확인하지 못해 로그아웃하지 않았습니다. 잠시 뒤 다시 시도하세요.',
-          kind: SrSnackKind.error,
-        );
-      }
-      return false;
+      wipes = false;
+      preserveUnverified = true;
     }
     if (!context.mounted) return false;
     final ok = await showDialog<bool>(
@@ -56,9 +50,12 @@ class KakaoLogout {
       builder: (ctx) => AlertDialog(
         title: const Text('카카오 로그아웃'),
         content: Text(
-          wipes
+          preserveUnverified
+              ? '신고 내역의 주인을 확인하지 못했습니다. 자료는 그대로 보호하고 카카오 계정에서만 로그아웃합니다. '
+                    '다시 로그인해도 자료 주인을 확인하기 전에는 신고 내역을 열거나 공유하지 않습니다.'
+              : wipes
               ? '로그아웃하면 이 기기에 저장된 신고 내역이 모두 지워집니다. '
-                  '다시 로그인하면 안전신문고에서 신고 내역을 처음부터 다시 불러와야 합니다(감시 목록은 남습니다).'
+                    '다시 로그인하면 안전신문고에서 신고 내역을 처음부터 다시 불러와야 합니다(감시 목록은 남습니다).'
               : '카카오 계정에서 로그아웃합니다. 로그인하기 전까지 앱을 쓸 수 없습니다.',
         ),
         actions: [
@@ -80,7 +77,14 @@ class KakaoLogout {
       ),
     );
     if (ok != true) return false;
-    final error = await run(gate: gate, auth: auth, wipes: wipes, wipe: wipe, afterWipe: afterWipe);
+    final error = await run(
+      gate: gate,
+      auth: auth,
+      wipes: wipes,
+      preserveUnverified: preserveUnverified,
+      wipe: wipe,
+      afterWipe: afterWipe,
+    );
     if (error != null && context.mounted) {
       showSrSnack(context, error, kind: SrSnackKind.error);
     }
@@ -92,9 +96,17 @@ class KakaoLogout {
     required CommunityGate? gate,
     required CommunityAuthService auth,
     required bool wipes,
+    bool preserveUnverified = false,
     Future<void> Function(String reason)? wipe,
     Future<void> Function()? afterWipe,
   }) async {
+    if (preserveUnverified) {
+      try {
+        await LocalDbService.quarantineUnverifiedOwner();
+      } catch (_) {
+        return '신고 자료 보호 상태를 저장하지 못했습니다. 기기 저장 공간을 확인한 뒤 다시 시도하세요.';
+      }
+    }
     if (wipes) {
       try {
         await (wipe ?? (r) => LocalDbService.wipeReportData(r))('kakao_logout');
@@ -108,7 +120,11 @@ class KakaoLogout {
       } catch (_) {}
     }
     gate?.invalidate('logout');
-    await auth.disconnect();
+    try {
+      await auth.disconnect();
+    } catch (_) {
+      return '카카오 로그인 정보를 지우지 못했습니다. 다시 시도해 주세요. 신고 자료는 보호됩니다.';
+    }
     gate?.invalidate('logout');
     return null;
   }
@@ -129,7 +145,10 @@ class KakaoLogout {
     }
     if (kakao == null) return '카카오 로그인이 필요합니다.';
     try {
-      await (wipe ?? (r, o) => LocalDbService.wipeReportData(r, thenOwner: o))('db_owner_adopt', kakao);
+      await (wipe ?? (r, o) => LocalDbService.wipeReportData(r, thenOwner: o))(
+        'db_owner_adopt',
+        kakao,
+      );
     } on DbBusyException catch (e) {
       return e.message;
     } catch (_) {

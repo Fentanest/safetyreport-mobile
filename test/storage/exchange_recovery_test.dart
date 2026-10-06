@@ -29,6 +29,26 @@ void main() {
   });
   Future<String> digest(String path) async =>
       sha256.convert(await File(path).readAsBytes()).toString();
+
+  test('backup reads the held exclusive transaction without reopening locked source', () async {
+    final path = '${root.path}/locked.db';
+    final target = '${root.path}/locked-backup.db';
+    final source = await openDatabase(path, singleInstance: false);
+    await source.execute('CREATE TABLE records(id INTEGER PRIMARY KEY, text TEXT, bytes BLOB)');
+    await source.setVersion(10);
+    await source.insert('records', {'id': 1, 'text': '합성\n자료', 'bytes': Uint8List.fromList([0, 255])});
+    await source.transaction((tx) async {
+      await copyReadOnlyDatabaseSnapshot(path, target, sourceSnapshot: tx);
+      // Reset may start only once the complete checked backup exists.
+      await tx.delete('records');
+    }, exclusive: true);
+    final backup = await openDatabase(target, readOnly: true, singleInstance: false);
+    expect(await backup.getVersion(), 10);
+    expect((await backup.query('records')).single, {'id': 1, 'text': '합성\n자료', 'bytes': [0, 255]});
+    expect(await source.query('records'), isEmpty);
+    await backup.close();
+    await source.close();
+  });
   Future<void> journal(
     String stage,
     String current,

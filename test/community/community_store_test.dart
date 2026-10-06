@@ -10,6 +10,45 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 void main() {
   sqfliteFfiInit();
 
+  test(
+    'failed open can be retried after the storage becomes available',
+    () async {
+      final dir = await Directory.systemTemp.createTemp('community_retry_');
+      final path = '${dir.path}/community.db';
+      final bad = await databaseFactoryFfi.openDatabase(path);
+      await bad.execute(
+        'CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+      );
+      await bad.insert('meta', {
+        'key': 'schema_version',
+        'value': 'not-a-version',
+      });
+      await bad.close();
+      try {
+        await expectLater(
+          CommunityStore.open(path: path, factory: databaseFactoryFfi),
+          throwsFormatException,
+        );
+        final repair = await databaseFactoryFfi.openDatabase(path);
+        await repair.delete('meta');
+        await repair.close();
+        final recovered = await CommunityStore.open(
+          path: path,
+          factory: databaseFactoryFfi,
+        );
+        expect(
+          await recovered.meta('schema_version'),
+          '$communityStoreSchemaVersion',
+        );
+      } finally {
+        try {
+          await CommunityStore.closeForTest(path);
+        } catch (_) {}
+        await dir.delete(recursive: true);
+      }
+    },
+  );
+
   test('contract copy matches MANIFEST.sha256', () {
     final dir = Directory('contracts/community-ingest');
     final listed = <String>{};

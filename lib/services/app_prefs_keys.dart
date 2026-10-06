@@ -42,6 +42,9 @@ class AppPrefsKeys {
   /// 마지막으로 소비한 복귀 링크의 SHA-256(중복 전달 방지). 코드 원문은 저장하지 않는다.
   static const communityConsumedCallback = 'community_consumed_callback_v1';
 
+  /// DB 주인을 확인하지 못한 채 세션만 로그아웃했다. 주인 없는 기존 자료를 다음 계정에 자동 귀속하지 않는다.
+  static const communityOwnerQuarantined = 'communityOwnerQuarantined';
+
   // 큐 / 이벤트 (Kotlin 과 공유)
   static const standalonePendingReports = 'standalone_pending_reports';
   static const standaloneLastDetectedAt = 'standalone_last_detected_at';

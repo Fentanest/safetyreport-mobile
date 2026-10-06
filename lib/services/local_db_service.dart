@@ -364,11 +364,24 @@ class LocalDbService {
 
   static Future<String?> dbOwner() => getMeta(kakaoMemberMetaKey);
 
-  /// 게이트 통과 뒤(Standalone): 'ok'(같음·처음이라 적음) | 'mismatch'(다른 계정의 자료) | 'unknown'(로그인 계정 번호를 모름).
+  /// DB 를 열 수 없어도 세션은 닫을 수 있다. 다음 로그인에서 주인 없는 자료를 자동 인수하지 못하도록
+  /// 개인 DB 밖에 먼저 표시한다. 표시 저장 실패 시에는 로그아웃을 진행하지 않는다.
+  static Future<void> quarantineUnverifiedOwner() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!await prefs.setBool(AppPrefsKeys.communityOwnerQuarantined, true)) {
+      throw StateError('자료 보호 상태를 저장하지 못했습니다.');
+    }
+  }
+
+  /// 'ok'(같음·처음이라 적음) | 'mismatch'(다른 계정) | 'quarantined'(로그아웃 복구로 보호한 주인 없는 자료) | 'unknown'(로그인 번호 모름).
   static Future<String> checkOwner(String? kakaoId) async {
     if (kakaoId == null || kakaoId.isEmpty) return 'unknown';
     final owner = await dbOwner();
     if (owner == null || owner.isEmpty) {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(AppPrefsKeys.communityOwnerQuarantined) == true) {
+        return 'quarantined'; // 명시적인 자료 비우기 전에는 새 계정에 귀속하지 않는다.
+      }
       await setMeta(kakaoMemberMetaKey, kakaoId);
       return 'ok';
     }
@@ -435,6 +448,8 @@ class LocalDbService {
       }
     });
     _invalidateProjectRowsCache();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(AppPrefsKeys.communityOwnerQuarantined);
     return {'cleared': cleared, 'kept': legacyKept};
   }
 
@@ -443,8 +458,8 @@ class LocalDbService {
   static const legacyKept = ['watchlist', 'geocode_cache'];
 
   /// 이전 버전 DB(저장된 버전 1 이상, [dbVersion] 미만)면 **파일을 바꾸지 않고 그 자리에서** 한 쓰기 트랜잭션(`BEGIN IMMEDIATE`)으로:
-  /// 버전 재확인 → 남길 자료(감시목록 `sync_meta['watchlist']`, 열 구성이 같은 지오코딩 캐시) 읽기 → 별도 읽기 연결의
-  /// 일관된 사본 `<db>.legacy_v<옛 버전>.<epoch ms>.bak`([copyDatabaseConsistent], WAL 에만 있던 쓰기 포함, 구형 Android 가능) + 무결성 검사 → [beforeReset](기본: 커뮤니티 dataset 선회전,
+  /// 버전 재확인 → 남길 자료(감시목록 `sync_meta['watchlist']`, 열 구성이 같은 지오코딩 캐시) 읽기 → 잠금을 가진 원본 트랜잭션에서 읽어
+  /// 일관된 사본 `<db>.legacy_v<옛 버전>.<epoch ms>.bak`([copyReadOnlyDatabaseSnapshot], WAL 쓰기·값·타입 보존, 구형 Android 가능) + 무결성 검사 → [beforeReset](기본: 커뮤니티 dataset 선회전,
   /// 실패하면 아무것도 바꾸지 않음) → 표·보기 전부 DROP → 지금 스키마 CREATE → 남길 자료·`sync_meta[legacy_reset]` 기록 → 버전 → COMMIT.
   /// 반환: {from_version, backup, kept, dropped, at} (이전 버전 DB 가 아니거나 다른 연결이 먼저 끝냈으면 null).
   /// 열린 DB 의 WAL 삭제·파일 이름 교체는 SQLite 가 손상 경로로 꼽으므로 하지 않는다(Sol 재검증 3). 트랜잭션 동안 다른 연결의 쓰기는 잠김 오류로 실패한다.
@@ -488,7 +503,10 @@ class LocalDbService {
 
         final backup =
             '$path.legacy_v$version.${DateTime.now().millisecondsSinceEpoch}.bak';
-        await _backupChecked(path, backup);
+        // Android's native transaction/ATTACH locking differs from desktop FFI.
+        // Read through the transaction that already owns the source lock; the
+        // separate destination never ATTACHes or reopens the locked source.
+        await copyReadOnlyDatabaseSnapshot(path, backup, sourceSnapshot: txn);
         await (beforeReset ?? () => _rotateCommunityDataset('legacy_reset'))();
 
         for (final r in await txn.rawQuery(
@@ -549,10 +567,6 @@ class LocalDbService {
       await db.close();
     }
   }
-
-  /// 별도 연결로 일관된 사본([copyDatabaseConsistent])을 만든다. 실패하면 사본을 지우고 예외(개인 DB 무변경).
-  static Future<void> _backupChecked(String path, String target) =>
-      copyDatabaseConsistent(path, target);
 
   /// [sourcePath] 의 일관된 사본을 [target] 에 만든다 — `VACUUM INTO` 를 쓰지 않는다: 그 명령은 SQLite 3.27 부터라
   /// Android 7~10(API 24~29, 기본 SQLite 3.9~3.22)에서 실패한다(Sol 재검증 4). 대신 새 파일에 원본을 ATTACH 하고

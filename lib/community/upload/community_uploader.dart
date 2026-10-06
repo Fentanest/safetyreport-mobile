@@ -1169,13 +1169,29 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
       final failures = rows.isEmpty
           ? 0
           : (rows.first['consecutive_failures'] as int? ?? 0);
+      // SQLite 3.9+ (Android 7+): insert/update in this same write transaction.
+      // Do not REPLACE: preserve the existing row and its update semantics.
+      Future<void> save(Map<String, Object?> values) async {
+        if (rows.isEmpty) {
+          await tx.insert('upload_control', {'scope': scope, ...values});
+        } else {
+          await tx.update(
+            'upload_control',
+            values,
+            where: 'scope=?',
+            whereArgs: [scope],
+          );
+        }
+      }
+
       if (ready) {
-        await tx.rawInsert(
-          "INSERT INTO upload_control(scope, state, next_attempt_at, consecutive_failures, last_error_code, updated_at)"
-          " VALUES (?, 'ready', NULL, 0, NULL, ?) ON CONFLICT(scope) DO UPDATE SET state='ready', next_attempt_at=NULL,"
-          ' consecutive_failures=0, last_error_code=NULL, updated_at=excluded.updated_at',
-          [scope, isoUtc(now)],
-        );
+        await save({
+          'state': 'ready',
+          'next_attempt_at': null,
+          'consecutive_failures': 0,
+          'last_error_code': null,
+          'updated_at': isoUtc(now),
+        });
         return null;
       }
       final next = failures + 1;
@@ -1185,13 +1201,13 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
         hint,
       );
       final until = now.add(Duration(microseconds: (seconds * 1e6).round()));
-      await tx.rawInsert(
-        "INSERT INTO upload_control(scope, state, next_attempt_at, consecutive_failures, last_error_code, updated_at)"
-        " VALUES (?, 'cooling_down', ?, ?, ?, ?) ON CONFLICT(scope) DO UPDATE SET state='cooling_down',"
-        ' next_attempt_at=excluded.next_attempt_at, consecutive_failures=excluded.consecutive_failures,'
-        ' last_error_code=excluded.last_error_code, updated_at=excluded.updated_at',
-        [scope, isoUtc(until), next, errorCode, isoUtc(now)],
-      );
+      await save({
+        'state': 'cooling_down',
+        'next_attempt_at': isoUtc(until),
+        'consecutive_failures': next,
+        'last_error_code': errorCode,
+        'updated_at': isoUtc(now),
+      });
       return until;
     });
   }

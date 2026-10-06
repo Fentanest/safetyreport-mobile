@@ -487,11 +487,11 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         final owner = await _checkOwner();
         _assertCurrent(authGen, checkedMode);
         if (owner != 'ok') {
-          final blocked = owner == 'mismatch'
-              ? const GateState(
+          final blocked = owner == 'mismatch' || owner == 'quarantined'
+              ? GateState(
                   state: 'db_owner_mismatch',
                   canEnter: false,
-                  reasons: ['db_owner_mismatch'],
+                  reasons: [owner == 'quarantined' ? 'data_owner_quarantined' : 'db_owner_mismatch'],
                 )
               : GateState(
                   state: 'verification_required',
@@ -563,11 +563,16 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     } catch (_) {
       _ownerError = 'auth_unavailable';
     }
+    if (kakaoId == null || kakaoId.isEmpty) {
+      _ownerError ??= 'kakao_id_missing';
+      return 'unknown';
+    }
     try {
       return await (_checkDataOwnerOverride ?? LocalDbService.checkOwner)(
         kakaoId,
       );
     } catch (_) {
+      _ownerError = 'local_db_unavailable';
       return 'unknown';
     }
   }

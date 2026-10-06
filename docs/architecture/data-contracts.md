@@ -509,3 +509,10 @@ SharedPreferences의 disk commit 실패는 메모리 변경을 되돌리지 않�
   `address`=대표 키 신고들의 비지 않은 `trim(위반장소)` 중 최소값, 없으면 대표 키, 키가 하나도 없으면 `''`.
   `region`=0곳 `'주소 정보 없음'` / 1곳 `address` / 2곳 이상 `'{address} 외 {N-1}곳'`. 점에 `address_count` 추가(하위호환, `ReportMapPoint.addressCount` 없으면 0).
   칸 `cluster` 판정은 기존 그대로(묶음 점 탭=확대 유지). 새 region 이 마커 라벨로 새지 않도록 `mapPointRegionName` 은 실제 주소 보유 묶음 점에 `''`을 돌려 마커 라벨 `'N건 묶음'`을 유지하고, `'주소 정보 없음'`은 일반 문구로 취급한다. 화면 범위 합성 셀(`visibleMapCells`, 주소가 일반 문구)은 기존처럼 region 을 보인다.
+
+### 코드 대조 정정 — Android 업데이트 백업과 소유자 보호 (2026-10-06)
+
+- 이전 DB 초기화 백업은 `copyReadOnlyDatabaseSnapshot(sourceSnapshot: txn)`으로 원본 잠금을 이미 가진 트랜잭션에서 읽는다. 대상 파일만 별도 연결로 열어 128행씩 복사·값/타입 대조, 스키마·rowid·sequence·버전 보존 및 integrity_check를 수행한다. 원본을 다시 열거나 ATTACH하지 않는다. 원본 트랜잭션은 백업 완료→커뮤니티 dataset 회전→초기화가 끝날 때까지 유지하여 중간 쓰기 유실을 막는다. 앞의 별도 읽기 연결/ATTACH 설명은 이 경로에는 적용되지 않는다.
+- 소유자 검사 실패는 `local_db_unavailable`와 인증 실패 사유를 구분한다. CommunityStore 열기에 실패하면 연결과 실패한 Future를 해제하여 재시도한다.
+- DB 소유자를 확인할 수 없는 로그아웃은 삭제하지 않고 세션만 닫는다. 먼저 DB 밖 SharedPreferences에 `communityOwnerQuarantined=true`를 영속 기록한다. 이후 실제 소유자 표시가 있는 자료는 해당 계정만 접근하고, 주인 없는 자료는 `quarantined`로 차단하여 명시적인 자료 비우기/새 계정 시작을 요구한다. 비우기 성공 후 보호 표시를 해제한다. 게이트가 막힌 동안 writer 등록/업로드는 허용하지 않는다. 정상 소유자 로그아웃의 자료 삭제 및 다른 계정 자료 보존 규칙은 유지한다.
+- PC `services/community_gate.py`도 주인 확인 실패를 차단한다. PC `services/community_account_ops.py:logout`은 여전히 DB 주인 읽기 예외를 `OperationRefused`로 처리하여 로그아웃도 막는다. PC에도 세션만 닫는 복구를 제공하려면 별도의 영속 보호 표시와 회귀 테스트가 필요하다. 이번 모바일 변경은 PC 코드를 수정하지 않는다.

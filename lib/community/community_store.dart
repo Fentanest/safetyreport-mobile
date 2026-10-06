@@ -158,7 +158,7 @@ class CommunityStore {
   }) async {
     final resolved =
         path ?? p.join(await getDatabasesPath(), communityStoreFileName);
-    return _open.putIfAbsent(resolved, () async {
+    final pending = _open.putIfAbsent(resolved, () async {
       final f = factory ?? databaseFactory;
       final db = await f.openDatabase(
         resolved,
@@ -173,9 +173,20 @@ class CommunityStore {
         ),
       );
       final store = CommunityStore._(db, resolved);
-      await store._migrate();
-      return store;
+      try {
+        await store._migrate();
+        return store;
+      } catch (_) {
+        await db.close();
+        rethrow;
+      }
     });
+    try {
+      return await pending;
+    } catch (_) {
+      if (identical(_open[resolved], pending)) _open.remove(resolved);
+      rethrow;
+    }
   }
 
   /// 테스트 전용: 열린 인스턴스를 닫고 캐시에서 뺀다.

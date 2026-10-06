@@ -12,6 +12,8 @@ import 'package:safetyreport/screens/community_onboarding_screen.dart';
 import 'package:safetyreport/services/community_auth_service.dart';
 import 'package:safetyreport/services/local_db_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:safetyreport/services/app_prefs_keys.dart';
 
 import 'fake_account.dart';
 
@@ -36,6 +38,7 @@ void main() {
   late FakeAccountServer server;
 
   setUp(() async {
+    SharedPreferences.setMockInitialValues({});
     setUpSecureStorage();
     tmp = await Directory.systemTemp.createTemp('kakao_logout_test');
     dbPath = '${tmp.path}/community.db';
@@ -63,6 +66,32 @@ void main() {
     addTearDown(gate.dispose);
     return gate;
   }
+
+  testWidgets('unreadable DB offers session logout, preserves data and persists protection', (tester) async {
+    bool? done;
+    await tester.pumpWidget(MaterialApp(home: Builder(builder: (context) {
+      return TextButton(onPressed: () async {
+        done = await KakaoLogout.confirmAndRun(context, gate: null, auth: auth,
+          dbOwner: () async => throw StateError('database cannot open'),
+          wipe: (_) async => fail('unverified data must never be wiped'),
+        );
+      }, child: const Text('test logout'));
+    })));
+    await tester.tap(find.text('test logout'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('자료는 그대로 보호하고'), findsOneWidget);
+    await tester.runAsync(() async {
+      await tester.tap(find.widgetWithText(FilledButton, '로그아웃'));
+      for (var i = 0; done == null && i < 100; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    });
+    await tester.pumpAndSettle();
+    expect(done, isTrue);
+    expect(auth.disconnects, 1);
+    expect((await SharedPreferences.getInstance()).getBool(AppPrefsKeys.communityOwnerQuarantined), isTrue);
+    expect(auth.state.value.phase, CommunityAccountPhase.disconnected);
+  });
 
   test('logout keeps the data only when it is known to belong to another account', () async {
     final gate = gateWith(ownerOk);

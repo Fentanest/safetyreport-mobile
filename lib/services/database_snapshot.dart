@@ -4,10 +4,13 @@ import 'package:sqflite/sqflite.dart';
 
 /// External databases are opened read-only. A read transaction keeps main/WAL
 /// at one snapshot while bounded pages are copied to a private destination.
+/// If [sourceSnapshot] is supplied, the caller must hold its transaction until
+/// this finishes. This avoids reopening an exclusively locked Android source.
 Future<void> copyReadOnlyDatabaseSnapshot(
   String sourcePath,
-  String target,
-) async {
+  String target, {
+  DatabaseExecutor? sourceSnapshot,
+}) async {
   if (File(sourcePath).absolute.path == File(target).absolute.path ||
       await File(target).exists()) {
     throw const FormatException('사본 경로는 새 private 파일이어야 합니다.');
@@ -17,14 +20,16 @@ Future<void> copyReadOnlyDatabaseSnapshot(
   var complete = false;
   String quote(String value) => '"${value.replaceAll('"', '""')}"';
   try {
-    source = await openDatabase(
-      sourcePath,
-      readOnly: true,
-      singleInstance: false,
-    );
+    if (sourceSnapshot == null) {
+      source = await openDatabase(
+        sourcePath,
+        readOnly: true,
+        singleInstance: false,
+      );
+    }
     destination = await openDatabase(target, singleInstance: false);
     final output = destination;
-    await source.transaction((input) async {
+    Future<void> copyFrom(DatabaseExecutor input) async {
       final objects = await input.rawQuery(
         "SELECT type,name,sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY rowid",
       );
@@ -153,7 +158,13 @@ Future<void> copyReadOnlyDatabaseSnapshot(
             0;
         await copy.execute('PRAGMA user_version=$version');
       });
-    }, exclusive: false);
+    }
+
+    if (sourceSnapshot != null) {
+      await copyFrom(sourceSnapshot);
+    } else {
+      await source!.transaction(copyFrom, exclusive: false);
+    }
     if ((await output.rawQuery('PRAGMA integrity_check')).first.values.first !=
         'ok') {
       throw const FormatException('사본 무결성 검사 실패');

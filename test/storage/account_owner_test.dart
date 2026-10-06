@@ -157,6 +157,27 @@ void main() {
     expect(await db.query(LocalDbService.effectiveReportsView), hasLength(1));
   });
 
+  test('session-only logout quarantines unowned data across reopen until explicit adopt', () async {
+    await LocalDbService.quarantineUnverifiedOwner();
+    await LocalDbService.closeDb();
+    expect(await LocalDbService.checkOwner('910002'), 'quarantined');
+    expect(await LocalDbService.dbOwner(), isNull);
+    expect(await _count('reports'), 3);
+    await LocalDbService.wipeReportData('db_owner_adopt', thenOwner: '910002');
+    expect(await LocalDbService.checkOwner('910002'), 'ok');
+    expect(await _count('reports'), 0);
+    expect(await LocalDbService.checkOwner('910001'), 'mismatch');
+  });
+
+  test('session-only logout preserves known owner and prevents another account access', () async {
+    await LocalDbService.checkOwner('910001');
+    await LocalDbService.quarantineUnverifiedOwner();
+    await LocalDbService.closeDb();
+    expect(await LocalDbService.checkOwner('910002'), 'mismatch');
+    expect(await LocalDbService.checkOwner('910001'), 'ok');
+    expect(await _count('reports'), 3);
+  });
+
   test('adopt wipes and stamps the new owner', () async {
     await LocalDbService.checkOwner('910001');
     await LocalDbService.wipeReportData('db_owner_adopt', thenOwner: '910002');

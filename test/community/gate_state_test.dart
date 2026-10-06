@@ -157,6 +157,30 @@ void main() {
     final st = await gate.refreshNow();
     expect(st.state, 'verification_required');
     expect(st.reasons, contains('data_owner_unverified'));
+    expect(st.reasons, contains('kakao_id_missing'));
+    expect(registered(), isFalse);
+  });
+
+  test('DB open failure is distinguished from authentication and retry can enter', () async {
+    var failing = true;
+    final gate = ownerGate((_) async {
+      if (failing) throw StateError('database is locked');
+      return 'ok';
+    });
+    final blocked = await gate.refreshNow();
+    expect(blocked.canEnter, isFalse);
+    expect(blocked.reasons, ['data_owner_unverified', 'local_db_unavailable']);
+    expect(registered(), isFalse);
+    failing = false;
+    expect((await gate.refreshNow()).canEnter, isTrue);
+  });
+
+  test('quarantined unowned data requires explicit adoption before writer connection', () async {
+    final gate = ownerGate((_) async => 'quarantined');
+    final blocked = await gate.refreshNow();
+    expect(blocked.state, 'db_owner_mismatch');
+    expect(blocked.reasons, contains('data_owner_quarantined'));
+    expect(blocked.canEnter, isFalse);
     expect(registered(), isFalse);
   });
 

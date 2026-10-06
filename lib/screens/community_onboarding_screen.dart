@@ -230,7 +230,7 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
         await gate.requireFresh();
         if (!mounted) return;
         if (!gate.canEnter) {
-          setState(() => _nextError = '서버에서 필수 설정을 확인하지 못했습니다. 다시 시도해 주세요.');
+          setState(() => _nextError = _gateRecoveryMessage(gate));
           return;
         }
       }
@@ -735,7 +735,9 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '이 기기의 신고 내역은 다른 카카오 계정의 것입니다.',
+              widget.gate!.state.reasons.contains('data_owner_quarantined')
+                  ? '이 기기의 신고 내역은 주인을 확인할 수 없어 보호 중입니다.'
+                  : '이 기기의 신고 내역은 다른 카카오 계정의 것입니다.',
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.bold,
@@ -776,7 +778,7 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
     final title = switch (s) {
       'config_invalid' => '커뮤니티 서버 설정에 문제가 있습니다.',
       'suspended' => '커뮤니티 이용이 정지된 계정입니다.',
-      _ => '서버에서 필수 설정을 확인하지 못했습니다.',
+      _ => _gateRecoveryMessage(gate),
     };
     return Card(
       child: Padding(
@@ -811,5 +813,24 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
         ),
       ),
     );
+  }
+
+  String _gateRecoveryMessage(CommunityGate gate) {
+    final reasons = gate.state.reasons;
+    if (reasons.contains('data_owner_unverified')) {
+      if (reasons.contains('local_db_unavailable')) {
+        return '이 기기의 신고 내역 저장소를 열거나 자료 주인을 확인하지 못했습니다. '
+            '기기 저장 공간을 확인한 뒤 재시도해 주세요. 로그아웃해도 확인하지 못한 자료는 지우지 않습니다.';
+      }
+      if (reasons.contains('kakao_id_missing') ||
+          reasons.contains('user_mismatch')) {
+        return '로그인한 카카오 계정의 회원번호를 확인하지 못했습니다. 재시도하거나 로그아웃한 뒤 다시 로그인해 주세요.';
+      }
+      if (reasons.contains('auth_unavailable')) {
+        return '카카오 로그인 정보를 읽거나 확인하지 못했습니다. 연결 상태를 확인한 뒤 재시도해 주세요.';
+      }
+      return '이 기기의 신고 내역이 로그인한 계정의 자료인지 확인하지 못했습니다. 재시도해 주세요.';
+    }
+    return '서버에서 필수 설정을 확인하지 못했습니다. 다시 시도해 주세요.';
   }
 }

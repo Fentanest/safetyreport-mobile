@@ -68,6 +68,24 @@ bool shouldRun(DateTime nowUtc, Map<String, Map<String, Object?>>? runs) {
 }
 
 /// Workmanager 등록: 1시간 주기 periodic(복구·누락 자정 보충) + 다음 KST 자정 one-off. 이미 있으면 교체.
+const communityRecoveryTaskName = 'community-cloud-recovery';
+const communityRecoveryUniqueName = 'community-cloud-recovery-v1';
+
+/// Best effort: Android may defer this for Doze/battery constraints. The durable
+/// deadline is authoritative; an early OS invocation still cannot send HTTP.
+Future<void> scheduleCloudRecovery(DateTime deadline) async {
+  try {
+    final delay = deadline.difference(DateTime.now());
+    await Workmanager().registerOneOffTask(
+      communityRecoveryUniqueName,
+      communityRecoveryTaskName,
+      initialDelay: delay.isNegative ? Duration.zero : delay,
+      constraints: Constraints(networkType: NetworkType.connected),
+      existingWorkPolicy: ExistingWorkPolicy.replace,
+    );
+  } catch (_) {}
+}
+
 Future<void> registerBackgroundJobs() async {
   try {
     await Workmanager().registerPeriodicTask(
@@ -101,6 +119,7 @@ Future<void> registerMidnightTask({DateTime? now}) async {
 /// Client 전환·로그아웃 시 해제.
 Future<void> cancelBackgroundJobs() async {
   try {
+    await Workmanager().cancelByUniqueName(communityRecoveryUniqueName);
     await Workmanager().cancelByUniqueName(communityPeriodicUniqueName);
     await Workmanager().cancelByUniqueName(communityMidnightUniqueName);
   } catch (_) {}

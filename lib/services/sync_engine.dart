@@ -217,16 +217,26 @@ class SyncEngine {
   /// (PC community_gate.crawl_block 의 409 COMMUNITY_REBUILD_REQUIRED 와 같음). main 이 standalone 판정으로 설치한다.
   /// 확인이 실패하면 막는다(fail-closed). 초기화 run 자신(rebuildRunId)은 막지 않는다.
   static Future<bool> Function()? rebuildBlocks;
+  static Future<bool> Function()? localAccessAllowed;
 
   static const rebuildBlockedMessage = '초기화 크롤링이 필요합니다. 먼저 초기화 크롤링을 완료해 주세요.';
 
   static Future<SyncRunResult> start({
     bool fullSync = false,
+    bool preserveDataset = false,
+    String? catchupKey,
+    bool backgroundWorker = false,
     String? rebuildRunId,
   }) async {
     try {
       return await SyncOperationAdmission.run(
-        () => _startOwned(fullSync: fullSync, rebuildRunId: rebuildRunId),
+        () => _startOwned(
+          fullSync: fullSync,
+          preserveDataset: preserveDataset,
+          catchupKey: catchupKey,
+          backgroundWorker: backgroundWorker,
+          rebuildRunId: rebuildRunId,
+        ),
         const SyncRunResult(
           done: 0,
           errors: 0,
@@ -249,8 +259,19 @@ class SyncEngine {
 
   static Future<SyncRunResult> _startOwned({
     bool fullSync = false,
+    bool preserveDataset = false,
+    String? catchupKey,
+    bool backgroundWorker = false,
     String? rebuildRunId,
   }) async {
+    if (localAccessAllowed != null && !await localAccessAllowed!()) {
+      return const SyncRunResult(
+        done: 0,
+        errors: 0,
+        failed: true,
+        errorMessage: 'local_account_unverified',
+      );
+    }
     if (_running) {
       return const SyncRunResult(
         done: 0,
@@ -297,10 +318,18 @@ class SyncEngine {
       );
     }
     _lastChanges = [];
-    await acquireFgs(fullSync ? '전체 재동기화 진행 중...' : '증분 동기화 진행 중...');
+    if (!backgroundWorker) {
+      await acquireFgs(fullSync ? '전체 재동기화 진행 중...' : '증분 동기화 진행 중...');
+    }
     try {
       return await LocalDbService.runBackgroundWork(
-        () => _run(fullSync: fullSync, rebuildRunId: rebuildRunId),
+        () => _run(
+          fullSync: fullSync,
+          preserveDataset: preserveDataset,
+          catchupKey: catchupKey,
+          backgroundWorker: backgroundWorker,
+          rebuildRunId: rebuildRunId,
+        ),
       );
     } catch (e) {
       ReviewPromptService.markSessionError();
@@ -315,12 +344,15 @@ class SyncEngine {
     } finally {
       _running = false;
       _refreshRunningNotifier();
-      await releaseFgs();
+      if (!backgroundWorker) await releaseFgs();
     }
   }
 
   static Future<SyncRunResult> _run({
     bool fullSync = false,
+    bool preserveDataset = false,
+    String? catchupKey,
+    bool backgroundWorker = false,
     String? rebuildRunId,
   }) async {
     if (_stopping) {
@@ -331,6 +363,9 @@ class SyncEngine {
         cancelled: true,
       );
     }
+    final workerDeadline = backgroundWorker
+        ? DateTime.now().add(const Duration(minutes: 5))
+        : null;
     await LocalDbService.requireAccountChangeComplete();
     _log('동기화 시작...');
 
@@ -390,7 +425,10 @@ class SyncEngine {
     final captureActive = community.store != null && communityReady;
 
     if (totalCount == 0) {
-      if (fullSync && !isRebuild) {
+      if (fullSync &&
+          !isRebuild &&
+          !preserveDataset &&
+          await community.store!.meta('offline_capture') == null) {
         // 새 로컬 사본에서 전 건을 다시 capture 한다. 이전 journal/outbox 는 이미 보낸 사실과
         // 미전송 수정 기록을 잃지 않도록 보존하고, 중앙 manifest 도 그대로 둔다.
         await community.store!.rotateDataset('full_resync');
@@ -425,6 +463,10 @@ class SyncEngine {
       const pageSize = 200;
 
       while (start <= totalCount) {
+        if (workerDeadline != null && DateTime.now().isAfter(workerDeadline)) {
+          _stopRequested = true;
+        }
+        if (_stopping) break;
         if (_stopping) {
           listPageErrors++; // 목록을 다 받지 못함 → 정리·동기화 시각 기록 안 함
           _log('중지 요청 — 목록 조회를 멈춤');
@@ -468,7 +510,10 @@ class SyncEngine {
       if (listPageErrors > 0 || !inventory.listComplete) {
         throw const FormatException('목록 수집 검증 실패 — 상세 저장과 완료 처리를 시작하지 않았습니다.');
       }
-      if (fullSync && !isRebuild) {
+      if (fullSync &&
+          !isRebuild &&
+          !preserveDataset &&
+          await community.store!.meta('offline_capture') == null) {
         // 새 로컬 사본에서 전 건을 다시 capture 한다. 이전 journal/outbox 는 이미 보낸 사실과
         // 미전송 수정 기록을 잃지 않도록 보존하고, 중앙 manifest 도 그대로 둔다.
         await community.store!.rotateDataset('full_resync');
@@ -504,10 +549,24 @@ class SyncEngine {
         final permanentFails = !fullSync && !isRebuild
             ? await _permanentFailLabels(community.store!, ids: ids)
             : <String, String>{};
+        final catchupDone = catchupKey == null
+            ? <String>{}
+            : {
+                for (final row in await community.store!.db.rawQuery(
+                  "SELECT key FROM meta WHERE key IN (${List.filled(ids.length, '?').join(',')})",
+                  [for (final id in ids) '$catchupKey:collected:$id'],
+                ))
+                  (row['key'] as String).substring(
+                    '$catchupKey:collected:'.length,
+                  ),
+              };
         final selected = isRebuild
             ? filterRebuildTodo(items, states).map((i) => i['C_NO'].toString())
             : page
                   .where((r) {
+                    if (catchupDone.contains(r.item['C_NO'].toString())) {
+                      return false;
+                    }
                     if (fullSync || r.previous == null) return true;
                     final id = r.item['C_NO'].toString();
                     return shouldRefetchListItem(
@@ -550,6 +609,9 @@ class SyncEngine {
       await for (final page in stage.pages(todoOnly: true)) {
         for (final staged in page) {
           final item = staged.item;
+          if (workerDeadline != null && DateTime.now().isAfter(workerDeadline)) {
+            _stopRequested = true;
+          }
           if (_stopping) {
             _log('중지 요청 — 상세 조회를 멈춤 ($done/$todoCount건 저장됨)');
             break;
@@ -592,6 +654,12 @@ class SyncEngine {
             }
             if (!fullSync && !isRebuild) {
               _trackChange(staged.previous, saved.report, saved.saved);
+            }
+            if (catchupKey != null) {
+              await community.store!.setMeta(
+                '$catchupKey:collected:$cNo',
+                isoUtc(DateTime.now()),
+              );
             }
             final eventId = saved.capture?.eventId;
             if (eventId != null) await stage.recordEvent(eventId);
@@ -725,33 +793,8 @@ class SyncEngine {
   }
 
   static Future<void> flushPendingUploadBeforeSync() async {
-    final uploadBeforeSync = CommunityUploadHooks.uploadBeforeSync;
-    if (uploadBeforeSync == null) return;
-    _log('이전 공유 자료 업로드 확인 중...');
-    final leaseDeadline = DateTime.now().add(const Duration(seconds: 125));
-    var waitingForLease = false;
-    while (true) {
-      final upload = await uploadBeforeSync();
-      if (upload.remaining == 0) {
-        _log('대기 중인 공유 자료가 없습니다.');
-        return;
-      }
-      if (upload.run.result == 'busy_other_run' &&
-          DateTime.now().isBefore(leaseDeadline) &&
-          !_stopping) {
-        if (!waitingForLease) {
-          _log('다른 업로드의 저장소 잠금이 풀리기를 기다립니다.');
-          waitingForLease = true;
-        }
-        await Future<void>.delayed(const Duration(seconds: 2));
-        continue;
-      }
-      if (upload.run.result == 'more_pending' && !_stopping) continue;
-      final reason = upload.run.errorCode ?? upload.run.result;
-      throw Exception(
-        '이전 공유 자료 ${upload.remaining}건이 업로드되지 않았습니다 ($reason). 업로드 후 다시 동기화해 주세요.',
-      );
-    }
+    // Collection must not wait for cloud delivery. Durable outbox owns retries.
+    CommunityUploadHooks.wakeUploadNow('recovery');
   }
 
   static Future<void> _uploadCaptured() async {

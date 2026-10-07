@@ -1,3 +1,7 @@
+import '../cloud_availability.dart';
+import '../consent_history.dart';
+import '../consent_catchup.dart';
+import '../../services/local_db_service.dart';
 // 백그라운드 isolate 용 업로드 조립 (background_login_check.dart 에서 호출).
 //
 // 포그라운드 T5 gate(위젯 바인딩·화면 상태)에 의존하지 않는다. 게이트 캐시가 유효 기간(600초) 안의 성공이면 그대로 쓰고,
@@ -32,7 +36,10 @@ class _BackgroundTokens implements CommunityTokenSource {
       CommunityAuthService.instance.getAccessTokenResult(rejected: rejected);
 }
 
-Future<UploadRunResult> uploadFromBackground(CommunityStore store, String trigger) async {
+Future<UploadRunResult> uploadFromBackground(
+  CommunityStore store,
+  String trigger,
+) async {
   final config = CommunityAuthConfig.fromEnvironment;
   var version = '';
   try {
@@ -101,6 +108,16 @@ Future<HeadlessGate> refreshGateHeadless(
   final clock = now ?? DateTime.now;
   final p = prefs ?? await SharedPreferences.getInstance();
   if (!cfg.isConfigured) return HeadlessGate.needsForeground;
+  if (tokens == null) {
+    CloudAvailability.shared ??= CloudAvailability(
+      store,
+      cfg.supabaseUrl,
+      now: clock,
+    );
+  }
+  if (await CloudAvailability.shared?.coolingDown() ?? false) {
+    return HeadlessGate.transient;
+  }
   final CommunityTokenResult token;
   try {
     token = await (tokens ?? _BackgroundTokens()).getAccessTokenResult();
@@ -121,7 +138,9 @@ Future<HeadlessGate> refreshGateHeadless(
   }
   Map<String, Object?>? stored;
   try {
-    final raw = await (secureStorage ?? const FlutterSecureStorage()).read(key: 'community_connection_v1');
+    final raw = await (secureStorage ?? const FlutterSecureStorage()).read(
+      key: 'community_connection_v1',
+    );
     final decoded = raw == null || raw.isEmpty ? null : jsonDecode(raw);
     stored = decoded is Map ? decoded.cast<String, Object?>() : null;
   } catch (_) {
@@ -129,12 +148,35 @@ Future<HeadlessGate> refreshGateHeadless(
   }
   final CommunityAccountStatus status;
   try {
-    status = await (client ??
-            CommunityAccountClient(supabaseUrl: cfg.supabaseUrl, publishableKey: cfg.publishableKey))
-        .status(accessToken: token.accessToken!, connectionId: stored?['connection_id'] as String?);
+    status =
+        await (client ??
+                CommunityAccountClient(
+                  supabaseUrl: cfg.supabaseUrl,
+                  publishableKey: cfg.publishableKey,
+                ))
+            .status(
+              accessToken: token.accessToken!,
+              connectionId: stored?['connection_id'] as String?,
+            );
   } on CommunityAccountError catch (e) {
+    if (e.serviceUnavailable) {
+      if (e.code != 'cloud_cooldown' &&
+          !(await CloudAvailability.shared?.coolingDown() ?? false)) {
+        await CloudAvailability.shared?.failed(
+          retryAfterSeconds: e.retryAfterSeconds,
+        );
+      }
+      return HeadlessGate.transient;
+    }
     if (e.isAuth) return _block(store, p, 'kakao_reauth_required', clock());
-    if (e.httpStatus == 403) return _block(store, p, e.code, clock());
+    if (e.httpStatus == 403) {
+      return _block(
+        store,
+        p,
+        e.code == 'contributor_suspended' ? 'suspended' : e.code,
+        clock(),
+      );
+    }
     return HeadlessGate.transient;
   } catch (_) {
     return HeadlessGate.transient;
@@ -145,26 +187,99 @@ Future<HeadlessGate> refreshGateHeadless(
     status: status.toGateInput(),
     ageSeconds: 0,
   );
-  if (!next.canEnter) return _block(store, p, next.state, clock());
+  final account = status.fingerprint;
+  if (account == null) return HeadlessGate.needsForeground;
+  await ConsentHistory(store).event(
+    account,
+    next.state,
+    'background-status',
+    status: status.raw,
+    grant: status.consentGrantId,
+  );
+  if (!next.canEnter) {
+    return _block(store, p, next.state, clock(), record: false);
+  }
+  if (await ConsentHistory(
+    store,
+  ).uploadBlocked(account, status.consentGrantId)) {
+    return _block(store, p, 'consent_required', clock());
+  }
   final conn = status.connection;
-  final ctx = await store.activeContext();
-  final usable = conn != null &&
+  final ctx = await store.context();
+  // Production validates current login and PERSONAL DB owner before restoring
+  // an inactive writer. Injectable token sources are isolated test fixtures.
+  if (tokens == null) {
+    final auth = CommunityAuthService.instance;
+    final member = await auth.sessionKakaoId();
+    if (await auth.sessionFingerprint() != account ||
+        member == null ||
+        await LocalDbService.dbOwner() != member) {
+      return _block(store, p, 'db_owner_mismatch', clock());
+    }
+  }
+  final usable =
+      conn != null &&
       conn['status'] == 'active' &&
       conn['bound_to_current_session'] == true &&
       ctx != null &&
       ctx['connection_id'] == stored?['connection_id'] &&
       ctx['contributor_fingerprint'] == status.fingerprint &&
-      ctx['consent_grant_id'] == status.consentGrantId &&
-      ctx['policy_version'] == status.consentPolicyVersion &&
-      ctx['consent_text_sha256'] == status.grantConsentTextSha256;
+      (!status.hasOfficialAccount ||
+          status.officialDatasetKey == ctx['dataset_key']);
   if (!usable) return HeadlessGate.needsForeground;
-  await p.setString('community_gate_cache_v1',
-      jsonEncode({'state': 'ok', 'owner': status.fingerprint, 'verified_at': clock().millisecondsSinceEpoch}));
+  await store.setContext({
+    for (final key in contextFields) key: ctx[key],
+    'consent_grant_id': status.consentGrantId,
+    'policy_version': status.consentPolicyVersion,
+    'consent_text_sha256': status.grantConsentTextSha256,
+  });
+  await ConsentHistory(store).clearCapture();
+  if (await ConsentHistory(
+    store,
+  ).needsCatchup(account, status.consentGrantId!)) {
+    await ConsentCatchup(store).schedule((await store.activeContext())!);
+  }
+  await p.setString(
+    'community_gate_cache_v1',
+    jsonEncode({
+      'state': 'ok',
+      'owner': status.fingerprint,
+      'verified_at': clock().millisecondsSinceEpoch,
+    }),
+  );
   return HeadlessGate.ok;
 }
 
-Future<HeadlessGate> _block(CommunityStore store, SharedPreferences prefs, String state, DateTime at) async {
-  await prefs.setString('community_gate_cache_v1', jsonEncode({'state': state, 'verified_at': at.millisecondsSinceEpoch}));
+Future<HeadlessGate> _block(
+  CommunityStore store,
+  SharedPreferences prefs,
+  String state,
+  DateTime at, {
+  bool record = true,
+}) async {
+  await prefs.setString(
+    'community_gate_cache_v1',
+    jsonEncode({'state': state, 'verified_at': at.millisecondsSinceEpoch}),
+  );
+  final ctx = await store.context();
+  final account = ctx?['contributor_fingerprint'] as String?;
+  if (record && account != null) {
+    await ConsentHistory(store).event(
+      account,
+      state,
+      'background-denial',
+      grant: ctx?['consent_grant_id'] as String?,
+    );
+  }
+  if (state == 'consent_required' &&
+      account != null &&
+      ctx?['dataset_key'] is String) {
+    await ConsentHistory(
+      store,
+    ).pauseCapture(account, ctx!['dataset_key'] as String, consentDenied: true);
+  } else {
+    await ConsentHistory(store).clearCapture();
+  }
   await store.deactivateContext('gate:$state');
   return HeadlessGate.blocked;
 }

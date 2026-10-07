@@ -1,3 +1,4 @@
+import '../widgets/cloud_delay_banner.dart';
 import 'package:flutter/material.dart';
 import '../community/gate/community_gate.dart';
 
@@ -31,10 +32,7 @@ class CloudUnavailableScreen extends StatelessWidget {
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 20),
-                  FilledButton(
-                    onPressed: gate.isChecking ? null : gate.retryCloud,
-                    child: Text(gate.isChecking ? '연결 확인 중…' : '재시도'),
-                  ),
+                  CloudDelayBanner(gate: gate),
                 ],
               ),
             ),

@@ -1,3 +1,7 @@
+import '../community/cloud_availability.dart';
+import '../community/consent_catchup.dart';
+import '../community/community_wiring.dart';
+import 'sync_engine.dart';
 import 'dart:ui' show DartPluginRegistrant;
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
@@ -18,7 +22,9 @@ import 'standalone_auth_service.dart';
 void backgroundTaskDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     DartPluginRegistrant.ensureInitialized();
-    if (task == communityPeriodicTaskName || task == communityMidnightTaskName) {
+    if (task == communityPeriodicTaskName ||
+        task == communityMidnightTaskName ||
+        task == communityRecoveryTaskName) {
       // 상태를 저장했으면 true, 저장 전 예기치 못한 예외면 false(OS 가 백오프로 다시 실행).
       return runCommunityUploadTask(task);
     }
@@ -46,8 +52,11 @@ Future<bool> runCommunityUploadTask(
   String task, {
   DateTime? now,
   @visibleForTesting Future<CommunityStore?> Function()? openStore,
+  @visibleForTesting
+  Future<HeadlessGate> Function(CommunityStore, SharedPreferences)? verifyGate,
   @visibleForTesting Future<UploadRunResult> Function(String trigger)? upload,
-  @visibleForTesting Future<bool> Function(CommunityStore store, {DateTime? now})? recoveryCheck,
+  @visibleForTesting
+  Future<bool> Function(CommunityStore store, {DateTime? now})? recoveryCheck,
 }) async {
   try {
     final prefs = await SharedPreferences.getInstance();
@@ -60,16 +69,43 @@ Future<bool> runCommunityUploadTask(
     final store = await (openStore ?? openCommunityStoreForBackground)();
     if (store == null) return false; // community.db 를 열지 못함 — 저장 전 실패
     if (task == communityMidnightTaskName) await registerMidnightTask(now: now);
-    if (await store.activeContext() == null) return true;
-    if (!await isGateCacheFresh(prefs, now ?? DateTime.now())) {
-      final gate = await refreshGateHeadless(store, prefs: prefs);
-      if (gate != HeadlessGate.ok) return true;
+    // Inactive context must still get a bounded opportunity to recover.
+    final gate =
+        await (verifyGate?.call(store, prefs) ??
+            refreshGateHeadless(store, prefs: prefs));
+    if (gate != HeadlessGate.ok) {
+      if (gate == HeadlessGate.transient) {
+        await scheduleCloudRecovery(
+          CloudAvailability.shared?.nextAttemptAt ??
+              DateTime.now().add(const Duration(minutes: 5)),
+        );
+      }
+      return true;
     }
     final Future<UploadRunResult> Function(String) run =
         upload ?? ((String trigger) => uploadFromBackground(store, trigger));
     await catchUp('os', store: store, runUpload: run, now: now);
+    await ConsentCatchup(store).run(
+      verify: () async =>
+          await refreshGateHeadless(store, prefs: prefs) == HeadlessGate.ok,
+      manifest: () => CommunityWiring.refreshManifest(store),
+      collectAll: () async {
+        await StandaloneAuthService.reloadStatus();
+        final ctx = await store.activeContext();
+        if (ctx == null) return false;
+        final result = await SyncEngine.start(
+          fullSync: true,
+          preserveDataset: true,
+          catchupKey: ConsentCatchup.jobKey(ctx),
+          backgroundWorker: true,
+        );
+        return !result.failed && !result.busy && !result.cancelled;
+      },
+    );
     // 복구는 자정 결과와 별개다(자정 key 가 다른 실행에 잡혀 deferred 여도 재시도 시각이 된 행은 보낸다)
-    if (task == communityPeriodicTaskName && await (recoveryCheck ?? recoveryDue)(store, now: now)) {
+    if ((task == communityPeriodicTaskName ||
+            task == communityRecoveryTaskName) &&
+        await (recoveryCheck ?? recoveryDue)(store, now: now)) {
       await run('recovery');
     }
     return true;

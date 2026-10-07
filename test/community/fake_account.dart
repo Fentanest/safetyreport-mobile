@@ -24,6 +24,9 @@ class StubAuthService extends CommunityAuthService {
           storage: const FlutterSecureStorage(),
         );
 
+  @override
+  Future<String?> sessionFingerprint() async => 'fp-32hex';
+
   String? tokenResult = 'test-access-token';
 
   void setPhase(CommunityAccountPhase phase, {String name = '테스터'}) {

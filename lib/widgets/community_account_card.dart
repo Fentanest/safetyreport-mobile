@@ -1,3 +1,4 @@
+import '../screens/community_onboarding_screen.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -27,7 +28,12 @@ class CommunityAccountCard extends StatefulWidget {
   final CommunityGate? gate;
   final CommunityAccountClient? accountClient;
 
-  const CommunityAccountCard({super.key, this.service, this.gate, this.accountClient});
+  const CommunityAccountCard({
+    super.key,
+    this.service,
+    this.gate,
+    this.accountClient,
+  });
 
   @override
   State<CommunityAccountCard> createState() => _CommunityAccountCardState();
@@ -82,21 +88,21 @@ class _CommunityAccountCardState extends State<CommunityAccountCard> {
 
   /// 카카오 로그아웃 — 이 기기의 신고 자료를 지운다는 안내 뒤 실행([KakaoLogout]).
   Future<void> _logout() => _run(() async {
-        CommunityGate? gate = widget.gate;
-        ReportProvider? reports;
-        try {
-          gate ??= Provider.of<CommunityGate>(context, listen: false);
-        } catch (_) {}
-        try {
-          reports = Provider.of<ReportProvider>(context, listen: false);
-        } catch (_) {}
-        await KakaoLogout.confirmAndRun(
-          context,
-          gate: gate,
-          auth: _svc,
-          afterWipe: reports?.refreshAll,
-        );
-      });
+    CommunityGate? gate = widget.gate;
+    ReportProvider? reports;
+    try {
+      gate ??= Provider.of<CommunityGate>(context, listen: false);
+    } catch (_) {}
+    try {
+      reports = Provider.of<ReportProvider>(context, listen: false);
+    } catch (_) {}
+    await KakaoLogout.confirmAndRun(
+      context,
+      gate: gate,
+      auth: _svc,
+      afterWipe: reports?.refreshAll,
+    );
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -503,6 +509,7 @@ class _CommunityShareSectionState extends State<_CommunityShareSection> {
     );
     if (ok != true) return;
     await widget.run(() async {
+      await _gate.recordLocalRevocation();
       final token = await _token();
       if (!mounted) return; // 토큰을 읽는 동안 화면이 닫혔으면 상태를 바꾸지 않는다(SQ-B09).
       if (token == null || token.isEmpty) {
@@ -520,7 +527,7 @@ class _CommunityShareSectionState extends State<_CommunityShareSection> {
             _message = '공유 동의가 철회되었습니다.';
             _revokedShown = true;
           });
-          _gate.invalidate('consent_revoked');
+          await _gate.recordLocalRevocation();
         } else {
           setState(() => _message = '철회가 확인되지 않았습니다. 다시 시도해 주세요.');
         }
@@ -544,7 +551,7 @@ class _CommunityShareSectionState extends State<_CommunityShareSection> {
                 _message = '공유 동의가 철회되었습니다.';
                 _revokedShown = true;
               });
-              _gate.invalidate('consent_revoked');
+              await _gate.recordLocalRevocation();
             } else {
               setState(() => _message = '철회가 확인되지 않았습니다. 다시 시도해 주세요.');
             }
@@ -648,12 +655,18 @@ class _CommunityShareSectionState extends State<_CommunityShareSection> {
               title: '신고내용 공유',
             ),
             const SizedBox(height: 10),
-            CommunityInfoRow(label: '동의 상태', value: _revokedShown ? '철회됨' : consentState),
+            CommunityInfoRow(
+              label: '동의 상태',
+              value: _revokedShown ? '철회됨' : consentState,
+            ),
             CommunityInfoRow(label: '정책 버전', value: policyVersion),
             if (connection != null)
               CommunityInfoRow(
                 label: '연결 기기',
-                value: CommunityDeviceLabel.connectionDisplayName(connection, _deviceName),
+                value: CommunityDeviceLabel.connectionDisplayName(
+                  connection,
+                  _deviceName,
+                ),
               ),
             if (_gate.writerConflict != null) ...[
               const SizedBox(height: 8),
@@ -666,7 +679,9 @@ class _CommunityShareSectionState extends State<_CommunityShareSection> {
               SizedBox(
                 width: double.infinity,
                 child: FilledButton(
-                  onPressed: widget.busy ? null : () => widget.run(() => _gate.requestTakeover()),
+                  onPressed: widget.busy
+                      ? null
+                      : () => widget.run(() => _gate.requestTakeover()),
                   child: const Text('이 기기로 업로드 전환'),
                 ),
               ),
@@ -678,6 +693,21 @@ class _CommunityShareSectionState extends State<_CommunityShareSection> {
             const SizedBox(height: 12),
             CommunityButtonBar(
               children: [
+                if (!_gate.canEnter)
+                  OutlinedButton(
+                    onPressed: widget.busy
+                        ? null
+                        : () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => CommunityOnboardingScreen(
+                                auth: widget.auth,
+                                gate: _gate,
+                                accountClient: widget.client,
+                              ),
+                            ),
+                          ),
+                    child: const Text('공유 동의 확인'),
+                  ),
                 OutlinedButton(
                   onPressed: widget.busy ? null : _revoke,
                   child: const Text('동의 철회'),
@@ -697,7 +727,8 @@ class _CommunityShareSectionState extends State<_CommunityShareSection> {
 }
 
 /// 계정 확인 창(Standalone 복귀 직후). 뒤로 가기로 닫히지 않는다 — 둘 중 하나를 고른다.
-class CommunityConfirmDialog extends StatelessWidget {  final String displayName;
+class CommunityConfirmDialog extends StatelessWidget {
+  final String displayName;
   final String? replacingName;
   const CommunityConfirmDialog({
     super.key,

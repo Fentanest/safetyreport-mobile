@@ -1,3 +1,4 @@
+import '../community/cloud_availability.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
@@ -88,7 +89,7 @@ enum CommunityLinkOutcome {
   confirmRequired,
 }
 
-enum CommunityStartOutcome { launched, unconfigured, launchFailed }
+enum CommunityStartOutcome { launched, unconfigured, launchFailed, coolingDown }
 
 enum CommunityTokenStatus {
   ok,
@@ -280,6 +281,12 @@ class CommunityAuthService {
     if (!config.isConfigured) {
       await _emitBase();
       return CommunityStartOutcome.unconfigured;
+    }
+    // Browser launch bypasses the HTTP client; honor the same observed outage.
+    // With no recorded outage, OAuth keeps its normal immediate start.
+    if (await CloudAvailability.shared?.coolingDown() ?? false) {
+      await _emitBase(notice: '서버 연결이 지연되고 있습니다. 상단 안내의 재확인 시간까지 기다려 주세요.');
+      return CommunityStartOutcome.coolingDown;
     }
     final verifier = CommunityPkce.generateVerifier(_random);
     final pending = _PendingLogin(
@@ -498,6 +505,17 @@ class CommunityAuthService {
   // ── 세션 공급 ──────────────────────────────────────────────
 
   /// 네트워크 없이: 저장된 세션(연결됨 또는 재로그인 필요)의 카카오 회원번호. 모르면 null.
+  Future<String?> sessionFingerprint() async {
+    final id = await sessionUserId();
+    if (id == null || id.isEmpty) return null;
+    return sha256
+        .convert(utf8.encode('sr-community-account|v1|$id'))
+        .toString()
+        .substring(0, 32);
+  }
+
+  Future<String?> sessionUserId() async => (await _readSession())?.userId;
+
   Future<String?> sessionKakaoId() async => (await _readSession())?.kakaoId;
 
   /// 지금 로그인한 카카오 회원번호. 이 기능 전에 연결한 세션은 /auth/v1/user 를 한 번 받아 채워 둔다.
@@ -519,11 +537,18 @@ class CommunityAuthService {
       throw const CommunityKakaoIdUnavailable();
     }
     final kakaoId = user.kakaoId;
-    if (user.id != s.userId) throw const CommunityKakaoIdUnavailable('user_mismatch');
-    if (kakaoId == null) throw const CommunityKakaoIdUnavailable('kakao_id_missing');
+    if (user.id != s.userId) {
+      throw const CommunityKakaoIdUnavailable('user_mismatch');
+    }
+    if (kakaoId == null) {
+      throw const CommunityKakaoIdUnavailable('kakao_id_missing');
+    }
     final now = await _readSession();
     if (now != null && now.userId == s.userId) {
-      await _storage.write(key: sessionKey, value: now.copyWith(kakaoId: kakaoId).encode());
+      await _storage.write(
+        key: sessionKey,
+        value: now.copyWith(kakaoId: kakaoId).encode(),
+      );
     }
     return kakaoId;
   }
@@ -566,7 +591,9 @@ class CommunityAuthService {
   }
 
   bool _freshEnough(_StoredSession s, String? rejected) {
-    if (rejected != null) return s.accessToken != rejected && s.expiresAt.isAfter(_now());
+    if (rejected != null) {
+      return s.accessToken != rejected && s.expiresAt.isAfter(_now());
+    }
     return s.expiresAt.difference(_now()) > refreshMargin;
   }
 
@@ -786,7 +813,7 @@ class CommunityAuthService {
   Future<http.Response> _withClient(
     Future<http.Response> Function(http.Client c) send,
   ) async {
-    final client = _client ?? http.Client();
+    final client = CloudHttpClient(_client ?? http.Client());
     try {
       return await send(client).timeout(_timeout);
     } finally {
@@ -883,9 +910,13 @@ String? kakaoMemberId(Map<String, dynamic> user) {
   final digits = RegExp(r'^[0-9]{1,20}$');
   for (final identity in identities) {
     if (identity is! Map || identity['provider'] != 'kakao') continue;
-    final data = identity['identity_data'] is Map ? identity['identity_data'] as Map : const {};
+    final data = identity['identity_data'] is Map
+        ? identity['identity_data'] as Map
+        : const {};
     for (final value in [data['provider_id'], data['sub'], identity['id']]) {
-      if ((value is String || value is int) && digits.hasMatch('$value')) return '$value';
+      if ((value is String || value is int) && digits.hasMatch('$value')) {
+        return '$value';
+      }
     }
   }
   return null;
@@ -1039,16 +1070,18 @@ class _StoredSession {
   }
 }
 
-
 /// isolate 간 토큰 갱신 잠금. body 를 잠금 안에서 실행한다.
-typedef CommunityRefreshLock = Future<CommunityTokenResult> Function(
-    Future<CommunityTokenResult> Function() body);
+typedef CommunityRefreshLock =
+    Future<CommunityTokenResult> Function(
+      Future<CommunityTokenResult> Function() body,
+    );
 
 /// 기본 잠금: community.db 의 lease `auth_refresh`(앱·백그라운드 isolate 가 같은 파일을 쓴다). 파일 잠금은 같은 프로세스의
 /// isolate 끼리 막지 못해 SQLite 로 잡는다. 20초 안에 못 잡으면 일시 장애로 본다(세션은 그대로).
 /// community.db 를 열 수 없으면(테스트·손상) 잠금 없이 실행한다.
 Future<CommunityTokenResult> communityDbRefreshLock(
-    Future<CommunityTokenResult> Function() body) async {
+  Future<CommunityTokenResult> Function() body,
+) async {
   CommunityStore store;
   try {
     store = await CommunityStore.open();
@@ -1057,9 +1090,15 @@ Future<CommunityTokenResult> communityDbRefreshLock(
   }
   final owner = 'auth:${newUuidV4()}';
   final deadline = DateTime.now().add(const Duration(seconds: 20));
-  while (!await store.acquireLease('auth_refresh', owner, const Duration(seconds: 30))) {
+  while (!await store.acquireLease(
+    'auth_refresh',
+    owner,
+    const Duration(seconds: 30),
+  )) {
     if (DateTime.now().isAfter(deadline)) {
-      return const CommunityTokenResult(CommunityTokenStatus.temporarilyUnavailable);
+      return const CommunityTokenResult(
+        CommunityTokenStatus.temporarilyUnavailable,
+      );
     }
     await Future<void>.delayed(const Duration(milliseconds: 200));
   }

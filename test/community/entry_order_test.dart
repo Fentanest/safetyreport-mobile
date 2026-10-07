@@ -36,6 +36,9 @@ class StubGate extends CommunityGate {
   bool get canEnter => enter;
 
   @override
+  bool get canBrowse => enter || blockedState == 'cloud_unavailable';
+
+  @override
   bool get isChecked => true;
 
   @override
@@ -98,7 +101,7 @@ void main() {
   });
 
   testWidgets(
-    'gate closes pushed route; cloud and account recovery switch while blocked',
+    'cloud outage preserves browsing; confirmed account mismatch closes pushed routes',
     (tester) async {
       final provider = await _providerWith({
         AppPrefsKeys.appMode: 'standalone',
@@ -119,11 +122,12 @@ void main() {
       gate.blockedState = 'cloud_unavailable';
       gate.setEnter(false);
       await tester.pumpAndSettle();
-      expect(find.text('private pushed route'), findsNothing);
-      expect(find.byType(CloudUnavailableScreen), findsOneWidget);
+      expect(find.text('private pushed route'), findsOneWidget);
+      expect(find.byType(CloudUnavailableScreen), findsNothing);
       gate.blockedState = 'official_account_mismatch';
       gate.setEnter(false);
       await tester.pumpAndSettle();
+      expect(find.text('private pushed route'), findsNothing);
       expect(find.byType(CloudUnavailableScreen), findsNothing);
       expect(
         tester.widget<SetupScreen>(find.byType(SetupScreen)).accountRecovery,

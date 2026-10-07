@@ -104,7 +104,10 @@ AccountResponse classifyAccountResponse(
   // 본문에 코드가 없어 server_error 로 채운 경우는 HTTP 상태로만 판단한다(401·400·깨진 200 을 재시도하지 않게).
   final transient = retryable is bool
       ? retryable
-      : (_transientCodes.contains(bodyCode) || statusCode >= 500);
+      : (_transientCodes.contains(bodyCode) ||
+            statusCode == 429 ||
+            statusCode == 408 ||
+            statusCode >= 500);
   double? retryAfter;
   final after = err['retryAfterSeconds'];
   if (after is num && after >= 0) {

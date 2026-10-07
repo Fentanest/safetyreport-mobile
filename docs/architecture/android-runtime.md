@@ -308,6 +308,13 @@ CI `build-dev-apk.yml`(2026-09-27): `dev` push(문서만 바뀐 push 제외)·�
 - `~/mysafetyreport-android/upload-keystore.jks`
 
 
+### 코드 대조 정정: Client 인증 확인 만료와 WebSocket 알림
+
+`WsService` 재연결 시 인증·동의 캐시가 닫혔거나 만료됐으면 서비스를 종료하고 지속 알림을 제거한다.
+10초마다 인증·동의 확인 알림을 다시 발행하지 않는다. `MainActivity.startWsService`도 닫힌 캐시로
+시작을 거부한다. Flutter는 캐시 저장 완료 뒤 서비스를 시작하며, 메인 화면 복귀 때 다시 검증하고
+Client 연결을 재개한다. 지속 알림 갱신은 `setOnlyAlertOnce(true)`로 반복 알림음을 막는다.
+
 ### DB 완료 알림의 파일 앱 fallback
 
 `DbExportLocation.notifyCompleted`는 finalize한 실제 content URI·파일명·위치를 PendingIntent에 넣는다. foreground 완료는 Dart에서 위치를 열고, background 완료는 알림 탭의 MainActivity만 위치 앱을 연다. location intent를 처리할 앱이 없으면 native Activity dialog로 정확한 파일명/위치와 파일 열기·공유·닫기를 제공한다. 파일 열기/공유도 실패하면 dialog를 유지한다. 오래된 알림 metadata는 content provider에서 조회하며 SAF URI나 document ID를 조립하지 않는다. intent extras는 한 번 소비해 회전/재생성에서 자동 반복 실행하지 않는다.

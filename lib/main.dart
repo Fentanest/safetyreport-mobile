@@ -1,3 +1,7 @@
+import 'community/upload_hooks.dart';
+import 'community/cloud_availability.dart';
+import 'services/community_auth_config.dart';
+import 'widgets/cloud_delay_banner.dart';
 import 'services/client_compatibility.dart';
 import 'services/server_contract.dart';
 
@@ -15,7 +19,6 @@ import 'screens/report_list_screen.dart';
 import 'screens/report_management_screen.dart';
 import 'screens/statistics_screen.dart';
 import 'screens/setup_screen.dart';
-import 'screens/cloud_unavailable_screen.dart';
 import 'screens/official_account_start_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/permission_screen.dart';
@@ -99,6 +102,14 @@ Future<void> main() async {
   final reportProvider = ReportProvider();
   // 저장된 데모 모드를 첫 게이트 검사·인증 링크 처리 전에 확정한다.
   await reportProvider.init();
+  final preparedStore = await communityStoreFuture;
+  if (preparedStore != null) {
+    CloudAvailability.shared = CloudAvailability(
+      preparedStore,
+      CommunityAuthConfig.fromEnvironment.supabaseUrl,
+    );
+    await CloudAvailability.shared!.deadline();
+  }
   CommunityAuthLinkChannel.start((link) async {
     if (!reportProvider.isStandaloneDemo) {
       await communityAuth.handleCallbackLink(link);
@@ -125,6 +136,8 @@ Future<void> main() async {
   reportProvider.releaseOfficialAccount = gate.releaseOfficialAccount;
   // 초기화 크롤링이 필요하거나 진행 중이면 일반 동기화(수동·공유 대기열 처리)를 시작하지 않는다(PC 크롤 시작 409 와 같음).
   // 초기화 화면보다 먼저 도는 게이트 통과 직후 처리도 여기서 막힌다.
+  SyncEngine.localAccessAllowed = () async =>
+      reportProvider.isStandaloneDemo || await gate.requireLocalAccess();
   SyncEngine.rebuildBlocks = () async {
     if (!rebuildAppliesOnDevice(reportProvider)) return false;
     final store = communityStore ?? await CommunityStore.open();
@@ -164,6 +177,7 @@ class SafetyReportApp extends StatefulWidget {
 class _SafetyReportAppState extends State<SafetyReportApp> {
   late final CommunityGate _gate;
   bool _gateWasOpen = false;
+  bool _gateWasBrowsable = false;
   AppMode? _initialModeChoice;
   Future<ServerConnectionResult>? _serverVersionFuture;
   String? _checkedBaseUrl;
@@ -241,8 +255,34 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
     final canEnter = _gate.canEnter;
     final provider = context.read<ReportProvider>();
     final wasOpen = _gateWasOpen;
+    final wasBrowsable = _gateWasBrowsable;
     _gateWasOpen = canEnter;
-    if (wasOpen && !canEnter && !provider.isStandaloneDemo) {
+    _gateWasBrowsable = _gate.canBrowse;
+    if (wasOpen &&
+        !canEnter &&
+        !_gate.canBrowse &&
+        !provider.isStandaloneDemo) {
+      provider.onGateBlocked();
+    }
+    if (!wasBrowsable &&
+        _gate.canBrowse &&
+        !canEnter &&
+        provider.appMode == AppMode.standalone) {
+      unawaited(
+        provider.onGatePassed(),
+      ); // local services; uploader still requires canEnter
+    }
+    if (!wasOpen &&
+        canEnter &&
+        provider.appMode == AppMode.standalone &&
+        !provider.isStandaloneDemo) {
+      unawaited(
+        CommunityUploadHooks.registerBackgroundJobsNow().then(
+          (_) => CommunityUploadHooks.catchUpNow('cloud-recovered'),
+        ),
+      );
+    }
+    if (wasBrowsable && !_gate.canBrowse && !provider.isStandaloneDemo) {
       provider.onGateBlocked();
       _returnToRoot();
     }
@@ -253,6 +293,7 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
     super.initState();
     _gate = context.read<CommunityGate>();
     _gateWasOpen = _gate.canEnter;
+    _gateWasBrowsable = _gate.canBrowse;
     _gate.addListener(_onGateChanged);
     ClientCompatibility.failure.addListener(_onCompatibilityFailure);
     _gate.startPolling();
@@ -342,8 +383,8 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
     if (!gate.isChecked) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    if (!gate.canEnter && gate.state.state == 'cloud_unavailable') {
-      return CloudUnavailableScreen(gate: gate);
+    if (!gate.canEnter && gate.canBrowse && provider.isConfigured) {
+      return const MainNavigationScreen();
     }
     if (!gate.canEnter &&
         const {
@@ -358,7 +399,7 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
         initialNotice: gate.notice ?? LocalDbService.officialResetMessage,
       );
     }
-    if (!gate.canEnter) {
+    if (!gate.canBrowse) {
       return CommunityOnboardingScreen(
         gate: gate,
         // 없으면 동의를 저장하지 못한다("커뮤니티 서버 설정이 없어 동의를 저장할 수 없습니다", 2026-09-27 dev 빌드에서 발견)
@@ -489,9 +530,17 @@ class _PostGateFlowState extends State<_PostGateFlow> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && context.read<CommunityGate>().canEnter) {
-        unawaited(context.read<ReportProvider>().onGatePassed());
+        unawaited(_startVerifiedServices());
       }
     });
+  }
+
+  Future<void> _startVerifiedServices() async {
+    final gate = context.read<CommunityGate>();
+    await gate.persistForBackground();
+    if (mounted && gate.canEnter) {
+      await context.read<ReportProvider>().onGatePassed();
+    }
   }
 
   @override
@@ -698,7 +747,7 @@ bool communityNavAllowed(BuildContext context) {
     if (Provider.of<ReportProvider>(context, listen: false).isStandaloneDemo) {
       return true;
     }
-    return Provider.of<CommunityGate>(context, listen: false).canEnter;
+    return Provider.of<CommunityGate>(context, listen: false).canBrowse;
   } catch (_) {
     return true;
   }
@@ -760,7 +809,19 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
       // standalone: Kotlin NotificationService 가 설정한 sync pending 플래그 확인
       if (mounted) {
         context.read<ReportProvider>().checkAutoSyncOnResume();
+        unawaited(_resumeClientConnection());
       }
+    }
+  }
+
+  Future<void> _resumeClientConnection() async {
+    final provider = context.read<ReportProvider>();
+    if (provider.appMode != AppMode.server || !provider.isConfigured) return;
+    final gate = context.read<CommunityGate>();
+    await gate.refreshNow(silent: true);
+    await gate.persistForBackground();
+    if (mounted && provider.appMode == AppMode.server && gate.canEnter) {
+      await PermissionService.startWsService();
     }
   }
 
@@ -1362,19 +1423,27 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     }
 
     final screen = Scaffold(
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: List<Widget>.generate(_tabCount, (index) {
-          final cached = _screenCache[index];
-          if (cached != null || index == _selectedIndex) {
-            // 숨은 탭은 TickerMode false — 애니메이션 정지 + SelectionBackScope 가 뒤로가기를 가로채지 않게 한다.
-            return TickerMode(
-              enabled: index == _selectedIndex,
-              child: _buildScreen(index),
-            );
-          }
-          return const SizedBox.shrink();
-        }),
+      body: Column(
+        children: [
+          if (!p.isStandaloneDemo)
+            CloudDelayBanner(gate: context.read<CommunityGate>()),
+          Expanded(
+            child: IndexedStack(
+              index: _selectedIndex,
+              children: List<Widget>.generate(_tabCount, (index) {
+                final cached = _screenCache[index];
+                if (cached != null || index == _selectedIndex) {
+                  // 숨은 탭은 TickerMode false — 애니메이션 정지 + SelectionBackScope 가 뒤로가기를 가로채지 않게 한다.
+                  return TickerMode(
+                    enabled: index == _selectedIndex,
+                    child: _buildScreen(index),
+                  );
+                }
+                return const SizedBox.shrink();
+              }),
+            ),
+          ),
+        ],
       ),
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,

@@ -110,9 +110,10 @@ class WsService : Service() {
                 val stamp = ClientGateGuard.configStamp(prefs)
 
                 if (!ClientGateGuard.isOpen(prefs)) {
-                    updateForegroundNotif("카카오 인증·동의 확인 필요")
-                    try { Thread.sleep(10_000) } catch (_: InterruptedException) { break }
-                    continue
+                    // 캐시 만료는 동의 철회가 아니다. 같은 알림을 10초마다
+                    // 재발행하지 않고 종료한다. 앱의 다음 검증 뒤 다시 시작한다.
+                    shutdownService("Client gate verification required; stopping WebSocket service")
+                    break
                 }
 
                 if (baseUrl.isEmpty() || apiKey.isEmpty()) {
@@ -594,6 +595,7 @@ class WsService : Service() {
             .setContentText(text)
             .setSmallIcon(R.drawable.ic_stat_logo)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .setContentIntent(openPi)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "중지", stopPi)
             .build()

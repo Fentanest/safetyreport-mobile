@@ -138,41 +138,56 @@ void main() {
       server.statusFailures = 1;
       expect((await g.refreshNow(silent: true)).state, 'cloud_unavailable');
       expect(g.canEnter, isFalse);
+      expect(g.canBrowse, isTrue, reason: '장애 시 화면 차단만 임시 해제');
       expect((await g.retryCloud()).canEnter, isTrue);
       expect(server.accountClient().timeout, const Duration(seconds: 30));
     },
   );
 
-  testWidgets(
-    'cloud page retries 3 times at increasing intervals and manual retry recovers',
-    (tester) async {
-      final g = gate(mode: 'server');
-      server.statusFailures = 10;
-      await tester.runAsync(g.refreshNow);
-      await tester.pumpWidget(
-        MaterialApp(home: CloudUnavailableScreen(gate: g)),
+  test(
+    'cold-start outage allows browsing but persists a closed worker gate',
+    () async {
+      final g = gate();
+      server.statusFailures = 5;
+      await g.refreshNow();
+      expect(g.canBrowse, isTrue);
+      expect((await g.requireFresh()).canEnter, isFalse);
+      await g.persistForBackground();
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getString(CommunityGate.gateCacheKey),
+        contains('cloud_unavailable'),
       );
-      expect(find.text(CommunityGate.cloudUnavailableMessage), findsOneWidget);
-      expect(tester.widget<PopScope>(find.byType(PopScope)).canPop, isFalse);
-      final first = server.statusCalls;
-      // runAsync starts the first retry on real time; reschedule within fake time.
-      await tester.tap(find.text('재시도'));
-      await tester.pumpAndSettle();
-      final manual = server.statusCalls;
-      expect(manual, first + 1);
-      for (final seconds in [2, 5, 10]) {
-        await tester.pump(Duration(seconds: seconds));
-        await tester.pumpAndSettle();
-      }
-      expect(server.statusCalls, manual + 3);
-      await tester.pump(const Duration(seconds: 30));
-      expect(server.statusCalls, manual + 3);
-      server.statusFailures = 0;
-      await tester.tap(find.text('재시도'));
-      await tester.pumpAndSettle();
-      expect(g.canEnter, isTrue);
     },
   );
+
+  test(
+    'known account mismatch remains blocked through repeated outages',
+    () async {
+      localId = 'different-account';
+      final g = gate();
+      await g.refreshNow();
+      expect(g.canBrowse, isFalse);
+      server.statusFailures = 5;
+      await g.refreshNow();
+      expect(g.canBrowse, isFalse);
+      await g.refreshNow();
+      expect(g.canBrowse, isFalse);
+    },
+  );
+
+  testWidgets('cloud page has no retry button and never polls every second', (tester) async {
+    final g = gate(mode: 'server');
+    server.statusFailures = 10;
+    await tester.runAsync(g.refreshNow);
+    await tester.pumpWidget(MaterialApp(home: CloudUnavailableScreen(gate: g)));
+    expect(find.text('재시도'), findsNothing);
+    final calls = server.statusCalls;
+    await tester.pump(const Duration(seconds: 59));
+    expect(server.statusCalls, calls);
+    expect(find.textContaining('서버 연결 지연'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets('foreground return and five minute poll compare account again', (
     tester,

@@ -16,7 +16,8 @@ export 'canonical_json.dart' show canonicalJson;
 export 'observation_rules.dart' show buildPayload;
 
 /// 공유 payload 버전을 올리지 않고 파서만 구분한다.
-const String mobileParserVersion = 'mobile-parser-4'; // 2026-09-28 observation-v4(rating)
+const String mobileParserVersion =
+    'mobile-parser-4'; // 2026-09-28 observation-v4(rating)
 
 /// 공식 상세 응답에서 읽은 좌표. null이면 좌표 없는 관측으로 보낸다.
 class GeocodeHit {
@@ -26,8 +27,11 @@ class GeocodeHit {
   final Object? lat;
   final Object? lng;
 
-  Map<String, Object?> toAdapterGeo() =>
-      {'status': status, 'lat': lat, 'lng': lng};
+  Map<String, Object?> toAdapterGeo() => {
+    'status': status,
+    'lat': lat,
+    'lng': lng,
+  };
 }
 
 /// Report → 어댑터 입력 (observation.md 2절 모바일 열).
@@ -36,8 +40,8 @@ class GeocodeHit {
 /// payload 에는 들어가지 않는다. geo 는 공식 상세 응답의 좌표만 쓴다.
 /// override 좌표·주소는 절대 넣지 않는다.
 Map<String, Object?> buildAdapterInput(
-  // Report 타입에 직접 의존하지 않고(테스트에서 가짜를 쓰기 위해) 필드만 받는다.
-  {
+// Report 타입에 직접 의존하지 않고(테스트에서 가짜를 쓰기 위해) 필드만 받는다.
+{
   required String status,
   String? reportNumber,
   required String fineInfo,
@@ -152,20 +156,39 @@ Future<CaptureResult> capture(
   final canonical = canonicalJson(payload);
   final sha = sha256.convert(utf8.encode(canonical)).toString();
   final reportNumber = adapterInput['report_number']?.toString().trim();
-  final storedReportNumber = reportNumber == null || reportNumber.isEmpty ? null : reportNumber;
-  final progressStatus =
-      adapterInput['progress_status']?.toString() ?? '';
+  final storedReportNumber = reportNumber == null || reportNumber.isEmpty
+      ? null
+      : reportNumber;
+  final progressStatus = adapterInput['progress_status']?.toString() ?? '';
   final at = isoUtc(now ?? DateTime.now());
 
   return s.transaction((tx) async {
     final localDatasetId = await s.meta('local_dataset_id', tx) ?? '';
-    final contextRows =
-        await tx.rawQuery('SELECT * FROM context WHERE id=1');
-    final contextRow = contextRows.isEmpty ? null : contextRows.first;
-    final contextActive =
-        contextRow != null && contextRow['state'] == 'active';
-    final contextDatasetKey =
-        contextActive ? contextRow['dataset_key']?.toString() : null;
+    final contextRows = await tx.rawQuery('SELECT * FROM context WHERE id=1');
+    Map<String, Object?>? contextRow = contextRows.isEmpty
+        ? null
+        : contextRows.first;
+    var contextActive = contextRow != null && contextRow['state'] == 'active';
+    String? offlineBlocked;
+    if (!contextActive) {
+      final raw = await s.meta('offline_capture', tx);
+      final offline = raw == null ? null : jsonDecode(raw) as Map;
+      if (offline != null && offline['local_dataset_id'] == localDatasetId) {
+        final saved = offline['context'];
+        contextRow = saved is Map
+            ? saved.cast<String, Object?>()
+            : {
+                'dataset_key': offline['dataset_key'],
+                'contributor_fingerprint': offline['account'],
+              };
+        offlineBlocked = offline['blocked_reason'] as String?;
+        contextActive =
+            true; // Capture scope only, NOT an upload authorization.
+      }
+    }
+    final contextDatasetKey = contextActive
+        ? contextRow!['dataset_key']?.toString()
+        : null;
 
     // prev: rebuild 중이면 이번 run 의 staging 을 먼저 본다.
     Map<String, Object?>? prev;
@@ -187,11 +210,9 @@ Future<CaptureResult> capture(
       tx,
       localDatasetId,
       sourceReportId,
-      datasetKey: contextActive
-          ? contextRow['dataset_key']?.toString()
-          : null,
+      datasetKey: contextActive ? contextRow!['dataset_key']?.toString() : null,
       fingerprint: contextActive
-          ? contextRow['contributor_fingerprint']?.toString()
+          ? contextRow!['contributor_fingerprint']?.toString()
           : null,
     );
 
@@ -199,10 +220,13 @@ Future<CaptureResult> capture(
     // server_completed 표·manifest 신선도 검사는 그대로 유지한다.
     var eventType = decideEvent(
       eligible: eligible,
-      prevSha: storedReportNumber != null && prev != null && prev['report_number'] != storedReportNumber
-          ? null : prev?['payload_sha256']?.toString(),
-      prevEligible:
-          prev == null ? null : (prev['eligible'] as int? ?? 0) == 1,
+      prevSha:
+          storedReportNumber != null &&
+              prev != null &&
+              prev['report_number'] != storedReportNumber
+          ? null
+          : prev?['payload_sha256']?.toString(),
+      prevEligible: prev == null ? null : (prev['eligible'] as int? ?? 0) == 1,
       payloadSha: sha,
     );
 
@@ -210,7 +234,8 @@ Future<CaptureResult> capture(
     // 거절 이벤트를 만든다(PC와 1:1). 이미 같은 sha·같은 blocked 사유로
     // 기록됐으면 quiet 유지.
     if (eventType == null && eligible) {
-      final prevBlocked = prev?['blocked_reason']?.toString() == 'blocked:$agencyCodeTooLong';
+      final prevBlocked =
+          prev?['blocked_reason']?.toString() == 'blocked:$agencyCodeTooLong';
       // REVIEW5: 차단된 장문 코드를 null로 고치면 payload 해시가 같더라도
       // 전송 가능한 새 완료 관측을 발급한다(PC와 1:1).
       if (codeBlocked != prevBlocked) {
@@ -229,8 +254,12 @@ Future<CaptureResult> capture(
     if (eventType == null) {
       if (rebuildRunId != null && prev != null) {
         // 무변경 포인터 carry-forward (cutover 병합용).
-        final prevEvent = await _latestEventId(tx, localDatasetId,
-            sourceReportId, stagingRunId: rebuildRunId);
+        final prevEvent = await _latestEventId(
+          tx,
+          localDatasetId,
+          sourceReportId,
+          stagingRunId: rebuildRunId,
+        );
         if (prevEvent != null) {
           await tx.insert('report_latest_staging', {
             'run_id': rebuildRunId,
@@ -270,18 +299,18 @@ Future<CaptureResult> capture(
       'payload_json': canonical,
       'payload_sha256': sha,
       'eligible': eligible ? 1 : 0,
-      'contributor_fingerprint':
-          contextActive ? contextRow['contributor_fingerprint'] : null,
-      'connection_id': contextActive ? contextRow['connection_id'] : null,
-      'writer_epoch': contextActive ? contextRow['writer_epoch'] : null,
-      'consent_grant_id':
-          contextActive ? contextRow['consent_grant_id'] : null,
+      'contributor_fingerprint': contextActive
+          ? contextRow!['contributor_fingerprint']
+          : null,
+      'connection_id': contextActive ? contextRow!['connection_id'] : null,
+      'writer_epoch': contextActive ? contextRow!['writer_epoch'] : null,
+      'consent_grant_id': contextActive ? contextRow!['consent_grant_id'] : null,
       'personal_save_state': 'pending',
       'blocked_reason': codeBlocked
           ? 'blocked:$agencyCodeTooLong'
-          : (contextActive ? null : 'no_active_context'),
+          : (contextActive ? offlineBlocked : 'no_active_context'),
     });
-    if (contextActive) {
+    if (contextActive && offlineBlocked == null) {
       if (codeBlocked) {
         await tx.insert('outbox', {
           'event_id': eventId,
@@ -370,8 +399,11 @@ Future<String?> _latestEventId(
 }
 
 /// 개인 저장 결과를 최신 journal 행에 반영한다.
-Future<void> markPersonalSave(String? eventId, bool ok,
-    {CommunityStore? store}) async {
+Future<void> markPersonalSave(
+  String? eventId,
+  bool ok, {
+  CommunityStore? store,
+}) async {
   if (eventId == null) return;
   final s = store ?? await CommunityStore.open();
   await s.db.rawUpdate(

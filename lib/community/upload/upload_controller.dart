@@ -12,7 +12,8 @@ import 'dart:async';
 import 'community_uploader.dart';
 
 class CommunityUploadController {
-  CommunityUploadController({DateTime Function()? now}) : _now = now ?? (() => DateTime.now().toUtc());
+  CommunityUploadController({DateTime Function()? now})
+    : _now = now ?? (() => DateTime.now().toUtc());
 
   static CommunityUploadController instance = CommunityUploadController();
 
@@ -24,7 +25,11 @@ class CommunityUploadController {
   Future<void>? _loop;
 
   /// 넓은 트리거가 이긴다: recovery·manual 은 enqueue 를 하므로 realtime 보다 우선.
-  static const Map<String, int> _rank = {'realtime': 0, 'recovery': 1, 'manual': 2};
+  static const Map<String, int> _rank = {
+    'realtime': 0,
+    'recovery': 1,
+    'manual': 2,
+  };
 
   bool get isStarted => _build != null;
 
@@ -48,7 +53,9 @@ class CommunityUploadController {
   void wake([String trigger = 'realtime']) {
     if (_build == null) return;
     final current = _pending;
-    if (current == null || (_rank[trigger] ?? 0) > (_rank[current] ?? 0)) _pending = trigger;
+    if (current == null || (_rank[trigger] ?? 0) > (_rank[current] ?? 0)) {
+      _pending = trigger;
+    }
     if (_running) return;
     _loop = _drainLoop();
   }
@@ -87,11 +94,18 @@ class CommunityUploadController {
     await _schedule(uploader, result);
   }
 
-  Future<void> _schedule(CommunityUploader uploader, UploadRunResult? result) async {
+  Future<void> _schedule(
+    CommunityUploader uploader,
+    UploadRunResult? result,
+  ) async {
     final outcome = result?.result;
     DateTime? due;
-    if (outcome == 'needs_auth' || outcome == 'needs_consent' || outcome == 'blocked_gate') {
+    if (outcome == 'needs_auth' ||
+        outcome == 'needs_consent' ||
+        outcome == 'blocked_gate') {
       due = null;
+    } else if (outcome == 'cooldown' && result?.nextAttemptAt != null) {
+      due = DateTime.tryParse(result!.nextAttemptAt!);
     } else if (outcome == 'busy_other_run') {
       due = _now().add(const Duration(seconds: 5));
     } else if (outcome == 'more_pending') {

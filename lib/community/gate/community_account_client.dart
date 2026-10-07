@@ -1,3 +1,4 @@
+import '../cloud_availability.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -146,7 +147,7 @@ class CommunityAccountClient {
     final uri = Uri.parse(
       '${supabaseUrl.replaceFirst(RegExp(r'/+$'), '')}/functions/v1/community-account/$action',
     );
-    final owned = _client ?? http.Client();
+    final owned = CloudHttpClient(_client ?? http.Client());
     try {
       final res = await owned
           .post(
@@ -253,6 +254,13 @@ class CommunityAccountError implements Exception {
     this.transient = false,
     this.retryAfterSeconds,
   });
+
+  // A failed service request must never become an account/consent verdict.
+  bool get serviceUnavailable =>
+      transient ||
+      httpStatus == 429 ||
+      httpStatus == 408 ||
+      (httpStatus != null && httpStatus! >= 500);
 
   bool get isAuth => code == 'auth_required' || httpStatus == 401;
   bool get isForbidden =>

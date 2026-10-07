@@ -557,6 +557,11 @@ class MainActivity : FlutterFragmentActivity() {
 
                     "startWsService" -> {
                         try {
+                            val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+                            if (!ClientGateGuard.isOpen(prefs)) {
+                                result.success(false)
+                                return@setMethodCallHandler
+                            }
                             val intent = Intent(this, WsService::class.java).apply {
                                 action = WsService.ACTION_START
                             }

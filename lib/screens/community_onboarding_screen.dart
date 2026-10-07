@@ -99,9 +99,11 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
     try {
       final token = await _auth.getAccessToken();
       if (token == null || token.isEmpty) {
-        throw const CommunityAccountError(
-          code: 'kakao_required',
-          message: '먼저 카카오 인증을 완료해 주세요.',
+        final unavailable = _auth.state.value.phase == CommunityAccountPhase.connected;
+        throw CommunityAccountError(
+          code: unavailable ? 'cloud_unavailable' : 'kakao_required',
+          message: unavailable ? '서버 연결이 지연되고 있습니다. 잠시 후 자동으로 확인합니다.' : '먼저 카카오 인증을 완료해 주세요.',
+          transient: unavailable,
         );
       }
       final policy = await client.policy(accessToken: token);
@@ -168,9 +170,11 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
       }
       final token = await _auth.getAccessToken();
       if (token == null || token.isEmpty) {
-        throw const CommunityAccountError(
-          code: 'kakao_required',
-          message: '먼저 카카오 인증을 완료해 주세요.',
+        final unavailable = _auth.state.value.phase == CommunityAccountPhase.connected;
+        throw CommunityAccountError(
+          code: unavailable ? 'cloud_unavailable' : 'kakao_required',
+          message: unavailable ? '서버 연결이 지연되고 있습니다. 잠시 후 자동으로 확인합니다.' : '먼저 카카오 인증을 완료해 주세요.',
+          transient: unavailable,
         );
       }
       final policy = _policy;
@@ -188,6 +192,7 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
         via: gate.isStandalone ? 'mobile_standalone' : 'mobile_client',
       );
       // 이 기기에서 동의했다 — 업로드 연결이 다른 기기에 있으면 이 기기로 가져온다(2026-09-28).
+      await gate.recordConsentAccepted();
       gate.claimForThisDevice();
       await gate.refreshNow();
       if (!mounted) return;

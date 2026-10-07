@@ -1,4 +1,8 @@
 import 'dart:io';
+import 'dart:convert';
+import 'package:safetyreport/community/capture/community_capture.dart'
+    as capture;
+import '../community/upload_control_test.dart' as fixture;
 import 'dart:async';
 import '../support/kakao_owner.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -161,6 +165,47 @@ void main() {
       },
     );
   }
+  test(
+    'offline full sync preserves capture scope, queued data and user edits',
+    () async {
+      final dataset = await store.localDatasetId();
+      await store.setMeta(
+        'offline_capture',
+        jsonEncode({
+          'account': fixture.ctxA['contributor_fingerprint'],
+          'dataset_key': fixture.ctxA['dataset_key'],
+          'local_dataset_id': dataset,
+          'context': null,
+          'blocked_reason': 'consent_denied',
+        }),
+      );
+      StandaloneApiService.listForTest = (_, _) async => {
+        'totalCnt': 0,
+        'result': [],
+      };
+      final result = await SyncEngine.start(fullSync: true);
+      expect(result.failed, false);
+      expect(await store.localDatasetId(), dataset);
+      final captured = await capture.capture(
+        fixture.adapter(),
+        sourceReportId: 'scope-check',
+        trigger: 'realtime',
+        store: store,
+        projectNamespace: fixture.kNs,
+      );
+      await capture.markPersonalSave(captured.eventId, true, store: store);
+      final row = (await store.db.query('source_journal')).single;
+      expect(
+        row['contributor_fingerprint'],
+        fixture.ctxA['contributor_fingerprint'],
+      );
+      expect(row['dataset_key'], fixture.ctxA['dataset_key']);
+      expect(row['blocked_reason'], 'consent_denied');
+      final db = await LocalDbService.db;
+      expect((await db.query('report_raw')).single['raw_content'], '합성\n원문');
+      expect((await db.query('report_override')).single['value'], '');
+    },
+  );
   test('matching total does not authorize absence deletion', () async {
     StandaloneApiService.listForTest = (_, _) async => {
       'totalCnt': 1,

@@ -1,3 +1,4 @@
+import 'consent_catchup.dart';
 // T5(게이트·초기화) ↔ T6(capture·업로드) 연결 (통합, `contracts/community-ingest/interfaces.md`).
 //
 // main.dart 가 게이트를 만든 직후 한 번 호출한다. 병렬 작업 중 비어 있던 자리를 실제 구현으로 채우고,
@@ -18,11 +19,16 @@ import 'upload/upload_defaults.dart';
 import 'upload_hooks.dart';
 
 /// 포그라운드 uploader 용 게이트 어댑터: 새 작업은 60초 이내 재검증(plan §6.1).
-class LiveGateCheck implements CommunityGateCheck, CommunityGenerationFence, CommunityScopeFence {
+class LiveGateCheck
+    implements
+        CommunityGateCheck,
+        CommunityGenerationFence,
+        CommunityScopeFence {
   @override
   Object get generation => gate.generation;
   @override
-  String? get contributorFingerprint => gate.canEnter ? gate.lastStatus?.fingerprint : null;
+  String? get contributorFingerprint =>
+      gate.canEnter ? gate.lastStatus?.fingerprint : null;
   LiveGateCheck(this.gate);
   final CommunityGate gate;
 
@@ -47,7 +53,10 @@ class CommunityWiring {
     return g == null ? schedule.CacheGateCheck() : LiveGateCheck(g);
   }
 
-  static void wire({required CommunityGate communityGate, required CommunityStore store}) {
+  static void wire({
+    required CommunityGate communityGate,
+    required CommunityStore store,
+  }) {
     gate = communityGate;
     CommunityUploadHooks.refreshServerCompleted = () => refreshManifest(store);
     SyncEngine.ensureManifestFresh = () => refreshManifest(store);
@@ -55,7 +64,9 @@ class CommunityWiring {
     CommunityUploadHooks.registerBackgroundJobs = () async {
       await schedule.registerBackgroundJobs();
       // 업로더의 배치별 진행 문구는 동기화 로그에 싣지 않는다 — 동기화가 10건 단위로 'N/M건 전송'을 따로 적는다.
-      CommunityUploadController.instance.start(() => buildDefaultUploader(gate: gateCheck()));
+      CommunityUploadController.instance.start(
+        () => buildDefaultUploader(gate: gateCheck()),
+      );
     };
     CommunityUploadHooks.cancelBackgroundJobs = () async {
       CommunityUploadController.instance.stop();
@@ -70,30 +81,67 @@ class CommunityWiring {
     };
     CommunityUploadHooks.catchUp = (reason) async {
       final uploader = await buildDefaultUploader(gate: gateCheck());
-      await schedule.catchUp(reason, store: store, runUpload: uploader.requestCommunityUpload);
+      await schedule.catchUp(
+        reason,
+        store: store,
+        runUpload: uploader.requestCommunityUpload,
+      );
+      await ConsentCatchup(store).run(
+        verify: () async => (await communityGate.requireFresh()).canEnter,
+        manifest: () => refreshManifest(store),
+        collectAll: () async {
+          final ctx = await store.activeContext();
+          if (ctx == null) return false;
+          final result = await SyncEngine.start(
+            fullSync: true,
+            preserveDataset: true,
+            catchupKey: ConsentCatchup.jobKey(ctx),
+          );
+          return !result.failed && !result.busy && !result.cancelled;
+        },
+      );
+      CommunityUploadController.instance.wake('recovery');
     };
-    CommunityUploadHooks.onContributionsDeleted = () => completed.applyPendingDeletion(store: store); // 남은 표시 없음 = true
-    CommunityUploadHooks.beginDeletion = () => completed.beginDeletion(store: store);
-    CommunityUploadHooks.cancelDeletion = (id) => completed.cancelDeletion(id, store: store);
-    CommunityUploadHooks.confirmDeletion = () => completed.confirmDeletion(store: store);
+    CommunityUploadHooks.onContributionsDeleted = () =>
+        completed.applyPendingDeletion(store: store); // 남은 표시 없음 = true
+    CommunityUploadHooks.beginDeletion = () =>
+        completed.beginDeletion(store: store);
+    CommunityUploadHooks.cancelDeletion = (id) =>
+        completed.cancelDeletion(id, store: store);
+    CommunityUploadHooks.confirmDeletion = () =>
+        completed.confirmDeletion(store: store);
   }
 
   /// manifest 전 페이지 → server_completed 교체. 받는 동안 upload lease 를 잡아 자기 업로드로 세대가 바뀌지 않게 한다.
   /// context·토큰·lease 가 없거나 형식이 틀리면 false(수집·초기화 시작 금지).
-  static Future<bool> refreshManifest(CommunityStore store,
-      {CommunityIngestClient? client, Future<String?> Function()? token}) async {
+  static Future<bool> refreshManifest(
+    CommunityStore store, {
+    CommunityIngestClient? client,
+    Future<String?> Function()? token,
+  }) async {
     final ctx = await store.activeContext();
     final datasetKey = ctx?['dataset_key'] as String?;
     final connectionId = ctx?['connection_id'] as String?;
     final epoch = int.tryParse('${ctx?['writer_epoch']}');
-    if (datasetKey == null || connectionId == null || epoch == null) return false;
-    final access = await (token ?? CommunityAuthService.instance.getAccessToken)();
+    if (datasetKey == null || connectionId == null || epoch == null) {
+      return false;
+    }
+    final access =
+        await (token ?? CommunityAuthService.instance.getAccessToken)();
     if (access == null || access.isEmpty) return false;
     final config = CommunityAuthConfig.fromEnvironment;
-    final c = client ??
-        CommunityIngestClient(supabaseUrl: config.supabaseUrl, publishableKey: config.publishableKey);
+    final c =
+        client ??
+        CommunityIngestClient(
+          supabaseUrl: config.supabaseUrl,
+          publishableKey: config.publishableKey,
+        );
     final owner = 'manifest:${newUuidV4()}';
-    if (!await store.acquireLease('upload', owner, const Duration(minutes: 5))) {
+    if (!await store.acquireLease(
+      'upload',
+      owner,
+      const Duration(minutes: 5),
+    )) {
       if (client == null) c.close();
       return false;
     }
@@ -103,14 +151,43 @@ class CommunityWiring {
         writerEpoch: epoch,
         store: store,
         commitAllowed: (tx) async {
-          final current = await tx.query('context', where: 'id=1 AND state=?', whereArgs: ['active']);
-          if (current.isEmpty || !['connection_id','writer_epoch','dataset_key','contributor_fingerprint','consent_grant_id'].every((k) => current.first[k] == ctx![k])) return false;
-          final lease = await tx.query('leases', where: 'name=? AND owner=? AND until>?', whereArgs: ['upload', owner, isoUtc(DateTime.now())]);
+          final current = await tx.query(
+            'context',
+            where: 'id=1 AND state=?',
+            whereArgs: ['active'],
+          );
+          if (current.isEmpty ||
+              ![
+                'connection_id',
+                'writer_epoch',
+                'dataset_key',
+                'contributor_fingerprint',
+                'consent_grant_id',
+              ].every((k) => current.first[k] == ctx![k])) {
+            return false;
+          }
+          final lease = await tx.query(
+            'leases',
+            where: 'name=? AND owner=? AND until>?',
+            whereArgs: ['upload', owner, isoUtc(DateTime.now())],
+          );
           return lease.length == 1;
         },
         fetchPage: (after, limit) async {
-          if (!await store.renewLease('upload', owner, const Duration(minutes: 5)) || !await _sameContext(store, ctx!)) return null;
-          final page = await c.fetchManifestPage(access, connectionId, after: after, limit: limit);
+          if (!await store.renewLease(
+                'upload',
+                owner,
+                const Duration(minutes: 5),
+              ) ||
+              !await _sameContext(store, ctx!)) {
+            return null;
+          }
+          final page = await c.fetchManifestPage(
+            access,
+            connectionId,
+            after: after,
+            limit: limit,
+          );
           return page == null ? null : completed.ManifestPage.fromJson(page);
         },
       );
@@ -118,9 +195,20 @@ class CommunityWiring {
       if (client == null) c.close();
       await store.releaseLease('upload', owner);
     }
-  }  static Future<bool> _sameContext(CommunityStore store, Map<String, Object?> expected) async {
-    final current = await store.activeContext();
-    return current != null && ['connection_id','writer_epoch','dataset_key','contributor_fingerprint','consent_grant_id'].every((k) => current[k] == expected[k]);
   }
 
+  static Future<bool> _sameContext(
+    CommunityStore store,
+    Map<String, Object?> expected,
+  ) async {
+    final current = await store.activeContext();
+    return current != null &&
+        [
+          'connection_id',
+          'writer_epoch',
+          'dataset_key',
+          'contributor_fingerprint',
+          'consent_grant_id',
+        ].every((k) => current[k] == expected[k]);
+  }
 }

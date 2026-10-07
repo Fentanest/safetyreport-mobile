@@ -1,3 +1,4 @@
+import '../cloud_availability.dart';
 // 커뮤니티 업로더 — 공통 업로드 제어 UC-1(contracts/upload-control, PC `services/community_uploader.py` 와 같은 규칙·같은 순서).
 //
 // requestCommunityUpload(trigger) 하나가 realtime/manual/midnight/recovery/rebuild/reshare 를 모두 처리한다.
@@ -633,13 +634,27 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
       state.errorCode = 'deletion_cleanup_pending';
       return finish('blocked_gate');
     }
+    if (await CloudAvailability.shared?.coolingDown() ?? false) {
+      state.errorCode = 'cloud_cooldown';
+      state.nextAttemptAt = CloudAvailability.shared!.nextAttemptAt
+          ?.toUtc()
+          .toIso8601String();
+      return finish('cooldown');
+    }
     if (!await gate.requireFresh()) {
       state.errorCode = gate.blockedState ?? 'gate_not_fresh';
       return finish(_gateResult(gate.blockedState));
     }
     final ctx = await store.activeContext();
-    if (ctx == null || (gate is CommunityScopeFence && (gate as CommunityScopeFence).contributorFingerprint != ctx['contributor_fingerprint'])) return finish('needs_auth');
-    if (gate is CommunityGenerationFence) ctx['_gateGeneration'] = (gate as CommunityGenerationFence).generation;
+    if (ctx == null ||
+        (gate is CommunityScopeFence &&
+            (gate as CommunityScopeFence).contributorFingerprint !=
+                ctx['contributor_fingerprint'])) {
+      return finish('needs_auth');
+    }
+    if (gate is CommunityGenerationFence) {
+      ctx['_gateGeneration'] = (gate as CommunityGenerationFence).generation;
+    }
     final epoch = ctx['writer_epoch'];
     if (epoch is! int || epoch < 1) {
       state.errorCode = 'writer_epoch_missing'; // 지어낸 epoch 로 보내지 않는다
@@ -965,8 +980,12 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
         policy.errorOf('request_too_large', null, code: 'payload_too_large'),
       );
     }
-    if (!await _sameScope(store, ctx) || !await _markInFlight(store, batch, owner, ctx)) {
-      return (const _Sent(notSent: true), policy.errorOf('auth_required', null, code: 'scope_changed'));
+    if (!await _sameScope(store, ctx) ||
+        !await _markInFlight(store, batch, owner, ctx)) {
+      return (
+        const _Sent(notSent: true),
+        policy.errorOf('auth_required', null, code: 'scope_changed'),
+      );
     }
     counts['requests'] = counts['requests']! + 1;
     counts['sent'] = counts['sent']! + batch.length;
@@ -1373,15 +1392,16 @@ OR j.connection_id IS NOT ? OR j.consent_grant_id IS NOT ?)
     'policy_version': ctx['policy_version'],
     'client_version': clientVersion,
     'parser_version': mobileParserVersion,
-    'trigger':
-        const {
-          'realtime',
-          'manual',
-          'midnight',
-          'recovery',
-          'rebuild',
-          'reshare',
-        }.contains(trigger)
+    'trigger': events.any((e) => e['event_type'] == 'reshare')
+        ? 'reshare'
+        : const {
+            'realtime',
+            'manual',
+            'midnight',
+            'recovery',
+            'rebuild',
+            'reshare',
+          }.contains(trigger)
         ? trigger
         : 'manual',
     'events': events,
@@ -1485,32 +1505,72 @@ OR j.connection_id IS NOT ? OR j.consent_grant_id IS NOT ?)
   });
 
   /// 실제 HTTP 요청 직전: 이 요청의 이벤트만 attempt_count+1(UC-1 §1-3).
-  static const _scopeFields = ['connection_id','dataset_key','writer_epoch','contributor_fingerprint','consent_grant_id'];
+  static const _scopeFields = [
+    'connection_id',
+    'dataset_key',
+    'writer_epoch',
+    'contributor_fingerprint',
+    'consent_grant_id',
+  ];
 
   bool _sameGeneration(Map<String, Object?> ctx) =>
-      (gate is! CommunityGenerationFence || (gate as CommunityGenerationFence).generation == ctx['_gateGeneration']) &&
-      (gate is! CommunityScopeFence || (gate as CommunityScopeFence).contributorFingerprint == ctx['contributor_fingerprint']);
+      (gate is! CommunityGenerationFence ||
+          (gate as CommunityGenerationFence).generation ==
+              ctx['_gateGeneration']) &&
+      (gate is! CommunityScopeFence ||
+          (gate as CommunityScopeFence).contributorFingerprint ==
+              ctx['contributor_fingerprint']);
 
-  Future<bool> _sameScope(CommunityStore store, Map<String, Object?> ctx) async {
-    if (await appMode() != AppMode.standalone || await _demoMode()) return false;
+  Future<bool> _sameScope(
+    CommunityStore store,
+    Map<String, Object?> ctx,
+  ) async {
+    if (await appMode() != AppMode.standalone || await _demoMode()) {
+      return false;
+    }
     if (!await gate.requireFresh()) return false;
     final current = await store.activeContext();
-    return _sameGeneration(ctx) && current != null && _scopeFields.every((key) => current[key] == ctx[key]);
+    return _sameGeneration(ctx) &&
+        current != null &&
+        _scopeFields.every((key) => current[key] == ctx[key]);
   }
 
-  Future<bool> _markInFlight(CommunityStore store, List<_Row> rows, String owner, Map<String, Object?> ctx) async {
+  Future<bool> _markInFlight(
+    CommunityStore store,
+    List<_Row> rows,
+    String owner,
+    Map<String, Object?> ctx,
+  ) async {
     final until = isoUtc(_now().add(uploadLeaseDuration));
     try {
       await store.transaction((tx) async {
-        final contexts = await tx.query('context', where: 'id=1 AND state=?', whereArgs: ['active']);
-        final leases = await tx.query('leases', where: 'name=? AND owner=? AND until>?', whereArgs: ['upload', owner, isoUtc(DateTime.now())]);
-        if (!_sameGeneration(ctx) || contexts.isEmpty || leases.isEmpty || !_scopeFields.every((key) => contexts.single[key] == ctx[key])) throw StateError('scope_changed');
+        final contexts = await tx.query(
+          'context',
+          where: 'id=1 AND state=?',
+          whereArgs: ['active'],
+        );
+        final leases = await tx.query(
+          'leases',
+          where: 'name=? AND owner=? AND until>?',
+          whereArgs: ['upload', owner, isoUtc(DateTime.now())],
+        );
+        if (!_sameGeneration(ctx) ||
+            contexts.isEmpty ||
+            leases.isEmpty ||
+            !_scopeFields.every((key) => contexts.single[key] == ctx[key])) {
+          throw StateError('scope_changed');
+        }
         for (final row in rows) {
-          final n = await tx.rawUpdate("UPDATE outbox SET state='in_flight', attempt_count=attempt_count+1, lease_owner=?, lease_until=? WHERE event_id=? AND (state IN ('pending','retry_wait','auth_required') OR (state='in_flight' AND lease_owner=?)) AND event_id IN (SELECT event_id FROM source_journal WHERE source_revision=? AND acked_at IS NULL)", [owner, until, row.eventId, owner, row.data['source_revision']]);
+          final n = await tx.rawUpdate(
+            "UPDATE outbox SET state='in_flight', attempt_count=attempt_count+1, lease_owner=?, lease_until=? WHERE event_id=? AND (state IN ('pending','retry_wait','auth_required') OR (state='in_flight' AND lease_owner=?)) AND event_id IN (SELECT event_id FROM source_journal WHERE source_revision=? AND acked_at IS NULL)",
+            [owner, until, row.eventId, owner, row.data['source_revision']],
+          );
           if (n != 1) throw StateError('outbox_claim_changed');
         }
       });
-      for (final row in rows) { row.attempts = row.attempts + 1; }
+      for (final row in rows) {
+        row.attempts = row.attempts + 1;
+      }
       return true;
     } on StateError {
       return false;

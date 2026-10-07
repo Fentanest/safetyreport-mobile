@@ -73,6 +73,10 @@ class StandaloneAutoSyncService {
 
   static Future<void> _drainIfPending() async {
     if (_running || SyncEngine.isRunning) return;
+    if (SyncEngine.localAccessAllowed != null &&
+        !await SyncEngine.localAccessAllowed!()) {
+      return;
+    }
     SyncEngine.beginOperation();
     _running = true;
     _singleFetchChanges = [];

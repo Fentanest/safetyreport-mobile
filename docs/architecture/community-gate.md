@@ -33,7 +33,7 @@
 - `community_gate.dart` (`ChangeNotifier`): 캐시 10분, `requireFresh(60s)`,
   `invalidate(reason)`, 포그라운드 5분 poll + resume 즉시 refresh.
   `requireFresh(60s)`는 새 작업의 검증 상한이다. 대조 요청의 네트워크·시간초과·일시 서버 오류는
-  성공 캐시의 나이와 관계없이 `cloud_unavailable`로 화면·작업을 차단한다(2026-10-06 확정 계약).
+  `cloud_unavailable`로 공유 업로드를 보류한다. 로컬 접근은 아래 2.0.5 긴급 정책을 따른다.
   Standalone 이고 status active 면 `CommunityStore.setContext(...)`,
   상실이면 `deactivateContext`.
 - 자료 주인(2026-09-27, Standalone writer 만 — Client·데모는 확인하지 않음): 중앙 status 가 진입 허용이면
@@ -135,9 +135,14 @@ grant 로 재요청), `공유한 자료 삭제 요청`(확인 문구 입력 → 
 - 개인 DB의 안신 계정 비교는 없다. 계정 변경 미완료 상태값만 있으면
   재로그인·경고·백업·초기화 흐름으로 복구한다. 데이터 변경 세대와 별도로 `accountConfigEpoch`를 써서
   차단으로 인한 화면 캐시 초기화가 다시 게이트를 무효화하는 재귀를 피한다.
-- 일시 접속 실패 페이지: “클라우드에 연결할 수 없습니다. 잠시 후 이용해 주세요”.
-  HTTP 제한 30초, 자동 재시도 2/5/10초(3회), 수동 재시도, 복귀 및 다음 주기에도 재검증한다.
-  실패 즉시 context 비활성·게이트 캐시 차단, 동기화/keep-alive/예약 업로드 중단.
+- 일시 접속 실패 상태: “클라우드에 연결할 수 없습니다. 잠시 후 이용해 주세요”.
+  HTTP 제한 약 30초, 프로젝트 공통 영속 `next_attempt_at` 이전에는 재요청하지 않는다.
+  실패 시 context·공유 게이트 캐시는 비활성화하고 로컬 동기화 권한은 별도로 판정한다.
+  **코드 대조 정정 — 임시 장애 화면 차단 해제:** `canBrowse`는 클라우드 장애 중에도
+  일반 화면과 탭 이동을 허용한다. 설정된 앱은 재시도 전용 화면 대신 메인 화면을 연다.
+  `canEnter`/`requireFresh`는 계속 닫혀 있어 작업·업로드 권한으로 사용하지 않는다.
+  로컬 DB 주인 불일치, 계정 변경 미완료, 이미 확인한 원격 계정 불일치는 우회하지 않는다.
+  정상 응답을 받으면 기존 설정·초기화·작업 흐름으로 복구한다.
 - 새 모드 선택 이후 카카오 인증·공유 동의는 기존 앱에서 필수다. 인증되지 않은 사용자는 기존 온보딩에
   머물며, 아직 자기 바인딩을 조회할 토큰이 없어 별도 클라우드 장애 페이지로 치환하지 않는다.
   데모는 예외다. 카카오 미로그인·클라우드 장애·바인딩 불일치·계정 변경 미완료와 무관하게 합성 화면을 연다.
@@ -149,3 +154,18 @@ grant 로 재요청), `공유한 자료 삭제 요청`(확인 문구 입력 → 
   `official_account_released:true`가 없거나 결과가 불명확하면 개인 DB를 지우지 않고 중단한다.
   기존 삭제 fence와 개인 DB의 pending 표시가 앱 재시작 뒤에도 재등록을 막는다.
   성공한 변경은 `새로 시작` 화면을 거쳐 새 계정의 메인/초기화 흐름으로 진입한다.
+
+
+## 코드 대조 정정 — 2.0.5 긴급 장애 정책
+
+`canEnter`는 서버가 확인한 현재 공유 권한이고 `canBrowse`/`requireLocalAccess`는 로컬 이용 권한이다. 기존 로그인과 같은 자료 주인을 확인한 사용자는 동의 none/revoked/unknown이어도 로컬 조회·수집을 계속한다. 신규 인증이 없거나 DB 주인·공식 계정이 다르거나 이용정지가 확인되면 우회하지 않는다. 로컬에서는 누락된 DB 주인을 임의로 찍지 않는다. 동의가 필요하면 설정의 공유 동의 확인 화면에서 처리한다.
+
+`CloudAvailability`는 community.db meta의 프로젝트별 deadline과 probe lease로 auth, status, writer, manifest, ingest 요청을 함께 제한한다. 429/408/5xx와 연결/본문 timeout에 최소 300초, Retry-After(초·HTTP-date), error.retryAfterSeconds/error.retry_after_seconds의 최대 유효값을 보존한다. foreground timer와 WorkManager가 같은 deadline을 읽으며 카운트다운은 화면만 갱신한다. 정상 OAuth 시작은 장애가 관측되지 않았다면 지연시키지 않는다. Supabase `/auth/v1/authorize?provider=kakao`는 정상 중간 경로다.
+
+`ConsentHistory`는 기존 flutter_secure_storage의 `community_consent_history_v1:<fingerprint>`에 상태 전환만 기록한다. 네트워크 실패는 unknown 이력으로 추가하지 않는다. 동의 철회와 contributor 이용정지는 독립 상태이며 정지는 명시적 server active 응답 때만 해제한다. 재설치 시 이력이 없어질 수 있고 변조 방지를 보장하지 않는다. 개인 신고 DB/내보내기 스키마를 변경하지 않는다.
+
+공유 context가 닫히면 검증된 같은 계정·dataset을 offline_capture meta로 보존한다. 기존 유효 grant는 원래 이벤트를 유지하고, 미동의/철회 수집은 consent_unknown/consent_denied로 보관한다. 일반 오프라인 전체수집과 동의 catch-up은 local_dataset_id를 회전하지 않는다. 전송 전에 현재 계정의 서버 동의를 다시 확인한다.
+
+실제 동의 전환/명시적 동의 완료는 계정·grant·dataset별 durable catch-up 한 건을 예약한다. 단순 초기 active 조회와 반복 poll은 새 전체수집을 만들지 않는다. manifest를 한 번 완전히 읽고 같은 계정의 재공유 가능한 원본을 기존 reshare 이벤트로 전송하며, 전체수집은 상세 완료 표식을 남겨 중단 뒤 이어간다. 공개 완료 manifest는 전체 ingest receipt 목록이 아니다. manifest에서 안 보인다는 이유만으로 기존 ACK를 무시해 새 이벤트를 만들지 않으며 명시적인 삭제 tombstone을 우회하지 않는다. 서버 수동 초기화/receipt 소실의 완전 복원은 별도 서버 조치가 필요하다.
+
+백그라운드는 inactive context도 복구를 시도하되 현재 세션·DB 주인·bound writer를 검증한다. 복구 one-off는 deadline 이후 네트워크 조건을 만족할 때 실행하며 Android Doze/배터리 정책 때문에 정확한 5분 실행은 보장하지 않는다. 전체수집 worker는 약 5분 작업 예산 후 미완료 job을 남긴다.

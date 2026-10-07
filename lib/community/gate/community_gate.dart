@@ -1,3 +1,7 @@
+import '../upload/community_schedule.dart' as schedule;
+import '../consent_catchup.dart';
+import '../cloud_availability.dart';
+import '../consent_history.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
@@ -81,6 +85,22 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _authPhase = _auth.state.value.phase;
     _auth.state.addListener(_onAuthChanged);
+    CloudAvailability.shared?.addListener(_cloudChanged);
+  }
+
+  void _cloudChanged() {
+    if (!_disposed && appMode != 'demo') unawaited(refreshNow(silent: true));
+  }
+
+  Future<bool> requireLocalAccess() async {
+    if (!canBrowse) return false;
+    try {
+      return await _prepareLocalUse(
+        consentDenied: _state.state == 'consent_required',
+      );
+    } catch (_) {
+      return false;
+    }
   }
 
   final int Function()? _datasetGeneration;
@@ -149,6 +169,8 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     return jsonEncode([
       _state.state,
       _state.canEnter,
+      _localAllowed,
+      nextCloudAttempt?.toIso8601String(),
       _state.reasons,
       _passedMode,
       appMode,
@@ -190,6 +212,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
       _claimRequested = true;
     }
     _changingOfficialAccount = false;
+    _hardLocalBlock = null;
     _authGen++;
     invalidate(phase == CommunityAccountPhase.connected ? 'login' : 'logout');
     // 진행 중인 확인이 있으면(이전 세션) 그것이 끝난 뒤 새 세션으로 다시 확인한다 — refreshNow 는 진행 중이면 같은 결과를 돌려준다.
@@ -234,6 +257,102 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   /// 통과는 그때의 실행 모드에만 유효하다. Client·데모에서 통과한 뒤 실제 Standalone 으로 바꾸면 그 기기 DB 의 주인을
   /// 확인하지 않았으므로 다시 확인할 때까지 들어가지 않는다([onAppModeChanged]).
   bool get canEnter => _state.canEnter && _passedMode == appMode;
+
+  // Emergency policy: consent is still enforced for upload, not local use.
+  bool _localAllowed = false;
+  String? _hardLocalBlock;
+  bool get canBrowse => canEnter || _localAllowed;
+  DateTime? get nextCloudAttempt => CloudAvailability.shared?.nextAttemptAt;
+  Future<int> pendingUploads() async {
+    final account = await _auth.sessionFingerprint();
+    final rows = await _store?.db.rawQuery(
+      "SELECT COUNT(*) AS n FROM source_journal WHERE contributor_fingerprint=? AND ack_status IS NULL AND (blocked_reason IS NULL OR blocked_reason IN ('consent_denied','consent_unknown'))",
+      [account],
+    );
+    return rows == null || rows.isEmpty ? 0 : (rows.first['n'] as num).toInt();
+  }
+
+  Future<bool> _prepareLocalUse({bool consentDenied = false}) async {
+    _localAllowed = false;
+    if (sessionStatus() != 'valid' || _hardLocalBlock != null) return false;
+    final member = await _auth.sessionKakaoId();
+    final account = await _auth.sessionFingerprint();
+    if (member == null || account == null) return false;
+    final history = _store == null
+        ? null
+        : await ConsentHistory(_store).latest(account);
+    if (const {
+      'suspended',
+      'kakao_required',
+      'kakao_reauth_required',
+      'official_account_mismatch',
+      'official_account_taken',
+      'official_account_change_required',
+      'db_owner_mismatch',
+    }.contains(history?['result'])) {
+      _hardLocalBlock = history!['result'] as String;
+      return false;
+    }
+    String? dataset;
+    if (isWriter) {
+      // This path must NEVER stamp a missing owner to make an outage pass.
+      final ownerOk = _checkDataOwnerOverride != null
+          ? await _checkDataOwnerOverride(member) == 'ok'
+          : await LocalDbService.dbOwner() == member;
+      if (!ownerOk) return false;
+      await _checkAccountChangeComplete?.call();
+      final official = await _officialAccountId?.call();
+      if (official == null || official.trim().isEmpty) return false;
+      dataset = datasetKeyForOfficialId(official);
+      final previousContext = await _store?.context();
+      if (previousContext?['contributor_fingerprint'] == account &&
+          previousContext?['dataset_key'] != null &&
+          previousContext?['dataset_key'] != dataset) {
+        return false;
+      }
+      final known = history?['status'];
+      final binding = known is Map ? known['official_account'] : null;
+      if (binding is Map &&
+          binding['dataset_key'] != null &&
+          binding['dataset_key'] != dataset) {
+        return false;
+      }
+      if (_store != null) {
+        await ConsentHistory(
+          _store,
+        ).pauseCapture(account, dataset, consentDenied: consentDenied);
+      }
+    }
+    _localAllowed = true;
+    return true;
+  }
+
+  Future<void> recordConsentAccepted() async {
+    final account = await _auth.sessionFingerprint();
+    if (_store != null && account != null) {
+      await ConsentHistory(_store).acceptedExplicitly(account);
+    }
+  }
+
+  Future<void> recordLocalRevocation() async {
+    final account = await _auth.sessionFingerprint();
+    if (_store == null || account == null) {
+      throw StateError('동의 철회 상태를 저장할 수 없습니다.');
+    }
+    await ConsentHistory(_store).event(
+      account,
+      'consent_required',
+      'local-revoke',
+      grant: _lastStatus?.consentGrantId,
+      localRevoke: true,
+    );
+    invalidate('consent_revoked');
+    await _prepareLocalUse(consentDenied: true);
+    _apply(const GateState(state: 'consent_required', canEnter: false));
+    await _deactivate('consent_revoked');
+    _notifyIfChanged();
+  }
+
   String? _passedMode;
 
   /// 초기 검사가 끝났는가. 검사 중에는 로딩 셸만 보인다(기존 신고 화면 flash 금지).
@@ -330,13 +449,13 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _retryCount = 0;
       unawaited(refreshNow(silent: true));
     }
   }
 
   /// 로컬 철회·로그아웃·401/403 수신 뒤 status 를 다시 받기 전까지 진입 불가.
   void invalidate(String reason) {
+    _localAllowed = false;
     _invalidated = true;
     _passedMode = null;
     _apply(
@@ -414,33 +533,57 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Timer? _retryTimer;
-  int _retryCount = 0;
   bool _changingOfficialAccount = false;
   static const cloudUnavailableMessage = '클라우드에 연결할 수 없습니다. 잠시 후 이용해 주세요';
 
   Future<GateState> retryCloud() {
-    _retryCount = 0;
     _retryTimer?.cancel();
     return refreshNow();
   }
 
   Future<void> _cloudUnavailable(int generation, String mode) async {
     _assertCurrent(generation, mode);
+    var localAccountOk = false;
+    try {
+      localAccountOk = await _prepareLocalUse();
+    } catch (_) {
+      _localAllowed = false;
+    }
+    final account = await _auth.sessionFingerprint();
+    if (_store != null && account != null) {
+      await ConsentHistory(
+        _store,
+      ).event(account, 'unknown', 'cloud-check-failed');
+    }
+    await CloudAvailability.shared?.ensureCooldown();
+    if (isWriter && nextCloudAttempt != null) {
+      await schedule.scheduleCloudRecovery(nextCloudAttempt!);
+    }
+    _assertCurrent(generation, mode);
     _invalidated = true;
     _notice = cloudUnavailableMessage;
-    _apply(const GateState(state: 'cloud_unavailable', canEnter: false));
+    _apply(
+      GateState(
+        state: _hardLocalBlock ?? 'cloud_unavailable',
+        canEnter: false,
+        reasons: localAccountOk ? const [] : const ['local_account_unverified'],
+      ),
+    );
     await _deactivate('cloud_unavailable');
     _checked = true;
     _notifyIfChanged();
-    if (_retryCount < 3 && !_disposed) {
-      final delay = [2, 5, 10][_retryCount++];
-      _retryTimer?.cancel();
-      _retryTimer = Timer(Duration(seconds: delay), () {
+    _retryTimer?.cancel();
+    final remaining =
+        nextCloudAttempt?.difference(DateTime.now()) ??
+        const Duration(minutes: 5);
+    _retryTimer = Timer(
+      remaining.isNegative ? const Duration(seconds: 1) : remaining,
+      () {
         if (!_disposed && generation == _authGen && mode == appMode) {
           unawaited(refreshNow(silent: true));
         }
-      });
-    }
+      },
+    );
   }
 
   /// 로그인한 후보 ID를 새 설정으로 저장하기 전 확인한다. 아직 connections를 만들지 않는다.
@@ -466,7 +609,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
       return status.officialDatasetKey != null &&
           status.officialDatasetKey != datasetKeyForOfficialId(username);
     } on CommunityAccountError catch (e) {
-      if (e.transient) await _cloudUnavailable(generation, mode);
+      if (e.serviceUnavailable) await _cloudUnavailable(generation, mode);
       rethrow;
     }
   }
@@ -578,9 +721,13 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
       if (config != 'ok' || session != 'valid') {
         final next = evaluateGate(config: config, session: session);
         _apply(next);
-        await _deactivate('gate:$next');
+        await _deactivate('gate:${next.state}');
         _checked = true;
         _notifyIfChanged();
+        return _state;
+      }
+      if (await CloudAvailability.shared?.coolingDown() ?? false) {
+        await _cloudUnavailable(authGen, checkedMode);
         return _state;
       }
       final token = await _auth.getAccessToken();
@@ -596,7 +743,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
           session: sessionStatus(),
         );
         _apply(next);
-        await _deactivate('gate:$next');
+        await _deactivate('gate:${next.state}');
         _checked = true;
         _notifyIfChanged();
         return _state;
@@ -610,11 +757,38 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         );
       } on CommunityAccountError catch (e) {
         _assertCurrent(authGen, checkedMode);
-        if (e.transient) {
+        if (e.serviceUnavailable) {
+          if (e.code != 'cloud_cooldown' &&
+              CloudAvailability.shared != null &&
+              !await CloudAvailability.shared!.coolingDown()) {
+            await CloudAvailability.shared!.failed(
+              retryAfterSeconds: e.retryAfterSeconds,
+            );
+          }
           await _cloudUnavailable(authGen, checkedMode);
         } else {
           _notice = e.message;
-          invalidate('status:${e.code}');
+          final denied = e.isAuth
+              ? 'kakao_reauth_required'
+              : e.code == 'contributor_suspended'
+              ? 'suspended'
+              : e.code;
+          if (const {
+            'kakao_required',
+            'kakao_reauth_required',
+            'suspended',
+            'official_account_mismatch',
+            'consent_required',
+          }.contains(denied)) {
+            _localAllowed = false;
+            if (denied == 'consent_required') {
+              await _prepareLocalUse(consentDenied: true);
+            }
+            _apply(GateState(state: denied, canEnter: false));
+            await _deactivate('gate:$denied');
+          } else {
+            invalidate('status:${e.code}');
+          }
           _checked = true;
           _notifyIfChanged();
         }
@@ -636,7 +810,6 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         return _state;
       }
       _retryTimer?.cancel();
-      _retryCount = 0;
       _lastStatus = status;
       _verifiedAt = DateTime.now();
       _invalidated = false;
@@ -647,7 +820,35 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         status: status.toGateInput(),
         ageSeconds: 0,
       );
+      if (next.canEnter) _hardLocalBlock = null;
+      final account = await _auth.sessionFingerprint();
+      if (_store != null && account != null) {
+        await ConsentHistory(_store).event(
+          account,
+          next.state,
+          'server-status',
+          status: status.raw,
+          grant: status.consentGrantId,
+        );
+        if (next.canEnter &&
+            await ConsentHistory(
+              _store,
+            ).uploadBlocked(account, status.consentGrantId)) {
+          await _prepareLocalUse(consentDenied: true);
+          _apply(const GateState(state: 'consent_required', canEnter: false));
+          await _deactivate('consent_revoked');
+          _checked = true;
+          _notifyIfChanged();
+          return _state;
+        }
+      }
       if (!next.canEnter) {
+        _localAllowed = false;
+        if (next.state == 'consent_required') {
+          try {
+            await _prepareLocalUse(consentDenied: true);
+          } catch (_) {}
+        }
         _apply(next);
         await _deactivate('gate:${next.state}');
         _checked = true;
@@ -744,6 +945,12 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         await _deactivate(appMode == 'demo' ? 'demo_mode' : 'client_mode');
       }
       _assertCurrent(authGen, checkedMode);
+      if (await CloudAvailability.shared?.coolingDown() ?? false) {
+        await _cloudUnavailable(authGen, checkedMode);
+        return _state;
+      }
+      _localAllowed = false;
+      if (_store != null) await ConsentHistory(_store).clearCapture();
       _apply(next);
       _passedMode = checkedMode;
       _checked = true;
@@ -812,6 +1019,9 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _gateCacheTail = Future<void>.value();
+
+  /// 네이티브 서비스는 시작 즉시 캐시를 읽으므로 기록 완료 뒤 시작한다.
+  Future<void> persistForBackground() => _gateCacheTail;
   Future<void> _writeGateCache(
     GateState next,
     int generation,
@@ -843,7 +1053,40 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     final mode = appMode;
     final state = _state;
     if (!reason.startsWith('writer:')) _writerConflict = null;
+    final deny = reason.startsWith('gate:') ? reason.substring(5) : reason;
+    if (const {
+      'suspended',
+      'kakao_required',
+      'kakao_reauth_required',
+      'official_account_mismatch',
+      'official_account_taken',
+      'official_account_change_required',
+      'db_owner_mismatch',
+    }.contains(deny)) {
+      _hardLocalBlock = deny;
+    }
     try {
+      final account = await _auth.sessionFingerprint();
+      if (_store != null &&
+          account != null &&
+          const {
+            'suspended',
+            'kakao_required',
+            'kakao_reauth_required',
+            'official_account_mismatch',
+            'official_account_taken',
+            'official_account_change_required',
+            'db_owner_mismatch',
+            'logout',
+          }.contains(deny)) {
+        await ConsentHistory(_store).event(
+          account,
+          deny == 'logout' ? 'kakao_required' : deny,
+          'local-gate',
+        );
+        await ConsentHistory(_store).clearCapture();
+        _localAllowed = false;
+      }
       await _store?.transaction((tx) async {
         if (_disposed ||
             generation != _authGen ||
@@ -880,6 +1123,13 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
           'source_mode': isStandalone ? 'standalone' : 'client',
         }, executor: tx);
       });
+      final active = await store.activeContext();
+      if (active != null &&
+          await ConsentHistory(
+            store,
+          ).needsCatchup(status.fingerprint!, status.consentGrantId!)) {
+        await ConsentCatchup(store).schedule(active);
+      }
     } on _GateScopeChanged {
       rethrow;
     } catch (_) {
@@ -1155,6 +1405,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     _disposed = true;
     stopPolling();
     _auth.state.removeListener(_onAuthChanged);
+    CloudAvailability.shared?.removeListener(_cloudChanged);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

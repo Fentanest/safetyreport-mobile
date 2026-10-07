@@ -1,3 +1,4 @@
+import '../cloud_availability.dart';
 // community-ingest REST 클라이언트.
 //
 // POST {url}/functions/v1/community-ingest — apikey + Bearer.
@@ -16,7 +17,7 @@ class CommunityIngestClient {
     required this.publishableKey,
     http.Client? httpClient,
     this.clientVersion = '',
-  })  : _http = httpClient ?? http.Client(),
+  })  : _http = CloudHttpClient(httpClient ?? http.Client()),
         _ownsClient = httpClient == null;
 
   final String supabaseUrl;

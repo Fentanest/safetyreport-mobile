@@ -154,10 +154,14 @@ void main() {
     expect(find.textContaining('운영자에게 문의'), findsOneWidget);
     await capture('04-official-account-taken');
     server.registerThrows = null;
+    await gate.refreshNow();
+    await tester.pumpAndSettle();
     server.statusFailures = 20;
     await gate.refreshNow();
     await tester.pumpAndSettle();
-    expect(find.byType(CloudUnavailableScreen), findsOneWidget);
+    expect(find.byType(CloudUnavailableScreen), findsNothing);
+    expect(find.byType(MainNavigationScreen), findsOneWidget);
+    expect(gate.canEnter, isFalse);
     final calls = server.statusCalls;
     await capture('05-cloud-offline');
     // Live binding uses real timers: explicitly wait through 2/5/10 second retries.
@@ -170,7 +174,7 @@ void main() {
     status['official_account'] = {
       'dataset_key': datasetKeyForOfficialId('account-a'),
     };
-    await tester.tap(find.text('재시도'));
+    await gate.retryCloud();
     await tester.pumpAndSettle();
     expect(gate.canEnter, isTrue);
     expect(find.byType(MainNavigationScreen), findsOneWidget);

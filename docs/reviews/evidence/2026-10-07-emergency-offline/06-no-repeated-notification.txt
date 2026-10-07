@@ -1,0 +1,49 @@
+  User 0 active services:
+  * ServiceRecord{ce304d1 u0 com.fentanest.mysafetyreport.offlineqa/com.baseflow.geolocator.GeolocatorLocationService c:com.fentanest.mysafetyreport.offlineqa}
+    intent={cmp=com.fentanest.mysafetyreport.offlineqa/com.baseflow.geolocator.GeolocatorLocationService}
+    packageName=com.fentanest.mysafetyreport.offlineqa
+    processName=com.fentanest.mysafetyreport.offlineqa
+    targetSdkVersion=36
+    baseDir=/data/app/~~AcKQrK9kvb7panDVBueGpw==/com.fentanest.mysafetyreport.offlineqa-h7HE4W4I-Ee8cX9_KCrBjg==/base.apk
+    dataDir=/data/user/0/com.fentanest.mysafetyreport.offlineqa
+    app=ProcessRecord{816daf7 8914:com.fentanest.mysafetyreport.offlineqa/u0a211}
+    useNewWiuLogic_forCapabilities()=true
+    useNewWiuLogic_forStart()=true
+    useNewBfslLogic()=true
+    mAllowWiu_noBinding=DENIED
+    mAllowWiu_inBindService=PROC_STATE_TOP
+    mAllowWiu_byBindings=DENIED
+    getFgsAllowWiu_legacy=PROC_STATE_TOP
+    getFgsAllowWiu_new=DENIED
+    getFgsAllowWiu_forStart=DENIED
+    getFgsAllowWiu_forCapabilities=DENIED
+    allowUiJobScheduling=false
+    recentCallingPackage=com.fentanest.mysafetyreport.offlineqa
+    recentCallingUid=10211
+    mAllowStart_noBinding=DENIED
+    mAllowStart_inBindService=PROC_STATE_TOP
+    mAllowStart_byBindings=DENIED
+    getFgsAllowStart_legacy=PROC_STATE_TOP
+    getFgsAllowStart_new=DENIED
+    getFgsAllowStart=DENIED
+    startForegroundCount=0
+    infoAllowStartForeground=[callingPackage: com.fentanest.mysafetyreport.offlineqa; callingUid: 10211; uidState: TOP ; uidBFSL: [BFSL]; intent: Intent { cmp=com.fentanest.mysafetyreport.offlineqa/com.baseflow.geolocator.GeolocatorLocationService }; code:PROC_STATE_TOP; tempAllowListReason:<null>; targetSdkVersion:36; callerTargetSdkVersion:36; startForegroundCount:0; bindFromPackage:null: isBindService:true]
+    createTime=-1m20s117ms startingBgTimeout=--
+    lastActivity=-1m20s116ms restartTime=-1m20s116ms createdFromFg=true
+    Bindings:
+    * IntentBindRecord{889bd47 CREATE}:
+      intent={cmp=com.fentanest.mysafetyreport.offlineqa/com.baseflow.geolocator.GeolocatorLocationService}
+      binder=android.os.BinderProxy@63b6974
+      requested=true received=true hasBound=true doRebind=false
+      * Client AppBindRecord{5256e9d ProcessRecord{816daf7 8914:com.fentanest.mysafetyreport.offlineqa/u0a211}}
+        Per-process Connections:
+          ConnectionRecord{7d67f8 u0 CR com.fentanest.mysafetyreport.offlineqa/com.baseflow.geolocator.GeolocatorLocationService:@e9a535b flags=0x1}
+    All Connections:
+      ConnectionRecord{7d67f8 u0 CR com.fentanest.mysafetyreport.offlineqa/com.baseflow.geolocator.GeolocatorLocationService:@e9a535b flags=0x1}
+
+  Connection bindings to services:
+  * ConnectionRecord{7d67f8 u0 CR com.fentanest.mysafetyreport.offlineqa/com.baseflow.geolocator.GeolocatorLocationService:@e9a535b flags=0x1}
+    binding=AppBindRecord{5256e9d com.fentanest.mysafetyreport.offlineqa/com.baseflow.geolocator.GeolocatorLocationService:com.fentanest.mysafetyreport.offlineqa}
+    conn=android.os.BinderProxy@e9a535b flags=0x1
+
+ACTIVE_TEST_NOTIFICATIONS

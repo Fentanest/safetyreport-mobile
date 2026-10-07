@@ -402,8 +402,8 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     return 'missing';
   }
 
-  String sessionStatus() {
-    switch (_auth.state.value.phase) {
+  String sessionStatus({CommunityAccountPhase? savedPhase}) {
+    switch (savedPhase ?? _auth.state.value.phase) {
       case CommunityAccountPhase.disconnected:
       case CommunityAccountPhase.unconfigured:
         return 'none';
@@ -717,7 +717,17 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     }
     try {
       final config = configStatus();
-      final session = sessionStatus();
+      final phase = _auth.state.value.phase;
+      final loginInProgress =
+          phase == CommunityAccountPhase.awaitingBrowser ||
+          phase == CommunityAccountPhase.exchanging ||
+          phase == CommunityAccountPhase.confirmRequired;
+      // 최초 로그인 후보는 아직 저장 세션이 아니다. 계정 변경 중이면 기존
+      // 저장 세션으로 평소와 똑같이 신원·동의·정지 여부를 확인한다.
+      final session = loginInProgress
+          ? sessionStatus(savedPhase: await _auth.savedSessionPhase())
+          : sessionStatus();
+      _assertCurrent(authGen, checkedMode);
       if (config != 'ok' || session != 'valid') {
         final next = evaluateGate(config: config, session: session);
         _apply(next);

@@ -250,6 +250,17 @@ class CommunityAuthService {
     );
   }
 
+  /// 로그인 진행 화면과 분리된, 저장된 계정의 상태. 네트워크 요청·상태 변경 없음.
+  /// 후보 토큰은 사용자가 확인하기 전에는 유효한 저장 세션으로 취급하지 않는다.
+  Future<CommunityAccountPhase> savedSessionPhase() async {
+    if (!config.isConfigured) return CommunityAccountPhase.unconfigured;
+    final session = await _readSession();
+    if (session == null) return CommunityAccountPhase.disconnected;
+    return session.reauthRequired
+        ? CommunityAccountPhase.reauthRequired
+        : CommunityAccountPhase.connected;
+  }
+
   /// 저장된 세션 기준 기본 상태(연결됨/다시 로그인 필요/연결 안 됨/설정되지 않음).
   Future<void> _emitBase({String? notice}) async {
     if (!config.isConfigured) {

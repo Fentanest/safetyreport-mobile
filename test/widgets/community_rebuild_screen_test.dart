@@ -11,6 +11,8 @@ import '../support/ui_harness.dart' show loadGoldenFonts;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../community/fake_account.dart';
 import 'package:safetyreport/community/community_store.dart';
 import 'package:safetyreport/community/rebuild/community_rebuild.dart';
 import 'package:safetyreport/screens/community_rebuild_screen.dart';
@@ -93,6 +95,33 @@ class _FakeServerClient extends CommunityServerRebuildClient {
     String apiKey,
     String? token,
   ) async => CommunityGateLinkResult.success(data);
+}
+
+/// 시작을 받아들이면 서버 상태가 running 으로 바뀌는 서버(2026-10-11: 시작 뒤 바로 메인으로).
+class _StartingServerClient extends CommunityServerRebuildClient {
+  int starts = 0;
+  @override
+  Future<CommunityGateLinkResult> fetch(
+    String baseUrl,
+    String apiKey,
+    String? token,
+  ) async => CommunityGateLinkResult.success({
+    'required': true,
+    'state': 'required',
+  });
+
+  @override
+  Future<CommunityGateLinkResult> start(
+    String baseUrl,
+    String apiKey,
+    String? token,
+  ) async {
+    starts++;
+    return CommunityGateLinkResult.success({
+      'required': true,
+      'state': 'running',
+    });
+  }
 }
 
 class _PermissionServerClient extends CommunityServerRebuildClient {
@@ -282,7 +311,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.textContaining('초기화 크롤링을 한 번 진행해야 합니다'), findsOneWidget);
+    expect(find.textContaining('바뀐 기준을 반영하기 위해'), findsOneWidget);
     final confirm = find.widgetWithText(FilledButton, '확인 — 초기화 크롤링 시작');
     expect(confirm, findsOneWidget);
     await tester.ensureVisible(confirm);
@@ -337,6 +366,7 @@ void main() {
           home: CommunityRebuildScreen(
             isClient: true,
             serverClient: client,
+            auth: StubAuthService(),
             onDone: () async => done++,
           ),
         ),
@@ -345,7 +375,7 @@ void main() {
       expect(find.text('서버 권한 확인'), findsOneWidget);
       expect(find.textContaining('PC 앱 설정 > 4. 커뮤니티 계정'), findsOneWidget);
       expect(find.text('확인 — 초기화 크롤링 시작'), findsNothing);
-      expect(find.textContaining('초기화 크롤링을 한 번 진행해야 합니다'), findsNothing);
+      expect(find.textContaining('바뀐 기준을 반영하기 위해'), findsNothing);
       expect(find.textContaining('HTTP 403'), findsNothing);
       expect(done, 0);
       client.allowed = true;
@@ -410,6 +440,45 @@ void main() {
       const MaterialApp(home: CommunityRebuildScreen(isClient: true)),
     );
     await tester.pump();
-    expect(find.textContaining('연결된 서버에서 초기화 크롤링을 진행합니다'), findsOneWidget);
+    expect(find.textContaining('연결된 서버가 저장된 신고를 안전신문고에서 한 번 다시 불러옵니다'), findsOneWidget);
   });
+
+  testWidgets('both modes show the update notice with the apology line', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(home: CommunityRebuildScreen(isClient: true)),
+    );
+    await tester.pump();
+    expect(
+      tester.widget<Text>(find.byKey(const Key('rebuildApologyText'))).data,
+      '서버 사양 개선에 따른 추가적인 불가피한 조치입니다. 불편을 드려 죄송합니다.',
+    );
+    expect(find.text('신고 내역 다시 불러오기'), findsOneWidget);
+  });
+
+  testWidgets(
+    'client mode goes to main as soon as the server accepts the start',
+    (tester) async {
+      var done = 0;
+      final client = _StartingServerClient();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CommunityRebuildScreen(
+            isClient: true,
+            serverClient: client,
+            auth: StubAuthService(),
+            onDone: () async => done++,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(done, 0);
+      await tester.ensureVisible(find.text('확인 — 초기화 크롤링 시작'));
+      await tester.tap(find.text('확인 — 초기화 크롤링 시작'));
+      await tester.pumpAndSettle();
+      expect(client.starts, 1);
+      expect(done, 1);
+    },
+  );
 }

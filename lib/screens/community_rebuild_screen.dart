@@ -235,28 +235,36 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
       );
     }
     return Scaffold(
-      appBar: AppBar(title: const Text('초기화 크롤링')),
+      appBar: AppBar(title: const Text('신고 내역 다시 불러오기')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (widget.isClient)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text(
-                    '연결된 서버에서 초기화 크롤링을 진행합니다. 이 기기에서는 전수 수집을 하지 않습니다.',
-                    style: TextStyle(fontSize: 13, height: 1.5),
-                  ),
-                ),
-              ),
-            const Card(
+            Card(
               child: Padding(
-                padding: EdgeInsets.all(16),
-                child: Text(
-                  communityRebuildGuideText,
-                  style: TextStyle(fontSize: 13, height: 1.5),
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.isClient
+                          ? communityRebuildClientGuideText
+                          : communityRebuildGuideText,
+                      key: const Key('rebuildGuideText'),
+                      style: const TextStyle(fontSize: 13, height: 1.5),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      communityRebuildApologyText,
+                      key: Key('rebuildApologyText'),
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.5,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -475,7 +483,13 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
                   if (res.isOk) {
                     setState(() => _serverJob = res.data);
                     final s = res.data?['state']?.toString();
-                    if (s == 'completed' || s == 'completed_with_gaps') {
+                    // 서버가 백그라운드로 진행한다 — 시작(또는 이어서 진행)이 받아들여지면 앱은 바로 메인으로 간다(2026-10-11 결정).
+                    if (s == 'completed' ||
+                        s == 'completed_with_gaps' ||
+                        s == 'preparing_backup' ||
+                        s == 'running' ||
+                        s == 'validating' ||
+                        s == 'committing') {
                       await widget.onDone?.call();
                     }
                   } else {

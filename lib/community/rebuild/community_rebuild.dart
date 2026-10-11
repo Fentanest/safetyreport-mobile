@@ -14,7 +14,8 @@ import '../upload_hooks.dart';
 import '../capture/rebuild_helpers.dart';
 
 /// 1회 초기화 크롤링 범위 키 (`contracts/community-ingest/rebuild.md`).
-const String communityRebuildRequiredVersion = 'source-rebuild-2026-09-26.1';
+// 2026-10-11: 신고 분류 5분류·SSNPC 코드·차량번호(VHRNO)를 기존 신고에도 채우려고 한 번 더 다시 불러온다(앱 DB 17, 서버 스키마 6).
+const String communityRebuildRequiredVersion = 'source-rebuild-2026-10-11.1';
 
 /// 상태기계 상태 (`rebuild.md`).
 abstract class RebuildStates {
@@ -34,11 +35,21 @@ abstract class RebuildStates {
   static const inactiveTerminal = {completed, completedWithGaps, 'abandoned'};
 }
 
-/// 초기화 안내 기준 문구 (`rebuild.md`).
+/// 초기화 안내 기준 문구 (`rebuild.md`, 2026-10-11). Standalone 은 이 기기가, Client 는 연결된 서버가 다시 불러온다.
 const String communityRebuildGuideText =
-    '이번 업데이트에서는 신고 데이터 저장 구조가 변경되어 초기화 크롤링을 한 번 진행해야 합니다. '
-    '확인을 누르면 안전신문고에서 신고 내역을 다시 수집하고 새 저장 구조를 구성합니다. '
-    '신고내용 공유에는 이번에 수집한 사용자 수정 전 값이 사용됩니다.';
+    '이번 업데이트로 신고 분류가 안전신문고 공식 분류 기준으로 바뀌었습니다. 교통위반·주정차위반에 더해 기타 신고가 '
+    '안전신고·생활불편·기타로 나뉘고, 차량번호도 안전신문고에 등록된 값을 먼저 씁니다. '
+    '바뀐 기준을 반영하기 위해 저장된 신고를 안전신문고에서 한 번 다시 불러옵니다. '
+    '진행 상황은 이 화면에서 볼 수 있고, 앱을 닫았다가 다시 열면 이어서 진행합니다.';
+
+const String communityRebuildClientGuideText =
+    '이번 업데이트로 신고 분류가 안전신문고 공식 분류 기준으로 바뀌었습니다. 교통위반·주정차위반에 더해 기타 신고가 '
+    '안전신고·생활불편·기타로 나뉩니다. 바뀐 기준을 반영하기 위해 연결된 서버가 저장된 신고를 안전신문고에서 한 번 다시 불러옵니다. '
+    '서버에서 진행되므로 시작한 뒤에는 앱을 계속 쓰거나 닫아도 됩니다.';
+
+/// 사용자 지정 문구(2026-10-11) — 세 화면(Standalone·Client·PC)에 같은 문장.
+const String communityRebuildApologyText =
+    '서버 사양 개선에 따른 추가적인 불가피한 조치입니다. 불편을 드려 죄송합니다.';
 
 const String communityRebuildPreservedText =
     '보존 항목: 관리자·공식 계정 설정, 커뮤니티 연결·동의, 앱 설정, 수정한 값·메모·감시목록·중복 판단, '

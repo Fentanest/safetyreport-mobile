@@ -34,7 +34,7 @@ class _ErrorServerClient extends CommunityServerRebuildClient {
   );
 }
 
-const _rebuildTitle = '초기화 크롤링';
+const _rebuildTitle = '신고 내역 다시 불러오기';
 
 void main() {
   testWidgets(
@@ -73,7 +73,7 @@ void main() {
       expect(find.text('메인 화면'), findsOneWidget);
       expect(find.text(_rebuildTitle), findsNothing);
       expect(
-        find.textContaining('초기화 크롤링을 한 번 진행해야 합니다'),
+        find.textContaining('바뀐 기준을 반영하기 위해'),
         findsNothing,
       );
     },
@@ -98,7 +98,7 @@ void main() {
     expect(done, 0);
     expect(find.text(_rebuildTitle), findsOneWidget);
     expect(
-      find.textContaining('연결된 서버에서 초기화 크롤링을 진행합니다'),
+      find.textContaining('연결된 서버가 저장된 신고를 안전신문고에서 한 번 다시 불러옵니다'),
       findsOneWidget,
     );
   });

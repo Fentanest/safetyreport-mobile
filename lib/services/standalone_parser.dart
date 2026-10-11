@@ -1,4 +1,5 @@
 import '../models/report.dart';
+import 'report_category.dart' as report_category;
 
 // ── 상수 ─────────────────────────────────────────────────────────────────────
 
@@ -46,18 +47,7 @@ const _trafficEntry = '자동차·교통위반';
   return (lat, lng);
 }
 
-/// SSNPC_CD/SSNPC_TYPE 정규화: 공백 모두 제거, 대분류는 대문자, 소분류 숫자는 두 자리, 비면 null.
-/// 서버 report_category.normalize_code 와 같은 규칙 — 그 모듈은 건드리지 않고 이 파서 안에서만 맞춘다.
-(String?, String?) _normalizeSsnpc(dynamic cd, dynamic type) {
-  final c = (cd?.toString() ?? '').replaceAll(RegExp(r'\s+'), '').toUpperCase();
-  final t = (type?.toString() ?? '').replaceAll(RegExp(r'\s+'), '');
-  final normalizedType = t.isEmpty
-      ? null
-      : (RegExp(r'^\d+$').hasMatch(t) ? t.padLeft(2, '0') : t);
-  return (c.isEmpty ? null : c, normalizedType);
-}
-
-// ── 카테고리 분류 (서버 database.py category_from_entry_value 와 동일) ──────────
+// ── 카테고리 분류 (contracts/report-categories.json, lib/services/report_category.dart) ──────────
 
 /// 목록+상세 API 응답에서 entryValue를 추출한다.
 /// sync_engine 에서 카테고리 분류용으로 사용.
@@ -72,11 +62,9 @@ String entryValueFromDetail(
   return m?.group(1)?.trim() ?? (detailData['C_APP_GUBUN_NM'] as String? ?? '');
 }
 
-String categoryFromEntryValue(String entryValue) {
-  if (entryValue.contains('자동차·교통위반')) return 'traffic';
-  if (entryValue.contains('불법주정차신고')) return 'parking';
-  return 'other';
-}
+/// 상세 응답의 SSNPC 코드가 있으면 코드로, 없으면 접수 메뉴 문구로 5분류(서버 report_category.category_of 와 같음).
+String categoryFromDetail(Report report, String entryValue) =>
+    report_category.categoryOf(report.ssnpcCd, report.ssnpcType, entryValue);
 
 // 과태료 판정용 주정차 진입값 목록 (카테고리와 무관하게 과태료 부여)
 const _parkingFineEntries = ['불법주정차신고', '버스전용차로 위반', '쓰레기, 폐기물'];
@@ -519,7 +507,7 @@ Report parseJsonToReport(
   );
 
   // 분류용 원시 코드. 정규화(대문자·두 자리·빈 값은 null)만 하고 분류 자체는 하지 않는다.
-  final (ssnpcCd, ssnpcType) = _normalizeSsnpc(
+  final ssnpc = report_category.normalizeCode(
     detailData['SSNPC_CD'],
     detailData['SSNPC_TYPE'],
   );
@@ -538,8 +526,8 @@ Report parseJsonToReport(
     fineInfo: penaltyAmount,
     penaltyPoints: penaltyPoints,
     carNumber: carNumber,
-    ssnpcCd: ssnpcCd,
-    ssnpcType: ssnpcType,
+    ssnpcCd: ssnpc.ssnpcCd,
+    ssnpcType: ssnpc.ssnpcType,
     law: violationLaw,
     location: violationLocation,
     latitude: latitude,

@@ -1108,7 +1108,7 @@ class SyncEngine {
     }
     var report = parseJsonToReport(item, detail);
     final ev = entryValueFromDetail(item, detail);
-    final cat = categoryFromEntryValue(ev);
+    final cat = categoryFromDetail(report, ev);
     // 본문 원문(서버와 같은 정규화) — 중복 해시·변경 판정이 서버와 같아진다
     final raw = normalizeRawPayloadText(rawContentOf(detail));
 
@@ -1162,6 +1162,8 @@ class SyncEngine {
           rawContent: raw,
           ratingLookup: augmented.lookup,
           photoCapture: photo,
+          ssnpcCd: report.ssnpcCd,
+          ssnpcType: report.ssnpcType,
         ),
       );
     } catch (e) {

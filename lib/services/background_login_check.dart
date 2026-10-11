@@ -75,9 +75,12 @@ Future<bool> runCommunityUploadTask(
             refreshGateHeadless(store, prefs: prefs));
     if (gate != HeadlessGate.ok) {
       if (gate == HeadlessGate.transient) {
+        // 과거(지난) nextAttemptAt 을 받아도 scheduleCloudRecovery 가 최소 지연을 둔다(결함 2:
+        // probe 진행 중 로컬 재실행 루프 방지). PC·모바일 공용 원칙 cloud-retry-brief 참조.
         await scheduleCloudRecovery(
           CloudAvailability.shared?.nextAttemptAt ??
-              DateTime.now().add(const Duration(minutes: 5)),
+              (now ?? DateTime.now()).add(const Duration(minutes: 5)),
+          now: () => now ?? DateTime.now(),
         );
       }
       return true;

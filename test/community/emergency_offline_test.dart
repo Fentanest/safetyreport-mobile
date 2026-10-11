@@ -16,6 +16,7 @@ import 'package:safetyreport/community/gate/community_gate.dart';
 import 'package:safetyreport/community/gate/community_account_client.dart';
 import 'package:safetyreport/services/community_auth_service.dart';
 import 'fake_account.dart';
+import 'fixed_random.dart';
 import 'upload_control_test.dart' as u;
 
 void main() {
@@ -55,6 +56,7 @@ void main() {
           h.store,
           u.url,
           now: () => time,
+          random: const FixedRandom(),
         );
         final client = CloudHttpClient(raw);
         await client.get(Uri.parse('${u.url}/auth/v1/user'));
@@ -65,6 +67,7 @@ void main() {
           h.store,
           u.url,
           now: () => time,
+          random: const FixedRandom(),
         );
         await Future.wait(
           List.generate(
@@ -110,6 +113,7 @@ void main() {
         h.store,
         u.url,
         now: () => clock,
+        random: const FixedRandom(),
       );
       final client = CloudHttpClient(
         MockClient((r) async {
@@ -134,6 +138,7 @@ void main() {
         h.store,
         u.url,
         now: () => clock,
+        random: const FixedRandom(),
       );
       await client.get(Uri.parse('${u.url}/auth/v1/user'));
       await client.get(
@@ -221,6 +226,7 @@ void main() {
         h.store,
         testAuthConfig().supabaseUrl,
         now: () => time,
+        random: const FixedRandom(),
       );
       expect(await auth.startLogin(), CommunityStartOutcome.launched);
       await CloudAvailability.shared!.failed();
@@ -239,6 +245,7 @@ void main() {
         h.store,
         u.url,
         now: () => clock,
+        random: const FixedRandom(),
       );
       final client = CloudHttpClient(
         MockClient((r) async => throw TimeoutException('fixture')),

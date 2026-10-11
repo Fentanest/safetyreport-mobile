@@ -6,7 +6,9 @@
 // shouldRun: runs[dueKey] 가 succeeded 면 false, running+lease 유효면 false, 그 밖 true.
 // 이전 날짜 누락은 따로 실행하지 않는다(최신 키 하나만 — 미ACK 전체를 보내므로).
 import 'dart:convert';
+import 'dart:math';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:workmanager/workmanager.dart';
@@ -71,15 +73,29 @@ bool shouldRun(DateTime nowUtc, Map<String, Map<String, Object?>>? runs) {
 const communityRecoveryTaskName = 'community-cloud-recovery';
 const communityRecoveryUniqueName = 'community-cloud-recovery-v1';
 
+/// 과거(또는 지금) 마감을 받았을 때 대신 쓰는 최소 지연 — 결함 2: probe 가 아직 진행 중인 채로 지난
+/// `nextAttemptAt` 을 그대로 넘기면 delay=0 REPLACE 로 즉시 재등록해 같은 자리에서 로컬 재실행
+/// 루프가 생긴다. 남은 probe lease(최대 45초)보다 여유 있게 30초를 둔다.
+const Duration cloudRecoveryMinDelay = Duration(seconds: 30);
+
+/// [scheduleCloudRecovery] 의 지연 계산을 바로 시험할 수 있게 뺀 순수 함수.
+Duration cloudRecoveryDelay(DateTime deadline, DateTime now) {
+  final delay = deadline.difference(now);
+  return delay > Duration.zero ? delay : cloudRecoveryMinDelay;
+}
+
 /// Best effort: Android may defer this for Doze/battery constraints. The durable
 /// deadline is authoritative; an early OS invocation still cannot send HTTP.
-Future<void> scheduleCloudRecovery(DateTime deadline) async {
+Future<void> scheduleCloudRecovery(
+  DateTime deadline, {
+  DateTime Function()? now,
+}) async {
   try {
-    final delay = deadline.difference(DateTime.now());
+    final delay = cloudRecoveryDelay(deadline, (now ?? DateTime.now)());
     await Workmanager().registerOneOffTask(
       communityRecoveryUniqueName,
       communityRecoveryTaskName,
-      initialDelay: delay.isNegative ? Duration.zero : delay,
+      initialDelay: delay,
       constraints: Constraints(networkType: NetworkType.connected),
       existingWorkPolicy: ExistingWorkPolicy.replace,
     );
@@ -101,15 +117,51 @@ Future<void> registerBackgroundJobs() async {
   await registerMidnightTask();
 }
 
+/// 기기(설치)별 자정 분산 오프셋 영속 키. PC `community_schedule.py` 의 `CronTrigger(00:00 Asia/Seoul)`
+/// 은 모든 PC 가 같은 순간 기동한다 — 모바일도 다음 KST 자정 one-off 가 정확히 00:00:00 에 몰리던 것을
+/// 설치마다 한 번 뽑아 영속 저장한 오프셋(0~1800초)만큼 늦춰 분산한다(공용 원칙).
+@visibleForTesting
+const String communityMidnightOffsetPrefsKey =
+    'community_midnight_offset_seconds_v1';
+
+/// 오프셋 상한(초) — 30분.
+const int communityMidnightOffsetMaxSeconds = 1800;
+
+/// 이 기기의 자정 분산 오프셋(초). 처음 한 번만 무작위로 뽑고 이후에는 영속 저장된 값을 그대로 쓴다
+/// (앱·백그라운드 isolate 가 SharedPreferences 로 같은 값을 본다).
+@visibleForTesting
+Future<int> midnightOffsetSeconds({Random? random}) async {
+  final prefs = await SharedPreferences.getInstance();
+  final existing = prefs.getInt(communityMidnightOffsetPrefsKey);
+  if (existing != null) return existing;
+  final offset = (random ?? Random()).nextInt(
+    communityMidnightOffsetMaxSeconds + 1,
+  );
+  await prefs.setInt(communityMidnightOffsetPrefsKey, offset);
+  return offset;
+}
+
+/// [registerMidnightTask] 의 지연 계산을 바로 시험할 수 있게 뺀 순수 함수 — 다음 KST 자정까지
+/// 남은 시간 + 이 기기의 분산 오프셋(0~1800초). 음수가 되지 않게 0 으로 바닥을 둔다.
+Duration midnightTaskDelay(DateTime nowUtc, int offsetSeconds) {
+  final delay =
+      nextDueAt(nowUtc).difference(nowUtc) + Duration(seconds: offsetSeconds);
+  return delay.isNegative ? Duration.zero : delay;
+}
+
 /// 다음 KST 자정 one-off 를 (다시) 예약한다. 자정 작업이 끝날 때마다 백그라운드에서도 불러 다음 날이 끊기지 않게 한다.
-Future<void> registerMidnightTask({DateTime? now}) async {
+/// [offsetSecondsOverride] 는 시험 전용(기기별 영속 오프셋을 거치지 않고 바로 지정).
+Future<void> registerMidnightTask({
+  DateTime? now,
+  @visibleForTesting int? offsetSecondsOverride,
+}) async {
   try {
     final t = (now ?? DateTime.now()).toUtc();
-    final delay = nextDueAt(t).difference(t);
+    final offset = offsetSecondsOverride ?? await midnightOffsetSeconds();
     await Workmanager().registerOneOffTask(
       communityMidnightUniqueName,
       communityMidnightTaskName,
-      initialDelay: delay.isNegative ? Duration.zero : delay,
+      initialDelay: midnightTaskDelay(t, offset),
       constraints: Constraints(networkType: NetworkType.connected),
       existingWorkPolicy: ExistingWorkPolicy.replace,
     );

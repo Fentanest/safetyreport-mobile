@@ -97,10 +97,24 @@ needs_consent·blocked_gate·failed·more_pending(모바일은 서버 API 소비
   끝날 때마다 다음 깨울 시각(`nextDueAt`)에 타이머 하나. needs_auth/needs_consent/blocked_gate 는 시각으로 깨우지 않고,
   busy_other_run 5초, failed 60초, more_pending 은 요청 간격 뒤 곧바로. 네트워크 복구 감지 플러그인은 쓰지 않는다(cooldown 탐색·복귀가 맡음).
 
+## 서비스 쿨다운(CloudAvailability) — PC·모바일 공용 원칙 (2026-10-11, cloud-retry-brief)
+
+Supabase 접속 불가 상태에서 재시도가 몰리는 문제의 공용 수정. 상세 코드·경합 재현은 `docs/architecture/community-gate.md`
+"마감 직후 경합(결함 1·2)" 절. PC `services/community_cloud.py` `run()`과 **같은 식**이어야 한다(두 레포 docs/architecture/community-upload.md에
+같은 문장):
+- 지터: 기준 쿨다운에 ±20% 균등 지터.
+- 점증: 연속 실패 n(성공하면 0으로 초기화)에 `300 · 2^(n-1)`초, 상한 1800초(30분).
+- 서버 Retry-After(초·HTTP-date·본문 `retryAfterSeconds`/`retry_after_seconds`)가 지터 적용 후 점증값보다 길면 그 값을 따른다(절대 줄이지 않는다). 기존에 저장된 더 긴 deadline도 줄이지 않는다.
+- 자정 분산: 설치(기기)별로 한 번 뽑아 영속 저장한 오프셋 0~1800초만큼 다음 자정 one-off 를 늦춰, 모든 기기(PC는 모든 PC)가
+  00:00:00에 한꺼번에 기동하지 않게 한다. 기존 misfire/coalesce(또는 Android `existingWorkPolicy.replace`) 의미는 그대로 유지한다.
+- 로컬에서 합성한 `cloud_cooldown` 503(probe lease 충돌, 실제 서버 응답 아님)은 쿨다운을 새로 쓰거나 늘리지 않는다 — 서버 장애의
+  새 신호가 아니기 때문이다.
+
 ## 스케줄·백그라운드
 
 - Workmanager unique periodic `community-upload-periodic`(1시간·network) +
-  unique one-off `community-midnight`(다음 KST 자정 — 자정 작업이 끝날 때마다 백그라운드에서 다음 날 것을 다시 예약).
+  unique one-off `community-midnight`(다음 KST 자정 + 설치별 분산 오프셋 0~1800초 — 자정 작업이 끝날 때마다 백그라운드에서 다음 날 것을 다시 예약).
+  복구 one-off(`scheduleCloudRecovery`)는 이미 지난 deadline을 받아도 최소 지연(`cloudRecoveryMinDelay`=30초)을 두어 즉시 재등록 루프를 막는다.
   dispatcher 분기는 `background_login_check.dart runCommunityUploadTask` — Standalone(데모 제외)+context active 일 때만.
   게이트 캐시(600초 이내 ok)가 오래됐으면 `refreshGateHeadless` 로 중앙 status 를 한 번 다시 확인한다(토큰 갱신 포함):
   ok(포그라운드와 같은 `evaluateGate` + 저장 연결 active·현재 세션에 묶임·context 일치)면 캐시 갱신 후 업로드,

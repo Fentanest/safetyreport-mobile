@@ -284,17 +284,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     otherByPerson: [],
   );
 
-  CategoryStats get _currentCat {
-    if (_stats == null) return _emptyCategoryStats;
-    return switch (_cat) {
-      'traffic' => _stats!.traffic,
-      'parking' => _stats!.parking,
-      'other' => _stats!.other,
-      // 안전신고·생활불편: AgencyStats 모델이 아직 3분류만 안다(Stage 4A 가 합치면 채워진다, 2026-10-11).
-      // other 로 잘못 보이지 않게 빈 상세로 둔다 — _overview.forCategory 는 이미 'all' 로 내려간다.
-      _ => _emptyCategoryStats,
-    };
-  }
+  /// `AgencyStats.forCategory` 가 안전신고·생활불편을 안다(구서버 응답이면 null-safe 빈 상세로 내려간다).
+  CategoryStats get _currentCat => _stats?.forCategory(_cat) ?? _emptyCategoryStats;
 
   List<AgencyStatRow> get _typeRows {
     final group = _currentCat;
@@ -960,9 +951,16 @@ class _Conditions extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         // 5분류(2026-10-11)는 360dp·2배 글자에서 5칸 균등폭이 비좁아질 수 있어, 위 답변 연도와 같은
-        // 가로 스크롤 칩으로 바꿨다(이름은 한 줄 그대로 보인다).
+        // 가로 스크롤 칩으로 바꿨다(이름은 한 줄 그대로 보인다). 칩 높이도 SrTabBar.heightFor 처럼
+        // 글자 배율에 맞춰 늘려 2배 글자에서 세로로 잘리지 않게 한다.
         SizedBox(
-          height: 40,
+          height:
+              40 +
+              (MediaQuery.textScalerOf(context).scale(13) - 13).clamp(
+                0,
+                double.infinity,
+              ) *
+                  1.5,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: _cats.length,
@@ -1171,7 +1169,11 @@ class _CategoryChip extends StatelessWidget {
           child: Text(
             label,
             textAlign: TextAlign.center,
-            softWrap: true,
+            // 가로 스크롤 칩이라 폭은 내용에 맞춰 늘어난다 — 줄바꿈 대신 한 줄로 고정한다
+            // (2026-10-11: 2배 글자에서 SizedBox 높이 고정과 맞물려 세로로 쪼개지던 결함 수정).
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.visible,
             style: TextStyle(
               fontSize: 13,
               fontWeight: selected ? FontWeight.w800 : FontWeight.w600,

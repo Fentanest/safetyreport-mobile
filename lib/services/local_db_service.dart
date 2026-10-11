@@ -3974,10 +3974,9 @@ class LocalDbService {
     final now = DateTime.now();
     final syncedAt = now.millisecondsSinceEpoch;
     final seededAt = now.toIso8601String();
-    // 5분류로 늘리면 report_provider.dart(_kCoreCategories, 아직 3분류 — 다른 에이전트 담당)와
-    // known_defects_test.dart 의 trafficReports+parkingReports+otherReports==100 단언이 깨진다.
-    // 화면쪽 5분류 전환과 함께 늘린다(2026-10-11 Sonnet 노트).
-    const categories = ['traffic', 'parking', 'other'];
+    // 2026-10-11: 화면쪽 5분류 전환과 함께 데모도 5분류로 늘렸다(known_defects_test.dart 의
+    // trafficReports+parkingReports+safetyReports+livingReports+otherReports==100 단언도 같이 고쳤다).
+    const categories = ['traffic', 'parking', 'safety', 'living', 'other'];
     const titles = [
       '신호 위반',
       '횡단보도 주정차',
@@ -3990,7 +3989,13 @@ class LocalDbService {
       '시설물 파손',
       '차로 변경 위반',
     ];
-    const agencies = ['예시 교통 담당 기관', '예시 주차 담당 기관', '예시 생활안전 담당 기관'];
+    const agencies = [
+      '예시 교통 담당 기관',
+      '예시 주차 담당 기관',
+      '예시 안전신고 담당 기관',
+      '예시 생활불편 담당 기관',
+      '예시 기타 담당 기관',
+    ];
     const places = [
       ('서울특별시', 37.5665, 126.9780),
       ('부산광역시', 35.1796, 129.0756),
@@ -4010,8 +4015,11 @@ class LocalDbService {
       for (var index = 0; index < 100; index++) {
         final number = index + 1;
         final day = now.subtract(Duration(days: index * 3 + 2));
-        final answered = index % 5 != 0;
         final categoryIndex = index % categories.length;
+        // 2026-10-11: categories.length 가 5가 되면서 index % 5(분류)와 옛 index % 5(답변 여부)가
+        // 같은 나머지가 되어 분류마다 답변 상태가 고정돼 버렸다(교통위반만 전부 처리중 등). 분류 안에서도
+        // 답변완료/처리중이 고루 섞이도록 "같은 분류 안에서 몇 번째인지"(index ~/ length)로 나머지를 낸다.
+        final answered = (index ~/ categories.length) % 5 != 0;
         final place = places[index % places.length];
         final reportNumber = 'DEMO-${number.toString().padLeft(4, '0')}';
         final address =
@@ -4027,7 +4035,8 @@ class LocalDbService {
           '별점사유': '',
           '감시목록': index % 20 == 0 ? 'Y' : 'N',
           '처리상태': answered ? (index % 7 == 0 ? '불수용' : '수용') : '처리중',
-          '차량번호': categoryIndex == 2 ? '' : '12가${1000 + index % 18}',
+          // traffic·parking 만 차량번호가 있다(실제 fixture 와 같은 규칙, 2026-10-11 5분류).
+          '차량번호': categoryIndex >= 2 ? '' : '12가${1000 + index % 18}',
           '위반법규': '',
           '범칙금_과태료': answered && index % 3 == 0 ? '과태료: 40,000원' : '',
           '벌점': '',

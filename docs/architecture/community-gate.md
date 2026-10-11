@@ -133,7 +133,13 @@ grant 로 재요청), `공유한 자료 삭제 요청`(확인 문구 입력 → 
 - v2.0.3의 “데모도 카카오·클라우드 필수” 서술은 제품 요구와 달랐다. 데모 진입은 v2.0.2의 게이트 전 분기를 기준으로 복구했다. `LocalDbService.getDbPath`의 `_realDatabaseKey`는 데모 종료 후 실제 계정 변경 검증 전용이며 유지한다.
 
 - `SyncEngine.start(fullSync: true, rebuildRunId: runId)`가 실제 초기화 run과 연결된다. 완료 표시는 list_complete, item terminal 상태, 명시적 gap 승인 집합, 활성 scope·owner·lease를 같은 community transaction에서 검사한 뒤 merge와 함께 기록한다.
-- UI 연결의 rebuild는 Provider.datasetEpoch를 scope 조회 전에 캡처하고 작업 등록·최종 merge transaction 안에서 재확인한다. 이전 세대의 run은 현재 dataset의 완료 표시를 갱신하지 않는다. 검사 실패와 pending/retryable/unknown 상태는 완료로 승격하지 않는다.
+- UI 연결의 rebuild는 Provider.accountConfigEpoch(모드 전환·계정 변경·로그아웃만 — Client 서버 설정 변경, Standalone 계정·데모 전환,
+  로그아웃에서만 올라간다)를 scope 조회 전에 캡처하고 작업 등록·최종 merge transaction 안에서 재확인한다. 이전 세대의 run은 현재
+  dataset의 완료 표시를 갱신하지 않는다. 검사 실패와 pending/retryable/unknown 상태는 완료로 승격하지 않는다.
+  **코드 대조 정정(2026-10-12, Astra 재검수2 #4):** 이전에는 Provider.datasetEpoch(표시 필터 변경도 올라가는 세대)를 그대로 썼다 —
+  진행 중 '취하 데이터 숨기기'·'중복 신고 대표건만 반영' 설정을 바꾸면 계정이 바뀐 것으로 오판해 `rebuild_generation_changed` 로
+  멈췄다. `main.dart`의 `standaloneRebuild`·`standaloneRebuildScope`가 accountConfigEpoch 를 보도록 바꿨다. datasetEpoch 는 여전히
+  표시·늦은 응답 버리기 전용이다.
 - (2026-09-27) 동의문 번들 `assets/community/` 는 없앴다 — 동의문은 중앙에서 받는다.
 
 ## 업로드 연결 자동 전환 (2026-09-28)

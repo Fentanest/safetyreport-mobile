@@ -133,7 +133,20 @@ Resolved _fromEntryValue(Object? entryValue) {
   final sub = dash < 0 ? '' : text.substring(dash + 1);
   final found = entryMenus[_norm(menu)];
   if (found == null) {
-    return (ssnpcCd: null, ssnpcType: null, code: null, category: 'other');
+    // '-' 가 아닌 구분자 등: 문구가 아는 메뉴 이름으로 시작하면 그중 가장 긴 메뉴(소분류는 모름)
+    final whole = _norm(text);
+    String? best;
+    for (final name in entryMenus.keys) {
+      if (whole.startsWith(name) && (best == null || name.length > best.length)) {
+        best = name;
+      }
+    }
+    return (
+      ssnpcCd: null,
+      ssnpcType: null,
+      code: null,
+      category: best == null ? 'other' : entryMenus[best]!.category,
+    );
   }
   final key = _normSub(sub);
   if (key.isNotEmpty) {

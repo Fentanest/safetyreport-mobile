@@ -31,6 +31,8 @@ Map<String, Object?> buildReportAdapterInput(Report report, String entryValue) {
     location: report.location,
     penaltyPoints: report.penaltyPoints,
     entryValue: entryValue,
+    ssnpcCd: report.ssnpcCd,
+    ssnpcType: report.ssnpcType,
     violationLaw: report.law,
     rating: report.rating,
     geo: located ? GeocodeHit(status: 'ok', lat: lat, lng: lng) : null,

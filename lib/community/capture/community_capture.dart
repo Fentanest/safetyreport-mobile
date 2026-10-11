@@ -17,7 +17,7 @@ export 'observation_rules.dart' show buildPayload;
 
 /// 공유 payload 버전을 올리지 않고 파서만 구분한다.
 const String mobileParserVersion =
-    'mobile-parser-4'; // 2026-09-28 observation-v4(rating)
+    'mobile-parser-5'; // 2026-10-11 observation-v5(5분류·SSNPC)
 
 /// 공식 상세 응답에서 읽은 좌표. null이면 좌표 없는 관측으로 보낸다.
 class GeocodeHit {
@@ -55,6 +55,9 @@ Map<String, Object?> buildAdapterInput(
   required String location,
   required String penaltyPoints,
   required String entryValue,
+  // observation-v5(2026-10-11): 안전신문고 분류 코드. category 는 코드가 있으면 코드로 정한다.
+  String? ssnpcCd,
+  String? ssnpcType,
   // observation-v2(2026-09-28): 파서가 처리내용에서 뽑은 법 이름·조항(처리내용 원문은 보내지 않는다).
   String violationLaw = '',
   int? rating,
@@ -73,6 +76,8 @@ Map<String, Object?> buildAdapterInput(
     'car_number': carNumber,
     'violation_location': location,
     'entry_value': entryValue,
+    'ssnpc_cd': ssnpcCd,
+    'ssnpc_type': ssnpcType,
     'penalty_points': penaltyPoints,
     'violation_law': violationLaw,
     'rating': rating,

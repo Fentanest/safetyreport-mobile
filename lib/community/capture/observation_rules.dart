@@ -4,6 +4,8 @@
 // PC `services/parser.py` → 어댑터 입력 키와 같은 의미다.
 library;
 
+import '../../services/report_category.dart' as report_category;
+
 /// 문자열 정리 clean(s, n): 제어문자·연속 공백 → 공백 하나, 앞뒤 제거, 코드포인트 n자.
 String? cleanString(Object? value, int n) {
   if (value is! String) return null;
@@ -122,13 +124,10 @@ bool isEligibleStatus(String status) =>
     status == 'rejected' ||
     status == 'completed_unknown';
 
-/// entry_value → category (PC category_from_entry_value 와 같음).
-String categoryOf(String? entryValue) {
-  final v = entryValue ?? '';
-  if (v.contains('자동차·교통위반')) return 'traffic';
-  if (v.contains('불법주정차신고')) return 'parking';
-  return 'other';
-}
+/// category(observation-v5): 분류 코드가 있으면 코드로, 없으면 entry_value 로 5분류(contracts/report-categories.json,
+/// PC community_capture.build_payload 와 같음).
+String categoryOf(String? entryValue, {Object? ssnpcCd, Object? ssnpcType}) =>
+    report_category.categoryOf(ssnpcCd, ssnpcType, entryValue ?? '');
 
 /// 날짜 day(s): 앞 10자 YYYY-MM-DD 그대로, YYYY.MM.DD → 하이픈,
 /// 8자리 YYYYMMDD → 하이픈 삽입. 실제 달력 날짜가 아니면 null.
@@ -318,7 +317,11 @@ Map<String, Object?> buildPayload(Map<String, Object?> input) {
       'kind': amount.kind,
       'penalty_points': parsePenaltyPoints(input['penalty_points']),
     },
-    'category': categoryOf(input['entry_value']?.toString()),
+    'category': categoryOf(
+      input['entry_value']?.toString(),
+      ssnpcCd: input['ssnpc_cd'],
+      ssnpcType: input['ssnpc_type'],
+    ),
     'completed_date': completedDate,
     'disposition': dispositionOf(status, input['penalty_amount']),
     'location': location,

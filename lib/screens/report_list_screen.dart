@@ -227,6 +227,7 @@ class _ReportListScreenState extends State<ReportListScreen>
         p.duplicateReports,
         p.isLoading,
         p.excludeWithdraw,
+        p.supportsFiveCategories,
       ),
     );
     final provider = context.read<ReportProvider>();
@@ -335,11 +336,11 @@ class _ReportListScreenState extends State<ReportListScreen>
                   child: TabBarView(
                     controller: _tabController,
                     children: [
-                      _buildTab(filter, 'traffic', 0),
-                      _buildTab(filter, 'parking', 1),
-                      _buildTab(filter, 'safety', 2),
-                      _buildTab(filter, 'living', 3),
-                      _buildTab(filter, 'other', 4),
+                      _buildTab(provider, filter, 'traffic', 0),
+                      _buildTab(provider, filter, 'parking', 1),
+                      _buildTab(provider, filter, 'safety', 2),
+                      _buildTab(provider, filter, 'living', 3),
+                      _buildTab(provider, filter, 'other', 4),
                       _buildDuplicateTab(provider, filter),
                     ],
                   ),
@@ -363,7 +364,23 @@ class _ReportListScreenState extends State<ReportListScreen>
     );
   }
 
-  Widget _buildTab(ReportFilter filter, String category, int tab) {
+  Widget _buildTab(
+    ReportProvider provider,
+    ReportFilter filter,
+    String category,
+    int tab,
+  ) {
+    // 구서버(3분류, Astra #5): 안전신고·생활불편은 서버에 따로 조회할 길이 없다(옛 서버는 둘을
+    // '기타'에 뒀다). 400 오류로 보이지 않고, 지금 상태를 알리는 빈 상태로 보인다.
+    if ((category == 'safety' || category == 'living') &&
+        provider.appMode == AppMode.server &&
+        !provider.supportsFiveCategories) {
+      return const SrEmptyState(
+        icon: Icons.cloud_sync_outlined,
+        title: '구서버 연결',
+        message: '서버를 업데이트하면 안전신고·생활불편을 따로 볼 수 있습니다. 지금은 기타에 함께 보입니다.',
+      );
+    }
     return LocalPagedReportList(
       key: ValueKey('page-$category'),
       category: category,

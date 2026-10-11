@@ -8,6 +8,10 @@ const compatibleVersion = {
   'version': '3.0.0.0-dev',
   'protocol_version': 3,
   'supported_client_protocols': [3],
+  // 2026-10-11(Astra #5): 신서버는 5분류를 보낸다. 이 값이 없으면 ReportProvider 가
+  // 구서버로 보고 안전신고·생활불편 조회를 보내지 않는다 — 이 fixture 를 쓰는 기존 테스트가
+  // 그 경로를 타지 않도록 기본값을 신서버로 둔다.
+  'report_taxonomy': 5,
 };
 void resetSelfhostFixture() {
   ServerContract.productVersion = '2.0.0+31';

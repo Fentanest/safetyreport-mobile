@@ -25,6 +25,7 @@ import '../services/review_prompt_service.dart';
 import '../services/standalone_auth_service.dart';
 import '../services/standalone_auto_sync_service.dart';
 import '../services/sync_engine.dart';
+import '../services/server_connection_service.dart';
 import '../services/server_contract.dart';
 
 const _defaultStatusOrder = <String>[
@@ -114,6 +115,41 @@ class ReportProvider with ChangeNotifier {
       _appMode == AppMode.server &&
       _serverCapabilitiesKnown &&
       _serverCapabilities.contains(ServerContract.communityAccountCapability);
+
+  /// `/server/version` 의 report_taxonomy 로 확인한 값(2026-10-11, Astra #5).
+  /// null = 아직 확인 전 — 실제로 구서버라고 확인되기 전까지는 5분류로 보고 평소대로 안전신고·
+  /// 생활불편을 조회한다(연결 초기 짧은 창 동안 기존 동작을 바꾸지 않는다, `onGatePassed` 가
+  /// 탭이 뜨기 전에 먼저 확인한다). 확인해서 구서버로 밝혀지면 그 뒤로는 3분류로 본다.
+  bool? _serverSupportsFiveCategoriesKnown;
+
+  /// 서버가 5분류(안전신고·생활불편 분리)를 지원하는가. Standalone 은 항상 지원한다.
+  bool get supportsFiveCategories =>
+      _appMode == AppMode.standalone ||
+      (_serverSupportsFiveCategoriesKnown ?? true);
+
+  /// 서버·모드가 바뀔 때 이전 서버의 분류 지원 여부를 버린다(미확인 기본값으로 되돌림).
+  void _forgetServerTaxonomySupport() {
+    _serverSupportsFiveCategoriesKnown = null;
+  }
+
+  /// `/server/version` 으로 서버의 report_taxonomy 를 확인해 저장한다(Client 모드만 의미 있음).
+  /// 조회 자체가 실패하면(네트워크 오류 등) 이전 값을 유지한다 — 일시적 실패로 알던 서버가
+  /// 갑자기 구서버로 보이면 안 된다.
+  Future<void> refreshServerTaxonomySupport() async {
+    if (_appMode != AppMode.server || _baseUrl.isEmpty || _apiKey.isEmpty) {
+      return;
+    }
+    final info = await ServerConnectionService.fetchVersionInfo(
+      baseUrl: _baseUrl,
+      apiKey: _apiKey,
+    );
+    if (!info.hasVersion) return; // 조회 실패 — 이전 값 유지.
+    final supportsFive = info.supportsFiveCategories;
+    if (_serverSupportsFiveCategoriesKnown != supportsFive) {
+      _serverSupportsFiveCategoriesKnown = supportsFive;
+      notifyListeners();
+    }
+  }
 
   ReportFilter _filter = const ReportFilter();
   bool _excludeWithdraw = true;
@@ -786,6 +822,8 @@ class ReportProvider with ChangeNotifier {
           } catch (_) {}
         }
       } else {
+        // 안전신고·생활불편 탭이 뜨기 전에 구서버(3분류) 여부를 먼저 안다(Astra #5).
+        await refreshServerTaxonomySupport();
         fetchWatchlistNumbers();
         fetchAppConfig();
         if (startWsServiceHook != null) {
@@ -864,6 +902,7 @@ class ReportProvider with ChangeNotifier {
     _datasetEpoch++;
     _resetDatasetView();
     _forgetServerCapabilities();
+    _forgetServerTaxonomySupport();
     ratingCauseDraft = '';
     ClientCompatibility.invalidate();
     _appMode = AppMode.server;
@@ -969,6 +1008,7 @@ class ReportProvider with ChangeNotifier {
     _datasetEpoch++;
     _resetDatasetView();
     _forgetServerCapabilities();
+    _forgetServerTaxonomySupport();
     ratingCauseDraft = '';
     ClientCompatibility.invalidate();
     _appMode = AppMode.standalone;
@@ -1064,6 +1104,7 @@ class ReportProvider with ChangeNotifier {
     await StandaloneAuthService.clearToken();
     // 실제 모드 변경: Standalone 커뮤니티 세션·대기 로그인을 지운다(M05). 서버의 커뮤니티 계정은 건드리지 않는다.
     _forgetServerCapabilities();
+    _forgetServerTaxonomySupport();
     try {
       await CommunityAuthService.instance.clearForModeChange();
     } catch (_) {}
@@ -1208,6 +1249,12 @@ class ReportProvider with ChangeNotifier {
     int limit = 200,
     bool Function()? isCancelled,
   }) async {
+    // 구서버(3분류, Astra #5) 는 안전신고·생활불편 엔드포인트가 없다(400). 안전신고·생활불편은
+    // 구서버에서 원래 '기타'에 있었으므로 — 요청 자체를 보내지 않고 빈 목록으로 본다.
+    if ((category == 'safety' || category == 'living') &&
+        !supportsFiveCategories) {
+      return (reports: const <Report>[], total: 0);
+    }
     final epoch = _datasetEpoch;
     final page = await _api.getReportsPage(
       category,
@@ -1531,6 +1578,7 @@ class ReportProvider with ChangeNotifier {
         ..._loadedCategories.toList().map(fetchCategoryReports),
         fetchWatchlistNumbers(),
         fetchAppConfig(),
+        refreshServerTaxonomySupport(),
       ]);
     }
     if (epoch != _datasetEpoch) return;

@@ -32,6 +32,32 @@
 
 ---
 
+## 2026-10-11 — Astra 리뷰 #5 수정: 구서버에 안전신고·생활불편을 요청해 400 이 나던 결함
+
+- `ServerVersionInfo.supportsFiveCategories`(`/server/version` 의 `report_taxonomy`)가 선언만 있고 어디서도 쓰이지
+  않아, 신버전 앱이 구서버(5분류를 모름)에 연결해도 항상 5분류로 조회했다 — 안전신고·생활불편 탭이나 `전체` 드릴다운이
+  `/reports/safety|living` 을 보내 400 Invalid category 를 받았다.
+  - `lib/providers/report_provider.dart`: `supportsFiveCategories` getter(Standalone 은 항상 true, Client 는
+    `/server/version` 으로 확인하기 전까지 true — 확인해서 구서버로 밝혀지면 그 뒤로 false)와 `refreshServerTaxonomySupport()`
+    를 추가했다. `onGatePassed()`(Client 분기, 탭이 뜨기 전)와 `refreshAll()` 에서 호출해 확인한다. `_readServerPageOwned` 는
+    `safety`/`living` + 구서버로 확인된 경우 `/reports/safety|living` 자체를 보내지 않고 빈 페이지를 돌려준다. `setConfig`·
+    `setStandaloneConfig`·`resetConfig` 에서 이전 서버의 확인 결과를 버린다(`_forgetServerTaxonomySupport`).
+  - `lib/screens/report_list_screen.dart`: 안전신고·생활불편 탭이 Client + 구서버로 확인된 경우 `LocalPagedReportList` 대신
+    짧은 안내("서버를 업데이트하면 안전신고·생활불편을 따로 볼 수 있습니다. 지금은 기타에 함께 보입니다.")를 보인다. 기타 탭은
+    그대로 조회한다 — 구서버는 원래 이 둘을 기타로 묶어 돌려준다.
+  - `test/support/selfhost_client_fixture.dart`: 공용 `compatibleVersion` fixture 에 `report_taxonomy: 5` 를 추가해(이
+    브랜치의 실제 신서버 응답과 맞춤) 이 fixture 를 쓰는 기존 Client 테스트들이 전부 구서버로 보이는 회귀를 막았다.
+  - `test/providers/report_provider_taxonomy_test.dart`(신규): 구서버(버전은 응답하지만 `report_taxonomy` 없음)·신서버
+    (`report_taxonomy=5`)·Standalone·조회 실패 네 경우의 provider 단위시험.
+  - `test/widgets/report_list_legacy_taxonomy_test.dart`(신규): 구서버 provider 는 안전신고·생활불편 탭에서 안내 문구를
+    보이고 `safety`/`living` 요청을 보내지 않으며 기타 탭은 평소대로 조회하는지, 신서버 provider 는 네 분류 모두 평소대로
+    조회하는지 위젯 시험.
+- 처음에는 "확인 전=구서버(3분류)"를 안전쪽 기본값으로 뒀으나 `report_list_drilldown_test.dart` 의 기존 Client 테스트 더블
+  (taxonomy 확인을 안 해서 늘 기본값)이 5분류 탭을 기대하고 있어 회귀가 났다 — "확인 전=5분류, 구서버로 확인되면 그 뒤로 3분류"
+  로 바꿔 해결했다(실제 연결은 `onGatePassed` 가 탭이 뜨기 전에 먼저 확인하므로 영향이 없다).
+
+---
+
 ## 2026-10-11 (4단계, Sonnet) '기타' 세분류(안전신고·생활불편·기타) — 5분류 UI (미배포)
 
 - 사용자 지시(`docs/plans/2026-10-11-report-taxonomy.md` 4단계)로 신고내역 4개 분류를 6탭(교통위반·주정차·안전신고·생활불편·기타·중복차량)으로 나눴다.

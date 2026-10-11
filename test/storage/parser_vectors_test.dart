@@ -16,6 +16,8 @@ Map<String, Object?> _asColumns(Map<String, dynamic> detail) {
     '만족도조사여부': r.pollStatus,
     '별점': r.rating,
     'entry_value': entryValueFromDetail(<String, dynamic>{}, detail),
+    'ssnpc_cd': r.ssnpcCd,
+    'ssnpc_type': r.ssnpcType,
     '처리상태': r.status,
     '종결여부': r.processingFinish,
     '처리기관': r.agency,

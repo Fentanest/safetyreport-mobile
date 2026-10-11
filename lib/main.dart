@@ -552,8 +552,7 @@ class _PostGateFlowState extends State<_PostGateFlow> {
     if (!_rebuildDone) {
       final provider = context.read<ReportProvider>();
       if (provider.appMode == AppMode.server) {
-        return CommunityRebuildScreen(
-          isClient: true,
+        return ClientRebuildPreCheck(
           serverBaseUrl: provider.baseUrl,
           serverApiKey: provider.apiKey,
           onDone: () async {
@@ -568,6 +567,81 @@ class _PostGateFlowState extends State<_PostGateFlow> {
       );
     }
     return const MainNavigationScreen();
+  }
+}
+
+/// Client 모드에서 초기화 화면([CommunityRebuildScreen])을 띄우기 전에 서버 상태를 조용히 먼저 확인한다.
+/// 이미 초기화를 끝낸 서버는(required == false) 화면이 번쩍이지 않고 바로 메인으로 넘어간다.
+/// 그 밖(초기화 필요·권한 없음·온보딩 필요·네트워크 오류)은 기존 [CommunityRebuildScreen] 이 그대로 처리한다 —
+/// 재확인·권한·오류 UI 를 다시 만들지 않는다. 서버가 여전히 판정의 주인이다.
+class ClientRebuildPreCheck extends StatefulWidget {
+  const ClientRebuildPreCheck({
+    super.key,
+    required this.serverBaseUrl,
+    required this.serverApiKey,
+    required this.onDone,
+    this.auth,
+    this.serverClient,
+  });
+
+  final String serverBaseUrl;
+  final String serverApiKey;
+  final Future<void> Function() onDone;
+
+  /// 시험 주입용(네트워크 없이 성공·실패·권한 분기를 확인). 없으면 [CommunityRebuildScreen] 과 같은 기본값을 쓴다.
+  final CommunityAuthService? auth;
+  final CommunityServerRebuildClient? serverClient;
+
+  @override
+  State<ClientRebuildPreCheck> createState() => _ClientRebuildPreCheckState();
+}
+
+class _ClientRebuildPreCheckState extends State<ClientRebuildPreCheck> {
+  bool _fallback = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => unawaited(_check()));
+  }
+
+  Future<void> _check() async {
+    try {
+      final auth = widget.auth ?? CommunityAuthService.instance;
+      final token = await auth.getAccessToken();
+      final client =
+          widget.serverClient ?? const CommunityServerRebuildClient();
+      final res = await client.fetch(
+        widget.serverBaseUrl,
+        widget.serverApiKey,
+        token,
+      );
+      if (!mounted) return;
+      if (res.isOk && res.data?['required'] == false) {
+        await widget.onDone();
+        return;
+      }
+      // required == true, 권한 없음, 온보딩 필요, 서버 오류 — 모두 기존 화면이 처리한다.
+      setState(() => _fallback = true);
+    } catch (_) {
+      if (mounted) setState(() => _fallback = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_fallback) {
+      return CommunityRebuildScreen(
+        isClient: true,
+        serverBaseUrl: widget.serverBaseUrl,
+        serverApiKey: widget.serverApiKey,
+        auth: widget.auth,
+        serverClient: widget.serverClient,
+        onDone: widget.onDone,
+      );
+    }
+    // 확인 중이거나 바로 메인으로 넘어가는 동안: 제목·안내문 없는 중립 로딩 화면(초기화 문구가 번쩍이지 않게).
+    return const Scaffold(body: Center(child: CircularProgressIndicator()));
   }
 }
 

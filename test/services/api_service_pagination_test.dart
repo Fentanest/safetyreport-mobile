@@ -145,4 +145,27 @@ void main() {
       expect(paths, ['/api/v1/stats/overview']);
     },
   );
+
+  test('getReportsPage allows all 5 categories, rejects unknown ones', () async {
+    final api = ApiService(baseUrl: 'https://fixture.test', apiKey: 'fixture');
+    for (final category in const ['traffic', 'parking', 'safety', 'living', 'other']) {
+      final requests = <String>[];
+      await http.runWithClient(
+        () async {
+          final page = await api.getReportsPage(category);
+          expect(page.total, 0);
+        },
+        () => selfhostMockClient((r) async {
+          requests.add(r.url.path);
+          return http.Response(
+            jsonEncode({'status': 'success', 'total': 0, 'offset': 0, 'limit': 200, 'data': []}),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }),
+      );
+      expect(requests, ['/api/v1/reports/$category/page']);
+    }
+    await expectLater(api.getReportsPage('bogus'), throwsArgumentError);
+  });
 }

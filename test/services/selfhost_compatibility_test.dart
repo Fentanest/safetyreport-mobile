@@ -40,6 +40,7 @@ void main() {
         'client_type': 'mobile',
         'client_version': '2.0.0+31',
         'client_protocol': '3',
+        'taxonomy': '5',
       },
     );
   });

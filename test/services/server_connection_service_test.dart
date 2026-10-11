@@ -179,6 +179,41 @@ void main() {
       expect(info.version, '1.2.3');
       expect(info.latestVersion, '1.2.4');
       expect(info.status, 'outdated');
+      expect(info.reportTaxonomy, isNull);
+      expect(info.supportsFiveCategories, isFalse);
+    });
+
+    test('5분류를 아는 서버는 report_taxonomy 를 보낸다', () async {
+      final client = MockClient(
+        (_) async => http.Response(
+          '{"version":"3.5.0","report_taxonomy":5}',
+          200,
+        ),
+      );
+
+      final info = await ServerConnectionService.fetchVersionInfo(
+        baseUrl: 'https://example.com',
+        apiKey: 'secret',
+        client: client,
+      );
+
+      expect(info.reportTaxonomy, 5);
+      expect(info.supportsFiveCategories, isTrue);
+    });
+
+    test('구서버(report_taxonomy 없음)는 3분류로 본다', () async {
+      final client = MockClient(
+        (_) async => http.Response('{"version":"3.4.0"}', 200),
+      );
+
+      final info = await ServerConnectionService.fetchVersionInfo(
+        baseUrl: 'https://example.com',
+        apiKey: 'secret',
+        client: client,
+      );
+
+      expect(info.reportTaxonomy, isNull);
+      expect(info.supportsFiveCategories, isFalse);
     });
 
     test('returns empty info on non-200 response', () async {

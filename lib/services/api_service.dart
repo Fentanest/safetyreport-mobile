@@ -19,6 +19,7 @@ import 'network_retry_config.dart';
 import 'server_contract.dart';
 import 'map_pin_basis.dart';
 import '../models/stats_overview.dart';
+import 'report_category.dart' as report_category;
 
 class ApiFeatureUnavailableException implements Exception {
   final String message;
@@ -224,7 +225,7 @@ class ApiService {
     String dedupe = 'canonical',
     bool Function()? isCancelled,
   }) async {
-    if (!['traffic', 'parking', 'other'].contains(category) ||
+    if (!report_category.categories.contains(category) ||
         offset < 0 ||
         limit < 1 ||
         limit > 200) {
@@ -287,10 +288,9 @@ class ApiService {
     if (response.statusCode == 200) {
       final json = _decodeResponse(response);
       var list = json['data'] as List? ?? [];
-      final fallbackCategory = switch (category) {
-        'traffic' || 'parking' || 'other' => category,
-        _ => '',
-      };
+      final fallbackCategory = report_category.categories.contains(category)
+          ? category
+          : '';
       return list.map((item) {
         final data = Map<String, dynamic>.from(item as Map);
         final currentCategory = data['category']?.toString().trim() ?? '';

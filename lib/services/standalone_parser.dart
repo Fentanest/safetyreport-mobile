@@ -16,6 +16,9 @@ const _cNowStatus = {
 };
 const _canonicalDoneStatuses = {'수용', '일부수용', '불수용', '기타', '답변완료', '취하', '이송'};
 
+// 이 값이면 다른 칸(C_R_PROC_STAT_NM)·신고 상태로 보완 — 서버 parser.py 와 같은 규칙.
+const _notFinalAnswerStatuses = {'진행', '처리중', '검토중'};
+
 const _rejectKeywords = ['부득이하게', '종결합니다', '처벌이 어려운 점', '처분이 불가'];
 const _warningKeywords = [
   '교통질서 안내장',
@@ -276,7 +279,14 @@ Report parseJsonToReport(
 
   final rawStatus = _cNowStatus[cNow] ?? (cNow > 0 ? cNow.toString() : '진행');
   // 답변완료 대역(C_NOW 10~19)에 답변이 있는데 상태를 못 알아보면 '처리중'으로 떨어지지 않게 한다.
-  final answeredBand = answersList.isNotEmpty && cNow >= 10 && cNow <= 19;
+  // 단, C_NOW 가 명시적으로 비종결 상태(진행·처리중·검토중, 예: 12=검토중)로 매핑되면 이 안전망이
+  // 그 상태를 덮어 '답변완료'로 조기 종결시키지 않는다(Astra #3). 13처럼 종결 코드로 매핑되거나
+  // 16~19처럼 매핑 자체가 없는 코드는 그대로 대역 동작을 유지한다.
+  final answeredBand =
+      answersList.isNotEmpty &&
+      cNow >= 10 &&
+      cNow <= 19 &&
+      !_notFinalAnswerStatuses.contains(rawStatus);
 
   // ── 신고 내용 ────────────────────────────────────────────────────────────
   final reportContent = reportContentOf(content);

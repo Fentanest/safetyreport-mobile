@@ -8,6 +8,17 @@
 
 ---
 
+## 2026-10-11 — Astra 리뷰 #3 수정: C_NOW=12(검토중) 답변이 답변완료로 조기 종결되던 결함
+
+- `lib/services/standalone_parser.dart`: 서버 `services/parser.py` 와 같은 결함 — 답변완료 대역 안전망(`answeredBand`,
+  C_NOW 10~19 + 답변 있음)이 C_NOW 가 명시적으로 비종결 상태(진행·처리중·검토중)로 매핑된 경우까지 답변완료로 덮어쓰고
+  있었다(예: C_NOW=12 는 검토중인데 답변이 있으면 답변완료/종결여부=Y 로 바뀜). `rawStatus` 가 비종결 상태가 아닐 때만
+  이 안전망을 적용하도록 `_notFinalAnswerStatuses` 조건을 추가했다. 13(답변완료로 매핑)과 16~19(매핑 없음)는 그대로다.
+- `contracts/parser-vectors.json`(서버와 바이트 동일): C_NOW 12 + 검토중/불수용 답변, C_NOW 16 + 진행 답변 회귀 벡터 3건 추가.
+- `test/storage/parser_vectors_test.dart` 39개 통과.
+
+---
+
 ## 2026-10-11 (4단계, Sonnet) '기타' 세분류(안전신고·생활불편·기타) — 5분류 UI (미배포)
 
 - 사용자 지시(`docs/plans/2026-10-11-report-taxonomy.md` 4단계)로 신고내역 4개 분류를 6탭(교통위반·주정차·안전신고·생활불편·기타·중복차량)으로 나눴다.

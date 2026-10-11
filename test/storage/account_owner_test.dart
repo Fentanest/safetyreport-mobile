@@ -11,6 +11,7 @@ import 'package:safetyreport/models/report.dart';
 import 'package:safetyreport/services/local_db_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import '../support/server_db_fixture.dart';
 
 Report _report(int i) => Report(
   id: 'm-$i',
@@ -61,22 +62,11 @@ Future<void> _seed() async {
 Future<int> _count(String table) async =>
     (await (await LocalDbService.db).rawQuery('SELECT count(*) AS n FROM $table')).first['n'] as int;
 
-/// 지금 스키마의 서버 DB(최소 열) — 주인 [owner] 를 mysafety_sync_meta 에 적는다.
+/// 지금 스키마(6)의 서버 DB — 주인 [owner] 를 mysafety_sync_meta 에 적는다.
 Future<String> _serverDb(Directory dir, String? owner) async {
   final path = '${dir.path}/server_${DateTime.now().microsecondsSinceEpoch}.db';
-  final db = await openDatabase(path);
-  await db.setVersion(LocalDbService.serverSchemaVersion);
-  await db.execute(
-    '''CREATE TABLE mysafetymerge_traffic (ID TEXT PRIMARY KEY, 상태 TEXT, 신고번호 TEXT, 신고명 TEXT, 신고일 TEXT,
-    만족도조사여부 TEXT, 별점 INTEGER, 별점사유 TEXT, 감시목록 TEXT, 처리상태 TEXT, 처리기관 TEXT, 담당자 TEXT, 위반장소 TEXT,
-    주소정규화 TEXT, 행정구역 TEXT, 위도 REAL, 경도 REAL, 지오코딩상태 TEXT, 종결여부 TEXT, synced_at INTEGER, 보완횟수 INTEGER)''',
-  );
-  await db.execute('CREATE TABLE mysafetymerge_parking AS SELECT * FROM mysafetymerge_traffic WHERE 0');
-  await db.execute('CREATE TABLE mysafetymerge_other AS SELECT * FROM mysafetymerge_traffic WHERE 0');
-  await db.execute('CREATE TABLE mysafety_watchlist (신고번호 TEXT PRIMARY KEY)');
-  await db.execute('CREATE TABLE mysafety_sync_meta (key TEXT PRIMARY KEY, value TEXT)');
-  await db.execute('CREATE TABLE mysafety (ID TEXT PRIMARY KEY)');
-  await db.insert('mysafetymerge_traffic', {
+  final db = await openServerSchemaDb(path);
+  await insertServerReport(db, {
     'ID': 's1',
     '상태': '수용',
     '신고번호': 'SPP-S1',
@@ -87,6 +77,7 @@ Future<String> _serverDb(Directory dir, String? owner) async {
     '처리기관': '기관',
     '위반장소': '서울 강서구 1',
     '종결여부': 'Y',
+    'category': 'traffic',
   });
   if (owner != null) {
     await db.insert('mysafety_sync_meta', {'key': LocalDbService.kakaoMemberMetaKey, 'value': owner});

@@ -217,7 +217,9 @@ void main() {
           responseDate: '2026-02-04',
         ),
         'parking',
-        '불법 주정차',
+        // 접수 메뉴 원문("불법주정차신고")이어야 분류기가 parking 으로 되읽는다(업서트가 category 를
+        // entry_value 로 다시 정하기 때문 — 임의 문자열 '불법 주정차' 는 모르는 메뉴라 'other' 가 된다).
+        '불법주정차신고',
       );
       await LocalDbService.upsertReport(
         _report(

@@ -1,4 +1,6 @@
-// 서버 DB 가져오기 변환 규칙 (저장 계층 재설계 R1b, 서버 레포 docs/plans/storage-refactor-plan.md).
+// 서버 DB 가져오기 변환 규칙 (저장 계층 재설계 R1b/R1c, 서버 레포 docs/plans/storage-refactor-plan.md).
+// 2026-10-11: 서버 스키마 6(mysafety_report 단일 표 + mysafety_report_body) — 옛 mysafety + mysafetymerge_* 묶음은
+// 버전 검사만으로 거절된다(같은 버전 백업만 받는다는 사용자 결정). 구조를 들여다보지 않는다.
 import 'dart:convert';
 import 'dart:io';
 
@@ -7,6 +9,7 @@ import 'package:safetyreport/services/local_db_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../support/kakao_owner.dart';
+import '../support/server_db_fixture.dart';
 
 Future<String> _serverDb(
   Directory dir, {
@@ -14,32 +17,13 @@ Future<String> _serverDb(
   String? staleMetaWatchlist,
 }) async {
   final path = '${dir.path}/server_${DateTime.now().microsecondsSinceEpoch}.db';
-  final db = await openDatabase(path);
-  await db.setVersion(
-    LocalDbService.serverSchemaVersion,
-  ); // 지금 서버 버전(이전 버전 서버 DB 는 거절된다)
-  await db.execute(
-    '''CREATE TABLE mysafetymerge_traffic (ID TEXT PRIMARY KEY, 상태 TEXT, 신고번호 TEXT, 신고명 TEXT, 신고일 TEXT,
-    만족도조사여부 TEXT, 별점 INTEGER, 별점사유 TEXT, 감시목록 TEXT, 처리상태 TEXT, 처리기관 TEXT, 처리기관코드 TEXT, 담당자 TEXT, 위반장소 TEXT,
-    주소정규화 TEXT, 행정구역 TEXT, 위도 REAL, 경도 REAL, 지오코딩상태 TEXT, 종결여부 TEXT, synced_at INTEGER, 보완횟수 INTEGER)''',
-  );
-  await db.execute(
-    'CREATE TABLE mysafetymerge_parking AS SELECT * FROM mysafetymerge_traffic WHERE 0',
-  );
-  await db.execute(
-    'CREATE TABLE mysafetymerge_other AS SELECT * FROM mysafetymerge_traffic WHERE 0',
-  );
-  await db.execute('CREATE TABLE mysafety_watchlist (신고번호 TEXT PRIMARY KEY)');
-  await db.execute(
-    'CREATE TABLE mysafety_sync_meta (key TEXT PRIMARY KEY, value TEXT)',
-  );
+  final db = await openServerSchemaDb(path);
   await stampOwner(db, table: 'mysafety_sync_meta');
-  await db.execute('CREATE TABLE mysafety (ID TEXT PRIMARY KEY)');
   for (final (id, number, merged) in [
     ('s1', 'SPP-1', 'Y'),
     ('s2', 'SPP-2', 'N'),
   ]) {
-    await db.insert('mysafetymerge_traffic', {
+    await insertServerReport(db, {
       'ID': id,
       '상태': '수용',
       '신고번호': number,
@@ -55,7 +39,8 @@ Future<String> _serverDb(
       '지오코딩상태': null,
       '종결여부': 'Y',
       'synced_at': null,
-      '보완횟수': '',
+      '보완횟수': null,
+      'category': 'traffic',
     });
   }
   for (final n in watchlist) {
@@ -134,7 +119,7 @@ void main() {
   });
 
   for (final malformed in [
-    'category-collision',
+    'invalid-category',
     'raw-orphan',
     'fractional-integer',
   ]) {
@@ -148,23 +133,24 @@ void main() {
           'category': 'other',
         });
         final path = await _serverDb(dir, watchlist: []);
-        final source = await openDatabase(path);
-        if (malformed == 'category-collision') {
-          await source.insert('mysafetymerge_parking', {
-            'ID': 's1',
-            '신고번호': 'SPP-collision',
-          });
-        } else if (malformed == 'raw-orphan') {
-          await source.execute(
-            'CREATE TABLE mysafety_raw_content(ID TEXT PRIMARY KEY,raw_content TEXT,raw_type TEXT,saved_at INTEGER)',
+        final source = await openDatabase(path, singleInstance: false);
+        if (malformed == 'invalid-category') {
+          // 5분류(traffic·parking·safety·living·other) 밖의 값 — 이 앱이 모르는 분류(§4-341).
+          await source.update(
+            'mysafety_report',
+            {'category': 'legacy_bucket'},
+            where: 'ID=?',
+            whereArgs: ['s1'],
           );
-          await source.insert('mysafety_raw_content', {
+        } else if (malformed == 'raw-orphan') {
+          // 본문 원문은 보존할 신고(category 있는 행)가 있어야 한다 — 없으면 거절.
+          await source.insert('mysafety_report_body', {
             'ID': 'absent',
             'raw_content': '보존할 원문',
           });
         } else {
           await source.update(
-            'mysafetymerge_traffic',
+            'mysafety_report',
             {'별점': 2.5},
             where: 'ID=?',
             whereArgs: ['s1'],
@@ -185,17 +171,17 @@ void main() {
     'server rows with negative and zero rowid survive every mapped value',
     () async {
       final path = await _serverDb(dir, watchlist: []);
-      final source = await openDatabase(path);
+      final source = await openDatabase(path, singleInstance: false);
       await source.rawUpdate(
-        'UPDATE mysafetymerge_traffic SET rowid=-1 WHERE ID=?',
+        'UPDATE mysafety_report SET rowid=-1 WHERE ID=?',
         ['s1'],
       );
       await source.rawUpdate(
-        'UPDATE mysafetymerge_traffic SET rowid=0 WHERE ID=?',
+        'UPDATE mysafety_report SET rowid=0 WHERE ID=?',
         ['s2'],
       );
       await source.update(
-        'mysafetymerge_traffic',
+        'mysafety_report',
         {'신고명': '001 한글\r\n줄바꿈', '담당자': '', '처리기관코드': '0001'},
         where: 'ID=?',
         whereArgs: ['s1'],
@@ -249,9 +235,49 @@ void main() {
     },
   );
 
-  // ── 2026-09-26 초기화 크롤링 릴리스: 이전(또는 더 새) 버전 서버 DB 는 가져오지 않는다 (PC exchange.refuse_other_version) ──
+  test(
+    '목록에서만 본 신고(category NULL)는 세지 않고 가져오지 않는다; 상세 받은 신고의 분류·본문은 그대로',
+    () async {
+      final path = await _serverDb(dir, watchlist: []);
+      final source = await openDatabase(path, singleInstance: false);
+      await source.insert('mysafety_report', {
+        'ID': 'list-only',
+        '신고번호': 'SPP-LIST',
+        '신고명': '목록만',
+        'category': null, // 상세를 아직 저장하지 않은 신고 — 화면용 표에도 없다
+      });
+      await source.insert('mysafety_report_body', {
+        'ID': 's1',
+        'raw_content': '본문 원문',
+        'raw_type': 'report_body',
+        'saved_at': 1,
+      });
+      await source.close();
+      expect(
+        await LocalDbService.importFromServerDb(path),
+        2,
+        reason: 'category NULL 행은 세지 않는다',
+      );
+      expect(
+        (await (await LocalDbService.db).query('reports')).map(
+          (r) => r['ID'],
+        ),
+        unorderedEquals(['s1', 's2']),
+        reason: 'list-only 행은 모바일로 오지 않는다',
+      );
+      final raw = await (await LocalDbService.db).query(
+        'report_raw',
+        where: 'ID = ?',
+        whereArgs: ['s1'],
+      );
+      expect(raw.single['raw_content'], '본문 원문');
+    },
+  );
 
-  for (final version in [0, 1, 2, 3, 4, 6]) {
+  // ── 2026-09-26 초기화 크롤링 릴리스: 이전(또는 더 새) 버전 서버 DB 는 가져오지 않는다 (PC exchange.refuse_other_version) ──
+  // 5 는 2026-10-11 전 서버 스키마(생활불편·안전신고 분리 전) — 구조가 지금과 같아도(같은 fixture) 버전만으로 거절된다.
+
+  for (final version in [0, 1, 2, 3, 4, 5, 7]) {
     test(
       'server DB of schema $version is refused before replacing the DB',
       () async {
@@ -259,9 +285,9 @@ void main() {
           await _serverDb(dir, watchlist: []),
         );
         final path = await _serverDb(dir, watchlist: []);
-        final db = await openDatabase(path);
+        final db = await openDatabase(path, singleInstance: false);
         await db.setVersion(version);
-        await db.update('mysafetymerge_traffic', {'신고명': '바뀌면 안 됨'});
+        await db.update('mysafety_report', {'신고명': '바뀌면 안 됨'});
         await db.close();
         await expectLater(
           LocalDbService.importFromServerDb(path),
@@ -295,7 +321,7 @@ void main() {
   // ── 2026-09-26 감사 SOL-02·03·05 (PC exchange 와 같은 규칙) ──────────────────
 
   Future<void> alter(String path, List<String> sql) async {
-    final db = await openDatabase(path);
+    final db = await openDatabase(path, singleInstance: false);
     for (final q in sql) {
       await db.execute(q);
     }
@@ -309,9 +335,9 @@ void main() {
       await LocalDbService.importFromServerDb(first);
       final path = await _serverDb(dir, watchlist: []);
       await alter(path, [
-        'ALTER TABLE mysafetymerge_traffic ADD COLUMN 미래열 TEXT',
-        "UPDATE mysafetymerge_traffic SET 미래열 = '' WHERE ID = 's1'",
-        "UPDATE mysafetymerge_traffic SET 신고명 = '바뀌면 안 됨'",
+        'ALTER TABLE mysafety_report ADD COLUMN 미래열 TEXT',
+        "UPDATE mysafety_report SET 미래열 = '' WHERE ID = 's1'",
+        "UPDATE mysafety_report SET 신고명 = '바뀌면 안 됨'",
       ]);
       await expectLater(
         LocalDbService.importFromServerDb(path),
@@ -319,101 +345,11 @@ void main() {
           isA<UnknownColumnsException>().having(
             (e) => e.toString(),
             'message',
-            contains('mysafetymerge_traffic.미래열(1행)'),
+            contains('mysafety_report.미래열(1행)'),
           ),
         ),
       );
       expect((await _row('s1'))['신고명'], '신호위반', reason: '기존 DB 그대로');
-    },
-  );
-
-  // 혼합 구성 서버 DB: traffic 은 원본(mysafety + 상세), parking 은 상세 표가 없어 merge 에서 읽는다(읽기 규칙 검사 — 버전은 지금 서버).
-  Future<String> mixedServerDb({String? parkingFuture}) async {
-    final path =
-        '${dir.path}/mixed_${DateTime.now().microsecondsSinceEpoch}.db';
-    final db = await openDatabase(path);
-    await db.setVersion(LocalDbService.serverSchemaVersion);
-    await db.execute(
-      'CREATE TABLE mysafety (ID TEXT PRIMARY KEY, 상태 TEXT, 신고번호 TEXT, 신고명 TEXT, 신고일 TEXT, 감시목록 TEXT)',
-    );
-    await db.execute(
-      'CREATE TABLE mysafetydetail_traffic (ID TEXT PRIMARY KEY, 처리상태 TEXT, 위반장소 TEXT)',
-    );
-    await db.execute(
-      'CREATE TABLE mysafetymerge_traffic (ID TEXT PRIMARY KEY, 신고번호 TEXT, 위반장소 TEXT)',
-    );
-    await db.execute(
-      'CREATE TABLE mysafetymerge_parking (ID TEXT PRIMARY KEY, 상태 TEXT, 신고번호 TEXT, 신고명 TEXT, 위반장소 TEXT'
-      '${parkingFuture != null ? ', 미래열 TEXT' : ''})',
-    );
-    await db.execute(
-      'CREATE TABLE mysafetymerge_other AS SELECT ID, 신고번호, 위반장소 FROM mysafetymerge_traffic WHERE 0',
-    );
-    await db.execute(
-      'CREATE TABLE mysafety_sync_meta (key TEXT PRIMARY KEY, value TEXT)',
-    );
-    await stampOwner(db, table: 'mysafety_sync_meta');
-    await db.insert('mysafety', {
-      'ID': 't1',
-      '상태': '수용',
-      '신고번호': 'SPP-T1',
-      '신고명': '신호위반',
-      '신고일': '2026-09-01',
-      '감시목록': 'N',
-    });
-    await db.insert('mysafetydetail_traffic', {
-      'ID': 't1',
-      '처리상태': '수용',
-      '위반장소': '서울 강서구 1',
-    });
-    await db.insert('mysafetymerge_parking', {
-      'ID': 'p1',
-      '상태': '수용',
-      '신고번호': 'SPP-P1',
-      '신고명': '불법주정차',
-      '위반장소': '서울 강서구 2',
-      '미래열': ?parkingFuture,
-    });
-    await db.close();
-    return path;
-  }
-
-  test(
-    'mixed layout imports traffic from source tables and parking from merge (SOL-02 recheck, success path)',
-    () async {
-      expect(await LocalDbService.importFromServerDb(await mixedServerDb()), 2);
-      expect(
-        (await _row('t1'))['신고명'],
-        '신호위반',
-        reason: 'traffic 은 mysafety 제목 열에서',
-      );
-      expect((await _row('t1'))['category'], 'traffic');
-      expect(
-        (await _row('p1'))['신고명'],
-        '불법주정차',
-        reason: 'parking 은 상세 표가 없어 merge 에서',
-      );
-      expect((await _row('p1'))['category'], 'parking');
-    },
-  );
-
-  test(
-    'mixed layout: an unknown value in the merge table actually read for parking is refused (SOL-02 recheck)',
-    () async {
-      await LocalDbService.importFromServerDb(await mixedServerDb());
-      await expectLater(
-        LocalDbService.importFromServerDb(
-          await mixedServerDb(parkingFuture: ''),
-        ),
-        throwsA(
-          isA<UnknownColumnsException>().having(
-            (e) => e.toString(),
-            'message',
-            contains('mysafetymerge_parking.미래열(1행)'),
-          ),
-        ),
-      );
-      expect((await _row('p1'))['신고명'], '불법주정차', reason: '기존 DB 그대로');
     },
   );
 
@@ -422,7 +358,7 @@ void main() {
     () async {
       final path = await _serverDb(dir, watchlist: []);
       await alter(path, [
-        'ALTER TABLE mysafetymerge_traffic ADD COLUMN 미래열 TEXT',
+        'ALTER TABLE mysafety_report ADD COLUMN 미래열 TEXT',
       ]);
       expect(await LocalDbService.importFromServerDb(path), 2);
     },
@@ -431,22 +367,73 @@ void main() {
   test(
     'entry_value: no server row is NULL, an empty or filled row is kept as is (SOL-03)',
     () async {
+      // 2026-10-11 부터 entry_value 는 mysafety_report 의 평범한 한 열이다(옛 mysafety_entry_value
+      // 사이드카 표는 없다) — 다른 TEXT 열과 같은 경로로 원본 그대로 복사된다.
       final path = await _serverDb(dir, watchlist: []);
-      await alter(path, [
-        'CREATE TABLE mysafety_entry_value (ID TEXT PRIMARY KEY, entry_value TEXT NOT NULL)',
-        "INSERT INTO mysafety_entry_value VALUES ('s1', '')",
-      ]);
+      await alter(path, ["UPDATE mysafety_report SET entry_value = '' WHERE ID = 's1'"]);
       await LocalDbService.importFromServerDb(path);
       expect((await _row('s1'))['entry_value'], '');
       expect((await _row('s2'))['entry_value'], isNull);
+
       final filled = await _serverDb(dir, watchlist: []);
       await alter(filled, [
-        'CREATE TABLE mysafety_entry_value (ID TEXT PRIMARY KEY, entry_value TEXT NOT NULL)',
-        "INSERT INTO mysafety_entry_value VALUES ('s2', '자동차·교통위반-신호위반')",
+        "UPDATE mysafety_report SET entry_value = '자동차·교통위반-신호위반' WHERE ID = 's2'",
       ]);
       await LocalDbService.importFromServerDb(filled);
       expect((await _row('s2'))['entry_value'], '자동차·교통위반-신호위반');
       expect((await _row('s1'))['entry_value'], isNull);
+    },
+  );
+
+  test(
+    'old mixed server DB layout (mysafety + mysafetymerge_*, schema 5) is refused by the version check alone',
+    () async {
+      // 2026-10-11 전 구조(표 여러 개로 나뉜 병합 레이아웃)는 지금 가져오기가 더는 지원하지 않는다.
+      // 구조를 읽기 전에 버전만으로 거절된다(같은 버전 백업만 받는다는 사용자 결정) — mysafety_report 가 없어도 상관없다.
+      await LocalDbService.importFromServerDb(
+        await _serverDb(dir, watchlist: []),
+      );
+      final path =
+          '${dir.path}/legacy_mixed_${DateTime.now().microsecondsSinceEpoch}.db';
+      final db = await openDatabase(path, singleInstance: false);
+      await db.setVersion(5);
+      await db.execute(
+        'CREATE TABLE mysafety (ID TEXT PRIMARY KEY, 신고번호 TEXT, 신고명 TEXT)',
+      );
+      await db.execute(
+        'CREATE TABLE mysafetymerge_traffic (ID TEXT PRIMARY KEY, 신고번호 TEXT, 신고명 TEXT)',
+      );
+      await db.execute(
+        'CREATE TABLE mysafetymerge_parking (ID TEXT PRIMARY KEY, 신고번호 TEXT, 신고명 TEXT)',
+      );
+      await db.execute(
+        'CREATE TABLE mysafetymerge_other (ID TEXT PRIMARY KEY, 신고번호 TEXT, 신고명 TEXT)',
+      );
+      await db.insert('mysafetymerge_traffic', {
+        'ID': 'old1',
+        '신고번호': 'OLD-1',
+        '신고명': '옛 구조',
+      });
+      await db.close();
+      await expectLater(
+        LocalDbService.importFromServerDb(path),
+        throwsA(
+          isA<LegacyDatabaseException>().having(
+            (e) => e.toString(),
+            'message',
+            contains('이전 버전 서버 DB(스키마 5)'),
+          ),
+        ),
+      );
+      expect((await _row('s1'))['신고명'], '신호위반', reason: '기존 DB 그대로');
+      expect(
+        (await (await LocalDbService.db).query(
+          'reports',
+          where: 'ID = ?',
+          whereArgs: ['old1'],
+        )),
+        isEmpty,
+      );
     },
   );
 
@@ -466,7 +453,7 @@ void main() {
       );
       for (var i = 0; i < 4; i++) {
         final next = await _serverDb(dir, watchlist: []);
-        await alter(next, ["UPDATE mysafetymerge_traffic SET 신고명 = '가져오기 $i'"]);
+        await alter(next, ["UPDATE mysafety_report SET 신고명 = '가져오기 $i' WHERE ID='s1'"]);
         await LocalDbService.importFromServerDb(next);
         await Future<void>.delayed(const Duration(milliseconds: 5));
       }
@@ -510,10 +497,10 @@ void main() {
         reason: '사본이 없으면 아무것도 하지 않는다',
       );
       final a = await _serverDb(dir, watchlist: []);
-      await alter(a, ["UPDATE mysafetymerge_traffic SET 신고명 = 'A'"]);
+      await alter(a, ["UPDATE mysafety_report SET 신고명 = 'A' WHERE ID='s1'"]);
       await LocalDbService.importFromServerDb(a);
       final b = await _serverDb(dir, watchlist: []);
-      await alter(b, ["UPDATE mysafetymerge_traffic SET 신고명 = 'B'"]);
+      await alter(b, ["UPDATE mysafety_report SET 신고명 = 'B' WHERE ID='s1'"]);
       await LocalDbService.importFromServerDb(b);
       expect((await _row('s1'))['신고명'], 'B');
       expect(await LocalDbService.revertToPreviousImport(), isTrue);

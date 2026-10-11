@@ -146,4 +146,117 @@ void main() {
     expect(await content('other-path'), '다른 경로로 만든 신고내용');
     expect(await content('same'), '본문만');
   });
+
+  // ── SSNPC 코드 저장과 분류 재지정(2026-10-11, 앱 DB 17) ──────────────────────
+  group('upsertReport 의 SSNPC 코드·분류', () {
+    const entryTraffic = '자동차·교통위반-신호위반'; // TV-02, category traffic
+    const entryLiving = '생활불편신고-쓰레기, 폐기물'; // DR-06, category living
+
+    test('SSNPC 코드는 정규화되어 저장되고, 코드의 분류가 쓰인다', () async {
+      await LocalDbService.upsertReport(
+        _report(),
+        'traffic',
+        entryTraffic,
+        ssnpcCd: ' tv ',
+        ssnpcType: '2',
+      );
+      final row = await _row();
+      expect(row['ssnpc_cd'], 'TV');
+      expect(row['ssnpc_type'], '02');
+      expect(row['category'], 'traffic');
+    });
+
+    test('코드가 있으면 entry_value 와 분류가 달라도 코드가 이긴다', () async {
+      // entry_value 는 교통위반 메뉴지만 코드는 DR-06(생활불편 쓰레기·폐기물) — 코드가 먼저다.
+      await LocalDbService.upsertReport(
+        _report(),
+        'traffic',
+        entryTraffic,
+        ssnpcCd: 'DR',
+        ssnpcType: '06',
+      );
+      final row = await _row();
+      expect(row['category'], 'living');
+      expect(row['ssnpc_cd'], 'DR');
+      expect(row['ssnpc_type'], '06');
+    });
+
+    test('코드 없는 응답은 저장된 코드를 지우지 않는다', () async {
+      await LocalDbService.upsertReport(
+        _report(),
+        'traffic',
+        entryTraffic,
+        ssnpcCd: 'TV',
+        ssnpcType: '02',
+      );
+      await LocalDbService.upsertReport(
+        _report(),
+        'traffic',
+        entryTraffic,
+      ); // 코드 없는 응답(재크롤링 등)
+      final row = await _row();
+      expect(row['ssnpc_cd'], 'TV', reason: '이번 응답에 코드가 없어도 저장된 코드를 지우지 않는다');
+      expect(row['ssnpc_type'], '02');
+      expect(row['category'], 'traffic');
+    });
+
+    test(
+      '처음 채워지는 코드는 분류가 그대로면 변경으로 세지 않는다(17 변환 직후 가짜 변경 방지)',
+      () async {
+        final first = await LocalDbService.upsertReport(
+          _report(),
+          'traffic',
+          entryTraffic,
+        );
+        expect(first.isNew, isTrue);
+        final second = await LocalDbService.upsertReport(
+          _report(),
+          'traffic',
+          entryTraffic,
+          ssnpcCd: 'TV',
+          ssnpcType: '02', // entry_value 와 같은 분류(traffic)라 category 는 바뀌지 않는다
+        );
+        expect(second.isNew, isFalse);
+        expect(
+          second.changed,
+          isFalse,
+          reason: '이전 값이 없던 ssnpc_cd·ssnpc_type 이 처음 채워지는 것만으로는 변경이 아니다',
+        );
+      },
+    );
+
+    test('이미 저장된 코드가 바뀌면 분류가 같아도 변경으로 센다', () async {
+      await LocalDbService.upsertReport(
+        _report(),
+        'traffic',
+        entryTraffic,
+        ssnpcCd: 'TV',
+        ssnpcType: '02',
+      );
+      final changedResult = await LocalDbService.upsertReport(
+        _report(),
+        'traffic',
+        entryTraffic,
+        ssnpcCd: 'TV',
+        ssnpcType: '09', // 같은 traffic 분류(기타 자동차 안전기준 위반)지만 코드 자체는 바뀐다
+      );
+      expect(
+        changedResult.changed,
+        isTrue,
+        reason: '이전 값이 있던 ssnpc_type 이 바뀌면 분류가 같아도 변경이다',
+      );
+      expect((await _row())['ssnpc_type'], '09');
+    });
+
+    test('category 가 바뀌면 변경으로 센다', () async {
+      await LocalDbService.upsertReport(_report(), 'traffic', entryTraffic);
+      final changedResult = await LocalDbService.upsertReport(
+        _report(),
+        'living',
+        entryLiving,
+      );
+      expect(changedResult.changed, isTrue);
+      expect((await _row())['category'], 'living');
+    });
+  });
 }

@@ -173,15 +173,46 @@ class CategoryStats {
 class AgencyStats {
   final CategoryStats traffic;
   final CategoryStats parking;
+
+  /// 안전신고·생활불편(5분류, 2026-10-11). 구서버(3분류) 응답에는 키가 없어 null —
+  /// 이때는 other 에 안전신고·생활불편·기타가 모두 접혀 있다(서버 report_category.legacy_category 와 같음).
+  final CategoryStats? safety;
+  final CategoryStats? living;
   final CategoryStats other;
   final List<String> availableYears;
 
   const AgencyStats({
     required this.traffic,
     required this.parking,
+    this.safety,
+    this.living,
     required this.other,
     required this.availableYears,
   });
+
+  /// 서버가 5분류(safety·living)를 보냈는지. false 면 구서버 응답(3분류).
+  bool get hasFiveCategories => safety != null && living != null;
+
+  CategoryStats forCategory(String category) {
+    switch (category) {
+      case 'traffic':
+        return traffic;
+      case 'parking':
+        return parking;
+      case 'safety':
+        return safety ?? const CategoryStats(
+          byAgency: [], byPerson: [], policeByAgency: [], policeByPerson: [],
+          otherByAgency: [], otherByPerson: [],
+        );
+      case 'living':
+        return living ?? const CategoryStats(
+          byAgency: [], byPerson: [], policeByAgency: [], policeByPerson: [],
+          otherByAgency: [], otherByPerson: [],
+        );
+      default:
+        return other;
+    }
+  }
 
   factory AgencyStats.fromJson(Map<String, dynamic> json) {
     return AgencyStats(
@@ -191,6 +222,12 @@ class AgencyStats {
       parking: CategoryStats.fromJson(
         (json['parking'] as Map<String, dynamic>?) ?? {},
       ),
+      safety: json['safety'] is Map
+          ? CategoryStats.fromJson(json['safety'] as Map<String, dynamic>)
+          : null,
+      living: json['living'] is Map
+          ? CategoryStats.fromJson(json['living'] as Map<String, dynamic>)
+          : null,
       other: CategoryStats.fromJson(
         (json['other'] as Map<String, dynamic>?) ?? {},
       ),

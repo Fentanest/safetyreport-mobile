@@ -16,6 +16,7 @@ object ServerContract {
     const val API_KEY_HEADER = "X-API-Key"
     const val WS_EVENTS_PATH = "/ws/events"
     const val WS_API_KEY_QUERY = "api_key"
+    const val TAXONOMY_VERSION = "5"
 
     const val EVENT_PING = "ping"
     const val EVENT_CONNECTED = "connected"
@@ -41,6 +42,8 @@ object ServerContract {
             .appendQueryParameter("client_type", "mobile")
             .appendQueryParameter("client_version", productVersion)
             .appendQueryParameter("client_protocol", PROTOCOL_VERSION.toString())
+            // 5분류 지원 신호(서버 services/ws_manager.py: query_params['taxonomy'] != '5' 면 브로드캐스트를 3분류로 접는다).
+            .appendQueryParameter("taxonomy", TAXONOMY_VERSION)
             .build()
             .toString()
     }

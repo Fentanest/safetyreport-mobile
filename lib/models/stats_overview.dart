@@ -230,6 +230,11 @@ class StatsOverview {
   final OverviewSummary all;
   final OverviewSummary traffic;
   final OverviewSummary parking;
+
+  /// 안전신고·생활불편(5분류, 2026-10-11). 구서버(3분류) 응답에는 키가 없어 null —
+  /// 이때는 other 에 안전신고·생활불편·기타가 모두 접혀 있다(서버 report_category.legacy_category 와 같음).
+  final OverviewSummary? safety;
+  final OverviewSummary? living;
   final OverviewSummary other;
 
   /// 연도 필터 기준 컬럼. S-08 결정으로 두 모드 모두 '답변일'.
@@ -242,10 +247,15 @@ class StatsOverview {
     required this.all,
     required this.traffic,
     required this.parking,
+    this.safety,
+    this.living,
     required this.other,
     required this.yearBasis,
     this.excludeWithdraw = false,
   });
+
+  /// 서버(또는 로컬 집계)가 5분류(safety·living)를 보냈는지. false 면 구서버 응답(3분류).
+  bool get hasFiveCategories => safety != null && living != null;
 
   OverviewSummary forCategory(String category) {
     switch (category) {
@@ -253,6 +263,10 @@ class StatsOverview {
         return traffic;
       case 'parking':
         return parking;
+      case 'safety':
+        return safety ?? OverviewSummary.empty;
+      case 'living':
+        return living ?? OverviewSummary.empty;
       case 'other':
         return other;
       default:
@@ -270,6 +284,12 @@ class StatsOverview {
       all: OverviewSummary.fromJson(section('all')),
       traffic: OverviewSummary.fromJson(section('traffic')),
       parking: OverviewSummary.fromJson(section('parking')),
+      safety: json['safety'] is Map
+          ? OverviewSummary.fromJson(section('safety'))
+          : null,
+      living: json['living'] is Map
+          ? OverviewSummary.fromJson(section('living'))
+          : null,
       other: OverviewSummary.fromJson(section('other')),
       yearBasis: json['year_basis']?.toString() ?? '',
       excludeWithdraw: json['exclude_withdraw'] == true,

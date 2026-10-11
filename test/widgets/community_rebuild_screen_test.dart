@@ -457,6 +457,19 @@ void main() {
     expect(find.text('신고 내역 다시 불러오기'), findsOneWidget);
   });
 
+  testWidgets('standalone says app structure instead of server spec', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(home: CommunityRebuildScreen(rebuild: _MemoryRebuild(store))),
+    );
+    await tester.pump();
+    expect(
+      tester.widget<Text>(find.byKey(const Key('rebuildApologyText'))).data,
+      '앱 구조 개선에 따른 추가적인 불가피한 조치입니다. 불편을 드려 죄송합니다.',
+    );
+  });
+
   testWidgets(
     'client mode goes to main as soon as the server accepts the start',
     (tester) async {

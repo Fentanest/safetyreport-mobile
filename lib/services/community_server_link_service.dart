@@ -678,6 +678,9 @@ class CommunityGateLinkResult {
       if (e is Map && e['code'] is String) code = e['code'] as String;
       final m = json['message'];
       if (m is String) message = m;
+      // PC 라우트 오류는 문구를 `detail` 에 싣는다 — 없으면 그 문구를 쓴다(전엔 'HTTP 403' 같은 일반 문구만 보였다).
+      final d = json['detail'];
+      if (message == null && d is String && d.trim().isNotEmpty) message = d;
     }
     return CommunityGateLinkResult.failure(
       code: code.isEmpty ? 'server_error' : code,

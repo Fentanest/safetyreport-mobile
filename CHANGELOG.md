@@ -8,6 +8,15 @@
 
 ---
 
+## 2026-10-12 — Astra 2차 검수 반영(모바일 일부): PC 오류 문구 표시, 계약 Retry-After
+
+- `lib/services/community_server_link_service.dart` `CommunityGateLinkResult.parse`: PC 라우트 오류는 문구를 `detail` 에 싣는데 `message` 만 읽어
+  'HTTP 403' 같은 일반 문구만 보였다 — `message` 가 없으면 `detail` 문구를 쓴다(시험 `test/services/community_gate_link_parse_test.dart`).
+  PC 는 쿨다운 중 다시 불러오기 시작을 503 `cloud_unavailable`('잠시 후 다시 시도')로 구분한다.
+- `contracts/community-ingest/errors.md`(+MANIFEST): 5xx Retry-After 기본값 — 서버·지도 사본과 같은 문장.
+
+---
+
 ## 2026-10-12 — 백그라운드(WorkManager) 전체 수집도 다시 불러오기를 기다린다
 
 - `lib/services/background_login_check.dart`: 백그라운드 isolate 에는 main.dart 의 `SyncEngine.rebuildBlocks` 가 없어, 다시 불러오기가 필요하거나

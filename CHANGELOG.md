@@ -8,6 +8,35 @@
 
 ---
 
+## 2026-10-12 — 다시 불러오기 scope 세대를 표시 필터와 분리(Astra 재검수2 #4)
+
+백그라운드 다시 불러오기 진행 중 설정에서 '취하 데이터 숨기기'·'중복 신고 대표건만 반영'을 바꾸면 `ReportProvider.datasetEpoch`
+가 올라가고, `standaloneRebuild`의 `scopeGeneration`·`_prepare()`의 scope 문자열이 이를 계정·자료셋 교체로 오판해
+`rebuild_generation_changed` 로 중단했다. 실행기(`StandaloneRebuildRunner`)는 `waitingForWorker` 만 자동 재시도해서 그대로
+멈추고 일반 동기화도 막혔다.
+
+- `lib/main.dart`: `standaloneRebuild()`의 `scopeGeneration`과 (새로 뽑아낸 `standaloneRebuildScope()`의) scope 문자열을
+  `provider.datasetEpoch` → `provider.accountConfigEpoch` 로 바꿨다. `accountConfigEpoch`는 이미 `setConfig`(Client 서버 설정
+  변경)·`setStandaloneConfig`(Standalone 계정·데모 전환)·`resetConfig`(로그아웃)에서만 올라가던 값이라 추가 배선 없이 그대로
+  맞는 세대다. DB 복원·서버 DB 가져오기는 `CommunityStore.rotateDataset`이 돌리는 `local_dataset_id` 로 이미 따로 걸려 있어
+  (scope 비교) 이 세대엔 얹지 않았다. `datasetEpoch`는 표시·늦은 응답 버리기 용도를 그대로 유지한다(화면·조회 쪽 사용처는 바꾸지
+  않음). `standaloneRebuild()`에 시험 주입용 `engine`·`backup`·`manifestCheck` 선택 인자 추가(기존 `gateFresh` 와 같은 패턴).
+- `lib/providers/report_provider.dart`: `datasetEpoch`·`accountConfigEpoch` 문서 주석에 두 세대의 역할을 명시(로직 변경 없음,
+  `accountConfigEpoch`증가 지점 3곳은 그대로).
+- 이미 이 버그로 `paused`/`failed` 로 멈춘 run 재개: `StandaloneRebuildRunner.shouldAutoResume`는 애초에 `user_paused`·누락 동의
+  대기만 자동 재개에서 뺀다 — 에러 문구를 보지 않으므로 이 버그로 멈춘 run 도 같은 계정·자료셋으로 다시 attach 되면 다음 실행/
+  게이트 통과 때 자동 재개된다(별도 코드 불필요, 시험으로 확인). 다른 계정 범위의 멈춘 run 은 `source_account_namespace` 로
+  격리돼 재사용되지 않는다.
+- 회귀: `test/community/rebuild_scope_generation_test.dart`(신규) — 진행 중 필터 변경은 중단되지 않음, 진행 중 실제
+  `accountConfigEpoch` 변경(모드 전환·계정 변경·로그아웃과 같은 신호)은 여전히 중단됨, `paused`/`failed` 로 멈춘 동일 계정 run의
+  자동 재개, 다른 계정 범위 run 은 재사용 안 함. 고치기 전 코드(`scopeGeneration`/scope 를 `datasetEpoch` 로 되돌린 상태)로
+  필터 변경 시험이 실패하는 것을 먼저 확인했다.
+- 문서: `docs/architecture/community-gate.md` "코드 대조 정정"에 세대 분리 반영.
+- 전체 `flutter test --no-pub` 1530 통과·17 건너뜀·실패 4(기존 `renewal_golden_test` 골든 4개, 신규 아님). `flutter analyze --no-pub`
+  9건(모두 기존 `test/storage` unnecessary_cast, 신규 0건). `pubspec.lock`은 `flutter pub get` 으로 바뀐 것을 되돌렸다.
+
+---
+
 ## 2026-10-12 — 백그라운드(WorkManager) 전체 수집도 다시 불러오기를 기다린다
 
 - `lib/services/background_login_check.dart`: 백그라운드 isolate 에는 main.dart 의 `SyncEngine.rebuildBlocks` 가 없어, 다시 불러오기가 필요하거나

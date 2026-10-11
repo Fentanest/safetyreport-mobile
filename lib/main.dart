@@ -706,15 +706,26 @@ bool rebuildAppliesOnDevice(ReportProvider provider) =>
 
 /// Standalone 초기화 판정·실행 객체. 새 설치 판정에 개인 DB 사실(신고 수·이전 DB 를 비운 기록)을 쓴다.
 /// 시작 버튼이 있는 화면만 [gateFresh] 를 넘긴다(판정만 할 때는 게이트를 확인하지 않는다).
+///
+/// [scopeGeneration] 은 [ReportProvider.accountConfigEpoch] 를 본다 — 모드 전환(Client↔Standalone)·
+/// 계정 변경(아이디·데모 전환)·로그아웃만 올라간다. [ReportProvider.datasetEpoch] 는 쓰지 않는다 —
+/// 거기엔 표시 필터('취하 데이터 숨기기'·'중복 신고 대표건만 반영') 변경도 섞여 있어서, 진행 중 다시 불러오기가
+/// 그 세대만 보면 필터만 바꿔도 계정이 바뀐 것으로 오판해 `rebuild_generation_changed` 로 중단한다
+/// (Astra 재검수2 #4). DB 복원·서버 DB 가져오기는 [CommunityStore.rotateDataset] 이 돌리는
+/// `local_dataset_id` 로 이미 따로 걸린다(CommunityRebuild 의 scope 비교) — 이 세대엔 얹지 않는다.
+/// [engine]·[backup]·[manifestCheck] 는 시험 주입용(없으면 실제 수집·백업·공유 목록 확인).
 @visibleForTesting
 CommunityRebuild standaloneRebuild(
   CommunityStore store,
   ReportProvider provider, {
   Future<bool> Function()? gateFresh,
+  RebuildEngine? engine,
+  Future<RebuildBackupResult> Function(String runId)? backup,
+  Future<bool> Function()? manifestCheck,
 }) => CommunityRebuild(
   store: store,
   localDatasetId: store.localDatasetId,
-  scopeGeneration: () => provider.datasetEpoch,
+  scopeGeneration: () => provider.accountConfigEpoch,
   sourceNamespace: () async {
     final id = provider.standaloneUsername;
     if (id.isEmpty) return '';
@@ -723,7 +734,22 @@ CommunityRebuild standaloneRebuild(
   gateFresh: gateFresh ?? () async => false,
   personalDbPath: LocalDbService.getDbPath,
   personalDbFacts: LocalDbService.personalDbFacts,
+  engine: engine ?? const RebuildEngine(),
+  backup: backup,
+  manifestCheck: manifestCheck,
 );
+
+/// [StandaloneRebuildGate._prepare] 가 [StandaloneRebuildRunner.attach] 에 넘기는 범위 키.
+/// 계정·데이터셋이 같으면 같은 문자열 — [ReportProvider.accountConfigEpoch] 로 모드 전환·계정 변경·로그아웃만 본다.
+/// 표시 필터(`datasetEpoch`)를 넣지 않는다: 안 그러면 필터만 바꿔도 범위가 바뀐 것으로 보여 진행 중인 작업을
+/// 중단·폐기하고 새 객체를 만든다(Astra 재검수2 #4). DB 복원·가져오기는 `localDatasetId()` 자체가 바뀌어 이미 반영된다.
+@visibleForTesting
+Future<String> standaloneRebuildScope(
+  CommunityStore store,
+  ReportProvider provider,
+) async =>
+    '${store.db.path}:${await store.localDatasetId()}:'
+    '${provider.standaloneUsername}:${provider.accountConfigEpoch}';
 
 /// Standalone 초기화(신고 내역 다시 불러오기) 필요 여부 확인. 필요 없으면 메인으로 건너뛴다.
 ///
@@ -791,9 +817,7 @@ class _StandaloneRebuildGateState extends State<StandaloneRebuildGate> {
     }
     await LocalDbService.requireAccountChangeComplete();
     final store = await CommunityStore.open();
-    final scope =
-        '${store.db.path}:${await store.localDatasetId()}:'
-        '${provider.standaloneUsername}:${provider.datasetEpoch}';
+    final scope = await standaloneRebuildScope(store, provider);
     final rebuild = _runner.attach(
       scope,
       () => standaloneRebuild(

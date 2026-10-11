@@ -60,6 +60,12 @@ class ReportProvider with ChangeNotifier {
   bool _isStandaloneDemo = false;
   String _baseUrl = '';
   String _apiKey = '';
+  /// 화면·진행 중 조회가 "이 결과를 아직 써도 되는가"를 보는 세대. 표시 필터(취하 숨기기·대표건만 반영)
+  /// 변경도 올라간다 — 필터가 바뀌면 필터 적용 전에 시작한 조회의 결과는 새 화면에 쓰지 않아야 하기 때문이다.
+  /// 실제 계정·DB 교체(모드 전환·계정 변경·로그아웃)도 올라간다. 그래서 늦은 응답 버리기·캐시 무효화에는 맞지만,
+  /// **계정·자료셋 정체성**(예: Standalone 초기화 다시 불러오기의 scope) 판정에는 쓰지 않는다 — 그건
+  /// [accountConfigEpoch] 가 맡는다(Astra 재검수2 #4, 2026-10-12). 표시 필터만 바뀌어도 다시 불러오기가
+  /// 계정이 바뀐 것으로 오판해 멈추는 사고가 있었다.
   int _datasetEpoch = 0;
   int get datasetEpoch => _datasetEpoch;
 
@@ -1043,6 +1049,12 @@ class ReportProvider with ChangeNotifier {
   }
 
   /// 앱 조립 시 CommunityGate의 서버 계약 검증/바인딩 해제를 연결한다.
+  /// 실제 계정·DB 교체 세대 — Client 서버 설정 변경([setConfig]), Standalone 계정·데모 전환
+  /// ([setStandaloneConfig]), 로그아웃([resetConfig])에서만 올라간다. 표시 필터 변경([setStandaloneFilter])
+  /// 으로는 올라가지 않는다 — Standalone 초기화 다시 불러오기의 scope·scopeGeneration(`main.dart`
+  /// `standaloneRebuild`·`standaloneRebuildScope`)이 이 값을 본다(Astra 재검수2 #4).
+  /// DB 복원·서버 DB 가져오기는 여기 얹지 않는다 — `CommunityStore.rotateDataset` 이 돌리는
+  /// `local_dataset_id` 자체가 바뀌어 CommunityRebuild 의 scope 비교가 이미 따로 잡아낸다.
   int accountConfigEpoch = 0;
   bool _accountRestartPending = false;
   String? _preparedOfficialId;

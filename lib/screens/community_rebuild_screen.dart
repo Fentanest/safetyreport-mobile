@@ -9,6 +9,7 @@ import '../community/rebuild/standalone_rebuild_runner.dart';
 import '../services/community_auth_service.dart';
 import '../services/community_server_link_service.dart';
 import '../theme/sr_colors.dart';
+import '../widgets/community_server_account_card.dart';
 import 'community_onboarding_screen.dart';
 
 /// 초기화 크롤링 안내·확인·진행 화면 (`contracts/community-ingest/rebuild.md`).
@@ -178,7 +179,7 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
         // 서버가 초기화 필요 없음(완료했거나 새 설치)이라고 하면 이 화면에 머물지 않는다.
         // 예전엔 완료된 서버에서도 앱을 켤 때마다 시작 버튼을 눌러야 했다.
         if (res.data?['required'] == false) await widget.onDone?.call();
-      } else if (_handleRecovery(res)) {
+      } else if (_handleRecovery(res, token: token)) {
         return;
       } else if (res.needsPermission) {
         setState(() {
@@ -195,19 +196,56 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
     }
   }
 
-  bool _handleRecovery(CommunityGateLinkResult result) {
+  bool _handleRecovery(CommunityGateLinkResult result, {String? token}) {
     if (result.code != 'user_token_required' &&
+        result.code != 'server_login_required' &&
         result.code != 'cloud_unavailable') {
       return false;
     }
+    // 구버전 PC는 자기 세션이 없어도 휴대폰 토큰 오류를 돌려준다.
+    // 사용 가능한 휴대폰 세션이 있으면 서버 로그인 복구를 안내한다(권한 검증은 서버가 계속 수행).
+    final legacyServerLogin =
+        result.code == 'user_token_required' &&
+        token != null &&
+        token.isNotEmpty &&
+        _auth.state.value.phase == CommunityAccountPhase.connected;
     setState(() {
       _permissionRequired = false;
-      _recoveryCode = result.code;
-      _error = result.code == 'user_token_required'
-          ? '커뮤니티 계정으로 다시 로그인해 주세요.'
-          : '커뮤니티 서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.';
+      _recoveryCode = legacyServerLogin ? 'server_login_required' : result.code;
+      _error = legacyServerLogin
+          ? 'PC 서버의 커뮤니티 계정 로그인이 필요할 수 있습니다. 휴대폰과 같은 커뮤니티 계정으로 서버에 로그인해 주세요.'
+          : switch (result.code) {
+              'server_login_required' =>
+                result.message ?? 'PC 서버의 커뮤니티 계정 로그인이 필요합니다.',
+              'user_token_required' => '커뮤니티 계정으로 다시 로그인해 주세요.',
+              _ => '커뮤니티 서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.',
+            };
     });
     return true;
+  }
+
+  Future<void> _openServerLogin() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (serverContext) => Scaffold(
+          appBar: AppBar(title: const Text('서버의 커뮤니티 계정')),
+          body: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              CommunityServerAccountCard(
+                baseUrl: widget.serverBaseUrl,
+                apiKey: widget.serverApiKey,
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(serverContext).pop(),
+                child: const Text('로그인 후 상태 다시 확인'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (mounted) await _loadServer();
   }
 
   Future<void> _openLogin() async {
@@ -460,14 +498,16 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
       return FilledButton(
         onPressed: _busy
             ? null
-            : () => _run(
-                _recoveryCode == 'user_token_required'
-                    ? _openLogin
-                    : _loadServer,
-              ),
-        child: Text(
-          _recoveryCode == 'user_token_required' ? '커뮤니티 로그인 화면으로 이동' : '다시 시도',
-        ),
+            : () => _run(switch (_recoveryCode) {
+                'server_login_required' => _openServerLogin,
+                'user_token_required' => _openLogin,
+                _ => _loadServer,
+              }),
+        child: Text(switch (_recoveryCode) {
+          'server_login_required' => '서버 커뮤니티 계정 로그인',
+          'user_token_required' => '커뮤니티 로그인 화면으로 이동',
+          _ => '다시 시도',
+        }),
       );
     }
     final job = _serverJob;
@@ -527,7 +567,7 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
                         s == 'committing') {
                       await widget.onDone?.call();
                     }
-                  } else if (!_handleRecovery(res)) {
+                  } else if (!_handleRecovery(res, token: token)) {
                     setState(() => _error = res.message ?? '서버 초기화에 실패했습니다.');
                   }
                 }),

@@ -17,6 +17,8 @@ import 'package:safetyreport/community/community_store.dart';
 import 'package:safetyreport/community/rebuild/community_rebuild.dart';
 import 'package:safetyreport/screens/community_rebuild_screen.dart';
 import 'package:safetyreport/screens/community_onboarding_screen.dart';
+import 'package:safetyreport/services/community_auth_service.dart';
+import 'package:safetyreport/widgets/community_server_account_card.dart';
 import 'package:safetyreport/services/community_server_link_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -106,10 +108,8 @@ class _StartingServerClient extends CommunityServerRebuildClient {
     String baseUrl,
     String apiKey,
     String? token,
-  ) async => CommunityGateLinkResult.success({
-    'required': true,
-    'state': 'required',
-  });
+  ) async =>
+      CommunityGateLinkResult.success({'required': true, 'state': 'required'});
 
   @override
   Future<CommunityGateLinkResult> start(
@@ -141,14 +141,24 @@ class _PermissionServerClient extends CommunityServerRebuildClient {
 }
 
 class _RecoveryServerClient extends CommunityServerRebuildClient {
-  _RecoveryServerClient(this.code, {this.failOnFetch = false});
+  _RecoveryServerClient(
+    this.code, {
+    this.failOnFetch = false,
+    this.paused = false,
+  });
   final String code;
   final bool failOnFetch;
+  final bool paused;
   bool recovered = false;
   int fetches = 0;
+  int resumes = 0;
   CommunityGateLinkResult failure() => CommunityGateLinkResult.parse(
-    code == 'user_token_required' ? 403 : 503,
-    '{"code":"$code"}',
+    code == 'server_login_required'
+        ? 409
+        : code == 'user_token_required'
+        ? 403
+        : 503,
+    '{"code":"$code"${code == 'server_login_required' ? ',"message":"PC 서버의 커뮤니티 계정 로그인이 필요합니다. 서버 안내 문구"' : ''}}',
   );
   @override
   Future<CommunityGateLinkResult> fetch(
@@ -161,7 +171,11 @@ class _RecoveryServerClient extends CommunityServerRebuildClient {
         ? failure()
         : CommunityGateLinkResult.success({
             'required': !recovered,
-            'state': recovered ? 'completed' : 'required',
+            'state': recovered
+                ? 'completed'
+                : paused
+                ? 'paused'
+                : 'required',
           });
   }
 
@@ -171,6 +185,16 @@ class _RecoveryServerClient extends CommunityServerRebuildClient {
     String key,
     String? token,
   ) async => failure();
+
+  @override
+  Future<CommunityGateLinkResult> resume(
+    String base,
+    String key,
+    String? token,
+  ) async {
+    resumes++;
+    return failure();
+  }
 }
 
 class _RecoveryAuth extends StubAuthService {
@@ -215,12 +239,73 @@ class _ProgressRebuild extends _MemoryRebuild {
 void main() {
   sqfliteFfiInit();
 
-  for (final onFetch in [false, true]) {
+  for (final source in ['fetch', 'start', 'resume']) {
+    final onFetch = source == 'fetch';
+    const actionLabel = '확인 — 초기화 크롤링 시작';
+    for (final code in ['server_login_required', 'user_token_required']) {
+      testWidgets(
+        'Client $code opens server pairing and refreshes on return ($source)',
+        (tester) async {
+          final client = _RecoveryServerClient(
+            code,
+            failOnFetch: onFetch,
+            paused: source == 'resume',
+          );
+          final auth = _RecoveryAuth()
+            ..setPhase(CommunityAccountPhase.connected);
+          var done = 0;
+          await tester.pumpWidget(
+            MaterialApp(
+              home: CommunityRebuildScreen(
+                isClient: true,
+                serverClient: client,
+                auth: auth,
+                serverApiKey: 'fixture-api-key',
+                onDone: () async => done++,
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          if (!onFetch) {
+            await tester.ensureVisible(find.text(actionLabel));
+            await tester.tap(find.text(actionLabel));
+            await tester.pumpAndSettle();
+          }
+          expect(
+            find.textContaining(
+              code == 'server_login_required' ? '서버 안내 문구' : '필요할 수 있습니다',
+            ),
+            findsOneWidget,
+          );
+          expect(find.text('커뮤니티 로그인 화면으로 이동'), findsNothing);
+          expect(client.resumes, source == 'resume' ? 1 : 0);
+          await tester.ensureVisible(find.text('서버 커뮤니티 계정 로그인'));
+          await tester.tap(find.text('서버 커뮤니티 계정 로그인'));
+          await tester.pumpAndSettle();
+          expect(find.byType(CommunityServerAccountCard), findsOneWidget);
+          expect(find.byType(CommunityOnboardingScreen), findsNothing);
+          final card = tester.widget<CommunityServerAccountCard>(
+            find.byType(CommunityServerAccountCard),
+          );
+          expect(card.apiKey, 'fixture-api-key');
+          expect(card.baseUrl, '');
+          client.recovered = true;
+          await tester.tap(find.text('로그인 후 상태 다시 확인'));
+          await tester.pumpAndSettle();
+          expect(client.fetches, 2);
+          expect(done, 1);
+          expect(tester.takeException(), isNull);
+          await tester.pumpWidget(const SizedBox());
+        },
+      );
+    }
     for (final code in ['user_token_required', 'cloud_unavailable']) {
-      testWidgets('Client $code recovery from ${onFetch ? 'fetch' : 'start'}', (
-        tester,
-      ) async {
-        final client = _RecoveryServerClient(code, failOnFetch: onFetch);
+      testWidgets('Client $code recovery from $source', (tester) async {
+        final client = _RecoveryServerClient(
+          code,
+          failOnFetch: onFetch,
+          paused: source == 'resume',
+        );
         var done = 0;
         await tester.pumpWidget(
           MaterialApp(
@@ -234,11 +319,11 @@ void main() {
         );
         await tester.pumpAndSettle();
         if (!onFetch) {
-          await tester.ensureVisible(find.text('확인 — 초기화 크롤링 시작'));
-          await tester.tap(find.text('확인 — 초기화 크롤링 시작'));
+          await tester.ensureVisible(find.text(actionLabel));
+          await tester.tap(find.text(actionLabel));
           await tester.pumpAndSettle();
         }
-        expect(find.text('확인 — 초기화 크롤링 시작'), findsNothing);
+        expect(find.text(actionLabel), findsNothing);
         final login = code == 'user_token_required';
         expect(
           find.textContaining(login ? '커뮤니티 계정으로 다시 로그인' : '잠시 후 다시 시도'),
@@ -525,7 +610,10 @@ void main() {
       const MaterialApp(home: CommunityRebuildScreen(isClient: true)),
     );
     await tester.pump();
-    expect(find.textContaining('연결된 서버가 저장된 신고를 안전신문고에서 한 번 다시 불러옵니다'), findsOneWidget);
+    expect(
+      find.textContaining('연결된 서버가 저장된 신고를 안전신문고에서 한 번 다시 불러옵니다'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('both modes show the update notice with the apology line', (

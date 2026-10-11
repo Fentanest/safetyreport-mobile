@@ -9,6 +9,43 @@ import 'package:safetyreport/services/server_contract.dart';
 
 void main() {
   setUp(resetSelfhostFixture);
+  for (final resume in [false, true]) {
+    test(
+      'server login 409 survives ${resume ? 'resume' : 'start'} service call',
+      () async {
+        const message =
+            'PC 서버의 커뮤니티 계정 로그인이 필요합니다. PC 설정의 커뮤니티 계정에서 카카오로 다시 로그인해 주세요.';
+        final mock = selfhostMockClient((req) async {
+          expect(
+            req.headers[ServerContract.communityUserTokenHeader],
+            'fixture-phone-token',
+          );
+          return http.Response(
+            jsonEncode({
+              'code': 'server_login_required',
+              'detail': message,
+              'message': message,
+            }),
+            409,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        });
+        final call = resume
+            ? CommunityServerLinkService.resumeCommunityRebuild
+            : CommunityServerLinkService.startCommunityRebuild;
+        final result = await call(
+          baseUrl: 'https://srv.test',
+          apiKey: 'k',
+          userToken: 'fixture-phone-token',
+          client: mock,
+        );
+        expect(result.isOk, isFalse);
+        expect(result.httpStatus, 409);
+        expect(result.code, 'server_login_required');
+        expect(result.message, message);
+      },
+    );
+  }
   test('server contract paths exist', () {
     expect(ServerContract.communityGatePath, '/api/v1/community/gate');
     expect(ServerContract.communityRebuildPath, '/api/v1/community/rebuild');
@@ -46,19 +83,30 @@ void main() {
     },
   );
 
-  test('old server rebuild permission denial explains the PC key setting', () async {
-    final mock = selfhostMockClient((_) async => http.Response(
-      jsonEncode({'code': 'permission_required', 'detail': '관리 권한이 없는 키입니다.'}),
-      403, headers: {'content-type': 'application/json; charset=utf-8'},
-    ));
-    final res = await CommunityServerLinkService.fetchCommunityRebuild(
-      baseUrl: 'https://srv.test', apiKey: 'k', client: mock,
-    );
-    expect(res.needsPermission, isTrue);
-    expect(res.isOk, isFalse);
-    expect(res.message, contains('PC 앱 설정 > 4. 커뮤니티 계정'));
-    expect(res.message, isNot(contains('HTTP 403')));
-  });
+  test(
+    'old server rebuild permission denial explains the PC key setting',
+    () async {
+      final mock = selfhostMockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'code': 'permission_required',
+            'detail': '관리 권한이 없는 키입니다.',
+          }),
+          403,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        ),
+      );
+      final res = await CommunityServerLinkService.fetchCommunityRebuild(
+        baseUrl: 'https://srv.test',
+        apiKey: 'k',
+        client: mock,
+      );
+      expect(res.needsPermission, isTrue);
+      expect(res.isOk, isFalse);
+      expect(res.message, contains('PC 앱 설정 > 4. 커뮤니티 계정'));
+      expect(res.message, isNot(contains('HTTP 403')));
+    },
+  );
 
   test('409 COMMUNITY_REBUILD_REQUIRED surfaces for rebuild start', () async {
     final mock = selfhostMockClient(

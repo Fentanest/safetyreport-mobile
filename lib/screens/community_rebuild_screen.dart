@@ -1,12 +1,15 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../community/gate/community_gate.dart';
 import '../community/rebuild/community_rebuild.dart';
 import '../community/rebuild/standalone_rebuild_runner.dart';
 import '../services/community_auth_service.dart';
 import '../services/community_server_link_service.dart';
 import '../theme/sr_colors.dart';
+import 'community_onboarding_screen.dart';
 
 /// 초기화 크롤링 안내·확인·진행 화면 (`contracts/community-ingest/rebuild.md`).
 ///
@@ -79,6 +82,7 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
   Map<String, dynamic>? _serverJob;
   bool _serverLoading = false;
   bool _permissionRequired = false;
+  String? _recoveryCode;
 
   CommunityAuthService get _auth =>
       widget.auth ?? CommunityAuthService.instance;
@@ -158,6 +162,7 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
     setState(() {
       _serverLoading = true;
       _error = null;
+      _recoveryCode = null;
     });
     try {
       final token = await _userToken();
@@ -173,6 +178,8 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
         // 서버가 초기화 필요 없음(완료했거나 새 설치)이라고 하면 이 화면에 머물지 않는다.
         // 예전엔 완료된 서버에서도 앱을 켤 때마다 시작 버튼을 눌러야 했다.
         if (res.data?['required'] == false) await widget.onDone?.call();
+      } else if (_handleRecovery(res)) {
+        return;
       } else if (res.needsPermission) {
         setState(() {
           _serverJob = null;
@@ -186,6 +193,45 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
     } finally {
       if (mounted) setState(() => _serverLoading = false);
     }
+  }
+
+  bool _handleRecovery(CommunityGateLinkResult result) {
+    if (result.code != 'user_token_required' &&
+        result.code != 'cloud_unavailable') {
+      return false;
+    }
+    setState(() {
+      _permissionRequired = false;
+      _recoveryCode = result.code;
+      _error = result.code == 'user_token_required'
+          ? '커뮤니티 계정으로 다시 로그인해 주세요.'
+          : '커뮤니티 서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.';
+    });
+    return true;
+  }
+
+  Future<void> _openLogin() async {
+    await _auth.load();
+    if (!mounted) return;
+    final gate = context.read<CommunityGate?>();
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (loginContext) => CommunityOnboardingScreen(
+          auth: _auth,
+          gate: gate,
+          accountClient: gate?.accountClient,
+          clientServer: (
+            baseUrl: widget.serverBaseUrl,
+            apiKey: widget.serverApiKey,
+          ),
+          onNext: () async {
+            if (gate != null && !(await gate.requireFresh()).canEnter) return;
+            if (loginContext.mounted) Navigator.of(loginContext).pop();
+          },
+        ),
+      ),
+    );
+    if (mounted) await _loadServer();
   }
 
   Future<void> _run(Future<void> Function() action) async {
@@ -410,6 +456,20 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
     if (_serverLoading) {
       return const Center(child: CircularProgressIndicator());
     }
+    if (_recoveryCode != null) {
+      return FilledButton(
+        onPressed: _busy
+            ? null
+            : () => _run(
+                _recoveryCode == 'user_token_required'
+                    ? _openLogin
+                    : _loadServer,
+              ),
+        child: Text(
+          _recoveryCode == 'user_token_required' ? '커뮤니티 로그인 화면으로 이동' : '다시 시도',
+        ),
+      );
+    }
     final job = _serverJob;
     final state = job?['state']?.toString() ?? 'required';
     return Column(
@@ -467,7 +527,7 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
                         s == 'committing') {
                       await widget.onDone?.call();
                     }
-                  } else {
+                  } else if (!_handleRecovery(res)) {
                     setState(() => _error = res.message ?? '서버 초기화에 실패했습니다.');
                   }
                 }),

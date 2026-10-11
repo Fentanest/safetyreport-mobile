@@ -220,6 +220,7 @@ class CommunityAuthService {
 
   /// 저장소에서 상태를 다시 읽는다(앱 시작·설정 화면 진입).
   Future<void> load() async {
+    await _retireForeignSession();
     if (_candidate != null) return; // 확인 대기 중이면 그대로 둔다.
     if (state.value.phase == CommunityAccountPhase.exchanging) return;
     final pending = await _readPending();
@@ -256,7 +257,7 @@ class CommunityAuthService {
     if (!config.isConfigured) return CommunityAccountPhase.unconfigured;
     final session = await _readSession();
     if (session == null) return CommunityAccountPhase.disconnected;
-    return session.reauthRequired
+    return session.reauthRequired || _hasForeignIssuer(session)
         ? CommunityAccountPhase.reauthRequired
         : CommunityAccountPhase.connected;
   }
@@ -270,7 +271,7 @@ class CommunityAuthService {
     final session = await _readSession();
     if (session == null) {
       _emit(CommunityAccountPhase.disconnected, notice: notice);
-    } else if (session.reauthRequired) {
+    } else if (session.reauthRequired || _hasForeignIssuer(session)) {
       _emit(
         CommunityAccountPhase.reauthRequired,
         account: session.info,
@@ -585,12 +586,17 @@ class CommunityAuthService {
     if (!config.isConfigured) {
       return const CommunityTokenResult(CommunityTokenStatus.notConfigured);
     }
+    await _retireForeignSession();
     final s = await _readSession();
     if (s == null) {
       return const CommunityTokenResult(CommunityTokenStatus.notConnected);
     }
     if (s.reauthRequired) {
       return const CommunityTokenResult(CommunityTokenStatus.reauthRequired);
+    }
+    if (_hasForeignIssuer(s)) {
+      // 잠금 획득 실패로 아직 폐기하지 못한 이전 토큰도 전송하지 않는다.
+      return const CommunityTokenResult(CommunityTokenStatus.temporarilyUnavailable);
     }
     if (_freshEnough(s, rejected)) {
       return CommunityTokenResult(CommunityTokenStatus.ok, s.accessToken);
@@ -611,6 +617,7 @@ class CommunityAuthService {
   Future<CommunityTokenResult> _refreshLocked(String? rejected) async {
     final s = await _readSession();
     if (s == null || s.reauthRequired) return _fromCurrent(s);
+    if (_hasForeignIssuer(s)) return _retireForeignSessionLocked();
     if (_freshEnough(s, rejected)) {
       return CommunityTokenResult(CommunityTokenStatus.ok, s.accessToken);
     }
@@ -787,6 +794,46 @@ class CommunityAuthService {
   Future<_StoredSession?> _readSession() async {
     final raw = await _safeRead(sessionKey);
     return raw == null ? null : _StoredSession.decode(raw);
+  }
+
+  // 발급처 비교는 이전 서버의 세션을 폐기하는 용도다. 인증 허용은 서버 검증을 따른다.
+  bool _hasForeignIssuer(_StoredSession? session) {
+    if (!config.isConfigured || session == null || session.reauthRequired) {
+      return false;
+    }
+    try {
+      final parts = session.accessToken.split('.');
+      if (parts.length != 3) return false;
+      final claims = jsonDecode(
+        utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
+      );
+      final issuer = claims is Map ? claims['iss'] : null;
+      if (issuer is! String || issuer.isEmpty) return false;
+      final expected =
+          '${config.supabaseUrl.replaceFirst(RegExp(r'/+$'), '')}/auth/v1';
+      return issuer.replaceFirst(RegExp(r'/+$'), '') != expected;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _retireForeignSession() async {
+    if (!_hasForeignIssuer(await _readSession())) return;
+    await _refreshLock(_retireForeignSessionLocked);
+  }
+
+  Future<CommunityTokenResult> _retireForeignSessionLocked() async {
+    // 다른 isolate 가 새 로그인을 저장했을 수 있으므로 잠금 뒤 다시 읽는다.
+    final current = await _readSession();
+    if (!_hasForeignIssuer(current)) return _fromCurrent(current);
+    final retired = current!.markReauthRequired();
+    await _storage.write(key: sessionKey, value: retired.encode());
+    _emit(
+      CommunityAccountPhase.reauthRequired,
+      account: retired.info,
+      notice: '커뮤니티 계정으로 다시 로그인해 주세요.',
+    );
+    return const CommunityTokenResult(CommunityTokenStatus.reauthRequired);
   }
 
   Future<String?> _safeRead(String key) async {

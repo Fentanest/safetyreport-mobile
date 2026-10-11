@@ -16,6 +16,7 @@ import '../community/fake_account.dart';
 import 'package:safetyreport/community/community_store.dart';
 import 'package:safetyreport/community/rebuild/community_rebuild.dart';
 import 'package:safetyreport/screens/community_rebuild_screen.dart';
+import 'package:safetyreport/screens/community_onboarding_screen.dart';
 import 'package:safetyreport/services/community_server_link_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -139,6 +140,44 @@ class _PermissionServerClient extends CommunityServerRebuildClient {
       : CommunityGateLinkResult.parse(403, '{"code":"permission_required"}');
 }
 
+class _RecoveryServerClient extends CommunityServerRebuildClient {
+  _RecoveryServerClient(this.code, {this.failOnFetch = false});
+  final String code;
+  final bool failOnFetch;
+  bool recovered = false;
+  int fetches = 0;
+  CommunityGateLinkResult failure() => CommunityGateLinkResult.parse(
+    code == 'user_token_required' ? 403 : 503,
+    '{"code":"$code"}',
+  );
+  @override
+  Future<CommunityGateLinkResult> fetch(
+    String base,
+    String key,
+    String? token,
+  ) async {
+    fetches++;
+    return failOnFetch && !recovered
+        ? failure()
+        : CommunityGateLinkResult.success({
+            'required': !recovered,
+            'state': recovered ? 'completed' : 'required',
+          });
+  }
+
+  @override
+  Future<CommunityGateLinkResult> start(
+    String base,
+    String key,
+    String? token,
+  ) async => failure();
+}
+
+class _RecoveryAuth extends StubAuthService {
+  @override
+  Future<void> load() async {}
+}
+
 class _ProgressRebuild extends _MemoryRebuild {
   _ProgressRebuild(super.store);
   bool active = false;
@@ -175,6 +214,52 @@ class _ProgressRebuild extends _MemoryRebuild {
 
 void main() {
   sqfliteFfiInit();
+
+  for (final onFetch in [false, true]) {
+    for (final code in ['user_token_required', 'cloud_unavailable']) {
+      testWidgets('Client $code recovery from ${onFetch ? 'fetch' : 'start'}', (
+        tester,
+      ) async {
+        final client = _RecoveryServerClient(code, failOnFetch: onFetch);
+        var done = 0;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: CommunityRebuildScreen(
+              isClient: true,
+              serverClient: client,
+              auth: _RecoveryAuth(),
+              onDone: () async => done++,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        if (!onFetch) {
+          await tester.ensureVisible(find.text('확인 — 초기화 크롤링 시작'));
+          await tester.tap(find.text('확인 — 초기화 크롤링 시작'));
+          await tester.pumpAndSettle();
+        }
+        expect(find.text('확인 — 초기화 크롤링 시작'), findsNothing);
+        final login = code == 'user_token_required';
+        expect(
+          find.textContaining(login ? '커뮤니티 계정으로 다시 로그인' : '잠시 후 다시 시도'),
+          findsOneWidget,
+        );
+        final button = find.text(login ? '커뮤니티 로그인 화면으로 이동' : '다시 시도');
+        await tester.ensureVisible(button);
+        client.recovered = true;
+        await tester.tap(button);
+        await tester.pumpAndSettle();
+        if (login) {
+          expect(find.byType(CommunityOnboardingScreen), findsOneWidget);
+        } else {
+          expect(client.fetches, 2);
+          expect(done, 1);
+        }
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      });
+    }
+  }
 
   late Directory tmp;
   late String dbPath;

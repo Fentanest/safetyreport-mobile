@@ -446,6 +446,54 @@ void main() {
   });
 
   group('세션 공급', () {
+    for (final entry in ['load', 'token']) {
+      test('이전 서버 세션은 $entry 에서 재로그인으로 전환한다', () async {
+        final payload = base64Url
+            .encode(
+              utf8.encode(jsonEncode({'iss': 'https://old.example/auth/v1'})),
+            )
+            .replaceAll('=', '');
+        seedSession(
+          expiresAt: now.add(const Duration(hours: 1)),
+          access: 'e30.$payload.signature',
+        );
+        if (entry == 'load') await svc.load();
+        final result = await svc.getAccessTokenResult();
+        expect(result.status, CommunityTokenStatus.reauthRequired);
+        expect(result.accessToken, isNull);
+        expect(svc.state.value.phase, CommunityAccountPhase.reauthRequired);
+        expect(stored()!['access_token'], '');
+        expect(stored()!['refresh_token'], '');
+        expect(stored()!['user_id'], 'user-a');
+        expect(fake.requests, isEmpty);
+      });
+    }
+
+    for (final issuer in [
+      '$_supabase/auth/v1',
+      '$_supabase/auth/v1/',
+      null,
+      '',
+    ]) {
+      test('같은 발급처 또는 발급처 없음은 유지: $issuer', () async {
+        final payload = base64Url
+            .encode(
+              utf8.encode(jsonEncode(issuer == null ? {} : {'iss': issuer})),
+            )
+            .replaceAll('=', '');
+        final token = 'e30.$payload.signature';
+        seedSession(
+          expiresAt: now.add(const Duration(hours: 1)),
+          access: token,
+        );
+        await svc.load();
+        expect(await svc.getAccessToken(), token);
+        expect(svc.state.value.phase, CommunityAccountPhase.connected);
+        expect(stored()!['refresh_token'], 'ref-old');
+        expect(fake.requests, isEmpty);
+      });
+    }
+
     test('만료가 멀면 갱신하지 않는다', () async {
       seedSession(expiresAt: now.add(const Duration(minutes: 30)));
       expect(await svc.getAccessToken(), 'acc-old');

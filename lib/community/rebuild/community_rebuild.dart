@@ -47,9 +47,12 @@ const String communityRebuildClientGuideText =
     '안전신고·생활불편·기타로 나뉩니다. 바뀐 기준을 반영하기 위해 연결된 서버가 저장된 신고를 안전신문고에서 한 번 다시 불러옵니다. '
     '서버에서 진행되므로 시작한 뒤에는 앱을 계속 쓰거나 닫아도 됩니다.';
 
-/// 사용자 지정 문구(2026-10-11) — 세 화면(Standalone·Client·PC)에 같은 문장.
+/// 사용자 지정 문구(2026-10-11). Client·PC 는 서버가 다시 불러오므로 '서버 사양 개선',
+/// Standalone 은 서버 없이 이 기기가 하므로 '앱 구조 개선'(2026-10-11 사용자 결정).
 const String communityRebuildApologyText =
     '서버 사양 개선에 따른 추가적인 불가피한 조치입니다. 불편을 드려 죄송합니다.';
+const String communityRebuildStandaloneApologyText =
+    '앱 구조 개선에 따른 추가적인 불가피한 조치입니다. 불편을 드려 죄송합니다.';
 
 const String communityRebuildPreservedText =
     '보존 항목: 관리자·공식 계정 설정, 커뮤니티 연결·동의, 앱 설정, 수정한 값·메모·감시목록·중복 판단, '

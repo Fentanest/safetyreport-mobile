@@ -255,10 +255,12 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
                       style: const TextStyle(fontSize: 13, height: 1.5),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      communityRebuildApologyText,
-                      key: Key('rebuildApologyText'),
-                      style: TextStyle(
+                    Text(
+                      widget.isClient
+                          ? communityRebuildApologyText
+                          : communityRebuildStandaloneApologyText,
+                      key: const Key('rebuildApologyText'),
+                      style: const TextStyle(
                         fontSize: 13,
                         height: 1.5,
                         fontWeight: FontWeight.bold,

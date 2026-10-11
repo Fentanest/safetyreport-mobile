@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-12 — 2.1.0 (빌드 38) 릴리스 준비
+
+- 신고 5분류·백그라운드 다시 불러오기·차량번호 인식·장애 재시도 개선을 2.1.0으로 정리했다.
+- pubspec.yaml과 빌드 원본 VERSION을 2.1.0+38로 맞췄다. pubspec.lock은 변경하지 않았다.
+- community-ingest 계약·MANIFEST를 PC·지도와 동일하게 갱신했다. 사용자용 안내는 docs/releases/v2.1.0.md.
+- 로컬 검증(기본 Flutter 3.41.6): 1535 통과·16 건너뜀·기존 골든 4건 실패. analyze는 기존 unnecessary_cast 경고 9건. 계약 사본 해시·바이트 비교 통과.
+
+---
+
 작업, 버그 수정, 세션 기록용 문서.
 
 - 구조/운영 컨텍스트는 `CLAUDE.md`에 유지

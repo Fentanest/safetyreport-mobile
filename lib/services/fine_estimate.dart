@@ -9,8 +9,9 @@
 library;
 
 import 'package:intl/intl.dart';
+import 'report_category.dart' as report_category;
 
-const String ruleVersion = "2026-09-24.1";
+const String ruleVersion = "2026-10-11.1";
 
 const String _passenger = "승용등";
 const String _van = "승합등";
@@ -135,27 +136,38 @@ int? _occurHour(dynamic occurTime) {
 
 String? classify(Map<String, dynamic> record) {
   final category = _text(record["category"]);
-  final entry = _text(record["entry_value"]);
+  final resolved = report_category.resolve(
+    record["ssnpc_cd"],
+    record["ssnpc_type"],
+    record["entry_value"],
+  );
+  final code = resolved.code;
   final name = _text(record["신고명"]);
   final law = _text(record["위반법규"]);
   final plate = record["차량번호"];
   final first = record["사진_첫촬영"];
   final last = record["사진_끝촬영"];
 
-  if (entry.contains("불법주정차신고") || category == "parking") {
-    if (isCommercialTruck(plate) && isOvernightWindow(first, last)) {
-      return "overnight_truck";
+  if (resolved.category == "parking" || category == "parking") {
+    if (code == null || code == "EP-02") {
+      if (isCommercialTruck(plate) && isOvernightWindow(first, last)) {
+        return "overnight_truck";
+      }
+      return "parking";
     }
-    if (entry.contains("충전")) {
+    if (code == "EP-04") {
       return "ev_charging";
     }
-    if (entry.contains("장애인")) {
+    if (code == "EP-01") {
       return "disabled_parking";
     }
-    if (entry.contains("소화전")) {
+    if (code == "EP-03") {
+      return "fire_lane";
+    }
+    if (code == "IP-01") {
       return "hydrant";
     }
-    if (entry.contains("어린이")) {
+    if (code == "IP-05") {
       final hour = _occurHour(record["발생시각"]);
       if (hour != null && hour >= 8 && hour < 20) {
         return "school_zone";
@@ -164,11 +176,13 @@ String? classify(Map<String, dynamic> record) {
     }
     return "parking";
   }
-  if (entry.contains("쓰레기, 폐기물")) {
+  if (code == "DR-06" || code == "CM-05") {
     return "waste";
   }
-  if (category == "traffic" &&
-      ((name.contains("버스") && name.contains("차로")) || law.contains("제15조"))) {
+  if ((resolved.category == "traffic" || category == "traffic") &&
+      (code == "TV-05" ||
+          (name.contains("버스") && name.contains("차로")) ||
+          law.contains("제15조"))) {
     return "bus_lane";
   }
   return null;
@@ -205,6 +219,9 @@ const Map<String, _FineRule> _rules = {
   ),
   "ev_charging": _FineRule("친환경자동차법 시행령 별표 제2호 가목(충전구역 주차)", {null: 100000}),
   "disabled_parking": _FineRule("장애인등편의법 제17조제4항(장애인전용주차구역)", {null: 100000}),
+  "fire_lane": _FineRule("소방기본법 시행령 별표3 제2호 아목(소방차 전용구역 주차·진입 방해, 1차)", {
+    null: 500000,
+  }),
   "waste": _FineRule("폐기물관리법 시행령 별표8 1)가)(휴대 생활폐기물 투기)", {null: 50000}),
   "overnight_truck": _FineRule("화물자동차 운수사업법 시행규칙 별표3 제2호(밤샘주차, 개인 1.5톤 이하)", {
     null: 50000,

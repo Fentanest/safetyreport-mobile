@@ -8,6 +8,29 @@
 
 ---
 
+## 2026-10-11 (4단계, Sonnet) '기타' 세분류(안전신고·생활불편·기타) — 5분류 UI (미배포)
+
+- 사용자 지시(`docs/plans/2026-10-11-report-taxonomy.md` 4단계)로 신고내역 4개 분류를 6탭(교통위반·주정차·안전신고·생활불편·기타·중복차량)으로 나눴다.
+  `lib/services/*`·`local_db_service.dart`·`api_service.dart`·`local_statistics.dart`·모델 파싱은 Stage 4A(병행 worktree) 몫이라 손대지 않았고,
+  작업 중간에 `feat/report-taxonomy`(Stage 4A `d70a1fb9`)를 병합해 `AgencyStats`/`StatsOverview` 의 `safety`/`living`(nullable, `hasFiveCategories`)·`forCategory()` 실제 모델을 받았다.
+  - `report_provider.dart`: `_kCoreCategories` 5분류, `_safetyReports`/`_livingReports` 저장·조회·fetch(`fetchSafetyReports`/`fetchLivingReports`), `findCategory`/`categoryToTabIndex`/`_categoryLabel`(공개 `categoryLabel`) 5분류.
+  - `report_list_screen.dart`: 탭 4→6개. `SrTabBar` 가 폭이 안 맞으면 스스로 가로 스크롤로 바뀌는 구조를 그대로 재사용.
+  - `local_paged_report_list.dart`: Client 'all' 드릴다운 카테고리 스캔 5분류.
+  - `filtered_list_screen.dart`, `data_editor_screen.dart`, `rating_management_panel.dart`, `widgets/report_detail_sheet.dart`: 카테고리 목록·라벨·주석 5분류.
+  - `statistics_screen.dart`: 분류 세그먼트 5개(균등폭 Row 대신 답변 연도처럼 가로 스크롤 칩으로 바꿨다 — 5칸은 360dp·2배 글자에서 비좁다), `_currentCat` 은 이제 `AgencyStats.forCategory()` 를 그대로 쓴다.
+    **버그 수정(이번 작업 중 발견)**: 2배 글자 실렌더 검수에서 분류 칩 라벨이 세로로 쪼개지는 결함을 발견해 `maxLines:1`+`overflow:visible`과 글자 배율에 맞춘 칩 높이로 고쳤다.
+  - `report_map_screen.dart`: 분류 칩 5개(`Wrap` 이라 줄바꿈으로 안전), `categoryBreakdown` 라벨 파싱에 안전신고·생활불편 추가(구 라벨 기타위반도 호환 유지).
+  - `theme/sr_colors.dart`: `categorySafety`/`categoryLiving` 추가(웹 `--sr-cat-safety`/`--sr-cat-living` 과 같은 값, 라이트 5.47:1·6.29:1 / 다크 9.98:1·6.23:1).
+  - `local_db_service.dart` `seedPlayReviewDemo`(Play 심사용 데모): 분류 5개로 늘리고, categories.length 가 5가 되며 분류와 답변 여부가 같은 나머지(`index % 5`)로 우연히 겹쳐 분류마다 답변 상태가 고정되던 결함도 같이 고쳤다(분류 안에서 몇 번째인지로 나머지를 내 다시 80/20 으로 섞음). agencies 5개 추가.
+  - `PROJECT_RULES.md` §1: "신고내역 4개 분류" → "6개 분류 — 2026-10-11 사용자 지시로 기타 세분류". `docs/design/feature-matrix.csv`: 탭·분류를 언급한 행(LIST-01/06, RATE-02, EDIT-01, STAT-04, MAP-02, FILE-07) 갱신.
+  - 테스트: `test/theme/theme_contrast_test.dart`(5분류 색 매핑·대비), `test/widgets/sr_tab_bar_text_scale_test.dart`(6탭 ×1.0/1.3/2.0, 360dp 안 잘림), `test/widgets/report_list_drilldown_test.dart`(신규: 6탭 라벨·안전신고/생활불편 탭의 분류 목록 연결, 기존 중복차량 탭 인덱스 3→5 수정), `test/storage/known_defects_test.dart`(데모 건수 합산 5분류).
+- 실제 Flutter 렌더(위 버그를 발견한 경로): `flutter_test` + `RepaintBoundary.toImage` 로 Standalone 5분류 데모 DB(seedPlayReviewDemo) 를 통계 화면에 실제로 그려 라이트/다크/2배 글자를 캡처했다(런타임 오류 0). 캡처는 작업 사본에만 둔다.
+- `flutter analyze --no-pub`: 오류 0 / 기존 무관 경고 9(`test/storage/agency_registry_wiring_test.dart`·`registry_vectors_test.dart` 의 unnecessary_cast, 내 변경 아님).
+- `flutter test --no-pub`: 1469개 중 1448 통과·17 skip·4 실패 — 실패 4개는 모두 `test/golden/renewal_golden_test.dart`(신고 카드·통계 요약 × 라이트·다크)의 기존 결함으로, 내 변경이 건드리는 위젯(`ReportListCard`/`StatsOverviewSection`)이 아니며 이번 작업 전부터 실패하던 것이라 그대로 뒀다. 새 골든은 만들지 않았다.
+- pubspec.lock: `flutter pub get` 로 `.dart_tool` 을 처음 만들며 4개 전이 의존성이 드리프트했다(matcher/meta/test_api/vector_math) — 커밋된 lock 으로 되돌렸다(`git checkout -- pubspec.lock`).
+
+---
+
 ## 2026-10-08 (로컬 셀프호스트 운영 접속 설정)
 
 - 에이전트/CLI용 `.env.supabase.local.example`과 Git에서 제외되는 빈 `.env.supabase.local`(권한 600)을 마련했다. API URL·공개키·DB 접속 문자열·선택적 관리자 키·Compose 경로의 이름을 정리하고 문서 지도에 연결했다. 실제 접속값 입력·서버 연결·이전은 수행하지 않았다.

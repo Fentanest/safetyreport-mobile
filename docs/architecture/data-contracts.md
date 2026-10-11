@@ -393,6 +393,12 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
 ## 이전 버전 DB 처리 — 초기화 크롤링 릴리스 (2026-09-27, 서버 레포와 함께)
 이번 릴리스는 이전 DB 를 새 구조로 옮기지 않는다. 아래 "앱 업데이트 때 DB 처리" 의 업데이트 로직(`onUpgrade: _migrateLocalDatabase`, `backupBeforeUpgrade`)은
 `lib/services/local_db_service.dart` 의 `_open`·`_createImportTargetDb` 에서 **주석으로 남겨 비활성**했다(함수 본체는 다음 스키마 변경 때 다시 켜려고 남김).
+- **2026-10-11 앱 DB 17 (현재 기준, 이 아래 v16 설명보다 우선)**: `reports` 에 `ssnpc_cd`·`ssnpc_type`(안전신문고 분류 코드), `category` 는 5분류
+  (`traffic` `parking` `safety` `living` `other`, `lib/services/report_category.dart` — 정본 `contracts/report-categories.json`, 서버와 바이트 동일).
+  `_open` 은 `migrateInPlace(path)`(버전 16 → 17 제자리 변환: 백업 `<db>.before_v17.<ms>.bak` → 열 추가 → entry_value 로 분류 다시 정하기 →
+  행 수·값 대조 → 커밋) 다음 `resetLegacyDatabase`(이제 16 미만만). 서버 DB 가져오기는 서버 스키마 6(`mysafety_report` 의 category 있는 행 +
+  `mysafety_report_body` + 사용자 표)만 받는다. Client 는 `X-SR-Taxonomy: 5` 를 보내야 5분류 응답을 받는다(서버 `core/utils/taxonomy_compat.py`).
+  계획: 서버 레포 `docs/plans/2026-10-11-report-taxonomy.md`.
 - `_open`: 먼저 `resetLegacyDatabase(path)`. 저장 버전이 1 이상 `dbVersion` 미만이면 **파일을 바꾸지 않고 그 자리에서** 한 쓰기 트랜잭션(`BEGIN IMMEDIATE`)으로:
   버전 재확인(다른 연결이 먼저 끝냈으면 아무것도 안 함) → 남길 자료(감시목록 `sync_meta['watchlist']`, 열 구성이 같은 `geocode_cache`) 읽기 →
   별도 연결의 일관된 사본(`LocalDbService.copyDatabaseConsistent`: 새 파일에 원본을 ATTACH 해 한 읽기 트랜잭션으로 스키마·표·`sqlite_sequence`·`user_version` 을 옮기고 표별 행 수·integrity_check 확인 — `VACUUM INTO` 는 SQLite 3.27 부터라 Android 7~10 에서 실패해 쓰지 않는다) → `<db>.legacy_v<옛 버전>.<epoch ms>.bak`

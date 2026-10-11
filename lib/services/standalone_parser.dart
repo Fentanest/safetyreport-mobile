@@ -7,6 +7,7 @@ const _cNowStatus = {
   10: '답변완료',
   11: '일부수용',
   12: '검토중',
+  13: '답변완료', // 2026-10: 실사용자 응답에서 발견, 실제 라벨 미확인 — 원본 샘플로 확인되면 교정할 임시값.
   14: '불수용',
   15: '기타',
   20: '취하',
@@ -43,6 +44,17 @@ const _trafficEntry = '자동차·교통위반';
     return (null, null);
   }
   return (lat, lng);
+}
+
+/// SSNPC_CD/SSNPC_TYPE 정규화: 공백 모두 제거, 대분류는 대문자, 소분류 숫자는 두 자리, 비면 null.
+/// 서버 report_category.normalize_code 와 같은 규칙 — 그 모듈은 건드리지 않고 이 파서 안에서만 맞춘다.
+(String?, String?) _normalizeSsnpc(dynamic cd, dynamic type) {
+  final c = (cd?.toString() ?? '').replaceAll(RegExp(r'\s+'), '').toUpperCase();
+  final t = (type?.toString() ?? '').replaceAll(RegExp(r'\s+'), '');
+  final normalizedType = t.isEmpty
+      ? null
+      : (RegExp(r'^\d+$').hasMatch(t) ? t.padLeft(2, '0') : t);
+  return (c.isEmpty ? null : c, normalizedType);
 }
 
 // ── 카테고리 분류 (서버 database.py category_from_entry_value 와 동일) ──────────
@@ -110,7 +122,7 @@ Map<String, String> titleFieldsFromListItem(Map<String, dynamic> item) {
   final String poll;
   if (score > 0) {
     poll = '참여 완료';
-  } else if ([10, 11, 14, 15].contains(cNow)) {
+  } else if ([10, 11, 13, 14, 15].contains(cNow)) {
     poll = '참여 가능';
   } else if ([20, 30].contains(cNow)) {
     poll = '참여 불가';
@@ -204,6 +216,16 @@ Report parseJsonToReport(
           .trim();
   var (latitude, longitude) = _officialCoordinates(detailData);
 
+  // 차량번호 우선순위(2026-10): 완료된 보완의 SPLMNT_VHRNO(아래) > 상세 응답의 VHRNO(공식 값) > 본문 정규식(기본값).
+  // 실샘플: 교통위반 12건은 VHRNO 가 늘 있고 본문과 같았고, 주정차 11건은 VHRNO 가 늘 비어 있어 본문 값을 그대로 썼다.
+  final vhrno = (detailData['VHRNO']?.toString() ?? '').replaceAll(
+    RegExp(r'\s+'),
+    '',
+  );
+  if (vhrno.isNotEmpty) {
+    carNumber = vhrno;
+  }
+
   // 보완 완료 시 신고 정보 갱신
   if ((detailData['SPLMNT_CMPTN_DT'] != null) &&
       (detailData['SPLMNT_CMPTN_YN'] as String?) != 'N') {
@@ -265,6 +287,8 @@ Report parseJsonToReport(
       cNow == 0;
 
   final rawStatus = _cNowStatus[cNow] ?? (cNow > 0 ? cNow.toString() : '진행');
+  // 답변완료 대역(C_NOW 10~19)에 답변이 있는데 상태를 못 알아보면 '처리중'으로 떨어지지 않게 한다.
+  final answeredBand = answersList.isNotEmpty && cNow >= 10 && cNow <= 19;
 
   // ── 신고 내용 ────────────────────────────────────────────────────────────
   final reportContent = reportContentOf(content);
@@ -393,6 +417,9 @@ Report parseJsonToReport(
     processingStatus = rawStatus;
   } else if (splmntOpen) {
     processingStatus = '보완요청';
+  } else if (answeredBand) {
+    // 답변완료 대역(2026-10, C_NOW=13 미확인 라벨 버그) — 새 canonical 값은 만들지 않고 '답변완료'로만 닫는다.
+    processingStatus = '답변완료';
   } else {
     processingStatus = '처리중';
   }
@@ -474,7 +501,7 @@ Report parseJsonToReport(
   final String pollStatus;
   if (stsfdg > 0) {
     pollStatus = '참여 완료';
-  } else if ([10, 11, 14, 15].contains(cNow)) {
+  } else if ([10, 11, 13, 14, 15].contains(cNow)) {
     pollStatus = '참여 가능';
   } else if ([20, 30].contains(cNow)) {
     pollStatus = '참여 불가';
@@ -491,6 +518,12 @@ Report parseJsonToReport(
     closedState: processingStatus != '보완요청',
   );
 
+  // 분류용 원시 코드. 정규화(대문자·두 자리·빈 값은 null)만 하고 분류 자체는 하지 않는다.
+  final (ssnpcCd, ssnpcType) = _normalizeSsnpc(
+    detailData['SSNPC_CD'],
+    detailData['SSNPC_TYPE'],
+  );
+
   return Report(
     id: cNo,
     reportNumber: reportNumber,
@@ -505,6 +538,8 @@ Report parseJsonToReport(
     fineInfo: penaltyAmount,
     penaltyPoints: penaltyPoints,
     carNumber: carNumber,
+    ssnpcCd: ssnpcCd,
+    ssnpcType: ssnpcType,
     law: violationLaw,
     location: violationLocation,
     latitude: latitude,

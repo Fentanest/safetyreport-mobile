@@ -33,6 +33,8 @@ class Report {
   final String fineInfo;
   final String penaltyPoints;
   final String carNumber;
+  final String? ssnpcCd; // 분류용 원시 코드(SSNPC_CD, 정규화만 함 — 분류는 report_category 가 한다). 없으면 null
+  final String? ssnpcType; // 분류용 원시 소분류(SSNPC_TYPE, 두 자리). 없으면 null
   final String law;
   final String location;
   final double? latitude;
@@ -82,6 +84,8 @@ class Report {
     required this.fineInfo,
     required this.penaltyPoints,
     required this.carNumber,
+    this.ssnpcCd,
+    this.ssnpcType,
     required this.law,
     required this.location,
     this.latitude,
@@ -127,6 +131,8 @@ class Report {
     String? fineInfo,
     String? penaltyPoints,
     String? carNumber,
+    String? ssnpcCd,
+    String? ssnpcType,
     String? law,
     String? location,
     double? latitude,
@@ -171,6 +177,8 @@ class Report {
       fineInfo: fineInfo ?? this.fineInfo,
       penaltyPoints: penaltyPoints ?? this.penaltyPoints,
       carNumber: carNumber ?? this.carNumber,
+      ssnpcCd: ssnpcCd ?? this.ssnpcCd,
+      ssnpcType: ssnpcType ?? this.ssnpcType,
       law: law ?? this.law,
       location: location ?? this.location,
       latitude: latitude ?? this.latitude,

@@ -14,6 +14,7 @@ import 'package:safetyreport/services/local_db_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../support/kakao_owner.dart';
+import '../support/server_db_fixture.dart';
 
 class _Provider extends ReportProvider {
   bool demo = false;
@@ -38,17 +39,15 @@ class _Provider extends ReportProvider {
 }
 
 Future<void> _makeServerDb(String path, String name) async {
-  final db = await openDatabase(path);
-  await db.setVersion(LocalDbService.serverSchemaVersion);
-  await db.execute(
-    'CREATE TABLE mysafetymerge_traffic (ID TEXT PRIMARY KEY, 신고번호 TEXT, 신고명 TEXT, 위반장소 TEXT)',
-  );
-  await db.execute('CREATE TABLE mysafetymerge_parking AS SELECT * FROM mysafetymerge_traffic WHERE 0');
-  await db.execute('CREATE TABLE mysafetymerge_other AS SELECT * FROM mysafetymerge_traffic WHERE 0');
-  await db.execute('CREATE TABLE mysafety (ID TEXT PRIMARY KEY)');
-  await db.execute('CREATE TABLE mysafety_sync_meta (key TEXT PRIMARY KEY, value TEXT)');
+  final db = await openServerSchemaDb(path);
   await stampOwner(db, table: 'mysafety_sync_meta');
-  await db.insert('mysafetymerge_traffic', {'ID': 's1', '신고번호': 'SPP-1', '신고명': name, '위반장소': '서울'});
+  await insertServerReport(db, {
+    'ID': 's1',
+    '신고번호': 'SPP-1',
+    '신고명': name,
+    '위반장소': '서울',
+    'category': 'traffic',
+  });
   await db.close();
 }
 

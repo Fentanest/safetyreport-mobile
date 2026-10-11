@@ -8,6 +8,7 @@ import 'package:safetyreport/services/local_db_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../support/kakao_owner.dart';
+import '../support/server_db_fixture.dart';
 
 Report _report({
   required String id,
@@ -79,54 +80,22 @@ Future<String> _createInvalidServerDb() async {
 Future<String> _createServerDbWithSyncMeta() async {
   final path =
       '${Directory.systemTemp.path}/server_sync_meta_${DateTime.now().millisecondsSinceEpoch}.db';
-  final db = await openDatabase(
-    path,
-    version: LocalDbService.serverSchemaVersion,
-    onCreate: (txn, _) async {
-      await txn.execute(
-        'CREATE TABLE mysafety (ID TEXT PRIMARY KEY, value TEXT)',
-      );
-      await txn.execute('''
-        CREATE TABLE mysafetymerge_traffic (
-          ID TEXT PRIMARY KEY,
-          신고번호 TEXT,
-          위반장소 TEXT
-        )
-      ''');
-      await txn.execute('''
-        CREATE TABLE mysafetymerge_parking (
-          ID TEXT PRIMARY KEY,
-          신고번호 TEXT,
-          위반장소 TEXT
-        )
-      ''');
-      await txn.execute('''
-        CREATE TABLE mysafetymerge_other (
-          ID TEXT PRIMARY KEY,
-          신고번호 TEXT,
-          위반장소 TEXT
-        )
-      ''');
-      await txn.execute(
-        'CREATE TABLE mysafety_sync_meta (key TEXT PRIMARY KEY, value TEXT)',
-      );
-      await txn.insert('mysafety', {'ID': 'row-1', 'value': 'ok'});
-      await txn.insert('mysafetymerge_traffic', {
-        'ID': 'traffic-1',
-        '신고번호': 'TRAFFIC-1',
-        '위반장소': '서울특별시 강서구 마곡동 1',
-      });
-      await txn.insert('mysafety_sync_meta', {
-        'key': 'map_backfill_state',
-        'value': 'queued',
-      });
-      await txn.insert('mysafety_sync_meta', {
-        'key': 'preserve_me',
-        'value': 'ok',
-      });
-      await stampOwner(txn, table: 'mysafety_sync_meta');
-    },
-  );
+  final db = await openServerSchemaDb(path);
+  await insertServerReport(db, {
+    'ID': 'traffic-1',
+    '신고번호': 'TRAFFIC-1',
+    '위반장소': '서울특별시 강서구 마곡동 1',
+    'category': 'traffic',
+  });
+  await db.insert('mysafety_sync_meta', {
+    'key': 'map_backfill_state',
+    'value': 'queued',
+  });
+  await db.insert('mysafety_sync_meta', {
+    'key': 'preserve_me',
+    'value': 'ok',
+  });
+  await stampOwner(db, table: 'mysafety_sync_meta');
   await db.close();
   return path;
 }

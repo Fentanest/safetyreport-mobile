@@ -17,6 +17,31 @@
   대역으로 닫지 않는다. `contracts/parser-vectors.json` .3(서버와 바이트 동일).
 - `lib/services/fine_estimate.dart`(지적 7 회귀): 대분류만 있고 소분류 코드가 비면 '소분류 없음'으로 보고 밤샘주차 판정 대상에 넣는다.
   `ruleVersion` .3, `test/fixtures/fine_estimate_vectors.json` 2건 추가(서버와 바이트 동일).
+## 2026-10-11 — Astra 재검수(#5 A·B) 수정: 능력 확인 전 구서버 400 가능성, 이전 서버 늦은 응답이 판정을 덮던 결함
+
+Astra 리뷰 #5 수정(`supportsFiveCategories`/`refreshServerTaxonomySupport`)에 대한 재검수에서 두 결함이 지적됐다.
+
+- A(중간). `_PostGateFlow` 가 서비스 시작을 unawaited 로 돌려 메인 진입이 능력 확인 완료를 기다리지 않는다. 미확인
+  기본값(true) 때문에 확인이 끝나기 전에 안전신고·생활불편 조회가 구서버로 나가 400 이 날 수 있었다.
+  - `lib/providers/report_provider.dart`: `_readServerPageOwned`·`resolveReportCategory`(드릴다운 "같은 조건으로 검색"
+    폴백) 가 안전신고·생활불편 요청 전에 공통 게이트 `_shouldSkipLegacyOnlyCategory()` 를 거친다 — 미확인이면
+    `refreshServerTaxonomySupport()` 를 먼저 기다리고(공유 Future, 중복 요청 없음), 구서버로 확인되면 요청 자체를
+    보내지 않는다. 확인 자체가 실패해 그래도 미확인이면 요청은 평소대로 보내되, `_getReportsPageLegacyAware()` 가
+    그 응답을 가로채 400(`'페이지 조회 실패: 400'`, `ApiService.getReportsPage` 가 상태코드를 그대로 담아 던지는
+    메시지)이면 그 자리에서 구서버로 확정하고 빈 페이지를 돌려준다(`_markLegacyCategoryIfRejected`).
+- B(중간, 신규 회귀). `refreshServerTaxonomySupport()` 가 `await` 뒤에 연결이 바뀌었는지 전혀 확인하지 않아, A 서버
+  조회가 늦게 끝나는 사이 B 서버로 설정을 바꾸면 A 의 응답이 도착했을 때 B 의 판정(5분류)을 덮어 3분류로 되돌릴 수
+  있었다.
+  - `lib/providers/report_provider.dart`: `refreshServerTaxonomySupport()` 를 `_refreshServerTaxonomySupportImpl()` 로
+    분리하고, 요청 당시 `_datasetEpoch`·`baseUrl`·`apiKey`(+ `appMode`) 를 잡아 둔 뒤 적용 직전에 지금 값과 같은지
+    다시 확인한다(다르면 적용하지 않는다). 공유 Future(`_taxonomyLoadFuture`)도 `_forgetServerTaxonomySupport()`(연결
+    전환 시 호출)가 같이 버려, 이전 연결의 확인이 새 연결의 호출과 섞이지 않는다.
+  - `test/providers/report_provider_taxonomy_test.dart`: 지연 `Completer` 로 응답 순서를 제어하는 회귀 시험 3개 추가 —
+    (1) safety·living 동시 조회가 미확인 상태에서 확인을 공유하며 기다리고 확인 전에는 실제 페이지 요청을 보내지
+    않는지, (2) 확인 자체가 실패해도 요청은 보내고 구서버 400 을 받으면 그때 확정하는지, (3) 이전 서버(A)의 늦은
+    응답이 그 사이 B 로 바뀐 연결의 판정을 덮지 않는지. 세 시험 모두 고치기 전 코드에서 실패함을 확인했다(세 번째는
+    `supportsFiveCategories` 단언 실패, 나머지 둘은 400 예외가 그대로 올라옴).
+- `flutter test --no-pub` 전체 통과(골든 4개는 기존 실패, 그 외 신규 실패 없음). `flutter analyze --no-pub` 신규 경고 0.
 
 ---
 

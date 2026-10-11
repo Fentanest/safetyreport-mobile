@@ -127,27 +127,136 @@ class ReportProvider with ChangeNotifier {
       _appMode == AppMode.standalone ||
       (_serverSupportsFiveCategoriesKnown ?? true);
 
+  /// [refreshServerTaxonomySupport] 진행 중인 확인을 공유한다(Astra #5-A, 중복 요청 금지).
+  /// 서버·모드가 바뀌면 [_forgetServerTaxonomySupport] 가 버린다 — 늦게 끝난 이전 연결의 확인이
+  /// 새 연결의 호출과 섞이지 않는다.
+  Future<void>? _taxonomyLoadFuture;
+
   /// 서버·모드가 바뀔 때 이전 서버의 분류 지원 여부를 버린다(미확인 기본값으로 되돌림).
+  /// 진행 중이던 확인 Future 도 같이 버려, 그 결과가 끝나더라도 새 연결에 적용되지 않게 한다
+  /// (적용 전 epoch·baseUrl·apiKey 재확인은 [_refreshServerTaxonomySupportImpl] 이 한 번 더 한다).
   void _forgetServerTaxonomySupport() {
     _serverSupportsFiveCategoriesKnown = null;
+    _taxonomyLoadFuture = null;
   }
 
   /// `/server/version` 으로 서버의 report_taxonomy 를 확인해 저장한다(Client 모드만 의미 있음).
   /// 조회 자체가 실패하면(네트워크 오류 등) 이전 값을 유지한다 — 일시적 실패로 알던 서버가
-  /// 갑자기 구서버로 보이면 안 된다.
-  Future<void> refreshServerTaxonomySupport() async {
+  /// 갑자기 구서버로 보이면 안 된다. 같은 연결에 대해 이미 진행 중인 확인이 있으면 그 Future 를
+  /// 그대로 돌려줘 중복 요청을 보내지 않는다(Astra #5-A).
+  Future<void> refreshServerTaxonomySupport() {
     if (_appMode != AppMode.server || _baseUrl.isEmpty || _apiKey.isEmpty) {
+      return Future.value();
+    }
+    final inFlight = _taxonomyLoadFuture;
+    if (inFlight != null) return inFlight;
+    final future = _refreshServerTaxonomySupportImpl();
+    _taxonomyLoadFuture = future;
+    return future.whenComplete(() {
+      if (identical(_taxonomyLoadFuture, future)) {
+        _taxonomyLoadFuture = null;
+      }
+    });
+  }
+
+  Future<void> _refreshServerTaxonomySupportImpl() async {
+    final epoch = _datasetEpoch;
+    final baseUrl = _baseUrl;
+    final apiKey = _apiKey;
+    final info = await ServerConnectionService.fetchVersionInfo(
+      baseUrl: baseUrl,
+      apiKey: apiKey,
+    );
+    // 늦게 도착한 이전 연결의 응답이 그 사이 바뀐 지금 연결의 분류 지원 여부를 덮지 않게, 적용
+    // 직전에 요청 당시 epoch·baseUrl·apiKey 가 지금과 같은지 다시 확인한다(Astra #5-B, 신규 회귀).
+    if (epoch != _datasetEpoch ||
+        _baseUrl != baseUrl ||
+        _apiKey != apiKey ||
+        _appMode != AppMode.server) {
       return;
     }
-    final info = await ServerConnectionService.fetchVersionInfo(
-      baseUrl: _baseUrl,
-      apiKey: _apiKey,
-    );
     if (!info.hasVersion) return; // 조회 실패 — 이전 값 유지.
     final supportsFive = info.supportsFiveCategories;
     if (_serverSupportsFiveCategoriesKnown != supportsFive) {
       _serverSupportsFiveCategoriesKnown = supportsFive;
       notifyListeners();
+    }
+  }
+
+  /// 안전신고·생활불편 요청 전 공통 게이트(Astra #5-A). 능력이 아직 미확인이면 같은 연결에 대한
+  /// 확인을 먼저 기다린다 — [refreshServerTaxonomySupport] 자체가 진행 중인 확인을 공유하므로
+  /// 안전신고·생활불편을 동시에 요청해도 확인은 한 번만 나간다. 확인 뒤 구서버로 밝혀졌으면
+  /// true(요청 자체를 건너뛴다). 확인이 실패해 그래도 미확인이면 false — 호출자가 평소대로
+  /// 요청을 보내고, 그 요청이 400(Invalid category)으로 실패하면 [_markLegacyCategoryIfRejected]
+  /// 가 그때 구서버로 확정한다.
+  Future<bool> _shouldSkipLegacyOnlyCategory(String category) async {
+    if ((category != 'safety' && category != 'living') ||
+        _appMode != AppMode.server) {
+      return false;
+    }
+    if (_serverSupportsFiveCategoriesKnown == null) {
+      await refreshServerTaxonomySupport();
+    }
+    return _serverSupportsFiveCategoriesKnown == false;
+  }
+
+  /// `ApiService.getReportsPage` 가 안전신고·생활불편 요청에 400(Invalid category)으로 실패했는지
+  /// 판별해 구서버로 확정한다(Astra #5-A). `getReportsPage` 는 상태코드를 그대로 담아
+  /// `'페이지 조회 실패: $statusCode'` 를 던진다 — 그 외 오류(네트워크 오류 등)는 구서버 판정에
+  /// 쓰지 않는다. 확인 대기 중 연결이 바뀌었으면(epoch·baseUrl·apiKey) 지금 연결에 적용하지 않는다
+  /// (Astra #5-B 와 같은 보호).
+  bool _markLegacyCategoryIfRejected(
+    String category,
+    Object error, {
+    required int epoch,
+    required String baseUrl,
+    required String apiKey,
+  }) {
+    if ((category != 'safety' && category != 'living') ||
+        epoch != _datasetEpoch ||
+        _baseUrl != baseUrl ||
+        _apiKey != apiKey ||
+        !RegExp(r'실패:\s*400\b').hasMatch(error.toString())) {
+      return false;
+    }
+    if (_serverSupportsFiveCategoriesKnown != false) {
+      _serverSupportsFiveCategoriesKnown = false;
+      notifyListeners();
+    }
+    return true;
+  }
+
+  /// `getReportsPage` 를 부르고, 안전신고·생활불편이 구서버 400 으로 거부되면 빈 페이지로 바꾼다
+  /// (Astra #5-A). 다른 오류는 그대로 올린다. [_readServerPageOwned]·[resolveReportCategory] 공용.
+  Future<({List<Report> reports, int total})> _getReportsPageLegacyAware(
+    String category, {
+    required int offset,
+    int limit = 200,
+    required String dedupe,
+    bool Function()? isCancelled,
+  }) async {
+    final epoch = _datasetEpoch;
+    final baseUrl = _baseUrl;
+    final apiKey = _apiKey;
+    try {
+      return await _api.getReportsPage(
+        category,
+        offset: offset,
+        limit: limit,
+        dedupe: dedupe,
+        isCancelled: isCancelled,
+      );
+    } catch (e) {
+      if (_markLegacyCategoryIfRejected(
+        category,
+        e,
+        epoch: epoch,
+        baseUrl: baseUrl,
+        apiKey: apiKey,
+      )) {
+        return (reports: const <Report>[], total: 0);
+      }
+      rethrow;
     }
   }
 
@@ -316,9 +425,11 @@ class ReportProvider with ChangeNotifier {
     // The canonical server has category pages, but no single-report lookup.
     // This rare, explicit navigation fallback holds at most one 200-row page.
     for (final category in _kCoreCategories) {
+      // 구서버(Astra #5-A)는 안전신고·생활불편을 모른다 — 확인하고 건너뛴다.
+      if (await _shouldSkipLegacyOnlyCategory(category)) continue;
       var offset = 0;
       while (epoch == _datasetEpoch) {
-        final page = await _api.getReportsPage(
+        final page = await _getReportsPageLegacyAware(
           category,
           offset: offset,
           dedupe: 'raw',
@@ -1250,13 +1361,13 @@ class ReportProvider with ChangeNotifier {
     bool Function()? isCancelled,
   }) async {
     // 구서버(3분류, Astra #5) 는 안전신고·생활불편 엔드포인트가 없다(400). 안전신고·생활불편은
-    // 구서버에서 원래 '기타'에 있었으므로 — 요청 자체를 보내지 않고 빈 목록으로 본다.
-    if ((category == 'safety' || category == 'living') &&
-        !supportsFiveCategories) {
+    // 구서버에서 원래 '기타'에 있었으므로 — 미확인이면 먼저 확인을 기다리고(Astra #5-A), 구서버로
+    // 확정되면 요청 자체를 보내지 않고 빈 목록으로 본다.
+    if (await _shouldSkipLegacyOnlyCategory(category)) {
       return (reports: const <Report>[], total: 0);
     }
     final epoch = _datasetEpoch;
-    final page = await _api.getReportsPage(
+    final page = await _getReportsPageLegacyAware(
       category,
       offset: offset,
       limit: limit,

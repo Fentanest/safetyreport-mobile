@@ -15,7 +15,7 @@ class FilteredListScreen extends StatefulWidget {
   final String title;
   final String? metric;
 
-  /// 'all', 'traffic', 'parking', 'other'
+  /// 'all', 'traffic', 'parking', 'safety', 'living', 'other' (2026-10-11 5분류)
   final String category;
   final bool Function(Report) filter;
 
@@ -47,12 +47,18 @@ class _FilteredListScreenState extends State<FilteredListScreen> {
       base = provider.trafficReports;
     } else if (widget.category == 'parking') {
       base = provider.parkingReports;
+    } else if (widget.category == 'safety') {
+      base = provider.safetyReports;
+    } else if (widget.category == 'living') {
+      base = provider.livingReports;
     } else if (widget.category == 'other') {
       base = provider.otherReports;
     } else {
       base = [
         ...provider.trafficReports,
         ...provider.parkingReports,
+        ...provider.safetyReports,
+        ...provider.livingReports,
         ...provider.otherReports,
       ];
     }

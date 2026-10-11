@@ -37,9 +37,12 @@ class SrColors extends ThemeExtension<SrColors> {
   final Color warningFill;
   final Color dangerFill;
 
-  /// 신고 분류 식별색(교통 파랑 / 주정차 주황 / 기타 초록 — 통계 화면 규칙). 글자는 [StatusTone] 으로 보정한다.
+  /// 신고 분류 식별색(교통 파랑 / 주정차 주황 / 안전신고 틸 / 생활불편 인디고 / 기타 초록 — 통계 화면 규칙, 2026-10-11 5분류).
+  /// 글자는 [StatusTone] 으로 보정한다.
   final Color categoryTraffic;
   final Color categoryParking;
+  final Color categorySafety;
+  final Color categoryLiving;
   final Color categoryOther;
 
   const SrColors({
@@ -62,6 +65,8 @@ class SrColors extends ThemeExtension<SrColors> {
     required this.dangerFill,
     required this.categoryTraffic,
     required this.categoryParking,
+    required this.categorySafety,
+    required this.categoryLiving,
     required this.categoryOther,
   });
 
@@ -88,6 +93,9 @@ class SrColors extends ThemeExtension<SrColors> {
     dangerFill: srSnackError,
     categoryTraffic: Color(0xFF0D6EFD), // = brand
     categoryParking: Color(0xFFF59E0B),
+    // 2026-10-11: 웹 --sr-cat-safety/--sr-cat-living 과 같은 값(라이트 surface 대비 5.47:1 / 6.29:1)
+    categorySafety: Color(0xFF0F766E),
+    categoryLiving: Color(0xFF4F46E5),
     categoryOther: Color(0xFF22C55E),
   );
 
@@ -111,6 +119,9 @@ class SrColors extends ThemeExtension<SrColors> {
     dangerFill: srSnackError,
     categoryTraffic: Color(0xFF2563EB), // = brand
     categoryParking: Color(0xFFF59E0B),
+    // 다크 surface(#131314) 대비 9.98:1 / 6.23:1
+    categorySafety: Color(0xFF2DD4BF),
+    categoryLiving: Color(0xFF818CF8),
     categoryOther: Color(0xFF22C55E),
   );
 
@@ -135,6 +146,8 @@ class SrColors extends ThemeExtension<SrColors> {
     Color? dangerFill,
     Color? categoryTraffic,
     Color? categoryParking,
+    Color? categorySafety,
+    Color? categoryLiving,
     Color? categoryOther,
   }) {
     return SrColors(
@@ -157,6 +170,8 @@ class SrColors extends ThemeExtension<SrColors> {
       dangerFill: dangerFill ?? this.dangerFill,
       categoryTraffic: categoryTraffic ?? this.categoryTraffic,
       categoryParking: categoryParking ?? this.categoryParking,
+      categorySafety: categorySafety ?? this.categorySafety,
+      categoryLiving: categoryLiving ?? this.categoryLiving,
       categoryOther: categoryOther ?? this.categoryOther,
     );
   }
@@ -184,14 +199,18 @@ class SrColors extends ThemeExtension<SrColors> {
       dangerFill: Color.lerp(dangerFill, other.dangerFill, t)!,
       categoryTraffic: Color.lerp(categoryTraffic, other.categoryTraffic, t)!,
       categoryParking: Color.lerp(categoryParking, other.categoryParking, t)!,
+      categorySafety: Color.lerp(categorySafety, other.categorySafety, t)!,
+      categoryLiving: Color.lerp(categoryLiving, other.categoryLiving, t)!,
       categoryOther: Color.lerp(categoryOther, other.categoryOther, t)!,
     );
   }
 
-  /// 분류 키(`traffic`/`parking`/`other`)의 식별색. 모르는 키는 보조 글자색.
+  /// 분류 키(`traffic`/`parking`/`safety`/`living`/`other`, 2026-10-11 5분류)의 식별색. 모르는 키는 보조 글자색.
   Color category(String key) => switch (key) {
     'traffic' => categoryTraffic,
     'parking' => categoryParking,
+    'safety' => categorySafety,
+    'living' => categoryLiving,
     'other' => categoryOther,
     _ => textSecondary,
   };

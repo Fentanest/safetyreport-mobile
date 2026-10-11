@@ -53,7 +53,7 @@ class Report {
   final int totalCount;
   final int validCount;
   final String
-  category; // 'traffic' | 'parking' | 'other' | '' (서버 응답에서 카테고리를 모를 때 빈 값)
+  category; // 'traffic' | 'parking' | 'safety' | 'living' | 'other' | '' (서버 응답에서 카테고리를 모를 때 빈 값, 2026-10-11 5분류)
   final int? syncedAt; // 마지막 실제 반영 시각 (epoch millis)
   final int supplementCount; // 누적 보완요청 횟수 (없으면 0)
   final bool supplementOpen; // 마지막 round 가 아직 미응답인지 (Y → true)

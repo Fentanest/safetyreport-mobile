@@ -557,6 +557,10 @@ class _ReportMapScreenState extends State<ReportMapScreen>
               _categoryChip('all', '전체'),
               _categoryChip('traffic', '교통'),
               _categoryChip('parking', '주정차'),
+              // 2026-10-11 5분류: 선택해도 서버 집계가 합쳐지기 전까지는 '전체'로 내려간다
+              // (local_db_service._normalizeMapCategory / 서버 normalize_map_category, 알려진 과도기 제한).
+              _categoryChip('safety', '안전신고'),
+              _categoryChip('living', '생활불편'),
               _categoryChip('other', '기타'),
             ],
           ),
@@ -1311,10 +1315,14 @@ class _ReportMapScreenState extends State<ReportMapScreen>
   String? _preferredCategoryForPoint(ReportMapPoint point) {
     if (_selectedCategory == 'traffic' ||
         _selectedCategory == 'parking' ||
+        _selectedCategory == 'safety' ||
+        _selectedCategory == 'living' ||
         _selectedCategory == 'other') {
       return _selectedCategory;
     }
 
+    // 2026-10-11 5분류. 서버 지도 집계가 아직 3분류만 보내면 안전신고·생활불편 라벨은
+    // 그냥 나오지 않는다(Stage 4A 가 합치면 추가 변경 없이 잡힌다).
     final counts = <String, int>{};
     for (final item in point.categoryBreakdown) {
       final label = item.label.trim();
@@ -1322,7 +1330,11 @@ class _ReportMapScreenState extends State<ReportMapScreen>
         counts['traffic'] = item.count;
       } else if (label == '주정차위반') {
         counts['parking'] = item.count;
-      } else if (label == '기타위반') {
+      } else if (label == '안전신고') {
+        counts['safety'] = item.count;
+      } else if (label == '생활불편') {
+        counts['living'] = item.count;
+      } else if (label == '기타위반' || label == '기타') {
         counts['other'] = item.count;
       }
     }

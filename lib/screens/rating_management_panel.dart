@@ -322,12 +322,14 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
     final label = switch (category) {
       'traffic' => '교통',
       'parking' => '주정차',
+      'safety' => '안전신고',
+      'living' => '생활불편',
       'other' => '기타',
       _ => '',
     };
     if (label.isEmpty) return null;
 
-    // 분류색은 통계 화면과 같은 토큰(교통 파랑 / 주정차 주황 / 기타 초록, SQ-U23).
+    // 분류색은 통계 화면과 같은 토큰(SrColors.category, 2026-10-11 5분류, SQ-U23).
     final tone = context.toneOf(context.sr.category(category));
 
     return Container(

@@ -221,8 +221,10 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
       } else {
         final window = await scanClientReports(
           read: p.readServerPage,
+          // 2026-10-11 5분류('기타'→안전신고·생활불편·기타). Client 서버가 아직 구버전이면
+          // readServerPage 가 던지는 오류를 이 위젯 _error 로만 보인다(앱 전체는 깨지지 않는다).
           categories: query.category == 'all'
-              ? ['traffic', 'parking', 'other']
+              ? const ['traffic', 'parking', 'safety', 'living', 'other']
               : [query.category],
           matches: (r) =>
               p.matchesFilter(r, filter: query.filter) &&

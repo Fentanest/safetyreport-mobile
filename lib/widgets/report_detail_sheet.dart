@@ -744,8 +744,8 @@ class ReportDetailSheet extends StatelessWidget {
     );
   }
 
-  /// 신고 카테고리(traffic/parking/other)에 맞는 신고리스트 탭으로
-  /// 특정 필드 값을 검색 조건으로 넘겨 이동.
+  /// 신고 카테고리(traffic/parking/safety/living/other, 2026-10-11 5분류)에 맞는
+  /// 신고리스트 탭으로 특정 필드 값을 검색 조건으로 넘겨 이동.
   Widget _linkField(
     BuildContext context,
     double labelWidth,

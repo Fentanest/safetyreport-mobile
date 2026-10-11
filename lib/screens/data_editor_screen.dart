@@ -28,15 +28,26 @@ class DataEditorPanel extends StatefulWidget {
 }
 
 class _DataEditorPanelState extends State<DataEditorPanel> {
-  static const _categories = <String>['traffic', 'parking', 'other'];
+  // 2026-10-11 사용자 지시로 '기타' 를 안전신고·생활불편·기타로 세분화(5분류).
+  static const _categories = <String>[
+    'traffic',
+    'parking',
+    'safety',
+    'living',
+    'other',
+  ];
   String _selectedCategory = _categories.first;
 
   String _categoryLabel(String category) {
     switch (category) {
       case 'parking':
         return '주정차';
+      case 'safety':
+        return '안전신고';
+      case 'living':
+        return '생활불편';
       case 'other':
-        return '기타위반';
+        return '기타';
       default:
         return '교통위반';
     }

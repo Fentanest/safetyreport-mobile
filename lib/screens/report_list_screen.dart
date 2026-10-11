@@ -77,24 +77,28 @@ class _ReportListScreenState extends State<ReportListScreen>
   ReportFilter _effectiveFilter(ReportProvider provider) =>
       _localFilter ?? provider.filter;
 
+  /// 2026-10-11 사용자 지시로 '기타' 를 안전신고·생활불편·기타로 세분화(5분류) — 탭 6개(중복차량 포함).
+  static const int _duplicateTab = 5;
+
   @override
   void initState() {
     super.initState();
     _localFilter = widget.filter;
     _tabController = TabController(
-      length: 4,
+      length: 6,
       vsync: this,
       initialIndex: widget.initialTabIndex < 0
           ? 0
-          : widget.initialTabIndex > 3
-          ? 3
+          : widget.initialTabIndex > _duplicateTab
+          ? _duplicateTab
           : widget.initialTabIndex,
     );
     _tabController.addListener(_handleTabChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final provider = context.read<ReportProvider>();
       if (provider.appMode == AppMode.standalone) return;
-      if (_tabController.index == 3 && provider.duplicateReports.isEmpty) {
+      if (_tabController.index == _duplicateTab &&
+          provider.duplicateReports.isEmpty) {
         provider.fetchDuplicateReports();
       }
     });
@@ -110,14 +114,14 @@ class _ReportListScreenState extends State<ReportListScreen>
   void _handleTabChanged() {
     if (!mounted || _tabController.indexIsChanging) return;
     final p = context.read<ReportProvider>();
-    if (_tabController.index == 3 &&
+    if (_tabController.index == _duplicateTab &&
         p.appMode == AppMode.server &&
         p.duplicateReports.isEmpty) {
       p.fetchDuplicateReports();
     }
     setState(() {
       // 화면 단위 선택은 Client 중복차량 탭의 것이다. 다른 탭으로 넘어가면 푼다.
-      if (_tabController.index != 3) _selected.clear();
+      if (_tabController.index != _duplicateTab) _selected.clear();
     });
   }
 
@@ -145,7 +149,7 @@ class _ReportListScreenState extends State<ReportListScreen>
       : provider.filteredDuplicateReports;
 
   bool _canSelectAllCurrentTab(ReportProvider provider) {
-    if (_tabController.index != 3) return false;
+    if (_tabController.index != _duplicateTab) return false;
     return _clientDuplicates(
       provider,
     ).any((report) => !_selected.contains(report.reportNumber));
@@ -163,7 +167,7 @@ class _ReportListScreenState extends State<ReportListScreen>
   /// 앱바 건수 배지 문구. 확정 건수를 모르면(조회 전·오류·Client 필터 후보) null.
   String? _countBadgeText(ReportProvider provider, bool hasFilter) {
     final tab = _tabController.index;
-    if (tab == 3 && provider.appMode != AppMode.standalone) {
+    if (tab == _duplicateTab && provider.appMode != AppMode.standalone) {
       // Client 중복차량 탭은 필터와 무관하게 서버의 중복 목록 전체를 보인다.
       return formatCount(provider.filteredDuplicateReports.length);
     }
@@ -314,7 +318,8 @@ class _ReportListScreenState extends State<ReportListScreen>
                 bottom: SrTabBar(
                   controller: _tabController,
                   textScaler: MediaQuery.textScalerOf(context),
-                  labels: const ['교통위반', '주정차', '기타위반', '중복차량'],
+                  // SrTabBar 가 폭에 안 맞으면 스스로 가로 스크롤로 바꾼다(360dp·2배 글자 포함).
+                  labels: const ['교통위반', '주정차', '안전신고', '생활불편', '기타', '중복차량'],
                 ),
               ),
         body: Stack(
@@ -332,7 +337,9 @@ class _ReportListScreenState extends State<ReportListScreen>
                     children: [
                       _buildTab(filter, 'traffic', 0),
                       _buildTab(filter, 'parking', 1),
-                      _buildTab(filter, 'other', 2),
+                      _buildTab(filter, 'safety', 2),
+                      _buildTab(filter, 'living', 3),
+                      _buildTab(filter, 'other', 4),
                       _buildDuplicateTab(provider, filter),
                     ],
                   ),
@@ -370,7 +377,7 @@ class _ReportListScreenState extends State<ReportListScreen>
       return LocalPagedReportList(
         scope: 'duplicates',
         filter: filter,
-        onTotalChanged: (total) => _onTabTotal(3, total),
+        onTotalChanged: (total) => _onTabTotal(_duplicateTab, total),
       );
     }
     final reports = provider.filteredDuplicateReports;

@@ -46,7 +46,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   bool _overviewLoading = false;
 
   String _year = 'all'; // 'all' | '2026' | '2025' | ...
-  String _cat = 'traffic'; // traffic | parking | other
+  String _cat = 'traffic'; // traffic | parking | safety | living | other
   String _type =
       'agency'; // agency | person | police-agency | police-person | other-agency | other-person
   String? _law; // null = 전체, '__없음__' = 법규 없음, 그 외 = 특정 법규
@@ -261,7 +261,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   static const _catLabels = {
     'traffic': '교통위반',
     'parking': '주정차위반',
-    'other': '기타위반',
+    'safety': '안전신고',
+    'living': '생활불편',
+    'other': '기타',
   };
 
   static const _typeLabels = {
@@ -273,22 +275,25 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     'other-person': '비경찰 담당자',
   };
 
+  static const _emptyCategoryStats = CategoryStats(
+    byAgency: [],
+    byPerson: [],
+    policeByAgency: [],
+    policeByPerson: [],
+    otherByAgency: [],
+    otherByPerson: [],
+  );
+
   CategoryStats get _currentCat {
-    if (_stats == null) {
-      return const CategoryStats(
-        byAgency: [],
-        byPerson: [],
-        policeByAgency: [],
-        policeByPerson: [],
-        otherByAgency: [],
-        otherByPerson: [],
-      );
-    }
-    return _cat == 'traffic'
-        ? _stats!.traffic
-        : _cat == 'parking'
-        ? _stats!.parking
-        : _stats!.other;
+    if (_stats == null) return _emptyCategoryStats;
+    return switch (_cat) {
+      'traffic' => _stats!.traffic,
+      'parking' => _stats!.parking,
+      'other' => _stats!.other,
+      // 안전신고·생활불편: AgencyStats 모델이 아직 3분류만 안다(Stage 4A 가 합치면 채워진다, 2026-10-11).
+      // other 로 잘못 보이지 않게 빈 상세로 둔다 — _overview.forCategory 는 이미 'all' 로 내려간다.
+      _ => _emptyCategoryStats,
+    };
   }
 
   List<AgencyStatRow> get _typeRows {
@@ -916,15 +921,17 @@ class _Conditions extends StatelessWidget {
     required this.onLawTap,
   });
 
+  // 2026-10-11 사용자 지시로 '기타' 를 안전신고·생활불편·기타로 세분화(5분류).
   static const _cats = [
     ('traffic', '교통위반'),
     ('parking', '주정차위반'),
-    ('other', '기타위반'),
+    ('safety', '안전신고'),
+    ('living', '생활불편'),
+    ('other', '기타'),
   ];
 
-  // 카테고리 식별색(교통 파랑 / 주정차 주황 / 기타 초록 — SrColors 분류 토큰). 글자·테두리는 StatusTone 으로 AA 보정.
-  Color _catColor(BuildContext context, String c) =>
-      context.sr.category(c == 'traffic' || c == 'parking' ? c : 'other');
+  // 카테고리 식별색(SrColors 분류 토큰, category() 가 5분류 모두 안다). 글자·테두리는 StatusTone 으로 AA 보정.
+  Color _catColor(BuildContext context, String c) => context.sr.category(c);
 
   @override
   Widget build(BuildContext context) {
@@ -952,20 +959,24 @@ class _Conditions extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        Row(
-          children: _cats.map((e) {
-            return Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 3),
-                child: _CategoryChip(
-                  label: e.$2,
-                  color: _catColor(context, e.$1),
-                  selected: cat == e.$1,
-                  onTap: () => onCatChanged(e.$1),
-                ),
-              ),
-            );
-          }).toList(),
+        // 5분류(2026-10-11)는 360dp·2배 글자에서 5칸 균등폭이 비좁아질 수 있어, 위 답변 연도와 같은
+        // 가로 스크롤 칩으로 바꿨다(이름은 한 줄 그대로 보인다).
+        SizedBox(
+          height: 40,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: _cats.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 6),
+            itemBuilder: (_, i) {
+              final e = _cats[i];
+              return _CategoryChip(
+                label: e.$2,
+                color: _catColor(context, e.$1),
+                selected: cat == e.$1,
+                onTap: () => onCatChanged(e.$1),
+              );
+            },
+          ),
         ),
         const SizedBox(height: 8),
         Semantics(
@@ -1147,7 +1158,8 @@ class _CategoryChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(SrRadius.lg),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
+          // 2026-10-11: Expanded 균등폭 대신 가로 스크롤(내용 폭)이라 좌우 여백을 넉넉히 둔다.
+          padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 14),
           decoration: BoxDecoration(
             color: selected ? tone.background : theme.colorScheme.surface,
             borderRadius: BorderRadius.circular(SrRadius.lg),
@@ -1208,7 +1220,9 @@ class _RowCard extends StatelessWidget {
       title: condition.isEmpty ? '신고내역' : '$condition · 신고',
       initialTabIndex: switch (category) {
         'parking' => 1,
-        'other' => 2,
+        'safety' => 2,
+        'living' => 3,
+        'other' => 4,
         _ => 0,
       },
     );

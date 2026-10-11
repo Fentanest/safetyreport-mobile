@@ -70,6 +70,8 @@ class ReportProvider with ChangeNotifier {
   DashboardStats? _stats;
   List<Report> _trafficReports = [];
   List<Report> _parkingReports = [];
+  List<Report> _safetyReports = [];
+  List<Report> _livingReports = [];
   List<Report> _otherReports = [];
   List<Report> _duplicateReports = [];
   Set<String> _watchlistNumbers = {};
@@ -181,12 +183,21 @@ class ReportProvider with ChangeNotifier {
   bool get useRepresentativeRecords => _useRepresentativeRecords;
   List<Report> get trafficReports => _trafficReports;
   List<Report> get parkingReports => _parkingReports;
+  List<Report> get safetyReports => _safetyReports;
+  List<Report> get livingReports => _livingReports;
   List<Report> get otherReports => _otherReports;
   List<Report> get duplicateReports => _duplicateReports;
   Set<String> get watchlistNumbers => _watchlistNumbers;
   bool isInWatchlist(String reportNumber) =>
       _watchlistNumbers.contains(reportNumber);
-  static const _kCoreCategories = ['traffic', 'parking', 'other'];
+  // 2026-10-11 사용자 지시로 '기타' 를 안전신고·생활불편·기타로 세분화(5분류).
+  static const _kCoreCategories = [
+    'traffic',
+    'parking',
+    'safety',
+    'living',
+    'other',
+  ];
 
   bool get hasLoadedCategoryReports =>
       _kCoreCategories.every(_loadedCategories.contains);
@@ -204,6 +215,8 @@ class ReportProvider with ChangeNotifier {
     for (final report in [
       ..._trafficReports,
       ..._parkingReports,
+      ..._safetyReports,
+      ..._livingReports,
       ..._otherReports,
     ]) {
       if (!_isRecentAnswerReport(
@@ -229,20 +242,20 @@ class ReportProvider with ChangeNotifier {
     return items;
   }
 
-  /// 신고번호로 카테고리(traffic/parking/other)를 추정.
+  /// 신고번호로 카테고리(traffic/parking/safety/living/other)를 추정.
   /// 1) Report.category 가 채워져 있으면 그대로 사용
   /// 2) 그렇지 않으면 현재 로드된 카테고리 리스트에서 매칭되는 것 검색
   String? findCategory(Report report) {
     final fromModel = report.category.trim();
-    if (fromModel == 'traffic' ||
-        fromModel == 'parking' ||
-        fromModel == 'other') {
+    if (_kCoreCategories.contains(fromModel)) {
       return fromModel;
     }
     final number = report.reportNumber;
     if (number.isEmpty) return null;
     if (_trafficReports.any((r) => r.reportNumber == number)) return 'traffic';
     if (_parkingReports.any((r) => r.reportNumber == number)) return 'parking';
+    if (_safetyReports.any((r) => r.reportNumber == number)) return 'safety';
+    if (_livingReports.any((r) => r.reportNumber == number)) return 'living';
     if (_otherReports.any((r) => r.reportNumber == number)) return 'other';
     return null;
   }
@@ -311,8 +324,12 @@ class ReportProvider with ChangeNotifier {
     switch (category) {
       case 'parking':
         return 1;
-      case 'other':
+      case 'safety':
         return 2;
+      case 'living':
+        return 3;
+      case 'other':
+        return 4;
       default:
         return 0;
     }
@@ -331,11 +348,15 @@ class ReportProvider with ChangeNotifier {
 
   List<Report> get filteredTrafficReports => _applyFilter(_trafficReports);
   List<Report> get filteredParkingReports => _applyFilter(_parkingReports);
+  List<Report> get filteredSafetyReports => _applyFilter(_safetyReports);
+  List<Report> get filteredLivingReports => _applyFilter(_livingReports);
   List<Report> get filteredOtherReports => _applyFilter(_otherReports);
   List<Report> get ratingEligibleReports => _sortRatingReports(
     [
       ..._trafficReports,
       ..._parkingReports,
+      ..._safetyReports,
+      ..._livingReports,
       ..._otherReports,
     ].where(RatingService.isListEligible),
   );
@@ -366,6 +387,8 @@ class ReportProvider with ChangeNotifier {
     }
     collect(_trafficReports);
     collect(_parkingReports);
+    collect(_safetyReports);
+    collect(_livingReports);
     collect(_otherReports);
     for (final status in _filter.statuses) {
       final trimmed = _canonicalStatusLabel(status);
@@ -408,6 +431,8 @@ class ReportProvider with ChangeNotifier {
     }
     collect(_trafficReports);
     collect(_parkingReports);
+    collect(_safetyReports);
+    collect(_livingReports);
     collect(_otherReports);
 
     final selectedLaw = _filter.law.trim();
@@ -690,6 +715,8 @@ class ReportProvider with ChangeNotifier {
     _stats = null;
     _trafficReports = [];
     _parkingReports = [];
+    _safetyReports = [];
+    _livingReports = [];
     _otherReports = [];
     _duplicateReports = [];
     _watchlistNumbers = {};
@@ -714,6 +741,8 @@ class ReportProvider with ChangeNotifier {
     _stats = null;
     _trafficReports = [];
     _parkingReports = [];
+    _safetyReports = [];
+    _livingReports = [];
     _otherReports = [];
     _duplicateReports = [];
     _filterStatuses = [];
@@ -1010,6 +1039,8 @@ class ReportProvider with ChangeNotifier {
     _stats = null;
     _trafficReports = [];
     _parkingReports = [];
+    _safetyReports = [];
+    _livingReports = [];
     _otherReports = [];
     _duplicateReports = [];
     _watchlistNumbers = {};
@@ -1234,6 +1265,12 @@ class ReportProvider with ChangeNotifier {
         case 'parking':
           _parkingReports = reports;
           break;
+        case 'safety':
+          _safetyReports = reports;
+          break;
+        case 'living':
+          _livingReports = reports;
+          break;
         case 'other':
           _otherReports = reports;
           break;
@@ -1248,22 +1285,32 @@ class ReportProvider with ChangeNotifier {
     }
   }
 
+  /// 분류 라벨(`report_category.CATEGORY_LABELS` 와 같다, 2026-10-11 5분류).
   static String _categoryLabel(String category) {
     switch (category) {
       case 'traffic':
         return '교통위반';
       case 'parking':
         return '주정차위반';
+      case 'safety':
+        return '안전신고';
+      case 'living':
+        return '생활불편';
       case 'other':
-        return '기타위반';
+        return '기타';
       default:
         return category;
     }
   }
 
+  /// 화면이 분류 라벨을 직접 하드코딩하지 않도록 공개한다(탭·칩 등).
+  static String categoryLabel(String category) => _categoryLabel(category);
+
   // 기존 API 호환 — 화면 측은 카테고리 이름을 직접 알지 않아도 되도록 thin wrapper 유지.
   Future<void> fetchTrafficReports() => fetchCategoryReports('traffic');
   Future<void> fetchParkingReports() => fetchCategoryReports('parking');
+  Future<void> fetchSafetyReports() => fetchCategoryReports('safety');
+  Future<void> fetchLivingReports() => fetchCategoryReports('living');
   Future<void> fetchOtherReports() => fetchCategoryReports('other');
 
   Future<void> fetchDuplicateReports() {
@@ -1433,6 +1480,8 @@ class ReportProvider with ChangeNotifier {
         for (final report in [
           ..._trafficReports,
           ..._parkingReports,
+          ..._safetyReports,
+          ..._livingReports,
           ..._otherReports,
           ..._duplicateReports,
         ]) {

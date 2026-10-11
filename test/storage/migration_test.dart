@@ -2,6 +2,8 @@
 // 견본은 현재 스키마에서 해당 버전 이후 추가된 것만 걷어 내 만든다(git 이력상 v10 = v11 - 사진 3열, v9 = v10 - 지오코딩 5열·geocode_cache).
 // 이전 버전 DB 는 옮기지 않는다: 통째로 백업한 뒤 비우고(감시목록·지오코딩 캐시만 남김) 계약 버전의 빈 DB 로 연다.
 // 서버 tests/test_storage_migration.py 와 같은 규칙.
+// v16 → 17(2026-10-11)은 예외: 다른 버전과 달리 비우지 않고 제자리 변환([LocalDbService.migrateInPlace])한다 —
+// 아래 "migrateInPlace" 그룹을 본다.
 import 'dart:convert';
 import 'dart:io';
 
@@ -73,6 +75,74 @@ Future<List<Map<String, Object?>>> _makeOldDb(int version) async {
   final rows = await db.query('reports', orderBy: 'ID');
   await LocalDbService.closeDb();
   return rows;
+}
+
+/// 버전 16 DB(SSNPC 열 추가 전, [LocalDbService.migrateInPlace] 대상) — 지금 스키마에서
+/// ssnpc_cd·ssnpc_type 만 걷어 내 만든다. 생활불편 신고 한 건은 3분류 시절처럼 'other' 로 잘못 저장된
+/// 채 두고(지금 분류기라면 'living'), 사용자 소유 자료(수정값·중복 판단·중복 멤버·감시목록)도 같이 넣어
+/// 제자리 변환이 신고가 아닌 것은 건드리지 않는지 본다.
+Future<void> _makeV16Db() async {
+  await LocalDbService.upsertReport(
+    _report(2), // 'm-2', traffic — 이미 맞는 분류라 변환으로 바뀌지 않아야 한다
+    'traffic',
+    '자동차·교통위반-신호위반',
+  );
+  final db = await LocalDbService.db;
+  await db.insert('reports', {
+    'ID': 'm-living',
+    '신고번호': 'SPP-2609-000099',
+    '신고명': '쓰레기 방치',
+    'category': 'other', // 3분류 시절 오분류 — 지금 분류기(DR-06)라면 living
+    'entry_value': '생활불편 신고-쓰레기, 폐기물',
+  });
+  await db.insert('report_override', {
+    'ID': 'm-living',
+    'column_name': '처리상태',
+    'value': '불수용',
+    'updated_at': 1,
+  });
+  await db.insert('duplicate_group', {
+    'group_id': 'g1',
+    'fingerprint': 'fp',
+    'match_type': 'payload_exact',
+    'status': 'confirmed_duplicate',
+    'representative_mode': 'auto',
+    'representative_id': 'm-living',
+    'member_count': 1,
+    'apply_globally': 1,
+    'note': '',
+    'created_at': 1,
+    'updated_at': 1,
+  });
+  await db.insert('duplicate_member', {
+    'group_id': 'g1',
+    'report_id': 'm-living',
+    'report_number': 'SPP-2609-000099',
+    'category': 'other', // 변환이 신고와 같이 이 사본도 living 으로 갱신해야 한다
+    'is_representative': 1,
+    'priority_score': 1,
+    'raw_match': 1,
+    'field_match': 1,
+    'created_at': 1,
+    'updated_at': 1,
+  });
+  await db.insert('duplicate_decision', {
+    'group_id': 'g1',
+    'status': 'confirmed_duplicate',
+    'representative_mode': 'auto',
+    'representative_id': 'm-living',
+    'apply_globally': 1,
+    'note': '',
+    'updated_at': 1,
+  });
+  await LocalDbService.setWatchlistNumbers({'SPP-2609-000099'});
+  await db.execute(
+    'DROP VIEW IF EXISTS ${LocalDbService.effectiveReportsView}',
+  ); // 보기가 참조하는 열은 못 지운다
+  await db.execute('ALTER TABLE reports DROP COLUMN "ssnpc_cd"');
+  await db.execute('ALTER TABLE reports DROP COLUMN "ssnpc_type"');
+  await db.setVersion(16);
+  await LocalDbService.closeDb();
 }
 
 void main() {
@@ -339,5 +409,111 @@ void main() {
     expect(facts.reports, 0);
     expect(facts.legacyReset, isNull);
     expect(legacyBackups(path), isEmpty);
+  });
+
+  // ── migrateInPlace: v16 → 17 제자리 변환(2026-10-11) ─────────────────────────
+
+  List<File> inPlaceBackups(String path) {
+    final folder = File(path).parent;
+    final name = File(path).uri.pathSegments.last;
+    return folder
+        .listSync()
+        .whereType<File>()
+        .where((f) => f.uri.pathSegments.last.startsWith('$name.before_v17.'))
+        .toList();
+  }
+
+  test(
+    'migrateInPlace: v16 → 17 는 entry_value 로 category 를 다시 정하고, 중복 멤버 사본도 갱신하고, 백업을 남긴다',
+    () async {
+      await _makeV16Db();
+      final path = await LocalDbService.getDbPath();
+      for (final f in inPlaceBackups(path)) {
+        f.deleteSync();
+      }
+
+      final info = await LocalDbService.migrateInPlace(path);
+      expect(info, isNotNull);
+      expect(info!['from_version'], 16);
+      expect(info['reports'], 2);
+      expect(info['moved_categories'], 1, reason: '생활불편 신고 한 건만 other → living 으로 옮긴다');
+
+      final backupPath = info['backup'] as String;
+      expect(File(backupPath).existsSync(), isTrue);
+      final backup = await openDatabase(backupPath, readOnly: true, singleInstance: false);
+      expect(await backup.getVersion(), 16, reason: '백업은 변환 전 버전 그대로');
+      expect(
+        (await backup.query('reports', where: 'ID = ?', whereArgs: ['m-living'])).single['category'],
+        'other',
+        reason: '백업은 변환 전 값 그대로',
+      );
+      await backup.close();
+
+      final db = await openDatabase(path, singleInstance: false);
+      expect(await db.getVersion(), LocalDbService.dbVersion);
+      final cols = (await db.rawQuery('PRAGMA table_info(reports)')).map((r) => r['name'] as String).toSet();
+      expect(cols, containsAll(['ssnpc_cd', 'ssnpc_type']));
+      final living = (await db.query('reports', where: 'ID = ?', whereArgs: ['m-living'])).single;
+      expect(living['category'], 'living', reason: '생활불편 메뉴의 "쓰레기, 폐기물" 은 지금 분류기로 living(DR-06)');
+      expect(living['신고명'], '쓰레기 방치', reason: '분류 외 값은 그대로');
+      expect(living['entry_value'], '생활불편 신고-쓰레기, 폐기물');
+      final traffic = (await db.query('reports', where: 'ID = ?', whereArgs: ['m-2'])).single;
+      expect(traffic['category'], 'traffic', reason: '이미 맞는 분류는 바뀌지 않는다(moved_categories 에 세지 않음)');
+      final member = (await db.query('duplicate_member', where: 'report_id = ?', whereArgs: ['m-living'])).single;
+      expect(member['category'], 'living', reason: '중복 멤버의 category 사본도 같이 갱신된다');
+      expect(
+        await db.query('report_override', where: 'ID = ?', whereArgs: ['m-living']),
+        hasLength(1),
+        reason: '사용자 수정값은 제자리 변환이 건드리지 않는다',
+      );
+      expect(
+        await db.query('duplicate_decision', where: 'group_id = ?', whereArgs: ['g1']),
+        hasLength(1),
+      );
+      await db.close();
+
+      expect(
+        await LocalDbService.migrateInPlace(path),
+        isNull,
+        reason: '이미 17 이면 할 일이 없다(두 번째 호출)',
+      );
+
+      // 이후 정상 경로로 열어도 문제 없다 — 신고 2건·감시목록 그대로.
+      await LocalDbService.closeDb();
+      final opened = await LocalDbService.db;
+      expect(await opened.getVersion(), LocalDbService.dbVersion);
+      expect(await opened.query('reports'), hasLength(2));
+      expect(await LocalDbService.getWatchlistNumbers(), {'SPP-2609-000099'});
+
+      for (final f in inPlaceBackups(path)) {
+        f.deleteSync();
+      }
+    },
+  );
+
+  test('a v15 DB still goes through resetLegacyDatabase; a v16 DB does not(제자리 변환 몫)', () async {
+    await _makeOldDb(15);
+    final path15 = await LocalDbService.getDbPath();
+    for (final f in legacyBackups(path15)) {
+      f.deleteSync();
+    }
+    final reset15 = await LocalDbService.resetLegacyDatabase(path15, beforeReset: () async {});
+    expect(reset15, isNotNull);
+    expect(reset15!['from_version'], 15);
+    for (final f in legacyBackups(path15)) {
+      f.deleteSync();
+    }
+
+    await _reset();
+    await _makeOldDb(16);
+    final path16 = await LocalDbService.getDbPath();
+    expect(
+      await LocalDbService.resetLegacyDatabase(path16, beforeReset: () async {}),
+      isNull,
+      reason: 'v16 은 migrateInPlace 몫이다 — resetLegacyDatabase 는 손대지 않는다',
+    );
+    for (final f in inPlaceBackups(path16)) {
+      f.deleteSync();
+    }
   });
 }

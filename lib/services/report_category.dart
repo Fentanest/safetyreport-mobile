@@ -81,6 +81,7 @@ const entryMenus = <String, ({List<String> cds, String category})>{
 /// 후보 대분류 목록을 '|'로 연결한 값과 정규화 소분류가 별칭 키다.
 const entryAliases = <(String, String), (String, String)>{
   ("TV", "버스전용차로위반(일반도로)"): ("TV", "05"),
+  ("CM", "쓰레기,폐기물"): ("CM", "05"),
 };
 // Python re \s: Unicode White_Space + U+001C..U+001F, BOM은 제외.
 // Dart RegExp(r'\s+')는 U+0085/제어 구분자를 놓치고 U+FEFF를 포함한다.
@@ -178,3 +179,15 @@ String codeName(String? code) {
   if (dash < 0) return '';
   return codes[(code.substring(0, dash), code.substring(dash + 1))]?.name ?? '';
 }
+
+
+/// 5분류 이전 화면·통계·공유 계약이 쓰던 3분류. safety·living 은 예전 '기타'에 들어 있었다(서버 legacy_category 와 같음).
+const legacyCategories = ["traffic", "parking", "other"];
+
+/// 5분류 → 예전 3분류(traffic·parking·other).
+String legacyCategory(String? category) =>
+    category == "traffic" || category == "parking" ? category! : "other";
+
+/// 예전 3분류 값 → 그에 해당하는 5분류 묶음. 'other' 는 safety·living·other.
+List<String> expandLegacy(String category) =>
+    category == "other" ? const ["safety", "living", "other"] : [category];

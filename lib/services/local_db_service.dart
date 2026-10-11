@@ -29,6 +29,7 @@ import 'attachment_policy.dart';
 import 'photo_capture_time.dart';
 
 import 'standalone_parser.dart';
+import 'report_category.dart' as report_category;
 import 'report_policy.dart';
 
 part 'local_statistics.dart';
@@ -255,11 +256,15 @@ class LocalDbService {
   }
 
   /// 앱 DB 스키마 버전. contracts/storage-contract.json 의 schema_version.mobile 과 같아야 한다(테스트가 확인).
-  static const dbVersion = 16;
+  /// 17(2026-10-11): SSNPC 코드 열(ssnpc_cd·ssnpc_type), category 5분류(traffic·parking·safety·living·other).
+  static const dbVersion = 17;
+
+  /// 이 버전부터는 제자리 변환([migrateInPlace])으로 올린다. 더 낮은 DB 는 [resetLegacyDatabase] 가 백업 뒤 비운다.
+  static const inPlaceFrom = 16;
 
   /// 서버 DB 스키마 버전(PRAGMA user_version). contracts/storage-contract.json 의 schema_version.server 와 같아야 한다(테스트가 확인).
   /// 서버 DB 가져오기는 정확히 이 버전만 받는다(이전 버전 서버 DB 는 거절).
-  static const serverSchemaVersion = 5;
+  static const serverSchemaVersion = 6;
 
   static Future<Database> _open() async {
     final path = await getDbPath();
@@ -267,6 +272,8 @@ class LocalDbService {
     // [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스] 이전 버전 DB 는 옮기지 않고 백업 뒤 비운다.
     // await backupBeforeUpgrade(path);
     // 데모 DB(심사용 합성 데이터)는 실제 계정의 커뮤니티 데이터셋과 무관하다 — 선회전하지 않는다(Sol 재검증 2).
+    // 버전 16 DB 는 제자리 변환(백업 → 열 추가·분류 다시 정하기 → 행 수 대조 → 커밋)으로 신고·수정값·판단을 그대로 둔다.
+    await migrateInPlace(path);
     await resetLegacyDatabase(
       path,
       beforeReset: basename(path) == demoDbFileName ? () async {} : null,
@@ -542,7 +549,94 @@ class LocalDbService {
   /// 서버 LEGACY_KEEP_TABLES 의 감시목록·지오코딩 캐시와 같다(관리자·API 키는 서버 전용).
   static const legacyKept = ['watchlist', 'geocode_cache'];
 
-  /// 이전 버전 DB(저장된 버전 1 이상, [dbVersion] 미만)면 **파일을 바꾸지 않고 그 자리에서** 한 쓰기 트랜잭션(`BEGIN IMMEDIATE`)으로:
+  /// 버전 16 DB 를 17 로 제자리 변환한다(서버 database.migrate_schema 와 같은 뜻, 2026-10-11).
+  /// 한 쓰기 트랜잭션: 버전 재확인 → 일관된 사본 `<db>.before_v17.<epoch ms>.bak` → `ssnpc_cd`·`ssnpc_type` 열 추가 →
+  /// 신고마다 entry_value 로 category 다시 정하기([report_category.categoryOf]) → 중복 멤버의 category 사본 갱신 →
+  /// 행 수·분류 외 값 대조 → 버전 → COMMIT. 대조가 어긋나면 되돌리고 예외(파일은 그대로).
+  /// 반환: {from_version, backup, reports, moved_categories} (할 일이 없으면 null). SSNPC 코드는 다음 수집이 채운다.
+  @visibleForTesting
+  static Future<Map<String, Object?>?> migrateInPlace(String path) async {
+    if (!File(path).existsSync()) return null;
+    final db = await openDatabase(path, singleInstance: false);
+    try {
+      if (await db.getVersion() != inPlaceFrom) return null;
+      await db.rawQuery('PRAGMA busy_timeout=30000');
+      Map<String, Object?>? info;
+      await db.transaction((txn) async {
+        final version =
+            Sqflite.firstIntValue(await txn.rawQuery('PRAGMA user_version')) ??
+            0;
+        if (version != inPlaceFrom) return; // 다른 연결이 먼저 끝냈다
+        final backup =
+            '$path.before_v$dbVersion.${DateTime.now().millisecondsSinceEpoch}.bak';
+        await copyReadOnlyDatabaseSnapshot(path, backup, sourceSnapshot: txn);
+
+        final before = await txn.rawQuery(
+          'SELECT ID, category, entry_value FROM reports ORDER BY ID',
+        );
+        final digestBefore = await _reportDigest(txn);
+        await addColumnIfMissing(txn, 'reports', 'ssnpc_cd', 'TEXT');
+        await addColumnIfMissing(txn, 'reports', 'ssnpc_type', 'TEXT');
+        var moved = 0;
+        final batch = txn.batch();
+        for (final row in before) {
+          final category = report_category.categoryOf(
+            null,
+            null,
+            row['entry_value'],
+          );
+          if (category != row['category']) {
+            moved++;
+            batch.update(
+              'reports',
+              {'category': category},
+              where: 'ID = ?',
+              whereArgs: [row['ID']],
+            );
+          }
+        }
+        await batch.commit(noResult: true);
+        await txn.execute(
+          'UPDATE ${DuplicateProjectionService.memberTable} SET category = COALESCE('
+          '(SELECT category FROM reports r WHERE r.ID = ${DuplicateProjectionService.memberTable}.report_id), category)',
+        );
+        final after =
+            Sqflite.firstIntValue(
+              await txn.rawQuery('SELECT COUNT(*) FROM reports'),
+            ) ??
+            -1;
+        if (after != before.length || await _reportDigest(txn) != digestBefore) {
+          throw StateError('앱 DB 17 변환 대조 실패 — 되돌렸습니다(DB 는 그대로).');
+        }
+        await txn.execute('PRAGMA user_version = $dbVersion');
+        info = {
+          'from_version': version,
+          'backup': backup,
+          'reports': before.length,
+          'moved_categories': moved,
+        };
+      });
+      return info;
+    } finally {
+      await db.close();
+    }
+  }
+
+  /// 분류(category·SSNPC) 외 신고 열 전부의 행별 문자열 — 변환 전후 대조용.
+  static Future<String> _reportDigest(DatabaseExecutor db) async {
+    final columns = [
+      for (final r in await db.rawQuery('PRAGMA table_info("reports")'))
+        if (!const {'category', 'ssnpc_cd', 'ssnpc_type'}.contains(r['name']))
+          r['name'] as String,
+    ]..sort();
+    final quoted = columns.map((c) => 'quote("$c")').join(" || '|' || ");
+    final rows = await db.rawQuery(
+      'SELECT $quoted AS line FROM reports ORDER BY ID',
+    );
+    return rows.map((r) => r['line']).join('\n');
+  }
+
+  /// 이전 버전 DB(저장된 버전 1 이상, [inPlaceFrom] 미만)면 **파일을 바꾸지 않고 그 자리에서** 한 쓰기 트랜잭션(`BEGIN IMMEDIATE`)으로:
   /// 버전 재확인 → 남길 자료(감시목록 `sync_meta['watchlist']`, 열 구성이 같은 지오코딩 캐시) 읽기 → 잠금을 가진 원본 트랜잭션에서 읽어
   /// 일관된 사본 `<db>.legacy_v<옛 버전>.<epoch ms>.bak`([copyReadOnlyDatabaseSnapshot], WAL 쓰기·값·타입 보존, 구형 Android 가능) + 무결성 검사 → [beforeReset](기본: 커뮤니티 dataset 선회전,
   /// 실패하면 아무것도 바꾸지 않음) → 표·보기 전부 DROP → 지금 스키마 CREATE → 남길 자료·`sync_meta[legacy_reset]` 기록 → 버전 → COMMIT.
@@ -558,14 +652,14 @@ class LocalDbService {
     final db = await openDatabase(path, singleInstance: false);
     try {
       final first = await db.getVersion();
-      if (first < 1 || first >= dbVersion) return null;
+      if (first < 1 || first >= inPlaceFrom) return null;
       await db.rawQuery('PRAGMA busy_timeout=30000');
       Map<String, Object?>? info;
       await db.transaction((txn) async {
         final version =
             Sqflite.firstIntValue(await txn.rawQuery('PRAGMA user_version')) ??
             0;
-        if (version < 1 || version >= dbVersion) return; // 다른 연결이 먼저 끝냈다
+        if (version < 1 || version >= inPlaceFrom) return; // 다른 연결이 먼저 끝냈거나 제자리 변환 대상
         final oldTables = [
           for (final r in await txn.rawQuery(
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
@@ -1335,6 +1429,8 @@ class LocalDbService {
         첨부파일          TEXT,
         category        TEXT,
         entry_value     TEXT DEFAULT '',
+        ssnpc_cd        TEXT,
+        ssnpc_type      TEXT,
         raw_content     TEXT DEFAULT '',
         synced_at       INTEGER,
         보완횟수         INTEGER DEFAULT 0,
@@ -1521,9 +1617,12 @@ class LocalDbService {
     String rawType = 'report_body',
     RatingLookup ratingLookup = RatingLookup.notTried,
     PhotoCapture? photoCapture,
+    String? ssnpcCd,
+    String? ssnpcType,
   }) async {
     final d = await db;
     final now = DateTime.now().millisecondsSinceEpoch;
+    final code = report_category.normalizeCode(ssnpcCd, ssnpcType);
     var isNew = false;
     var changedResult = false;
     var syncedAtResult = now;
@@ -1546,6 +1645,16 @@ class LocalDbService {
 
       String keepIfEmpty(String column, String value) =>
           value.isNotEmpty ? value : (existing?[column]?.toString() ?? value);
+
+      // 분류(서버 reports_repo._classification 과 같은 규칙): 이번 응답에 코드가 없으면 저장된 코드를 지우지 않고,
+      // 코드나 접수 메뉴가 있으면 5분류를 다시 정한다. 둘 다 없을 때만 호출자가 준 category 를 쓴다.
+      final cd = code.ssnpcCd ?? existing?['ssnpc_cd']?.toString();
+      final type = code.ssnpcCd != null
+          ? code.ssnpcType
+          : existing?['ssnpc_type']?.toString();
+      final resolvedCategory = cd != null || entryValue.trim().isNotEmpty
+          ? report_category.categoryOf(cd, type, entryValue)
+          : category;
 
       final existingPoll = existing?['만족도조사여부']?.toString();
       final Object? rating;
@@ -1597,8 +1706,10 @@ class LocalDbService {
         '지도': r.mapImage,
         '첨부사진': r.attachedPhotos,
         '첨부파일': r.attachedFiles,
-        'category': category,
+        'category': resolvedCategory,
         'entry_value': entryValue,
+        'ssnpc_cd': cd,
+        'ssnpc_type': type,
         '보완횟수': r.supplementCount,
         '보완_미응답': r.supplementOpen ? 'Y' : 'N',
         '보완_요청자': r.supplementRequester,
@@ -1633,9 +1744,12 @@ class LocalDbService {
             tracked.any(
               (k) => _stringify(existing[k]) != _stringify(siteRow[k]),
             ) ||
-            existing['category'] != category ||
+            existing['category'] != resolvedCategory ||
             (_stringify(existing['entry_value']).isNotEmpty &&
                 existing['entry_value'] != entryValue) ||
+            // 처음 채워지는 코드는 변경 아님(17 변환 직후 가짜 변경 방지) — 이전 값이 있을 때만
+            (existing['ssnpc_cd'] != null && existing['ssnpc_cd'] != cd) ||
+            (existing['ssnpc_type'] != null && existing['ssnpc_type'] != type) ||
             rawChanged;
         syncedAt = changed
             ? now
@@ -3951,7 +4065,7 @@ class LocalDbService {
   }
 
   /// 업로드/선택된 .db 파일의 종류 판별.
-  /// - server: mysafetymerge_* 계열 서버 DB
+  /// - server: mysafety_report(스키마 6) 서버 DB(이전 버전 mysafetymerge_* 도 server — 가져오기가 버전으로 거절)
   /// - mobile: reports + category 컬럼을 가진 모바일 standalone DB
   /// - unknown: 알 수 없음
   static Future<String> detectDbKind(String dbPath) async {
@@ -3969,7 +4083,9 @@ class LocalDbService {
           .where((s) => s.isNotEmpty)
           .toSet();
 
-      if (tableNames.contains('reports') && !tableNames.contains('mysafety')) {
+      if (tableNames.contains('reports') &&
+          !tableNames.contains('mysafety') &&
+          !tableNames.contains('mysafety_report')) {
         try {
           final cols = await extDb.rawQuery("PRAGMA table_info(reports)");
           final colNames = cols
@@ -3982,10 +4098,12 @@ class LocalDbService {
         } catch (_) {}
       }
 
-      if (tableNames.contains('mysafety') &&
-          (tableNames.contains('mysafetymerge_traffic') ||
-              tableNames.contains('mysafetymerge_parking') ||
-              tableNames.contains('mysafetymerge_other'))) {
+      // 스키마 6 서버 DB. 이전 버전(mysafety + mysafetymerge_*)도 server 로 알아보고 가져오기의 버전 검사가 거절한다.
+      if (tableNames.contains('mysafety_report') ||
+          (tableNames.contains('mysafety') &&
+              (tableNames.contains('mysafetymerge_traffic') ||
+                  tableNames.contains('mysafetymerge_parking') ||
+                  tableNames.contains('mysafetymerge_other')))) {
         return 'server';
       }
 
@@ -4202,89 +4320,54 @@ class LocalDbService {
         .where((name) => name.isNotEmpty)
         .toSet();
 
-    if (!tableNames.contains('mysafety') ||
-        !tableNames.contains('mysafetymerge_traffic')) {
-      throw Exception('유효하지 않은 서버 DB 형식입니다: mysafety 계열 테이블이 없습니다.');
+    if (!tableNames.contains('mysafety_report')) {
+      throw Exception('유효하지 않은 서버 DB 형식입니다: mysafety_report 표가 없습니다.');
     }
-
-    const requiredColumns = {'ID', '신고번호', '위반장소'};
-    const sourceTables = {
-      'mysafetymerge_traffic',
-      'mysafetymerge_parking',
-      'mysafetymerge_other',
-    };
-
-    for (final tableName in sourceTables) {
-      if (!tableNames.contains(tableName)) continue;
-
-      final columns = await serverDb.rawQuery('PRAGMA table_info($tableName)');
-      final columnNames = columns
-          .map((c) => c['name']?.toString() ?? '')
-          .where((name) => name.isNotEmpty)
-          .toSet();
-      if (!columnNames.containsAll(requiredColumns)) {
-        throw Exception('서버 DB 병합 테이블 형식이 올바르지 않습니다: $tableName');
-      }
+    final columns = await serverDb.rawQuery('PRAGMA table_info(mysafety_report)');
+    final columnNames = columns
+        .map((c) => c['name']?.toString() ?? '')
+        .where((name) => name.isNotEmpty)
+        .toSet();
+    if (!columnNames.containsAll(const {'ID', '신고번호', '위반장소', 'category'})) {
+      throw Exception('서버 DB 신고 표 형식이 올바르지 않습니다: mysafety_report');
     }
 
     // A supported, authenticated zero-row snapshot is valid.
   }
 
-  /// Reject rows the JOIN/converter could silently omit or replace.
+  /// Reject rows the converter could silently omit or replace.
+  /// 서버 신고 중 상세까지 받은 행(category 가 있는 행)만 앱으로 온다 — 목록에서만 본 행(category NULL)은 앱에 없는 상태다
+  /// (서버 화면용 표와 같은 범위). 분류는 5분류만, 본문 행은 가져올 신고가 있어야 한다.
   static Future<void> _preflightServerPopulation(
     Database serverDb,
     Set<String> tables,
   ) async {
-    final sources = <String>[];
-    final details = <String>[];
-    for (final category in ['traffic', 'parking', 'other']) {
-      final detail = 'mysafetydetail_$category';
-      final originals = tables.contains('mysafety') && tables.contains(detail);
-      final source = originals ? detail : 'mysafetymerge_$category';
-      if (!tables.contains(source)) continue;
-      sources.add('SELECT ID FROM "$source"');
-      if (originals) {
-        details.add('SELECT ID FROM "$detail"');
-        final orphan = await serverDb.rawQuery(
-          'SELECT 1 FROM "$detail" d LEFT JOIN mysafety t ON t.ID=d.ID WHERE t.ID IS NULL LIMIT 1',
-        );
-        if (orphan.isNotEmpty) {
-          throw const FormatException('상세에 대응하는 목록 행이 없습니다.');
-        }
-      }
-    }
-    if (sources.isEmpty) throw const FormatException('변환 대상 표가 없습니다.');
-    final union = sources.join(' UNION ALL ');
+    const source = 'SELECT ID, category FROM mysafety_report WHERE category IS NOT NULL';
     final invalid = await serverDb.rawQuery(
-      "SELECT 1 FROM ($union) WHERE ID IS NULL OR typeof(ID)!='text' OR trim(ID)='' OR trim(ID)!=ID LIMIT 1",
+      "SELECT 1 FROM ($source) WHERE ID IS NULL OR typeof(ID)!='text' OR trim(ID)='' OR trim(ID)!=ID LIMIT 1",
     );
-    final duplicate = await serverDb.rawQuery(
-      'SELECT ID FROM ($union) GROUP BY ID HAVING COUNT(*)>1 LIMIT 1',
-    );
-    if (invalid.isNotEmpty || duplicate.isNotEmpty) {
-      throw const FormatException('신고 ID가 없거나 분류 사이에서 중복됩니다.');
+    if (invalid.isNotEmpty) {
+      throw const FormatException('신고 ID가 없거나 형식이 올바르지 않습니다.');
     }
-    if (details.isNotEmpty) {
-      // A mixed layout can keep another category in a merge table.
-      final missing = await serverDb.rawQuery(
-        'SELECT 1 FROM mysafety t WHERE NOT EXISTS (SELECT 1 FROM ($union) d WHERE d.ID=t.ID) LIMIT 1',
+    final marks = List.filled(report_category.categories.length, '?').join(',');
+    final unknown = await serverDb.rawQuery(
+      'SELECT ID, category FROM ($source) WHERE category NOT IN ($marks) LIMIT 5',
+      report_category.categories,
+    );
+    if (unknown.isNotEmpty) {
+      throw FormatException(
+        '이 앱이 모르는 신고 분류(category)가 있습니다: '
+        '${unknown.map((r) => '${r['ID']}=${r['category']}').join(', ')}',
       );
-      if (missing.isNotEmpty) {
-        throw const FormatException('목록에 대응하는 상세 또는 병합 행이 없습니다.');
-      }
     }
-    for (final table in ['mysafety_raw_content', 'mysafety_entry_value']) {
-      if (!tables.contains(table)) continue;
+    if (tables.contains('mysafety_report_body')) {
       final orphan = await serverDb.rawQuery(
-        'SELECT 1 FROM "$table" r WHERE NOT EXISTS (SELECT 1 FROM ($union) d WHERE d.ID=r.ID) LIMIT 1',
+        'SELECT 1 FROM mysafety_report_body b WHERE NOT EXISTS '
+        '(SELECT 1 FROM ($source) r WHERE r.ID=b.ID) LIMIT 1',
       );
       if (orphan.isNotEmpty) {
-        throw FormatException('$table 원문 행을 보존할 신고가 없습니다.');
+        throw const FormatException('mysafety_report_body 원문 행을 보존할 신고가 없습니다.');
       }
-      final duplicate = await serverDb.rawQuery(
-        'SELECT ID FROM "$table" GROUP BY ID HAVING COUNT(*)>1 LIMIT 1',
-      );
-      if (duplicate.isNotEmpty) throw FormatException('$table ID가 중복됩니다.');
     }
   }
 
@@ -4376,10 +4459,7 @@ class LocalDbService {
     return serverDb.query(table);
   }
 
-  /// 서버 신고 행을 **원본**(목록 mysafety + 상세 mysafetydetail_*)에서 읽는다.
-  /// 서버 화면용 표(merge)에는 사용자 수정값과 "6개월 초과" 첨부 가림이 덮여 있어서, 그걸 앱 원본으로 저장하면
-  /// 다시 서버로 복원할 때 사이트 원본이 사라진다(저장 계층 재설계 R2). 수정값은 report_override 로 따로 온다.
-  /// 원본 표가 없는 옛 서버 DB 만 merge 를 읽는다.
+  /// 서버 표 하나를 rowid 순서로 128행씩 읽는다.
   static Stream<List<Map<String, Object?>>> _readServerTablePages(
     Database serverDb,
     Set<String> serverTables,
@@ -4403,42 +4483,28 @@ class LocalDbService {
     }
   }
 
+  /// 서버 신고 행을 **원본**(mysafety_report — 목록·상세·분류)에서 읽는다. 상세까지 받은 행(category 있음)만.
+  /// 서버 화면용 표(mysafety_report_effective)에는 사용자 수정값과 "6개월 초과" 첨부 가림이 덮여 있어서, 그걸 앱 원본으로 저장하면
+  /// 다시 서버로 복원할 때 사이트 원본이 사라진다(저장 계층 재설계 R2). 수정값은 report_override 로 따로 온다.
   static Stream<List<Map<String, Object?>>> _readServerReportRows(
     Database serverDb,
-    Set<String> serverTables, {
-    required String mergeTable,
-    required String category,
-  }) async* {
-    final detailTable = 'mysafetydetail_$category';
-    final originals =
-        serverTables.contains('mysafety') && serverTables.contains(detailTable);
-    final source = originals ? detailTable : mergeTable;
-    if (!serverTables.contains(source)) return;
-    final titleColumns = originals
-        ? (await serverDb.rawQuery('PRAGMA table_info("mysafety")'))
-              .map((r) => r['name'] as String)
-              .where((name) => name != 'ID')
-              .map((name) => 't."$name" AS "$name"')
-              .join(', ')
-        : '';
-    final hasEntry = serverTables.contains('mysafety_entry_value');
-    final hasRaw = serverTables.contains('mysafety_raw_content');
+    Set<String> serverTables,
+  ) async* {
+    final hasBody = serverTables.contains('mysafety_report_body');
     int? cursor;
     while (true) {
       final rows = await PerformanceTrace.sql(
         'exchange.report_page',
         () => serverDb.rawQuery(
-          'SELECT d.rowid AS _sr_cursor,d.* ${originals ? ', $titleColumns' : ''}, '
-          '${hasEntry ? 'e.entry_value' : 'NULL'} AS _sr_entry_value, '
-          '${hasRaw ? 'rr.ID' : 'NULL'} AS _sr_raw_present, '
-          '${hasRaw ? 'rr.raw_content' : 'NULL'} AS _sr_raw_content, '
-          '${hasRaw ? 'rr.raw_type' : 'NULL'} AS _sr_raw_type, '
-          '${hasRaw ? 'rr.saved_at' : 'NULL'} AS _sr_saved_at '
-          'FROM "$source" d '
-          '${originals ? 'JOIN mysafety t ON t.ID=d.ID ' : ''}'
-          '${hasEntry ? 'LEFT JOIN mysafety_entry_value e ON e.ID=d.ID ' : ''}'
-          '${hasRaw ? 'LEFT JOIN mysafety_raw_content rr ON rr.ID=d.ID ' : ''}'
-          '${cursor == null ? "" : "WHERE d.rowid>?"} ORDER BY d.rowid LIMIT 128',
+          'SELECT d.rowid AS _sr_cursor, d.*, '
+          '${hasBody ? 'rr.ID' : 'NULL'} AS _sr_raw_present, '
+          '${hasBody ? 'rr.raw_content' : 'NULL'} AS _sr_raw_content, '
+          '${hasBody ? 'rr.raw_type' : 'NULL'} AS _sr_raw_type, '
+          '${hasBody ? 'rr.saved_at' : 'NULL'} AS _sr_saved_at '
+          'FROM mysafety_report d '
+          '${hasBody ? 'LEFT JOIN mysafety_report_body rr ON rr.ID=d.ID ' : ''}'
+          'WHERE d.category IS NOT NULL'
+          '${cursor == null ? "" : " AND d.rowid>?"} ORDER BY d.rowid LIMIT 128',
           cursor == null ? [] : [cursor],
         ),
       );
@@ -4496,23 +4562,14 @@ class LocalDbService {
     DatabaseExecutor localDb,
   ) async {
     final reportColumns = (await _columnTypes(localDb, 'reports')).keys.toSet();
-    // 분류마다 실제로 읽는 표와 같게 고른다(_readServerReportRows 와 같은 조건 — Sol 재검증 SOL-02):
-    // mysafety + 그 분류의 상세 표가 있으면 둘, 없으면 그 분류의 merge 표.
     final known = <String, Set<String>>{
-      for (final c in const ['traffic', 'parking', 'other'])
-        if (serverTables.contains('mysafety') &&
-            serverTables.contains('mysafetydetail_$c')) ...{
-          'mysafety': reportColumns,
-          'mysafetydetail_$c': reportColumns,
-        } else
-          'mysafetymerge_$c': reportColumns,
-      'mysafety_raw_content': (await _columnTypes(
+      'mysafety_report': reportColumns,
+      'mysafety_report_body': (await _columnTypes(
         localDb,
         'report_raw',
       )).keys.toSet(),
       'mysafety_sync_meta': const {'key', 'value'},
       'mysafety_watchlist': const {'신고번호'},
-      'mysafety_entry_value': const {'ID', 'entry_value'},
       'mysafety_geocode_cache': (await _columnTypes(
         localDb,
         'geocode_cache',
@@ -4556,8 +4613,8 @@ class LocalDbService {
 
   // ── 서버 DB → 모바일 DB 변환 ────────────────────────────────────────────────
 
-  /// 서버 DB (mysafetymerge_traffic / parking / other 3개 테이블 + mysafety_watchlist)
-  /// 를 읽어 모바일 DB (단일 reports 테이블 + category 컬럼) 로 마이그레이션.
+  /// 서버 DB(스키마 6: mysafety_report + mysafety_report_body + 사용자 표 + mysafety_watchlist)를 읽어
+  /// 모바일 DB(같은 열의 reports 표)로 옮긴다. 같은 스키마 버전만 받는다.
   ///
   /// [serverDbPath] 서버에서 받은 .db 파일의 절대 경로.
   /// 반환: 임포트한 신고 건수.
@@ -4577,7 +4634,7 @@ class LocalDbService {
     Database? localDb;
 
     try {
-      // 이전(또는 더 새) 버전 서버 DB 는 가져오지 않는다(2026-09-26 초기화 크롤링 릴리스).
+      // 이전(또는 더 새) 버전 서버 DB 는 가져오지 않는다 — 같은 버전 백업만(복원 뒤 초기화 크롤링, 2026-10-11 결정).
       _refuseOtherVersion(
         await serverDb.getVersion(),
         serverSchemaVersion,
@@ -4617,13 +4674,7 @@ class LocalDbService {
               .where((s) => s.isNotEmpty)
               .toSet();
 
-      const sourceTableMap = {
-        'mysafetymerge_traffic': 'traffic',
-        'mysafetymerge_parking': 'parking',
-        'mysafetymerge_other': 'other',
-      };
       await _refuseUnknownServerColumns(serverDb, serverTables, localDb);
-      const geoColumns = ['주소정규화', '행정구역', '위도', '경도', '지오코딩상태'];
       int imported = 0;
 
       await localDb.transaction((txn) async {
@@ -4642,50 +4693,33 @@ class LocalDbService {
           if (++queued >= 500) await flush();
         }
 
-        for (final entry in sourceTableMap.entries) {
-          await for (final rows in _readServerReportRows(
-            serverDb,
-            serverTables,
-            mergeTable: entry.key,
-            category: entry.value,
-          )) {
-            for (final row in rows) {
-              final reportId = row['ID']?.toString() ?? '';
-              if (reportId.isEmpty) throw const FormatException('빈 신고 ID');
-              // 값은 바꾸지 않는다(NULL 은 NULL). 모바일에 있는 열만, 계약 타입에 맞춰.
-              final importedRow = <String, Object?>{
-                for (final e in row.entries)
-                  if (reportTypes.containsKey(e.key))
-                    e.key: _coerceForColumn(e.value, reportTypes[e.key]),
-                'category': entry.value,
-                // 서버 행 없음 = 모름(NULL), 행의 값(빈 문자열 포함)은 그대로 — PC exchange 와 같은 규칙(감사 SOL-03).
-                'entry_value': row['_sr_entry_value'],
-                'raw_content': '',
-              };
-              // 구서버에 지오코딩 열이 없을 때만 주소에서 계산한다(계산값, owner=derived).
-              if (!geoColumns.any(row.containsKey)) {
-                importedRow.addAll(
-                  officialGeoPayload(
-                    importedRow['위반장소']?.toString(),
-                    null,
-                    null,
-                  ),
-                );
-              }
-              importedRow['감시목록'] = watchNumbers.contains(importedRow['신고번호'])
-                  ? 'Y'
-                  : 'N';
-              await put('reports', importedRow);
-              if (row['_sr_raw_present'] != null) {
-                await put('report_raw', {
-                  'ID': reportId,
-                  'raw_content': row['_sr_raw_content'],
-                  'raw_type': row['_sr_raw_type'],
-                  'saved_at': row['_sr_saved_at'],
-                });
-              }
-              imported++;
+        await for (final rows in _readServerReportRows(
+          serverDb,
+          serverTables,
+        )) {
+          for (final row in rows) {
+            final reportId = row['ID']?.toString() ?? '';
+            if (reportId.isEmpty) throw const FormatException('빈 신고 ID');
+            // 값은 바꾸지 않는다(NULL 은 NULL). 모바일에 있는 열만, 계약 타입에 맞춰. category·entry_value·SSNPC 도 서버 행 그대로.
+            final importedRow = <String, Object?>{
+              for (final e in row.entries)
+                if (reportTypes.containsKey(e.key))
+                  e.key: _coerceForColumn(e.value, reportTypes[e.key]),
+              'raw_content': '',
+            };
+            importedRow['감시목록'] = watchNumbers.contains(importedRow['신고번호'])
+                ? 'Y'
+                : 'N';
+            await put('reports', importedRow);
+            if (row['_sr_raw_present'] != null) {
+              await put('report_raw', {
+                'ID': reportId,
+                'raw_content': row['_sr_raw_content'],
+                'raw_type': row['_sr_raw_type'],
+                'saved_at': row['_sr_saved_at'],
+              });
             }
+            imported++;
           }
         }
 
@@ -4724,54 +4758,45 @@ class LocalDbService {
         await flush();
       });
 
-      for (final entry in sourceTableMap.entries) {
-        await for (final rows in _readServerReportRows(
-          serverDb,
-          serverTables,
-          mergeTable: entry.key,
-          category: entry.value,
-        )) {
-          final ids = rows.map((r) => r['ID']).toList();
-          final marks = List.filled(ids.length, '?').join(',');
-          final actualReports = {
-            for (final r in await localDb.query(
-              'reports',
-              where: 'ID IN ($marks)',
-              whereArgs: ids,
-            ))
-              r['ID']: r,
+      await for (final rows in _readServerReportRows(serverDb, serverTables)) {
+        final ids = rows.map((r) => r['ID']).toList();
+        final marks = List.filled(ids.length, '?').join(',');
+        final actualReports = {
+          for (final r in await localDb.query(
+            'reports',
+            where: 'ID IN ($marks)',
+            whereArgs: ids,
+          ))
+            r['ID']: r,
+        };
+        final actualRaw = {
+          for (final r in await localDb.query(
+            'report_raw',
+            where: 'ID IN ($marks)',
+            whereArgs: ids,
+          ))
+            r['ID']: r,
+        };
+        for (final row in rows) {
+          final expected = <String, Object?>{
+            for (final e in row.entries)
+              if (reportTypes.containsKey(e.key))
+                e.key: _coerceForColumn(e.value, reportTypes[e.key]),
+            'raw_content': '',
+            '감시목록': watchNumbers.contains(row['신고번호']) ? 'Y' : 'N',
           };
-          final actualRaw = {
-            for (final r in await localDb.query(
-              'report_raw',
-              where: 'ID IN ($marks)',
-              whereArgs: ids,
-            ))
-              r['ID']: r,
-          };
-          for (final row in rows) {
-            final expected = <String, Object?>{
-              for (final e in row.entries)
-                if (reportTypes.containsKey(e.key))
-                  e.key: _coerceForColumn(e.value, reportTypes[e.key]),
-              'category': entry.value,
-              'entry_value': row['_sr_entry_value'],
-              'raw_content': '',
-              '감시목록': watchNumbers.contains(row['신고번호']) ? 'Y' : 'N',
-            };
-            final actual = actualReports[row['ID']];
-            if (actual == null) throw const FormatException('신고 원본 키 보존 실패');
-            _verifyCells('reports', expected, actual);
-            if (row['_sr_raw_present'] != null) {
-              final raw = actualRaw[row['ID']];
-              if (raw == null) throw const FormatException('원문 원본 키 보존 실패');
-              _verifyCells('report_raw', {
-                'ID': row['ID'],
-                'raw_content': row['_sr_raw_content'],
-                'raw_type': row['_sr_raw_type'],
-                'saved_at': row['_sr_saved_at'],
-              }, raw);
-            }
+          final actual = actualReports[row['ID']];
+          if (actual == null) throw const FormatException('신고 원본 키 보존 실패');
+          _verifyCells('reports', expected, actual);
+          if (row['_sr_raw_present'] != null) {
+            final raw = actualRaw[row['ID']];
+            if (raw == null) throw const FormatException('원문 원본 키 보존 실패');
+            _verifyCells('report_raw', {
+              'ID': row['ID'],
+              'raw_content': row['_sr_raw_content'],
+              'raw_type': row['_sr_raw_type'],
+              'saved_at': row['_sr_saved_at'],
+            }, raw);
           }
         }
       }

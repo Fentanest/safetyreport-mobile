@@ -145,8 +145,8 @@ void main() {
     expect(rc.codeName(null), '');
   });
 
+  // 서버 레포가 옆에 있을 때만(작업 worktree 는 이름이 달라 건너뛴다)
   final serverCopies = [
-    File('../sr-sol/contracts/report-categories.json'),
     File('../safetyreport/contracts/report-categories.json'),
   ];
   final available = serverCopies.where((file) => file.existsSync()).toList();

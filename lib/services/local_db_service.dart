@@ -2569,6 +2569,11 @@ class LocalDbService {
     '발생시각',
     '사진_첫촬영',
     '사진_끝촬영',
+    // Astra #4(2026-10-11): fine_estimate.classify 가 SSNPC 코드로 세부 규칙(예: EP-03 소방차
+    // 전용구역)을 가른다. 이 열이 없으면 추정기가 코드를 못 봐 일반 주정차로 떨어지고, 코드만
+    // 다른 신고가 같은 그룹으로 합쳐질 수도 있다 — GROUP BY 도 이 목록을 그대로 쓴다.
+    'ssnpc_cd',
+    'ssnpc_type',
   ];
 
   /// 화면 "자료 변경" 판정용 쓰기 표시(SQ-P02): 연결 identity + TEMP 쓰기 revision + `PRAGMA data_version`.

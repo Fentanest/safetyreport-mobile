@@ -19,6 +19,19 @@
 
 ---
 
+## 2026-10-11 — Astra 리뷰 #4 수정: Standalone 실제 통계 경로가 SSNPC 코드를 빼먹던 결함
+
+- `lib/services/local_db_service.dart` `_statsColumns`: 통계 SELECT·GROUP BY 열 목록에 `ssnpc_cd`·`ssnpc_type` 이 없어서
+  `computeStatsBundle()` 이 `fine_estimate.estimate()` 에 넘기는 행에 SSNPC 코드가 없었다. 그 결과 EP-03(소방차 전용구역)
+  같은 세부 규칙이 전부 "코드 없음"으로 보여 일반 주정차(4만원)로 낮춰 추정되고, 코드만 다른 두 신고가 GROUP BY 로
+  한 그룹에 합쳐질 수 있었다. 서버 `services/stats/common.py` 의 `_STATS_COLUMNS` 는 이미 이 두 열을 포함한다 — 같은
+  목록으로 맞췄다.
+- `test/services/stats_ssnpc_test.dart`(신규): `fine_estimate` 단위시험이 아니라 실제 `computeStatsBundle()` 경로로
+  EP-03 신고가 50만원으로 추정되는지, 코드만 다른 두 신고가 합쳐지지 않고 각자의 금액(50만+4만)으로 더해지는지 확인한다.
+  수정 전 코드로 되돌려 두 시험 모두 실패(40,000/80,000)하는 것을 확인한 뒤 고쳤다.
+
+---
+
 ## 2026-10-11 (4단계, Sonnet) '기타' 세분류(안전신고·생활불편·기타) — 5분류 UI (미배포)
 
 - 사용자 지시(`docs/plans/2026-10-11-report-taxonomy.md` 4단계)로 신고내역 4개 분류를 6탭(교통위반·주정차·안전신고·생활불편·기타·중복차량)으로 나눴다.

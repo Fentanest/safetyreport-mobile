@@ -145,6 +145,7 @@ Future<CaptureResult> capture(
   CommunityStore? store,
   String? projectNamespace,
   DateTime? now,
+  Future<void> Function(DatabaseExecutor)? beforeWrite,
 }) async {
   final s = store ?? await CommunityStore.open();
   final payload = buildPayload(adapterInput);
@@ -163,6 +164,7 @@ Future<CaptureResult> capture(
   final at = isoUtc(now ?? DateTime.now());
 
   return s.transaction((tx) async {
+    await beforeWrite?.call(tx);
     final localDatasetId = await s.meta('local_dataset_id', tx) ?? '';
     final contextRows = await tx.rawQuery('SELECT * FROM context WHERE id=1');
     Map<String, Object?>? contextRow = contextRows.isEmpty

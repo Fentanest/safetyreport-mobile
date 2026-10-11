@@ -34,8 +34,8 @@ jobs:
     - name: Build release-mode APK for dev
       id: build
       env:
-        COMMUNITY_SUPABASE_URL: ${{ vars.COMMUNITY_SUPABASE_URL }}
-        COMMUNITY_SUPABASE_PUBLISHABLE_KEY: ${{ vars.COMMUNITY_SUPABASE_PUBLISHABLE_KEY }}
+        COMMUNITY_SUPABASE_URL: ${{ vars.LOCAL_SUPABASE_URL }}
+        COMMUNITY_SUPABASE_PUBLISHABLE_KEY: ${{ vars.LOCAL_SUPABASE_PUBLISHABLE_KEY }}
         FLUTTER_BIN: ${{ vars.FLUTTER_BIN || 'flutter' }}
       run: |
         rm -rf -- ./dist-dev ./mysafetyreport-release.apk

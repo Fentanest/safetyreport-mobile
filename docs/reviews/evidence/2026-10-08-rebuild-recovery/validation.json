@@ -1,0 +1,57 @@
+{
+  "base_commit": "0477f01db4b689f79f95b90a6aebc2c0165dfa64",
+  "owner": "root agent (sole implementation owner including main.dart)",
+  "flutter": "3.47.5",
+  "tests": {
+    "command": "flutter test --no-pub --concurrency=4 --reporter expanded",
+    "exit_code": 0,
+    "passed": 1400,
+    "skipped": 16,
+    "failed": 0,
+    "evidence": "flutter-test.log"
+  },
+  "analyze": {
+    "command": "flutter analyze --no-pub",
+    "exit_code": 1,
+    "errors": 0,
+    "warnings": 9,
+    "info": 0,
+    "warnings_scope": "unchanged test/storage/agency_registry_wiring_test.dart and registry_vectors_test.dart",
+    "evidence": "analyze.log"
+  },
+  "visual": {
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "widths": [
+      360,
+      412
+    ],
+    "text_scales": [
+      1,
+      2
+    ],
+    "checks": [
+      "no layout exceptions",
+      "connected recovery actions",
+      "Android tap target and labeled controls"
+    ],
+    "status": "PASS"
+  },
+  "native": {
+    "status": "PASS (synthetic fixture)",
+    "evidence": "android-assertions.json",
+    "screenshots": [
+      "android-recovered.png",
+      "android-completed.png"
+    ]
+  },
+  "not_run": [
+    "physical user device",
+    "live official-site APIs",
+    "live Supabase outage"
+  ],
+  "deployment": "not performed",
+  "versions": "unchanged; see unchanged-files.json"
+}

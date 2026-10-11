@@ -16,6 +16,7 @@
 | 구조·화면·흐름 | [docs/architecture/overview.md](docs/architecture/overview.md) |
 | Kotlin·권한·FGS·알림·빌드/서명 | [docs/architecture/android-runtime.md](docs/architecture/android-runtime.md) |
 | 서버 계약·SQLite·인증·집계 함정 | [docs/architecture/data-contracts.md](docs/architecture/data-contracts.md) |
+| 로컬 셀프호스트 운영 접속 설정(`.env.supabase.local`) | [docs/architecture/community-account.md](docs/architecture/community-account.md) |
 | 원래 CLAUDE.md 원문과 이관 대응표 | [docs/architecture/README.md](docs/architecture/README.md) |
 | UI 리뉴얼 설계 정본 | [docs/design/ui-renewal-spec.md](docs/design/ui-renewal-spec.md) |
 | 기능 보존표 / 에셋 목록 | [docs/design/feature-matrix.csv](docs/design/feature-matrix.csv) · [docs/design/asset-manifest.csv](docs/design/asset-manifest.csv) |

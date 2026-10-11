@@ -60,3 +60,7 @@ docs/images/readme/raw/
 
 # Android 산출물·mapping 보존(build_android_release.sh) — 커밋하지 않는다
 /dist/
+
+# Local self-hosted Supabase access for operator/agent tools (may contain secrets).
+/.env.supabase.local
+/.env.supabase.local.example

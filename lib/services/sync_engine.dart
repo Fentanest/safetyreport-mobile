@@ -187,6 +187,7 @@ class SyncEngine {
   }
 
   static void _emit(SyncEvent e) {
+    SyncOperationAdmission.reportProgress();
     if (!_controller.isClosed) _controller.add(e);
   }
 
@@ -340,6 +341,7 @@ class SyncEngine {
         rebuildRunId: rebuildRunId,
         failed: true,
         errorMessage: e.toString(),
+        cancelled: _stopping,
       );
     } finally {
       _running = false;
@@ -442,7 +444,7 @@ class SyncEngine {
         await markRebuildListComplete(community.store!, rebuildRunId);
       }
       await _saveSyncTime();
-      await _uploadCaptured();
+      await finishCollectionUpload(isRebuild: isRebuild);
       _emit(SyncEvent(type: SyncEventType.done, total: 0));
       return SyncRunResult(
         done: 0,
@@ -452,6 +454,7 @@ class SyncEngine {
       );
     }
 
+    await SyncOperationAdmission.checkOwnership();
     final stage = await SyncRunStage.create(
       await LocalDbService.db,
       community.store!,
@@ -479,10 +482,14 @@ class SyncEngine {
             startRow: start,
             endRow: end,
           );
+          await SyncOperationAdmission.checkOwnership();
           final list = inventory.addPage(data, start, end);
           if (_stopping) break;
           try {
             await stage.addPage(list);
+            if (isRebuild) {
+              await _touchRebuildProgress(community.store!, rebuildRunId);
+            }
           } catch (_) {
             inventory.invalidReasons.add('목록 staging ID 또는 저장 검증 실패');
             rethrow;
@@ -525,6 +532,7 @@ class SyncEngine {
       );
       await for (final page in stage.pages()) {
         if (_stopping) break;
+        await SyncOperationAdmission.checkOwnership();
         final items = page.map((r) => r.item).toList();
         final ids = items.map((i) => i['C_NO'].toString()).toSet();
         if (isRebuild) {
@@ -583,7 +591,9 @@ class SyncEngine {
                   .map((r) => r.item['C_NO'].toString());
         await stage.select(selected);
         // Eligibility used the original personal snapshot, before title updates.
-        await LocalDbService.updateTitlesFromList(items);
+        await SyncOperationAdmission.protectWrite(
+          () => LocalDbService.updateTitlesFromList(items),
+        );
       }
       if (isRebuild && !_stopping) {
         await markRebuildListComplete(community.store!, rebuildRunId);
@@ -609,7 +619,8 @@ class SyncEngine {
       await for (final page in stage.pages(todoOnly: true)) {
         for (final staged in page) {
           final item = staged.item;
-          if (workerDeadline != null && DateTime.now().isAfter(workerDeadline)) {
+          if (workerDeadline != null &&
+              DateTime.now().isAfter(workerDeadline)) {
             _stopRequested = true;
           }
           if (_stopping) {
@@ -629,7 +640,9 @@ class SyncEngine {
           );
 
           try {
+            await SyncOperationAdmission.checkOwnership();
             final detail = await StandaloneApiService.fetchReportDetail(cNo);
+            await SyncOperationAdmission.checkOwnership();
             final saved = await captureAndSaveDetail(
               cNo: cNo,
               item: item,
@@ -680,6 +693,9 @@ class SyncEngine {
             _log('[community] 저장소 연속 실패로 동기화를 멈춥니다: $e');
             rethrow;
           } catch (e) {
+            if (_stopping) {
+              rethrow; // Cancellation is not a failed detail attempt.
+            }
             errors++;
             _log('[오류] $cNo: $e');
             if (isRebuild && cStore != null) {
@@ -758,7 +774,7 @@ class SyncEngine {
 
       final msg =
           '${_stopping ? '동기화 중지' : '동기화 완료'}: $done건 저장${errors > 0 ? ', $errors건 오류' : ''}';
-      await _uploadCaptured();
+      await finishCollectionUpload(isRebuild: isRebuild);
       await reportProgress();
       _log(msg);
       _emit(
@@ -789,6 +805,16 @@ class SyncEngine {
       );
     } finally {
       await stage.close();
+    }
+  }
+
+  /// Rebuild completion depends on durable local capture, not cloud delivery.
+  @visibleForTesting
+  static Future<void> finishCollectionUpload({required bool isRebuild}) async {
+    if (isRebuild) {
+      CommunityUploadHooks.wakeUploadNow('recovery');
+    } else {
+      await _uploadCaptured();
     }
   }
 
@@ -893,9 +919,10 @@ class SyncEngine {
     CommunityStore store,
     String runId,
   ) async {
+    await SyncOperationAdmission.checkOwnership();
     await store.db.rawUpdate(
-      'UPDATE rebuild_jobs SET list_complete=1 WHERE run_id=?',
-      [runId],
+      'UPDATE rebuild_jobs SET list_complete=1, updated_at=? WHERE run_id=?',
+      [isoUtc(DateTime.now()), runId],
     );
   }
 
@@ -1074,6 +1101,7 @@ class SyncEngine {
     }
 
     checkCancel();
+    await SyncOperationAdmission.checkOwnership();
     if (!captureActive || communityStore == null) {
       // 공유 사본(journal) 없이 개인 저장을 하지 않는다 — 큐·재조회 대상은 그대로 남는다(H-01).
       throw CaptureStoreUnavailable('community_capture_unavailable: $cNo');
@@ -1098,6 +1126,8 @@ class SyncEngine {
           rebuildRunId: rebuildRunId,
           store: communityStore,
           projectNamespace: projectNamespace,
+          beforeWrite: (tx) =>
+              SyncOperationAdmission.checkOwnership(executor: tx),
         );
       } catch (_) {
         if (tracker.recordFailure()) {
@@ -1124,13 +1154,15 @@ class SyncEngine {
     checkCancel();
     ({bool isNew, bool changed, int syncedAt}) saved;
     try {
-      saved = await LocalDbService.upsertReport(
-        report,
-        cat,
-        ev,
-        rawContent: raw,
-        ratingLookup: augmented.lookup,
-        photoCapture: photo,
+      saved = await SyncOperationAdmission.protectWrite(
+        () => LocalDbService.upsertReport(
+          report,
+          cat,
+          ev,
+          rawContent: raw,
+          ratingLookup: augmented.lookup,
+          photoCapture: photo,
+        ),
       );
     } catch (e) {
       // 개인 저장 실패: 재조회 의도(retry)는 남겨 다음 실행이 이 신고를 다시 읽게 한다.
@@ -1153,6 +1185,19 @@ class SyncEngine {
     );
   }
 
+  static Future<void> _touchRebuildProgress(
+    CommunityStore store,
+    String runId,
+  ) async {
+    await SyncOperationAdmission.checkOwnership();
+    await store.db.update(
+      'rebuild_jobs',
+      {'updated_at': isoUtc(DateTime.now())},
+      where: 'run_id=?',
+      whereArgs: [runId],
+    );
+  }
+
   static Future<void> _markRebuildItem(
     CommunityStore store,
     String runId,
@@ -1160,11 +1205,13 @@ class SyncEngine {
     String state,
     String? error,
   ) async {
+    await SyncOperationAdmission.checkOwnership();
     try {
       await store.db.rawUpdate(
         'UPDATE rebuild_items SET state=?, attempts=attempts+1, last_error=? WHERE run_id=? AND source_report_id=?',
         [state, error, runId, cNo],
       );
+      await _touchRebuildProgress(store, runId);
     } catch (_) {}
   }
 
@@ -1175,6 +1222,7 @@ class SyncEngine {
     String listLabel,
     Object error,
   ) async {
+    await SyncOperationAdmission.checkOwnership();
     try {
       var state = classifyDetailError(error);
       final rows = await store.db.rawQuery(
@@ -1192,6 +1240,7 @@ class SyncEngine {
         'WHERE run_id=? AND source_report_id=?',
         [state, attempts, '$error', state, listLabel, runId, cNo],
       );
+      await _touchRebuildProgress(store, runId);
     } catch (_) {}
   }
 

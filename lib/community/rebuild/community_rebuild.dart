@@ -8,6 +8,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../../services/local_db_service.dart';
 import '../../services/sync_engine.dart';
+import '../../services/sync_operation_admission.dart';
 import '../community_store.dart';
 import '../upload_hooks.dart';
 import '../capture/rebuild_helpers.dart';
@@ -67,10 +68,15 @@ class CommunityRebuildGuard {
 class RebuildEngine {
   const RebuildEngine();
 
+  void cancel() => SyncEngine.stop();
+
   /// rebuild 모드 전체 수집(T6): 목록 부재 행을 지우지 않고 rebuild_items 에 checkpoint 를 남긴다.
   /// 실패(목록 일부 실패·로그인 실패 포함)는 성공으로 보지 않는다(G12).
   Future<RebuildRunOutcome> run({required String runId}) async {
     final result = await SyncEngine.start(fullSync: true, rebuildRunId: runId);
+    if (result.cancelled) {
+      throw StateError('paused: ${result.errorMessage ?? 'sync_cancelled'}');
+    }
     if (result.failed &&
         (!result.listComplete || result.cancelled || result.busy)) {
       throw StateError(result.errorMessage ?? 'rebuild_sync_failed');
@@ -84,9 +90,13 @@ class RebuildEngine {
       'SELECT list_complete FROM rebuild_jobs WHERE run_id=?',
       [runId],
     );
+    final fetched = await store.db.rawQuery(
+      "SELECT COUNT(*) n FROM rebuild_items WHERE run_id=? AND state='fetched'",
+      [runId],
+    );
     return RebuildRunOutcome(
       listComplete: listed.isNotEmpty && listed.first['list_complete'] == 1,
-      fetched: result.done,
+      fetched: fetched.single['n'] as int,
       permanentFailures: [
         for (final r in permanent) r['source_report_id'] as String,
       ],
@@ -137,7 +147,11 @@ class CommunityRebuild extends ChangeNotifier {
     Future<String> Function()? personalDbPath,
     Future<PersonalDbFacts> Function()? personalDbFacts,
     int Function()? scopeGeneration,
-  }) : _scopeGeneration = scopeGeneration,
+    Stopwatch? progressClock,
+    this.stallTimeout = const Duration(minutes: 5),
+    this.pollInterval = const Duration(seconds: 2),
+  }) : _idle = progressClock ?? Stopwatch(),
+       _scopeGeneration = scopeGeneration,
        _store = store,
        _personalDbFacts = personalDbFacts,
        _localDatasetId = localDatasetId,
@@ -149,6 +163,8 @@ class CommunityRebuild extends ChangeNotifier {
            manifestCheck ?? CommunityUploadHooks.refreshServerCompletedNow,
        _personalDbPath = personalDbPath;
 
+  final Duration stallTimeout;
+  final Duration pollInterval;
   final int Function()? _scopeGeneration;
   final CommunityStore _store;
   final Future<String> Function() _localDatasetId;
@@ -167,6 +183,43 @@ class CommunityRebuild extends ChangeNotifier {
 
   final String _leaseOwner = newUuidV4();
   Timer? _leaseHeartbeat;
+  Timer? _progressTimer;
+  Future<bool>? _operation;
+  bool _leaseHeld = false;
+  bool _leaseLost = false;
+  bool _collecting = false;
+  bool _disposed = false;
+  bool _refreshing = false;
+  int _viewRevision = 0;
+  String? _cancelReason;
+  int? _executionGeneration;
+  Map<String, Object?>? _executionScope;
+  final Stopwatch _idle;
+  int? pendingUploads;
+  bool _waitingForWorker = false;
+  bool get waitingForWorker => _waitingForWorker;
+  bool get isExecuting => _operation != null;
+  bool get stopping => isExecuting && _cancelReason != null;
+  bool get countsKnown => job != null;
+  DateTime? get lastProgressAt => DateTime.tryParse('${job?['updated_at']}');
+
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    // A detached screen never disposes its running coordinator. Tests/callers
+    // may dispose only after completion; retain ownership until work drains.
+    if (!isExecuting) {
+      _leaseHeartbeat?.cancel();
+      _progressTimer?.cancel();
+    }
+    super.dispose();
+  }
+
   Map<String, Object?>? _job;
   Map<String, Object?>? get job => _job;
   String get state => (_job?['state'] ?? RebuildStates.required) as String;
@@ -177,7 +230,21 @@ class CommunityRebuild extends ChangeNotifier {
       state == RebuildStates.committing;
 
   String? _notice;
-  String? get notice => _notice;
+  String? get notice =>
+      _notice ??
+      switch (_job?['last_error']) {
+        null => null,
+        'interrupted' => '이전 초기화가 중단되었습니다. 저장된 자료부터 이어서 진행할 수 있습니다.',
+        'user_paused' => '초기화를 일시정지했습니다. 수집한 자료는 보존됩니다.',
+        'progress_timeout' => '일정 시간 진행이 없어 중단했습니다. 연결 상태를 확인한 뒤 이어서 진행해 주세요.',
+        'gate_required' ||
+        'gate_not_fresh' => '계정 또는 공유 연결을 확인하지 못했습니다. 연결 복구 후 이어서 진행해 주세요.',
+        'manifest_unavailable' => '중앙 공유 목록을 확인하지 못했습니다. 연결 복구 후 다시 시도해 주세요.',
+        'rebuild_lease_lost' => '작업 소유권을 확인하지 못해 중단했습니다. 상태를 다시 확인해 주세요.',
+        'backup_missing_or_invalid' =>
+          '최초 백업을 확인하지 못해 중단했습니다. 기존 백업과 수집 자료는 유지됩니다.',
+        _ => '초기화 작업을 완료하지 못했습니다. 수집한 자료를 유지한 채 다시 시도할 수 있습니다.',
+      };
 
   Future<Map<String, Object?>> _scope() async => {
     'required_version': communityRebuildRequiredVersion,
@@ -247,9 +314,12 @@ class CommunityRebuild extends ChangeNotifier {
   }
 
   Future<void> load() async {
+    final revision = ++_viewRevision;
     final facts = await _personalDbFacts?.call();
     if (facts != null) _legacyReset = facts.legacyReset;
-    final s = await _scope();
+    final s = isExecuting && _executionScope != null
+        ? _executionScope!
+        : await _scope();
     final rows = await _store.db.rawQuery(
       'SELECT * FROM rebuild_jobs WHERE required_version=? AND local_dataset_id=? AND source_account_namespace=? ORDER BY updated_at DESC LIMIT 1',
       [
@@ -258,162 +328,355 @@ class CommunityRebuild extends ChangeNotifier {
         s['source_account_namespace'],
       ],
     );
+    if (revision != _viewRevision) return;
+    final previousAt = _job?['updated_at'];
+    final previousCounts = _job?['counts_json'];
     _job = rows.isEmpty ? null : Map<String, Object?>.from(rows.first);
     CommunityRebuildGuard.active =
         _job != null && !RebuildStates.terminalOk.contains(_job!['state']);
+    await _readCounts();
+    if (RebuildStates.terminalOk.contains(state)) {
+      try {
+        final pending = await _store.db.rawQuery(
+          "SELECT COUNT(*) n FROM outbox o JOIN source_journal j ON j.event_id=o.event_id "
+          "WHERE j.rebuild_run_id=? AND o.state IN ('pending','in_flight','retry_wait','auth_required')",
+          [_job!['run_id']],
+        );
+        pendingUploads = pending.single['n'] as int;
+      } catch (_) {
+        pendingUploads = null;
+      }
+    }
+    if (isExecuting &&
+        (previousAt != _job?['updated_at'] ||
+            previousCounts != _job?['counts_json'])) {
+      _progress();
+    }
     notifyListeners();
   }
 
   String _newRunId() =>
       'run-${DateTime.now().toUtc().millisecondsSinceEpoch}-${(_job == null ? 0 : 1)}';
 
+  Future<void> _readCounts() async {
+    final runId = _job?['run_id'];
+    final revision = _viewRevision;
+    if (runId == null) return;
+    final rows = await _store.db.rawQuery(
+      'SELECT state, COUNT(*) n FROM rebuild_items WHERE run_id=? GROUP BY state',
+      [runId],
+    );
+    if (revision != _viewRevision || _job?['run_id'] != runId) return;
+    final values = counts();
+    for (final key in [
+      'fetched',
+      'failed_permanent',
+      'failed_retryable',
+      'pending',
+    ]) {
+      values[key] = 0;
+    }
+    for (final row in rows) {
+      values['${row['state']}'] = row['n'] as int;
+    }
+    values['listed'] = rows.fold<int>(0, (sum, r) => sum + (r['n'] as int));
+    _job = {..._job!, 'counts_json': jsonEncode(values)};
+  }
+
+  /// A durable running flag is not proof of a live worker. Never steal a live
+  /// lease; old releases may retain it for up to 30 minutes after process death.
+  Future<void> refresh() async {
+    // Preparation/commit own the model. Poll only the collecting worker; an
+    // overlapping read must not invalidate the row being created by start().
+    if (_refreshing || (isExecuting && !_collecting)) return;
+    _refreshing = true;
+    try {
+      await load();
+      if (isExecuting || _job == null) return;
+      _notice = null;
+      final runId = _job!['run_id'];
+      await _store.transaction((tx) async {
+        final leases = await tx.rawQuery(
+          "SELECT name FROM leases WHERE name IN ('rebuild','personal_sync') AND until>?",
+          [isoUtc(DateTime.now())],
+        );
+        _waitingForWorker = leases.isNotEmpty;
+        if (_waitingForWorker) return;
+        // Preserve phase, checkpoint and counts. Completed transactions remain
+        // completed; a validating job with explicit gaps still needs consent.
+        await tx.rawUpdate(
+          "UPDATE rebuild_jobs SET state='paused', last_error='interrupted' "
+          "WHERE run_id=? AND state IN ('running','preparing_backup','awaiting_confirmation','committing')",
+          [runId],
+        );
+      });
+      await load();
+    } catch (_) {
+      _notice = '초기화 상태를 읽지 못했습니다. 상태를 다시 확인해 주세요.';
+      notifyListeners();
+    } finally {
+      _refreshing = false;
+    }
+  }
+
+  Future<void> _assertLease(DatabaseExecutor tx) async {
+    if (!_leaseHeld) return;
+    final rows = await tx.query(
+      'leases',
+      where: 'name=? AND owner=? AND until>?',
+      whereArgs: ['rebuild', _leaseOwner, isoUtc(DateTime.now())],
+    );
+    if (rows.isEmpty) throw StateError('rebuild_lease_lost');
+  }
+
+  Future<void> _validateScope() async {
+    if (_executionGeneration != _scopeGeneration?.call()) {
+      throw StateError('rebuild_generation_changed');
+    }
+    final scope = await _scope();
+    if (_executionGeneration != _scopeGeneration?.call() ||
+        _executionScope?.entries.any((e) => scope[e.key] != e.value) == true) {
+      throw StateError('rebuild_scope_changed');
+    }
+    await _assertLease(_store.db);
+  }
+
+  void _progress() {
+    if (_cancelReason == null) _idle.reset();
+  }
+
   Future<void> _save(Map<String, Object?> fields) async {
     final job = _job;
     if (job == null) return;
-    final row = Map<String, Object?>.from(job)..addAll(fields);
-    row['updated_at'] = isoUtc(DateTime.now());
-    await _store.db.insert(
-      'rebuild_jobs',
-      row,
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
-    _job = row;
-    CommunityRebuildGuard.active = !RebuildStates.terminalOk.contains(
-      row['state'],
-    );
+    _viewRevision++;
+    final update = {...fields, 'updated_at': isoUtc(DateTime.now())};
+    await _store.transaction((tx) async {
+      await _assertLease(tx);
+      // Update only owned fields: replacing a stale row erases engine checkpoints.
+      await tx.update(
+        'rebuild_jobs',
+        update,
+        where: 'run_id=?',
+        whereArgs: [job['run_id']],
+      );
+    });
+    _viewRevision++;
+    _job = {...job, ...update};
+    CommunityRebuildGuard.active = !RebuildStates.terminalOk.contains(state);
+    _progress();
     notifyListeners();
   }
 
-  /// 확인 — 초기화 크롤링 시작. 같은 run 이 있으면 재개한다.
-  Future<bool> start({required String confirmedBy}) async {
-    await load();
-    if (_job != null &&
-        !RebuildStates.terminalOk.contains(_job!['state']) &&
-        _job!['state'] != RebuildStates.required &&
-        _job!['state'] != RebuildStates.prerequisitesRequired &&
-        _job!['state'] != RebuildStates.awaitingConfirmation &&
-        _job!['state'] != RebuildStates.failed &&
-        _job!['state'] != RebuildStates.paused) {
-      return true;
-    }
-    final gateOk = await _gateFresh();
-    if (!gateOk) {
-      await _ensureRow(
-        state: RebuildStates.prerequisitesRequired,
-        error: 'gate_required',
-      );
-      _notice = '카카오 인증과 신고내용 공유 동의가 필요합니다.';
-      notifyListeners();
-      return false;
-    }
-    final manifestOk = await _manifestCheck();
-    if (!manifestOk) {
-      await _ensureRow(
-        state: RebuildStates.prerequisitesRequired,
-        error: 'manifest_unavailable',
-      );
-      _notice = '중앙 공유 목록을 확인하지 못했습니다. 다시 시도해 주세요.';
-      notifyListeners();
-      return false;
-    }
-    final leaseOk = await _store.acquireLease(
-      'rebuild',
-      _leaseOwner,
-      const Duration(minutes: 30),
+  Future<bool> start({required String confirmedBy}) =>
+      _begin(confirmedBy: confirmedBy);
+
+  Future<void> resume() async {
+    await _begin(confirmedBy: 'resume');
+  }
+
+  Future<void> acceptGaps() async {
+    await _begin(confirmedBy: 'user', acceptGaps: true);
+  }
+
+  Future<bool> _begin({required String confirmedBy, bool acceptGaps = false}) {
+    if (_operation != null) return _operation!;
+    _cancelReason = null;
+    // Set the single-flight future before any callback or database await.
+    final operation = Future<bool>.microtask(
+      () => _execute(confirmedBy, acceptGaps),
     );
-    if (!leaseOk) {
-      await load();
-      return true;
-    }
-    _startLeaseHeartbeat();
-    try {
-      if (_job == null ||
-          RebuildStates.terminalOk.contains(_job!['state']) ||
-          _job!['state'] == 'abandoned') {
-        await _insertRow();
+    _operation = operation;
+    notifyListeners();
+    return operation;
+  }
+
+  Future<bool> _execute(String confirmedBy, bool acceptGaps) async {
+    _notice = null;
+    _leaseLost = false;
+    _waitingForWorker = false;
+    _executionGeneration = _scopeGeneration?.call();
+    _idle
+      ..reset()
+      ..start();
+    _progressTimer = Timer.periodic(pollInterval, (_) {
+      final limit = state == RebuildStates.preparingBackup
+          ? const Duration(minutes: 15)
+          : stallTimeout;
+      if (_idle.elapsed >= limit && _cancelReason == null) {
+        requestPause('progress_timeout');
       }
-      await _save({
-        'state': RebuildStates.awaitingConfirmation,
-        'confirmed_at': isoUtc(DateTime.now()),
-      });
-      await _runToCompletion();
-      return state == RebuildStates.completed ||
-          state == RebuildStates.completedWithGaps;
+      unawaited(refresh());
+    });
+    var admitted = false;
+    try {
+      _executionScope = await _scope();
+      return await SyncOperationAdmission.run(
+        () async {
+          admitted = true;
+          if (!await _store.acquireLease(
+            'rebuild',
+            _leaseOwner,
+            const Duration(minutes: 2),
+          )) {
+            _waitingForWorker = true;
+            _notice = '다른 작업의 종료를 확인하고 있습니다. 잠시 후 상태를 다시 확인해 주세요.';
+            return false;
+          }
+          _leaseHeld = true;
+          _startLeaseHeartbeat();
+          await load();
+          if (RebuildStates.terminalOk.contains(state)) return true;
+          await SyncOperationAdmission.checkOwnership();
+          if (!await _gateFresh().timeout(const Duration(seconds: 45))) {
+            await _ensureRow(
+              state: RebuildStates.prerequisitesRequired,
+              error: 'gate_required',
+            );
+            return false;
+          }
+          await SyncOperationAdmission.checkOwnership();
+          if (acceptGaps) {
+            if (state != RebuildStates.validating) return false;
+            await _commit(finishedWithGaps: true);
+          } else {
+            // A validated checkpoint resumes validation, without fetching or
+            // replacing the initial backup. Gaps remain explicitly user-confirmed.
+            final validateOnly =
+                _job?['list_complete'] == 1 &&
+                (state == RebuildStates.validating ||
+                    state == RebuildStates.committing ||
+                    const {
+                      'validate',
+                      'commit',
+                      'committing',
+                    }.contains(_job?['phase']));
+            if (validateOnly) {
+              await _finishCollected(await _storedOutcome());
+            } else {
+              if (!await _manifestCheck().timeout(const Duration(minutes: 2))) {
+                await _ensureRow(
+                  state: RebuildStates.prerequisitesRequired,
+                  error: 'manifest_unavailable',
+                );
+                return false;
+              }
+              await SyncOperationAdmission.checkOwnership();
+              if (_job == null || state == 'abandoned') await _insertRow();
+              await _save({
+                'state': RebuildStates.awaitingConfirmation,
+                'confirmed_at': _job?['confirmed_at'] ?? isoUtc(DateTime.now()),
+                'last_error': null,
+              });
+              await _runToCompletion();
+            }
+          }
+          return RebuildStates.terminalOk.contains(state);
+        },
+        false,
+        openStore: () async => _store,
+        stopRequested: () => _cancelReason != null || _leaseLost,
+        validateScope: _validateScope,
+        onProgress: _progress,
+      );
+    } catch (e) {
+      if (_leaseHeld && _job != null) {
+        try {
+          await _ensureRow(
+            state: RebuildStates.paused,
+            error: _cancelReason ?? (_leaseLost ? 'rebuild_lease_lost' : '$e'),
+          );
+        } catch (_) {
+          _notice = '작업 소유권 또는 저장소를 확인하지 못했습니다. 상태를 다시 확인해 주세요.';
+        }
+      } else {
+        _notice = '초기화를 시작하지 못했습니다. 상태를 다시 확인해 주세요.';
+      }
+      return false;
     } finally {
+      _progressTimer?.cancel();
       _leaseHeartbeat?.cancel();
-      await _store.releaseLease('rebuild', _leaseOwner);
+      _idle.stop();
+      if (_leaseHeld) {
+        try {
+          await _store.releaseLease('rebuild', _leaseOwner);
+        } catch (_) {}
+      }
+      _leaseHeld = false;
+      _operation = null;
+      if (!admitted) {
+        _waitingForWorker = true;
+        _notice = '다른 동기화 작업의 종료를 확인하고 있습니다. 잠시 후 상태를 다시 확인해 주세요.';
+      }
+      if (_cancelReason != null && state == RebuildStates.paused) {
+        _notice = null;
+      }
+      if (!RebuildStates.terminalOk.contains(state) &&
+          _notice == null &&
+          _job == null) {
+        _notice = '다른 동기화 작업이 끝난 뒤 다시 시도해 주세요.';
+      }
+      notifyListeners();
     }
   }
 
-  Future<void> resume() async {
-    await load();
-    if (_job == null || RebuildStates.terminalOk.contains(_job!['state'])) {
-      return;
-    }
-    final gateOk = await _gateFresh();
-    if (!gateOk) {
-      await _save({}..['state'] = RebuildStates.paused);
-      _notice = '카카오 인증과 신고내용 공유 동의가 필요합니다.';
-      notifyListeners();
-      return;
-    }
-    final leaseOk = await _store.acquireLease(
-      'rebuild',
-      _leaseOwner,
-      const Duration(minutes: 30),
-    );
-    if (!leaseOk) return;
-    _startLeaseHeartbeat();
-    try {
-      await _runToCompletion(resumed: true);
-    } finally {
-      _leaseHeartbeat?.cancel();
-      await _store.releaseLease('rebuild', _leaseOwner);
-    }
+  /// Do not publish paused until the old future drains. Late responses cannot
+  /// become a second writer, and the UI keeps saying "중단 확인 중" meanwhile.
+  void requestPause([String reason = 'user_paused']) {
+    if (!isExecuting || _cancelReason != null) return;
+    _cancelReason = reason;
+    _notice = reason == 'progress_timeout'
+        ? '일정 시간 진행이 없어 중단을 요청했습니다. 현재 작업의 종료를 확인하고 있습니다.'
+        : '중단을 요청했습니다. 현재 작업의 종료를 확인하고 있습니다.';
+    if (_collecting) _engine.cancel();
+    notifyListeners();
   }
 
   Future<void> pause(String reason) async {
     await _save({'state': RebuildStates.paused, 'last_error': reason});
   }
 
-  /// 영구 누락 N건을 사용자가 수락 → completed_with_gaps.
   void _startLeaseHeartbeat() {
     _leaseHeartbeat?.cancel();
-    _leaseHeartbeat = Timer.periodic(const Duration(minutes: 1), (_) {
-      // The transaction at commit also checks expiry and owner; errors never grant ownership.
-      unawaited(
-        _store
-            .renewLease('rebuild', _leaseOwner, const Duration(minutes: 30))
-            .then<void>((_) {}, onError: (Object _) {}),
-      );
+    _leaseHeartbeat = Timer.periodic(const Duration(seconds: 30), (_) async {
+      try {
+        if (await _store.renewLease(
+          'rebuild',
+          _leaseOwner,
+          const Duration(minutes: 2),
+        )) {
+          return;
+        }
+      } catch (_) {}
+      _leaseLost = true;
+      requestPause('rebuild_lease_lost');
     });
   }
 
-  Future<void> acceptGaps() async {
-    if (_job == null ||
-        state != RebuildStates.validating ||
-        !await _gateFresh()) {
-      return;
-    }
-    if (!await _store.acquireLease(
-      'rebuild',
-      _leaseOwner,
-      const Duration(minutes: 30),
-    )) {
-      return;
-    }
-    try {
-      await _commit(finishedWithGaps: true);
-    } finally {
-      await _store.releaseLease('rebuild', _leaseOwner);
-    }
+  Future<RebuildRunOutcome> _storedOutcome() async {
+    final runId = _job!['run_id'];
+    await _readCounts();
+    final gaps = await _store.db.query(
+      'rebuild_items',
+      columns: ['source_report_id'],
+      where: 'run_id=? AND state=?',
+      whereArgs: [runId, 'failed_permanent'],
+    );
+    return RebuildRunOutcome(
+      listComplete: _job?['list_complete'] == 1,
+      fetched: counts()['fetched'] ?? 0,
+      permanentFailures: [
+        for (final row in gaps) row['source_report_id'] as String,
+      ],
+      orphanCount: counts()['orphan_preserved'] ?? 0,
+    );
   }
 
-  Future<void> _runToCompletion({bool resumed = false}) async {
+  Future<void> _runToCompletion() async {
     final runId = _job!['run_id'] as String;
     // 백업.
     await _save({'state': RebuildStates.preparingBackup, 'phase': 'backup'});
     final backup = await _doBackup(runId);
+    await SyncOperationAdmission.checkOwnership();
     if (!backup.ok) {
       await _save({
         'state': RebuildStates.failed,
@@ -429,12 +692,20 @@ class CommunityRebuild extends ChangeNotifier {
       'state': RebuildStates.running,
       'phase': 'collect',
       'list_complete': 0,
-      'started_at': isoUtc(DateTime.now()),
+      'started_at': _job?['started_at'] ?? isoUtc(DateTime.now()),
     });
     late final RebuildRunOutcome outcome;
     try {
-      outcome = await _engine.run(runId: runId);
+      _collecting = true;
+      try {
+        outcome = await _engine.run(runId: runId);
+      } finally {
+        _collecting = false;
+        _viewRevision++; // Discard a polling read still in flight.
+      }
+      await SyncOperationAdmission.checkOwnership();
     } catch (e) {
+      if (_cancelReason != null || _leaseLost) rethrow;
       final msg = '$e';
       if (msg.contains('paused') ||
           msg.contains('revoked') ||
@@ -446,6 +717,12 @@ class CommunityRebuild extends ChangeNotifier {
       notifyListeners();
       return;
     }
+    await _finishCollected(outcome);
+  }
+
+  Future<void> _finishCollected(RebuildRunOutcome outcome) async {
+    await SyncOperationAdmission.checkOwnership();
+    final runId = _job!['run_id'] as String;
     if (!outcome.listComplete) {
       await _save({
         'state': RebuildStates.failed,
@@ -493,14 +770,17 @@ class CommunityRebuild extends ChangeNotifier {
 
   Future<void> _commit({required bool finishedWithGaps}) async {
     final generation = _scopeGeneration?.call();
+    await SyncOperationAdmission.checkOwnership();
     final runId = _job!['run_id'] as String;
-    if (!await _gateFresh()) {
+    if (!await _gateFresh().timeout(const Duration(seconds: 45))) {
       await pause('gate_not_fresh');
       return;
     }
     final scope = await _scope();
+    await SyncOperationAdmission.checkOwnership();
     try {
       await _store.transaction((tx) async {
+        await SyncOperationAdmission.checkOwnership(executor: tx);
         if (generation != _scopeGeneration?.call()) {
           throw StateError('rebuild_generation_changed');
         }
@@ -581,6 +861,16 @@ class CommunityRebuild extends ChangeNotifier {
   }
 
   Future<RebuildBackupResult> _doBackup(String runId) async {
+    final original = _job?['backup_ref'] as String?;
+    if (original != null && _job?['backup_check'] == 'ok') {
+      if (_backupOverride != null || await _validBackup(original)) {
+        return RebuildBackupResult(ok: true, ref: original, check: 'ok');
+      }
+      return const RebuildBackupResult(
+        ok: false,
+        error: 'backup_missing_or_invalid',
+      );
+    }
     final backupOverride = _backupOverride;
     if (backupOverride != null) {
       try {
@@ -597,16 +887,45 @@ class CommunityRebuild extends ChangeNotifier {
       final dir = p.join(p.dirname(personalPath), 'backups');
       await Directory(dir).create(recursive: true);
       final dest = p.join(dir, 'pre-rebuild-$runId.db');
-      // VACUUM INTO 대신(SQLite 3.27 부터라 Android 7~10 에서 실패 — Sol 재검증 4) 구형 SQLite 에서도 되는 일관된 사본.
-      // 같은 run 의 재시도는 같은 이름을 쓰므로 지난 사본을 먼저 지운다(함수 안에서). 행 수·무결성 검사는 만든 사본에서 한다.
+      // Recover a completed snapshot whose job update was interrupted. Never
+      // overwrite it with an already partially rebuilt personal database.
+      if (await File(dest).exists()) {
+        return await _validBackup(dest)
+            ? RebuildBackupResult(ok: true, ref: dest, check: 'ok')
+            : const RebuildBackupResult(
+                ok: false,
+                error: 'backup_missing_or_invalid',
+              );
+      }
+      final temporary = '$dest.${newUuidV4()}.tmp';
       try {
-        await LocalDbService.copyDatabaseConsistent(personalPath, dest);
+        await LocalDbService.copyDatabaseConsistent(personalPath, temporary);
+        await SyncOperationAdmission.protectWrite(() async {
+          if (await File(dest).exists()) {
+            throw StateError('backup_already_exists');
+          }
+          await File(temporary).rename(dest);
+        });
       } catch (e) {
         return RebuildBackupResult(ok: false, error: 'backup_failed: $e');
       }
       return RebuildBackupResult(ok: true, ref: dest, check: 'ok');
     } catch (e) {
       return RebuildBackupResult(ok: false, error: '$e');
+    }
+  }
+
+  Future<bool> _validBackup(String path) async {
+    if (!await File(path).exists()) return false;
+    Database? copy;
+    try {
+      copy = await openReadOnlyDatabase(path);
+      final result = await copy.rawQuery('PRAGMA integrity_check');
+      return result.length == 1 && result.single.values.single == 'ok';
+    } catch (_) {
+      return false;
+    } finally {
+      await copy?.close();
     }
   }
 

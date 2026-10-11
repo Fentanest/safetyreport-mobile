@@ -546,3 +546,14 @@ SharedPreferences의 disk commit 실패는 메모리 변경을 되돌리지 않�
 
 사용자 r2 정정으로 개인 DB 공식 계정 해시와 복원 거절 규칙을 제거했다. PC 교환 DB에
 `official_account_key`를 요구하지 않으며 스키마/임의 메타 보존 계약도 변경하지 않는다.
+
+### 코드 대조 정정 — Standalone 초기화 중단 복구 (2026-10-08)
+
+- 초기화 화면은 `RebuildCoordinator`가 DB 경로·dataset·공식 계정·Provider 세대별로 보유한 `CommunityRebuild`에 연결한다. 화면 종료는 작업 종료가 아니다. 계정/자료 범위가 바뀌면 이전 작업에 중단을 요청하고 실제 종료 뒤 해제한다. Client의 서버 job 경로는 사용하지 않는다.
+- 저장된 `running`/`preparing_backup`/`awaiting_confirmation`/`committing`만으로 실행 중으로 판단하지 않는다. 로컬 실행 Future가 없고 `rebuild`·`personal_sync`의 유효한 lease가 없을 때 같은 run을 `paused`로 바꿔 재개를 제공한다. 기존 버전이 남긴 유효한 lease는 강제로 삭제하지 않는다(기존 rebuild 최대 30분, personal_sync 10분). 새 rebuild lease는 2분·30초 갱신이다. 다른 작업의 유효한 lease가 있으면 종료 확인 상태와 재조회 수단을 제공한다.
+- 초기화 전체가 `SyncOperationAdmission`을 사용한다. 같은 실행의 SyncEngine 진입은 같은 Zone에서 재사용한다. 재개 연타는 하나의 Future를 공유한다. 소유권/자료 세대를 외부 응답 후 확인하고, capture는 community 트랜잭션 안에서, 개인 DB 저장은 community lease를 잠근 동안 검증한다. 중단 요청은 기존 Future가 끝나기 전 잠금을 해제하거나 새 작업을 시작하지 않는다.
+- 수집 무진행 5분(백업 15분)은 중단 요청으로 바꾼다. 전체 신고 수집의 총시간 제한은 아니다. 게이트 확인은 45초, 공유 목록 사전 확인은 2분으로 제한한다. DB 쓰기/기존 수집 Future를 단순 timeout으로 버리고 새 쓰기를 시작하지 않는다. 네트워크 요청은 기존 요청별 timeout을 따른다. 저장소 자체가 응답하지 않는 경우는 종료 확인을 유지하며, 프로세스 재시작 후 lease와 checkpoint로 복구한다.
+- `rebuild_items`를 집계하여 이전 시도를 포함한 성공/영구 실패/재시도/대기 건수를 표시한다. 목록 완료 체크는 실제 `list_complete`가 기준이며, 엔진은 목록 페이지와 상세 처리마다 `updated_at`을 기록한다. 상태 저장은 해당 필드만 UPDATE하여 엔진 checkpoint를 오래된 메모리 행으로 덮어쓰지 않는다. 준비/검증 중 화면 재조회가 실행 객체의 상태를 덮어쓰지 않게 한다.
+- 최초 백업은 integrity_check 후 재사용한다. 새 백업은 별도 임시 파일을 검증하고 소유권 확인 뒤 최종 이름으로 바꾼다. DB job에 경로를 기록하기 직전 종료된 경우에도 이미 완성된 사본을 재사용한다. 사본이 없거나 손상되면 부분 수집 DB를 원래 백업인 것처럼 덮어쓰지 않고 중단한다.
+- 검증 checkpoint는 재수집 없이 재검증하며 영구 누락 수락은 계속 사용자 명시 동의가 필요하다. 소유자·계정·게이트·목록 완전성·staging·작업 소유권 검증은 유지한다.
+- rebuild의 로컬 수집 종료는 공유 업로드 완료를 기다리지 않는다. 영속 outbox를 기존 업로더가 처리하고, 완료 시 해당 run의 공유 전송 대기 건수가 있으면 별도 안내한다. 서버 장애를 수집 성공으로 바꾸거나 전송 대기 자료를 삭제하지 않는다. 개인/교환 DB 스키마, 공유 payload, 버전 값은 변경하지 않는다.

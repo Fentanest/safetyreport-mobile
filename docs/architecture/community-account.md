@@ -138,6 +138,27 @@ flutter build apk --dart-define=COMMUNITY_SUPABASE_URL=https://<project>.supabas
 - **Supabase 대시보드 Auth > URL Configuration > Redirect URLs 에 `com.fentanest.mysafetyreport://auth/callback` 을 정확히 등록해야 한다.**
   (웹 중계 콜백 `https://safeauth.worklazy.net/callback.html` 과 별개 항목.) Kakao provider 활성화도 필요.
 
+### 코드 대조 정정 — 빌드 설정 (2026-10-08)
+
+위의 "릴리즈 스크립트에는 아직 넣지 않았다"는 초기 구현 기록이다. 현재는
+`build_android_common.sh:prepare_community_public_config`가 두 공개값을 빌드에 주입한다.
+GitHub의 정식·개발 APK 워크플로는 Repository Variables의 `LOCAL_SUPABASE_URL`과
+`LOCAL_SUPABASE_PUBLISHABLE_KEY`를 읽어 기존 `COMMUNITY_SUPABASE_URL`·
+`COMMUNITY_SUPABASE_PUBLISHABLE_KEY` 환경변수로 전달한다. Dart define 이름은 그대로다.
+GitHub 값만 변경하면 이미 설치된 앱에는 적용되지 않으며, 새 빌드부터 적용된다.
+
+### 로컬 운영 도구의 셀프호스트 접속
+
+에이전트/CLI의 접속 설정은 레포 루트 `.env.supabase.local`에서 읽는다.
+변수 목록과 용도는 `.env.supabase.local.example`에 두며, 실제 파일은 gitignore 대상이고 권한 600을 사용한다.
+`LOCAL_SUPABASE_URL`·`LOCAL_SUPABASE_PUBLISHABLE_KEY`는 API 접속용,
+`LOCAL_SUPABASE_DB_URL`은 PostgreSQL 접속용이다. 관리자 API 작업 시에는 서버가 제공하는
+`LOCAL_SUPABASE_SECRET_KEY` 또는 `LOCAL_SUPABASE_SERVICE_ROLE_KEY`를 사용한다.
+서버가 같은 호스트에 있으면 `LOCAL_SUPABASE_COMPOSE_DIR`에 Compose 파일 디렉터리를 둘 수 있다.
+설정값을 로그·채팅·커밋에 출력하지 않는다. 파일이 존재해도 접속 성공을 의미하지 않는다.
+이 파일은 앱/CI에 자동 주입되지 않으며, 클라우드 CLI 로그인과 프로젝트 link를 바꾸지 않는다.
+셀프호스트 DB 명령은 해당 접속 문자열을 명시해 실행한다.
+
 ## 5. Client: 서버의 커뮤니티 계정
 
 - 서버 `/api/v1/app/config` 의 `capabilities` 에 `community_account` 가 있을 때만 설정 > "서버 연결" 아래 카드를 보인다

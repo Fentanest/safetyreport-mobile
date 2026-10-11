@@ -1,0 +1,6 @@
+{
+  "VERSION": "34374e5664b7be7da0a700177ee38cf2d9c7c8a1f02d0750807db45742a05bd6",
+  "pubspec.yaml": "e27272745c30efabd7d6cb279372d3d3b74429001143ce87b4528eb1ef6db165",
+  "pubspec.lock": "5fb46a3904a85c8eeb92c43941365960c859eea71476467660ee898fb1074816",
+  "android/app/build.gradle.kts": "93ca97e92254ca16eaca3f431d7b5d6b2e2eb008d7faaf052adebc3c92b1e171"
+}

@@ -12,6 +12,8 @@ import 'package:safetyreport/community/community_store.dart';
 import 'package:safetyreport/services/local_db_service.dart';
 import 'package:safetyreport/services/standalone_api_service.dart';
 import 'package:safetyreport/services/sync_engine.dart';
+import 'package:safetyreport/community/upload_hooks.dart';
+import 'package:safetyreport/community/rebuild/community_rebuild.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -206,6 +208,96 @@ void main() {
       expect((await db.query('report_override')).single['value'], '');
     },
   );
+  test(
+    'rebuild saves a real detail under admission and finishes without cloud delivery',
+    () async {
+      await store.db.insert('rebuild_jobs', {
+        'run_id': 'fixture-run',
+        'required_version': communityRebuildRequiredVersion,
+        'local_dataset_id': await store.localDatasetId(),
+        'source_account_namespace': 'fixture',
+        'state': 'running',
+        'updated_at': isoUtc(DateTime.now()),
+      });
+      StandaloneApiService.listForTest = (_, _) async => {
+        'totalCnt': 1,
+        'result': [
+          {'C_NO': '002', 'C_TITLE': '합성 신고'},
+        ],
+      };
+      StandaloneApiService.detailForTest = (_) async => {
+        'C_NO': '002',
+        'C_TITLE': '합성 신고',
+        'C_NOW': 0,
+        'C_DATE': '2026-09-01',
+        'C_CONTENT': '합성 내용',
+      };
+      CommunityUploadHooks.uploadBeforeSync = () =>
+          throw StateError('must not deliver');
+      addTearDown(() => CommunityUploadHooks.uploadBeforeSync = null);
+      final result = await SyncEngine.start(
+        fullSync: true,
+        rebuildRunId: 'fixture-run',
+      );
+      expect(result.failed, isFalse, reason: result.errorMessage);
+      expect(result.done, 1);
+      expect(
+        (await store.db.query('rebuild_items')).single['state'],
+        'fetched',
+      );
+      expect((await store.db.query('rebuild_jobs')).single['list_complete'], 1);
+      expect(await LocalDbService.getReport('002'), isNotNull);
+      expect(
+        (await (await LocalDbService.db).query(
+          'report_override',
+        )).single['value'],
+        '',
+      );
+    },
+  );
+
+  test(
+    'late detail response after cancellation cannot publish a report',
+    () async {
+      await store.db.insert('rebuild_jobs', {
+        'run_id': 'cancel-run',
+        'required_version': communityRebuildRequiredVersion,
+        'local_dataset_id': await store.localDatasetId(),
+        'source_account_namespace': 'fixture',
+        'state': 'running',
+        'updated_at': isoUtc(DateTime.now()),
+      });
+      StandaloneApiService.listForTest = (_, _) async => {
+        'totalCnt': 1,
+        'result': [
+          {'C_NO': '002'},
+        ],
+      };
+      final entered = Completer<void>();
+      final response = Completer<Map<String, dynamic>>();
+      StandaloneApiService.detailForTest = (_) {
+        entered.complete();
+        return response.future;
+      };
+      final run = SyncEngine.start(fullSync: true, rebuildRunId: 'cancel-run');
+      await entered.future;
+      SyncEngine.stop();
+      response.complete({
+        'C_NO': '002',
+        'C_NOW': 0,
+        'C_CONTENT': 'late synthetic response',
+      });
+      final result = await run;
+      expect(result.failed || result.cancelled, isTrue);
+      expect(await LocalDbService.getReport('002'), isNull);
+      expect(await store.db.query('source_journal'), isEmpty);
+      expect(
+        (await store.db.query('rebuild_items')).single['state'],
+        'pending',
+      );
+    },
+  );
+
   test('matching total does not authorize absence deletion', () async {
     StandaloneApiService.listForTest = (_, _) async => {
       'totalCnt': 1,

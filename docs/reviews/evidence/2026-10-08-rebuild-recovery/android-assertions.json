@@ -1,0 +1,11 @@
+{
+  "fixture": "integration_test/fixtures/rebuild_recovery_app.dart",
+  "application_id": "com.fentanest.mysafetyreport.rebuildfixture",
+  "device": "sr_uitest_api35 (Android API 35 emulator)",
+  "data": "synthetic only; no remote APIs",
+  "recovery": "process terminated; fixture leases aged by three days; paused with fetched=2,pending=1; resume completed fetched=3,pending=0",
+  "run_id_preserved": true,
+  "initial_backup_sha256_before_and_after": "9ad28ffcaa1e9ef78a0ca98e84ca663c011985984db7ab8f3f19dec0ede54489",
+  "home_then_resume_same_process": true,
+  "limitations": "Synthetic collection engine. Physical device, live official API and live Supabase outage were not exercised. Initial emulator suffered System UI ANR and exited 139; restarted with 1536 MB / 2 cores for recovery verification."
+}

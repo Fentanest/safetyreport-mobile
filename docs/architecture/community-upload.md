@@ -120,8 +120,12 @@ needs_consent·blocked_gate·failed·more_pending(모바일은 서버 API 소비
 `COMMUNITY_SUPABASE_URL`·`COMMUNITY_SUPABASE_PUBLISHABLE_KEY` 환경변수로
 `build/community_public.json`(2키만)을 만들고 `--dart-define-from-file` 로 넘긴다.
 release 에서 비었거나 자리표시자(`<`·`...`·`PROJECT_REF`·`example.`)·
-`sb_secret_`·service_role JWT 이면 실패. CI 는 Variables 를 env 로 넘긴다
-(값 하드코딩 금지). debug/test 는 값 없이도 빌드되지만 앱은 config_invalid
+`sb_secret_`·service_role JWT 이면 실패. CI 는 GitHub Repository Variables의
+`LOCAL_SUPABASE_URL`·`LOCAL_SUPABASE_PUBLISHABLE_KEY`를 각각 위의
+`COMMUNITY_SUPABASE_*` 환경변수로 매핑한다(값 하드코딩 금지).
+GitHub의 값은 앱에서 접근할 수 있는 셀프호스트 HTTPS 기본 URL(`/auth/v1`·`/rest/v1` 등의 경로 제외)과
+해당 서버의 공개 publishable/anon 키다. 로컬 빌드 환경변수와 Dart define 이름은 기존 이름을 유지한다.
+debug/test 는 값 없이도 빌드되지만 앱은 config_invalid
 게이트로 잠긴다.
 
 ## 코드 대조 정정

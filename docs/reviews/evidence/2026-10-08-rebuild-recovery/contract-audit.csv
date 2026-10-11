@@ -1,0 +1,12 @@
+id,mode,classification,previous,new,evidence,status
+RB-01,Standalone,approved-enhancement,persisted running had no restart path,lease checked paused state and same-run continuation,test/community/rebuild_state_test.dart;android-recovered.png,PASS
+RB-02,Standalone,approved-enhancement,screen owned the controller,scope coordinator retains active controller across routes,test/community/rebuild_state_test.dart,PASS
+RB-03,Standalone,presentation-change,zero counts until collection returned,cumulative checkpoint counts and actual list_complete phase,test/widgets/community_rebuild_screen_test.dart;android-recovered.png,PASS
+RB-04,Standalone,approved-enhancement,no running pause control,request cancellation and await old worker termination before continuation,test/services/sync_inventory_safety_test.dart;test/community/rebuild_state_test.dart,PASS
+RB-05,Standalone,approved-enhancement,retry replaced initial backup,validated initial snapshot retained,test/community/rebuild_fresh_install_test.dart;android-assertions.json,PASS
+RB-06,Standalone,approved-enhancement,local completion waited for upload,local validation completes while durable outbox retries,test/services/sync_inventory_safety_test.dart;test/community/rebuild_state_test.dart,PASS
+RB-07,Client,existing,server job and permissions,server job and permissions retained,test/widgets/community_rebuild_screen_test.dart,PASS
+RB-08,Demo,existing,no on-device rebuild,no on-device rebuild,test/widgets/rebuild_applies_test.dart,PASS
+RB-09,Standalone,presentation-change,light/dark progress view,light/dark recovery controls at 360/412 and scale 1/2 with tap target checks,test/widgets/community_rebuild_screen_test.dart;widget-and-backup.log,PASS
+RB-10,Standalone,approved-enhancement,no process death recovery verification,API35 synthetic process interruption and aged leases followed by completion,android-assertions.json;android-completed.png,PASS
+RB-11,Standalone,existing,real production APIs,not exercised,android-assertions.json,NOT_RUN

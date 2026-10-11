@@ -41,6 +41,7 @@ import 'community/community_store.dart';
 import 'community/community_wiring.dart';
 import 'community/gate/community_gate.dart';
 import 'community/rebuild/community_rebuild.dart';
+import 'community/rebuild/rebuild_coordinator.dart';
 import 'services/pending_changes_store.dart';
 import 'services/secure_storage_migration.dart';
 import 'screens/secure_storage_recovery_screen.dart';
@@ -643,6 +644,8 @@ CommunityRebuild standaloneRebuild(
   personalDbFacts: LocalDbService.personalDbFacts,
 );
 
+final _rebuildCoordinator = RebuildCoordinator();
+
 /// Standalone 초기화 필요 여부 확인. 필요 없으면 메인으로 건너뛴다.
 class StandaloneRebuildGate extends StatefulWidget {
   const StandaloneRebuildGate({super.key, required this.onDone, this.prepare});
@@ -673,12 +676,18 @@ class _StandaloneRebuildGateState extends State<StandaloneRebuildGate> {
     if (!rebuildAppliesOnDevice(provider)) return null;
     await LocalDbService.requireAccountChangeComplete();
     final store = await CommunityStore.open();
-    final rebuild = standaloneRebuild(
-      store,
-      provider,
-      gateFresh: () async => (await gate.requireFresh()).canEnter,
+    final scope =
+        '${store.db.path}:${await store.localDatasetId()}:'
+        '${provider.standaloneUsername}:${provider.datasetEpoch}';
+    final rebuild = _rebuildCoordinator.attach(
+      scope,
+      () => standaloneRebuild(
+        store,
+        provider,
+        gateFresh: () async => (await gate.requireFresh()).canEnter,
+      ),
     );
-    await rebuild.load();
+    await rebuild.refresh();
     if (!await rebuild.required()) return null;
     return rebuild;
   }

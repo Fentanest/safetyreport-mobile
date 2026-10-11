@@ -165,6 +165,8 @@ void main() {
           sr.textSecondary,
           sr.categoryTraffic,
           sr.categoryParking,
+          sr.categorySafety,
+          sr.categoryLiving,
           sr.categoryOther,
         ]) {
           for (final surface in [sr.surface, sr.background]) {
@@ -187,14 +189,18 @@ void main() {
         }
       });
 
-      test('분류색 키 매핑: 교통/주정차/기타는 서로 다르고 모르는 키는 보조색', () {
+      test('분류색 키 매핑(5분류): 교통/주정차/안전신고/생활불편/기타는 서로 다르고 모르는 키는 보조색', () {
         final colors = {
           sr.category('traffic'),
           sr.category('parking'),
+          sr.category('safety'),
+          sr.category('living'),
           sr.category('other'),
         };
-        expect(colors, hasLength(3));
+        expect(colors, hasLength(5));
         expect(sr.category('traffic'), sr.categoryTraffic);
+        expect(sr.category('safety'), sr.categorySafety);
+        expect(sr.category('living'), sr.categoryLiving);
         expect(sr.category('???'), sr.textSecondary);
       });
 

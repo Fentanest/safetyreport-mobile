@@ -267,6 +267,8 @@ void main() {
       expect(
         provider.trafficReports.length +
             provider.parkingReports.length +
+            provider.safetyReports.length +
+            provider.livingReports.length +
             provider.otherReports.length,
         100,
       );

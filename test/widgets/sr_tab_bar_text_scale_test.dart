@@ -174,7 +174,15 @@ void main() {
     testWidgets('신고내역 하위 탭 ×$scale', (tester) async {
       final errors = await _pump(tester, const ReportListScreen(), scale);
       expect(_tabBarErrors(errors), isEmpty, reason: describeErrors(errors));
-      _expectFullLabels(tester, ['교통위반', '주정차', '기타위반', '중복차량'], scale);
+      // 2026-10-11 사용자 지시로 '기타위반' 한 칸을 안전신고·생활불편·기타로 나눠 6탭이 됐다.
+      _expectFullLabels(tester, [
+        '교통위반',
+        '주정차',
+        '안전신고',
+        '생활불편',
+        '기타',
+        '중복차량',
+      ], scale);
     });
 
     testWidgets('알림 하위 탭(읽지 않은 배지) ×$scale', (tester) async {

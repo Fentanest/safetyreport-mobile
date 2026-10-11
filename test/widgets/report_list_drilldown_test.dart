@@ -10,6 +10,7 @@ import 'package:safetyreport/screens/statistics_screen.dart';
 import 'package:safetyreport/services/app_prefs_keys.dart';
 import 'package:safetyreport/services/local_db_service.dart';
 import 'package:safetyreport/theme/app_theme.dart';
+import 'package:safetyreport/widgets/local_paged_report_list.dart';
 import 'package:safetyreport/widgets/selection_action_bar.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -216,10 +217,60 @@ void main() {
       expect(_inAppBar(find.text('1,234건')), findsOneWidget);
     });
 
+    testWidgets(
+      '2026-10-11 5분류: 6탭이 순서대로 있고 안전신고·생활불편 탭은 그 분류 목록을 연다',
+      (tester) async {
+        final p = _ClientProvider();
+        addTearDown(p.dispose);
+        await _pumpApp(tester, p, const ReportListScreen());
+        await tester.pump();
+        await tester.pump();
+
+        final bar = find.byType(TabBar);
+        expect(bar, findsOneWidget);
+        for (final label in const [
+          '교통위반',
+          '주정차',
+          '안전신고',
+          '생활불편',
+          '기타',
+          '중복차량',
+        ]) {
+          expect(
+            find.descendant(of: bar, matching: find.text(label)),
+            findsOneWidget,
+            reason: '탭 "$label" 이 있어야 한다',
+          );
+        }
+
+        for (final (label, category) in const [
+          ('안전신고', 'safety'),
+          ('생활불편', 'living'),
+        ]) {
+          await tester.tap(
+            find.descendant(of: bar, matching: find.text(label)),
+          );
+          await tester.pumpAndSettle();
+          expect(
+            tester.widget<LocalPagedReportList>(
+              find.byKey(ValueKey('page-$category')),
+            ),
+            isA<LocalPagedReportList>().having(
+              (w) => w.category,
+              'category',
+              category,
+            ),
+            reason: '"$label" 탭은 /data/$category 와 같은 분류의 목록을 연다',
+          );
+        }
+      },
+    );
+
     testWidgets('중복차량 탭: 배지·선택·일괄 선택이 그 탭의 목록을 쓴다', (tester) async {
       final p = _ClientProvider();
       addTearDown(p.dispose);
-      await _pumpApp(tester, p, const ReportListScreen(initialTabIndex: 3));
+      // 2026-10-11 5분류: 중복차량 탭이 3번째(0=교통·1=주정차·2=안전신고·3=생활불편·4=기타)에서 5번째로 밀렸다.
+      await _pumpApp(tester, p, const ReportListScreen(initialTabIndex: 5));
       await tester.pump();
       await tester.pump();
       expect(_inAppBar(find.text('2건')), findsOneWidget);

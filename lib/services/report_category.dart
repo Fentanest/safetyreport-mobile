@@ -107,7 +107,8 @@ String _normName(String name) {
 }
 
 String _normSub(String sub) {
-  final text = _norm(sub);
+  var text = _norm(sub);
+  if (text.startsWith('(구)')) text = text.substring(3);
   return text.endsWith('불법주차') ? text.substring(0, text.length - 4) : text;
 }
 
@@ -173,6 +174,13 @@ Resolved resolve([Object? cd, Object? type, Object? entryValue]) {
   if (normalizedCd != null) {
     final key = (normalizedCd, normalized.ssnpcType ?? '');
     if (codes.containsKey(key)) return _known(key);
+    if (normalized.ssnpcType == null) {
+      // 대분류만 오고 소분류가 빠졌으면 접수 메뉴의 소분류를 같은 대분류 안에서만 쓴다(최종 감사 #3).
+      final fromEntry = _fromEntryValue(entryValue);
+      if (fromEntry.ssnpcCd == normalizedCd && fromEntry.code != null) {
+        return fromEntry;
+      }
+    }
     return (
       ssnpcCd: normalizedCd,
       ssnpcType: normalized.ssnpcType,

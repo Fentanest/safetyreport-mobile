@@ -11,7 +11,7 @@ library;
 import 'package:intl/intl.dart';
 import 'report_category.dart' as report_category;
 
-const String ruleVersion = "2026-10-11.3";
+const String ruleVersion = "2026-10-11.4";
 
 const String _passenger = "승용등";
 const String _van = "승합등";
@@ -143,6 +143,8 @@ int? _occurHour(dynamic occurTime) {
 bool _noSubcategoryInfo(report_category.Resolved resolved, dynamic entryValue) {
   // 소분류 코드가 있으면(모르는 코드라도) 못 알아본 소분류 — 대분류만 있으면 소분류 없음(Astra 재검수 #6).
   if (resolved.ssnpcType != null) return false;
+  // 대분류가 IP(소화전·교차로 등 지정 구역)면 '기타 불법주정차'가 아니다 — 밤샘주차는 EP(일반)만(최종 감사 #3).
+  if (resolved.ssnpcCd != null && resolved.ssnpcCd != 'EP') return false;
   final sub = _text(entryValue).split('-').skip(1).join('-');
   return sub.trim().isEmpty;
 }

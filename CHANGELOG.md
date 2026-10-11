@@ -8,6 +8,14 @@
 
 ---
 
+## 2026-10-11 — 최종 감사(Opus) 반영: 분류 가장자리 3건
+
+- `lib/services/report_category.dart` + `contracts/report-categories.json` v2(서버와 바이트 동일): 대분류만 오고 소분류가 빠지면 접수 메뉴의
+  소분류를 같은 대분류 안에서만 쓴다, 소분류 앞 '(구)' 를 지우고 찾는다.
+- `lib/services/fine_estimate.dart`: '소분류 없음' 밤샘주차 판정은 대분류가 없거나 EP 일 때만. `ruleVersion` .4(과태료 벡터 서버와 바이트 동일).
+
+---
+
 ## 2026-10-11 — Astra 재검수 반영: 목록 전용 행 가져오기 거절, 미확인 C_NOW 검토중, 대분류만 있는 밤샘주차
 
 - `lib/services/local_db_service.dart` `_preflightServerPopulation`(지적 1 잔여): 서버 DB 에 목록에서만 본 신고(category NULL)가 있으면

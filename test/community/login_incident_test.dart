@@ -12,6 +12,7 @@ import 'package:safetyreport/community/cloud_availability.dart';
 import 'package:safetyreport/community/community_store.dart';
 import 'package:safetyreport/services/community_auth_config.dart';
 import 'package:safetyreport/services/community_auth_service.dart';
+import 'fixed_random.dart';
 
 const url = 'https://fixture.supabase.test';
 void main() {
@@ -67,6 +68,7 @@ void main() {
           store,
           url,
           now: () => now,
+          random: const FixedRandom(),
         );
         final calls = <String>[];
         final client = MockClient((r) async {
@@ -266,60 +268,64 @@ void main() {
       });
     }
   }
-  test('production timeouts: outer15s precedes transport32s cooldown', () async {
-    final dir = await Directory.systemTemp.createTemp('login-timing-');
-    final store = await CommunityStore.open(
-      path: '${dir.path}/community.db',
-      factory: databaseFactoryFfi,
-    );
-    final now = DateTime.utc(2026, 10, 7);
-    FlutterSecureStorage.setMockInitialValues({});
-    CloudAvailability.shared = CloudAvailability(store, url, now: () => now);
-    final stalled = Completer<http.Response>();
-    final client = MockClient((r) async {
-      if (r.url.path.endsWith('/token')) {
-        return http.Response(
-          '{"access_token":"fixture","refresh_token":"fixture","expires_in":3600}',
-          200,
-        );
-      }
-      if (r.url.path.endsWith('/user')) return stalled.future;
-      return http.Response('', 204);
-    });
-    final svc = CommunityAuthService(
-      config: CommunityAuthConfig.validate(
-        url: url,
-        key: 'sb_publishable_fixture',
-      ),
-      client: client,
-      launcher: (_) async => true,
-    );
-    try {
-      await svc.startLogin();
-      final clock = Stopwatch()..start();
-      expect(
-        await svc.handleCallbackLink(
-          'com.fentanest.mysafetyreport://auth/callback?code=fixture-stalled',
+  test(
+    'production timeouts: outer15s precedes transport32s cooldown',
+    () async {
+      final dir = await Directory.systemTemp.createTemp('login-timing-');
+      final store = await CommunityStore.open(
+        path: '${dir.path}/community.db',
+        factory: databaseFactoryFfi,
+      );
+      final now = DateTime.utc(2026, 10, 7);
+      FlutterSecureStorage.setMockInitialValues({});
+      CloudAvailability.shared = CloudAvailability(store, url, now: () => now);
+      final stalled = Completer<http.Response>();
+      final client = MockClient((r) async {
+        if (r.url.path.endsWith('/token')) {
+          return http.Response(
+            '{"access_token":"fixture","refresh_token":"fixture","expires_in":3600}',
+            200,
+          );
+        }
+        if (r.url.path.endsWith('/user')) return stalled.future;
+        return http.Response('', 204);
+      });
+      final svc = CommunityAuthService(
+        config: CommunityAuthConfig.validate(
+          url: url,
+          key: 'sb_publishable_fixture',
         ),
-        CommunityLinkOutcome.failed,
+        client: client,
+        launcher: (_) async => true,
       );
-      expect(svc.state.value.notice, startsWith('계정 정보를 확인하지 못했습니다.'));
-      expect(await CloudAvailability.shared!.coolingDown(), false);
-      debugPrint(
-        'TIMING outer timeout ${clock.elapsed.inSeconds}s: account message, cooldown=false',
-      );
-      await Future<void>.delayed(const Duration(seconds: 18));
-      expect(await CloudAvailability.shared!.coolingDown(), true);
-      expect(await svc.startLogin(), CommunityStartOutcome.coolingDown);
-      debugPrint(
-        'TIMING transport timeout ${clock.elapsed.inSeconds}s: cooldown=true, retry blocked',
-      );
-    } finally {
-      stalled.complete(http.Response('{"id":"fixture-user"}', 200));
-      CloudAvailability.shared = null;
-      client.close();
-      await store.db.close();
-      await dir.delete(recursive: true);
-    }
-  }, timeout: const Timeout(Duration(seconds: 45)));
+      try {
+        await svc.startLogin();
+        final clock = Stopwatch()..start();
+        expect(
+          await svc.handleCallbackLink(
+            'com.fentanest.mysafetyreport://auth/callback?code=fixture-stalled',
+          ),
+          CommunityLinkOutcome.failed,
+        );
+        expect(svc.state.value.notice, startsWith('계정 정보를 확인하지 못했습니다.'));
+        expect(await CloudAvailability.shared!.coolingDown(), false);
+        debugPrint(
+          'TIMING outer timeout ${clock.elapsed.inSeconds}s: account message, cooldown=false',
+        );
+        await Future<void>.delayed(const Duration(seconds: 18));
+        expect(await CloudAvailability.shared!.coolingDown(), true);
+        expect(await svc.startLogin(), CommunityStartOutcome.coolingDown);
+        debugPrint(
+          'TIMING transport timeout ${clock.elapsed.inSeconds}s: cooldown=true, retry blocked',
+        );
+      } finally {
+        stalled.complete(http.Response('{"id":"fixture-user"}', 200));
+        CloudAvailability.shared = null;
+        client.close();
+        await store.db.close();
+        await dir.delete(recursive: true);
+      }
+    },
+    timeout: const Timeout(Duration(seconds: 45)),
+  );
 }

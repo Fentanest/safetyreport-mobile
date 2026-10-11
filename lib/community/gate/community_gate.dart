@@ -541,7 +541,17 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     return refreshNow();
   }
 
-  Future<void> _cloudUnavailable(int generation, String mode) async {
+  /// [fromSyntheticCooldown]: 이번 호출의 원인이 로컬 `cloud_cooldown` 합성 503(다른 isolate가
+  /// probe lease를 쥐고 있어 실제 서버에 묻지도 못한 응답)이면 true. 그 경우 쿨다운을 새로 쓰지
+  /// 않는다 — 결함 1: 마감이 막 지난 순간 포그라운드 재시도 타이머와 WorkManager 복구가 함께
+  /// 깨어나면, lease를 못 잡은 쪽이 `ensureCooldown()`으로 새 마감을 써 버려서(연속 실패로 집계도
+  /// 되어 점증까지 겹친다) probe가 성공해도 `current == isoUtc(at)` 비교가 어긋나 마감을 못 지우고
+  /// 회복이 5분 이상 늦어졌다. 합성 응답은 "서버가 실패했다"는 새 신호가 아니므로 무시한다.
+  Future<void> _cloudUnavailable(
+    int generation,
+    String mode, {
+    bool fromSyntheticCooldown = false,
+  }) async {
     _assertCurrent(generation, mode);
     var localAccountOk = false;
     try {
@@ -555,7 +565,9 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         _store,
       ).event(account, 'unknown', 'cloud-check-failed');
     }
-    await CloudAvailability.shared?.ensureCooldown();
+    if (!fromSyntheticCooldown) {
+      await CloudAvailability.shared?.ensureCooldown();
+    }
     if (isWriter && nextCloudAttempt != null) {
       await schedule.scheduleCloudRecovery(nextCloudAttempt!);
     }
@@ -609,7 +621,13 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
       return status.officialDatasetKey != null &&
           status.officialDatasetKey != datasetKeyForOfficialId(username);
     } on CommunityAccountError catch (e) {
-      if (e.serviceUnavailable) await _cloudUnavailable(generation, mode);
+      if (e.serviceUnavailable) {
+        await _cloudUnavailable(
+          generation,
+          mode,
+          fromSyntheticCooldown: e.code == 'cloud_cooldown',
+        );
+      }
       rethrow;
     }
   }
@@ -768,14 +786,19 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
       } on CommunityAccountError catch (e) {
         _assertCurrent(authGen, checkedMode);
         if (e.serviceUnavailable) {
-          if (e.code != 'cloud_cooldown' &&
+          final syntheticCooldown = e.code == 'cloud_cooldown';
+          if (!syntheticCooldown &&
               CloudAvailability.shared != null &&
               !await CloudAvailability.shared!.coolingDown()) {
             await CloudAvailability.shared!.failed(
               retryAfterSeconds: e.retryAfterSeconds,
             );
           }
-          await _cloudUnavailable(authGen, checkedMode);
+          await _cloudUnavailable(
+            authGen,
+            checkedMode,
+            fromSyntheticCooldown: syntheticCooldown,
+          );
         } else {
           _notice = e.message;
           final denied = e.isAuth

@@ -45,6 +45,50 @@
 
 ---
 
+## 2026-10-12 — Supabase 장애 중 재시도 과다 대응(모바일): 쿨다운 지터·점증 + 마감 경합 결함 2건 + 자정 분산
+
+사용자 요구 "Supabase 접속 불가 때 마구 두드리게 되어 있는 상태를 바로잡기"에 대한 승인 4항목 중 모바일 분(PC·지도 레포는 별도
+작업, 같은 값이어야 한다 — `docs/architecture/community-upload.md` 참조).
+
+- `lib/community/cloud_availability.dart`: 서비스 쿨다운에 ±20% 균등 지터 + 연속 실패 점증(`escalatedCooldownBaseSeconds`:
+  `300·2^(n-1)`, 상한 1800초)을 추가했다. 연속 실패 횟수는 deadline과 함께 community.db `meta`에 영속해 foreground
+  isolate와 WorkManager isolate가 같은 값을 본다(공유 안 되면 `test/community/cloud_availability_test.dart`의
+  "연속 실패 점증은... 다른 인스턴스 사이에 공유된다" 시험이 n=2를 못 보고 실패). 성공하면 n=0으로 돌아간다. Retry-After가
+  지터 적용 후 점증값보다 길면 그 값을 따르고(절대 줄이지 않음), 짧으면 점증값이 이긴다. 기존 `max(300, …)` 바닥은 "첫 실패
+  n=1 → 300초"로 대체됐다(1회성 실패는 기존과 같은 체감).
+- `lib/community/gate/community_gate.dart` **결함 1**: 쿨다운 마감 바로 그 순간 포그라운드 재시도 타이머와 WorkManager
+  복구가 함께 깨어나면, probe lease를 못 잡은 쪽은 로컬에서 합성한 503 `cloud_cooldown`을 받는다. 수정 전
+  `_cloudUnavailable`은 원인을 가리지 않고 `ensureCooldown()`을 불러, 이미 지난 마감을 보고 새 쿨다운을 썼다 — 진행 중이던
+  probe가 성공해도 자신이 기억한 마감과 저장된 마감이 달라져(`cloud_availability.dart:107-113`의 `current == isoUtc(at)`
+  비교) 지우지 못하고 회복이 5분 이상 늦어졌다. `_cloudUnavailable(fromSyntheticCooldown:)` 매개변수를 추가해, 원인이
+  합성 `cloud_cooldown`이면 쿨다운을 새로 쓰지 않는다(호출부 2곳 — `officialAccountNeedsReset`·`refreshNow`의 상태 조회
+  오류 처리 — 가 `e.code == 'cloud_cooldown'`로 넘긴다). `test/community/cloud_cooldown_recovery_test.dart`: 가짜 시계 +
+  `Completer`로 이 경합을 재현해, 수정 전 코드에서 실패함을 확인했다(기대한 첫 마감 대신 점증까지 겹쳐 10분 뒤 마감이 나옴).
+- `lib/community/upload/community_schedule.dart` **결함 2**: `background_login_check.dart`가 과거(이미 지난)
+  `nextAttemptAt`을 그대로 넘기면 `scheduleCloudRecovery`가 delay=0 REPLACE로 즉시 재등록해, probe가 진행 중인데도 로컬
+  재실행 루프가 생겼다. 지연 계산을 `cloudRecoveryDelay(deadline, now)`로 빼서, 마감이 지금이거나 과거면 최소 지연
+  `cloudRecoveryMinDelay`(30초)를 쓴다. `test/community/schedule_test.dart` "cloudRecoveryDelay" 그룹 — 수정 전
+  `Duration.zero`가 나와 실패함을 확인.
+- `lib/community/upload/community_schedule.dart` **자정 분산(④)**: `registerMidnightTask`가 다음 KST 자정 one-off를
+  예약할 때, 설치(기기)별로 한 번만 무작위로 뽑아 SharedPreferences에 영속한 오프셋(`midnightOffsetSeconds`, 0~1800초)만큼
+  늦춰 예약한다 — 이전에는 모든 기기가 00:00:00에 정확히 몰려 깨어났다. 기존 misfire/`existingWorkPolicy.replace` 의미는
+  유지. `test/community/schedule_test.dart` "자정 one-off 기기별 분산 오프셋" 그룹: 처음 한 번만 뽑고 이후 영속값을 그대로
+  쓰는지, 지연 계산이 `nextDueAt` 차이 + 오프셋인지 확인.
+- 문서: `docs/architecture/community-gate.md`(CloudAvailability 쿨다운 식 + 결함 1·2 코드 대조 정정),
+  `docs/architecture/community-upload.md`(PC·모바일 공용 원칙 절 신설 + 스케줄 절에 분산 오프셋 추가).
+  `contracts/community-ingest/schedule.md`는 건드리지 않았다 — PC·모바일·지도 3레포가 바이트 동일로 유지하는
+  계약 사본(`test/community/community_store_test.dart` "contract copy matches MANIFEST.sha256" 가 이를 검사한다)이라
+  한쪽만 고치면 그 시험이 깨진다(실제로 한 번 깨서 확인함). 자정 분산은 docs/architecture 두 곳에만 적었다.
+- 시험: 새 파일 `test/community/cloud_availability_test.dart`(6개)·`cloud_cooldown_recovery_test.dart`(1개),
+  기존 `test/community/schedule_test.dart`에 그룹 2개(4개) 추가. 지터가 생기면서 정확한 쿨다운 시각을 단언하던 기존 시험
+  (`emergency_offline_test.dart`·`login_incident_test.dart`)에는 결정적 `test/community/fixed_random.dart`
+  (`FixedRandom`, nextDouble()==0.5 → 지터 factor 1.0)를 주입해 기존 단언 강도를 그대로 유지했다.
+  `flutter test --no-pub` 전체 1500 passed / 17 skipped(골든 폰트 없음 등 기존) / 4 failed(`renewal_golden_test.dart`,
+  기존 실패 — 이번 변경과 무관). `flutter analyze --no-pub` 신규 경고 0(기존 9건 `agency_registry_wiring_test.dart`·
+  `registry_vectors_test.dart`의 unnecessary_cast만, 이번 변경 파일 무관).
+
+---
+
 ## 2026-10-11 — 최종 감사(Opus) 반영: 분류 가장자리 3건
 
 - `lib/services/report_category.dart` + `contracts/report-categories.json` v2(서버와 바이트 동일): 대분류만 오고 소분류가 빠지면 접수 메뉴의

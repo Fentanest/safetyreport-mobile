@@ -66,8 +66,8 @@
 
 ## 초기화 (`lib/community/rebuild/`, `community_rebuild_screen.dart`)
 
-- 범위 키 `(source-rebuild-2026-09-26.1, local_dataset_id, source_account_namespace)`.
-- 상태기계 `rebuild.md` 그대로. 백업 `VACUUM INTO .../backups/pre-rebuild-<run>.db`
+- 범위 키 `(source-rebuild-2026-10-11.1, local_dataset_id, source_account_namespace)`(처음 `source-rebuild-2026-09-26.1`, 코드 대조 정정).
+- 상태기계 `rebuild.md` 그대로. 백업 `.../backups/pre-rebuild-<run>.db`(일관된 사본 `copyDatabaseConsistent` — 예전 `VACUUM INTO`, 코드 대조 정정)
   + `integrity_check`, 실패면 failed·무변경.
 - 실행은 `SyncEngine.start(fullSync: true)` (T6 가 `rebuildRunId` 시그니처를
   제공하면 그 호출로 교체 — `.agent-runs/T5/REQUESTS.md`).
@@ -76,6 +76,24 @@
 - 시작 전 manifest 전 페이지 확인, 실패면 `manifest_unavailable` 로 머물고 시작 안 함.
 - 초기화 필요·진행 중 자동 동기화 시작 차단(`CommunityRebuildGuard`,
   `COMMUNITY_REBUILD_REQUIRED` 안내). 조회·설정·도움말은 허용.
+- **Standalone 백그라운드 진행 (2026-10-11 사용자 결정)** — `StandaloneRebuildGate`(`main.dart`) +
+  `StandaloneRebuildRunner`(`lib/community/rebuild/standalone_rebuild_runner.dart`):
+  - 필요 판정(`source-rebuild-2026-10-11.1`·새 설치 제외)은 그대로. 필요하면 안내(`StandaloneRebuildGuideScreen`, 기존
+    `communityRebuildGuideText`+`communityRebuildStandaloneApologyText`+보존 항목/이전 DB 안내)를 **한 번** 보이고, `확인 — 초기화 크롤링 시작`
+    을 누르면 확인 기록(`community.db` meta `rebuild_guide_ack:<버전>|<dataset>|<namespace>`)을 남긴 뒤 실행기에 시작을 맡기고 바로 메인으로 간다.
+    완료를 기다리지 않는다. 같은 범위의 job 이 이미 있으면(예전 화면에서 시작) 확인한 것으로 본다.
+  - 확인한 사용자는 안내 없이 메인으로 가고, 끝나지 않은 같은 run 을 백그라운드로 이어서 진행한다(`refresh()` 가 죽은 프로세스의
+    running 을 paused(interrupted) 로 바꾼 뒤 `start(resume)`). 사용자 일시정지(`user_paused`)·누락 수락 대기(validating+영구 실패)는
+    자동으로 재개하지 않는다. 남은 lease(이전 프로세스·다른 작업) 때문에 시작하지 못하면 60초 간격으로 최대 15번 다시 시도한다.
+  - 진행 표시: 대시보드 맨 위 `RebuildProgressCard`(동기화 화면 위에도) — 실제 `rebuild_items` 건수의 진행률(목록 확인 중에는 막대만),
+    성공·실패·남은·재시도 대기, 일시정지·이어서 진행·다시 시도·누락 확인(확인 대화상자)·자세히(기존 `CommunityRebuildScreen`).
+    완료 카드는 닫을 때까지 남는다. Client·데모에서는 그리지 않는다. 알림은 [android-runtime.md](android-runtime.md) `SyncForegroundService`.
+  - 동시성: 실행 전체가 `SyncOperationAdmission`(personal_sync lease)과 `LocalDbService.runBackgroundWork` 안에서 돈다 —
+    수동·자동 동기화·공유 대기열 처리는 작업 소유권을 얻지 못하고(일반 동기화는 `rebuildBlocks` 로도 막힘), 개인 DB 백업·복원·서버 DB
+    가져오기·되돌리기·신고 지우기는 무엇이든 바꾸기 전에 `DbBusyException` 으로 거절된다. 설정 화면은 같은 이유를 먼저 보이고 모드 전환도
+    진행 중에는 막는다. 동기화 화면의 중지 버튼은 진행 중인 다시 불러오기를 일시정지한다. 공유 업로드는 계약대로 계속한다(outbox).
+  - 목록 화면: 다시 불러오기는 개인 DB 행을 지우지 않고 제자리 갱신하므로 진행 중에도 기존 자료가 보인다. 실행이 끝나면
+    (완료·중단·실패) `ReportProvider.refreshAll` 로 다시 읽는다.
 - Client: 서버 `GET /api/v1/community/rebuild`,
   `POST /api/v1/community/rebuild/start|resume`
   (헤더 `X-Community-User-Token`), 같은 화면 의미로 표시. 모바일 전수 수집 금지.

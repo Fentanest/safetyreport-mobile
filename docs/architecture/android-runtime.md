@@ -183,6 +183,12 @@ Dart CommunityAuthLinkChannel (main() 에서 등록) → "takePendingLink"(꺼�
 - "🔄 동기화 진행 중" 알림 (LOW priority)
 - START_NOT_STICKY (작업 끝나면 정지)
 - FGS는 프로세스 우선순위를 높이지만 FlutterEngine 생존·작업 완료를 보장하지 않는다. Activity 소유 엔진 파괴 시 작업 중단과 서비스 종료를 요청한다.
+- 신고 내역 다시 불러오기(Standalone 1회 초기화, 2026-10-11 백그라운드 진행)의 수집 단계도 같은 FGS 를 쓴다
+  (`SyncEngine.start(rebuildRunId:)`, 시작 문구 "신고 내역 다시 불러오기 진행 중..."). `StandaloneRebuildRunner` 가
+  MethodChannel `updateSyncFgs`(owner·title·message·current·total)로 **이미 떠 있는** FGS 알림의 제목·문구·진행률만 바꾼다 —
+  owner 가 다르거나 서비스가 없으면 아무것도 하지 않고, 서비스를 새로 시작하지 않는다(백그라운드 FGS 시작 제한과 무관).
+  끝났을 때(완료·일부 누락·누락 확인 필요·중단)는 기존 `showNotification`(`app_push_v2`, 탭 → 대시보드)으로 한 번 알린다.
+  사용자 일시정지는 알리지 않는다.
 - `SyncEngine.runningListenable`은 전체 동기화와 개별 자동 동기화의 FGS 참조 수를 함께 반영한다. `SyncExitGuard`가 실행 화면과 앱 루트의 Android 뒤로 가기를 막아 Activity 종료를 방지한다. 작업이 끝나면 뒤로 가기가 다시 동작한다.
 
 ### 알림 채널

@@ -29,6 +29,7 @@ import '../navigation/app_routes.dart';
 import '../widgets/auth_status_notice.dart';
 import '../community/client_account_notice.dart';
 import '../community/gate/community_gate.dart';
+import '../community/rebuild/standalone_rebuild_runner.dart';
 import '../widgets/community_account_card.dart';
 import '../widgets/community_server_account_card.dart';
 import '../widgets/dispose_on_unmount.dart';
@@ -539,8 +540,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  /// 신고 내역 다시 불러오기가 진행 중이면 DB 파일 작업(백업·복원·되돌리기·모드 전환)을 막고 이유를 보인다(무결성 §3-1).
+  /// 서비스 계층도 같은 시간에 [DbBusyException] 으로 거절한다 — 여기서는 파일 선택·확인 전에 먼저 알린다.
+  bool _blockedByRebuild(String action) {
+    final reason = StandaloneRebuildRunner.instance.fileOperationBlockReason(
+      action,
+    );
+    if (reason == null) return false;
+    showSrSnack(context, reason, kind: SrSnackKind.error);
+    return true;
+  }
+
   Future<void> _backupDb() async {
     if (_isBackingUpDb) return;
+    if (_blockedByRebuild('DB 백업을')) return;
     setState(() => _isBackingUpDb = true);
 
     File? staged;
@@ -654,6 +667,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _revertToPreviousDb() async {
+    if (_blockedByRebuild('직전 DB 로 되돌릴')) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -697,6 +711,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _restoreDb() async {
+    if (_blockedByRebuild('DB 복원을')) return;
     final p = context.read<ReportProvider>();
     final isStandalone = p.appMode == AppMode.standalone;
 
@@ -804,6 +819,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   static Directory _backupDir() => AppStoragePaths.exportsRoot();
 
   Future<void> _confirmModeReset() async {
+    if (_blockedByRebuild('모드를 전환')) return;
     final p = context.read<ReportProvider>();
     final isStandalone = p.appMode == AppMode.standalone;
     if (isStandalone) {

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../community/rebuild/community_rebuild.dart';
+import '../community/rebuild/standalone_rebuild_runner.dart';
 import '../services/community_auth_service.dart';
 import '../services/community_server_link_service.dart';
 import '../theme/sr_colors.dart';
@@ -241,48 +242,9 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.isClient
-                          ? communityRebuildClientGuideText
-                          : communityRebuildGuideText,
-                      key: const Key('rebuildGuideText'),
-                      style: const TextStyle(fontSize: 13, height: 1.5),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      widget.isClient
-                          ? communityRebuildApologyText
-                          : communityRebuildStandaloneApologyText,
-                      key: const Key('rebuildApologyText'),
-                      style: const TextStyle(
-                        fontSize: 13,
-                        height: 1.5,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(
-                  _legacyReset == null
-                      ? communityRebuildPreservedText
-                      : '$communityRebuildLegacyText'
-                            '${_legacyReset!['backup'] == null ? '' : '\n백업: ${_legacyReset!['backup']}'}',
-                  key: const Key('rebuildPreservedText'),
-                  style: const TextStyle(fontSize: 12.5, height: 1.5),
-                ),
-              ),
+            _RebuildGuideCards(
+              isClient: widget.isClient,
+              legacyReset: _legacyReset,
             ),
             const SizedBox(height: 12),
             if (widget.isClient) _serverBody() else _localBody(),
@@ -330,6 +292,12 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
       ],
     );
   }
+
+  /// 앱 전역 실행기가 맡은 작업이면(대시보드 카드 '자세히') 시작·누락 수락도 실행기로 보낸다 — 화면을 닫아도 계속되고
+  /// 알림·재시도·목록 새로 고침이 같은 경로로 처리된다.
+  bool get _background =>
+      widget.rebuild != null &&
+      identical(StandaloneRebuildRunner.instance.current, widget.rebuild);
 
   Widget _localBody() {
     final rebuild = widget.rebuild;
@@ -406,9 +374,11 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
           FilledButton(
             onPressed: unavailable
                 ? null
-                : () => _run(() async {
-                    await rebuild.start(confirmedBy: 'user');
-                  }),
+                : () => _background
+                      ? StandaloneRebuildRunner.instance.runInBackground()
+                      : _run(() async {
+                          await rebuild.start(confirmedBy: 'user');
+                        }),
             child: Text(
               unavailable
                   ? '작업 확인 중...'
@@ -422,7 +392,10 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
           OutlinedButton(
             onPressed: unavailable
                 ? null
-                : () => _run(() => rebuild.acceptGaps()),
+                : () => _background
+                      ? StandaloneRebuildRunner.instance
+                            .acceptGapsInBackground()
+                      : _run(() => rebuild.acceptGaps()),
             child: Text('누락 $failed건을 확인하고 계속'),
           ),
         TextButton(
@@ -518,4 +491,121 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
     RebuildStates.failed => '실패',
     _ => state,
   };
+}
+
+/// 안내 문구 카드(업데이트 안내 + 사과 문장) + 보존 항목(또는 이전 DB 를 비운 안내) 카드. 두 화면이 같이 쓴다.
+class _RebuildGuideCards extends StatelessWidget {
+  const _RebuildGuideCards({required this.isClient, this.legacyReset});
+
+  final bool isClient;
+  final Map<String, Object?>? legacyReset;
+
+  @override
+  Widget build(BuildContext context) {
+    final legacy = legacyReset;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isClient
+                      ? communityRebuildClientGuideText
+                      : communityRebuildGuideText,
+                  key: const Key('rebuildGuideText'),
+                  style: const TextStyle(fontSize: 13, height: 1.5),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  isClient
+                      ? communityRebuildApologyText
+                      : communityRebuildStandaloneApologyText,
+                  key: const Key('rebuildApologyText'),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    height: 1.5,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              legacy == null
+                  ? communityRebuildPreservedText
+                  : '$communityRebuildLegacyText'
+                        '${legacy['backup'] == null ? '' : '\n백업: ${legacy['backup']}'}',
+              key: const Key('rebuildPreservedText'),
+              style: const TextStyle(fontSize: 12.5, height: 1.5),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Standalone 새 버전 첫 실행 안내(2026-10-11 사용자 결정 — 백그라운드). 한 번만 보인다.
+///
+/// '확인' 을 누르면 바로 메인으로 가고 다시 불러오기는 백그라운드에서 진행한다(진행: 대시보드 카드·알림).
+/// 상태·진행 화면은 대시보드 카드의 '자세히' 로 여는 [CommunityRebuildScreen] 이 그대로 맡는다.
+class StandaloneRebuildGuideScreen extends StatelessWidget {
+  const StandaloneRebuildGuideScreen({
+    super.key,
+    this.legacyReset,
+    required this.onConfirm,
+    this.busy = false,
+  });
+
+  final Map<String, Object?>? legacyReset;
+  final Future<void> Function() onConfirm;
+  final bool busy;
+
+  @override
+  Widget build(BuildContext context) {
+    final sr = context.sr;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('신고 내역 다시 불러오기'),
+        automaticallyImplyLeading: false,
+      ),
+      body: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _RebuildGuideCards(isClient: false, legacyReset: legacyReset),
+              const SizedBox(height: 12),
+              Text(
+                '진행 단계: ${_phases.join(' → ')}. 걸리는 시간은 신고 수와 안전신문고 응답에 따라 다릅니다.',
+                key: const Key('rebuildGuidePhases'),
+                style: TextStyle(
+                  fontSize: 12.5,
+                  height: 1.5,
+                  color: sr.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 16),
+              FilledButton(
+                key: const Key('rebuildGuideConfirm'),
+                onPressed: busy ? null : onConfirm,
+                child: const Text('확인 — 초기화 크롤링 시작'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

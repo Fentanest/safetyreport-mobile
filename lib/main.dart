@@ -41,7 +41,7 @@ import 'community/community_store.dart';
 import 'community/community_wiring.dart';
 import 'community/gate/community_gate.dart';
 import 'community/rebuild/community_rebuild.dart';
-import 'community/rebuild/rebuild_coordinator.dart';
+import 'community/rebuild/standalone_rebuild_runner.dart';
 import 'services/pending_changes_store.dart';
 import 'services/secure_storage_migration.dart';
 import 'screens/secure_storage_recovery_screen.dart';
@@ -143,6 +143,13 @@ Future<void> main() async {
     if (!rebuildAppliesOnDevice(reportProvider)) return false;
     final store = communityStore ?? await CommunityStore.open();
     return standaloneRebuild(store, reportProvider).required();
+  };
+  // 백그라운드 다시 불러오기가 끝나면(완료·중단·실패) 목록·요약을 다시 읽는다. 진행 중에는 기존 자료를 그대로 보인다
+  // (다시 불러오기는 행을 지우지 않고 제자리 갱신한다 — rebuild.md).
+  StandaloneRebuildRunner.instance.onRunFinished = () async {
+    if (rebuildAppliesOnDevice(reportProvider)) {
+      await reportProvider.refreshAll();
+    }
   };
   // 서버 연결은 루트에서 PC 버전 3 이상을 확인한 뒤 시작한다.
   // 모드 전환(Client·데모 → Standalone 등) 뒤에는 그 기기 DB 의 주인을 다시 확인한다.
@@ -718,15 +725,25 @@ CommunityRebuild standaloneRebuild(
   personalDbFacts: LocalDbService.personalDbFacts,
 );
 
-final _rebuildCoordinator = RebuildCoordinator();
-
-/// Standalone 초기화 필요 여부 확인. 필요 없으면 메인으로 건너뛴다.
+/// Standalone 초기화(신고 내역 다시 불러오기) 필요 여부 확인. 필요 없으면 메인으로 건너뛴다.
+///
+/// 2026-10-11 사용자 결정(백그라운드): 필요하면 안내를 한 번 보이고 '확인' 뒤 바로 메인으로 간다. 다시 불러오기는
+/// [StandaloneRebuildRunner] 가 백그라운드로 진행하고 진행은 대시보드 카드·알림에서 본다. 이미 안내를 확인한 사용자는
+/// 안내 없이 메인으로 가고, 끝나지 않은 같은 run 을 백그라운드로 이어서 진행한다(사용자가 일시정지했거나 누락 동의를 기다리면 그대로 둔다).
 class StandaloneRebuildGate extends StatefulWidget {
-  const StandaloneRebuildGate({super.key, required this.onDone, this.prepare});
+  const StandaloneRebuildGate({
+    super.key,
+    required this.onDone,
+    this.prepare,
+    this.runner,
+  });
   final VoidCallback onDone;
 
-  /// 시험용 판정 주입. 없으면 커뮤니티 저장소로 초기화가 필요한지 판정한다.
+  /// 시험용 판정 주입. 없으면 커뮤니티 저장소로 초기화가 필요한지 판정한다(필요하면 그 객체, 아니면 null).
   final Future<CommunityRebuild?> Function()? prepare;
+
+  /// 시험용 실행기. 없으면 앱 전역 [StandaloneRebuildRunner.instance].
+  final StandaloneRebuildRunner? runner;
 
   @override
   State<StandaloneRebuildGate> createState() => _StandaloneRebuildGateState();
@@ -737,23 +754,47 @@ class _StandaloneRebuildGateState extends State<StandaloneRebuildGate> {
 
   /// 건너뛰기(onDone)는 한 번만, 화면이 살아 있을 때만 부른다(SQ-B13). build 는 여러 번 돌 수 있다.
   bool _skipScheduled = false;
+  bool _confirming = false;
+
+  StandaloneRebuildRunner get _runner =>
+      widget.runner ?? StandaloneRebuildRunner.instance;
 
   @override
   void initState() {
     super.initState();
-    _future = widget.prepare?.call() ?? _prepare();
+    _future = _decide();
+  }
+
+  /// 안내가 필요하면 그 객체를, 아니면 null(이미 확인한 사용자는 여기서 백그라운드 재개를 요청한다).
+  Future<CommunityRebuild?> _decide() async {
+    final injected = widget.prepare;
+    final rebuild = injected != null ? await injected() : await _prepare();
+    if (rebuild == null) return null;
+    if (injected != null) _runner.adopt(rebuild);
+    bool acknowledged;
+    try {
+      acknowledged = await rebuild.guideAcknowledged();
+    } catch (_) {
+      acknowledged = false; // 확인 기록을 읽지 못하면 안내를 다시 보인다(안전한 쪽).
+    }
+    if (!acknowledged) return rebuild;
+    _runner.resumeIfDue();
+    return null;
   }
 
   Future<CommunityRebuild?> _prepare() async {
     final provider = context.read<ReportProvider>();
     final gate = context.read<CommunityGate>();
-    if (!rebuildAppliesOnDevice(provider)) return null;
+    if (!rebuildAppliesOnDevice(provider)) {
+      _runner.clear();
+      return null;
+    }
     await LocalDbService.requireAccountChangeComplete();
     final store = await CommunityStore.open();
     final scope =
         '${store.db.path}:${await store.localDatasetId()}:'
         '${provider.standaloneUsername}:${provider.datasetEpoch}';
-    final rebuild = _rebuildCoordinator.attach(
+    final rebuild = _runner.attach(
       scope,
       () => standaloneRebuild(
         store,
@@ -762,8 +803,23 @@ class _StandaloneRebuildGateState extends State<StandaloneRebuildGate> {
       ),
     );
     await rebuild.refresh();
-    if (!await rebuild.required()) return null;
+    if (!await rebuild.required()) {
+      _runner.clear();
+      return null;
+    }
     return rebuild;
+  }
+
+  Future<void> _confirm(CommunityRebuild rebuild) async {
+    if (_confirming) return;
+    setState(() => _confirming = true);
+    try {
+      await rebuild.acknowledgeGuide();
+    } catch (_) {
+      // 기록하지 못하면 다음 실행 때 안내를 한 번 더 보일 뿐이다. 진행은 그대로 시작한다.
+    }
+    _runner.runInBackground();
+    if (mounted) widget.onDone();
   }
 
   void _skipOnce() {
@@ -805,11 +861,10 @@ class _StandaloneRebuildGateState extends State<StandaloneRebuildGate> {
             body: Center(child: CircularProgressIndicator()),
           );
         }
-        return CommunityRebuildScreen(
-          rebuild: rebuild,
-          onDone: () async {
-            widget.onDone();
-          },
+        return StandaloneRebuildGuideScreen(
+          legacyReset: rebuild.legacyReset,
+          busy: _confirming,
+          onConfirm: () => _confirm(rebuild),
         );
       },
     );

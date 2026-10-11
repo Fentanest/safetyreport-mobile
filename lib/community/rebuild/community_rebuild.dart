@@ -40,7 +40,8 @@ const String communityRebuildGuideText =
     '이번 업데이트로 신고 분류가 안전신문고 공식 분류 기준으로 바뀌었습니다. 교통위반·주정차위반에 더해 기타 신고가 '
     '안전신고·생활불편·기타로 나뉘고, 차량번호도 안전신문고에 등록된 값을 먼저 씁니다. '
     '바뀐 기준을 반영하기 위해 저장된 신고를 안전신문고에서 한 번 다시 불러옵니다. '
-    '진행 상황은 이 화면에서 볼 수 있고, 앱을 닫았다가 다시 열면 이어서 진행합니다.';
+    '다시 불러오기는 앱을 쓰는 동안 백그라운드에서 진행되고, 진행 상황은 대시보드와 알림에서 볼 수 있습니다. '
+    '앱을 닫았다가 다시 열면 이어서 진행합니다.';
 
 const String communityRebuildClientGuideText =
     '이번 업데이트로 신고 분류가 안전신문고 공식 분류 기준으로 바뀌었습니다. 교통위반·주정차위반에 더해 기타 신고가 '
@@ -74,8 +75,11 @@ const String communityRebuildFreshInstallBaseline = 'fresh_install';
 class CommunityRebuildGuard {
   CommunityRebuildGuard._();
   static bool active = false;
-  static const String blockedMessage = '초기화 크롤링이 필요합니다. 먼저 초기화 크롤링을 완료해 주세요.';
+  static const String blockedMessage = SyncEngine.rebuildBlockedMessage;
 }
+
+/// 안내 확인 기록(`community.db` meta) 접두사. 범위 키마다 한 번 — 확인한 뒤에는 안내 없이 백그라운드로 이어서 진행한다.
+const String communityRebuildGuideAckPrefix = 'rebuild_guide_ack:';
 
 /// 실제 수집 엔진 자리. 기본값은 `SyncEngine.start(fullSync: true)` — T6 가
 /// `start(fullSync:rebuildRunId:)` 시그니처를 제공하면 그 호출로 교체한다(REQUESTS.md).
@@ -259,6 +263,32 @@ class CommunityRebuild extends ChangeNotifier {
           '최초 백업을 확인하지 못해 중단했습니다. 기존 백업과 수집 자료는 유지됩니다.',
         _ => '초기화 작업을 완료하지 못했습니다. 수집한 자료를 유지한 채 다시 시도할 수 있습니다.',
       };
+
+  String _guideKey(Map<String, Object?> s) =>
+      '$communityRebuildGuideAckPrefix${s['required_version']}|'
+      '${s['local_dataset_id']}|${s['source_account_namespace']}';
+
+  /// 이 범위 키의 안내를 사용자가 이미 확인했는가(2026-10-11 — 안내는 한 번, 다시 불러오기는 백그라운드).
+  /// 확인 기록이 없더라도 이미 job 이 있으면(예전 화면에서 시작) 확인한 것으로 본다.
+  Future<bool> guideAcknowledged() async {
+    final s = await _scope();
+    if (await _store.meta(_guideKey(s)) != null) return true;
+    final rows = await _store.db.rawQuery(
+      'SELECT 1 FROM rebuild_jobs WHERE required_version=? AND local_dataset_id=? AND source_account_namespace=? LIMIT 1',
+      [
+        s['required_version'],
+        s['local_dataset_id'],
+        s['source_account_namespace'],
+      ],
+    );
+    return rows.isNotEmpty;
+  }
+
+  /// 안내 확인을 기록한다. 개인 DB·job 은 바꾸지 않는다.
+  Future<void> acknowledgeGuide() async {
+    final s = await _scope();
+    await _store.setMeta(_guideKey(s), isoUtc(DateTime.now()));
+  }
 
   Future<Map<String, Object?>> _scope() async => {
     'required_version': communityRebuildRequiredVersion,
@@ -496,8 +526,12 @@ class CommunityRebuild extends ChangeNotifier {
     if (_operation != null) return _operation!;
     _cancelReason = null;
     // Set the single-flight future before any callback or database await.
+    // 백그라운드 작업으로 등록한다: 진행 중(백업·수집·반영 전 단계)에는 DB 백업·복원·서버 DB 가져오기·신고 지우기가
+    // 기존 규칙(`DbBusyException`)으로 거절되고, 그런 파일 교체가 진행 중이면 끝날 때까지 시작하지 않는다(무결성 §3-1).
     final operation = Future<bool>.microtask(
-      () => _execute(confirmedBy, acceptGaps),
+      () => LocalDbService.runBackgroundWork(
+        () => _execute(confirmedBy, acceptGaps),
+      ),
     );
     _operation = operation;
     notifyListeners();
@@ -588,7 +622,11 @@ class CommunityRebuild extends ChangeNotifier {
         },
         false,
         openStore: () async => _store,
-        stopRequested: () => _cancelReason != null || _leaseLost,
+        // 모드 전환 등이 DB 연결 닫기를 요청하면 다음 확인 지점에서 멈춘다(같은 run 은 다음 실행 때 이어서).
+        stopRequested: () =>
+            _cancelReason != null ||
+            _leaseLost ||
+            LocalDbService.closeRequested,
         validateScope: _validateScope,
         onProgress: _progress,
       );

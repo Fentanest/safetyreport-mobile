@@ -20,6 +20,7 @@ import '../widgets/status_badge.dart';
 import '../widgets/sr_app_bar_actions.dart';
 import '../widgets/sr_page_padding.dart';
 import '../widgets/sync_status_card.dart';
+import '../widgets/rebuild_progress_card.dart';
 import '../navigation/main_tabs.dart';
 import '../utils/format.dart';
 import '../theme/sr_tokens.dart';
@@ -208,6 +209,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const ReloginRequiredBanner(),
+          // Standalone 신고 내역 다시 불러오기(1회, 백그라운드) 진행 — 필요 없거나 닫으면 그리지 않는다.
+          const RebuildProgressCard(),
           _buildSummaryGrid(stats),
           const SizedBox(height: 12),
           const SyncStatusCard(),

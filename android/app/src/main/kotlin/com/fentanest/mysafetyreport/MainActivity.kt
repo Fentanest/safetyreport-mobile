@@ -646,6 +646,23 @@ class MainActivity : FlutterFragmentActivity() {
                             result.error("SYNC_FGS_START_FAILED", e.message, null)
                         }
                     }
+                    // 진행 중인 FGS 알림의 문구·진행률만 바꾼다(신고 내역 다시 불러오기 진행 표시). 서비스를 새로 시작하지 않는다.
+                    "updateSyncFgs" -> {
+                        try {
+                            val owner = call.argument<String>("owner")
+                            val updated = owner != null && SyncForegroundService.update(
+                                this,
+                                owner,
+                                call.argument<String>("title"),
+                                call.argument<String>("message") ?: "",
+                                call.argument<Int>("current"),
+                                call.argument<Int>("total"),
+                            )
+                            result.success(updated)
+                        } catch (e: Exception) {
+                            result.error("SYNC_FGS_UPDATE_FAILED", e.javaClass.simpleName, null)
+                        }
+                    }
                     "stopSyncFgs" -> {
                         try {
                             val owner = call.argument<String>("owner")

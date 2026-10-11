@@ -184,7 +184,7 @@ class LocalDbService {
   static void _refuseDuringBackgroundWork(String action) {
     if (_backgroundWork > 0) {
       throw DbBusyException(
-        '동기화 또는 지도 좌표 변환이 진행 중이라 $action 할 수 없습니다. 끝난 뒤 다시 시도하세요.',
+        '동기화·신고 내역 다시 불러오기 또는 지도 좌표 변환이 진행 중이라 $action 할 수 없습니다. 끝난 뒤 다시 시도하세요.',
       );
     }
   }

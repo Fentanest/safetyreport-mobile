@@ -174,6 +174,27 @@ class SyncEngine {
     }
   }
 
+  /// 진행 중인 동기화 보호 알림(FGS)의 제목·문구·진행률을 바꾼다(신고 내역 다시 불러오기 진행 표시).
+  /// 이 앱이 연 FGS 가 없으면 아무것도 하지 않는다. 알림을 새로 띄우거나 서비스를 시작하지 않는다.
+  static Future<void> updateFgsNotification({
+    required String title,
+    required String message,
+    int? current,
+    int? total,
+  }) async {
+    final owner = _fgsOwner;
+    if (owner == null || _fgsRefCount == 0 || !fgsActive.value) return;
+    try {
+      await _methodChannel.invokeMethod('updateSyncFgs', {
+        'owner': owner,
+        'title': title,
+        'message': message,
+        'current': ?current,
+        'total': ?total,
+      });
+    } catch (_) {}
+  }
+
   /// 동기화 작업 종료 시 호출 — 마지막 호출 시 FGS 정지.
   static Future<void> releaseFgs() async {
     if (_fgsRefCount > 0) _fgsRefCount--;
@@ -220,7 +241,9 @@ class SyncEngine {
   static Future<bool> Function()? rebuildBlocks;
   static Future<bool> Function()? localAccessAllowed;
 
-  static const rebuildBlockedMessage = '초기화 크롤링이 필요합니다. 먼저 초기화 크롤링을 완료해 주세요.';
+  static const rebuildBlockedMessage =
+      '신고 내역 다시 불러오기(1회)가 끝나지 않아 일반 동기화를 시작하지 않았습니다. '
+      '대시보드의 다시 불러오기 카드에서 진행 상황을 확인해 주세요.';
 
   static Future<SyncRunResult> start({
     bool fullSync = false,
@@ -320,7 +343,13 @@ class SyncEngine {
     }
     _lastChanges = [];
     if (!backgroundWorker) {
-      await acquireFgs(fullSync ? '전체 재동기화 진행 중...' : '증분 동기화 진행 중...');
+      await acquireFgs(
+        rebuildRunId != null
+            ? '신고 내역 다시 불러오기 진행 중...'
+            : fullSync
+            ? '전체 재동기화 진행 중...'
+            : '증분 동기화 진행 중...',
+      );
     }
     try {
       return await LocalDbService.runBackgroundWork(

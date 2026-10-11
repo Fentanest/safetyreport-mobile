@@ -14,6 +14,8 @@ import '../services/local_db_service.dart';
 import '../services/sync_engine.dart';
 import '../widgets/auth_status_notice.dart';
 import '../widgets/sync_exit_guard.dart';
+import '../widgets/rebuild_progress_card.dart';
+import '../community/rebuild/standalone_rebuild_runner.dart';
 import '../widgets/sr_app_bar_actions.dart';
 import '../theme/sr_colors.dart';
 import '../theme/sr_tokens.dart';
@@ -262,6 +264,13 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
 
   Future<void> _startSync({required bool fullSync}) async {
     if (SyncEngine.isRunning) return;
+    // 신고 내역 다시 불러오기(1회)가 진행 중이거나 끝나지 않았으면 일반 동기화는 시작하지 않는다 — 이유를 먼저 보인다
+    // (시작해도 SyncEngine 이 같은 판정으로 거절한다).
+    final blocked = StandaloneRebuildRunner.instance.syncBlockReason();
+    if (blocked != null) {
+      showSrSnack(context, blocked);
+      return;
+    }
 
     setState(() {
       _logLines.clear();
@@ -272,10 +281,29 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
 
     _subscribeToSyncEvents();
 
-    SyncEngine.start(fullSync: fullSync);
+    // 끝날 때까지 기다리지 않는다(바로가기 처리 등이 동기화 내내 묶이지 않게).
+    unawaited(
+      SyncEngine.start(fullSync: fullSync).then((result) {
+        // 다른 작업(다시 불러오기·개별 동기화)이 작업 소유권을 갖고 있으면 이벤트 없이 busy 로 끝난다 —
+        // 진행 표시를 풀고 이유를 남긴다.
+        if (!mounted || !result.busy || SyncEngine.isRunning) return;
+        _setRunning(false);
+        setState(
+          () => _logLines.add(
+            '[안내] 다른 동기화 작업이 진행 중이라 시작하지 않았습니다. 끝난 뒤 다시 시도해 주세요.',
+          ),
+        );
+      }),
+    );
   }
 
   void _stopSync() {
+    // 지금 도는 수집이 다시 불러오기면 일반 중지 대신 그 작업을 일시정지한다(같은 run 으로 이어서 진행 가능).
+    final runner = StandaloneRebuildRunner.instance;
+    if (runner.isExecuting) {
+      runner.requestPause();
+      return;
+    }
     SyncEngine.stop();
     _syncSub?.cancel();
     _setRunning(false);
@@ -556,6 +584,7 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const ReloginRequiredBanner(),
+                const RebuildProgressCard(),
                 _infoCard(),
                 if (isDemo) ...[SizedBox(height: 12), _demoInfoCard()],
                 SizedBox(height: 16),

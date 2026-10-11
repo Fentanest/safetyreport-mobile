@@ -8,6 +8,43 @@
 
 ---
 
+## 2026-10-11 — Standalone 신고 내역 다시 불러오기를 백그라운드로 (사용자 결정)
+
+최종 감사에서 Standalone 만 다시 불러오기(1회 초기화, `source-rebuild-2026-10-11.1`)가 끝날 때까지 안내 화면에 묶여 있었다
+(`StandaloneRebuildGate` → `CommunityRebuildScreen`, 완료 때만 메인). 사용자가 백그라운드로 바꾸기로 골랐다. Client(서버 진행)·PC 는 그대로다.
+
+- `lib/main.dart` `StandaloneRebuildGate`: 필요 판정·새 설치 제외는 그대로. 필요하면 안내(`StandaloneRebuildGuideScreen` — 기존 안내 문구,
+  Standalone 사과 문장 '앱 구조 개선…', 보존 항목/이전 DB 안내)를 한 번 보이고 '확인 — 초기화 크롤링 시작' 뒤 바로 메인으로 간다.
+  확인 기록(`community.db` meta, 범위 키별)이 있거나 같은 범위의 job 이 있으면 안내 없이 메인으로 가고 끝나지 않은 같은 run 을 이어서
+  진행한다. 사용자 일시정지·누락 수락 대기는 자동으로 재개하지 않는다.
+- `lib/community/rebuild/standalone_rebuild_runner.dart`(새): 화면과 무관하게 같은 `CommunityRebuild` 를 돌리는 앱 전역 실행기
+  (`RebuildCoordinator` 를 감쌈). 남은 lease 때문에 시작하지 못하면 60초 간격 최대 15번 재시도, 끝나면 `refreshAll`, 알림(진행 중 FGS
+  알림 갱신 + 완료·일부 누락·누락 확인 필요·중단 한 번).
+- `lib/widgets/rebuild_progress_card.dart`(새): 대시보드 맨 위·동기화 화면 위 진행 카드 — 실제 `rebuild_items` 건수 진행률, 성공·실패·남은·
+  재시도 대기, 일시정지·이어서 진행·다시 시도·누락 확인(대화상자)·자세히(기존 상태 화면). 완료 카드는 닫을 때까지. Client·데모는 없음.
+- `lib/community/rebuild/community_rebuild.dart`: 실행 전체를 `LocalDbService.runBackgroundWork` 로 등록(예전에는 수집 단계만) — 백업·준비·반영
+  중에도 개인 DB 백업·복원·서버 DB 가져오기·되돌리기·신고 지우기가 `DbBusyException` 으로 거절된다(무결성 §3-1). DB 연결 닫기 요청
+  (`closeRequested`)도 중단 조건에 넣었다. 안내 확인 기록 `guideAcknowledged`/`acknowledgeGuide`. 안내 문구 마지막 문장을 '이 화면에서 볼 수
+  있고' → '백그라운드에서 진행되고, 진행 상황은 대시보드와 알림에서'로 바꿨다(나머지 문구는 그대로).
+- `lib/screens/settings_screen.dart`: 다시 불러오기 진행 중이면 DB 백업·복원·되돌리기·모드 전환을 시작 전에 이유와 함께 막는다.
+- `lib/screens/crawl_screen.dart`: 다시 불러오기가 진행 중이거나 끝나지 않았으면 수동 동기화를 시작하지 않고 이유를 보인다. 다른 작업이
+  작업 소유권을 갖고 있어 busy 로 끝나면 진행 표시를 풀고 안내를 남긴다(예전에는 이벤트가 없어 계속 도는 것처럼 보일 수 있었다).
+  진행 중인 다시 불러오기의 중지 버튼은 그 작업을 일시정지한다.
+- `lib/services/sync_engine.dart`: 다시 불러오기 수집 FGS 문구, `updateFgsNotification`, 차단 문구를 다시 불러오기 카드로 안내하게 바꿈.
+  `lib/services/local_db_service.dart`: 거절 문구에 '신고 내역 다시 불러오기' 추가.
+- Android `SyncForegroundService`·`MainActivity`: `updateSyncFgs` — 이미 떠 있는 FGS 알림의 제목·문구·진행률만 바꾼다(서비스 시작 없음).
+  `:app:compileDebugKotlin`(Flutter 3.47.5, Gradle 9.3.1) 통과. 실기기·에뮬레이터 알림 표시는 확인하지 않았다.
+- 계약 `contracts/community-ingest/rebuild.md` Standalone 문장 갱신 + `MANIFEST.sha256` 재생성. PC·지도 레포 사본에 적용할 같은 변경은
+  `.agent-runs/standalone-bg-rebuild/*-contract-rebuild.patch`(그 레포들은 고치지 않음).
+- 문서: `docs/architecture/community-gate.md`(Standalone 백그라운드 진행, 오래된 범위 키·백업 방식 정정), `data-contracts.md`, `android-runtime.md`.
+- 시험: `test/community/rebuild_background_runner_test.dart`(실제 상태기계 — 안내 확인 범위, 재시작 뒤 같은 run 자동 이어서, 사용자 일시정지는
+  그대로, 진행 중 동기화·작업 소유권·DB 백업/복원 거절, 누락 동의·알림, 남은 lease 만료 뒤 자동 재시도),
+  `test/widgets/standalone_rebuild_background_test.dart`(첫 실행 안내 → 확인 → 진행 중인 채 메인, 확인한 사용자는 안내 없이 이어서,
+  카드 상태별 표시·버튼·라이트/다크·글꼴 2배, Client·데모 숨김). 전체 `flutter test --no-pub`(로컬 Flutter 3.41.6) 1511 통과·17 건너뜀·
+  실패 4(기존 `renewal_golden_test` 골든 4개), `flutter analyze --no-pub` 9건(모두 기존 test/storage unnecessary_cast).
+
+---
+
 ## 2026-10-11 — 최종 감사(Opus) 반영: 분류 가장자리 3건
 
 - `lib/services/report_category.dart` + `contracts/report-categories.json` v2(서버와 바이트 동일): 대분류만 오고 소분류가 빠지면 접수 메뉴의

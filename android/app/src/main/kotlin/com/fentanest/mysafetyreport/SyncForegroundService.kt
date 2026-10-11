@@ -33,9 +33,40 @@ class SyncForegroundService : Service() {
         const val NOTIF_ID = 4001
         const val EXTRA_OWNER = "owner"
         const val EXTRA_RECEIPT = "receipt"
+        const val DEFAULT_TITLE = "🔄 동기화 진행 중"
         @Volatile var activeOwner: String? = null
             private set
         var stoppedListener: ((String, String) -> Unit)? = null
+
+        /**
+         * 같은 owner 의 FGS 알림 문구·진행률만 바꾼다(신고 내역 다시 불러오기 진행 표시, 2026-10-11).
+         * 서비스를 시작하지 않으며(백그라운드 FGS 시작 제한과 무관) owner 가 다르면 아무것도 하지 않는다.
+         */
+        fun update(context: Context, owner: String, title: String?, message: String, current: Int?, total: Int?): Boolean {
+            if (owner != activeOwner) return false
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.notify(NOTIF_ID, buildNotification(context, title ?: DEFAULT_TITLE, message, current, total))
+            return true
+        }
+
+        fun buildNotification(context: Context, title: String, message: String, current: Int? = null, total: Int? = null): Notification {
+            val openIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+            val pi = PendingIntent.getActivity(
+                context, 0, openIntent ?: Intent(),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            val builder = NativeNotifications.builder(context, NOTIF_CHANNEL)
+                .setContentTitle(title)
+                .setContentText(message)
+                .setSmallIcon(R.drawable.ic_stat_logo)
+                .setContentIntent(pi)
+                .setOngoing(true)
+                .setOnlyAlertOnce(true)
+            if (total != null && total > 0 && current != null) {
+                builder.setProgress(total, current.coerceIn(0, total), false)
+            }
+            return builder.build()
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -84,18 +115,7 @@ class SyncForegroundService : Service() {
     }
 
     private fun startForegroundCompat(message: String) {
-        val openIntent = packageManager.getLaunchIntentForPackage(packageName)
-        val pi = PendingIntent.getActivity(
-            this, 0, openIntent ?: Intent(),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-        val notif = NativeNotifications.builder(this, NOTIF_CHANNEL)
-            .setContentTitle("🔄 동기화 진행 중")
-            .setContentText(message)
-            .setSmallIcon(R.drawable.ic_stat_logo)
-            .setContentIntent(pi)
-            .setOngoing(true)
-            .build()
+        val notif = buildNotification(this, DEFAULT_TITLE, message)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {

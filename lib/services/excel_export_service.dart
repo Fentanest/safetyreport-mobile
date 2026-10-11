@@ -12,8 +12,8 @@ import 'performance_trace.dart' show QueryCancelled;
 
 /// Standalone 파일 화면의 "Excel 내보내기"(SQ-P03).
 ///
-/// 출력은 예전 화면 코드와 같다: 시트 교통위반·주정차위반·기타위반(이 순서), 같은 열·같은 값,
-/// 모든 셀은 문자열(TextCellValue). 확정 과태료는 `범칙금_과태료` 원문 그대로이고 추정 금액 열은 없다.
+/// 출력은 예전 화면 코드와 같다: 시트 5개(교통위반·주정차위반·안전신고·생활불편·기타, 2026-10-11 5분류 — 이 순서),
+/// 같은 열·같은 값, 모든 셀은 문자열(TextCellValue). 확정 과태료는 `범칙금_과태료` 원문 그대로이고 추정 금액 열은 없다.
 ///
 /// 설계:
 /// - sqflite 는 일반 isolate 에서 쓸 수 없고 공유 연결·close guard([LocalDbService.runBackgroundWork])를
@@ -25,11 +25,13 @@ import 'performance_trace.dart' show QueryCancelled;
 class ExcelExportService {
   ExcelExportService._();
 
-  /// (category, 시트 이름) — 예전과 같은 순서.
+  /// (category, 시트 이름) — 분류 순서(report_category.categories 와 같음, 2026-10-11 5분류).
   static const sheets = <(String, String)>[
     ('traffic', '교통위반'),
     ('parking', '주정차위반'),
-    ('other', '기타위반'),
+    ('safety', '안전신고'),
+    ('living', '생활불편'),
+    ('other', '기타'),
   ];
 
   static final _fileStamp = DateFormat('yyyyMMdd_HHmmss');

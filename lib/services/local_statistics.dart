@@ -375,12 +375,8 @@ class _MapCellAccumulator {
     if (disposition['warnings']!) count(dispositions, '경고/범칙금');
     if (disposition['rejects']!) count(dispositions, '불수용/기타');
     if (disposition['unconfirmed']!) count(dispositions, '미확인');
-    count(categories, switch (r['category']) {
-      'traffic' => '교통위반',
-      'parking' => '주정차위반',
-      'other' => '기타위반',
-      _ => '',
-    });
+    // Standalone 지도는 서버↔구앱 호환 대상이 아니다(로컬 DB를 직접 읽음) — 늘 5분류 그대로.
+    count(categories, report_category.categoryLabels[r['category']] ?? '');
     final keyed = registryKeyedAgency(r['처리기관코드'], r['처리기관']?.toString() ?? '');
     if (keyed.display.isNotEmpty) {
       count(agencies, keyed.key);

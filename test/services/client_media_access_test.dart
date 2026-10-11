@@ -57,6 +57,7 @@ void main() {
         'X-SafetyReport-Client': 'mobile',
         'X-SafetyReport-Version': '2.0.0+31',
         'X-SafetyReport-Protocol': '3',
+        'X-SR-Taxonomy': '5',
       });
     },
   );

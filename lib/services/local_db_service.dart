@@ -2616,11 +2616,11 @@ class LocalDbService {
       if (excludeWithdraw) clauses.add(ReportPolicy.sqlNotWithdrawn('처리상태'));
       final columns = _statsColumns.map((c) => '"$c"').join(',');
       final cats = {
-        for (final c in ['traffic', 'parking', 'other'])
+        for (final c in report_category.categories)
           c: _StatsCategoryAccumulator(),
       };
       final overview = {
-        for (final c in ['all', 'traffic', 'parking', 'other'])
+        for (final c in ['all', ...report_category.categories])
           c: _OverviewAccumulator(),
       };
       final timer = Stopwatch()..start();
@@ -3600,7 +3600,7 @@ class LocalDbService {
 
   static String _normalizeMapCategory(String value) {
     final normalized = value.trim().toLowerCase();
-    return {'all', 'traffic', 'parking', 'other'}.contains(normalized)
+    return {'all', ...report_category.categories}.contains(normalized)
         ? normalized
         : 'all';
   }
@@ -3974,6 +3974,9 @@ class LocalDbService {
     final now = DateTime.now();
     final syncedAt = now.millisecondsSinceEpoch;
     final seededAt = now.toIso8601String();
+    // 5분류로 늘리면 report_provider.dart(_kCoreCategories, 아직 3분류 — 다른 에이전트 담당)와
+    // known_defects_test.dart 의 trafficReports+parkingReports+otherReports==100 단언이 깨진다.
+    // 화면쪽 5분류 전환과 함께 늘린다(2026-10-11 Sonnet 노트).
     const categories = ['traffic', 'parking', 'other'];
     const titles = [
       '신호 위반',

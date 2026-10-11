@@ -89,6 +89,12 @@ class ServerContract {
     );
   }
 
+  // 5분류(스키마 6, 2026-10-11) 지원 신호. 서버 `core/utils/taxonomy_compat.py` 가 이 헤더(또는 WS 의 taxonomy=5
+  // 쿼리)가 없으면 응답의 safety·living 을 other 로 접어 보낸다. 구서버는 이 헤더를 모르고 그냥 무시한다
+  // (`/server/version` 의 `report_taxonomy` 로 서버 지원 여부를 따로 확인한다 — ServerVersionInfo.reportTaxonomy).
+  static const taxonomyHeader = 'X-SR-Taxonomy';
+  static const taxonomyVersion = '5';
+
   static Map<String, String> apiHeaders(
     String apiKey, {
     bool includeJsonContentType = true,
@@ -98,6 +104,7 @@ class ServerContract {
       'X-SafetyReport-Client': 'mobile',
       'X-SafetyReport-Version': productVersion,
       'X-SafetyReport-Protocol': '$protocolVersion',
+      taxonomyHeader: taxonomyVersion,
     };
     if (includeJsonContentType) {
       headers['Content-Type'] = 'application/json';
@@ -126,6 +133,8 @@ class ServerContract {
         'client_type': 'mobile',
         'client_version': productVersion,
         'client_protocol': '$protocolVersion',
+        // 5분류 지원 신호(services/ws_manager.py: query_params['taxonomy'] != '5' 면 브로드캐스트를 3분류로 접는다).
+        'taxonomy': taxonomyVersion,
       },
     );
   }

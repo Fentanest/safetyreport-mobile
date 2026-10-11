@@ -140,6 +140,14 @@ Future<List<int>> _legacyWorkbook({required bool excludeWithdraw}) async {
     'parking',
     excludeWithdraw: ew,
   );
+  final sReports = await LocalDbService.getReportsByCategory(
+    'safety',
+    excludeWithdraw: ew,
+  );
+  final lReports = await LocalDbService.getReportsByCategory(
+    'living',
+    excludeWithdraw: ew,
+  );
   final oReports = await LocalDbService.getReportsByCategory(
     'other',
     excludeWithdraw: ew,
@@ -149,7 +157,9 @@ Future<List<int>> _legacyWorkbook({required bool excludeWithdraw}) async {
   final excel = Excel.createExcel();
   _legacyFillSheet(excel, '교통위반', tReports, watchlist);
   _legacyFillSheet(excel, '주정차위반', pReports, watchlist);
-  _legacyFillSheet(excel, '기타위반', oReports, watchlist);
+  _legacyFillSheet(excel, '안전신고', sReports, watchlist);
+  _legacyFillSheet(excel, '생활불편', lReports, watchlist);
+  _legacyFillSheet(excel, '기타', oReports, watchlist);
   excel.delete('Sheet1');
   final bytes = excel.encode();
   if (bytes == null) throw Exception('Excel 인코딩 실패');
@@ -239,6 +249,12 @@ Future<Set<String>> _seedFixture() async {
   for (var i = 0; i < 57; i++) {
     batch.insert('reports', _row('parking', i));
   }
+  for (var i = 0; i < 3; i++) {
+    batch.insert('reports', _row('safety', i));
+  }
+  for (var i = 0; i < 3; i++) {
+    batch.insert('reports', _row('living', i));
+  }
   for (var i = 0; i < 5; i++) {
     batch.insert('reports', _row('other', i));
   }
@@ -301,7 +317,7 @@ void _expectSameWorkbook(List<int> legacyBytes, List<int> newBytes) {
   final legacy = Excel.decodeBytes(legacyBytes);
   final current = Excel.decodeBytes(newBytes);
   expect(current.tables.keys.toList(), legacy.tables.keys.toList());
-  expect(legacy.tables.keys.toList(), ['교통위반', '주정차위반', '기타위반']);
+  expect(legacy.tables.keys.toList(), ['교통위반', '주정차위반', '안전신고', '생활불편', '기타']);
   expect(current.getDefaultSheet(), legacy.getDefaultSheet());
   for (final name in legacy.tables.keys) {
     final a = legacy.tables[name]!;
@@ -378,7 +394,7 @@ void main() {
                 as int;
         expect(traffic.maxRows, expectedTraffic + 1);
         expect(expectedTraffic, greaterThan(1000));
-        expect(book.tables['기타위반']!.maxRows, greaterThan(1));
+        expect(book.tables['기타']!.maxRows, greaterThan(1));
         final header = _header(current, '교통위반');
         expect(
           header,

@@ -249,6 +249,8 @@ class ServerConnectionService {
         status: upToDate == null
             ? null
             : (upToDate ? 'up_to_date' : 'outdated'),
+        // 5분류(스키마 6) 지원 신호. 구서버는 이 키가 없다 — null 이면 구서버로 보고 3분류로 동작한다.
+        reportTaxonomy: (j['report_taxonomy'] as num?)?.toInt(),
       );
     } catch (_) {
       return ServerVersionInfo.empty;
@@ -331,8 +333,19 @@ class ServerVersionInfo {
   final String? version;
   final String? latestVersion;
   final String? status;
-  const ServerVersionInfo({this.version, this.latestVersion, this.status});
+
+  /// `/server/version` 의 `report_taxonomy`. null(구서버, 키 없음) 이면 5분류를 모른다 — 3분류로 동작한다.
+  final int? reportTaxonomy;
+  const ServerVersionInfo({
+    this.version,
+    this.latestVersion,
+    this.status,
+    this.reportTaxonomy,
+  });
 
   static const empty = ServerVersionInfo();
   bool get hasVersion => version != null && version!.isNotEmpty;
+
+  /// 서버가 5분류(taxonomy=5, X-SR-Taxonomy 헤더)를 지원하는지.
+  bool get supportsFiveCategories => reportTaxonomy == 5;
 }

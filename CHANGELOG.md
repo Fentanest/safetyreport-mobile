@@ -8,6 +8,21 @@
 
 ---
 
+## 2026-10-11 — Astra 리뷰 #7 수정: 모르는 소분류(EP-99 등)를 '소분류 없음'으로 오인해 밤샘주차로 추정하던 결함
+
+- `lib/services/fine_estimate.dart`: 서버 `fine_estimate.py` 와 같은 결함 — `classify()` 의 밤샘주차(`overnight_truck`)
+  분기가 `code == null || code == "EP-02"` 로 "코드 없음"과 "코드는 있지만 모르는 값"(`report_category.resolve()` 도 이
+  경우 `code=null` 을 돌려준다)을 구분하지 못해, EP-99 처럼 코드표에 없는 SSNPC 코드나 메뉴의 못 알아보는 소분류까지
+  전부 밤샘주차 대상에 들어갔다. `EP-02` 이거나, SSNPC 코드가 전혀 없고 `entry_value` 에 '-소분류' 부분도 없는(메뉴만
+  있는) 진짜 "소분류 없음"일 때만 밤샘주차를 적용하도록 `_noSubcategoryInfo()` 를 추가했다.
+- `ruleVersion` 2026-10-11.1 → .2.
+- `test/fixtures/fine_estimate_vectors.json`(서버와 바이트 동일): 기존 "소분류 미상 주정차"(IP-99) 벡터가 이 버그를 그대로
+  기대값으로 두고 있어 교정(overnight_truck/50,000원 → parking/40,000원). EP-99, 코드 없이 메뉴만, 코드 없이 메뉴-못
+  알아보는 소분류 3건 추가.
+- `test/services/fine_estimate_test.dart` 통과.
+
+---
+
 ## 2026-10-11 — Astra 리뷰 #3 수정: C_NOW=12(검토중) 답변이 답변완료로 조기 종결되던 결함
 
 - `lib/services/standalone_parser.dart`: 서버 `services/parser.py` 와 같은 결함 — 답변완료 대역 안전망(`answeredBand`,

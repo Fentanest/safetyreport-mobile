@@ -11,7 +11,7 @@ library;
 import 'package:intl/intl.dart';
 import 'report_category.dart' as report_category;
 
-const String ruleVersion = "2026-10-11.1";
+const String ruleVersion = "2026-10-11.2";
 
 const String _passenger = "승용등";
 const String _van = "승합등";
@@ -134,12 +134,24 @@ int? _occurHour(dynamic occurTime) {
   return null;
 }
 
+/// 진짜 '소분류 없음'(메뉴만 있고 세부가 없음)일 때만 true.
+///
+/// SSNPC 코드가 있으면(모르는 코드라도) 소분류가 있는데 못 알아본 것이므로 false —
+/// EP-99 처럼 코드표에 없는 코드는 밤샘주차가 아니라 일반 주정차로 떨어져야 한다(Astra #7).
+/// 코드가 전혀 없을 때만 entry_value 의 '메뉴-소분류'에서 '-' 뒤가 비어 있는지로 판단한다.
+bool _noSubcategoryInfo(report_category.Resolved resolved, dynamic entryValue) {
+  if (resolved.ssnpcCd != null) return false;
+  final sub = _text(entryValue).split('-').skip(1).join('-');
+  return sub.trim().isEmpty;
+}
+
 String? classify(Map<String, dynamic> record) {
   final category = _text(record["category"]);
+  final entryValue = record["entry_value"];
   final resolved = report_category.resolve(
     record["ssnpc_cd"],
     record["ssnpc_type"],
-    record["entry_value"],
+    entryValue,
   );
   final code = resolved.code;
   final name = _text(record["신고명"]);
@@ -149,7 +161,8 @@ String? classify(Map<String, dynamic> record) {
   final last = record["사진_끝촬영"];
 
   if (resolved.category == "parking" || category == "parking") {
-    if (code == null || code == "EP-02") {
+    if (code == "EP-02" ||
+        (code == null && _noSubcategoryInfo(resolved, entryValue))) {
       if (isCommercialTruck(plate) && isOvernightWindow(first, last)) {
         return "overnight_truck";
       }

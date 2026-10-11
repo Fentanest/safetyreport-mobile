@@ -397,7 +397,8 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
   (`traffic` `parking` `safety` `living` `other`, `lib/services/report_category.dart` — 정본 `contracts/report-categories.json`, 서버와 바이트 동일).
   `_open` 은 `migrateInPlace(path)`(버전 16 → 17 제자리 변환: 백업 `<db>.before_v17.<ms>.bak` → 열 추가 → entry_value 로 분류 다시 정하기 →
   행 수·값 대조 → 커밋) 다음 `resetLegacyDatabase`(이제 16 미만만). 서버 DB 가져오기는 서버 스키마 6(`mysafety_report` 의 category 있는 행 +
-  `mysafety_report_body` + 사용자 표)만 받는다. Client 는 `X-SR-Taxonomy: 5` 를 보내야 5분류 응답을 받는다(서버 `core/utils/taxonomy_compat.py`).
+  `mysafety_report_body` + 사용자 표)만 받는다. category NULL(목록만 본 신고)이 한 건이라도 있으면 앱에 둘 자리가 없어 가져오기를
+  거절한다(`_preflightServerPopulation`, 조용히 빼면 그 DB 를 빈 서버에 복원할 때 사라진다). Client 는 `X-SR-Taxonomy: 5` 를 보내야 5분류 응답을 받는다(서버 `core/utils/taxonomy_compat.py`).
   계획: 서버 레포 `docs/plans/2026-10-11-report-taxonomy.md`.
 - `_open`: 먼저 `resetLegacyDatabase(path)`. 저장 버전이 1 이상 `dbVersion` 미만이면 **파일을 바꾸지 않고 그 자리에서** 한 쓰기 트랜잭션(`BEGIN IMMEDIATE`)으로:
   버전 재확인(다른 연결이 먼저 끝냈으면 아무것도 안 함) → 남길 자료(감시목록 `sync_meta['watchlist']`, 열 구성이 같은 `geocode_cache`) 읽기 →

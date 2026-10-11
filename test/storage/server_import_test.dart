@@ -236,7 +236,7 @@ void main() {
   );
 
   test(
-    '목록에서만 본 신고(category NULL)는 세지 않고 가져오지 않는다; 상세 받은 신고의 분류·본문은 그대로',
+    '목록에서만 본 신고(category NULL)가 있으면 조용히 빼지 않고 가져오기를 거절한다(Astra 재검수 #1)',
     () async {
       final path = await _serverDb(dir, watchlist: []);
       final source = await openDatabase(path, singleInstance: false);
@@ -244,35 +244,50 @@ void main() {
         'ID': 'list-only',
         '신고번호': 'SPP-LIST',
         '신고명': '목록만',
-        'category': null, // 상세를 아직 저장하지 않은 신고 — 화면용 표에도 없다
-      });
-      await source.insert('mysafety_report_body', {
-        'ID': 's1',
-        'raw_content': '본문 원문',
-        'raw_type': 'report_body',
-        'saved_at': 1,
+        'category': null, // 상세를 아직 저장하지 않은 신고 — 앱에는 둘 자리가 없다
       });
       await source.close();
-      expect(
-        await LocalDbService.importFromServerDb(path),
-        2,
-        reason: 'category NULL 행은 세지 않는다',
-      );
-      expect(
-        (await (await LocalDbService.db).query('reports')).map(
-          (r) => r['ID'],
+      final before = await (await LocalDbService.db).query('reports');
+      await expectLater(
+        LocalDbService.importFromServerDb(path),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            contains('목록만 있는 신고) 1건'),
+          ),
         ),
-        unorderedEquals(['s1', 's2']),
-        reason: 'list-only 행은 모바일로 오지 않는다',
       );
-      final raw = await (await LocalDbService.db).query(
-        'report_raw',
-        where: 'ID = ?',
-        whereArgs: ['s1'],
+      expect(
+        await (await LocalDbService.db).query('reports'),
+        before,
+        reason: '거절하면 앱 DB 는 그대로다',
       );
-      expect(raw.single['raw_content'], '본문 원문');
     },
   );
+
+  test('상세 받은 신고의 분류·본문은 그대로 가져온다', () async {
+    final path = await _serverDb(dir, watchlist: []);
+    final source = await openDatabase(path, singleInstance: false);
+    await source.insert('mysafety_report_body', {
+      'ID': 's1',
+      'raw_content': '본문 원문',
+      'raw_type': 'report_body',
+      'saved_at': 1,
+    });
+    await source.close();
+    expect(await LocalDbService.importFromServerDb(path), 2);
+    expect(
+      (await (await LocalDbService.db).query('reports')).map((r) => r['ID']),
+      unorderedEquals(['s1', 's2']),
+    );
+    final raw = await (await LocalDbService.db).query(
+      'report_raw',
+      where: 'ID = ?',
+      whereArgs: ['s1'],
+    );
+    expect(raw.single['raw_content'], '본문 원문');
+  });
 
   // ── 2026-09-26 초기화 크롤링 릴리스: 이전(또는 더 새) 버전 서버 DB 는 가져오지 않는다 (PC exchange.refuse_other_version) ──
   // 5 는 2026-10-11 전 서버 스키마(생활불편·안전신고 분리 전) — 구조가 지금과 같아도(같은 fixture) 버전만으로 거절된다.

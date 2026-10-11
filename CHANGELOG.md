@@ -8,6 +8,18 @@
 
 ---
 
+## 2026-10-11 — Astra 재검수 반영: 목록 전용 행 가져오기 거절, 미확인 C_NOW 검토중, 대분류만 있는 밤샘주차
+
+- `lib/services/local_db_service.dart` `_preflightServerPopulation`(지적 1 잔여): 서버 DB 에 목록에서만 본 신고(category NULL)가 있으면
+  조용히 빼고 가져오던 것을 거절로 바꿨다("목록만 있는 신고 N건 … 서버 크롤링이 끝난 뒤 다시 내려받아 주세요"). 앱에는 그 행을 둘
+  자리가 없어, 그대로 두면 이 DB 를 빈 서버에 복원할 때 사라진다. 예전 앱(스키마 5)의 '목록에 대응하는 상세 행이 없습니다' 거절과 같은 규칙.
+- `lib/services/standalone_parser.dart`(지적 3 잔여): 매핑이 없는 C_NOW(16~19)라도 선택한 답변 상태가 진행·처리중·검토중이면 답변완료
+  대역으로 닫지 않는다. `contracts/parser-vectors.json` .3(서버와 바이트 동일).
+- `lib/services/fine_estimate.dart`(지적 7 회귀): 대분류만 있고 소분류 코드가 비면 '소분류 없음'으로 보고 밤샘주차 판정 대상에 넣는다.
+  `ruleVersion` .3, `test/fixtures/fine_estimate_vectors.json` 2건 추가(서버와 바이트 동일).
+
+---
+
 ## 2026-10-11 — Astra 리뷰 #7 수정: 모르는 소분류(EP-99 등)를 '소분류 없음'으로 오인해 밤샘주차로 추정하던 결함
 
 - `lib/services/fine_estimate.dart`: 서버 `fine_estimate.py` 와 같은 결함 — `classify()` 의 밤샘주차(`overnight_truck`)

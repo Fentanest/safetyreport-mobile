@@ -4353,12 +4353,25 @@ class LocalDbService {
   }
 
   /// Reject rows the converter could silently omit or replace.
-  /// 서버 신고 중 상세까지 받은 행(category 가 있는 행)만 앱으로 온다 — 목록에서만 본 행(category NULL)은 앱에 없는 상태다
-  /// (서버 화면용 표와 같은 범위). 분류는 5분류만, 본문 행은 가져올 신고가 있어야 한다.
+  /// 앱에는 상세까지 받은 신고(category 가 있는 행)만 둘 자리가 있다. 목록에서만 본 신고(category NULL — 서버 크롤링이
+  /// 상세를 아직 못 받은 행)가 있으면 옮기면 사라지므로 가져오기를 거절한다(Astra 재검수 #1, 예전 앱의
+  /// '목록에 대응하는 상세 행이 없습니다' 거절과 같은 규칙). 분류는 5분류만, 본문 행은 가져올 신고가 있어야 한다.
   static Future<void> _preflightServerPopulation(
     Database serverDb,
     Set<String> tables,
   ) async {
+    final listOnly = Sqflite.firstIntValue(
+          await serverDb.rawQuery(
+            'SELECT count(*) FROM mysafety_report WHERE category IS NULL',
+          ),
+        ) ??
+        0;
+    if (listOnly > 0) {
+      throw FormatException(
+        '서버에 상세를 아직 받지 않은 신고(목록만 있는 신고) $listOnly건이 있어 그대로 옮길 수 없습니다. '
+        '서버 크롤링이 끝난 뒤 DB를 다시 내려받아 주세요.',
+      );
+    }
     const source = 'SELECT ID, category FROM mysafety_report WHERE category IS NOT NULL';
     final invalid = await serverDb.rawQuery(
       "SELECT 1 FROM ($source) WHERE ID IS NULL OR typeof(ID)!='text' OR trim(ID)='' OR trim(ID)!=ID LIMIT 1",

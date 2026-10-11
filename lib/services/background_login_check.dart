@@ -9,11 +9,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 
 import '../community/community_store.dart';
+import '../community/gate/gate_state.dart' show datasetKeyForOfficialId;
+import '../community/rebuild/community_rebuild.dart';
 import '../community/upload/community_schedule.dart';
 import '../community/upload/community_uploader.dart' show UploadRunResult;
 import '../community/upload/upload_background.dart';
 import '../models/app_mode.dart';
 import 'app_prefs_keys.dart';
+import 'local_db_service.dart';
 import 'secure_storage_migration.dart';
 import 'standalone_auth_service.dart';
 
@@ -85,6 +88,9 @@ Future<bool> runCommunityUploadTask(
       }
       return true;
     }
+    // 백그라운드 isolate 에는 main.dart 의 SyncEngine.rebuildBlocks 가 없다 — 다시 불러오기가 필요하거나 진행·일시정지 중이면
+    // 동의 후 전체 수집(SyncEngine.start)이 그보다 먼저 돌지 않게 같은 판정을 여기서 건다(포그라운드와 같은 규칙).
+    SyncEngine.rebuildBlocks ??= () => headlessRebuildRequired(store, prefs);
     final Future<UploadRunResult> Function(String) run =
         upload ?? ((String trigger) => uploadFromBackground(store, trigger));
     await catchUp('os', store: store, runUpload: run, now: now);
@@ -115,6 +121,26 @@ Future<bool> runCommunityUploadTask(
   } catch (_) {
     return false;
   }
+}
+
+/// 백그라운드 isolate 용 초기화(신고 내역 다시 불러오기) 필요 판정 — main.dart `standaloneRebuild(...).required()` 와 같은
+/// 규칙을 ReportProvider 없이(아이디는 SharedPreferences 에서) 계산한다.
+@visibleForTesting
+Future<bool> headlessRebuildRequired(
+  CommunityStore store,
+  SharedPreferences prefs, {
+  Future<PersonalDbFacts> Function()? personalDbFacts,
+}) {
+  final id = prefs.getString(AppPrefsKeys.standaloneUsername) ?? '';
+  return CommunityRebuild(
+    store: store,
+    localDatasetId: store.localDatasetId,
+    scopeGeneration: () => 0,
+    sourceNamespace: () async => id.isEmpty ? '' : datasetKeyForOfficialId(id),
+    gateFresh: () async => false,
+    personalDbPath: LocalDbService.getDbPath,
+    personalDbFacts: personalDbFacts ?? LocalDbService.personalDbFacts,
+  ).required();
 }
 
 /// Standalone 하루 1회 로그인 점검.

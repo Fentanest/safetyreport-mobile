@@ -8,6 +8,15 @@
 
 ---
 
+## 2026-10-12 — 백그라운드(WorkManager) 전체 수집도 다시 불러오기를 기다린다
+
+- `lib/services/background_login_check.dart`: 백그라운드 isolate 에는 main.dart 의 `SyncEngine.rebuildBlocks` 가 없어, 다시 불러오기가 필요하거나
+  일시정지·실패 상태일 때 동의 후 전체 수집(`ConsentCatchup` → `SyncEngine.start`)이 먼저 돌 수 있었다. `headlessRebuildRequired`(포그라운드
+  `standaloneRebuild(...).required()` 와 같은 규칙, 아이디는 SharedPreferences)를 같은 자리에 건다. 시험 `test/community/background_rebuild_block_test.dart`.
+- 전체 `flutter test --no-pub` 1526 통과, 실패 4(기존 골든). analyze 9건(기존 그대로).
+
+---
+
 ## 2026-10-11 — Standalone 신고 내역 다시 불러오기를 백그라운드로 (사용자 결정)
 
 최종 감사에서 Standalone 만 다시 불러오기(1회 초기화, `source-rebuild-2026-10-11.1`)가 끝날 때까지 안내 화면에 묶여 있었다

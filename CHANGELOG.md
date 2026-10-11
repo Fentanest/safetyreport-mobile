@@ -17,6 +17,9 @@
   대역으로 닫지 않는다. `contracts/parser-vectors.json` .3(서버와 바이트 동일).
 - `lib/services/fine_estimate.dart`(지적 7 회귀): 대분류만 있고 소분류 코드가 비면 '소분류 없음'으로 보고 밤샘주차 판정 대상에 넣는다.
   `ruleVersion` .3, `test/fixtures/fine_estimate_vectors.json` 2건 추가(서버와 바이트 동일).
+
+---
+
 ## 2026-10-11 — Astra 재검수(#5 A·B) 수정: 능력 확인 전 구서버 400 가능성, 이전 서버 늦은 응답이 판정을 덮던 결함
 
 Astra 리뷰 #5 수정(`supportsFiveCategories`/`refreshServerTaxonomySupport`)에 대한 재검수에서 두 결함이 지적됐다.

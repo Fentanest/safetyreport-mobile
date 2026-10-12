@@ -1,5 +1,82 @@
 # Changelog
 
+## 2026-10-12 — BL-1 검수 결함: isolate 간 SQLite 잠금 대기
+
+- 모든 앱/합성 기기 probe의 sqflite 열기를 `openAppDatabase`로 통일했다. `onConfigure`에서 WAL·스키마 SQL보다 먼저
+  연결별 `busy_timeout=5000`을 적용한다. community DB와 구버전 변환/초기화의 기존 30초 대기는 유지하며 열기 시점부터 적용한다.
+  main·WorkManager가 사용하는 신고 DB, 읽기 전용 사본, 백업/복원·가져오기·중복군 publisher 연결을 포함한다.
+  신고 DB·community DB의 WAL, portable 내보내기 사본의 DELETE 모드, 스키마·파일 경로·교환 값은 유지했다.
+- 단순 PRAGMA 적용만으로는 Flutter 시험에서 약 0.1초 만에 잠김 오류가 났다. strace로 SIGPROF가 SQLite `nanosleep`을
+  중단하고 원문 `unixSleep`이 남은 시간을 무시하는 것을 확인했다. 공식 `sqlite3.c`는 수정하지 않고,
+  이를 include하는 `sqlite3_flutter.c`에서 POSIX EINTR 후 남은 잠자기를 이어가도록 했다. pubspec hook의 소스 진입점만 변경했다.
+  공식 원문 SHA3-256은 기존 값 `67f423e9ebbbdc473cbc4772c872ee6b89f31fde4ed0279a5c25d5f65c043a16`과 동일하다.
+- 별도 Dart/FFI isolate의 두 연결로 읽기→쓰기·쓰기→읽기·쓰기→쓰기를 겹쳤다. 대기 적용 전 3개 모두
+  `SQLITE_BUSY(code 5, BEGIN IMMEDIATE)` 즉시 실패를 재현했고, 수정 후 잠금 해제를 기다려 모두 통과했다.
+  잠금을 계속 보유하면 5초 대기 뒤 실패하며 기존 커밋 값·무결성·WAL을 보존한다. 읽기 전용/재열기·스키마 콜백 전 설정도 검사했다.
+- 긴 작업 점검: 합성 신고 50,000건의 `computeSummary` 전체 호출 **650ms**, 백업 포함 `migrateInPlace` **15,468ms**(전체 시험 중 호스트 측정).
+  각 경로의 5초/30초 한도 내였다. 변환은 일반 연결의 5초보다 길 수 있으며, 기존 원자적 백업·변환을 임의 분할하지 않았다.
+  일반 연결이 긴 변환과 겹치거나 느린 기기에서 한도를 넘으면 오류가 전파될 수 있다. 기기 성능 보장은 아니다.
+- 고정 Flutter **3.47.5**: 전체 `flutter test --no-pub` **1,582 passed / 17 skipped / 실패 0**,
+  최종 `flutter analyze --no-pub` **error 0 / 기존 unnecessary_cast warning 9**(exit 1). 새 동시성/연결 시험 7개 포함.
+  Android NDK 28.2로 armv7a·arm64·x86_64의 래퍼 포함 SQLite 공유 라이브러리 구문 검사 및 컴파일·링크도 모두 통과했다.
+- 이번 수정 파일(15개): `lib/services/sqlite_connection.dart`, `local_db_service.dart`, `database_snapshot.dart`,
+  `duplicate_projection_service.dart`, `bounded_duplicate_rebuild.dart`; `lib/community/community_store.dart`,
+  `lib/community/rebuild/community_rebuild.dart`; `test/storage/sqlite_contention_test.dart`; `tool/bl1_storage_probe.dart`;
+  `third_party/sqlite/sqlite3_flutter.c`, `third_party/sqlite/README.md`; `pubspec.yaml`;
+  `docs/architecture/android-runtime.md`, `docs/architecture/data-contracts.md`, 이 `CHANGELOG.md`.
+- 기존 `resetOnError: false` 6곳을 유지했다. 커밋·push·릴리스·버전 변경은 하지 않았다.
+  이번 수정으로 APK를 재빌드/배포하거나 실제 Android WorkManager·기기 동시 접근을 실행하지 않았다(**NOT_RUN**).
+  근거: `.agent-runs/bl1/logs/bl1-contention-before.log`, `bl1-contention-after.log`, `bl1-busy-sleep.trace`,
+  `bl1-busy-full-test.log`, `bl1-busy-analyze-final.log`, `bl1-busy-native-build.txt`.
+
+## 2026-10-12 — BL-1 패키지 2단계·SQLite 번들 구현 (릴리스 아님, 미결 항목 있음)
+
+- 작업 위치 `mobile-bl1`, 고정 Flutter 3.47.5만 사용했다. 커밋·push·릴리스·버전 변경·배포 서명 파일 생성은 하지 않았다.
+- 잠금 버전: flutter_secure_storage **10.3.4→11.2.0**, file_picker **11.0.2→13.1.0**(Android 구현 android_file_picker 2.0.1),
+  share_plus **10.1.4→13.3.1**, package_info_plus **9.0.1→10.2.2**, sqflite **2.4.2→2.4.4+1**,
+  sqflite_common_ffi **2.4.0+3→2.4.3**(dev→실행 의존성), sqlite3 **3.3.1→3.7.0**(직접 고정 의존성).
+- file_picker의 목록 반환·빈 목록 취소 API와 SharePlus/ShareParams를 반영했다. DB·WAL·SHM 다중 선택/스테이징을 유지했다.
+  기존 file_picker 11용 KGP 강제 적용을 제거했다. 새 플러그인들은 현재 builtInKotlin=false 설정을 직접 처리한다.
+  Android 빌드 중 share_plus/package_info_plus의 이전 버전 Kotlin 산출물이 남아 실패한 것은 해당 생성 디렉터리를 재생성하여 해결했다.
+- 자격증명: 제거된 ESP 옵션을 없애고 v10 이관 실행을 준비 표시 검사로 바꿨다. v10 표시가 있으면 저장 정보를 확인하며 표시를 보존한다.
+  표시 없는 기존 Android 설치는 플러그인 접근 전에 재로그인·커뮤니티 연결 재설정 안내로 보낸다. 삭제/로그인 우회는 없다.
+  신규 설치는 별도 v11 준비 표시, iOS 등은 기존 저장소 확인을 사용한다. 검사 예외는 unavailable 화면으로 구분했다.
+  안내 화면은 좁은 폭·큰 글꼴에서 스크롤하며 종료 버튼을 유지한다. v11 자체의 기존 ciphertext 교체/직접 재인증은 만들지 않았다.
+- **미결/완료 보류:** 브리프의 “저장 옵션의 나머지는 바꾸지 않는다”와 “읽기 실패를 자료 없음으로 바꾸지 않는다”가 충돌한다.
+  실제 10.3.4/11.2.0 Dart `AndroidOptions.resetOnError` 기본은 true다(이전 문서의 false는 Java fallback과 혼동).
+  플러그인이 실패 자료를 삭제하고 빈 값을 반환할 수 있어, 앱의 예외 처리만으로 자료 보존을 보장하지 못한다.
+  `resetOnError: false` 예외 적용 여부를 사용자에게 물었으며 답변 전에는 기본 옵션을 바꾸지 않았다. 이 요건은 **미충족**으로 인계한다.
+  해당 옵션만 여섯 저장소 생성 위치에 명시하는 미적용 검토 패치는 `.agent-runs/bl1/reset-on-error-false.patch`에 준비했다.
+- SQLite: sqflite의 Android DB 디렉터리를 먼저 확보한 후 FFI factory에 그대로 설정한다. main과 WorkManager dispatcher 각각 초기화한다.
+  기존 파일·스키마·구버전 백업/초기화 정책·교환 계약은 유지한다. Kotlin의 processing_inbox.db는 별도 OS SQLite DB이며 Dart DB를 직접 열지 않는다.
+  sqlite3_flutter_libs는 폐기되어 채택하지 않았다. sqlite3 3.x 기본 바이너리에서 FTS4가 빠진 것을 테스트로 확인하여,
+  공식 SQLite **3.53.4** 소스를 SHA3-256 검증 후 FTS3/4를 추가한 native-assets 빌드로 번들했다(FTS5 유지).
+  원문 public-domain 소스와 출처/해시는 `third_party/sqlite/`에 있다. 별도 커밋 검토 단위와 위험 근거는 `android-runtime.md`에 구분했다.
+- 호스트 검증: 최종 `flutter analyze --no-pub` **error 0 / 기존 unnecessary_cast warning 9**(exit 1),
+  `flutter test --no-pub` **1,575 passed / 17 skipped / 실패 0**, 별도 `--tags golden` **4 passed**.
+  골든 기준은 갱신하지 않았으며 원본 baseline도 4 passed였다. 추가 시험은 v10 표시/값 보존, 표시 없는 기존 설치의 접근 차단,
+  신규 설치, 읽기/네이티브 검사 실패, Keychain 모의 검사, 백그라운드 준비 표시 차단, 큰 글꼴 안내를 포함한다.
+  번들 엔진 3.53.4에서 기존 디렉터리·WAL·FTS4·user_version·다른 isolate 읽기·일관 백업(한글/NULL/빈 문자열/실수 포함)을 검증했다.
+  기존 스키마 이관/초기화·백업·복원 회귀도 전체 시험에 포함된다.
+- 실제 서버 코드를 임시 합성 DB로 호출한 `db_roundtrip_check.py --summary-only`: 서버→모바일→서버 및 모바일→서버→모바일,
+  **9개 교환 테이블, diff_count=0**. 운영 DB/API는 사용하지 않았다.
+- `flutter build apk --release` 성공. `ALLOW_DEBUG_SIGNED_RELEASE=1`로 만든 **Android Debug 서명**이며 배포용이 아니다.
+  같은 SDK·세 ABI baseline 대비 **75,525,411→81,450,707바이트**, **+5,925,296바이트(+5.65 MiB, +7.85%)**.
+  SQLite .so 합계는 5,763,560바이트(비압축), 세 ABI의 버전 문자열·FTS3/FTS5·ELF LOAD 16KB 정렬을 확인했다.
+- Play 비트맵: baseline `je0.d`의 FileUtils.compressImage 옵션 없는 decodeStream이 최종 로컬 mapping/DEX에서 사라졌다.
+  최종 `f90.h`는 Options가 있는 decodeStream 두 번을 호출한다. **Play Console 경고 해소는 확인하지 않았다.**
+  다른 의존성 Media3의 옵션 없는 decodeByteArray 2곳(Cue.fromBundle, TtmlNode.getCues)은 남는다. 앱 자체에는 BitmapFactory 호출이 없다.
+- 기기 검증은 **NOT_RUN**: redroid 에뮬레이터가 최초 조회 때 연결되었으나 별도 시험 앱 설치 시 목록에서 사라져 두 번의 재연결 대기가 실패했다.
+  v10 합성 fixture APK를 빌드하고 `tool/bl1_storage_probe.dart`를 준비했지만 실제 제자리 업데이트·기기 SELECT sqlite_version·WorkManager 실행은 하지 못했다.
+  실제 로그인 완료 v9 자료, 배포 서명, 이관 중 종료/동시 접근/Keystore 고장, iOS, Play v10 사용자 분포 역시 미확인이다.
+- 변경 파일 묶음: `pubspec.yaml/lock`; `main.dart`, `secure_storage_migration.dart`, `app_prefs_keys.dart`, `background_login_check.dart`,
+  `community_auth_service.dart`, `standalone_auth_service.dart`, `bundled_sqlite.dart`; `settings_screen.dart`, `file_browser_screen.dart`,
+  `secure_storage_recovery_screen.dart`; Android `MainActivity.kt/build.gradle.kts/gradle.properties`; macOS 생성 플러그인 등록;
+  `secure_storage_migration_test.dart`, `bundled_sqlite_test.dart`, `tool/bl1_storage_probe.dart`, `third_party/sqlite/`;
+  backlog·android-runtime·data-contracts·이 CHANGELOG. 사용자 기존 비추적 파일은 건드리지 않았다.
+- 증거: `.agent-runs/bl1/logs/`, `apk-size.json`, `baseline-bitmap-map.json`, `final-bitmap-map.json`, `bitmap-origins.json`,
+  `release/app-debug-signed-release.apk`, `release/mapping.txt`. 임시 텔레메트리/Android debug 서명/Kotlin 캐시 경로를 사용하여 샌드박스 쓰기 제한을 처리했다.
+
 ## 2026-10-12 — 2.1.3 (빌드 41) Standalone 다시 불러오기 중단 복구
 
 - 공유 목록 확인 실패·업로드 충돌·확인 예외는 1·2·5·10·30분 간격으로 최대 5회 자동 재시도한다. 수집 시작 전에도 카드·상세 화면·알림에 실제 예약 시각과 횟수를 표시한다. 소진 뒤에는 자동 대기 표시를 끝내고 수동 재시도를 안내한다.

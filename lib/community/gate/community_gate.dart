@@ -68,7 +68,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   }) : _config = config ?? CommunityAuthConfig.fromEnvironment,
        _authOverride = auth,
        _store = store,
-       _secureStorage = secureStorage ?? const FlutterSecureStorage(),
+       _secureStorage = secureStorage ?? const FlutterSecureStorage(aOptions: AndroidOptions(resetOnError: false)),
        _httpClient = httpClient,
        _accountClientOverride = accountClient,
        _configStatusOverride = configStatus,

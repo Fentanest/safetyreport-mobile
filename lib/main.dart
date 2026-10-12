@@ -1,3 +1,4 @@
+import 'services/bundled_sqlite.dart';
 import 'community/upload_hooks.dart';
 import 'community/cloud_availability.dart';
 import 'services/community_auth_config.dart';
@@ -67,13 +68,14 @@ Future<void> main() async {
   unawaited(NativeCallRouter.instance.start());
   await ServerContract.loadProductVersion();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-  // 보안 저장소 v9 → v10 이관을 앱 시작 때 끝낸다(다른 코드가 보안 저장소를 열기 전에, 백그라운드 작업은 이 표시 뒤에만 연다).
-  // 확인되지 않으면 평소 화면으로 들어가지 않는다 — 로그인·토큰 갱신·연결 등록·설정 초기화가 폴백 상태의 저장소에 쓰지 않게.
-  if (!await SecureStorageMigration.ensureMigrated()) {
-    runApp(const SecureStorageRecoveryApp());
+  // v11 은 v9 자료를 이관하지 못한다. 표시 확인과 읽기 검증을 다른 접근보다 먼저 한다.
+  final storageReadiness = await SecureStorageMigration.checkReady();
+  if (storageReadiness != SecureStorageReadiness.ready) {
+    runApp(SecureStorageRecoveryApp(readiness: storageReadiness));
     return;
   }
-  // 아래 네 준비는 서로 기다릴 필요가 없어 함께 기다린다(SQ-P12). 순서가 필요한 보안 저장소 이관은 위에서 먼저 끝냈다.
+  await BundledSqlite.initialize();
+  // 아래 네 준비는 서로 기다릴 필요가 없어 함께 기다린다(SQ-P12). 순서가 필요한 보안 저장소 확인과 DB 엔진 초기화는 위에서 먼저 끝냈다.
   // 각 단계의 실패 처리는 예전과 같다(카카오 세션 복원 실패만 시작을 멈춘다).
   final communityAuth = CommunityAuthService.instance;
   final communityStoreFuture = CommunityStore.open().then<CommunityStore?>(

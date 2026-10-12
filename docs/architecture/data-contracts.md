@@ -158,20 +158,40 @@ Client 모드 서버 경로와 이벤트 문자열은 Flutter/Dart 와 Android/K
 | 커뮤니티 로그인 대기 (PKCE verifier, 시작 시각) | FlutterSecureStorage | `community_pending_login_v1` |
 | 커뮤니티 복귀 링크 소비 표시 (SHA-256) | FlutterSecureStorage | `community_consumed_callback_v1` |
 
-FlutterSecureStorage(2026-09-27 부터 10.3.4): v9 에서 `encryptedSharedPreferences: true`(비밀번호·커뮤니티 세션)와 기본 옵션(`community_connection_v1`)이
-같은 `FlutterSecureStorage` 파일을 함께 썼다. v10 은 첫 접근 때 EncryptedSharedPreferences 자료를 새 cipher(RSA-OAEP·AES-GCM)로 옮긴다(migrateOnAlgorithmChange 기본).
-이관 릴리즈는 v9 와 같은 옵션을 그대로 둔다. v10 은 **처음 열 때** 옮기므로, 포그라운드 앱이 시작하자마자 두 옵션으로 열어 이관을 끝내고
-SharedPreferences `secureStorageV10Migrated=true` 를 남긴다(`lib/services/secure_storage_migration.dart`). WorkManager 작업(업로드·하루 1회 로그인 점검)은
-이 표시 전에는 보안 저장소를 열지 않는다 — 두 엔진이 동시에 첫 이관을 하지 않게, 이관은 포그라운드 한 곳에서만. 표시는 읽기 성공만으로 남기지 않는다:
-플러그인은 ESP 이관이 실패하면 ESP 로 되돌아가 성공을 알리므로, Android 네이티브(`MainActivity` 채널 `secure_storage`)가 자료 파일에 접두사 없는 v9 ESP 항목이
-0개인지(키 이름만, 값은 읽지 않음, v9 알고리즘 메타 키 제외) 확인한 뒤에만 남긴다. 확인되지 않으면 앱은 평소 화면으로 들어가지 않고 복구 화면(`SecureStorageRecoveryScreen`)만 띄운다 — 로그인·토큰 갱신·연결 등록·설정 초기화가
-폴백 상태의 저장소에 쓰지 않게(폴백 중 쓴 값은 다음 이관 때 망가진다). 사용자는 앱을 다시 열어 재시도한다. 로그인 정보를 지워 우회하는 경로는 두지 않는다(카카오 로그인 필수 —
-2026-09-27 사용자 결정). 계속 실패하는 기기는 앱 삭제·재설치 안내. 에뮬레이터에서 정상 이관·복구 화면을 확인했다. 실제 앱에서 v9 가 쓴 로그인 대기 값이 v10 제자리 업데이트 때 옮겨지고 표시가 남는 것을 확인했다. 에뮬레이터(API 35)에서 v9.2.4 로 쓴 값(두 옵션의 쓰기 순서 4가지 × v10 첫 초기화 순서 2가지 + 기본 옵션만)이
-모두 같은 값으로 읽히고 이관 뒤 쓰기·재시작도 됨을 확인했다(`.agent-runs/upload-r8-20260927/fssmig`). v11(다음 릴리즈)은 v10 이전 방식 자료를 읽지 못한다.
-v11 릴리즈 조건: ① `secureStorageV10Migrated` 표시가 **없는** 설치본(v10 을 건너뛰었거나 v10 을 한 번도 열지 않음)은 보안 저장소 자료를 잃은 것으로 보고
-재로그인·커뮤니티 연결 재설정 안내로 보낸다(조용히 로그아웃된 상태로 두지 않음), ② `encryptedSharedPreferences` 매개변수 제거, ③ 실제 자료를 채운 앱의
-v9→v10→v11 제자리 업데이트·두 엔진 동시 시작·이관 중 종료 시험. 알려진 남은 위험: 플러그인은 ESP 이관이 실패하면 ESP 로 되돌아가 성공을 알리지만
-이후 읽기가 실패할 수 있다(자료는 지우지 않음, `resetOnError` 기본 false) — 앱은 읽기 실패 시 표시를 남기지 않고 다음 시작에 다시 연다. iOS(Keychain, darwin 패키지)는 실기기 미확인.
+FlutterSecureStorage는 BL-1에서 10.3.4 → **11.2.0**으로 올라간다. v9의 ESP/옛 cipher를 v11에서 이관할 수 없다.
+`encryptedSharedPreferences` 매개변수만 제거하며 namespace·키·cipher는 유지한다.
+
+- `secureStorageV10Migrated=true`: 기존 표시를 지우거나 다시 쓰지 않는다. 앱 시작 때 저장소 읽기를 검증한 뒤 기존 인증 흐름으로 간다.
+- 표시가 없는 Android 기존 설치: 보안 저장소를 열기 전에 네이티브 `storedSecureEntries`로 키 개수만 센다(값·키 이름 출력 없음).
+  저장 항목 또는 기존 앱 설정이 있으면 재로그인·커뮤니티 연결 재설정 안내를 띄우고 일반 시작을 막는다.
+  v11에서 재이관한다고 안내하거나, 로그인 정보를 삭제하는 우회·앱 삭제를 권하지 않는다.
+  직접 v11 내 재인증/기존 ciphertext 교체는 구현하지 않으며, 중간 이관 버전을 통한 보존 복구가 필요함을 알린다.
+- 빈 Android 신규 설치: 네이티브 저장 항목과 앱 설정이 모두 비어 있고 읽기가 성공한 때만
+  별도 `secureStorageV11Initialized=true`를 쓴다. 신규 설치를 v10 이관 완료로 위장하지 않는다.
+- Android 이외: 같은 Keychain 등 저장소 읽기를 확인하고 v11 준비 표시를 남긴다. iOS 실기기 확인은 별도다.
+- 검사/읽기 예외는 `unavailable`로 분리해 오류 화면으로 보낸다. WorkManager는 두 준비 표시 중 하나가 있기 전에는 인증 접근을 하지 않는다.
+
+**코드 대조 정정:** 이전 문서는 `resetOnError` 기본이 false라고 적었으나, 10.3.4와 11.2.0의 Dart
+`AndroidOptions` 기본은 true이고 native에 전달된다(Java 자체 fallback은 false). 기본 옵션을 유지하면
+플러그인이 오류 자료를 삭제한 뒤 null/빈 목록을 반환할 위험이 있다. 오류 시 자료 보존을 완전히 보장하려면
+`resetOnError: false`의 명시가 필요하며, 브리프의 나머지 옵션 유지와 충돌하므로 사용자 확인 대상이다.
+
+SQLite 파일·스키마·교환 값 계약은 바꾸지 않는다. Android 연결만 SQLite 3.53.4 번들로 바꾸며 기존 DB 디렉터리,
+WAL, `user_version`, FTS3/4/5를 유지한다. 구버전 DB는 기존 `migrateInPlace`/`resetLegacyDatabase` 정책을 그대로 따른다
+(구조 16→17은 제자리 변환, 더 오래된 DB는 일관 백업 후 기존 초기화 정책). 엔진 교체를 이유로 이 정책을 우회하거나
+구버전 스키마를 현재 버전으로 표시하지 않는다. 네이티브 inbox는 교환 DB와 별개다. 엔진과 빌드 설정은
+[Android 런타임](android-runtime.md#android-sqlite-번들-bl-1)을 따른다.
+
+DB는 `openAppDatabase`를 통해 열며 `onConfigure`에서 다른 SQL보다 먼저 연결별
+`busy_timeout`을 설정한다. 기본 5초, 기존 community DB·구버전 변환/초기화는 30초다.
+신고 DB·community DB의 WAL을 유지하고 읽기 전용 사본·백업/복원·중복군 별도 연결에도
+대기를 적용한다. 내보내는 portable 사본의 `journal_mode=DELETE`는 그대로 유지한다.
+대기는 무한 재시도가 아니다. 대기 한도 초과와 SQLite의 교착 방지 오류는 호출자에게 전파한다
+([SQLite busy handler](https://www.sqlite.org/c3ref/busy_handler.html)).
+대시보드 트랜잭션에는 네트워크 호출이 없으며, 동기화는 페이지/개별 저장,
+중복군 digest는 128행 단위다. 가져오기의 전체 복사 트랜잭션은 private staging 파일에만 쓴다.
+구버전 변환/초기화는 일관 백업까지 원본 잠금을 보유하므로 데이터 규모·기기 속도에 따라
+다른 연결의 대기 한도를 넘을 수 있다. 원자성·백업 무결성을 위해 임의로 분할하지 않는다.
 
 커뮤니티 계정(카카오, Supabase Auth)은 안전신문고 계정과 별개다. Standalone 만 폰에 세션을 두고, Client 는 서버가 세션 주인이라 폰에 아무것도 저장하지 않는다.
 토큰은 SharedPreferences·SQLite 에 넣지 않는다(DB 스키마 변경 없음). 자료 주인 카카오 회원번호만 `sync_meta['kakao_member_id']`(아래 2026-09-27 절). 흐름·서버 API(`/api/v1/community-auth/*`, capability `community_account`)는

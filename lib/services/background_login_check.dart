@@ -1,3 +1,4 @@
+import 'bundled_sqlite.dart';
 import '../community/cloud_availability.dart';
 import '../community/consent_catchup.dart';
 import '../community/community_wiring.dart';
@@ -25,6 +26,7 @@ import 'standalone_auth_service.dart';
 void backgroundTaskDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     DartPluginRegistrant.ensureInitialized();
+    await BundledSqlite.initialize();
     if (task == communityPeriodicTaskName ||
         task == communityMidnightTaskName ||
         task == communityRecoveryTaskName) {
@@ -67,7 +69,7 @@ Future<bool> runCommunityUploadTask(
     final mode = AppModeX.fromString(prefs.getString(AppPrefsKeys.appMode));
     if (mode != AppMode.standalone) return true;
     if (prefs.getBool(AppPrefsKeys.standaloneDemoMode) ?? false) return true;
-    // 보안 저장소 v10 이관은 포그라운드 앱만 한다 — 앱이 끝내기 전에는 백그라운드가 보안 저장소를 열지 않는다(다음 기회에).
+    // v10 이관 또는 v11 신규 설치 준비 표시 전에는 백그라운드가 보안 저장소를 열지 않는다.
     if (!await SecureStorageMigration.isDone(prefs)) return true;
     final store = await (openStore ?? openCommunityStoreForBackground)();
     if (store == null) return false; // community.db 를 열지 못함 — 저장 전 실패

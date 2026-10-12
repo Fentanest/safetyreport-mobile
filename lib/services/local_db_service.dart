@@ -1,3 +1,4 @@
+import 'sqlite_connection.dart';
 import '../models/report_filter.dart';
 import 'report_query.dart';
 import 'performance_trace.dart';
@@ -278,9 +279,12 @@ class LocalDbService {
       path,
       beforeReset: basename(path) == demoDbFileName ? () async {} : null,
     );
-    final database = await openDatabase(
+    final database = await openAppDatabase(
       path,
       version: dbVersion,
+      onConfigure: (db) async {
+        await db.rawQuery('PRAGMA journal_mode=WAL');
+      },
       onCreate: _create,
       // [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스]
       // onUpgrade: _migrateLocalDatabase,
@@ -557,10 +561,13 @@ class LocalDbService {
   @visibleForTesting
   static Future<Map<String, Object?>?> migrateInPlace(String path) async {
     if (!File(path).existsSync()) return null;
-    final db = await openDatabase(path, singleInstance: false);
+    final db = await openAppDatabase(
+      path,
+      singleInstance: false,
+      busyTimeoutMs: 30000,
+    );
     try {
       if (await db.getVersion() != inPlaceFrom) return null;
-      await db.rawQuery('PRAGMA busy_timeout=30000');
       Map<String, Object?>? info;
       await db.transaction((txn) async {
         final version =
@@ -641,7 +648,7 @@ class LocalDbService {
   /// 일관된 사본 `<db>.legacy_v<옛 버전>.<epoch ms>.bak`([copyReadOnlyDatabaseSnapshot], WAL 쓰기·값·타입 보존, 구형 Android 가능) + 무결성 검사 → [beforeReset](기본: 커뮤니티 dataset 선회전,
   /// 실패하면 아무것도 바꾸지 않음) → 표·보기 전부 DROP → 지금 스키마 CREATE → 남길 자료·`sync_meta[legacy_reset]` 기록 → 버전 → COMMIT.
   /// 반환: {from_version, backup, kept, dropped, at} (이전 버전 DB 가 아니거나 다른 연결이 먼저 끝냈으면 null).
-  /// 열린 DB 의 WAL 삭제·파일 이름 교체는 SQLite 가 손상 경로로 꼽으므로 하지 않는다(Sol 재검증 3). 트랜잭션 동안 다른 연결의 쓰기는 잠김 오류로 실패한다.
+  /// 열린 DB 의 WAL 삭제·파일 이름 교체는 SQLite 가 손상 경로로 꼽으므로 하지 않는다(Sol 재검증 3). 다른 연결의 쓰기는 연결별 대기 한도 후 잠김 오류로 실패한다.
   /// 서버 database.reset_legacy_database 와 같은 규칙(잠금 안 재확인·한 트랜잭션).
   @visibleForTesting
   static Future<Map<String, Object?>?> resetLegacyDatabase(
@@ -649,11 +656,14 @@ class LocalDbService {
     Future<void> Function()? beforeReset,
   }) async {
     if (!File(path).existsSync()) return null;
-    final db = await openDatabase(path, singleInstance: false);
+    final db = await openAppDatabase(
+      path,
+      singleInstance: false,
+      busyTimeoutMs: 30000,
+    );
     try {
       final first = await db.getVersion();
       if (first < 1 || first >= inPlaceFrom) return null;
-      await db.rawQuery('PRAGMA busy_timeout=30000');
       Map<String, Object?>? info;
       await db.transaction((txn) async {
         final version =
@@ -769,7 +779,7 @@ class LocalDbService {
     }
 
     await removeTarget();
-    final copy = await openDatabase(target, singleInstance: false);
+    final copy = await openAppDatabase(target, singleInstance: false);
     var ok = false;
     try {
       await copy.execute('ATTACH DATABASE ? AS src', [sourcePath]);
@@ -1050,7 +1060,7 @@ class LocalDbService {
   static Future<String?> backupBeforeUpgrade(String path) async {
     final file = File(path);
     if (!file.existsSync()) return null;
-    final probe = await openDatabase(path, singleInstance: false);
+    final probe = await openAppDatabase(path, singleInstance: false);
     int version;
     try {
       version = await probe.getVersion();
@@ -4090,7 +4100,7 @@ class LocalDbService {
     if (!src.existsSync()) return 'unknown';
 
     final preparedDbPath = await _prepareExternalDbSnapshot(dbPath);
-    final extDb = await openDatabase(preparedDbPath, readOnly: true);
+    final extDb = await openAppDatabase(preparedDbPath, readOnly: true);
     try {
       final tables = await extDb.rawQuery(
         "SELECT name FROM sqlite_master WHERE type='table'",
@@ -4219,7 +4229,7 @@ class LocalDbService {
       // A closed WAL database has all values in the main file, but its WAL
       // header makes read-only backup consumers create sidecars. Finalize the
       // copied snapshot as a portable standalone SQLite file.
-      final portable = await openDatabase(backupPath, singleInstance: false);
+      final portable = await openAppDatabase(backupPath, singleInstance: false);
       try {
         await portable.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
         await portable.rawQuery('PRAGMA journal_mode=DELETE');
@@ -4316,7 +4326,7 @@ class LocalDbService {
   }
 
   static Future<Database> _createImportTargetDb(String path) async {
-    final database = await openDatabase(
+    final database = await openAppDatabase(
       path,
       version: dbVersion,
       onCreate: _create,
@@ -4659,7 +4669,7 @@ class LocalDbService {
     final preferences = await SharedPreferences.getInstance();
     final generation = preferences.getInt('native_config_generation') ?? 0;
     final preparedDbPath = await _prepareExternalDbSnapshot(serverDbPath);
-    final serverDb = await openDatabase(preparedDbPath, readOnly: true);
+    final serverDb = await openAppDatabase(preparedDbPath, readOnly: true);
     Directory? stagingDir;
     Database? localDb;
 
@@ -4997,7 +5007,7 @@ class LocalDbService {
         if (side.existsSync()) await side.copy('$stagedPath$ext');
       }
 
-      final probe = await openDatabase(
+      final probe = await openAppDatabase(
         stagedPath,
         readOnly: true,
         singleInstance: false,

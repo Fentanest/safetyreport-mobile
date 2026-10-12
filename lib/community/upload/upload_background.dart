@@ -138,7 +138,7 @@ Future<HeadlessGate> refreshGateHeadless(
   }
   Map<String, Object?>? stored;
   try {
-    final raw = await (secureStorage ?? const FlutterSecureStorage()).read(
+    final raw = await (secureStorage ?? const FlutterSecureStorage(aOptions: AndroidOptions(resetOnError: false))).read(
       key: 'community_connection_v1',
     );
     final decoded = raw == null || raw.isEmpty ? null : jsonDecode(raw);

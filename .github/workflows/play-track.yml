@@ -19,7 +19,7 @@ on:
         type: boolean
         default: false
       mode:
-        description: 'validate | commit'
+        description: 'inspect | validate | commit'
         required: true
         default: 'validate'
 
@@ -64,8 +64,8 @@ jobs:
         code = os.environ["VERSION_CODE"].strip() or build
         to_track = os.environ["TO_TRACK"].strip()
         mode = os.environ["MODE"].strip()
-        if mode not in ("validate", "commit"):
-            sys.exit(f"::error::mode 는 validate 또는 commit: {mode}")
+        if mode not in ("inspect", "validate", "commit"):
+            sys.exit(f"::error::mode 는 inspect, validate, commit 중 하나: {mode}")
         notes = open("whatsnew/whatsnew-ko-KR", encoding="utf-8").read().strip()
 
         creds = service_account.Credentials.from_service_account_info(
@@ -86,6 +86,20 @@ jobs:
         edit = call("POST", base)["id"]
         for t in ("internal", "alpha"):
             print(t, json.dumps(call("GET", f"{base}/{edit}/tracks/{t}"), ensure_ascii=False))
+
+        if mode == "inspect":
+            # 모든 트랙의 출시와, Play 가 배포용 APK 에 쓰는 서명 인증서(SHA-256)를 버전별로 보여 준다.
+            for t in call("GET", f"{base}/{edit}/tracks").get("tracks", []):
+                print("track", t["track"], json.dumps(t.get("releases", []), ensure_ascii=False)[:600])
+            codes = sorted({int(b["versionCode"]) for b in call("GET", f"{base}/{edit}/bundles").get("bundles", [])})
+            print("bundles", codes)
+            root = f"https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{pkg}/generatedApks"
+            for c in codes[-6:]:
+                r = requests.get(f"{root}/{c}", headers=h, timeout=60)
+                certs = sorted({g.get("certificateSha256Hash") for g in r.json().get("generatedApks", [])}) if r.ok else r.text[:300]
+                print("generatedApks", c, r.status_code, certs)
+            call("DELETE", f"{base}/{edit}")
+            sys.exit(0)
 
         release = {"name": f"{name} ({code})", "versionCodes": [code], "status": "completed",
                    "releaseNotes": [{"language": "ko-KR", "text": notes}]}

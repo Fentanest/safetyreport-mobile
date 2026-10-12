@@ -31,7 +31,8 @@ class NotificationService : NotificationListenerService() {
             val inbox = ProcessingInboxStore.get(this)
             for (number in reports) inbox.putNotification(prefs, prefix, number, packageName = sbn.packageName)
             NotificationWork.notice(this, "답변 알림 처리 대기", "자동 처리를 예약했습니다. 연결이나 인증 확인이 늦어지면 재시도합니다.")
-            NotificationWork.schedule(this)
+            // 앞선 실패의 재시도 대기에 묶이지 않게 새 알림은 바로 다시 예약한다.
+            NotificationWork.scheduleFresh(this)
         } catch (_: Exception) {
             runCatching { NativeProcessingRecovery.mark(this) }
             NotificationWork.notice(this, "자동 처리 확인 필요", "알림 처리 대기를 저장하거나 예약하지 못했습니다. 앱을 열어 확인해 주세요.")

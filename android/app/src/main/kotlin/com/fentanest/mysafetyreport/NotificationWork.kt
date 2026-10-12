@@ -24,16 +24,43 @@ class NotificationWork(context: Context, params: WorkerParameters) : ListenableW
         private const val CHANNEL = "notification_processing"
         private const val NOTICE_ID = 7302
         private val active = AtomicBoolean(false)
+        private const val UNIQUE = "notification-processing"
+        private val scheduler = Executors.newSingleThreadExecutor()
+
+        /**
+         * 새 답변 알림 도착(2026-10-12 redroid 실측): KEEP 만 쓰면 앞선 실패의 지수 대기(최대 5시간) 중인 작업에
+         * 새 알림이 묶여 그만큼 늦게 처리된다. 대기 중(ENQUEUED)이면 REPLACE 로 바로 다시 예약하고, 실행 중이면
+         * APPEND_OR_REPLACE 로 끝난 직후 한 번 더 돌게 한다(실행 중 작업이 새 항목을 못 봤을 수 있으므로).
+         */
+        fun scheduleFresh(context: Context) {
+            val app = context.applicationContext
+            val manager = WorkManager.getInstance(app)
+            val infos = manager.getWorkInfosForUniqueWork(UNIQUE)
+            infos.addListener({
+                val running = runCatching { infos.get().any { it.state == WorkInfo.State.RUNNING } }.getOrDefault(false)
+                runCatching {
+                    manager.enqueueUniqueWork(UNIQUE,
+                        if (running) ExistingWorkPolicy.APPEND_OR_REPLACE else ExistingWorkPolicy.REPLACE, oneTime().build())
+                    schedule(app)
+                }
+            }, scheduler)
+        }
+
+        private fun oneTime(): OneTimeWorkRequest.Builder {
+            val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+            val request = OneTimeWorkRequest.Builder(NotificationWork::class.java)
+                .setConstraints(constraints).setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            // Pre-S expedited jobs need an FGS. Use regular jobs there instead.
+            if (Build.VERSION.SDK_INT >= 31) request.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            return request
+        }
+
         fun schedule(context: Context, renewGate: Boolean = false) {
             if (renewGate) context.getSharedPreferences("NotificationWork", Context.MODE_PRIVATE)
                 .edit().putBoolean("renew_gate", true).commit()
             val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
             val manager = WorkManager.getInstance(context)
-            val request = OneTimeWorkRequest.Builder(NotificationWork::class.java)
-                .setConstraints(constraints).setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
-            // Pre-S expedited jobs need an FGS. Use regular jobs there instead.
-            if (Build.VERSION.SDK_INT >= 31) request.setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-            manager.enqueueUniqueWork("notification-processing", ExistingWorkPolicy.KEEP, request.build())
+            manager.enqueueUniqueWork(UNIQUE, ExistingWorkPolicy.KEEP, oneTime().build())
             // Also covers the KEEP/worker-finish race and a crash between inbox persistence and enqueue.
             manager.enqueueUniquePeriodicWork("notification-processing-recovery", ExistingPeriodicWorkPolicy.KEEP,
                 PeriodicWorkRequest.Builder(NotificationWork::class.java, 15, TimeUnit.MINUTES)

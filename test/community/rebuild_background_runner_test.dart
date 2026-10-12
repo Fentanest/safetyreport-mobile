@@ -274,7 +274,7 @@ void main() {
       await store.acquireLease(
         'personal_sync',
         'dead-process',
-        const Duration(minutes: 10),
+        const Duration(milliseconds: 200),
       );
       final engine = _Engine();
       final r = runner(_Sink());
@@ -283,12 +283,41 @@ void main() {
       r.runInBackground(confirmedBy: 'resume', userAction: false);
       await _until(() => rebuild.waitingForWorker && !rebuild.isExecuting);
       expect(engine.runs, isEmpty);
-      expect(RebuildProgress.of(rebuild).headline, contains('종료를 확인'));
+      expect(RebuildProgress.of(rebuild).headline, contains('작업이 남아'));
       // 이전 프로세스의 lease 가 만료되면 자동 재시도가 같은 run 을 이어서 끝낸다.
       await store.db.update('leases', {'until': '2026-01-01T00:00:00Z'});
+      // 실제 만료 시각 + 5초 여유 후 재개한다.
+      await Future<void>.delayed(const Duration(seconds: 6));
       await _until(() => rebuild.state == RebuildStates.completed);
       await _until(() => !rebuild.isExecuting);
       expect(engine.runs, ['old-run']);
+    },
+  );
+
+  test(
+    'worker deadline includes legacy rebuild and personal sync leases',
+    () async {
+      final rebuild = make(_Engine());
+      expect(await rebuild.workerLeaseExpiresAt(), isNull);
+      await store.acquireLease(
+        'rebuild',
+        'legacy',
+        const Duration(minutes: 30),
+      );
+      await store.acquireLease(
+        'personal_sync',
+        'other',
+        const Duration(minutes: 10),
+      );
+      final rows = await store.db.query(
+        'leases',
+        where: 'name=?',
+        whereArgs: ['rebuild'],
+      );
+      expect(
+        await rebuild.workerLeaseExpiresAt(),
+        DateTime.parse(rows.single['until'] as String),
+      );
     },
   );
 }

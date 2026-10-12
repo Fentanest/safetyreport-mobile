@@ -114,7 +114,9 @@ class _Card extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final tone = context.tone(_tone(p));
     final fraction = p.fraction;
-    final notice = !p.executing && !p.done ? p.notice : null;
+    final notice = !p.executing && !p.done
+        ? runner.retryNotice ?? p.notice
+        : null;
 
     final buttons = <Widget>[
       if (p.executing)
@@ -135,7 +137,7 @@ class _Card extends StatelessWidget {
           key: const Key('rebuildCardResume'),
           icon: const Icon(Icons.play_arrow_rounded),
           label: Text(
-            p.state == RebuildStates.failed
+            runner.retryStopped || p.state == RebuildStates.failed
                 ? '다시 시도'
                 : rebuild.job == null
                 ? '시작'
@@ -197,7 +199,11 @@ class _Card extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          p.headline,
+                          runner.waitingToRetry
+                              ? '자동 재시도 대기 중'
+                              : runner.retryStopped
+                              ? '자동 재시도 중단 — 확인 필요'
+                              : p.headline,
                           key: const Key('rebuildCardHeadline'),
                           style: TextStyle(
                             fontSize: 12.5,

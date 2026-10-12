@@ -102,6 +102,7 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     widget.rebuild?.addListener(_onRebuild);
+    if (_background) StandaloneRebuildRunner.instance.addListener(_onRebuild);
     if (!widget.isClient) {
       _refreshTimer = Timer.periodic(const Duration(seconds: 2), (_) {
         if (WidgetsBinding.instance.lifecycleState ==
@@ -127,6 +128,7 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
     _refreshTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     widget.rebuild?.removeListener(_onRebuild);
+    StandaloneRebuildRunner.instance.removeListener(_onRebuild);
     super.dispose();
   }
 
@@ -389,7 +391,9 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
     final counts = rebuild.counts();
     final failed = counts['failed_permanent'] ?? 0;
     final executing = rebuild.isExecuting;
-    final unavailable = _busy || executing || rebuild.waitingForWorker;
+    final runner = _background ? StandaloneRebuildRunner.instance : null;
+    final unavailable =
+        _busy || executing || (rebuild.waitingForWorker && runner == null);
     final remaining =
         (counts['pending'] ?? 0) + (counts['failed_retryable'] ?? 0);
     final at = rebuild.lastProgressAt?.toLocal();
@@ -405,6 +409,10 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
                 Text(
                   '상태: ${rebuild.stopping
                       ? '중단 확인 중'
+                      : runner?.waitingToRetry == true
+                      ? '자동 재시도 대기 중'
+                      : runner?.retryStopped == true
+                      ? '자동 재시도 중단 — 확인 필요'
                       : rebuild.waitingForWorker
                       ? '다른 작업 종료 확인 중'
                       : _stateLabel(rebuild.state)}',
@@ -413,6 +421,7 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
                     fontWeight: FontWeight.bold,
                   ),
                 ),
+                if (runner?.retryNotice != null) Text(runner!.retryNotice!),
                 if (rebuild.job?['backup_ref'] != null)
                   Text(
                     '백업: ${rebuild.job!['backup_ref']}',

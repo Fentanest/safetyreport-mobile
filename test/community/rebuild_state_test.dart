@@ -478,6 +478,27 @@ void main() {
     expect(engine.runs, isEmpty);
   });
 
+  test('manifest exception is retryable and resumes the same job', () async {
+    final engine = _FakeEngine();
+    var available = false;
+    final rebuild = makeRebuild(
+      engine: engine,
+      manifestCheck: () async {
+        if (!available) throw TimeoutException('manifest');
+        return true;
+      },
+    );
+    expect(await rebuild.start(confirmedBy: 'user'), isFalse);
+    expect(rebuild.state, RebuildStates.prerequisitesRequired);
+    expect(rebuild.job?['last_error'], 'manifest_unavailable');
+    expect(engine.runs, isEmpty);
+    final runId = rebuild.job?['run_id'];
+    available = true;
+    expect(await rebuild.start(confirmedBy: 'resume'), isTrue);
+    expect(rebuild.job?['run_id'], runId);
+    expect(engine.runs, hasLength(1));
+  });
+
   test('G06: backup failure leaves failed with no changes', () async {
     final engine = _FakeEngine();
     final rebuild = makeRebuild(

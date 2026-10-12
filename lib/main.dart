@@ -859,6 +859,11 @@ class _StandaloneRebuildGateState extends State<StandaloneRebuildGate> {
     return FutureBuilder<CommunityRebuild?>(
       future: _future,
       builder: (context, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
         if (snap.error is ForeignDatabaseException) {
           return SetupScreen(
             initialMode: AppMode.standalone,
@@ -867,15 +872,31 @@ class _StandaloneRebuildGateState extends State<StandaloneRebuildGate> {
           );
         }
         if (snap.hasError) {
-          // 저장소를 열지 못하면(테스트·손상) 초기화를 건너뛰고 메인으로 간다.
-          _skipOnce();
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
-        }
-        if (snap.connectionState != ConnectionState.done) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
+          return Scaffold(
+            appBar: AppBar(title: const Text('신고 내역 다시 불러오기')),
+            body: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      '다시 불러오기가 필요한지 확인하지 못했습니다. 기존 자료는 그대로입니다. 잠시 후 다시 시도해 주세요.',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      key: const Key('rebuildPrepareRetry'),
+                      onPressed: () => setState(() {
+                        _future = _decide();
+                      }),
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('다시 시도'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           );
         }
         final rebuild = snap.data;

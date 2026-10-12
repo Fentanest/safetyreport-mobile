@@ -44,6 +44,9 @@ class _MemRebuild extends CommunityRebuild {
   bool memListComplete = false;
   bool memExecuting = false;
   bool memWaiting = false;
+  bool? busyOverride;
+  DateTime? leaseExpiry;
+  Completer<DateTime?>? leaseRead;
   String? memNotice;
   Map<String, int> memCounts = const {};
   bool hasJob = false;
@@ -53,7 +56,12 @@ class _MemRebuild extends CommunityRebuild {
   @override
   bool get isExecuting => memExecuting;
   @override
+  bool get isBusy => busyOverride ?? super.isBusy;
+  @override
   bool get waitingForWorker => memWaiting;
+  @override
+  Future<DateTime?> workerLeaseExpiresAt() async =>
+      leaseRead != null ? await leaseRead!.future : leaseExpiry;
   @override
   bool get stopping => false;
   @override
@@ -313,6 +321,203 @@ void main() {
           image.dispose();
         });
 
+    testWidgets(
+      'manifest backoff, exhaustion, notification and manual recovery',
+      (tester) async {
+        final rebuild = _MemRebuild(store)..busyOverride = false;
+        final sink = _QuietSink();
+        final runner = StandaloneRebuildRunner(
+          sink: sink,
+          now: tester.binding.clock.now,
+        )..adopt(rebuild);
+        addTearDown(runner.dispose);
+        final card = await pumpCard(tester, runner);
+        runner.runInBackground();
+        for (var i = 0; i < 5; i++) {
+          rebuild.memError = 'manifest_unavailable';
+          rebuild.finish(RebuildStates.prerequisitesRequired);
+          await tester.pump();
+          expect(find.text('자동 재시도 대기 중'), findsOneWidget);
+          if (i == 0) await snapshot(tester, card, 'retry-wait');
+          expect(sink.milestones.last, contains('자동으로 다시 시도'));
+          expect(
+            runner.resumeIfDue(),
+            isFalse,
+            reason: 'gate refresh must not bypass backoff',
+          );
+          final delay = StandaloneRebuildRunner.prerequisiteRetryDelays[i];
+          expect(runner.nextRetryAt, tester.binding.clock.now().add(delay));
+          await tester.pump(delay - const Duration(milliseconds: 1));
+          expect(rebuild.starts, hasLength(i + 1));
+          await tester.pump(const Duration(milliseconds: 1));
+          expect(rebuild.starts, hasLength(i + 2));
+          // 아직 작업 Future가 끝나지 않았으면 중복 실행도 예약도 없다.
+          runner.runInBackground();
+          expect(rebuild.starts, hasLength(i + 2));
+          expect(runner.waitingToRetry, isFalse);
+        }
+        rebuild.finish(RebuildStates.prerequisitesRequired);
+        await tester.pump();
+        expect(runner.retryStopped, isTrue);
+        expect(runner.nextRetryAt, isNull);
+        expect(find.text('자동 재시도 중단 — 확인 필요'), findsOneWidget);
+        await snapshot(tester, card, 'retry-stopped');
+        expect(sink.milestones.last, contains('자동 재시도를 중단'));
+        expect(runner.resumeIfDue(), isFalse);
+        await tester.pump(const Duration(hours: 1));
+        expect(rebuild.starts, hasLength(6));
+        await tester.tap(find.byKey(const Key('rebuildCardResume')));
+        await tester.pump();
+        expect(rebuild.starts, hasLength(7));
+        rebuild.finish(RebuildStates.completed);
+        await tester.pump();
+        expect(runner.waitingToRetry, isFalse);
+      },
+    );
+
+    testWidgets('manifest recovery automatically completes after first retry', (
+      tester,
+    ) async {
+      final rebuild = _MemRebuild(store)..busyOverride = false;
+      final sink = _QuietSink();
+      final runner = StandaloneRebuildRunner(sink: sink)..adopt(rebuild);
+      addTearDown(runner.dispose);
+      runner.runInBackground();
+      rebuild.memError = 'manifest_unavailable';
+      rebuild.finish(RebuildStates.prerequisitesRequired);
+      await tester.pump();
+      expect(sink.milestones.single, contains('재시도 대기'));
+      await tester.pump(const Duration(minutes: 1));
+      expect(rebuild.starts, ['user', 'resume']);
+      rebuild.memError = null;
+      rebuild.busyOverride = true;
+      rebuild.notifyListeners();
+      rebuild.finish(RebuildStates.completed);
+      await tester.pump();
+      expect(runner.pending, isFalse);
+      expect(runner.nextRetryAt, isNull);
+      expect(sink.milestones.last, contains('완료'));
+      await tester.pump(const Duration(hours: 1));
+      expect(rebuild.starts, hasLength(2));
+    });
+
+    testWidgets(
+      '30 minute legacy lease waits until expiry plus margin, then resumes',
+      (tester) async {
+        final rebuild = _MemRebuild(store);
+        final runner = StandaloneRebuildRunner(
+          sink: _QuietSink(),
+          now: tester.binding.clock.now,
+        )..adopt(rebuild);
+        addTearDown(runner.dispose);
+        await pumpCard(tester, runner);
+        final expiry = tester.binding.clock.now().add(
+          const Duration(minutes: 30),
+        );
+        rebuild.leaseExpiry = expiry;
+        runner.runInBackground();
+        rebuild.memWaiting = true;
+        rebuild.finish(RebuildStates.required);
+        await tester.pump();
+        expect(runner.nextRetryAt, expiry.add(const Duration(seconds: 5)));
+        expect(find.text('자동 재시도 대기 중'), findsOneWidget);
+        await tester.pump(const Duration(minutes: 30, seconds: 4));
+        expect(rebuild.starts, hasLength(1));
+        await tester.pump(const Duration(seconds: 1));
+        expect(rebuild.starts, hasLength(2));
+        rebuild.memWaiting = false;
+        rebuild.finish(RebuildStates.completed);
+        await tester.pump();
+        expect(runner.waitingToRetry, isFalse);
+      },
+    );
+
+    testWidgets(
+      'renewed worker lease is read again and exhaustion stops waiting display',
+      (tester) async {
+        final rebuild = _MemRebuild(store);
+        final runner = StandaloneRebuildRunner(
+          sink: _QuietSink(),
+          maxWorkerRetries: 2,
+          now: tester.binding.clock.now,
+        )..adopt(rebuild);
+        addTearDown(runner.dispose);
+        await pumpCard(tester, runner);
+        runner.runInBackground();
+        for (var i = 0; i < 2; i++) {
+          rebuild.memWaiting = true;
+          rebuild.leaseExpiry = tester.binding.clock.now().add(
+            Duration(minutes: 30 + i),
+          );
+          rebuild.finish(RebuildStates.required);
+          await tester.pump();
+          expect(
+            runner.nextRetryAt,
+            rebuild.leaseExpiry!.add(const Duration(seconds: 5)),
+          );
+          await tester.pump(Duration(minutes: 30 + i, seconds: 5));
+        }
+        rebuild.finish(RebuildStates.required);
+        await tester.pump();
+        expect(find.text('자동 재시도 대기 중'), findsNothing);
+        expect(find.text('자동 재시도 중단 — 확인 필요'), findsOneWidget);
+        expect(runner.waitingToRetry, isFalse);
+        expect(runner.resumeIfDue(), isFalse);
+      },
+    );
+
+    for (final end in ['pause', 'gaps', 'clear', 'replace', 'dispose']) {
+      testWidgets('pending retry cannot resume after $end', (tester) async {
+        final rebuild = _MemRebuild(store);
+        final runner = newRunner()..adopt(rebuild);
+        runner.runInBackground();
+        rebuild.memError = 'manifest_unavailable';
+        rebuild.finish(RebuildStates.prerequisitesRequired);
+        await tester.pump();
+        expect(runner.waitingToRetry, isTrue);
+        switch (end) {
+          case 'pause':
+            rebuild.memError = 'user_paused';
+            rebuild.memState = RebuildStates.paused;
+            rebuild.notifyListeners();
+          case 'gaps':
+            rebuild.memState = RebuildStates.validating;
+            rebuild.memCounts = {'failed_permanent': 1};
+            rebuild.notifyListeners();
+          case 'clear':
+            runner.clear();
+          case 'replace':
+            runner.adopt(_MemRebuild(store));
+          case 'dispose':
+            runner.dispose();
+        }
+        await tester.pump(const Duration(hours: 1));
+        expect(rebuild.starts, hasLength(1));
+        expect(runner.waitingToRetry, isFalse);
+        if (end != 'dispose') runner.dispose();
+      });
+    }
+
+    testWidgets('late lease read cannot schedule work for a replaced scope', (
+      tester,
+    ) async {
+      final rebuild = _MemRebuild(store)..leaseRead = Completer<DateTime?>();
+      final runner = newRunner()..adopt(rebuild);
+      addTearDown(runner.dispose);
+      runner.runInBackground();
+      rebuild.memWaiting = true;
+      rebuild.finish(RebuildStates.required);
+      await tester.pump();
+      runner.adopt(_MemRebuild(store));
+      rebuild.leaseRead!.complete(
+        tester.binding.clock.now().add(const Duration(minutes: 30)),
+      );
+      await tester.pump();
+      expect(runner.waitingToRetry, isFalse);
+      await tester.pump(const Duration(hours: 1));
+      expect(rebuild.starts, hasLength(1));
+    });
+
     testWidgets('running: real counts, progress bar, pause', (tester) async {
       final rebuild = _MemRebuild(store)
         ..hasJob = true
@@ -476,6 +681,7 @@ void main() {
 }
 
 class _QuietSink extends RebuildNotificationSink {
+  final milestones = <String>[];
   @override
   Future<void> progress(
     String title,
@@ -484,5 +690,6 @@ class _QuietSink extends RebuildNotificationSink {
     int? total,
   ) async {}
   @override
-  Future<void> milestone(String title, String body) async {}
+  Future<void> milestone(String title, String body) async =>
+      milestones.add('$title|$body');
 }

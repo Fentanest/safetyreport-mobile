@@ -216,6 +216,15 @@ class CommunityRebuild extends ChangeNotifier {
   int? pendingUploads;
   bool _waitingForWorker = false;
   bool get waitingForWorker => _waitingForWorker;
+
+  /// 이전 버전의 30분 잠금도 만료 뒤에 재개한다. 잠금이 없으면 실행기가 짧게 재확인한다.
+  Future<DateTime?> workerLeaseExpiresAt() async {
+    final rows = await _store.db.rawQuery(
+      "SELECT MAX(until) AS expires FROM leases WHERE name IN ('rebuild','personal_sync')",
+    );
+    return DateTime.tryParse('${rows.single['expires']}');
+  }
+
   bool get isExecuting => _operation != null;
   bool get stopping => isExecuting && _cancelReason != null;
   bool get countsKnown => job != null;
@@ -601,7 +610,16 @@ class CommunityRebuild extends ChangeNotifier {
             if (validateOnly) {
               await _finishCollected(await _storedOutcome());
             } else {
-              if (!await _manifestCheck().timeout(const Duration(minutes: 2))) {
+              bool manifestReady;
+              try {
+                manifestReady = await _manifestCheck().timeout(
+                  const Duration(minutes: 2),
+                );
+              } catch (_) {
+                manifestReady = false;
+              }
+              await SyncOperationAdmission.checkOwnership();
+              if (!manifestReady) {
                 await _ensureRow(
                   state: RebuildStates.prerequisitesRequired,
                   error: 'manifest_unavailable',

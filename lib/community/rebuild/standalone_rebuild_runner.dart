@@ -75,7 +75,7 @@ class RebuildProgress {
 
   String get headline {
     if (stopping) return '중단 확인 중';
-    if (waitingForWorker && !executing) return '이전 작업의 종료를 확인하는 중';
+    if (waitingForWorker && !executing) return '이전 작업이 남아 있습니다';
     if (done) {
       return state == RebuildStates.completedWithGaps
           ? '완료 · 가져오지 못한 신고 $failedPermanent건은 기존 자료 유지'
@@ -149,11 +149,23 @@ class StandaloneRebuildRunner extends ChangeNotifier {
     RebuildNotificationSink sink = const RebuildNotificationSink(),
     this.retryDelay = const Duration(seconds: 60),
     this.maxWorkerRetries = 15,
-  }) : _sink = sink;
+    DateTime Function()? now,
+  }) : _sink = sink,
+       _now = now ?? DateTime.now;
 
   static StandaloneRebuildRunner instance = StandaloneRebuildRunner();
 
   final RebuildNotificationSink _sink;
+  final DateTime Function() _now;
+
+  static const prerequisiteRetryDelays = [
+    Duration(minutes: 1),
+    Duration(minutes: 2),
+    Duration(minutes: 5),
+    Duration(minutes: 10),
+    Duration(minutes: 30),
+  ];
+  static const leaseExpiryMargin = Duration(seconds: 5);
 
   /// 이전 프로세스·다른 작업의 lease 가 남아 시작하지 못했을 때 다시 시도하는 간격·횟수(기존 lease 최대 10~30분).
   final Duration retryDelay;
@@ -170,6 +182,16 @@ class StandaloneRebuildRunner extends ChangeNotifier {
   bool get completionDismissed => _completionDismissed;
   Timer? _retryTimer;
   int _workerRetries = 0;
+  int _prerequisiteRetries = 0;
+  int _runVersion = 0;
+  bool _pauseRequested = false;
+  DateTime? _nextRetryAt;
+  DateTime? get nextRetryAt => _nextRetryAt;
+  bool _retryStopped = false;
+  bool get retryStopped => _retryStopped;
+  String? _retryNotice;
+  String? get retryNotice => _retryNotice;
+  bool get waitingToRetry => _retryTimer?.isActive ?? false;
   bool _sawBusy = false;
   bool _wasExecuting = false;
   String? _lastProgressText;
@@ -211,12 +233,17 @@ class StandaloneRebuildRunner extends ChangeNotifier {
   void _adopt(CommunityRebuild r) {
     if (identical(r, _current)) return;
     _current?.removeListener(_onChange);
-    _retryTimer?.cancel();
+    _cancelRetry();
+    _runVersion++;
     _workerRetries = 0;
+    _prerequisiteRetries = 0;
+    _pauseRequested = false;
+    _retryStopped = false;
     _sawBusy = false;
     _wasExecuting = r.isExecuting;
     _completionDismissed = false;
     _lastProgressText = null;
+    _lastMilestone = null;
     _current = r;
     r.addListener(_onChange);
     notifyListeners();
@@ -227,7 +254,8 @@ class StandaloneRebuildRunner extends ChangeNotifier {
     if (_current == null) return;
     if (_current!.isExecuting) return; // 실행 중인 작업의 표시를 숨기지 않는다.
     _current!.removeListener(_onChange);
-    _retryTimer?.cancel();
+    _cancelRetry();
+    _runVersion++;
     _current = null;
     notifyListeners();
   }
@@ -256,9 +284,15 @@ class StandaloneRebuildRunner extends ChangeNotifier {
   /// 백그라운드로 시작(또는 같은 run 이어서). 이미 실행 중이면 그 실행을 그대로 둔다(single-flight).
   void runInBackground({String confirmedBy = 'user', bool userAction = true}) {
     final r = _current;
-    if (r == null) return;
-    _retryTimer?.cancel();
-    if (userAction) _workerRetries = 0;
+    if (_disposed || r == null || r.isExecuting) return;
+    _cancelRetry();
+    _runVersion++;
+    if (userAction) {
+      _workerRetries = 0;
+      _prerequisiteRetries = 0;
+      _pauseRequested = false;
+    }
+    _retryStopped = false;
     _completionDismissed = false;
     unawaited(_run(r, confirmedBy));
   }
@@ -267,11 +301,18 @@ class StandaloneRebuildRunner extends ChangeNotifier {
   void acceptGapsInBackground() {
     final r = _current;
     if (r == null) return;
-    _retryTimer?.cancel();
+    _cancelRetry();
+    _runVersion++;
     unawaited(_guard(r, r.acceptGaps));
   }
 
-  void requestPause() => _current?.requestPause();
+  void requestPause() {
+    _pauseRequested = true;
+    _cancelRetry();
+    _runVersion++;
+    _current?.requestPause();
+    notifyListeners();
+  }
 
   /// 앱 시작·게이트 통과 때 이어서 진행할지: 안내를 확인한 뒤 끝나지 않았고, 사용자가 멈추지 않았고, 누락 동의를 기다리지 않을 때.
   static bool shouldAutoResume(CommunityRebuild r) {
@@ -284,7 +325,13 @@ class StandaloneRebuildRunner extends ChangeNotifier {
   /// [shouldAutoResume] 이면 같은 run 으로 백그라운드 재개. 반환: 재개를 요청했는가.
   bool resumeIfDue() {
     final r = _current;
-    if (r == null || !shouldAutoResume(r)) return false;
+    if (r == null ||
+        waitingToRetry ||
+        _retryStopped ||
+        _pauseRequested ||
+        !shouldAutoResume(r)) {
+      return false;
+    }
     runInBackground(confirmedBy: 'resume', userAction: false);
     return true;
   }
@@ -296,31 +343,105 @@ class StandaloneRebuildRunner extends ChangeNotifier {
     CommunityRebuild r,
     Future<Object?> Function() body,
   ) async {
+    final version = _runVersion;
     try {
       await body();
     } catch (_) {
       // 상태기계가 오류를 job 에 남긴다. 여기서는 표시만 갱신한다.
     }
-    if (_disposed || !identical(r, _current)) return;
-    if (!r.isExecuting &&
-        r.waitingForWorker &&
-        !RebuildStates.terminalOk.contains(r.state) &&
-        _workerRetries < maxWorkerRetries) {
-      _workerRetries++;
-      _retryTimer?.cancel();
-      _retryTimer = Timer(retryDelay, () {
-        if (!_disposed && identical(r, _current) && !r.isExecuting) {
-          runInBackground(confirmedBy: 'resume', userAction: false);
-        }
-      });
-    }
+    if (!_isCurrent(r, version)) return;
+    await _scheduleRetry(r, version);
+    if (!_isCurrent(r, version)) return;
     notifyListeners();
+  }
+
+  bool _isCurrent(CommunityRebuild r, int version) =>
+      !_disposed && identical(r, _current) && version == _runVersion;
+
+  void _cancelRetry() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _nextRetryAt = null;
+    _retryNotice = null;
+  }
+
+  Future<void> _scheduleRetry(CommunityRebuild r, int version) async {
+    if (_pauseRequested || !shouldAutoResume(r)) return;
+    final manifestUnavailable =
+        r.state == RebuildStates.prerequisitesRequired &&
+        r.job?['last_error'] == 'manifest_unavailable';
+    if (!r.waitingForWorker && !manifestUnavailable) return;
+    Duration delay;
+    int attempt;
+    int limit;
+    if (r.waitingForWorker) {
+      if (_workerRetries >= maxWorkerRetries) {
+        _stopRetry();
+        return;
+      }
+      DateTime? expires;
+      try {
+        expires = await r.workerLeaseExpiresAt();
+      } catch (_) {
+        if (_isCurrent(r, version)) _stopRetry();
+        return;
+      }
+      if (!_isCurrent(r, version) || _pauseRequested || !shouldAutoResume(r)) {
+        return;
+      }
+      final remaining = expires?.add(leaseExpiryMargin).difference(_now());
+      delay = remaining != null && remaining > Duration.zero
+          ? remaining
+          : retryDelay;
+      attempt = ++_workerRetries;
+      limit = maxWorkerRetries;
+    } else {
+      if (_prerequisiteRetries >= prerequisiteRetryDelays.length) {
+        _stopRetry();
+        return;
+      }
+      delay = prerequisiteRetryDelays[_prerequisiteRetries++];
+      attempt = _prerequisiteRetries;
+      limit = prerequisiteRetryDelays.length;
+    }
+    _nextRetryAt = _now().add(delay);
+    final at = _nextRetryAt!.toLocal();
+    final time =
+        '${at.month}/${at.day} '
+        '${at.hour.toString().padLeft(2, '0')}:'
+        '${at.minute.toString().padLeft(2, '0')}:'
+        '${at.second.toString().padLeft(2, '0')}';
+    _retryNotice =
+        '${r.waitingForWorker ? '이전 작업이 끝나기를 기다리고 있습니다.' : '공유 목록을 확인하지 못했습니다.'} '
+        '$time에 자동으로 다시 시도합니다 ($attempt/$limit회).';
+    _retryTimer = Timer(delay, () {
+      if (!_isCurrent(r, version)) return;
+      _cancelRetry();
+      if (!_pauseRequested && shouldAutoResume(r)) {
+        runInBackground(confirmedBy: 'resume', userAction: false);
+      }
+      notifyListeners();
+    });
+    unawaited(_sink.milestone('신고 내역 다시 불러오기 — 재시도 대기', _retryNotice!));
+  }
+
+  void _stopRetry() {
+    _cancelRetry();
+    _retryStopped = true;
+    _retryNotice =
+        '자동 재시도를 중단했습니다. 연결과 작업 상태를 확인한 뒤 '
+        '대시보드의 다시 불러오기 카드에서 다시 시도해 주세요. 기존 자료는 그대로입니다.';
+    unawaited(_sink.milestone('신고 내역 다시 불러오기 — 확인 필요', _retryNotice!));
   }
 
   void _onChange() {
     final r = _current;
     if (r == null) return;
     final p = RebuildProgress.of(r);
+    if (p.executing || p.done || p.userPaused || p.needsGapConsent) {
+      _cancelRetry();
+      _retryStopped = false;
+    }
     if (p.executing && r.isBusy) _sawBusy = true;
     if (p.executing) {
       _updateProgressNotification(p);
@@ -393,7 +514,8 @@ class StandaloneRebuildRunner extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    _retryTimer?.cancel();
+    _cancelRetry();
+    _runVersion++;
     _current?.removeListener(_onChange);
     super.dispose();
   }

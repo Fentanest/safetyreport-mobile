@@ -1,5 +1,6 @@
 import '../models/report.dart';
 import 'report_category.dart' as report_category;
+import 'fine_estimate.dart' as fine_estimate;
 
 // ── 상수 ─────────────────────────────────────────────────────────────────────
 
@@ -148,12 +149,8 @@ String reportContentOf(String normalizedContent) =>
 // '과태료: 40,000원' 형식만 합산. '범칙금: 40,000원'은 0 반환.
 // 통계의 총 과태료 합계용.
 
-int extractFineAmount(String fineInfo) {
-  if (!fineInfo.contains('과태료')) return 0;
-  final m = RegExp(r'([\d,.]+)\s*원').firstMatch(fineInfo);
-  if (m == null) return 0;
-  return int.tryParse(m.group(1)!.replaceAll(RegExp(r'[,.]'), '')) ?? 0;
-}
+int extractFineAmount(String fineInfo, [Map<String, dynamic>? record]) =>
+    fine_estimate.extractFineAmount(fineInfo, record);
 
 // ── parse_json_details 이식 ──────────────────────────────────────────────────
 

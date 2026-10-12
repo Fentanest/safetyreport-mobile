@@ -178,6 +178,33 @@ void main() {
     );
   }
 
+  test('파서 7은 오타 보정 신고를 크롤링 없이 한 번 다시 보낸다', () async {
+    final store = await _openStore();
+    try {
+      await LocalDbService.upsertReport(_report(id: 'T1', fineInfo: '과태료: 40,0000원'), 'parking', '불법주정차신고');
+      await _seedOldJournal(store, 'T1', revision: 1);
+      final rows = await LocalDbService.communityResendRows(['T1']);
+      final old = Map<String, Object?>.from(buildPayload(adapterInputFromResendRow(rows.single)));
+      (old['amount'] as Map)['confirmed_won'] = null;
+      old['fine_estimate'] = {'won': 40000, 'rule': 'parking', 'rule_version': fine_estimate.ruleVersion};
+      final oldJson = canonicalJson(old);
+      final oldSha = sha256.convert(utf8.encode(oldJson)).toString();
+      await store.db.update('source_journal', {'payload_json': oldJson, 'payload_sha256': oldSha, 'parser_version': 'mobile-parser-6'}, where: 'source_report_id=?', whereArgs: ['T1']);
+      await store.db.update('report_latest', {'payload_sha256': oldSha}, where: 'source_report_id=?', whereArgs: ['T1']);
+      await store.setMeta('fine_estimate_resend_done', '${fine_estimate.ruleVersion}|mobile-parser-6');
+      expect(await resendFineEstimateIfNeeded(store: store), 1);
+      final events = await store.db.rawQuery("SELECT * FROM source_journal WHERE source_report_id='T1' ORDER BY source_revision");
+      expect(events.length, 2);
+      expect(events.last['parser_version'], 'mobile-parser-7');
+      expect((jsonDecode(events.last['payload_json'] as String)['amount'] as Map)['confirmed_won'], 40000);
+      expect(await resendFineEstimateIfNeeded(store: store), 0);
+      final stored = await LocalDbService.communityResendRows(['T1']);
+      expect(stored.single['범칙금_과태료'], '과태료: 40,0000원');
+    } finally {
+      await _closeStore(store);
+    }
+  });
+
   test('필드 생김: 대상 신고만 새 journal+outbox, 대상 아닌 신고는 그대로', () async {
     final store = await _openStore();
     try {

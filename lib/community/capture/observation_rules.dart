@@ -164,7 +164,10 @@ bool _isValidDate(String cand) {
 }
 
 /// 금액 확정 규칙. (kind, confirmedWon) — kind 는 문법 불일치여도 앞머리로 판정.
-({String kind, int? confirmedWon}) parseAmount(Object? value) {
+({String kind, int? confirmedWon}) parseAmount(
+  Object? value, [
+  Map<String, dynamic>? record,
+]) {
   final raw = value is String ? value.trim() : '';
   final hasPenalty = raw.contains('범칙금');
   final hasFine = raw.contains('과태료');
@@ -179,26 +182,12 @@ bool _isValidDate(String cand) {
     kind = 'unknown';
   }
   if (kind == 'unknown') return (kind: kind, confirmedWon: null);
-  final m =
-      RegExp(r'^(과태료|범칙금):\s*([0-9][0-9.,]*)\s*원$').firstMatch(raw);
+  final m = RegExp(r'^(과태료|범칙금):\s*([0-9][0-9.,]*)\s*원$').firstMatch(raw);
   if (m == null) return (kind: kind, confirmedWon: null);
-  final num = m[2]!;
-  final parts = num.split(RegExp(r'[,.]'));
-  if (parts.length == 1) {
-    if (!RegExp(r'^[0-9]+$').hasMatch(num)) {
-      return (kind: kind, confirmedWon: null);
-    }
-  } else {
-    if (parts.first.isEmpty || parts.first.length > 3) {
-      return (kind: kind, confirmedWon: null);
-    }
-    for (var i = 1; i < parts.length; i++) {
-      if (parts[i].length != 3 || !RegExp(r'^[0-9]{3}$').hasMatch(parts[i])) {
-        return (kind: kind, confirmedWon: null);
-      }
-    }
-  }
-  final won = int.tryParse(parts.join());
+  final won = fine_estimate.parseAmountNumber(
+    m[2]!,
+    kind == 'fine' ? fine_estimate.legalFineAmounts(record) : const [],
+  );
   if (won == null || won > 100000000) {
     return (kind: kind, confirmedWon: null);
   }
@@ -277,23 +266,26 @@ double? parseGeoDouble(Object? value) {
 /// '추정 대상'(과태료 처분인데 금액을 못 읽음)으로 세는 조건과 같은 입력으로
 /// `fine_estimate.classify`/`estimate` 를 그대로 호출한다(판정 로직을 여기서 다시 만들지 않음).
 /// 대상이 아니거나 규칙이 없으면 null(호출자가 키 자체를 뺀다 — null 로 넣지 않음).
+Map<String, dynamic> _fineRecord(Map<String, Object?> input) => {
+  'category': input['category'],
+  'entry_value': input['entry_value'],
+  'ssnpc_cd': input['ssnpc_cd'],
+  'ssnpc_type': input['ssnpc_type'],
+  '신고명': input['report_name'],
+  '위반법규': input['violation_law'],
+  '차량번호': input['car_number'],
+  '사진_첫촬영': input['photo_first_capture'],
+  '사진_끝촬영': input['photo_last_capture'],
+  '발생시각': input['occurrence_time'],
+};
+
 Map<String, Object?>? _fineEstimateField(Map<String, Object?> input) {
   final fineRaw = input['penalty_amount']?.toString() ?? '';
-  if (!fineRaw.contains('과태료') || extractFineAmount(fineRaw) != 0) {
+  if (!fineRaw.contains('과태료') ||
+      extractFineAmount(fineRaw, _fineRecord(input)) != 0) {
     return null;
   }
-  final record = <String, Object?>{
-    'category': input['category'],
-    'entry_value': input['entry_value'],
-    'ssnpc_cd': input['ssnpc_cd'],
-    'ssnpc_type': input['ssnpc_type'],
-    '신고명': input['report_name'],
-    '위반법규': input['violation_law'],
-    '차량번호': input['car_number'],
-    '사진_첫촬영': input['photo_first_capture'],
-    '사진_끝촬영': input['photo_last_capture'],
-    '발생시각': input['occurrence_time'],
-  };
+  final record = _fineRecord(input);
   final result = fine_estimate.estimate(record);
   if (result == null) return null;
   final won = result['amount'];
@@ -317,7 +309,7 @@ Map<String, Object?> buildPayload(Map<String, Object?> input) {
   final statusRaw = cleanString(input['processing_status'], 40);
   final status = mapStatus(statusRaw);
   final eligible = isEligibleStatus(status);
-  final amount = parseAmount(input['penalty_amount']);
+  final amount = parseAmount(input['penalty_amount'], _fineRecord(input));
   final reportDate = parseDay(input['report_date']);
   final responseDay = parseDay(input['response_date']);
   final completedDate = eligible ? responseDay : null;

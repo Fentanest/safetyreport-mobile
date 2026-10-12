@@ -268,3 +268,69 @@ Map<String, dynamic>? estimate(Map<String, dynamic> record) {
   final clsText = table.containsKey(null) ? '차종 무관' : cls;
   return {"amount": amount, "rule": ruleId, "basis": "$basis · $clsText"};
 }
+
+/// 해당 유형·차종의 기본/2시간 가중 금액만 대조한다.
+Set<int> legalFineAmounts(Map<String, dynamic>? record) {
+  record ??= {};
+  final rule = _rules[classify(record)];
+  if (rule == null) return {};
+  final cls = fineClass(record['차량번호']);
+  return {
+    for (final table in [rule.amounts, rule.surcharge ?? <String?, int>{}])
+      if ((table[cls] ?? table[null]) != null) (table[cls] ?? table[null])!,
+  };
+}
+
+final _normalAmount = RegExp(r'^(?:[0-9]+|[0-9]{1,3}(?:[,.][0-9]{3})+)$');
+
+/// 정상 숫자는 유지. 깨진 묶음은 구분자 제거/묶음 끝 0 보정 후보 중 법정 금액 하나만 선택.
+int? parseAmountNumber(String number, [Iterable<int> legalAmounts = const []]) {
+  if (_normalAmount.hasMatch(number)) {
+    return int.tryParse(number.replaceAll(RegExp(r'[,.]'), ''));
+  }
+  if (!RegExp(r'^[0-9]+(?:[,.][0-9]+)+$').hasMatch(number)) return null;
+  final parts = number.split(RegExp(r'[,.]'));
+  final candidates = <int>{};
+  final intact = int.tryParse(parts.join());
+  if (intact != null) candidates.add(intact);
+  final normalized = [parts.first];
+  if (parts.first.length <= 3) {
+    for (var part in parts.skip(1)) {
+      if (part.length < 3) {
+        part = part.padRight(3, '0');
+      } else if (part.length > 3) {
+        if (!RegExp(r'^0+$').hasMatch(part.substring(3))) break;
+        part = part.substring(0, 3);
+      }
+      normalized.add(part);
+    }
+    if (normalized.length == parts.length) {
+      final value = int.tryParse(normalized.join());
+      if (value != null) candidates.add(value);
+    }
+  }
+  final matches = candidates.intersection(legalAmounts.toSet());
+  return matches.length == 1 ? matches.single : null;
+}
+
+/// 원문은 보존하고 읽는 단계에서만 보정한다.
+int extractFineAmount(String text, [Map<String, dynamic>? record]) {
+  if (!text.contains('과태료')) return 0;
+  final m = RegExp(r'([0-9][0-9,.]*)\s*원').firstMatch(text);
+  if (m == null) return 0;
+  return parseAmountNumber(
+        m[1]!,
+        _normalAmount.hasMatch(m[1]!) ? const [] : legalFineAmounts(record),
+      ) ??
+      0;
+}
+
+String? correctedFineText(String text, [Map<String, dynamic>? record]) {
+  if (!text.contains('과태료')) return null;
+  final m = RegExp(r'([0-9][0-9,.]*)\s*원').firstMatch(text);
+  if (m == null || _normalAmount.hasMatch(m[1]!)) return null;
+  final amount = parseAmountNumber(m[1]!, legalFineAmounts(record));
+  if (amount == null) return null;
+  final formatted = NumberFormat('#,###', 'en_US').format(amount);
+  return text.replaceRange(m.start, m.start + m[1]!.length, formatted);
+}

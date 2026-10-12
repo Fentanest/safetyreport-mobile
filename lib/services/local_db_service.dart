@@ -2903,7 +2903,7 @@ class LocalDbService {
       final status = ReportPolicy.norm(r['처리상태']);
       final disposition = ReportPolicy.dashboardDisposition(r);
       if (!disposition['unconfirmed']!) decided += weight;
-      if (fine.contains('과태료') && extractFineAmount(fine) > 0) {
+      if (fine.contains('과태료') && extractFineAmount(fine, r) > 0) {
         confirmedCount += weight;
       }
       final name = (r['신고명']?.toString() ?? '').trim();
@@ -3765,7 +3765,7 @@ class LocalDbService {
     int categoryEstimatedFineCount = 0;
     for (final r in rows) {
       final fine = r['범칙금_과태료'] as String? ?? '';
-      final fineAmount = extractFineAmount(fine);
+      final fineAmount = extractFineAmount(fine, r);
       categoryTotalFine += fineAmount;
       if (fine.contains('과태료') && fineAmount == 0) {
         final est = fine_estimate.estimate(r);

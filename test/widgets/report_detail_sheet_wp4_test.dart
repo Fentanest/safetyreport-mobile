@@ -95,6 +95,19 @@ class _FakeController extends VideoPlayerController {
 }
 
 void main() {
+  testWidgets('보정 과태료와 원문 보조 표기를 함께 표시한다', (tester) async {
+    final r = _report(fineInfo: '과태료: 40,0000원').copyWith(category: 'parking');
+    final errors = await _pumpSheet(tester, r);
+    expect(errors, isEmpty);
+    expect(find.text('과태료: 40,000원'), findsOneWidget);
+    expect(find.text('원문: 40,0000원'), findsOneWidget);
+  });
+  testWidgets('정상 큰 금액에 원문 보조 표기를 붙이지 않는다', (tester) async {
+    await _pumpSheet(tester, _report(fineInfo: '과태료: 400,000원'));
+    expect(find.text('과태료: 400,000원'), findsOneWidget);
+    expect(find.textContaining('원문:'), findsNothing);
+  });
+
   group('SQ-U12 상세 라벨 폭', () {
     for (final scale in [1.0, 2.0]) {
       testWidgets('360dp · 글자 $scale배: "과태료/범칙금" 이 값과 붙거나 꺾이지 않는다', (

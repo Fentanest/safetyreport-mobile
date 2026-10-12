@@ -17,7 +17,7 @@ export 'observation_rules.dart' show buildPayload;
 
 /// 공유 payload 버전을 올리지 않고 파서만 구분한다.
 const String mobileParserVersion =
-    'mobile-parser-6'; // 2026-10-12 observation-v5(fine_estimate 추가)
+    'mobile-parser-7'; // 금액 오타 보정: 규칙·파서 버전 기반 로컬 재전송
 
 /// 공식 상세 응답에서 읽은 좌표. null이면 좌표 없는 관측으로 보낸다.
 class GeocodeHit {

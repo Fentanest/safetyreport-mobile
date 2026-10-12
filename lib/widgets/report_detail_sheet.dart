@@ -11,6 +11,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import '../models/report.dart';
+import '../services/fine_estimate.dart' as fine_estimate;
 import '../providers/notification_history_provider.dart';
 import '../providers/report_provider.dart';
 
@@ -335,7 +336,16 @@ class ReportDetailSheet extends StatelessWidget {
                 labelWidth,
                 Icons.monetization_on_outlined,
                 '과태료/범칙금',
-                report.fineInfo,
+                fine_estimate.correctedFineText(report.fineInfo, _fineRecord) ??
+                    report.fineInfo,
+                original:
+                    fine_estimate.correctedFineText(
+                          report.fineInfo,
+                          _fineRecord,
+                        ) !=
+                        null
+                    ? report.fineInfo.replaceFirst(RegExp(r'^과태료[:\s]*'), '')
+                    : null,
               ),
             if (report.penaltyPoints.isNotEmpty)
               _field(
@@ -723,20 +733,44 @@ class ReportDetailSheet extends StatelessWidget {
     return widest.ceilToDouble() + 1;
   }
 
+  Map<String, dynamic> get _fineRecord => {
+    'category': report.category,
+    'ssnpc_cd': report.ssnpcCd,
+    'ssnpc_type': report.ssnpcType,
+    '신고명': report.name,
+    '위반법규': report.law,
+    '차량번호': report.carNumber,
+    '발생시각': report.occurrenceTime,
+  };
+
   Widget _field(
     BuildContext context,
     double labelWidth,
     IconData icon,
     String label,
-    String value,
-  ) {
+    String value, {
+    String? original,
+  }) {
     return _DetailFieldRow(
       icon: icon,
       label: label,
       labelWidth: labelWidth,
-      value: Text(
-        value,
-        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+      value: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            value,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+          ),
+          if (original != null)
+            Text(
+              '원문: $original',
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+        ],
       ),
     );
   }

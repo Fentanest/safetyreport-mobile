@@ -35,6 +35,9 @@ class Report {
   final String carNumber;
   final String? ssnpcCd; // 분류용 원시 코드(SSNPC_CD, 정규화만 함 — 분류는 report_category 가 한다). 없으면 null
   final String? ssnpcType; // 분류용 원시 소분류(SSNPC_TYPE, 두 자리). 없으면 null
+  final String entryValue; // 접수 메뉴-소분류 원문(fine_estimate 분류 보조, SSNPC 코드가 없을 때 fallback)
+  final String? photoFirstCapture; // 사진_첫촬영(fine_estimate 밤샘주차·2시간 가중 판정용). 없으면 null
+  final String? photoLastCapture; // 사진_끝촬영
   final String law;
   final String location;
   final double? latitude;
@@ -86,6 +89,9 @@ class Report {
     required this.carNumber,
     this.ssnpcCd,
     this.ssnpcType,
+    this.entryValue = '',
+    this.photoFirstCapture,
+    this.photoLastCapture,
     required this.law,
     required this.location,
     this.latitude,
@@ -133,6 +139,9 @@ class Report {
     String? carNumber,
     String? ssnpcCd,
     String? ssnpcType,
+    String? entryValue,
+    String? photoFirstCapture,
+    String? photoLastCapture,
     String? law,
     String? location,
     double? latitude,
@@ -179,6 +188,9 @@ class Report {
       carNumber: carNumber ?? this.carNumber,
       ssnpcCd: ssnpcCd ?? this.ssnpcCd,
       ssnpcType: ssnpcType ?? this.ssnpcType,
+      entryValue: entryValue ?? this.entryValue,
+      photoFirstCapture: photoFirstCapture ?? this.photoFirstCapture,
+      photoLastCapture: photoLastCapture ?? this.photoLastCapture,
       law: law ?? this.law,
       location: location ?? this.location,
       latitude: latitude ?? this.latitude,
@@ -241,6 +253,11 @@ class Report {
       fineInfo: json['범칙금_과태료']?.toString() ?? '',
       penaltyPoints: json['벌점']?.toString() ?? '',
       carNumber: json['차량번호']?.toString() ?? '',
+      ssnpcCd: json['ssnpc_cd']?.toString(),
+      ssnpcType: json['ssnpc_type']?.toString(),
+      entryValue: json['entry_value']?.toString() ?? '',
+      photoFirstCapture: json['사진_첫촬영']?.toString(),
+      photoLastCapture: json['사진_끝촬영']?.toString(),
       law: json['위반법규']?.toString() ?? '',
       location: json['위반장소']?.toString() ?? '',
       latitude: _toCoordinateOrNull(json['위도']),

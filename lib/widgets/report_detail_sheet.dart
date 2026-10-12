@@ -23,8 +23,10 @@ import '../services/standalone_auth_service.dart';
 import '../models/app_mode.dart';
 import '../services/client_media_access.dart';
 import '../services/client_compatibility.dart';
+import '../services/fine_estimate.dart' as fine_estimate;
 import '../services/local_db_service.dart';
 import '../theme/sr_tokens.dart';
+import '../utils/format.dart';
 import 'sr_snack_bar.dart';
 
 Future<Map<String, String>?> _clientMediaHeaders(
@@ -330,13 +332,7 @@ class ReportDetailSheet extends StatelessWidget {
                 ReportFilter(manager: report.manager),
               ),
             if (report.fineInfo.isNotEmpty)
-              _field(
-                context,
-                labelWidth,
-                Icons.monetization_on_outlined,
-                '과태료/범칙금',
-                report.fineInfo,
-              ),
+              _fineField(context, labelWidth),
             if (report.penaltyPoints.isNotEmpty)
               _field(
                 context,
@@ -737,6 +733,58 @@ class ReportDetailSheet extends StatelessWidget {
       value: Text(
         value,
         style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+      ),
+    );
+  }
+
+  /// "과태료/범칙금" 줄. 금액 없이 "과태료"만 있으면 법정 최저 기준 추정을 흐린 보조 표기로 더한다
+  /// (row-estimate, 2026-10-12). 대상 판정·계산은 [fine_estimate.estimateForReport] 를 그대로 쓴다
+  /// (통계·커뮤니티 payload 와 같은 함수). 확정 원문([Report.fineInfo])은 그대로 첫 줄에 두고 섞지 않는다.
+  /// 다른 상세 줄과 같은 [_DetailFieldRow] 를 쓰므로 48dp 균일 간격·세로 가운데 배치가 유지된다.
+  Widget _fineField(BuildContext context, double labelWidth) {
+    final est = fine_estimate.estimateForReport(report);
+    if (est == null) {
+      return _field(
+        context,
+        labelWidth,
+        Icons.monetization_on_outlined,
+        '과태료/범칙금',
+        report.fineInfo,
+      );
+    }
+    final sr = context.sr;
+    final amountText = formatWon(est['amount'] as int);
+    final basisText = '법정 최저 기준 · ${est['basis']}';
+    return _DetailFieldRow(
+      icon: Icons.monetization_on_outlined,
+      label: '과태료/범칙금',
+      labelWidth: labelWidth,
+      value: Semantics(
+        label: '${report.fineInfo}, 추정 금액 $amountText, $basisText',
+        excludeSemantics: true,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              report.fineInfo,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '추정 $amountText',
+              style: TextStyle(
+                fontSize: 13,
+                fontStyle: FontStyle.italic,
+                color: sr.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              basisText,
+              style: TextStyle(fontSize: SrFontSize.caption, color: sr.textSecondary),
+            ),
+          ],
+        ),
       ),
     );
   }

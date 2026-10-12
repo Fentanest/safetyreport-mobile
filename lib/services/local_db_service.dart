@@ -2119,6 +2119,13 @@ class LocalDbService {
     '별점',
     '별점사유',
     'category',
+    // fine_estimate(row-estimate, 2026-10-12): 목록 카드의 추정 과태료 판정용(작은 텍스트 열만,
+    // 본문·첨부·지도 URL 은 그대로 뺀다). stats_columns·exportReportColumns 와 같은 열.
+    'entry_value',
+    'ssnpc_cd',
+    'ssnpc_type',
+    '사진_첫촬영',
+    '사진_끝촬영',
     'synced_at',
     '보완횟수',
     '보완_미응답',
@@ -2240,6 +2247,14 @@ class LocalDbService {
     '만족도조사여부',
     '별점',
     '별점사유',
+    // fine_estimate(row-estimate, 2026-10-12): 엑셀/CSV의 "추정 금액"·"추정 근거" 열 계산용
+    // (listCardColumns·_statsColumns 와 같은 열). 시트에 그대로 쓰지 않는다 — excelExportRowValues 가 소비.
+    'category',
+    'entry_value',
+    'ssnpc_cd',
+    'ssnpc_type',
+    '사진_첫촬영',
+    '사진_끝촬영',
   ];
 
   static String _exportWhere(bool excludeWithdraw) => excludeWithdraw
@@ -5223,6 +5238,13 @@ class LocalDbService {
       fineInfo: r['범칙금_과태료'] as String? ?? '',
       penaltyPoints: r['벌점'] as String? ?? '',
       carNumber: r['차량번호'] as String? ?? '',
+      // fine_estimate(row-estimate, 2026-10-12): 목록·상세·내보내기가 같은 추정 판정을 쓰려면
+      // 이 네 열도 compact 목록·내보내기 열 목록에 함께 있어야 한다(listCardColumns·exportReportColumns).
+      ssnpcCd: r['ssnpc_cd'] as String?,
+      ssnpcType: r['ssnpc_type'] as String?,
+      entryValue: r['entry_value'] as String? ?? '',
+      photoFirstCapture: r['사진_첫촬영'] as String?,
+      photoLastCapture: r['사진_끝촬영'] as String?,
       law: r['위반법규'] as String? ?? '',
       location: r['위반장소'] as String? ?? '',
       occurrenceDate: r['발생일자'] as String? ?? '',

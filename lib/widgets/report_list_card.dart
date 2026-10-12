@@ -2,15 +2,54 @@ import 'package:flutter/material.dart';
 
 import '../models/report.dart';
 import '../server_palette.dart';
+import '../services/fine_estimate.dart' as fine_estimate;
 import '../theme/sr_colors.dart';
+import '../utils/format.dart';
 import 'status_badge.dart';
 import '../theme/sr_tokens.dart';
+
+/// "추정 50,000원" 같은 흐린 보조 표기, 추정 대상이 아니면 null (row-estimate, 2026-10-12).
+/// 대상 판정·계산은 [fine_estimate.estimateForReport] 를 그대로 쓴다(통계·커뮤니티 payload 와 같은
+/// 함수 — 대상 판정 중복 구현 금지). [ReportCardMetaItem.fine] 과 목록·카드를 보이는 다른 화면
+/// (watchlist/recent_answers/dashboard 의 자체 메타 행)이 함께 쓴다.
+String? fineEstimateSuffix(Report report) {
+  final est = fine_estimate.estimateForReport(report);
+  if (est == null) return null;
+  return '추정 ${formatWon(est['amount'] as int)}';
+}
 
 class ReportCardMetaItem {
   final IconData icon;
   final String text;
 
-  const ReportCardMetaItem({required this.icon, required this.text});
+  /// 흐린 보조 표기(예: 추정 과태료 "추정 50,000원"). 확정 값([text])과 다른 색으로 이어 붙는다.
+  final String? secondaryText;
+
+  /// 스크린리더용 전체 라벨. 없으면 [text] + [secondaryText] 를 이어 읽는다.
+  final String? semanticsLabel;
+
+  const ReportCardMetaItem({
+    required this.icon,
+    required this.text,
+    this.secondaryText,
+    this.semanticsLabel,
+  });
+
+  /// 과태료/범칙금 메타 항목. 금액 없이 "과태료"만 있는 행에 법정 최저 기준 추정을 보조 표기로 더한다.
+  /// 확정 값(원문)은 바꾸지 않는다.
+  factory ReportCardMetaItem.fine(Report report) {
+    final text = report.fineInfo;
+    final suffix = fineEstimateSuffix(report);
+    if (suffix == null) {
+      return ReportCardMetaItem(icon: Icons.monetization_on_outlined, text: text);
+    }
+    return ReportCardMetaItem(
+      icon: Icons.monetization_on_outlined,
+      text: text,
+      secondaryText: suffix,
+      semanticsLabel: '$text, ${suffix.replaceFirst('추정', '추정 금액')}',
+    );
+  }
 }
 
 Color reportStatusColor(String status) {
@@ -210,7 +249,12 @@ class _MetaAndCarNumber extends StatelessWidget {
       children: [
         for (var i = 0; i < metaItems.length; i++) ...[
           if (i > 0) const SizedBox(height: 3),
-          _MetaRow(icon: metaItems[i].icon, text: metaItems[i].text),
+          _MetaRow(
+            icon: metaItems[i].icon,
+            text: metaItems[i].text,
+            secondaryText: metaItems[i].secondaryText,
+            semanticsLabel: metaItems[i].semanticsLabel,
+          ),
         ],
       ],
     );
@@ -247,24 +291,49 @@ class _MetaAndCarNumber extends StatelessWidget {
 class _MetaRow extends StatelessWidget {
   final IconData icon;
   final String text;
+  final String? secondaryText;
+  final String? semanticsLabel;
 
-  const _MetaRow({required this.icon, required this.text});
+  const _MetaRow({
+    required this.icon,
+    required this.text,
+    this.secondaryText,
+    this.semanticsLabel,
+  });
 
   @override
   Widget build(BuildContext context) {
     final sr = context.sr;
-    return Row(
+    final baseStyle = TextStyle(color: sr.textSecondary, fontSize: 12);
+    final hasSecondary = secondaryText != null && secondaryText!.isNotEmpty;
+    final textWidget = hasSecondary
+        ? Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(text: text),
+                TextSpan(
+                  text: ' $secondaryText',
+                  style: const TextStyle(fontStyle: FontStyle.italic),
+                ),
+              ],
+            ),
+            style: baseStyle,
+            overflow: TextOverflow.ellipsis,
+          )
+        : Text(text, style: baseStyle, overflow: TextOverflow.ellipsis);
+
+    final row = Row(
       children: [
         Icon(icon, size: 12, color: sr.textSecondary),
         const SizedBox(width: 4),
-        Expanded(
-          child: Text(
-            text,
-            style: TextStyle(color: sr.textSecondary, fontSize: 12),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
+        Expanded(child: textWidget),
       ],
+    );
+    if (!hasSecondary) return row;
+    return Semantics(
+      label: semanticsLabel ?? '$text $secondaryText',
+      excludeSemantics: true,
+      child: row,
     );
   }
 }

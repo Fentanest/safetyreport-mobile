@@ -5,11 +5,16 @@
 /// - 금액은 일반적으로 알려진 기본 금액(최저 기준)이다. 가중(고속도로, 감경 등)은 데이터로 알 수 없으면 반영하지 않는다.
 /// - 모바일 Standalone 도 같은 규칙을 쓴다. 규칙을 바꾸면 RULE_VERSION 과 tests/fixtures/fine_estimate_vectors.json 을
 ///   양쪽 레포에서 함께 바꾼다.
+/// - 대상 판정([isEstimateTarget])과 계산([estimate]/[estimateForReport])은 통계([local_statistics.dart]),
+///   커뮤니티 payload([observation_rules.dart] `_fineEstimateField`), 신고 목록/상세 화면, 엑셀·CSV 내보내기가
+///   모두 같은 함수를 호출한다 — 대상 판정 로직을 호출부마다 다시 만들지 않는다(row-estimate, 2026-10-12).
 
 library;
 
 import 'package:intl/intl.dart';
+import '../models/report.dart';
 import 'report_category.dart' as report_category;
+import 'standalone_parser.dart' show extractFineAmount;
 
 const String ruleVersion = "2026-10-11.4";
 
@@ -267,4 +272,29 @@ Map<String, dynamic>? estimate(Map<String, dynamic> record) {
 
   final clsText = table.containsKey(null) ? '차종 무관' : cls;
   return {"amount": amount, "rule": ruleId, "basis": "$basis · $clsText"};
+}
+
+/// 과태료 원문(`범칙금_과태료`/`penalty_amount` 등)이 추정 대상인지 판정한다 — '과태료' 처분인데
+/// 확정 금액을 읽지 못했을 때만 true. local_statistics.dart·observation_rules.dart(_fineEstimateField)·
+/// 화면 표시·내보내기가 모두 이 함수를 쓴다(대상 판정 중복 구현 금지).
+bool isEstimateTarget(String fineText) {
+  return fineText.contains('과태료') && extractFineAmount(fineText) == 0;
+}
+
+/// [report] 가 추정 대상일 때만 [estimate] 를 호출한다(대상 판정 + 계산을 한 번에 — 화면·내보내기 공용).
+/// 대상이 아니거나 분류 규칙이 없으면 null.
+Map<String, dynamic>? estimateForReport(Report report) {
+  if (!isEstimateTarget(report.fineInfo)) return null;
+  return estimate({
+    "category": report.category,
+    "entry_value": report.entryValue,
+    "ssnpc_cd": report.ssnpcCd,
+    "ssnpc_type": report.ssnpcType,
+    "신고명": report.name,
+    "위반법규": report.law,
+    "차량번호": report.carNumber,
+    "사진_첫촬영": report.photoFirstCapture,
+    "사진_끝촬영": report.photoLastCapture,
+    "발생시각": report.occurrenceTime,
+  });
 }

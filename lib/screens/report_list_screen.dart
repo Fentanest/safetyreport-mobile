@@ -471,10 +471,7 @@ class _ReportListScreenState extends State<ReportListScreen>
       ),
       ReportCardMetaItem(icon: Icons.business, text: report.agency),
       ReportCardMetaItem(icon: Icons.person_outline, text: report.manager),
-      ReportCardMetaItem(
-        icon: Icons.monetization_on_outlined,
-        text: report.fineInfo,
-      ),
+      ReportCardMetaItem.fine(report),
       if (includeLocation)
         ReportCardMetaItem(
           icon: Icons.location_on_outlined,

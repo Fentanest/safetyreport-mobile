@@ -10,6 +10,7 @@ import '../services/repositories/watchlist_repository.dart';
 
 import '../theme/sr_colors.dart';
 import '../widgets/report_detail_sheet.dart';
+import '../widgets/report_list_card.dart' show fineEstimateSuffix;
 import '../widgets/sr_empty_state.dart';
 import '../widgets/status_badge.dart';
 import '../theme/sr_tokens.dart';
@@ -321,6 +322,7 @@ class _WatchCard extends StatelessWidget {
                   Icons.monetization_on_outlined,
                   '과태료/범칙금',
                   report.fineInfo,
+                  secondary: fineEstimateSuffix(report),
                 ),
               const SizedBox(height: 8),
               Align(
@@ -347,28 +349,54 @@ class _WatchCard extends StatelessWidget {
     BuildContext context,
     IconData icon,
     String label,
-    String value,
-  ) => Padding(
-    padding: const EdgeInsets.only(top: 3),
-    child: Row(
-      children: [
-        Icon(icon, size: 12, color: context.sr.textSecondary),
-        const SizedBox(width: 4),
-        Text(
-          '$label ',
-          style: TextStyle(
-            fontSize: SrFontSize.caption,
-            color: context.sr.textSecondary,
-          ),
-        ),
-        Expanded(
-          child: Text(
+    String value, {
+    String? secondary,
+  }) {
+    final hasSecondary = secondary != null && secondary.isNotEmpty;
+    final valueText = hasSecondary
+        ? Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(text: value),
+                TextSpan(
+                  text: ' $secondary',
+                  style: TextStyle(
+                    fontStyle: FontStyle.italic,
+                    color: context.sr.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+            style: const TextStyle(fontSize: SrFontSize.caption),
+            overflow: TextOverflow.ellipsis,
+          )
+        : Text(
             value,
             style: const TextStyle(fontSize: SrFontSize.caption),
             overflow: TextOverflow.ellipsis,
+          );
+    final row = Padding(
+      padding: const EdgeInsets.only(top: 3),
+      child: Row(
+        children: [
+          Icon(icon, size: 12, color: context.sr.textSecondary),
+          const SizedBox(width: 4),
+          Text(
+            '$label ',
+            style: TextStyle(
+              fontSize: SrFontSize.caption,
+              color: context.sr.textSecondary,
+            ),
           ),
-        ),
-      ],
-    ),
-  );
+          Expanded(child: valueText),
+        ],
+      ),
+    );
+    if (!hasSecondary) return row;
+    return Semantics(
+      label: '$label $value, 추정 금액 ${secondary.replaceFirst('추정 ', '')}',
+      excludeSemantics: true,
+      child: row,
+    );
+  }
 }

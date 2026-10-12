@@ -7,13 +7,17 @@ import 'package:excel/excel.dart';
 import 'package:intl/intl.dart';
 
 import '../models/report.dart';
+import 'fine_estimate.dart' as fine_estimate;
 import 'local_db_service.dart';
 import 'performance_trace.dart' show QueryCancelled;
 
 /// Standalone 파일 화면의 "Excel 내보내기"(SQ-P03).
 ///
 /// 출력은 예전 화면 코드와 같다: 시트 5개(교통위반·주정차위반·안전신고·생활불편·기타, 2026-10-11 5분류 — 이 순서),
-/// 같은 열·같은 값, 모든 셀은 문자열(TextCellValue). 확정 과태료는 `범칙금_과태료` 원문 그대로이고 추정 금액 열은 없다.
+/// 같은 열·같은 값, 모든 셀은 문자열(TextCellValue). 확정 과태료는 `범칙금_과태료` 원문 그대로이고, 끝에
+/// 별도 열 `추정 금액`·`추정 근거`를 더한다(row-estimate, 2026-10-12 — PC `docs/design/statistics-spec.md` §4-2
+/// 와 같은 열 이름). 대상이 아니면 빈칸이다. 판정·계산은 [fine_estimate.estimateForReport] 를 그대로 쓴다
+/// (통계·커뮤니티 payload 와 같은 함수 — 중복 구현 금지).
 ///
 /// 설계:
 /// - sqflite 는 일반 isolate 에서 쓸 수 없고 공유 연결·close guard([LocalDbService.runBackgroundWork])를
@@ -189,34 +193,40 @@ class ExcelExportCancelToken {
 // ── 행 값과 통합 문서(작업자 isolate 에서 실행) ─────────────────────────────
 
 /// 신고 1건 → 작업자로 보내는 문자열 행. 첨부는 원문 그대로(시트에서 나눈다), 감시 여부는 작업자가 붙인다.
-/// 순서: 예전 시트 열의 앞 20개 + 첨부사진 원문 + 첨부파일 원문 + 만족도조사여부 + 별점 + 별점사유.
-List<String> excelExportRowValues(Report r) => [
-  r.id,
-  r.result,
-  r.reportNumber,
-  r.name,
-  r.date,
-  r.status,
-  r.carNumber,
-  r.law,
-  r.fineInfo,
-  r.penaltyPoints,
-  r.agency,
-  r.manager,
-  r.responseDate,
-  r.occurrenceDate,
-  r.occurrenceTime,
-  r.location,
-  r.processingFinish,
-  r.reportContent,
-  r.processContent,
-  r.mapImage,
-  r.attachedPhotos,
-  r.attachedFiles,
-  r.pollStatus,
-  r.rating?.toString() ?? '',
-  r.ratingCause,
-];
+/// 순서: 예전 시트 열의 앞 20개 + 첨부사진 원문 + 첨부파일 원문 + 만족도조사여부 + 별점 + 별점사유
+/// + 추정 금액 + 추정 근거(row-estimate, 2026-10-12 — 끝에 붙여 기존 열 인덱스를 바꾸지 않는다).
+List<String> excelExportRowValues(Report r) {
+  final est = fine_estimate.estimateForReport(r);
+  return [
+    r.id,
+    r.result,
+    r.reportNumber,
+    r.name,
+    r.date,
+    r.status,
+    r.carNumber,
+    r.law,
+    r.fineInfo,
+    r.penaltyPoints,
+    r.agency,
+    r.manager,
+    r.responseDate,
+    r.occurrenceDate,
+    r.occurrenceTime,
+    r.location,
+    r.processingFinish,
+    r.reportContent,
+    r.processContent,
+    r.mapImage,
+    r.attachedPhotos,
+    r.attachedFiles,
+    r.pollStatus,
+    r.rating?.toString() ?? '',
+    r.ratingCause,
+    est == null ? '' : (est['amount'] as int).toString(),
+    est == null ? '' : est['basis'] as String,
+  ];
+}
 
 const _idxReportNumber = 2;
 const _idxPhotos = 20;
@@ -274,6 +284,10 @@ void _fillExportSheet(
     '만족도조사여부',
     '별점',
     '별점사유',
+    // row-estimate(2026-10-12): 법정 최저 기준 추정(별도 열, 확정 `범칙금_과태료` 는 바꾸지 않음).
+    // PC `docs/design/statistics-spec.md` §4-2 와 같은 열 이름.
+    '추정 금액',
+    '추정 근거',
     '감시목록',
   ];
   for (var col = 0; col < headers.length; col++) {

@@ -172,10 +172,7 @@ class _FilteredListScreenState extends State<FilteredListScreen> {
         ),
         ReportCardMetaItem(icon: Icons.business, text: r.agency),
         ReportCardMetaItem(icon: Icons.person_outline, text: r.manager),
-        ReportCardMetaItem(
-          icon: Icons.monetization_on_outlined,
-          text: r.fineInfo,
-        ),
+        ReportCardMetaItem.fine(r),
       ],
     );
   }

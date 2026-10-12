@@ -6,7 +6,6 @@ library;
 
 import '../../services/fine_estimate.dart' as fine_estimate;
 import '../../services/report_category.dart' as report_category;
-import '../../services/standalone_parser.dart' show extractFineAmount;
 
 /// 문자열 정리 clean(s, n): 제어문자·연속 공백 → 공백 하나, 앞뒤 제거, 코드포인트 n자.
 String? cleanString(Object? value, int n) {
@@ -279,7 +278,7 @@ double? parseGeoDouble(Object? value) {
 /// 대상이 아니거나 규칙이 없으면 null(호출자가 키 자체를 뺀다 — null 로 넣지 않음).
 Map<String, Object?>? _fineEstimateField(Map<String, Object?> input) {
   final fineRaw = input['penalty_amount']?.toString() ?? '';
-  if (!fineRaw.contains('과태료') || extractFineAmount(fineRaw) != 0) {
+  if (!fine_estimate.isEstimateTarget(fineRaw)) {
     return null;
   }
   final record = <String, Object?>{

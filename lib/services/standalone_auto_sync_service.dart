@@ -25,8 +25,8 @@ enum _FetchResult {
 /// Standalone 모드 자동 동기화 드레인.
 ///
 /// 알림 수신 시 Kotlin NotificationService 가:
-///   - flutter.standalone_pending_reports 큐 (CSV) 에 신고번호 append
-///   - 📬 heads-up 팝업 표시
+///   - 네이티브 SQLite 처리 큐에 신고번호를 보존하고 WorkManager 예약
+///   - 대기/재시도 알림 표시 (앱 복귀 시에도 같은 큐를 처리)
 ///
 /// [drainIfPending] 처리 정책 (앱 종료에 견고):
 ///   - 큐의 항목을 한 건씩 꺼내 처리하고, **성공을 확인한 후에만** 큐에서 제거
@@ -59,19 +59,26 @@ class StandaloneAutoSyncService {
   static List<Map<String, dynamic>> _singleFetchChanges = [];
 
   /// 공유 DB 연결을 쓰는 백그라운드 작업으로 등록한다 — 백업·복원이 도중에 연결을 닫지 않게(M-25).
-  static Future<void> drainIfPending() async {
+  static Future<void> drainIfPending({
+    bool backgroundWorker = false,
+    Future<void> Function()? validateScope,
+  }) async {
     try {
       await SyncOperationAdmission.run(
-        () => LocalDbService.runBackgroundWork(_drainIfPending),
+        () => LocalDbService.runBackgroundWork(
+          () => _drainIfPending(backgroundWorker: backgroundWorker),
+        ),
         null,
         openStore: SyncEngine.openCommunityStoreForTest,
+        validateScope: validateScope,
       );
     } catch (_) {
       SyncEngine.emitLog('작업 소유권 저장소를 확인하지 못해 개별 동기화를 시작하지 않았습니다. 큐는 보존했습니다.');
     }
   }
 
-  static Future<void> _drainIfPending() async {
+  static Future<void> _drainIfPending({bool backgroundWorker = false}) async {
+    final deadline = DateTime.now().add(const Duration(minutes: 6));
     if (_running || SyncEngine.isRunning) return;
     if (SyncEngine.localAccessAllowed != null &&
         !await SyncEngine.localAccessAllowed!()) {
@@ -81,6 +88,7 @@ class StandaloneAutoSyncService {
     _running = true;
     _singleFetchChanges = [];
     bool didAnyWork = false;
+    bool completedAll = false;
     bool didIncremental = false;
     bool fgsAcquired = false;
     bool preflightDone = false;
@@ -88,14 +96,19 @@ class StandaloneAutoSyncService {
       final prefs = await SharedPreferences.getInstance();
 
       while (true) {
+        if (backgroundWorker && DateTime.now().isAfter(deadline)) break;
+        await SyncOperationAdmission.checkOwnership();
         if (SyncEngine.stopRequested) break; // 큐는 그대로 — 다음 drain 에서 이어 감
         await prefs.reload();
         await PrefsInbox.synchronize(prefs, PrefsInbox.queue);
         final claim = StandalonePendingQueueStore.claim(prefs);
-        if (claim == null) break;
+        if (claim == null) {
+          completedAll = true;
+          break;
+        }
 
         // 첫 작업 직전에 FGS 가동 (큐가 비어 있으면 굳이 가동 안 함).
-        if (!fgsAcquired) {
+        if (!backgroundWorker && !fgsAcquired) {
           await SyncEngine.acquireFgs('개별 동기화 진행 중...');
           fgsAcquired = true;
         }
@@ -131,7 +144,10 @@ class StandaloneAutoSyncService {
           didIncremental = true;
           SyncEngine.emitLog('증분 sync 1회 fallback 시작');
           try {
-            final sync = await SyncEngine.start(fullSync: false);
+            final sync = await SyncEngine.start(
+              fullSync: false,
+              backgroundWorker: backgroundWorker,
+            );
             if (sync.failed ||
                 sync.busy ||
                 sync.cancelled ||
@@ -181,7 +197,11 @@ class StandaloneAutoSyncService {
       _running = false;
       // CrawlScreen 의 'sync 진행 중' 인디케이터 해제 신호.
       // (개별 fetch 는 SyncEngine.start() 를 거치지 않으므로 done 이벤트가 자동 emit 안 됨.)
-      if (didAnyWork) SyncEngine.emitDone('동기화 완료 (개별 처리)');
+      if (didAnyWork) {
+        SyncEngine.emitDone(
+          completedAll ? '동기화 완료 (개별 처리)' : '동기화 보류 (처리 대기 보존)',
+        );
+      }
       if (fgsAcquired) await SyncEngine.releaseFgs();
     }
   }
@@ -194,7 +214,7 @@ class StandaloneAutoSyncService {
   ///   - networkError : errno=104 / timeout 등 일시 오류 (큐 유지, drain 종료)
   ///   - 임시·불명 실패: 큐 보존
   ///
-  /// 사용자가 알림을 탭한 명시적 요청이므로 종결여부와 무관하게 항상 크롤링.
+  /// 답변 알림에 대한 갱신 요청이므로 종결여부와 무관하게 항상 크롤링.
   /// 처리상태 변동 여부와 무관하게 변경 카드 표시 (사용자 피드백).
   static Future<_FetchResult> _tryFetchSingle(String reportNumber) async {
     SyncEngine.emitLog('개별 동기화: $reportNumber 조회 중...');

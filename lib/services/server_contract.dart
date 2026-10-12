@@ -27,6 +27,7 @@ class ServerContract {
   static const watchlistPath = '$apiPrefix/watchlist';
   static const duplicateGroupsPath = '$apiPrefix/duplicates/groups';
   static const editorSchemaPath = '$apiPrefix/editor/schema';
+  static const crawlNotificationPath = '$apiPrefix/crawl/notification';
   static const crawlEnqueuePath = '$apiPrefix/crawl/enqueue';
   static const crawlStatusPath = '$apiPrefix/crawl/status';
   static const crawlDonePath = '$apiPrefix/crawl/done';

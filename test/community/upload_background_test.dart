@@ -138,6 +138,78 @@ void main() {
   }
 
   group('headless gate refresh (stale cache in the background)', () {
+    test('Client refreshes stale gate without a Standalone writer', () async {
+      await store.deactivateContext('client_mode');
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        'community_gate_cache_v1',
+        jsonEncode({'state': 'ok', 'owner': 'fp1', 'verified_at': 1}),
+      );
+      final result = await refreshGateHeadless(
+        store,
+        config: config,
+        tokens: Tokens(
+          const CommunityTokenResult(CommunityTokenStatus.ok, 'acc'),
+        ),
+        client: client(() => (200, status(bound: false))),
+        clientMode: true,
+        expectedOwner: 'fp1',
+      );
+      expect(result, HeadlessGate.ok);
+      expect(await store.activeContext(), isNull);
+      expect((await cache())!['verified_at'], greaterThan(1));
+    });
+
+    test(
+      'Client refuses a different owner and scope changes during refresh',
+      () async {
+        final tokens = Tokens(
+          const CommunityTokenResult(CommunityTokenStatus.ok, 'acc'),
+        );
+        expect(
+          await refreshGateHeadless(
+            store,
+            config: config,
+            tokens: tokens,
+            client: client(() => (200, status())),
+            clientMode: true,
+            expectedOwner: 'another-owner',
+          ),
+          HeadlessGate.needsForeground,
+        );
+        expect(await cache(), isNull);
+        await expectLater(
+          refreshGateHeadless(
+            store,
+            config: config,
+            tokens: tokens,
+            client: client(() => (200, status())),
+            clientMode: true,
+            validateScope: () async => throw StateError('scope changed'),
+          ),
+          throwsStateError,
+        );
+        expect(await cache(), isNull);
+      },
+    );
+
+    test('Client consent refusal stays blocked', () async {
+      expect(
+        await refreshGateHeadless(
+          store,
+          config: config,
+          tokens: Tokens(
+            const CommunityTokenResult(CommunityTokenStatus.ok, 'acc'),
+          ),
+          client: client(() => (200, status(consent: 'revoked'))),
+          clientMode: true,
+          expectedOwner: 'fp1',
+        ),
+        HeadlessGate.blocked,
+      );
+      expect((await cache())!['state'], isNot('ok'));
+    });
+
     test(
       'ok: same judgement as the app gate + bound active connection matching the context → cache refreshed',
       () async {

@@ -1,3 +1,6 @@
+import 'package:flutter/services.dart';
+import 'package:safetyreport/services/standalone_auto_sync_service.dart';
+import 'package:safetyreport/services/standalone_pending_queue_store.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'package:safetyreport/community/capture/community_capture.dart'
@@ -65,6 +68,63 @@ void main() {
     await CommunityStore.closeForTest(store.path);
     await dir.delete(recursive: true);
   });
+  test(
+    'headless notification drain fetches without Activity FGS and keeps offline work',
+    () async {
+      await StandalonePendingQueueStore.append(['SPP-synthetic']);
+      var calls = 0;
+      var fgsCalls = 0;
+      const channel = MethodChannel('com.fentanest.mysafetyreport/permissions');
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            if (call.method == 'startSyncFgs') {
+              fgsCalls++;
+              throw PlatformException(code: 'NO_ACTIVITY');
+            }
+            return null;
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null),
+      );
+      StandaloneApiService.detailForTest = (_) async {
+        calls++;
+        throw const SocketException('synthetic offline');
+      };
+      await StandaloneAutoSyncService.drainIfPending(
+        backgroundWorker: true,
+        validateScope: () async {},
+      );
+      expect(calls, 1);
+      expect(fgsCalls, 0);
+      expect(
+        StandalonePendingQueueStore.read(await SharedPreferences.getInstance()),
+        ['SPP-synthetic'],
+      );
+    },
+  );
+
+  test(
+    'headless drain stops before fetch when its account scope changes',
+    () async {
+      await StandalonePendingQueueStore.append(['SPP-synthetic']);
+      var calls = 0;
+      StandaloneApiService.detailForTest = (_) async {
+        calls++;
+        throw StateError('must not fetch');
+      };
+      await StandaloneAutoSyncService.drainIfPending(
+        backgroundWorker: true,
+        validateScope: () async => throw StateError('scope changed'),
+      );
+      expect(calls, 0);
+      expect(
+        StandalonePendingQueueStore.read(await SharedPreferences.getInstance()),
+        ['SPP-synthetic'],
+      );
+    },
+  );
+
   test(
     'duplicate source ID across pages fails inventory before any detail request',
     () async {

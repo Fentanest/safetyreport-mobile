@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicInteger
 /**
  * WsService — 백그라운드에서 서버의 WebSocket 이벤트를 수신하는 Foreground Service
  *
- * - 앱이 완전히 종료되어도 OS에 의해 살아있음 (Foreground Service의 지속 알림으로 보장)
+ * - FGS로 백그라운드 수신 우선순위를 높인다. 프로세스 생존을 보장하지는 않는다.
  * - OkHttp WebSocket 클라이언트로 ws://<baseUrl>/ws/events?api_key=<key> 연결 유지
  * - 네트워크 오류/서버 재시작 시 지수 백오프로 자동 재연결
  * - 수신 이벤트:
@@ -81,7 +81,7 @@ class WsService : Service() {
                 }
             }
         }
-        return START_STICKY   // 시스템이 강제 종료해도 재시작
+        return START_STICKY   // OS가 재기동을 시도할 수 있음. 사용자 강제 종료는 보장하지 않음.
     }
 
     override fun onTimeout(startId: Int, fgsType: Int) {
@@ -110,10 +110,16 @@ class WsService : Service() {
                 val stamp = ClientGateGuard.configStamp(prefs)
 
                 if (!ClientGateGuard.isOpen(prefs)) {
-                    // 캐시 만료는 동의 철회가 아니다. 같은 알림을 10초마다
-                    // 재발행하지 않고 종료한다. 앱의 다음 검증 뒤 다시 시작한다.
-                    shutdownService("Client gate verification required; stopping WebSocket service")
-                    break
+                    // 만료는 철회가 아니다. WorkManager가 화면 없이 재검증하고,
+                    // 성공 전까지 메시지를 처리하지 않은 채 재연결을 기다린다.
+                    if (!ClientGateGuard.canRenew(prefs)) {
+                        shutdownService("Client gate requires user action")
+                        break
+                    }
+                    runCatching { NotificationWork.schedule(this, renewGate = true) }
+                    updateForegroundNotif("인증 확인 후 서버에 다시 연결합니다")
+                    try { Thread.sleep(30_000) } catch (_: InterruptedException) { break }
+                    continue
                 }
 
                 if (baseUrl.isEmpty() || apiKey.isEmpty()) {

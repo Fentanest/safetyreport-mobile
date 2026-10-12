@@ -94,7 +94,9 @@ enum HeadlessGate {
 }
 
 /// 게이트 캐시가 오래됐을 때 백그라운드에서 중앙 상태를 한 번 다시 확인한다.
-/// ok 는 포그라운드 게이트와 같은 판정([evaluateGate]) + 저장 연결이 활성·현재 세션에 묶임 + community.db context 와 일치일 때만.
+/// ok 는 포그라운드 게이트와 같은 판정([evaluateGate])을 따른다.
+/// Standalone은 활성 writer·현재 세션·community.db context도 일치해야 한다.
+/// Client는 폰의 세션·동의를 확인하며, PC의 수집 게이트는 PC가 따로 검사한다.
 Future<HeadlessGate> refreshGateHeadless(
   CommunityStore store, {
   CommunityAuthConfig? config,
@@ -103,10 +105,23 @@ Future<HeadlessGate> refreshGateHeadless(
   FlutterSecureStorage? secureStorage,
   SharedPreferences? prefs,
   DateTime Function()? now,
+  bool clientMode = false,
+  String? expectedOwner,
+  Future<void> Function()? validateScope,
+  Future<void> Function(String cache)? persistVerifiedCache,
 }) async {
   final cfg = config ?? CommunityAuthConfig.fromEnvironment;
   final clock = now ?? DateTime.now;
   final p = prefs ?? await SharedPreferences.getInstance();
+  Future<void> verified(String value) async {
+    await validateScope?.call();
+    if (persistVerifiedCache != null) {
+      await persistVerifiedCache(value);
+    } else {
+      await p.setString('community_gate_cache_v1', value);
+    }
+  }
+
   if (!cfg.isConfigured) return HeadlessGate.needsForeground;
   if (tokens == null) {
     CloudAvailability.shared ??= CloudAvailability(
@@ -132,8 +147,10 @@ Future<HeadlessGate> refreshGateHeadless(
     case CommunityTokenStatus.notConfigured:
       return HeadlessGate.needsForeground;
     case CommunityTokenStatus.notConnected:
+      await validateScope?.call();
       return _block(store, p, 'kakao_required', clock());
     case CommunityTokenStatus.reauthRequired:
+      await validateScope?.call();
       return _block(store, p, 'kakao_reauth_required', clock());
   }
   Map<String, Object?>? stored;
@@ -168,8 +185,12 @@ Future<HeadlessGate> refreshGateHeadless(
       }
       return HeadlessGate.transient;
     }
-    if (e.isAuth) return _block(store, p, 'kakao_reauth_required', clock());
+    if (e.isAuth) {
+      await validateScope?.call();
+      return _block(store, p, 'kakao_reauth_required', clock());
+    }
     if (e.httpStatus == 403) {
+      await validateScope?.call();
       return _block(
         store,
         p,
@@ -181,6 +202,7 @@ Future<HeadlessGate> refreshGateHeadless(
   } catch (_) {
     return HeadlessGate.transient;
   }
+  await validateScope?.call();
   final next = evaluateGate(
     config: 'ok',
     session: 'valid',
@@ -188,7 +210,9 @@ Future<HeadlessGate> refreshGateHeadless(
     ageSeconds: 0,
   );
   final account = status.fingerprint;
-  if (account == null) return HeadlessGate.needsForeground;
+  if (account == null || (expectedOwner != null && account != expectedOwner)) {
+    return HeadlessGate.needsForeground;
+  }
   await ConsentHistory(store).event(
     account,
     next.state,
@@ -197,12 +221,34 @@ Future<HeadlessGate> refreshGateHeadless(
     grant: status.consentGrantId,
   );
   if (!next.canEnter) {
+    await validateScope?.call();
     return _block(store, p, next.state, clock(), record: false);
   }
   if (await ConsentHistory(
     store,
   ).uploadBlocked(account, status.consentGrantId)) {
+    await validateScope?.call();
     return _block(store, p, 'consent_required', clock());
+  }
+  if (clientMode) {
+    // Client is a reader: never require/register a Standalone writer or personal DB.
+    // The phone's own session/consent is still checked; the PC gates its crawl separately.
+    if (status.hasOfficialAccount && !status.officialAccountValid) {
+      return HeadlessGate.needsForeground;
+    }
+    if (tokens == null &&
+        await CommunityAuthService.instance.sessionFingerprint() != account) {
+      return HeadlessGate.needsForeground;
+    }
+    await validateScope?.call();
+    await verified(
+      jsonEncode({
+        'state': 'ok',
+        'owner': account,
+        'verified_at': clock().millisecondsSinceEpoch,
+      }),
+    );
+    return HeadlessGate.ok;
   }
   final conn = status.connection;
   final ctx = await store.context();
@@ -214,6 +260,7 @@ Future<HeadlessGate> refreshGateHeadless(
     if (await auth.sessionFingerprint() != account ||
         member == null ||
         await LocalDbService.dbOwner() != member) {
+      await validateScope?.call();
       return _block(store, p, 'db_owner_mismatch', clock());
     }
   }
@@ -239,8 +286,8 @@ Future<HeadlessGate> refreshGateHeadless(
   ).needsCatchup(account, status.consentGrantId!)) {
     await ConsentCatchup(store).schedule((await store.activeContext())!);
   }
-  await p.setString(
-    'community_gate_cache_v1',
+  await validateScope?.call();
+  await verified(
     jsonEncode({
       'state': 'ok',
       'owner': status.fingerprint,

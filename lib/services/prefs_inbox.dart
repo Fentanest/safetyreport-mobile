@@ -18,6 +18,7 @@ class PrefsInbox {
   static const history = 'inbox.history.';
   static const pending = 'inbox.pending.';
   static const queue = 'inbox.queue.';
+  static const enqueue = 'inbox.enqueue.';
   static int _seq = 0;
   static final _claimOwner = newUuidV4();
   static final _migrated = <String>{};
@@ -25,6 +26,11 @@ class PrefsInbox {
   @visibleForTesting
   static bool useNativeBridgeForTest = false;
   static bool get _useNative => Platform.isAndroid || useNativeBridgeForTest;
+
+  /// Android's scalar queues have no account stamp. Native migration preserves
+  /// them as legacy-unverified; consumers must not bypass that quarantine.
+  static String? readLegacyScalar(SharedPreferences prefs, String key) =>
+      _useNative ? null : prefs.getString(key);
   static const _channel = MethodChannel(
     'com.fentanest.mysafetyreport/permissions',
   );
@@ -63,12 +69,8 @@ class PrefsInbox {
           throw StateError('processing mirror failed');
         }
       }
-      if ((result['blockedScope'] as int? ?? 0) > 0) {
-        throw StateError('이전 계정 또는 설정의 처리 의도를 보존했습니다. 소유권 확인이 필요합니다.');
-      }
-      if ((result['blockedLegacy'] as int? ?? 0) > 0) {
-        throw StateError('기존 처리 큐의 소유권 확인이 필요합니다. 자료는 보존했습니다.');
-      }
+      // Native read claims only the current scope. Other scopes and unverified
+      // legacy rows stay in SQLite, without blocking these verified obligations.
     } on MissingPluginException {
       if (Platform.isAndroid) rethrow;
     }
@@ -124,7 +126,8 @@ class PrefsInbox {
         .where(
           (k) =>
               k.startsWith('${queue}native.') ||
-              k.startsWith('${pending}native.'),
+              k.startsWith('${pending}native.') ||
+              k.startsWith('${enqueue}native.'),
         )
         .toList();
     if (native.isNotEmpty && _useNative) {

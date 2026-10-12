@@ -125,7 +125,6 @@ Future<bool> runCommunityUploadTask(
 
 /// 백그라운드 isolate 용 초기화(신고 내역 다시 불러오기) 필요 판정 — main.dart `standaloneRebuild(...).required()` 와 같은
 /// 규칙을 ReportProvider 없이(아이디는 SharedPreferences 에서) 계산한다.
-@visibleForTesting
 Future<bool> headlessRebuildRequired(
   CommunityStore store,
   SharedPreferences prefs, {

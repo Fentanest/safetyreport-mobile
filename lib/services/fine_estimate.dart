@@ -20,7 +20,7 @@ import '../models/report.dart';
 import 'plate_normalize.dart' as plate_normalize;
 import 'report_category.dart' as report_category;
 
-const String ruleVersion = "2026-10-12.1";
+const String ruleVersion = "2026-10-13.1";
 
 const String _passenger = "승용등";
 const String _van = "승합등";

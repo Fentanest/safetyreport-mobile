@@ -7,7 +7,7 @@
 ///   - safetyreport-mobile:         test/fixtures/plate_normalize_vectors.json
 ///   - safetyreport-community-map:  tests/fixtures/plate_normalize_vectors.json (server/plate.ts 가 같은 규칙)
 ///
-/// ## 규칙 (경계 규칙 포함, 2026-10-12 사용자·Opus 결정)
+/// ## 규칙 (경계 규칙 포함, 2026-10-13 이륜 확장 포함)
 /// 1. NFKC 정규화 → 공백 전부(스페이스·탭·NBSP·전각공백 등) · 유니코드 서식 문자(Unicode category Cf —
 ///    제로폭 공백/조인터, LRM/RLM, bidi 제어, BOM 등, 실제로 섞여 있어도 보이지 않으므로 통째로 제거) ·
 ///    하이픈(`-`, NFKC 가 전각 하이픈도 반각으로 접어 주므로 이 한 글자만 지우면 된다) 제거.
@@ -15,6 +15,9 @@
 ///    값이 같다, 긴 이름부터 시도) + 본문" 패턴과 일치하는 구간을 전부 찾는다.
 ///    본문 = 일반형(숫자 2~3자리 + 한글 1자 + 숫자 4자리, `fine_estimate.dart` `_plateRe` 와 같음)
 ///         또는 이륜형(숫자 0~1자리 + 한글 1자 + 숫자 0~1자리 + 숫자 4자리, `_motorcycleRe` 와 같음).
+///    지역 필수 이륜형 = 지역 + 시군구(1~3자, 별도 시/군/구 접미 허용) + 글자 + 숫자4.
+///    숫자 앞 마지막 글자는 용도 글자, 시군구 끝 접미는 제거한다(1자 지명은 보존).
+///    접미가 중복되거나 약칭과 지명이 다시 지역 정식명으로 읽혀 정규형이 모호하면 제외한다.
 /// 3. 찾은 구간의 바로 앞/뒤 문자가 숫자(0-9) 또는 한글(음절 가-힣, 또는 낱자모 ㄱ-ㅎ/ㅏ-ㅣ)이면 그
 ///    구간은 버린다("경계가 애매하면 null") — `81수0136수`(번호판 뒤에 한글 한 글자가 구분자 없이 더
 ///    붙음), `25어95505`(끝 숫자가 5개 — 4자리를 넘는 초과분이 경계에 붙음), `0006마8861`(지역번호
@@ -56,7 +59,7 @@ const String _carBody = r'\d{2,3}[가-힣]\d{4}';
 // 이륜형(완화된 형태) — fine_estimate.dart `_motorcycleRe` 와 같다.
 const String _motoBody = r'\d{0,1}[가-힣]\d{0,1}\d{4}';
 
-final RegExp _tokenRe = RegExp('($_regionAlt)?($_carBody|$_motoBody)');
+final RegExp _tokenRe = RegExp('($_regionAlt)?($_carBody|$_motoBody|[가-힣]{2,5}[0-9]{4})');
 // 토큰 경계: 숫자 또는 한글(음절/낱자모)이 바로 붙어 있으면 경계가 불분명하다.
 final RegExp _adjacentRe = RegExp(r'[0-9ᄀ-ᇿㄱ-ㆎ가-힣]');
 final RegExp _stripRe = RegExp(r'[-\s]');
@@ -124,13 +127,26 @@ String? normalizePlate(dynamic raw) {
 
   final candidates = <String>{};
   for (final match in _tokenRe.allMatches(text)) {
-    final body = match.group(2);
+    var body = match.group(2);
     if (body == null || body.isEmpty) continue;
     final start = match.start, end = match.end;
     if (start > 0 && _adjacentRe.hasMatch(text[start - 1])) continue;
     if (end < text.length && _adjacentRe.hasMatch(text[end])) continue;
     final regionMatch = match.group(1) ?? '';
     final region = _regionMap[regionMatch] ?? regionMatch;
+    // 숫자 앞 마지막 한글은 용도 글자, 그 앞은 시군구로 고정한다.
+    if (RegExp(r'^[가-힣]{2,5}[0-9]{4}$').hasMatch(body)) {
+      if (region.isEmpty) continue;
+      var city = body.substring(0, body.length - 5);
+      if (city.length > 1 && RegExp(r'[시군구]$').hasMatch(city)) {
+        city = city.substring(0, city.length - 1);
+      }
+      // 접미 제거 뒤에도 복수 접미 해석이 남으면 추측하지 않는다.
+      if (city.length > 1 && RegExp(r'[시군구]$').hasMatch(city)) continue;
+      if (city.isEmpty || city.length > 3) continue;
+      if (_regionMap[region + city[0]] == region) continue;
+      body = city + body.substring(body.length - 5);
+    }
     candidates.add(region + body);
   }
 

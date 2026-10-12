@@ -8,6 +8,7 @@ import 'dart:async';
 import '../services/community_auth_config.dart';
 import '../services/community_auth_service.dart';
 import '../services/sync_engine.dart';
+import 'capture/fine_estimate_resend.dart';
 import 'capture/server_completed.dart' as completed;
 import 'community_store.dart';
 import 'gate/community_gate.dart';
@@ -102,6 +103,8 @@ class CommunityWiring {
       );
       CommunityUploadController.instance.wake('recovery');
     };
+    CommunityUploadHooks.resendFineEstimate = () =>
+        resendFineEstimateIfNeeded(store: store);
     CommunityUploadHooks.onContributionsDeleted = () =>
         completed.applyPendingDeletion(store: store); // 남은 표시 없음 = true
     CommunityUploadHooks.beginDeletion = () =>

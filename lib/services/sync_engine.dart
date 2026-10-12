@@ -1141,9 +1141,30 @@ class SyncEngine {
     // 본문 원문(서버와 같은 정규화) — 중복 해시·변경 판정이 서버와 같아진다
     final raw = normalizeRawPayloadText(rawContentOf(detail));
 
+    // 주정차 사진 촬영 시각(서버 상세 저장과 같은 시점·규칙) — capture 전에 준비한다
+    // (PC `_prefetch_derived` 와 같은 순서, Astra fine-estimate 2026-10-12): fine_estimate 입력이
+    // local_statistics.dart 와 같은 사진 촬영 시각을 쓰려면 capture() 전에 알아야 한다. 이번에 새로
+    // 못 읽었으면(주정차가 아니거나 이미 읽어 둠) 직전 저장값을 그대로 쓴다.
+    checkCancel();
+    final photo = await MaintenanceService.prefetchForSave(
+      report.id,
+      cat,
+      ev,
+      report.attachedPhotos,
+    );
+    final photoForEstimate = photo != null
+        ? (first: photo.first, last: photo.last)
+        : await LocalDbService.getStoredPhotoCapture(report.id);
+
     CaptureResult? cap;
     {
-      final adapterInput = buildReportAdapterInput(report, ev);
+      final adapterInput = buildReportAdapterInput(
+        report,
+        ev,
+        category: cat,
+        photoFirstCapture: photoForEstimate.first,
+        photoLastCapture: photoForEstimate.last,
+      );
       // capture 전에 의도를 기록한다. 기록 실패 → 즉시 중단.
       await recordCaptureIntent(retryFile, cNo);
       checkCancel();
@@ -1172,13 +1193,6 @@ class SyncEngine {
     final augmented = await _augmentRatingCause(report);
     checkCancel();
     report = augmented.report;
-    // 주정차 사진 촬영 시각(서버 상세 저장과 같은 시점·규칙)
-    final photo = await MaintenanceService.prefetchForSave(
-      report.id,
-      cat,
-      ev,
-      report.attachedPhotos,
-    );
 
     checkCancel();
     ({bool isNew, bool changed, int syncedAt}) saved;

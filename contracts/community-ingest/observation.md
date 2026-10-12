@@ -1,4 +1,4 @@
-# 공식 관측 → 공유 DTO (observation-v5)
+# 공식 관측 → 공유 DTO (observation-v6)
 
 ## 1. 확정 시점
 공식 상세 응답을 받고 파서가 끝난 직후, **개인 수정값(override)·별점사유 보강·화면 계산과 합치기 전** 에 DTO 를 만들고 정규 JSON 문자열로 확정한다.
@@ -74,8 +74,14 @@
 - `location`: geocode 상태가 `ok` 이고 lat·lng 가 IEEE 754 double 로 해석되며(숫자 또는 10진 문자열) lat ∈ [32, 39.5], lng ∈ [124, 132] 이면
   lat·lng = 그 double 의 **최단 왕복 10진 문자열**(지수 표기 없음, 소수점이 없으면 `.0` 을 붙임 — Python `repr`, Dart `toString`, JS `String()` 후 보정), `source = "geocode"`;
   아니면 lat·lng null, `source = "none"`. 좌표를 반올림·격자화하지 않는다(공개 정책: 입력 좌표 그대로).
+- `fine_estimate`(v6, 2026-10-12, **선택** — 아래 다른 키와 달리 대상이 아니면 키 자체가 없다): 금액 없는 과태료 처분의 법정 최저 기준 추정.
+  조건 = 로컬 통계가 그 신고를 '추정 과태료'로 세는 조건과 같다 — `penalty_amount` 에 `과태료` 가 있고 확정 금액을 읽지 못함(PC `_is_fine_amount_unknown`/`services/stats/metrics.py` `_metric_unknown_fine`, 모바일 `extractFineAmount(penalty_amount) == 0`).
+  이 조건이 아니면 키를 넣지 않는다(null 금지) — 그래서 추정 대상이 아닌 신고의 payload·payload_sha256 은 이 필드 도입으로 바뀌지 않는다.
+  값은 로컬 통계와 같은 입력(category, entry_value, 신고명, 위반법규, 차량번호, 사진_첫촬영, 사진_끝촬영, 발생시각 — ssnpc_cd/ssnpc_type 포함)으로 PC `services/fine_estimate.py`/모바일 `lib/services/fine_estimate.dart` 의 **같은 판정 함수**를 호출해 얻는다(여기서 판정 로직을 다시 만들지 않음). 함수가 null 이면(규칙 없음) 키를 넣지 않는다.
+  `won` = 추정 금액(정수, 1..100000000), `rule` = 규칙 id, `rule_version` = 그 판정 함수의 규칙 버전 문자열(둘 모두가 같은 레포의 `tests/fixtures/fine_estimate_vectors.json` 과 함께 바뀐다). 사진 촬영 시각·발생 시각 같은 원본 입력은 보내지 않는다(금액·규칙·규칙버전만).
+  확정 과태료(`amount.confirmed_won`)와 추정(`fine_estimate.won`)은 같은 요청 안에서도 별도 필드로 남는다 — 섞어 계산·저장하지 않는다.
 
-payload 키는 항상 모두 있다: `address, agency_name, amount{confirmed_won, kind, penalty_points}, category, completed_date, disposition, location{lat, lng, source}, manager_name, report_date, status, status_raw, vehicle_raw, violation_law, source_agency_code, rating`.
+payload 키는 항상 모두 있다(`fine_estimate` 는 예외 — 대상일 때만 있다): `address, agency_name, amount{confirmed_won, kind, penalty_points}, category, completed_date, disposition, location{lat, lng, source}, manager_name, report_date, status, status_raw, vehicle_raw, violation_law, source_agency_code, rating`.
 v1(12키)·v2(13키)·v3(14키, `rating` 없음) payload 도 서버가 받는다(구 앱 호환) — 키가 없는 관측의 해당 값은 null(명시적 null 과 구별은 journal 의 parser 버전으로 한다).
 공식 로그인 정보·쿠키·헤더·사진·첨부·신고 본문·처리내용 원문은 넣지 않는다. `source_report_id` 는 envelope 의 event 필드(private)로만 간다.
 `report_number` 역시 Observation 밖의 private event 필드다. 공백을 잘라 빈 값은 null로 보낸다. 중앙은 `^SPP-[0-9]{4,6}-[0-9]{6,8}$`만 받는다. 기존 이벤트의 필드 생략도 null로 해석한다. 번호만 뒤늦게 채워졌으면 payload_sha256이 같아도 새 이벤트를 발급한다. Observation 해시와 parser/contract 버전은 그대로이며 기존 전체 신고를 일괄 update하지 않는다.

@@ -1,6 +1,15 @@
 # Changelog
 
-## 2026-10-13 mobile 4차 검수: 재전송의 최신 관측 역전 수정
+## 2026-10-13 — 2.2.0 (빌드 42) 릴리스 준비
+
+- VERSION과 pubspec.yaml을 2.2.0+42로 맞췄다. 앱 버전 표시는 패키지 정보를 사용하며, CI도 VERSION에서 pubspec.yaml을 동기화하는 기존 흐름을 유지한다.
+- 추정 과태료 표시·지도 공유, 중복차량 묶음, 금액 오타 보정, 백그라운드 답변 알림·크롤링 상태 수정 및 오래된 설치의 재로그인 안내를 사용자용 `docs/releases/v2.2.0.md`에 정리했다.
+- 검증: `node scripts/generate_whatsnew.mjs` 실제 생성 성공, Play 본문 496자이며 500자 제한으로 잘린 문장 없이 재로그인·자료 보존 안내까지 포함한다. 버전 일치 및 생성 결과와 제한 없는 변환 결과의 동일성을 확인했다.
+- `node --test scripts/generate_whatsnew.test.mjs`는 샌드박스의 하위 프로세스 생성 제한으로 실패했다. 같은 시험 파일 직접 실행에서는 변환 시험 5건 통과, CLI 시험 2건은 `spawnSync ... EPERM`으로 정상 검증하지 못했다. CLI는 별도 실행으로 정상 생성과 노트 누락 시 비정상 종료·오류 안내·파일 미생성을 각각 확인했다. `git diff --check` 통과.
+- 이번 작업에서 pubspec.lock 변경, Flutter 시험·배포 빌드, 커밋·push·태그는 하지 않았다.
+- 아래는 이 버전에 포함된 작업 기록이다. 각 기록의 미배포·검증 상태는 해당 작업 당시의 이력으로 보존한다.
+
+### 2026-10-13 mobile 4차 검수: 재전송의 최신 관측 역전 수정
 
 - 잔존 P1: 동기화가 journal을 먼저 쓴 뒤 개인 DB 저장에 실패하거나 중단되어도,
   추정 과태료 재전송이 오래된 개인 DB 답변으로 최신 관측을 되돌리지 않도록 수정했다.
@@ -30,7 +39,7 @@
 이번 수정 파일: `community_capture.dart`, `fine_estimate_resend.dart`, `observation_rules.dart`,
 `local_db_service.dart`, `fine_estimate_resend_test.dart`, `docs/architecture/data-contracts.md`, `CHANGELOG.md`.
 
-## 2026-10-13 mobile 3차 검수: 접수 확인 알림 반복 게시 수정
+### 2026-10-13 mobile 3차 검수: 접수 확인 알림 반복 게시 수정
 
 - P3: 사용자가 지운 `크롤링 접수 확인 필요` 알림이 15분 복구 작업마다 다시 나타나는 문제를 수정했다.
   마지막으로 안내한 미확정 이벤트 키 집합을 계정·서버 scope별 `NotificationWork` prefs에 저장한다.
@@ -59,7 +68,7 @@
 이번 수정 파일: `NotificationWork.kt`, `ProcessingInboxStore.kt`, 새 `NotificationWorkTest.kt`,
 `docs/architecture/android-runtime.md`, `CHANGELOG.md`.
 
-## 2026-10-13 mobile 2차 검수: 미확정 알림 큐 점유 수정
+### 2026-10-13 mobile 2차 검수: 미확정 알림 큐 점유 수정
 
 - P2: 구형 `/crawl/enqueue`의 미확정 요청이 네이티브 앞 200건을 점유하여 새 알림을 막고
   WorkManager가 무한 재시도하던 문제를 수정했다. 영속 미확정 표시로 TEMP 제외 목록을 구성하여
@@ -89,7 +98,7 @@
 `ProcessingInboxStoreTest.kt`, `notification_background_test.dart`,
 `docs/architecture/android-runtime.md`, `docs/architecture/data-contracts.md`, `CHANGELOG.md`.
 
-## 2026-10-13 (Astra) mobile 릴리스 검수 결함 6건 수정
+### 2026-10-13 (Astra) mobile 릴리스 검수 결함 6건 수정
 
 - P1 삭제 자료 재발급: 재전송 후보에서 최신 journal의 `deleted_by_user`를 제외하고,
   capture 발급 트랜잭션에서 다시 확인한다. 후보 조회 뒤 삭제되는 경합도 차단한다.
@@ -137,7 +146,7 @@
 - `android/app/src/test/kotlin/com/fentanest/mysafetyreport/SecureStorageRecoveryTest.kt`
 - `docs/architecture/{data-contracts,android-runtime}.md`, `CHANGELOG.md`
 
-## 2026-10-13 (Sonnet) Google Play 내부 테스트 자동 업로드 workflow 추가 (미배포, 브랜치 sonnet/play-upload)
+### 2026-10-13 (Sonnet) Google Play 내부 테스트 자동 업로드 workflow 추가 (미배포, 브랜치 sonnet/play-upload)
 
 `.github/workflows/build-apk.yml`에 비밀값을 받지 않는 기존 `build-apk`(self-hosted) 와 분리된
 `play-upload`(`ubuntu-latest`, `environment: play`) job 을 추가했다. push·릴리스·VERSION 변경은
@@ -163,11 +172,11 @@
   존재함을 확인) 새로 추가한 `play-upload` job 에는 오류 없음. `flutter test`는 이번 변경이 워크플로·
   Node 스크립트만 건드리고 Dart/Flutter 코드를 전혀 바꾸지 않아 실행하지 않았다(기존 baseline과 무관).
 
-## 2026-10-12 (Sonnet) Client 크롤링 상태 재확인 + 구서버 알림 경로 호환 (미배포, 브랜치 sonnet/client-status)
+### 2026-10-12 (Sonnet) Client 크롤링 상태 재확인 + 구서버 알림 경로 호환 (미배포, 브랜치 sonnet/client-status)
 
 사용자 보고 2건 수정.
 
-### 1. 대시보드가 끝난 크롤링을 계속 '진행 중'으로 보이는 문제
+#### 1. 대시보드가 끝난 크롤링을 계속 '진행 중'으로 보이는 문제
 
 원인: 대시보드 상태 카드(`SyncStatusCard`)·앱바 버튼이 읽는 `ReportProvider.isSyncing` 은 크롤링 탭
 (`CrawlScreen`)이 열려 있는 동안에만 서버 실제 상태(`GET /api/v1/crawl/status`)로 맞춰졌다(5초 폴링 +
@@ -192,7 +201,7 @@
   시험(`provider_select_rebuild_test.dart`)이 그대로 통과함으로 확인(수정 전 구조로는 탭이 닫히면 아무도
   재확인하지 않아 고치기 전 상태로는 대시보드 쪽 수동 재현에서 `isSyncing` 이 고착됐다).
 
-### 2. 새 앱 → 옛 PC 서버(3.1.3) 호환: `/crawl/notification` 404 → `/crawl/enqueue` 대체
+#### 2. 새 앱 → 옛 PC 서버(3.1.3) 호환: `/crawl/notification` 404 → `/crawl/enqueue` 대체
 
 원인: 화면 꺼짐 중 백그라운드 알림 처리(`notification_background.dart`)가 `POST /api/v1/crawl/notification`
 (idempotent, request_id 재시도 안전)만 쓰고, 그 경로가 없는(404) 구서버에는 "절대 `/crawl/enqueue` 로
@@ -217,12 +226,12 @@
   분리. 신규: baseUrl 기억으로 이후 요청이 새 경로를 건너뛰는 경우, 6시간 뒤 새 경로를 다시 시도해 성공하면
   기억을 지우는 경우, 옛 경로로 이미 보냈다는 표시가 있으면 재전송 없이 pending 만 정리하는 경우.
 
-### 검증
+#### 검증
 - 고정 Flutter 3.47.5 (`pub get` 뒤 `pubspec.lock` 변경 없음): `flutter test --no-pub` 전체 1767 통과·17
   건너뜀·실패 0. `flutter analyze --no-pub` 9 issues(기존 `unnecessary_cast` 9건과 동일, 새 경고 0).
 - `pubspec.yaml`·`pubspec.lock`·`VERSION` 변경 없음. git 커밋만(이 브랜치), push·릴리스 없음.
 
-## 2026-10-12 (Sonnet) 차량번호 정규화(세 레포 공통, 읽을 때만, 미배포)
+### 2026-10-12 (Sonnet) 차량번호 정규화(세 레포 공통, 읽을 때만, 미배포)
 
 사용자 눈에 보이는 변화: 커뮤니티 서버 실데이터에서 번호판 끝에 군더더기(`177도7967)`)나 설명 문구(`235호2929/흰색SUV…`)가
 붙어 있거나 보이지 않는 문자가 섞여 있어도 추정 과태료 차종 판정이 더 정확해진다. **로컬 DB 원문(`차량번호`)은 바꾸지
@@ -242,7 +251,7 @@
 - 검증: 고정 Flutter 3.47.5 `flutter test --no-pub` 전체 1,764 통과(skip 17, 실패 0), `flutter analyze --no-pub` 9건
   (기존과 동일, 신규 경고 0). `pubspec.lock` 변경 없음. git 커밋만 했고 push·릴리스·VERSION 변경은 하지 않았다.
 
-## 2026-10-12 (Sonnet) 지도 공유 자료에 추정 과태료 추가 (observation-v6, 미배포)
+### 2026-10-12 (Sonnet) 지도 공유 자료에 추정 과태료 추가 (observation-v6, 미배포)
 
 사용자 눈에 보이는 변화: 커뮤니티 지도로 보내는 자료에, 이미 화면 통계에 보이던 "추정 과태료"(과태료 처분인데 금액이 아직 안 보이는
 주정차 신고의 법정 최저 기준 추정값)가 함께 실릴 수 있게 된다. 서버가 따로 계산하지 않고 폰이 이미 쓰는 같은 규칙·같은 입력을 그대로
@@ -279,9 +288,9 @@
   Flutter 3.41.6 폰트 환경 — 그 외 새 실패 0). `flutter analyze --no-pub` 새 경고 0(기존 `unnecessary_cast` 9건만).
   pubspec.yaml·pubspec.lock·VERSION 은 변경하지 않았다. git 커밋·push·릴리스는 하지 않았다(브랜치 작업).
 
-## 미배포
+### 목록·상세·과태료 표시 개선
 
-### 2026-10-12 — 중복차량 목록을 정규화된 번호판으로 묶음
+#### 2026-10-12 — 중복차량 목록을 정규화된 번호판으로 묶음
 
 - Standalone(동기화 모드)의 중복차량 목록에서, 같은 차량이라도 번호판 표기가 살짝 다르면(끝에 괄호
   등 군더더기가 붙거나 공백·하이픈 표기 차이가 있는 경우) 따로따로 보이던 문제를 고쳤습니다. 이제는
@@ -302,7 +311,7 @@
   않아 인덱스를 추가하지 않았고, 측정 범위 안에서는 그대로도 허용 범위로 판단했습니다. git 커밋만
   했고 push·릴리스·버전 변경은 하지 않았습니다.
 
-### 2026-10-12 — 과태료 금액 보정 검수 수정
+#### 2026-10-12 — 과태료 금액 보정 검수 수정
 
 - 앞뒤 쉼표·점을 포함한 숫자 토큰을 통계·공유·표시에서 동일하게 판정하여 `,70,000원`·`,40,0000원`을 미확인으로 처리합니다.
 - 메뉴·분류 코드·차량번호·사진 촬영 시각·발생시각을 통계·업로드·목록/상세·내보내기에서 함께 사용합니다. 분류 코드가 있으면 우선하며, 일반 주정차 메뉴라도 EP-03이면 소방차 전용구역의 추정 500,000원입니다.
@@ -319,7 +328,7 @@
   확정 값과 구분되는 흐린 보조 글자로 함께 보여줍니다. 엑셀로 내보낼 때도 "추정 금액"·"추정 근거" 열이 추가됩니다
   (기존 과태료/범칙금 열 값은 그대로입니다)
 
-## 2026-10-12 — BL-1 검수 결함: isolate 간 SQLite 잠금 대기
+### 2026-10-12 — BL-1 검수 결함: isolate 간 SQLite 잠금 대기
 
 - 모든 앱/합성 기기 probe의 sqflite 열기를 `openAppDatabase`로 통일했다. `onConfigure`에서 WAL·스키마 SQL보다 먼저
   연결별 `busy_timeout=5000`을 적용한다. community DB와 구버전 변환/초기화의 기존 30초 대기는 유지하며 열기 시점부터 적용한다.
@@ -348,7 +357,7 @@
   근거: `.agent-runs/bl1/logs/bl1-contention-before.log`, `bl1-contention-after.log`, `bl1-busy-sleep.trace`,
   `bl1-busy-full-test.log`, `bl1-busy-analyze-final.log`, `bl1-busy-native-build.txt`.
 
-## 2026-10-12 — BL-1 패키지 2단계·SQLite 번들 구현 (릴리스 아님, 미결 항목 있음)
+### 2026-10-12 — BL-1 패키지 2단계·SQLite 번들 구현 (릴리스 아님, 미결 항목 있음)
 
 - 작업 위치 `mobile-bl1`, 고정 Flutter 3.47.5만 사용했다. 커밋·push·릴리스·버전 변경·배포 서명 파일 생성은 하지 않았다.
 - 잠금 버전: flutter_secure_storage **10.3.4→11.2.0**, file_picker **11.0.2→13.1.0**(Android 구현 android_file_picker 2.0.1),
@@ -396,7 +405,7 @@
 - 증거: `.agent-runs/bl1/logs/`, `apk-size.json`, `baseline-bitmap-map.json`, `final-bitmap-map.json`, `bitmap-origins.json`,
   `release/app-debug-signed-release.apk`, `release/mapping.txt`. 임시 텔레메트리/Android debug 서명/Kotlin 캐시 경로를 사용하여 샌드박스 쓰기 제한을 처리했다.
 
-## 2026-10-12 — 답변 알림 처리 큐 검수 결함 4건 수정
+### 2026-10-12 — 답변 알림 처리 큐 검수 결함 4건 수정
 
 - Client 멱등 접수 성공 후 `inbox.enqueue.native.*`도 claim owner를 포함해 네이티브 ACK한다. ACK 실패 시 prefs mirror를 남기고 같은 request ID로 재시도한다. 25건/20건 batch 회귀 시험으로 후속 요청 진행과 재전송 종료를 확인했다.
 - 다른 scope·미확인 구형 큐는 원본을 보존하며 현재 scope 처리만 계속한다. Android의 구형 단일 prefs 큐도 소유권 검사를 우회해 소비하지 않도록 격리했다. 소유권 확인·설정 세대·안전한 폐기 조건을 Android 런타임 문서에 명시했다.
@@ -406,7 +415,7 @@
 - 고정 Flutter 3.47.5 전체 `test --no-pub --concurrency=2`는 1,584건 통과·17건 건너뜀·실패 0건이다. 첫 기본 병렬 실행에서 기존 고정 시간 대기 시험 2건이 실패했으나, 병렬 수를 낮춘 전체 재실행에서 둘 다 통과했다. 두 실행 로그를 모두 보존했다.
 - 정적 분석은 기존 unnecessary_cast 경고 9건이며 새 지적은 없다. 기본 Java의 컴파일러 부재와 시험 캐시 쓰기 제한은 로컬 Android Studio JDK·임시 Robolectric 캐시·in-process Kotlin 컴파일로 해결했고 표준 Gradle 단위 시험을 완료했다. `git diff --check` 통과. 실행 로그는 `.agent-runs/astra-fix-bgcrawl/`에 보존했다. PC 코드·버전·pubspec.lock 변경, 커밋·push·배포 빌드는 하지 않았다. 실제 Android 화면 꺼짐/Doze/WorkManager 수명은 이번 단위 시험으로 검증하지 않았다.
 
-## 2026-10-12 — 화면 꺼짐 중 답변 알림 자동 처리 경로 보완
+### 2026-10-12 — 화면 꺼짐 중 답변 알림 자동 처리 경로 보완
 
 - Client 인증·동의 캐시가 10분 뒤 만료되면 알림을 저장 전 버리던 경로를 제거했다. 알림을 SQLite에 먼저 보존하고 WorkManager가 별도 FlutterEngine에서 인증·동의를 다시 확인한다. 살아 있는 WS도 만료만으로 종료하지 않고 갱신 뒤 재접속한다.
 - Standalone 알림을 앱 복귀 없이 기존 개별 동기화/증분 fallback에 연결했다. 화면 엔진과 같은 작업 lease·계정 검사를 적용하고, worker에서는 Activity FGS를 요구하지 않는다. 성공 ACK, 중단 시 claim 반환·큐 보존, 8분 watchdog, 30초 시작 백오프·15분 복구 작업과 상태 알림을 추가했다.

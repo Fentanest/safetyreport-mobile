@@ -730,16 +730,13 @@ class ReportDetailSheet extends StatelessWidget {
     String label,
     String value,
   ) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: _DetailFieldRow(
-        icon: icon,
-        label: label,
-        labelWidth: labelWidth,
-        value: Text(
-          value,
-          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-        ),
+    return _DetailFieldRow(
+      icon: icon,
+      label: label,
+      labelWidth: labelWidth,
+      value: Text(
+        value,
+        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
       ),
     );
   }
@@ -755,38 +752,28 @@ class ReportDetailSheet extends StatelessWidget {
     ReportFilter filter,
   ) {
     final color = Theme.of(context).colorScheme.primary;
-    // 누르는 줄은 48dp 이상(SQ-U20). 글자는 가운데 두어 위아래 여백이 다른 줄의 간격(12)을 대신한다.
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 2),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(SrRadius.md),
-        onTap: () => _navigateToFiltered(context, filter, value),
-        child: Container(
-          constraints: const BoxConstraints(
-            minHeight: kMinInteractiveDimension,
+    // 일반 줄과 같은 높이이며 누르는 영역도 48dp 이상이다(SQ-U20).
+    return InkWell(
+      borderRadius: BorderRadius.circular(SrRadius.md),
+      onTap: () => _navigateToFiltered(context, filter, value),
+      child: _DetailFieldRow(
+        icon: icon,
+        label: label,
+        labelWidth: labelWidth,
+        value: Text(
+          value,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            color: color,
+            decoration: TextDecoration.underline,
+            decorationColor: color.withValues(alpha: 0.5),
           ),
-          alignment: Alignment.centerLeft,
-          padding: const EdgeInsets.symmetric(vertical: 2),
-          child: _DetailFieldRow(
-            icon: icon,
-            label: label,
-            labelWidth: labelWidth,
-            value: Text(
-              value,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: color,
-                decoration: TextDecoration.underline,
-                decorationColor: color.withValues(alpha: 0.5),
-              ),
-            ),
-            trailing: Icon(
-              Icons.chevron_right,
-              size: 16,
-              color: color.withValues(alpha: 0.6),
-            ),
-          ),
+        ),
+        trailing: Icon(
+          Icons.chevron_right,
+          size: 16,
+          color: color.withValues(alpha: 0.6),
         ),
       ),
     );
@@ -849,30 +836,36 @@ class _DetailFieldRow extends StatelessWidget {
         color: context.sr.textSecondary,
       ),
     );
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final stacked = labelWidth > constraints.maxWidth * 0.4;
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, size: 16, color: context.sr.textSecondary),
-            const SizedBox(width: 8),
-            if (stacked)
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [labelText, const SizedBox(height: 2), value],
-                ),
-              )
-            else ...[
-              SizedBox(width: labelWidth, child: labelText),
-              const SizedBox(width: _gap),
-              Expanded(child: value),
+    // 줄 사이 여백 없이 같은 높이를 쓰고, 긴 값은 같은 내부 여백으로 늘어난다.
+    return Container(
+      constraints: const BoxConstraints(minHeight: kMinInteractiveDimension),
+      alignment: Alignment.centerLeft,
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final stacked = labelWidth > constraints.maxWidth * 0.4;
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(icon, size: 16, color: context.sr.textSecondary),
+              const SizedBox(width: 8),
+              if (stacked)
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [labelText, const SizedBox(height: 2), value],
+                  ),
+                )
+              else ...[
+                SizedBox(width: labelWidth, child: labelText),
+                const SizedBox(width: _gap),
+                Expanded(child: value),
+              ],
+              ?trailing,
             ],
-            ?trailing,
-          ],
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }

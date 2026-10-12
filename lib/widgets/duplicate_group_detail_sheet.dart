@@ -273,13 +273,17 @@ class _DuplicateGroupDetailSheetState
 
   Widget _detailRow(BuildContext context, String label, String value) {
     if (value.trim().isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
+    // 기존 72dp 라벨 열도 글자 배율에 맞춰 넓혀 라벨 줄바꿈이 간격을 바꾸지 않게 한다.
+    final labelWidth = 72 * MediaQuery.textScalerOf(context).scale(12) / 12;
+    return Container(
+      constraints: const BoxConstraints(minHeight: kMinInteractiveDimension),
+      alignment: Alignment.centerLeft,
+      padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 72,
+            width: labelWidth,
             child: Text(
               label,
               style: TextStyle(fontSize: 12, color: context.sr.textSecondary),

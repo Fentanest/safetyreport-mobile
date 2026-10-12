@@ -782,10 +782,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
           icon: Icons.location_on_outlined,
           text: report.location,
         ),
-        ReportCardMetaItem(
-          icon: Icons.monetization_on_outlined,
-          text: report.fineInfo,
-        ),
+        ReportCardMetaItem.fine(report),
       ],
     );
   }

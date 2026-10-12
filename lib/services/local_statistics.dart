@@ -40,9 +40,9 @@ class _AgencyAgg {
     if (d['unclassified']!) unclassified += weight;
     final fineAmount = extractFineAmount(fine, r);
     totalFine += fineAmount * weight;
-    if (fine.contains('과태료') && fineAmount == 0) {
+    if (fine_estimate.isEstimateTarget(fine, r)) {
       fineAmountUnknown += weight;
-      final est = fine_estimate.estimate(r);
+      final est = fine_estimate.estimateIfUnknown(fine, r);
       if (est != null) {
         estimatedFineAmount += (est['amount'] as int) * weight;
         estimatedFineCount += weight;
@@ -143,10 +143,11 @@ class _StatsCategoryAccumulator {
 
   void add(Map<String, dynamic> r) {
     final weight = (r['_weight'] as int?) ?? 1;
-    final amount = extractFineAmount(r['범칙금_과태료']?.toString() ?? '', r);
+    final fineText = r['범칙금_과태료']?.toString() ?? '';
+    final amount = extractFineAmount(fineText, r);
     fine += amount * weight;
-    if ((r['범칙금_과태료']?.toString() ?? '').contains('과태료') && amount == 0) {
-      final est = fine_estimate.estimate(r);
+    if (fine_estimate.isEstimateTarget(fineText, r)) {
+      final est = fine_estimate.estimateIfUnknown(fineText, r);
       if (est != null) {
         estimated += (est['amount'] as int) * weight;
         estimatedCount += weight;

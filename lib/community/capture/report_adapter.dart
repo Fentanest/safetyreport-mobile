@@ -47,10 +47,10 @@ Map<String, Object?> buildReportAdapterInput(
     rating: report.rating,
     geo: located ? GeocodeHit(status: 'ok', lat: lat, lng: lng) : null,
     progressStatus: report.result,
-    category: category,
+    category: category ?? report.category,
     reportName: report.name,
     occurrenceTime: report.occurrenceTime,
-    photoFirstCapture: photoFirstCapture,
-    photoLastCapture: photoLastCapture,
+    photoFirstCapture: photoFirstCapture ?? report.photoFirstCapture,
+    photoLastCapture: photoLastCapture ?? report.photoLastCapture,
   );
 }

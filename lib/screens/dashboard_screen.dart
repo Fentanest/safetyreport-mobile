@@ -10,6 +10,8 @@ import '../server_palette.dart';
 import '../services/report_policy.dart';
 import '../widgets/auth_status_notice.dart';
 import '../widgets/report_detail_sheet.dart';
+import '../widgets/report_list_card.dart' show fineEstimateSuffix;
+import '../services/fine_estimate.dart' as fine_estimate;
 import 'recent_answers_screen.dart';
 import 'report_management_screen.dart';
 import 'settings_screen.dart';
@@ -583,7 +585,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   serverUnconfirmedColor,
                   filter: (r) => ReportPolicy.listFineFilter(
                     ReportPolicy.fineUnknownText,
-                    r.fineInfo,
+                    fine_estimate.fineTextForReport(r),
                     r.status,
                   ),
                 ),
@@ -1126,7 +1128,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   _metaRow(
                     Icons.monetization_on_outlined,
                     '과태료/범칙금',
-                    r.fineInfo,
+                    fine_estimate.fineTextForReport(r),
+                    secondary: fineEstimateSuffix(r),
                   ),
                 if (r.carNumber.isNotEmpty)
                   _metaRow(Icons.directions_car_outlined, '차량번호', r.carNumber),
@@ -1138,8 +1141,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _metaRow(IconData icon, String label, String value) {
-    return Padding(
+  Widget _metaRow(
+    IconData icon,
+    String label,
+    String value, {
+    String? secondary,
+  }) {
+    final hasSecondary = secondary != null && secondary.isNotEmpty;
+    final valueText = hasSecondary
+        ? Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(text: value),
+                TextSpan(
+                  text: ' $secondary',
+                  style: TextStyle(
+                    fontStyle: FontStyle.italic,
+                    color: context.sr.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+            style: const TextStyle(fontSize: SrFontSize.caption),
+            overflow: TextOverflow.ellipsis,
+          )
+        : Text(
+            value,
+            style: const TextStyle(fontSize: SrFontSize.caption),
+            overflow: TextOverflow.ellipsis,
+          );
+    final row = Padding(
       padding: const EdgeInsets.only(top: 3),
       child: Row(
         children: [
@@ -1152,15 +1183,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
               color: context.sr.textSecondary,
             ),
           ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(fontSize: SrFontSize.caption),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
+          Expanded(child: valueText),
         ],
       ),
+    );
+    if (!hasSecondary) return row;
+    return Semantics(
+      label: '$label $value, 추정 금액 ${secondary.replaceFirst('추정 ', '')}',
+      excludeSemantics: true,
+      child: row,
     );
   }
 

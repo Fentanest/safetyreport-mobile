@@ -1221,6 +1221,14 @@ class SyncEngine {
       await CaptureRetryStore.removeIntent(retryFile, cNo);
     } catch (_) {}
     tracker.recordSuccess();
+    // 반환 Report(알림·상세 화면이 DB 를 다시 읽지 않고 쓰는 값)에도 추정·오타 보정 판정 맥락을 채운다 —
+    // 통계·업로드와 같은 입력(접수 메뉴·분류·사진 촬영 시각)이어야 같은 금액이 나온다(Astra 재검수 2026-10-12).
+    report = report.copyWith(
+      entryValue: ev,
+      category: cat,
+      photoFirstCapture: photoForEstimate.first,
+      photoLastCapture: photoForEstimate.last,
+    );
     return SavedDetail(
       report: report,
       entryValue: ev,
@@ -1449,6 +1457,11 @@ class SyncEngine {
       '범칙금_과태료': r.fineInfo,
       '벌점': r.penaltyPoints,
       '차량번호': r.carNumber,
+      'ssnpc_cd': r.ssnpcCd,
+      'ssnpc_type': r.ssnpcType,
+      'entry_value': r.entryValue,
+      '사진_첫촬영': r.photoFirstCapture,
+      '사진_끝촬영': r.photoLastCapture,
       '위반법규': r.law,
       '위반장소': r.location,
       '발생일자': r.occurrenceDate,

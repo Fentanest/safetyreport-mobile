@@ -306,10 +306,7 @@ class _RatingManagementPanelState extends State<RatingManagementPanel> {
         ),
         ReportCardMetaItem(icon: Icons.business, text: report.agency),
         ReportCardMetaItem(icon: Icons.person_outline, text: report.manager),
-        ReportCardMetaItem(
-          icon: Icons.monetization_on_outlined,
-          text: report.fineInfo,
-        ),
+        ReportCardMetaItem.fine(report),
         ReportCardMetaItem(
           icon: Icons.location_on_outlined,
           text: report.location,

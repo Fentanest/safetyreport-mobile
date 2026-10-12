@@ -102,6 +102,47 @@ void main() {
     expect(find.text('과태료: 40,000원'), findsOneWidget);
     expect(find.text('원문: 40,0000원'), findsOneWidget);
   });
+  testWidgets('밤샘주차 맥락을 상세에도 넘겨 오타를 미확인으로 남긴다', (tester) async {
+    final r = _report(fineInfo: '과태료: 40,0000원').copyWith(
+      category: 'parking',
+      entryValue: '불법주정차신고-기타',
+      ssnpcCd: 'EP',
+      ssnpcType: '02',
+      carNumber: '80바1234',
+      photoFirstCapture: '2026-10-01 00:30:00',
+      photoLastCapture: '2026-10-01 01:40:00',
+    );
+    final errors = await _pumpSheet(tester, r);
+    expect(errors, isEmpty);
+    expect(find.text('과태료: 40,0000원'), findsOneWidget);
+    expect(find.text('과태료: 40,000원'), findsNothing);
+    expect(find.textContaining('원문:'), findsNothing);
+    expect(find.text('추정 50,000원'), findsOneWidget);
+    expect(find.textContaining('밤샘주차'), findsOneWidget);
+  });
+  testWidgets('상세 추정은 메뉴보다 EP-03 코드를 우선한다', (tester) async {
+    final r = _report(fineInfo: '과태료: 0원').copyWith(
+      category: 'parking',
+      entryValue: '불법주정차신고',
+      ssnpcCd: 'EP',
+      ssnpcType: '03',
+    );
+    final errors = await _pumpSheet(tester, r);
+    expect(errors, isEmpty);
+    expect(find.text('과태료: 0원'), findsOneWidget);
+    expect(find.text('추정 500,000원'), findsOneWidget);
+    expect(find.textContaining('소방차 전용구역'), findsOneWidget);
+  });
+  for (final raw in ['과태료: ,70,000원', '과태료: ,40,0000원']) {
+    testWidgets('상세도 앞 쉼표를 버리지 않는다: $raw', (tester) async {
+      final r = _report(fineInfo: raw).copyWith(category: 'parking');
+      final errors = await _pumpSheet(tester, r);
+      expect(errors, isEmpty);
+      expect(find.text(raw), findsOneWidget);
+      expect(find.textContaining('원문:'), findsNothing);
+      expect(find.text('추정 40,000원'), findsOneWidget);
+    });
+  }
   testWidgets('정상 큰 금액에 원문 보조 표기를 붙이지 않는다', (tester) async {
     await _pumpSheet(tester, _report(fineInfo: '과태료: 400,000원'));
     expect(find.text('과태료: 400,000원'), findsOneWidget);

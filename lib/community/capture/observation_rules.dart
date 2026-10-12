@@ -6,7 +6,6 @@ library;
 
 import '../../services/fine_estimate.dart' as fine_estimate;
 import '../../services/report_category.dart' as report_category;
-import '../../services/standalone_parser.dart' show extractFineAmount;
 
 /// 문자열 정리 clean(s, n): 제어문자·연속 공백 → 공백 하나, 앞뒤 제거, 코드포인트 n자.
 String? cleanString(Object? value, int n) {
@@ -30,8 +29,7 @@ String? cleanString(Object? value, int n) {
   return s.isEmpty ? null : s;
 }
 
-bool _isControl(int rune) =>
-    (rune >= 0x00 && rune <= 0x1F) || rune == 0x7F;
+bool _isControl(int rune) => (rune >= 0x00 && rune <= 0x1F) || rune == 0x7F;
 
 /// 원문 기관코드 계약 상한(observation.md §3 — 서버 edge·DB·JSON 스키마·PC와 동일, 1:1).
 const int agencyCodeLimit = 32;
@@ -78,9 +76,14 @@ String? payloadAgencyCode(Object? value) {
   if (cleaned == null || cleaned.runes.length > agencyCodeLimit) return null;
   return cleaned;
 }
+
 bool _isWhitespace(int rune) {
-  if (rune == 0x20 || rune == 0x09 || rune == 0x0A || rune == 0x0B ||
-      rune == 0x0C || rune == 0x0D) {
+  if (rune == 0x20 ||
+      rune == 0x09 ||
+      rune == 0x0A ||
+      rune == 0x0B ||
+      rune == 0x0C ||
+      rune == 0x0D) {
     return true;
   }
   return rune == 0x85 ||
@@ -182,7 +185,9 @@ bool _isValidDate(String cand) {
     kind = 'unknown';
   }
   if (kind == 'unknown') return (kind: kind, confirmedWon: null);
-  final m = RegExp(r'^(과태료|범칙금):\s*([0-9][0-9.,]*)\s*원$').firstMatch(raw);
+  final m = RegExp(
+    '^(과태료|범칙금):\\s*(${fine_estimate.amountTokenPattern})\\s*원\$',
+  ).firstMatch(raw);
   if (m == null) return (kind: kind, confirmedWon: null);
   final won = fine_estimate.parseAmountNumber(
     m[2]!,
@@ -281,12 +286,8 @@ Map<String, dynamic> _fineRecord(Map<String, Object?> input) => {
 
 Map<String, Object?>? _fineEstimateField(Map<String, Object?> input) {
   final fineRaw = input['penalty_amount']?.toString() ?? '';
-  if (!fineRaw.contains('과태료') ||
-      extractFineAmount(fineRaw, _fineRecord(input)) != 0) {
-    return null;
-  }
   final record = _fineRecord(input);
-  final result = fine_estimate.estimate(record);
+  final result = fine_estimate.estimateIfUnknown(fineRaw, record);
   if (result == null) return null;
   final won = result['amount'];
   final rule = result['rule'];
@@ -322,7 +323,8 @@ Map<String, Object?> buildPayload(Map<String, Object?> input) {
     if ((geo['status']?.toString() ?? '') == 'ok') {
       lat = parseGeoDouble(geo['lat']);
       lng = parseGeoDouble(geo['lng']);
-      geoOk = lat != null &&
+      geoOk =
+          lat != null &&
           lng != null &&
           lat >= 32 &&
           lat <= 39.5 &&
@@ -360,7 +362,12 @@ Map<String, Object?> buildPayload(Map<String, Object?> input) {
     'status_raw': statusRaw,
     'vehicle_raw': cleanString(input['car_number'], 64),
     'violation_law': cleanString(input['violation_law'], 60),
-    'rating': input['rating'] is int && (input['rating'] as int) >= 1 && (input['rating'] as int) <= 5 ? input['rating'] : null,
+    'rating':
+        input['rating'] is int &&
+            (input['rating'] as int) >= 1 &&
+            (input['rating'] as int) <= 5
+        ? input['rating']
+        : null,
     // v3: 원문 기관코드 그대로(TEXT·선행 0 보존). 신규 형식도 자르지 않고, 없으면 null.
     // 상한 초과분은 여기서 null 로 두되(전송 형태 안전), capture() 가 명시적
     // 사유(blocked:source_agency_code_too_long)로 기록한다 — 조용히 버리지 않음.

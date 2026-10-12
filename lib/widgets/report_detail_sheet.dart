@@ -26,6 +26,7 @@ import '../services/client_media_access.dart';
 import '../services/client_compatibility.dart';
 import '../services/local_db_service.dart';
 import '../theme/sr_tokens.dart';
+import '../utils/format.dart';
 import 'sr_snack_bar.dart';
 
 Future<Map<String, String>?> _clientMediaHeaders(
@@ -330,23 +331,7 @@ class ReportDetailSheet extends StatelessWidget {
                 report.manager,
                 ReportFilter(manager: report.manager),
               ),
-            if (report.fineInfo.isNotEmpty)
-              _field(
-                context,
-                labelWidth,
-                Icons.monetization_on_outlined,
-                '과태료/범칙금',
-                fine_estimate.correctedFineText(report.fineInfo, _fineRecord) ??
-                    report.fineInfo,
-                original:
-                    fine_estimate.correctedFineText(
-                          report.fineInfo,
-                          _fineRecord,
-                        ) !=
-                        null
-                    ? report.fineInfo.replaceFirst(RegExp(r'^과태료[:\s]*'), '')
-                    : null,
-              ),
+            if (report.fineInfo.isNotEmpty) _fineField(context, labelWidth),
             if (report.penaltyPoints.isNotEmpty)
               _field(
                 context,
@@ -609,25 +594,34 @@ class ReportDetailSheet extends StatelessWidget {
     final uri = Uri.tryParse(url);
     if (uri == null) return;
 
-    showSrSnack(
-      context,
-      '파일 불러오는 중...',
-      duration: const Duration(seconds: 10),
-    );
+    showSrSnack(context, '파일 불러오는 중...', duration: const Duration(seconds: 10));
 
     try {
       final provider = context.read<ReportProvider>();
       final epoch = provider.datasetEpoch;
-      final scope = '${provider.appMode}:${provider.baseUrl}:$epoch:${provider.dataRevision}';
+      final scope =
+          '${provider.appMode}:${provider.baseUrl}:$epoch:${provider.dataRevision}';
       final headers = await _clientMediaHeaders(context, url);
       final dir = await getTemporaryDirectory();
-      final file = await AttachmentCache.fetch(root: dir, uri: uri, scope: scope,
-        headers: headers, isCancelled: () => !context.mounted || provider.datasetEpoch != epoch,
+      final file = await AttachmentCache.fetch(
+        root: dir,
+        uri: uri,
+        scope: scope,
+        headers: headers,
+        isCancelled: () => !context.mounted || provider.datasetEpoch != epoch,
         onStatus: (status) {
-          if (status == 409 && headers != null && context.mounted && provider.datasetEpoch == epoch) {
-            ClientCompatibility.reject(provider.baseUrl, provider.apiKey, '앱과 PC 서버의 protocol 3 지원을 확인하고 업데이트하세요.');
+          if (status == 409 &&
+              headers != null &&
+              context.mounted &&
+              provider.datasetEpoch == epoch) {
+            ClientCompatibility.reject(
+              provider.baseUrl,
+              provider.apiKey,
+              '앱과 PC 서버의 protocol 3 지원을 확인하고 업데이트하세요.',
+            );
           }
-        });
+        },
+      );
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -733,16 +727,6 @@ class ReportDetailSheet extends StatelessWidget {
     return widest.ceilToDouble() + 1;
   }
 
-  Map<String, dynamic> get _fineRecord => {
-    'category': report.category,
-    'ssnpc_cd': report.ssnpcCd,
-    'ssnpc_type': report.ssnpcType,
-    '신고명': report.name,
-    '위반법규': report.law,
-    '차량번호': report.carNumber,
-    '발생시각': report.occurrenceTime,
-  };
-
   Widget _field(
     BuildContext context,
     double labelWidth,
@@ -771,6 +755,75 @@ class ReportDetailSheet extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  /// "과태료/범칙금" 줄. 금액 없이 "과태료"만 있으면 법정 최저 기준 추정을 흐린 보조 표기로 더한다
+  /// (row-estimate, 2026-10-12). 대상 판정·계산은 [fine_estimate.estimateForReport] 를 그대로 쓴다
+  /// (통계·커뮤니티 payload 와 같은 함수). 확정 원문([Report.fineInfo])은 그대로 첫 줄에 두고 섞지 않는다.
+  /// 다른 상세 줄과 같은 [_DetailFieldRow] 를 쓰므로 48dp 균일 간격·세로 가운데 배치가 유지된다.
+  Widget _fineField(BuildContext context, double labelWidth) {
+    final corrected = fine_estimate.correctedFineText(
+      report.fineInfo,
+      fine_estimate.fineRecordForReport(report),
+    );
+    final display = corrected ?? report.fineInfo;
+    final original = corrected == null
+        ? null
+        : report.fineInfo.replaceFirst(RegExp(r'^과태료[:\s]*'), '');
+    final est = fine_estimate.estimateForReport(report);
+    if (est == null) {
+      return _field(
+        context,
+        labelWidth,
+        Icons.monetization_on_outlined,
+        '과태료/범칙금',
+        display,
+        original: original,
+      );
+    }
+    final sr = context.sr;
+    final amountText = formatWon(est['amount'] as int);
+    final basisText = '법정 최저 기준 · ${est['basis']}';
+    return _DetailFieldRow(
+      icon: Icons.monetization_on_outlined,
+      label: '과태료/범칙금',
+      labelWidth: labelWidth,
+      value: Semantics(
+        label: '$display, 추정 금액 $amountText, $basisText',
+        excludeSemantics: true,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              display,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+            ),
+            if (original != null)
+              Text(
+                '원문: $original',
+                style: TextStyle(fontSize: 12, color: sr.textSecondary),
+              ),
+            const SizedBox(height: 2),
+            Text(
+              '추정 $amountText',
+              style: TextStyle(
+                fontSize: 13,
+                fontStyle: FontStyle.italic,
+                color: sr.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              basisText,
+              style: TextStyle(
+                fontSize: SrFontSize.caption,
+                color: sr.textSecondary,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

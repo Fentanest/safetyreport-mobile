@@ -5,13 +5,17 @@
 /// - 금액은 일반적으로 알려진 기본 금액(최저 기준)이다. 가중(고속도로, 감경 등)은 데이터로 알 수 없으면 반영하지 않는다.
 /// - 모바일 Standalone 도 같은 규칙을 쓴다. 규칙을 바꾸면 RULE_VERSION 과 tests/fixtures/fine_estimate_vectors.json 을
 ///   양쪽 레포에서 함께 바꾼다.
+/// - 대상 판정([isEstimateTarget])과 계산([estimate]/[estimateForReport])은 통계([local_statistics.dart]),
+///   커뮤니티 payload([observation_rules.dart] `_fineEstimateField`), 신고 목록/상세 화면, 엑셀·CSV 내보내기가
+///   모두 같은 함수를 호출한다 — 대상 판정 로직을 호출부마다 다시 만들지 않는다(row-estimate, 2026-10-12).
 
 library;
 
 import 'package:intl/intl.dart';
+import '../models/report.dart';
 import 'report_category.dart' as report_category;
 
-const String ruleVersion = "2026-10-11.4";
+const String ruleVersion = "2026-10-12.1";
 
 const String _passenger = "승용등";
 const String _van = "승합등";
@@ -281,6 +285,9 @@ Set<int> legalFineAmounts(Map<String, dynamic>? record) {
   };
 }
 
+const amountTokenPattern = r'[0-9,.]+';
+final _amountToken = RegExp('($amountTokenPattern)\\s*원');
+
 final _normalAmount = RegExp(r'^(?:[0-9]+|[0-9]{1,3}(?:[,.][0-9]{3})+)$');
 
 /// 정상 숫자는 유지. 깨진 묶음은 구분자 제거/묶음 끝 0 보정 후보 중 법정 금액 하나만 선택.
@@ -316,7 +323,7 @@ int? parseAmountNumber(String number, [Iterable<int> legalAmounts = const []]) {
 /// 원문은 보존하고 읽는 단계에서만 보정한다.
 int extractFineAmount(String text, [Map<String, dynamic>? record]) {
   if (!text.contains('과태료')) return 0;
-  final m = RegExp(r'([0-9][0-9,.]*)\s*원').firstMatch(text);
+  final m = _amountToken.firstMatch(text);
   if (m == null) return 0;
   return parseAmountNumber(
         m[1]!,
@@ -327,10 +334,50 @@ int extractFineAmount(String text, [Map<String, dynamic>? record]) {
 
 String? correctedFineText(String text, [Map<String, dynamic>? record]) {
   if (!text.contains('과태료')) return null;
-  final m = RegExp(r'([0-9][0-9,.]*)\s*원').firstMatch(text);
+  final m = _amountToken.firstMatch(text);
   if (m == null || _normalAmount.hasMatch(m[1]!)) return null;
   final amount = parseAmountNumber(m[1]!, legalFineAmounts(record));
   if (amount == null) return null;
   final formatted = NumberFormat('#,###', 'en_US').format(amount);
   return text.replaceRange(m.start, m.start + m[1]!.length, formatted);
 }
+
+/// 과태료 원문(`범칙금_과태료`/`penalty_amount` 등)이 추정 대상인지 판정한다 — '과태료' 처분인데
+/// 확정 금액을 읽지 못했을 때만 true. local_statistics.dart·observation_rules.dart(_fineEstimateField)·
+/// 화면 표시·내보내기가 모두 이 함수를 쓴다(대상 판정 중복 구현 금지).
+bool isEstimateTarget(String fineText, [Map<String, dynamic>? record]) {
+  return fineText.contains('과태료') && extractFineAmount(fineText, record) == 0;
+}
+
+/// 같은 신고 맥락으로 대상 판정과 계산을 한 번에 수행한다.
+/// 대상이 아니거나 분류 규칙이 없으면 null.
+Map<String, dynamic>? estimateIfUnknown(
+  String fineText,
+  Map<String, dynamic> record,
+) {
+  if (!isEstimateTarget(fineText, record)) return null;
+  return estimate(record);
+}
+
+/// 통계·업로드와 같은 판정 입력. 화면·내보내기는 이 변환을 함께 쓴다.
+Map<String, dynamic> fineRecordForReport(Report report) => {
+  "category": report.category,
+  "entry_value": report.entryValue,
+  "ssnpc_cd": report.ssnpcCd,
+  "ssnpc_type": report.ssnpcType,
+  "신고명": report.name,
+  "위반법규": report.law,
+  "차량번호": report.carNumber,
+  "사진_첫촬영": report.photoFirstCapture,
+  "사진_끝촬영": report.photoLastCapture,
+  "발생시각": report.occurrenceTime,
+};
+
+/// [report] 변환과 대상 판정·계산을 함께 수행한다(화면·내보내기 공용).
+Map<String, dynamic>? estimateForReport(Report report) =>
+    estimateIfUnknown(report.fineInfo, fineRecordForReport(report));
+
+/// 표시용 보정값. Report/DB 원문은 보존한다.
+String fineTextForReport(Report report) =>
+    correctedFineText(report.fineInfo, fineRecordForReport(report)) ??
+    report.fineInfo;

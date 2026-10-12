@@ -6,6 +6,7 @@ import 'package:excel/excel.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/models/report.dart';
 import 'package:safetyreport/services/excel_export_service.dart';
+import 'package:safetyreport/services/fine_estimate.dart' as fine_estimate;
 import 'package:safetyreport/services/local_db_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -77,6 +78,9 @@ void _legacyFillSheet(
     '만족도조사여부',
     '별점',
     '별점사유',
+    // row-estimate(2026-10-12): excel_export_service.dart 와 같은 추정 금액/근거 열.
+    '추정 금액',
+    '추정 근거',
     '감시목록',
   ];
 
@@ -92,6 +96,7 @@ void _legacyFillSheet(
     final r = reports[row];
     final photos = photoLists[row];
     final files = fileLists[row];
+    final est = fine_estimate.estimateForReport(r);
     final values = <String>[
       r.id,
       r.result,
@@ -118,6 +123,8 @@ void _legacyFillSheet(
       r.pollStatus,
       r.rating?.toString() ?? '',
       r.ratingCause,
+      est == null ? '' : (est['amount'] as int).toString(),
+      est == null ? '' : est['basis'] as String,
       watchlist.contains(r.reportNumber) ? 'Y' : 'N',
     ];
     for (var col = 0; col < values.length; col++) {
@@ -400,9 +407,9 @@ void main() {
           header,
           containsAllInOrder(['범칙금_과태료', '첨부사진1', '첨부사진3', '첨부파일2', '감시목록']),
         );
-        // 확정 금액 열은 원문 하나뿐이고 추정 금액 열을 섞지 않는다.
+        // 확정 금액 열은 원문 하나뿐이고 추정 금액 열을 섞지 않는다(row-estimate, 2026-10-12: 별도 열로 더함).
         expect(header.where((h) => h.contains('과태료')), ['범칙금_과태료']);
-        expect(header.where((h) => h.contains('추정')), isEmpty);
+        expect(header.where((h) => h.contains('추정')), ['추정 금액', '추정 근거']);
         final values = traffic.rows
             .skip(1)
             .expand((r) => r)
@@ -429,16 +436,19 @@ void main() {
       'traffic',
       onPage: (page) {
         pages.add(page.length);
-        // 시트에 쓰지 않는 열은 읽지 않는다(예: category, synced_at).
-        expect(
-          page.every((r) => r.category.isEmpty && r.syncedAt == null),
-          isTrue,
-        );
+        // 시트에 쓰지 않는 열은 읽지 않는다(예: synced_at). category 는 row-estimate(2026-10-12)의
+        // 추정 금액/근거 계산용으로 읽되 시트 셀에는 그대로 쓰지 않는다(excelExportRowValues 참고).
+        expect(page.every((r) => r.syncedAt == null), isTrue);
       },
     );
     expect(pages, [1000, 400]);
     expect(LocalDbService.exportReportColumns, isNot(contains('raw_content')));
-    expect(LocalDbService.exportReportColumns, isNot(contains('category')));
+    // row-estimate(2026-10-12): 추정 금액/근거 계산에 쓰는 열은 읽되, 여전히 본문·첨부 URL 보다
+    // 큰 열(raw_content 등)은 읽지 않는다.
+    expect(
+      LocalDbService.exportReportColumns,
+      containsAll(['category', 'entry_value', 'ssnpc_cd', 'ssnpc_type']),
+    );
   });
 
   group('exportToDirectory', () {

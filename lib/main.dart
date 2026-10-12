@@ -75,7 +75,9 @@ Future<void> main() async {
   // v11 은 v9 자료를 이관하지 못한다. 표시 확인과 읽기 검증을 다른 접근보다 먼저 한다.
   final storageReadiness = await SecureStorageMigration.checkReady();
   if (storageReadiness != SecureStorageReadiness.ready) {
-    runApp(SecureStorageRecoveryApp(readiness: storageReadiness));
+    runApp(
+      SecureStorageRecoveryApp(readiness: storageReadiness, onRecovered: main),
+    );
     return;
   }
   await BundledSqlite.initialize();

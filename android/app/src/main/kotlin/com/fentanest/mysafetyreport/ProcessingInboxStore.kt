@@ -6,6 +6,10 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import android.content.ContentValues
 import java.util.UUID
+import io.flutter.plugins.sharedpreferences.JSON_LIST_PREFIX
+import io.flutter.plugins.sharedpreferences.LIST_PREFIX
+import io.flutter.plugins.sharedpreferences.ListEncoder
+import org.json.JSONArray
 
 /** Private processing obligations. History retention never removes pending work.
  * ACK receipts survive a crash between the SQLite ACK and Dart mirror removal.
@@ -37,6 +41,7 @@ class ProcessingInboxStore private constructor(context: Context) :
     /** Two-minute, persistent report identity. Summary text/count changes are not new answers. */
     @Synchronized fun putNotification(prefs: SharedPreferences, prefix: String, number: String, packageName: String) {
         require(NotificationReports.accepts(packageName))
+        if (prefix == PrefsInbox.ENQUEUE) refreshUncertain(prefs)
         val scope = scope(prefs, prefix)
         val fingerprint = java.security.MessageDigest.getInstance("SHA-256")
             .digest("$scope|$prefix|$packageName|$number".toByteArray()).joinToString("") { "%02x".format(it) }
@@ -50,7 +55,7 @@ class ProcessingInboxStore private constructor(context: Context) :
                 // Child + group summary can describe the same report with different text.
                 // Coalesce only unclaimed work; an event after the receipt window
                 // must survive even when an earlier fetch is still in progress.
-                val queued = db.rawQuery("SELECT 1 FROM events WHERE prefix=? AND scope=? AND value=? AND terminal=0 AND claim_owner IS NULL AND event_key LIKE ? LIMIT 1",
+                val queued = db.rawQuery("SELECT 1 FROM events WHERE prefix=? AND scope=? AND value=? AND terminal=0 AND claim_owner IS NULL${retryableFilter(prefix)} AND event_key LIKE ? LIMIT 1",
                     arrayOf(prefix, scope, number, prefix + "native.notification.%")).use { it.moveToFirst() }
                 if (!queued) put(prefix, number, prefix + "native.notification." + UUID.randomUUID(), scope)
                 db.insertOrThrow("notification_receipts", null, ContentValues().apply { put("fingerprint", fingerprint); put("created_at", now) })
@@ -63,10 +68,50 @@ class ProcessingInboxStore private constructor(context: Context) :
     // Preserve them, but never let them wake a worker or occupy its claim batch.
     // Standalone QUEUE entries (including timestamp keys) are still actionable.
     private fun retryableFilter(prefix: String): String =
-        if (prefix == PrefsInbox.ENQUEUE) " AND event_key GLOB '${PrefsInbox.ENQUEUE}native.notification.*'" else ""
+        if (prefix == PrefsInbox.ENQUEUE) " AND event_key GLOB '${PrefsInbox.ENQUEUE}native.notification.*' AND event_key NOT IN (SELECT event_key FROM legacy_uncertain)" else ""
 
-    @Synchronized fun hasPending(prefs: SharedPreferences, prefix: String): Boolean =
-        readableDatabase.rawQuery("SELECT 1 FROM events WHERE prefix=? AND scope=? AND terminal=0${retryableFilter(prefix)} LIMIT 1", arrayOf(prefix, scope(prefs, prefix))).use { it.moveToFirst() }
+    // Rebuild a connection-local index from the durable pre-POST markers on every
+    // queue decision, including the worker's pre-engine check after process death.
+    // No successful ACK, deletion, or permanent schema change is implied here.
+    private fun refreshUncertain(prefs: SharedPreferences) {
+        val all = prefs.all
+        val rawSent = all["flutter.crawl_legacy_enqueue_sent_keys"] as? String
+        val sent = when {
+            rawSent == null -> emptySet()
+            rawSent.startsWith(JSON_LIST_PREFIX) -> JSONArray(rawSent.removePrefix(JSON_LIST_PREFIX)).let { array ->
+                (0 until array.length()).map { array.getString(it) }.toSet()
+            }
+            rawSent.startsWith(LIST_PREFIX) -> ListEncoder().decode(rawSent.removePrefix(LIST_PREFIX)).toSet()
+            else -> error("invalid legacy enqueue receipts")
+        }
+        val markerPrefix = "flutter.crawl_legacy_enqueue_uncertain."
+        val db = writableDatabase
+        db.execSQL("CREATE TEMP TABLE IF NOT EXISTS legacy_uncertain (event_key TEXT PRIMARY KEY)")
+        db.beginTransaction()
+        try {
+            db.delete("legacy_uncertain", null, null)
+            all.keys.filter { it.startsWith(markerPrefix) }.forEach { marker ->
+                val key = marker.removePrefix(markerPrefix)
+                if (key !in sent) db.insertOrThrow("legacy_uncertain", null, ContentValues().apply { put("event_key", "flutter.$key") })
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+    }
+
+    @Synchronized fun hasPending(prefs: SharedPreferences, prefix: String): Boolean {
+        if (prefix == PrefsInbox.ENQUEUE) refreshUncertain(prefs)
+        return readableDatabase.rawQuery("SELECT 1 FROM events WHERE prefix=? AND scope=? AND terminal=0${retryableFilter(prefix)} LIMIT 1", arrayOf(prefix, scope(prefs, prefix))).use { it.moveToFirst() }
+    }
+
+    @Synchronized fun hasUncertain(prefs: SharedPreferences): Boolean = uncertainKeys(prefs).isNotEmpty()
+
+    /** Event identities, not report numbers/counts: a new request for the same report is a new uncertainty. */
+    @Synchronized fun uncertainKeys(prefs: SharedPreferences): Set<String> {
+        refreshUncertain(prefs)
+        return readableDatabase.rawQuery("SELECT event_key FROM events WHERE prefix=? AND scope=? AND terminal=0 AND event_key IN (SELECT event_key FROM legacy_uncertain)", arrayOf(PrefsInbox.ENQUEUE, scope(prefs, PrefsInbox.ENQUEUE))).use { cursor ->
+            buildSet { while (cursor.moveToNext()) add(cursor.getString(0)) }
+        }
+    }
 
     @Synchronized fun release(owner: String) {
         writableDatabase.execSQL("UPDATE events SET claim_owner=NULL, claim_until=0 WHERE terminal=0 AND claim_owner=?", arrayOf(owner))
@@ -118,6 +163,7 @@ class ProcessingInboxStore private constructor(context: Context) :
         require(prefix in prefixes)
         require(owner.isNotBlank())
         migrate(prefs, prefix)
+        if (prefix == PrefsInbox.ENQUEUE) refreshUncertain(prefs)
         val currentScope = scope(prefs, prefix)
         val pending = mutableListOf<Map<String, String>>()
         val db = writableDatabase

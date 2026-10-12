@@ -1059,9 +1059,8 @@ class LocalDbService {
     );
   }
 
-  /// Astra fine-estimate 재전송(2026-10-12)의 입력 열. [ids] 중 과태료 처분 문구가 있는 행만
-  /// 돌려준다(그 외는 추정 대상이 될 수 없어 capture() 를 다시 돌 필요가 없다 — 순수 최적화,
-  /// 적격 조건 자체는 observation_rules._fineEstimateField 가 그대로 다시 검사한다).
+  /// 재전송용 추정 입력만 읽는다. 처분·확정 금액 판단은 최신 journal이 정본이므로
+  /// 개인 DB의 금액 문구로 후보를 제외하지 않는다.
   static Future<List<Map<String, Object?>>> communityResendRows(
     List<String> ids,
   ) async {
@@ -1071,12 +1070,10 @@ class LocalDbService {
     return d.query(
       'reports',
       columns: const [
-        'ID', '신고번호', '신고명', '신고일', '답변일', '처리기관코드', '처리기관',
-        '담당자', '처리상태', '상태', '범칙금_과태료', '벌점', '차량번호', '위반법규',
-        '위반장소', '위도', '경도', '발생시각', 'entry_value', 'category',
-        'ssnpc_cd', 'ssnpc_type', '사진_첫촬영', '사진_끝촬영', '별점',
+        'ID', '신고명', '차량번호', '발생시각', 'entry_value',
+        'ssnpc_cd', 'ssnpc_type', '사진_첫촬영', '사진_끝촬영',
       ],
-      where: "ID IN ($placeholders) AND COALESCE(범칙금_과태료,'') LIKE '%과태료%'",
+      where: 'ID IN ($placeholders)',
       whereArgs: ids,
     );
   }
@@ -2170,14 +2167,14 @@ class LocalDbService {
       'CREATE TEMP TABLE IF NOT EXISTS $_dupPlateLookupTable('
       '$_colRawPlate TEXT PRIMARY KEY, plate_key TEXT NOT NULL, '
       'total_count INTEGER NOT NULL, valid_count INTEGER NOT NULL, '
-      'max_report_no TEXT NOT NULL)',
+      'max_report_no TEXT)',
     );
     await d.delete(_dupPlateLookupTable);
     final withdraw = excludeWithdraw
         ? "AND ${ReportPolicy.sqlNotWithdrawn('처리상태')}"
         : '';
     final path = await getDbPath();
-    final lookup = PlateGroupSql.select(path, '''
+    final lookup = await PlateGroupSql.selectAsync(path, '''
       WITH dv AS (
         SELECT normalize_plate(차량번호) AS plate_key, COUNT(*) AS total_count,
           SUM(CASE WHEN ${ReportPolicy.sqlNotWithdrawn('처리상태')} THEN 1 ELSE 0 END) AS valid_count,
@@ -3892,13 +3889,13 @@ class LocalDbService {
   /// LIMIT/OFFSET 청크 없이 한 번에 읽는다.
   static Future<List<Report>> getDuplicateVehicleReports({
     bool excludeWithdraw = false,
-  }) async {
+  }) => runBackgroundWork(() async {
     await db; // 메인 연결이 스키마를 만들고 WAL 로 전환한 뒤에야 보조 연결을 연다.
     final path = await getDbPath();
     final withdrawFilter = excludeWithdraw
         ? 'AND ${ReportPolicy.sqlNotWithdrawn('처리상태')}'
         : '';
-    final rows = PlateGroupSql.select(path, '''
+    final rows = await PlateGroupSql.selectAsync(path, '''
       WITH dup_vehicles AS (
         SELECT normalize_plate(차량번호)                                   AS plate_key,
                COUNT(*)                                                 AS total_count,
@@ -3918,7 +3915,7 @@ class LocalDbService {
       ORDER BY dv.max_report_no DESC, dv.plate_key ASC, r.신고번호 DESC
     ''');
     return rows.map((r) => _rowToReportWithCounts(r)).toList();
-  }
+  });
 
   static Report _rowToReportWithCounts(
     Map<String, dynamic> r, {

@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/models/report.dart';
+import 'package:safetyreport/services/plate_group_sql.dart';
 import 'package:safetyreport/services/local_db_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -21,7 +22,7 @@ Future<void> _resetDb() async {
 
 Future<void> _insert(
   String id,
-  String reportNumber,
+  String? reportNumber,
   String carNumber, {
   String status = '처리중',
 }) async {
@@ -81,6 +82,23 @@ void main() {
     await _insert('S1', 'S-001', '중앙선침범');
     await _insert('S2', 'S-002', '12가9999');
   }
+
+  test('NULL 신고번호 중복군도 두 조회에서 보존한다', () async {
+    await _insert('N1', null, '12가3456');
+    await _insert('N2', null, '12가3456)');
+    final page = await LocalDbService.getReportPage(scope: 'duplicates');
+    expect(page.total, 2);
+    expect(page.reports.map((r) => r.id).toSet(), {'N1', 'N2'});
+    expect((await LocalDbService.getDuplicateVehicleReports()).length, 2);
+  });
+
+  test('중복차량 두 조회는 호출 isolate에 SQLite 연결을 열지 않는다', () async {
+    await seedThreeGroups();
+    await LocalDbService.getReportPage(scope: 'duplicates');
+    expect(PlateGroupSql.openConnectionCountForTest, 0);
+    await LocalDbService.getDuplicateVehicleReports();
+    expect(PlateGroupSql.openConnectionCountForTest, 0);
+  });
 
   const expectedOrder = [
     'C-005',

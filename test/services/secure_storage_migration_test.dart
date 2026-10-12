@@ -1,5 +1,6 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/models/app_mode.dart';
 import 'package:safetyreport/screens/secure_storage_recovery_screen.dart';
@@ -169,7 +170,7 @@ void main() {
   );
 
   testWidgets(
-    'missing marker explains reauthentication without delete or bypass',
+    'missing marker explains reauthentication and allows exit without automatic reset',
     (tester) async {
       var exits = 0;
       await tester.pumpWidget(
@@ -185,6 +186,105 @@ void main() {
       expect(exits, 1);
     },
   );
+
+  testWidgets('복구 초기화는 명시적 확인 전에는 실행되지 않는다', (tester) async {
+    FlutterSecureStorage.setMockInitialValues({
+      'standalone_password': 'fixture',
+    });
+    await tester.pumpWidget(
+      const SecureStorageRecoveryApp(
+        readiness: SecureStorageReadiness.reauthenticationRequired,
+      ),
+    );
+    await tester.tap(find.text('저장된 로그인 정보 초기화하고 다시 로그인'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('신고 자료'), findsWidgets);
+    await tester.tap(find.text('취소'));
+    await tester.pumpAndSettle();
+    expect(
+      await const FlutterSecureStorage().read(key: 'standalone_password'),
+      'fixture',
+    );
+  });
+
+  test('Android 초기화 채널 성공 뒤에만 v11 표시를 남기고 앱 설정은 보존한다', () async {
+    SharedPreferences.setMockInitialValues({
+      'appMode': 'standalone',
+      'themeMode': 'dark',
+      'standaloneToken': 'fixture',
+    });
+    FlutterSecureStorage.setMockInitialValues({
+      'standalone_password': 'fixture',
+    });
+    const channel = MethodChannel(
+      'com.fentanest.mysafetyreport/secure_storage',
+    );
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, (call) async {
+          expect(call.method, 'resetSecureStorageForReauthentication');
+          FlutterSecureStorage.setMockInitialValues({});
+          return true;
+        });
+    addTearDown(
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null),
+    );
+    await SecureStorageMigration.resetForReauthentication(isAndroid: true);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('themeMode'), 'dark');
+    expect(prefs.getString('appMode'), 'standalone');
+    expect(prefs.getString('standaloneToken'), 'fixture');
+    expect(prefs.getBool(AppPrefsKeys.secureStorageV11Initialized), isTrue);
+    expect(prefs.containsKey(AppPrefsKeys.secureStorageV10Migrated), isFalse);
+    expect(
+      await SecureStorageMigration.checkReady(isAndroid: true),
+      SecureStorageReadiness.ready,
+    );
+  });
+
+  test('초기화 실패 또는 잔여 항목은 준비 표시를 만들지 않는다', () async {
+    FlutterSecureStorage.setMockInitialValues({
+      'standalone_password': 'fixture',
+    });
+    for (final cleared in [false, true]) {
+      await expectLater(
+        SecureStorageMigration.resetForReauthentication(
+          isAndroid: true,
+          clearAndroidStorage: () async => cleared,
+        ),
+        throwsStateError,
+      );
+      expect(await SecureStorageMigration.isDone(), isFalse);
+    }
+  });
+
+  for (final fails in [false, true]) {
+    testWidgets('초기화 확인 뒤 성공할 때만 정상 시작 흐름에 복귀: fails=$fails', (tester) async {
+      var resets = 0;
+      var restarts = 0;
+      await tester.pumpWidget(
+        SecureStorageRecoveryApp(
+          readiness: SecureStorageReadiness.reauthenticationRequired,
+          reset: () async {
+            resets++;
+            if (fails) throw StateError('fixture');
+          },
+          onRecovered: () async {
+            restarts++;
+          },
+        ),
+      );
+      expect(resets, 0);
+      await tester.tap(find.text('저장된 로그인 정보 초기화하고 다시 로그인'));
+      await tester.pumpAndSettle();
+      expect(resets, 0);
+      await tester.tap(find.text('초기화하고 다시 로그인'));
+      await tester.pumpAndSettle();
+      expect(resets, 1);
+      expect(restarts, fails ? 0 : 1);
+      if (fails) expect(find.textContaining('초기화를 마치지 못했습니다'), findsOneWidget);
+    });
+  }
 
   testWidgets('recovery guidance scrolls at narrow width and large text', (
     tester,
@@ -206,6 +306,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     expect(find.text('앱 종료').hitTestable(), findsOneWidget);
+    await tester.tap(find.text('저장된 로그인 정보 초기화하고 다시 로그인'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('취소').hitTestable(), findsOneWidget);
+    expect(find.text('초기화하고 다시 로그인').hitTestable(), findsOneWidget);
   });
 
   test(

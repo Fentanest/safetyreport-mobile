@@ -18,6 +18,7 @@ import 'sync_engine.dart';
 
 const _channel = MethodChannel('com.fentanest.mysafetyreport/permissions');
 const _enqueuePrefix = PrefsInbox.enqueue;
+const _legacyUncertainPrefix = 'crawl_legacy_enqueue_uncertain.';
 
 /// A separate FlutterEngine owns this entry point; there is no Activity/Provider.
 Future<void> runNotificationBackground() async {
@@ -112,7 +113,10 @@ Future<void> runNotificationBackground() async {
 /// 3회 모두 404, 새 앱이 PC 서버보다 먼저 올라가면 자동 크롤링이 멈춤).
 const _notificationFallbackRetryAfter = Duration(hours: 6);
 
-bool _notificationPathKnownUnsupported(SharedPreferences prefs, String baseUrl) {
+bool _notificationPathKnownUnsupported(
+  SharedPreferences prefs,
+  String baseUrl,
+) {
   if (prefs.getString(AppPrefsKeys.crawlNotificationUnsupportedBaseUrl) !=
       baseUrl) {
     return false;
@@ -159,7 +163,12 @@ Future<void> _markLegacyEnqueueSent(SharedPreferences prefs, String key) async {
   final bounded = keys.length > 200
       ? keys.skip(keys.length - 200).toList()
       : keys.toList();
-  await prefs.setStringList(AppPrefsKeys.crawlLegacyEnqueueSentKeys, bounded);
+  if (!await prefs.setStringList(
+    AppPrefsKeys.crawlLegacyEnqueueSentKeys,
+    bounded,
+  )) {
+    throw StateError('legacy_enqueue_receipt_not_saved');
+  }
 }
 
 Future<void> _clearLegacyEnqueueSent(
@@ -186,6 +195,15 @@ Future<void> _sendLegacyEnqueue(
   required String number,
 }) async {
   if (_readLegacySentKeys(prefs).contains(key)) return;
+  // Persist before POST: no request_id exists on this endpoint. A crash, timeout
+  // or non-200 response cannot prove that the server did not accept the request.
+  final uncertainKey = '$_legacyUncertainPrefix$key';
+  if (prefs.containsKey(uncertainKey)) {
+    throw StateError('legacy_enqueue_uncertain');
+  }
+  if (!await prefs.setBool(uncertainKey, true)) {
+    throw StateError('legacy_enqueue_intent_not_saved');
+  }
   final response = await client
       .post(
         ServerContract.apiUri(baseUrl, ServerContract.crawlEnqueuePath),
@@ -200,6 +218,7 @@ Future<void> _sendLegacyEnqueue(
     throw StateError('legacy_enqueue_failed');
   }
   await _markLegacyEnqueueSent(prefs, key);
+  await prefs.remove(uncertainKey);
 }
 
 /// 알림 의도 하나를 보낸다. 새 경로(`/crawl/notification`, request_id 로 재시도 안전)를 먼저 쓰고,
@@ -213,6 +232,11 @@ Future<void> _sendClientNotification(
   required String key,
   required String number,
 }) async {
+  // Check before even trying the new endpoint after its capability cache expires.
+  if (_readLegacySentKeys(prefs).contains(key)) return;
+  if (prefs.containsKey('$_legacyUncertainPrefix$key')) {
+    throw StateError('legacy_enqueue_uncertain');
+  }
   if (_notificationPathKnownUnsupported(prefs, baseUrl)) {
     await _sendLegacyEnqueue(
       prefs,
@@ -282,19 +306,41 @@ Future<void> drainClientNotifications(
           )
           .toList()
         ..sort();
-  for (final key in keys.take(20)) {
+  // Keep uncertain receipts for manual reconciliation, without starving newer
+  // notifications behind them. Confirmed receipts still take the normal ACK path.
+  final sent = _readLegacySentKeys(prefs);
+  final uncertain = keys
+      .where(
+        (key) =>
+            prefs.containsKey('$_legacyUncertainPrefix$key') &&
+            !sent.contains(key),
+      )
+      .toSet();
+  for (final key in keys.where((key) => !uncertain.contains(key)).take(20)) {
     await checkScope();
     final number = prefs.getString(key)!;
-    await _sendClientNotification(
-      prefs,
-      client: client,
-      baseUrl: baseUrl,
-      apiKey: apiKey,
-      key: key,
-      number: number,
-    );
+    try {
+      await _sendClientNotification(
+        prefs,
+        client: client,
+        baseUrl: baseUrl,
+        apiKey: apiKey,
+        key: key,
+        number: number,
+      );
+    } catch (_) {
+      // A failed legacy POST has no safe automatic retry. Keep its obligation
+      // and intent marker, and continue with other actionable notifications.
+      if (prefs.containsKey('$_legacyUncertainPrefix$key') &&
+          !_readLegacySentKeys(prefs).contains(key)) {
+        await checkScope();
+        continue;
+      }
+      rethrow;
+    }
     await checkScope();
     await PrefsInbox.remove(prefs, [key]);
     await _clearLegacyEnqueueSent(prefs, key);
+    await prefs.remove('$_legacyUncertainPrefix$key');
   }
 }

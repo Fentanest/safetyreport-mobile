@@ -66,7 +66,7 @@ class NotificationWork(context: Context, params: WorkerParameters) : ListenableW
                 PeriodicWorkRequest.Builder(NotificationWork::class.java, 15, TimeUnit.MINUTES)
                     .setConstraints(constraints).build())
         }
-        fun notice(context: Context, title: String, body: String) {
+        fun notice(context: Context, title: String, body: String): Boolean =
             runCatching {
                 val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                 if (Build.VERSION.SDK_INT >= 26) nm.createNotificationChannel(NotificationChannel(CHANNEL, "자동 알림 처리", NotificationManager.IMPORTANCE_DEFAULT))
@@ -77,8 +77,7 @@ class NotificationWork(context: Context, params: WorkerParameters) : ListenableW
                     .setContentTitle(title).setContentText(body).setAutoCancel(true).setOnlyAlertOnce(true)
                 if (intent != null) builder.setContentIntent(PendingIntent.getActivity(context, NOTICE_ID, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
                 nm.notify("notification-work", NOTICE_ID, builder.build())
-            }
-        }
+            }.isSuccess
     }
     private val main = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
@@ -216,18 +215,39 @@ class NotificationWork(context: Context, params: WorkerParameters) : ListenableW
         engine = null
         // Release claims only after the isolate is gone; OS stop never ACKs unfinished work.
         io.execute {
-            runCatching {
+            val uncertainty = runCatching {
                 val inbox = ProcessingInboxStore.get(applicationContext)
                 synchronized(owners) { owners.forEach { inbox.release(it) } }
-            }
+                inbox.scope(prefs, PrefsInbox.ENQUEUE) to
+                    if (prefs.getString("flutter.appMode", "server") != "standalone") inbox.uncertainKeys(prefs) else emptySet<String>()
+            }.getOrNull()
             main.post {
-                if (admitted) active.set(false)
+                val uncertain = uncertainty?.second?.isNotEmpty() == true
+                val sameScope = admitted && stamp == ClientGateGuard.configStamp(prefs)
+                val workPrefs = applicationContext.getSharedPreferences("NotificationWork", Context.MODE_PRIVATE)
+                if (sameScope && uncertainty != null) {
+                    val (scope, keys) = uncertainty
+                    val receiptKey = "uncertain_notice.$scope"
+                    if (keys.isEmpty()) {
+                        workPrefs.edit().remove(receiptKey).commit()
+                    } else if (hadPending && keys != workPrefs.getStringSet(receiptKey, emptySet())) {
+                        // A dismissed notice stays dismissed across periodic runs/process restarts.
+                        // No-work runs neither post nor consume a previously unseen set.
+                        if (notice(applicationContext, "크롤링 접수 확인 필요", if (success)
+                            "일부 알림의 서버 접수 여부를 확인하지 못해 보관했습니다. 중복 접수를 막기 위해 자동 재전송하지 않습니다. 크롤링 현황에서 결과를 확인하고 필요하면 직접 크롤링을 요청하세요."
+                        else
+                            "접수 여부가 미확정인 알림은 보관하며 자동 재전송하지 않습니다. 크롤링 현황에서 결과를 확인하세요. 다른 대기 작업은 자동 재시도합니다.")) {
+                            workPrefs.edit().putStringSet(receiptKey, keys).commit()
+                        }
+                    }
+                }
                 if (success) {
-                    if (hadPending) notice(applicationContext, "자동 처리 요청 완료", if (prefs.getString("flutter.appMode", "server") == "standalone") "대기 신고 동기화를 완료했습니다." else "서버가 크롤링 요청을 접수했습니다. 결과는 크롤링 현황에서 확인할 수 있습니다.")
-                    applicationContext.getSharedPreferences("NotificationWork", Context.MODE_PRIVATE).edit().remove("renew_gate").commit()
-                } else if (admitted) {
+                    if (sameScope && hadPending && !uncertain) notice(applicationContext, "자동 처리 요청 완료", if (prefs.getString("flutter.appMode", "server") == "standalone") "대기 신고 동기화를 완료했습니다." else "서버가 크롤링 요청을 접수했습니다. 결과는 크롤링 현황에서 확인할 수 있습니다.")
+                    workPrefs.edit().remove("renew_gate").commit()
+                } else if (sameScope && !uncertain) {
                     notice(applicationContext, "자동 처리 재시도 대기", "연결·인증 또는 처리 상태를 확인하지 못했습니다. 자동 재시도하며, 앱에서 상태를 확인할 수 있습니다.")
                 }
+                if (admitted) active.set(false)
                 completion?.set(if (success) Result.success() else Result.retry())
                 io.shutdown()
             }

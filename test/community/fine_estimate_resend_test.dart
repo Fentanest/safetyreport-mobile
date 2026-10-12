@@ -1,8 +1,7 @@
 // 기존 신고 다시 보내기(크롤링 없음) — fine-estimate-contract.md "기존 신고 다시 보내기".
 //
 // 크롤링·공식 사이트 접근 없이, 이미 커뮤니티에 올라간 적 있는 신고(report_latest)를 로컬
-// personal DB 값으로 다시 capture() 한다. payload_sha256 이 바뀐 것(=fine_estimate 가 새로
-// 생긴 것)만 새 journal/outbox 를 만든다.
+// personal DB의 추정 입력으로 journal 최신 payload의 fine_estimate만 갱신한다.
 import 'dart:convert';
 import 'dart:io';
 
@@ -45,16 +44,46 @@ Report _report({
 
 const _entryValue = '불법주정차신고-장애인 전용구역 불법주차';
 
+// 실시간 수집/예전 journal fixture용 전체 원문 입력. 재전송 어댑터와 분리한다.
+Future<Map<String, Object?>> _observationInput(String id) async {
+  final db = await LocalDbService.db;
+  final row = (await db.query(
+    'reports',
+    where: 'ID=?',
+    whereArgs: [id],
+  )).single;
+  String value(String key) => row[key]?.toString() ?? '';
+  return buildAdapterInput(
+    status: value('처리상태'),
+    reportNumber: value('신고번호'),
+    fineInfo: value('범칙금_과태료'),
+    date: value('신고일'),
+    responseDate: value('답변일'),
+    agency: value('처리기관'),
+    agencyCode: row['처리기관코드'] as String?,
+    manager: value('담당자'),
+    carNumber: value('차량번호'),
+    location: value('위반장소'),
+    penaltyPoints: value('벌점'),
+    entryValue: value('entry_value'),
+    ssnpcCd: row['ssnpc_cd'] as String?,
+    ssnpcType: row['ssnpc_type'] as String?,
+    violationLaw: value('위반법규'),
+    progressStatus: value('상태'),
+    reportName: value('신고명'),
+    occurrenceTime: value('발생시각'),
+    photoFirstCapture: row['사진_첫촬영'] as String?,
+    photoLastCapture: row['사진_끝촬영'] as String?,
+  );
+}
+
 /// capture() 가 저장했을 payload_json·sha 를 production 코드로 계산한다(테스트에서 다시
 /// 구현하지 않음). [withFineEstimate]=false 면 fine_estimate 키를 지운 "업데이트 전" payload다.
 Future<({String json, String sha})> _payloadFor(
   String id, {
   bool withFineEstimate = true,
 }) async {
-  final rows = await LocalDbService.communityResendRows([id]);
-  final payload = Map<String, Object?>.from(
-    buildPayload(adapterInputFromResendRow(rows.single)),
-  );
+  final payload = buildPayload(await _observationInput(id));
   if (!withFineEstimate) payload.remove('fine_estimate');
   final json = canonicalJson(payload);
   return (json: json, sha: sha256.convert(utf8.encode(json)).toString());
@@ -144,7 +173,9 @@ void main() {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
     await databaseFactory.setDatabasesPath(
-      (tempDbDir = Directory.systemTemp.createTempSync('sr_fer_personal_')).path,
+      (tempDbDir = Directory.systemTemp.createTempSync(
+        'sr_fer_personal_',
+      )).path,
     );
   });
   tearDownAll(() async {
@@ -178,28 +209,428 @@ void main() {
     );
   }
 
-  test('파서 7은 오타 보정 신고를 크롤링 없이 한 번 다시 보낸다', () async {
+  for (final saveState in ['failed', 'pending']) {
+    test('$saveState 개인 저장 뒤 재전송은 최신 확정 답변을 되돌리지 않는다', () async {
+      final store = await _openStore();
+      try {
+        await seedReports();
+        await _seedOldJournal(store, 'R1', revision: 1);
+        final input = await _observationInput('R1');
+        final latest = await capture(
+          {
+            ...input,
+            'penalty_amount': '과태료: 200,000원',
+            'response_date': '2026-10-13',
+            'processing_agency': '최신 기관',
+            'report_number': 'SPP-NEW-R1',
+            'progress_status': '처리완료',
+          },
+          sourceReportId: 'R1',
+          trigger: 'realtime',
+          store: store,
+        );
+        if (saveState == 'failed') {
+          await markPersonalSave(latest.eventId, false, store: store);
+        }
+        final before = await store.db.query(
+          'source_journal',
+          orderBy: 'source_revision',
+        );
+        final detail = await store.db.query('detail_status');
+        final outbox = await store.db.query('outbox');
+        expect(await resendFineEstimateIfNeeded(store: store), 0);
+        expect(
+          await store.db.query('source_journal', orderBy: 'source_revision'),
+          before,
+        );
+        expect(await store.db.query('detail_status'), detail);
+        expect(await store.db.query('outbox'), outbox);
+      } finally {
+        await _closeStore(store);
+      }
+    });
+
+    test('$saveState 개인 저장 상태로 추정 갱신을 막지 않고 나머지 최신 필드를 보존한다', () async {
+      final store = await _openStore();
+      try {
+        await seedReports();
+        await _seedOldJournal(store, 'R1', revision: 1);
+        final old = (await store.db.query('source_journal')).single;
+        final payload =
+            jsonDecode(old['payload_json'] as String) as Map<String, dynamic>;
+        payload.addAll({
+          'agency_name': '최신 기관',
+          'completed_date': '2026-10-13',
+          'vehicle_raw': '99나9999',
+          'violation_law': '최신 법규',
+          'rating': 5,
+          'source_agency_code': '000123',
+          'location': {'lat': '37.1', 'lng': '127.1', 'source': 'geocode'},
+        });
+        final canonical = canonicalJson(payload);
+        final sha = sha256.convert(utf8.encode(canonical)).toString();
+        await store.db.update('source_journal', {
+          'payload_json': canonical,
+          'payload_sha256': sha,
+          'personal_save_state': saveState,
+          'report_number': 'SPP-NEW-R1',
+        });
+        await store.db.update('report_latest', {'payload_sha256': sha});
+        // 개인 DB는 아직 과태료 처분조차 저장되지 않은 옛 상태다.
+        await LocalDbService.upsertReport(
+          _report(id: 'R1', fineInfo: '계도'),
+          'parking',
+          _entryValue,
+        );
+        expect(await resendFineEstimateIfNeeded(store: store), 1);
+        final events = await store.db.query(
+          'source_journal',
+          orderBy: 'source_revision',
+        );
+        final updated =
+            jsonDecode(events.last['payload_json'] as String)
+                as Map<String, dynamic>;
+        expect(updated.remove('fine_estimate'), {
+          'won': 100000,
+          'rule': 'disabled_parking',
+          'rule_version': fine_estimate.ruleVersion,
+        });
+        expect(updated, payload);
+        expect(events.last['report_number'], 'SPP-NEW-R1');
+        expect(events.first['personal_save_state'], saveState);
+        expect((await store.db.query('outbox')).length, 1);
+      } finally {
+        await _closeStore(store);
+      }
+    });
+  }
+
+  test('재공유 이력은 계정별 과거 payload가 아닌 신고의 최신 journal을 기준으로 한다', () async {
     final store = await _openStore();
     try {
-      await LocalDbService.upsertReport(_report(id: 'T1', fineInfo: '과태료: 40,0000원'), 'parking', '불법주정차신고');
+      await seedReports();
+      await _seedOldJournal(store, 'R1', revision: 1);
+      final original = (await store.db.query('source_journal')).single;
+      final latestPayload =
+          jsonDecode(original['payload_json'] as String)
+              as Map<String, dynamic>;
+      latestPayload['agency_name'] = '재공유 최신 기관';
+      latestPayload['fine_estimate'] = {
+        'won': 100000,
+        'rule': 'disabled_parking',
+        'rule_version': fine_estimate.ruleVersion,
+      };
+      final canonical = canonicalJson(latestPayload);
+      final sha = sha256.convert(utf8.encode(canonical)).toString();
+      await store.db.insert('source_journal', {
+        ...original,
+        'event_id': 'reshared-R1',
+        'source_revision': 2,
+        'dataset_key': 'ds2',
+        'contributor_fingerprint': 'fp2',
+        'payload_json': canonical,
+        'payload_sha256': sha,
+      });
+      await store.setMeta('next_revision', '3');
+      // report_latest/현 계정 이력은 예전 관측을 가리켜도 최신 revision을 읽는다.
+      expect(await resendFineEstimateIfNeeded(store: store), 0);
+      expect((await store.db.query('source_journal')).length, 2);
+      expect(await store.db.query('outbox'), isEmpty);
+      await LocalDbService.upsertReport(
+        _report(id: 'R1', fineInfo: '과태료'),
+        'parking',
+        '불법주정차신고',
+      );
+      await store.setMeta('fine_estimate_resend_done', 'old');
+      await store.setMeta('fine_estimate_resend_cursor_version', 'old');
+      expect(await resendFineEstimateIfNeeded(store: store), 1);
+      final events = await store.db.query(
+        'source_journal',
+        orderBy: 'source_revision',
+      );
+      final updated =
+          jsonDecode(events.last['payload_json'] as String)
+              as Map<String, dynamic>;
+      expect((updated.remove('fine_estimate') as Map)['won'], 40000);
+      latestPayload.remove('fine_estimate');
+      expect(updated, latestPayload);
+      expect(events.last['dataset_key'], 'ds1');
+    } finally {
+      await _closeStore(store);
+    }
+  });
+
+  for (final scenario in ['confirmed', 'zero', 'penalty', 'no_rule']) {
+    test('$scenario 최신 관측의 낡은 추정 필드만 제거한다', () async {
+      final store = await _openStore();
+      try {
+        await seedReports();
+        await _seedOldJournal(store, 'R1', revision: 1);
+        final payload =
+            jsonDecode(
+                  (await store.db.query(
+                        'source_journal',
+                      )).single['payload_json']
+                      as String,
+                )
+                as Map<String, dynamic>;
+        payload['fine_estimate'] = {
+          'won': 100000,
+          'rule': 'disabled_parking',
+          'rule_version': 'old',
+        };
+        if (scenario == 'confirmed' || scenario == 'zero') {
+          (payload['amount'] as Map)['confirmed_won'] = scenario == 'zero'
+              ? 0
+              : 200000;
+        } else if (scenario == 'penalty') {
+          (payload['amount'] as Map)['kind'] = 'penalty';
+        } else {
+          final db = await LocalDbService.db;
+          await db.update(
+            'reports',
+            {'entry_value': '안전신고', 'ssnpc_cd': 'CM', 'ssnpc_type': '07'},
+            where: 'ID=?',
+            whereArgs: ['R1'],
+          );
+        }
+        final canonical = canonicalJson(payload);
+        final sha = sha256.convert(utf8.encode(canonical)).toString();
+        await store.db.update('source_journal', {
+          'payload_json': canonical,
+          'payload_sha256': sha,
+        });
+        await store.db.update('report_latest', {'payload_sha256': sha});
+        expect(await resendFineEstimateIfNeeded(store: store), 1);
+        final events = await store.db.query(
+          'source_journal',
+          orderBy: 'source_revision',
+        );
+        payload.remove('fine_estimate');
+        expect(jsonDecode(events.last['payload_json'] as String), payload);
+        expect(await resendFineEstimateIfNeeded(store: store), 0);
+      } finally {
+        await _closeStore(store);
+      }
+    });
+  }
+
+  test('발급 트랜잭션에서 최신 journal을 읽고 journal 법규로 추정한다', () async {
+    final store = await _openStore();
+    try {
+      await seedReports();
+      await _seedOldJournal(store, 'R1', revision: 1);
+      final db = await LocalDbService.db;
+      await db.update(
+        'reports',
+        {
+          'entry_value': '자동차·교통위반',
+          'ssnpc_cd': 'TV',
+          'ssnpc_type': '02',
+          '신고명': '교통위반',
+          '위반법규': '오래된 법규',
+        },
+        where: 'ID=?',
+        whereArgs: ['R1'],
+      );
+      final row = (await LocalDbService.communityResendRows(['R1'])).single;
+      expect(
+        row.keys,
+        unorderedEquals([
+          'ID',
+          '신고명',
+          '차량번호',
+          '발생시각',
+          'entry_value',
+          'ssnpc_cd',
+          'ssnpc_type',
+          '사진_첫촬영',
+          '사진_끝촬영',
+        ]),
+      );
+      final original = (await store.db.query('source_journal')).single;
+      final latestPayload =
+          jsonDecode(original['payload_json'] as String)
+              as Map<String, dynamic>;
+      latestPayload['violation_law'] = '도로교통법 제15조';
+      latestPayload['agency_name'] = '트랜잭션 직전 관측';
+      final canonical = canonicalJson(latestPayload);
+      final result = await capture(
+        adapterInputFromResendRow(row),
+        sourceReportId: 'R1',
+        trigger: 'fine_estimate_resend',
+        store: store,
+        beforeWrite: (tx) async {
+          await tx.insert('source_journal', {
+            ...original,
+            'event_id': 'new-at-write',
+            'source_revision': 2,
+            'payload_json': canonical,
+            'payload_sha256': sha256.convert(utf8.encode(canonical)).toString(),
+          });
+          await store.setMeta('next_revision', '3', tx);
+        },
+      );
+      expect(result.eventId, isNotNull);
+      final events = await store.db.query(
+        'source_journal',
+        orderBy: 'source_revision',
+      );
+      final updated = jsonDecode(events.last['payload_json'] as String) as Map;
+      expect(updated.remove('fine_estimate'), {
+        'won': 50000,
+        'rule': 'bus_lane',
+        'rule_version': fine_estimate.ruleVersion,
+      });
+      expect(updated, latestPayload);
+      expect(await store.db.query('detail_status'), isEmpty);
+    } finally {
+      await _closeStore(store);
+    }
+  });
+
+  test('삭제 차단된 미전송 자료는 새 연결에서도 재발급하지 않는다', () async {
+    final store = await _openStore();
+    try {
+      await seedReports();
+      await _seedOldJournal(store, 'R1', revision: 1);
+      await store.db.update('source_journal', {
+        'blocked_reason': 'deleted_by_user',
+      });
+      expect(await resendFineEstimateIfNeeded(store: store), 0);
+      expect((await store.db.query('source_journal')).length, 1);
+      expect(await store.db.query('outbox'), isEmpty);
+    } finally {
+      await _closeStore(store);
+    }
+  });
+
+  test('후보 조회 뒤 삭제되어도 발급 트랜잭션에서 차단을 재확인한다', () async {
+    final store = await _openStore();
+    try {
+      await seedReports();
+      await _seedOldJournal(store, 'R1', revision: 1);
+      final input = adapterInputFromResendRow(
+        (await LocalDbService.communityResendRows(['R1'])).single,
+      );
+      final result = await capture(
+        input,
+        sourceReportId: 'R1',
+        trigger: 'fine_estimate_resend',
+        store: store,
+        beforeWrite: (tx) async {
+          await tx.update('source_journal', {
+            'blocked_reason': 'deleted_by_user',
+          });
+        },
+      );
+      expect(result.eventId, isNull);
+      expect((await store.db.query('source_journal')).length, 1);
+      expect(await store.db.query('outbox'), isEmpty);
+    } finally {
+      await _closeStore(store);
+    }
+  });
+
+  test('personal_sync 소유자가 있으면 재전송하지 않고 다음 실행에 최신 답변을 읽는다', () async {
+    final store = await _openStore();
+    try {
+      await seedReports();
+      await _seedOldJournal(store, 'R1', revision: 1);
+      await store.acquireLease(
+        'personal_sync',
+        'sync-owner',
+        const Duration(minutes: 10),
+      );
+      expect(await resendFineEstimateIfNeeded(store: store), 0);
+      expect(await store.meta('fine_estimate_resend_done'), isNull);
+      await capture(
+        {...await _observationInput('R1'), 'penalty_amount': '과태료: 200,000원'},
+        sourceReportId: 'R1',
+        trigger: 'realtime',
+        store: store,
+      );
+      await LocalDbService.upsertReport(
+        _report(id: 'R1', fineInfo: '과태료: 200,000원'),
+        'parking',
+        _entryValue,
+      );
+      await store.releaseLease('personal_sync', 'sync-owner');
+      expect(await resendFineEstimateIfNeeded(store: store), 0);
+      final events = await store.db.query(
+        'source_journal',
+        orderBy: 'source_revision',
+      );
+      expect(
+        jsonDecode(
+          events.last['payload_json'] as String,
+        )['amount']['confirmed_won'],
+        200000,
+      );
+    } finally {
+      await _closeStore(store);
+    }
+  });
+
+  test('파서 변경 재전송도 확정 판정을 재해석하지 않고 추정만 갱신한다', () async {
+    final store = await _openStore();
+    try {
+      await LocalDbService.upsertReport(
+        _report(id: 'T1', fineInfo: '과태료: 40,0000원'),
+        'parking',
+        '불법주정차신고',
+      );
       await _seedOldJournal(store, 'T1', revision: 1);
-      final rows = await LocalDbService.communityResendRows(['T1']);
-      final old = Map<String, Object?>.from(buildPayload(adapterInputFromResendRow(rows.single)));
+      final old = buildPayload(await _observationInput('T1'));
       (old['amount'] as Map)['confirmed_won'] = null;
-      old['fine_estimate'] = {'won': 40000, 'rule': 'parking', 'rule_version': fine_estimate.ruleVersion};
+      old['fine_estimate'] = {
+        'won': 40000,
+        'rule': 'parking',
+        'rule_version': 'old-rule',
+      };
       final oldJson = canonicalJson(old);
       final oldSha = sha256.convert(utf8.encode(oldJson)).toString();
-      await store.db.update('source_journal', {'payload_json': oldJson, 'payload_sha256': oldSha, 'parser_version': 'mobile-parser-6'}, where: 'source_report_id=?', whereArgs: ['T1']);
-      await store.db.update('report_latest', {'payload_sha256': oldSha}, where: 'source_report_id=?', whereArgs: ['T1']);
-      await store.setMeta('fine_estimate_resend_done', '${fine_estimate.ruleVersion}|mobile-parser-6');
+      await store.db.update(
+        'source_journal',
+        {
+          'payload_json': oldJson,
+          'payload_sha256': oldSha,
+          'parser_version': 'mobile-parser-6',
+        },
+        where: 'source_report_id=?',
+        whereArgs: ['T1'],
+      );
+      await store.db.update(
+        'report_latest',
+        {'payload_sha256': oldSha},
+        where: 'source_report_id=?',
+        whereArgs: ['T1'],
+      );
+      await store.setMeta(
+        'fine_estimate_resend_done',
+        '${fine_estimate.ruleVersion}|mobile-parser-6',
+      );
       expect(await resendFineEstimateIfNeeded(store: store), 1);
-      final events = await store.db.rawQuery("SELECT * FROM source_journal WHERE source_report_id='T1' ORDER BY source_revision");
+      final events = await store.db.rawQuery(
+        "SELECT * FROM source_journal WHERE source_report_id='T1' ORDER BY source_revision",
+      );
       expect(events.length, 2);
       expect(events.last['parser_version'], 'mobile-parser-7');
-      expect((jsonDecode(events.last['payload_json'] as String)['amount'] as Map)['confirmed_won'], 40000);
+      final updated = jsonDecode(events.last['payload_json'] as String) as Map;
+      expect((updated['amount'] as Map)['confirmed_won'], isNull);
+      expect(updated['fine_estimate'], {
+        'won': 40000,
+        'rule': 'parking',
+        'rule_version': fine_estimate.ruleVersion,
+      });
+      updated.remove('fine_estimate');
+      old.remove('fine_estimate');
+      expect(updated, old);
       expect(await resendFineEstimateIfNeeded(store: store), 0);
-      final stored = await LocalDbService.communityResendRows(['T1']);
-      expect(stored.single['범칙금_과태료'], '과태료: 40,0000원');
+      expect(
+        (await _observationInput('T1'))['penalty_amount'],
+        '과태료: 40,0000원',
+      );
     } finally {
       await _closeStore(store);
     }
@@ -221,11 +652,14 @@ void main() {
       expect(r1.length, equals(2), reason: 'R1 은 새 이벤트가 생겨야 한다');
       expect(r1.last['capture_trigger'], equals('fine_estimate_resend'));
       final newPayload = jsonDecode(r1.last['payload_json'] as String) as Map;
-      expect(newPayload['fine_estimate'], equals({
-        'won': 100000,
-        'rule': 'disabled_parking',
-        'rule_version': fine_estimate.ruleVersion,
-      }));
+      expect(
+        newPayload['fine_estimate'],
+        equals({
+          'won': 100000,
+          'rule': 'disabled_parking',
+          'rule_version': fine_estimate.ruleVersion,
+        }),
+      );
       final r1Outbox = await store.db.rawQuery(
         "SELECT * FROM outbox WHERE event_id=?",
         [r1.last['event_id']],

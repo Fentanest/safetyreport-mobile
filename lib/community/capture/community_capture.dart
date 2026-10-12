@@ -166,16 +166,17 @@ Future<CaptureResult> capture(
   Future<void> Function(DatabaseExecutor)? beforeWrite,
 }) async {
   final s = store ?? await CommunityStore.open();
-  final payload = buildPayload(adapterInput);
+  final resend = trigger == 'fine_estimate_resend';
+  var payload = resend ? <String, Object?>{} : buildPayload(adapterInput);
   // REVIEW3 낮음-1: 상한 초과 원문 기관코드는 조용히 null 로 버리지 않고 명시적
   // 거절한다. 원문은 로컬 신고 DB에 그대로 있고, journal/outbox 에 사유를
   // 기록한다(서버 edge·PC와 동일 사유 문자열).
-  final codeBlocked = isAgencyCodeTooLong(adapterInput['agency_code']);
-  final eligible = payloadEligible(payload);
-  final canonical = canonicalJson(payload);
-  final sha = sha256.convert(utf8.encode(canonical)).toString();
+  var codeBlocked = isAgencyCodeTooLong(adapterInput['agency_code']);
+  var eligible = payloadEligible(payload);
+  var canonical = canonicalJson(payload);
+  var sha = sha256.convert(utf8.encode(canonical)).toString();
   final reportNumber = adapterInput['report_number']?.toString().trim();
-  final storedReportNumber = reportNumber == null || reportNumber.isEmpty
+  var storedReportNumber = reportNumber == null || reportNumber.isEmpty
       ? null
       : reportNumber;
   final progressStatus = adapterInput['progress_status']?.toString() ?? '';
@@ -184,6 +185,59 @@ Future<CaptureResult> capture(
   return s.transaction((tx) async {
     await beforeWrite?.call(tx);
     final localDatasetId = await s.meta('local_dataset_id', tx) ?? '';
+    // Resend is a reinterpretation of an old observation, not a new collection.
+    // Recheck under the publishing transaction: deletion may follow candidate selection.
+    if (resend) {
+      final deleted = await tx.rawQuery(
+        "SELECT 1 FROM report_latest l JOIN source_journal j ON j.event_id=l.event_id "
+        "WHERE l.local_dataset_id=? AND l.source_report_id=? AND j.blocked_reason='deleted_by_user'",
+        [localDatasetId, sourceReportId],
+      );
+      if (deleted.isNotEmpty) {
+        return CaptureResult(
+          eventId: null,
+          eventType: null,
+          eligible: eligible,
+          payloadSha256: sha,
+          sourceRevision: null,
+        );
+      }
+      // 계정별 중복 판정용 prev나 report_latest 포인터가 아닌 신고의 최신 관측.
+      // 개인 저장 실패·중단 및 재공유 이력과 무관하게 같은 발급 트랜잭션에서 읽는다.
+      final rows = await tx.rawQuery(
+        'SELECT payload_json, report_number, blocked_reason FROM source_journal '
+        'WHERE local_dataset_id=? AND source_report_id=? '
+        'ORDER BY source_revision DESC LIMIT 1',
+        [localDatasetId, sourceReportId],
+      );
+      if (rows.isEmpty || rows.first['blocked_reason'] == 'deleted_by_user') {
+        return CaptureResult(
+          eventId: null,
+          eventType: null,
+          eligible: false,
+          payloadSha256: sha,
+          sourceRevision: null,
+        );
+      }
+      final latest = rows.first;
+      final original = (jsonDecode(latest['payload_json'] as String) as Map)
+          .cast<String, Object?>();
+      payload = refreshFineEstimate(original, adapterInput);
+      canonical = canonicalJson(payload);
+      sha = sha256.convert(utf8.encode(canonical)).toString();
+      eligible = payloadEligible(payload);
+      if (canonical == canonicalJson(original)) {
+        return CaptureResult(
+          eventId: null,
+          eventType: null,
+          eligible: eligible,
+          payloadSha256: sha,
+          sourceRevision: null,
+        );
+      }
+      storedReportNumber = latest['report_number'] as String?;
+      codeBlocked = latest['blocked_reason'] == 'blocked:$agencyCodeTooLong';
+    }
     final contextRows = await tx.rawQuery('SELECT * FROM context WHERE id=1');
     Map<String, Object?>? contextRow = contextRows.isEmpty
         ? null
@@ -263,13 +317,15 @@ Future<CaptureResult> capture(
       }
     }
 
-    // 상세를 받을 때마다 detail_status 를 같은 트랜잭션으로 기록한다.
-    await tx.insert('detail_status', {
-      'local_dataset_id': localDatasetId,
-      'source_report_id': sourceReportId,
-      'c_now_label': progressStatus,
-      'observed_at': at,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    // 재전송은 새로운 상세 관측이 아니므로 진행 상태·관측 시각을 덮지 않는다.
+    if (!resend) {
+      await tx.insert('detail_status', {
+        'local_dataset_id': localDatasetId,
+        'source_report_id': sourceReportId,
+        'c_now_label': progressStatus,
+        'observed_at': at,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
 
     if (eventType == null) {
       if (rebuildRunId != null && prev != null) {
@@ -324,7 +380,9 @@ Future<CaptureResult> capture(
           : null,
       'connection_id': contextActive ? contextRow!['connection_id'] : null,
       'writer_epoch': contextActive ? contextRow!['writer_epoch'] : null,
-      'consent_grant_id': contextActive ? contextRow!['consent_grant_id'] : null,
+      'consent_grant_id': contextActive
+          ? contextRow!['consent_grant_id']
+          : null,
       'personal_save_state': 'pending',
       'blocked_reason': codeBlocked
           ? 'blocked:$agencyCodeTooLong'

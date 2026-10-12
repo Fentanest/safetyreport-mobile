@@ -460,6 +460,11 @@ class MainActivity : FlutterFragmentActivity() {
                 "unmigratedLegacyEntries" -> result.success(unmigratedLegacySecureEntries())
                 // v11: count every entry, including default-cipher v9 data and keysets.
                 // Do not initialize the secure-storage plugin or inspect/log values.
+                // Explicit recovery confirmation only; never touch FlutterSharedPreferences
+                // or any database. Clear v9 ciphertext/keysets without initializing v11.
+                "resetSecureStorageForReauthentication" -> result.success(try {
+                    SecureStorageRecovery.reset(this)
+                } catch (_: Exception) { false })
                 "storedSecureEntries" -> result.success(try {
                     getSharedPreferences(SECURE_STORAGE_PREFS, MODE_PRIVATE).all.size
                 } catch (_: Exception) { -1 })

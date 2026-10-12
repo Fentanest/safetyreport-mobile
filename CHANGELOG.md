@@ -1,5 +1,142 @@
 # Changelog
 
+## 2026-10-13 mobile 4차 검수: 재전송의 최신 관측 역전 수정
+
+- 잔존 P1: 동기화가 journal을 먼저 쓴 뒤 개인 DB 저장에 실패하거나 중단되어도,
+  추정 과태료 재전송이 오래된 개인 DB 답변으로 최신 관측을 되돌리지 않도록 수정했다.
+  발급 트랜잭션 안에서 같은 데이터셋·신고의 최신 journal revision을 읽고
+  `fine_estimate`만 교체한다. 답변·확정 금액·기관·좌표·별점·법규 등 나머지 payload와 신고번호는 보존한다.
+- 개인 DB 조회는 ID와 추정 입력(접수 메뉴·분류 코드·차량번호·사진 시각·발생시각·신고명)으로 제한했다.
+  법규는 journal을 사용한다. 개인 DB의 과태료 문구 필터를 제거하고 pending/failed도 처리하여
+  저장 실패에 따른 정상 추정 갱신 누락을 막는다.
+- 최신 관측에 확정 금액이 있거나 과태료가 아니거나 추정 규칙이 없으면 추정 필드를 제거한다.
+  재공유 이력에서도 변경이 없으면 새 이벤트를 만들지 않으며, 재전송으로 detail_status를 갱신하지 않는다.
+  삭제 차단·공통 lease·계정 및 동의 제약·재개 커서는 유지한다.
+- 회귀 시험: 저장 실패/중단 뒤 확정 답변 보존과 추정 갱신, 재공유/오래된 포인터,
+  확정 금액(0 포함)·다른 처분·규칙 없음의 추정 제거, 발급 직전 최신 관측 및 journal 법규 사용,
+  정상 갱신·삭제 경합·lease·재개·동의 없음 경로를 검증했다.
+  신규 핵심 5건은 수정 전 모두 실패(`/tmp/mobile-fix4-red-ci.log`), 수정 후 관련 **18건 모두 통과**
+  (`/tmp/mobile-fix4-green.log`). 이전 파서 재전송 시험은 승인된 설계에 맞춰 확정 재해석 대신 추정만 갱신함을 검증한다.
+
+검증 결과:
+- 고정 Flutter 3.47.5 `pub get` 완료, `pubspec.lock` 변경 없음.
+- `flutter test --no-pub --concurrency=2`: **1,803 passed / 0 failed / 17 skipped** (5분 30초).
+  `/tmp/mobile-fix4-full-test.log`.
+- `flutter analyze --no-pub`: **error 0 / warning 9 / info 0**, 수정 전후 진단 동일, 새 경고 0.
+  `/tmp/mobile-fix4-analyze-{before,after}.log` (기존 경고 때문에 종료코드 1).
+- `git diff --check` 통과. 이번 변경에 Kotlin 수정은 없어 Kotlin 재실행은 NOT_RUN.
+  실기기 동기화·운영 전송은 NOT_RUN. 커밋·push·버전 변경·배포 실행 없음.
+
+이번 수정 파일: `community_capture.dart`, `fine_estimate_resend.dart`, `observation_rules.dart`,
+`local_db_service.dart`, `fine_estimate_resend_test.dart`, `docs/architecture/data-contracts.md`, `CHANGELOG.md`.
+
+## 2026-10-13 mobile 3차 검수: 접수 확인 알림 반복 게시 수정
+
+- P3: 사용자가 지운 `크롤링 접수 확인 필요` 알림이 15분 복구 작업마다 다시 나타나는 문제를 수정했다.
+  마지막으로 안내한 미확정 이벤트 키 집합을 계정·서버 scope별 `NotificationWork` prefs에 저장한다.
+  같은 집합은 다른 작업의 성공·실패나 새 Worker 실행에도 재게시하지 않으며,
+  새 이벤트·동일 건수의 교체·집합 축소는 새 안내 대상으로 구분한다.
+- 실행할 작업이 없는 주기는 미확정 안내를 게시하거나 해당 집합을 안내 완료로 기록하지 않는다.
+  미확정이 비면 현재 scope의 안내 기록만 제거하며, 다른 scope의 기록과 원본 미확정 큐는 보존한다.
+  실행 admission을 얻지 못했거나 scope가 변경된 Worker도 안내하지 않는다.
+- `NotificationWorkTest`는 실제 Worker 시작/종료 경로와 Robolectric 알림 관리자로 알림 삭제 후 반복 주기,
+  DB 재연결·새 Worker, 작업 없는 최초 확인, 같은 집합의 성공/실패, 집합 변경,
+  성공 영수증에 의한 미확정 해소, scope 전환, admission 거절을 검증한다.
+  수정 전 **7건 중 6건 실패**(`/tmp/mobile-fix3-kotlin-red.log`, 같은 이름의 `.xml`), 수정 후 **7건 모두 통과**.
+
+검증 결과:
+- 고정 Flutter 3.47.5 `pub get` 완료, `pubspec.lock` 동일.
+- `flutter test --no-pub --concurrency=2`: **1,793 passed / 0 failed / 17 skipped** (5분 27초).
+  `/tmp/mobile-fix3-full-test.log`.
+- Kotlin `:app:compileDebugKotlin` 및 전체 `:app:testDebugUnitTest`: **37 tests / 0 failures / 0 errors**.
+  `/tmp/mobile-fix3-kotlin-green.log`. JBR·SDK 28 Robolectric 캐시·Kotlin in-process 컴파일을 사용하고
+  Flutter APK 조립 task는 제외했다.
+- `flutter analyze --no-pub`: **error 0 / warning 9 / info 0**, 수정 전 진단과 동일, 새 경고 0.
+  `/tmp/mobile-fix3-analyze-{before,after}.log` (기존 경고 때문에 종료코드 1).
+- `git diff --check` 통과.
+- 실기기 WorkManager/알림 스와이프 검증은 NOT_RUN. 커밋·push·버전 변경·배포 실행 없음.
+
+이번 수정 파일: `NotificationWork.kt`, `ProcessingInboxStore.kt`, 새 `NotificationWorkTest.kt`,
+`docs/architecture/android-runtime.md`, `CHANGELOG.md`.
+
+## 2026-10-13 mobile 2차 검수: 미확정 알림 큐 점유 수정
+
+- P2: 구형 `/crawl/enqueue`의 미확정 요청이 네이티브 앞 200건을 점유하여 새 알림을 막고
+  WorkManager가 무한 재시도하던 문제를 수정했다. 영속 미확정 표시로 TEMP 제외 목록을 구성하여
+  native claim의 LIMIT 전·hasPending·동일 신고 알림 합치기에서 제외한다. 원본 행과 미확정 표시는 보존한다.
+- Dart는 미확정 항목만 남았다고 예외를 던지지 않으며, 처리 중 새로 응답이 유실되어도 다른 알림을 계속 처리한다.
+  성공 영수증이 있으면 기존 ACK 복구를 유지하고, 안전한 새 경로의 오류는 계속 재시도한다.
+- 알림은 미확정 요청의 자동 재전송 중단과 서버 결과 확인/필요 시 직접 크롤링 요청을 안내한다.
+  미확정 항목만으로 Flutter 엔진을 시작하지 않으며, 다른 작업의 재시도와 구분한다.
+- 회귀 시험: 미확정 200건 뒤 새 요청, 미확정만 남은 반복 완료 판정, 프로세스 재시작·원본 보존,
+  기존/JSON 성공 영수증의 ACK 복구, 같은 신고의 새 알림, scope 격리·정상 200건 한도를 검증한다.
+  수정 전 Dart 4건 실패(`/tmp/mobile-fix2-dart-red.log`), Kotlin 경계 시험 1건 실패
+  (`/tmp/mobile-fix2-kotlin-red.log`)로 재현했다.
+
+검증 결과:
+- 고정 Flutter 3.47.5로 `pub get` 완료, `pubspec.lock` 동일.
+- `flutter test --no-pub --concurrency=2`: **1,793 passed / 0 failed / 17 skipped** (6분 37초).
+  `/tmp/mobile-fix2-full-test.log`. 알림 처리 단독 시험도 **14 passed** (`/tmp/mobile-fix2-dart-green.log`).
+- `flutter analyze --no-pub`: **error 0 / warning 9 / info 0**, 수정 전 진단과 동일, 새 경고 0.
+  `/tmp/mobile-fix2-analyze-{before,after}.log` (기존 경고 때문에 종료코드 1).
+- Kotlin `:app:compileDebugKotlin` 및 `ProcessingInboxStoreTest`·`SecureStorageRecoveryTest`:
+  **12 tests / 0 failures / 0 errors**, `/tmp/mobile-fix2-kotlin-green.log`.
+  SDK 28 Robolectric 캐시·JBR·Kotlin in-process 컴파일을 사용하고 Flutter APK 조립은 제외했다.
+- `git diff --check` 통과. 실기기 WorkManager/알림 표시 검증은 NOT_RUN.
+  커밋·push·버전 변경·배포 실행 없음.
+
+이번 수정 파일: `ProcessingInboxStore.kt`, `NotificationWork.kt`, `notification_background.dart`,
+`ProcessingInboxStoreTest.kt`, `notification_background_test.dart`,
+`docs/architecture/android-runtime.md`, `docs/architecture/data-contracts.md`, `CHANGELOG.md`.
+
+## 2026-10-13 (Astra) mobile 릴리스 검수 결함 6건 수정
+
+- P1 삭제 자료 재발급: 재전송 후보에서 최신 journal의 `deleted_by_user`를 제외하고,
+  capture 발급 트랜잭션에서 다시 확인한다. 후보 조회 뒤 삭제되는 경합도 차단한다.
+- P1 옛 답변 덮어쓰기: 독립 재전송 lease 대신 일반 동기화의 `personal_sync` admission을 공유한다.
+  원본 조회부터 발급까지 보호하고 발급·완료 표시 직전 소유권을 검증한다. DB 파일 교체도 작업 종료를 기다린다.
+- P1 v10 미이관 설치 진입 불가: 복구 화면에 **저장된 로그인 정보 초기화하고 다시 로그인**을 추가했다.
+  삭제·보존 범위를 설명하는 확인창에서 동의한 경우에만 flutter_secure_storage 전용 암호문·keyset·wrapped key·
+  암호화 설정을 비운다. 신고 DB·커뮤니티 DB·앱 설정은 보존한다. 빈 저장소 검증과 v11 준비 표시 저장에
+  성공한 뒤 `main()`의 정상 로그인·연결 흐름으로 돌아간다. 자동 초기화와 실패 시 진입은 없다.
+- P2 구형 서버 중복 접수: 비멱등 `/crawl/enqueue` POST 전에 미확정 표시를 영속 저장한다.
+  응답 유실·종료 시 pending을 성공 ACK하지 않고 보존하며, 재시작·경로 캐시 만료 뒤에도 자동 POST하지 않는다.
+  미확정 항목 뒤의 새 알림은 계속 처리하며, HTTP 200을 확인한 요청만 기존 성공 영수증으로 ACK한다. 전송 직전 종료라면 미전송일 수도 있어,
+  미확정 요청은 서버 결과 확인 후 필요한 크롤링을 사용자가 새로 요청해야 한다.
+- P2 NULL 신고번호 중복군: TEMP 조회 표의 `max_report_no`에 NULL을 허용한다. 원본·교환 스키마 변경 없음.
+- P2 중복차량 UI 정지: 직접 sqlite3 연결의 열기·정규화·SELECT·행 변환·닫기를 `Isolate.run`으로 옮겼다.
+  첫 페이지와 전체 목록 모두 적용하며 예외 시 연결도 닫는다.
+
+회귀 증거: 추가한 결함별 시험 6건은 수정 전 모두 실패(`/tmp/mobile-red.log`)했다.
+추가 검증은 삭제 직전 경합, 초기화 취소·성공·실패, 좁은 폭/큰 글꼴 확인창, SQL 실행 중 호출 isolate의
+타이머 진행, 초기화 후 Android 앱 설정·신고/커뮤니티 DB 보존을 포함한다.
+
+검증 결과:
+- 고정 Flutter `/home/better0101/development/flutter-3.47.5/bin/flutter`로 `pub get` 완료,
+  `pubspec.lock` 원본과 동일. CI/분석 정보 수집 비활성화로 샌드박스의 홈 디렉터리 쓰기를 피했다.
+- 최종 `flutter test --no-pub --concurrency=2`: **1,791 passed / 0 failed / 17 skipped** (6분 4초).
+  조건부 골든·외부 환경/자료 의존 시험은 기존 설정대로 건너뛰었다. `/tmp/mobile-full-test.log`.
+- `flutter analyze --no-pub`: **error 0 / warning 9 / info 0**, 수정 전과 동일(기존 불필요한 cast 경고).
+  종료코드 1은 기존 경고 때문이며 새 경고는 0건. `/tmp/mobile-analyze-{before,after}.log`.
+- Kotlin `:app:compileDebugKotlin` 및 `SecureStorageRecoveryTest`: **통과(1 test, 0 failures)**.
+  Android Studio JBR과 기존 Robolectric SDK 28 캐시를 사용하고 Flutter APK 조립 task는 제외했다.
+  `/tmp/mobile-kotlin.log`, `build/app/test-results/testDebugUnitTest/TEST-com.fentanest.mysafetyreport.SecureStorageRecoveryTest.xml`.
+- 5만 건 중복차량 최종 전체 시험: 전체 목록 **2,943ms**, 첫 페이지 **1,269ms**, 캐시된 다음 페이지 **218ms**.
+  최초 Gradle 병행 실행에서는 5초 기준 초과(5,873ms)로 실패했고, 기준 변경 없이 빌드 종료 후 재검증했다.
+- 실행 도중 추가한 알림 시험은 이전 컴파일본과 섞인 전체 실행에서 한 번 실패했다.
+  이후 최종 소스를 고정한 새 전체 실행에서 해당 시험과 나머지 시험 모두 통과했다.
+- 실기기 v9→v11 업그레이드·프레임 측정은 **NOT_RUN**. 릴리스 빌드/배포, 커밋·push·버전 변경 없음.
+
+변경 파일:
+- `lib/community/capture/{fine_estimate_resend,community_capture}.dart`
+- `lib/services/{notification_background,local_db_service,plate_group_sql,secure_storage_migration}.dart`
+- `lib/screens/secure_storage_recovery_screen.dart`, `lib/main.dart`
+- `android/app/src/main/kotlin/com/fentanest/mysafetyreport/{MainActivity,SecureStorageRecovery}.kt`
+- `test/community/fine_estimate_resend_test.dart`
+- `test/services/{notification_background,local_db_service_duplicate_plate,plate_group_sql,secure_storage_migration}_test.dart`
+- `android/app/src/test/kotlin/com/fentanest/mysafetyreport/SecureStorageRecoveryTest.kt`
+- `docs/architecture/{data-contracts,android-runtime}.md`, `CHANGELOG.md`
+
 ## 2026-10-13 (Sonnet) Google Play 내부 테스트 자동 업로드 workflow 추가 (미배포, 브랜치 sonnet/play-upload)
 
 `.github/workflows/build-apk.yml`에 비밀값을 받지 않는 기존 `build-apk`(self-hosted) 와 분리된

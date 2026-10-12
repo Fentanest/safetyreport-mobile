@@ -2,6 +2,7 @@
 // 공유 벡터(test/fixtures/plate_normalize_vectors.json)의 실데이터 사례로 묶음 규칙을 확인하고,
 // 함수가 등록되지 않은 연결에서는 분명한 오류가 난다는 것, 그리고 보조 연결이 isolate 마다
 // (main·WorkManager·그 밖의 백그라운드 isolate 와 같은 뜻) 독립적으로 스스로 등록한다는 것을 본다.
+import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
 
@@ -119,6 +120,35 @@ void main() {
     expect(PlateGroupSql.openConnectionCountForTest, 1, reason: '같은 경로는 재사용');
     PlateGroupSql.closeAll();
     expect(PlateGroupSql.openConnectionCountForTest, 0);
+  });
+
+  test('긴 SQL 실행 중 호출 isolate의 타이머가 동작하고 실패 뒤에도 연결이 정리된다', () async {
+    _seed(path, []);
+    var ticks = 0;
+    final timer = Timer.periodic(
+      const Duration(milliseconds: 1),
+      (_) => ticks++,
+    );
+    try {
+      final rows = await PlateGroupSql.selectAsync(
+        path,
+        'WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<100000) '
+        "SELECT COUNT(normalize_plate('177도7967)')) AS total FROM n",
+      );
+      expect(rows.single['total'], 100000);
+      expect(ticks, greaterThan(0));
+      expect(PlateGroupSql.openConnectionCountForTest, 0);
+      await expectLater(
+        PlateGroupSql.selectAsync(path, 'SELECT * FROM absent'),
+        throwsA(isA<sqlite3_lib.SqliteException>()),
+      );
+      expect(
+        (await PlateGroupSql.selectAsync(path, 'SELECT 1 AS n')).single['n'],
+        1,
+      );
+    } finally {
+      timer.cancel();
+    }
   });
 
   test('백그라운드 isolate 도 스스로 함수를 등록해 같은 결과를 낸다', () async {

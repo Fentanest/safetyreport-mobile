@@ -1,3 +1,5 @@
+import 'dart:isolate';
+
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:sqlite3/sqlite3.dart' as sqlite3_lib;
 
@@ -19,9 +21,9 @@ import 'sqlite_connection.dart' show sqliteBusyTimeoutMs;
 /// `normalize_plate(...)` 를 SQL에 쓰면 sqlite 자체가 `SqliteException: no such function:
 /// normalize_plate` 로 바로, 조용한 오동작 없이 실패한다.
 ///
-/// 연결은 DB 파일 경로 하나당 하나, 처음 쓰일 때 늦게 연다. 캐시가 Dart 의 isolate-local static
-/// 상태라 main·WorkManager·그 밖의 백그라운드 isolate 는 각자 처음 쓸 때 스스로 열고 등록한다 —
-/// 어느 isolate 에서 돌든 같은 규칙이 적용된다.
+/// [selectAsync]는 별도 isolate에서 연결을 열고 결과 변환까지 마친 뒤 finally에서 닫는다.
+/// 연결 캐시는 isolate-local이라 UI isolate에 SQLite 핸들을 남기지 않는다.
+/// 호출자는 파일 교체가 조회 완료까지 기다리도록 DB 수명을 보호한다.
 ///
 /// 반환값(둘 다 PC `services/report_query_service.py` `_plate_group_key`/`get_duplicate_records`
 /// 와 같은 의미): 정규화 성공 시 정규화된 번호판, 실패 시 원문(트림) — 서로 다른 미인식 값이 하나의
@@ -68,6 +70,21 @@ class PlateGroupSql {
         .map((row) => Map<String, dynamic>.from(row))
         .toList(growable: false);
   }
+
+  /// Open, normalize, select and materialize rows entirely in a worker isolate.
+  /// Only the path, SQL and parameters cross the isolate boundary. Always close,
+  /// including SQL failures, before the caller's DB lifetime guard is released.
+  static Future<List<Map<String, dynamic>>> selectAsync(
+    String path,
+    String sql, [
+    List<Object?> params = const [],
+  ]) => Isolate.run(() {
+    try {
+      return select(path, sql, params);
+    } finally {
+      closeAll();
+    }
+  });
 
   /// DB 파일이 교체되기 전(백업 복원·서버 DB 가져오기·데모 전환 — [LocalDbService.closeDb])
   /// 반드시 모든 연결을 닫는다. 안 그러면 옛 파일을 가리키는 핸들이 새 파일과 뒤섞인다(DB

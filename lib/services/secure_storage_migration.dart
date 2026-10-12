@@ -13,7 +13,9 @@ enum SecureStorageReadiness { ready, reauthenticationRequired, unavailable }
 class SecureStorageMigration {
   SecureStorageMigration._();
 
-  static const _storage = FlutterSecureStorage(aOptions: AndroidOptions(resetOnError: false));
+  static const _storage = FlutterSecureStorage(
+    aOptions: AndroidOptions(resetOnError: false),
+  );
   static const _channel = MethodChannel(
     'com.fentanest.mysafetyreport/secure_storage',
   );
@@ -61,6 +63,37 @@ class SecureStorageMigration {
       return SecureStorageReadiness.ready;
     } catch (_) {
       return SecureStorageReadiness.unavailable;
+    }
+  }
+
+  /// Called only after the recovery screen's explicit confirmation. v9 data
+  /// cannot be decrypted by v11, so Android clears only the plugin's private
+  /// preferences before its first initialization. App settings and DBs stay intact.
+  static Future<void> resetForReauthentication({
+    @visibleForTesting FlutterSecureStorage? storage,
+    @visibleForTesting Future<bool> Function()? clearAndroidStorage,
+    @visibleForTesting bool? isAndroid,
+  }) async {
+    final secure = storage ?? _storage;
+    if (isAndroid ??
+        (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)) {
+      final cleared =
+          await (clearAndroidStorage ??
+              () async =>
+                  await _channel.invokeMethod<bool>(
+                    'resetSecureStorageForReauthentication',
+                  ) ==
+                  true)();
+      if (!cleared) throw StateError('secure_storage_reset_failed');
+    } else {
+      await secure.deleteAll();
+    }
+    if ((await secure.readAll()).isNotEmpty) {
+      throw StateError('secure_storage_reset_incomplete');
+    }
+    final prefs = await SharedPreferences.getInstance();
+    if (!await prefs.setBool(AppPrefsKeys.secureStorageV11Initialized, true)) {
+      throw StateError('secure_storage_marker_failed');
     }
   }
 

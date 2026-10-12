@@ -164,8 +164,11 @@ FlutterSecureStorage는 BL-1에서 10.3.4 → **11.2.0**으로 올라간다. v9�
 - `secureStorageV10Migrated=true`: 기존 표시를 지우거나 다시 쓰지 않는다. 앱 시작 때 저장소 읽기를 검증한 뒤 기존 인증 흐름으로 간다.
 - 표시가 없는 Android 기존 설치: 보안 저장소를 열기 전에 네이티브 `storedSecureEntries`로 키 개수만 센다(값·키 이름 출력 없음).
   저장 항목 또는 기존 앱 설정이 있으면 재로그인·커뮤니티 연결 재설정 안내를 띄우고 일반 시작을 막는다.
-  v11에서 재이관한다고 안내하거나, 로그인 정보를 삭제하는 우회·앱 삭제를 권하지 않는다.
-  직접 v11 내 재인증/기존 ciphertext 교체는 구현하지 않으며, 중간 이관 버전을 통한 보존 복구가 필요함을 알린다.
+  복구 화면의 **저장된 로그인 정보 초기화하고 다시 로그인**에서 삭제·보존 범위를 확인하고 명시적으로 동의하면,
+  Android 보안 저장소 플러그인 전용 preferences의 암호문·keyset·wrapped key·암호화 설정만 지운다. 신고 DB·앱 설정·커뮤니티 DB는 보존한다.
+  초기화 후 빈 보안 저장소 읽기에 성공해야 `secureStorageV11Initialized`를 기록하고 `main()`의 정상 시작 흐름으로 돌아간다.
+  카카오 로그인·연결 확인은 기존 게이트가 처리한다. v10 이관 표시를 위조하지 않으며 자동 초기화는 없다.
+  초기화·읽기 실패 시 복구 화면에 남고 정상 시작을 호출하지 않는다.
 - 빈 Android 신규 설치: 네이티브 저장 항목과 앱 설정이 모두 비어 있고 읽기가 성공한 때만
   별도 `secureStorageV11Initialized=true`를 쓴다. 신규 설치를 v10 이관 완료로 위장하지 않는다.
 - Android 이외: 같은 Keychain 등 저장소 읽기를 확인하고 v11 준비 표시를 남긴다. iOS 실기기 확인은 별도다.
@@ -354,7 +357,13 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
   실측: 운영 PC 서버에 없어 Doze 중에도 3회 모두 404)는 `drainClientNotifications`/`_sendClientNotification`
   가 `/crawl/enqueue` 로 대신 보낸다 — 그 결과(baseUrl·시각)를 기억해 재확인 없이 바로 옛 경로로 보내고,
   6시간 지나면 새 경로를 한 번 더 시도한다(`AppPrefsKeys.crawlNotificationUnsupportedBaseUrl/At`). 옛 경로는
-  idempotent 하지 않으므로 `AppPrefsKeys.crawlLegacyEnqueueSentKeys` 로 알림 키 단위 중복 전송을 막는다.
+  idempotent 하지 않으므로 POST **전** `crawl_legacy_enqueue_uncertain.<알림 키>`를 영속 저장한다.
+  HTTP 200 확인 뒤 `AppPrefsKeys.crawlLegacyEnqueueSentKeys`를 기록하고 미확정 표시를 제거한다.
+  응답 유실·종료·비200 결과는 성공으로 ACK하지 않고 원래 pending과 미확정 표시를 보존한다.
+  미확정 요청은 재시작·6시간 캐시 만료·서버 업데이트 후에도 자동 POST하지 않는다. 네이티브 200건 배치와
+  작업 완료 판정에서도 제외하여 뒤의 새 알림은 계속 처리한다. 미확정 항목만으로는 재시도하지 않으며
+  접수 확인 필요를 안내한다. 전송 직전 종료라면
+  미전송일 수도 있으므로 서버에서 결과를 확인하고 필요 시 사용자가 새 크롤링을 요청해야 한다.
 - `POST /api/v1/crawl/start` — 크롤링 시작 (mode/type/queue_list)
 - `GET  /api/v1/crawl/config` — 크롤링 설정
 - `GET  /api/v1/crawl/status` — 크롤링 상태 폴링
@@ -615,8 +624,9 @@ SharedPreferences의 disk commit 실패는 메모리 변경을 되돌리지 않�
 일치 없음/복수 일치/유형 미상은 금액 미확인이며 기존 추정 대상 판정으로 이어진다. 범칙금에는 과태료 규칙을 적용하지 않는다.
 PC는 `services/fine_estimate.py`, 모바일은 `lib/services/fine_estimate.dart`가 숫자 판정 정본이다. 통계·업로드는 신고 맥락을 함께 넘긴다.
 공유 시험 벡터는 `fine_amount_typo_vectors.json`이며 `candidate_cases`의 복수 일치는 합성 금액표로 방어 조건을 검사한다.
-파서 버전 pc-parser-7/mobile-parser-7은 기존 규칙·파서 버전 기반 재전송 경로를 다시 실행한다. 재크롤링 없이 로컬 값으로
-payload를 만들고 해시가 바뀐 신고만 한 번 새 관측으로 전송한다. 상세 화면의 보정값/원문 표기는 표시용이며 DB에 쓰지 않는다.
+파서 버전 pc-parser-7/mobile-parser-7은 기존 규칙·파서 버전 기반 재전송 경로를 다시 실행한다.
+재전송은 journal 최신 payload의 추정 필드만 재계산하며, 확정 금액의 파서 보정은 새 상세 관측을 수집할 때 반영한다.
+상세 화면의 보정값/원문 표기는 표시용이며 DB에 쓰지 않는다.
 
 ### 코드 대조 정정 — 금액 판정 입력과 토큰 경계
 
@@ -630,3 +640,25 @@ payload를 만들고 해시가 바뀐 신고만 한 번 새 관측으로 전송�
 
 추정 과태료 업로드는 아직 미릴리스다. 코드 우선 적용으로 추정액·payload 해시가 바뀌는 범위는 있지만,
 이미 배포된 추정값을 다시 보내야 하는 추가 부담은 없다. 기존 버전 기반 재전송 경로와 해시 멱등성은 유지한다.
+
+### 기존 자료 재전송의 동시성·삭제 경계
+
+`fine_estimate_resend`는 일반 동기화와 같은 `personal_sync` lease를 확보한 뒤 개인 DB 행을 읽는다.
+잠금이 사용 중이면 완료 표시 없이 다음 실행에 맡기며, capture 발급 트랜잭션과 완료 표시 직전에 소유권을 확인한다.
+`runBackgroundWork`로 DB 파일 교체와도 수명을 맞춘다. `report_latest`가 가리키는 journal이 `deleted_by_user`이면
+후보에서 제외하고, 후보 조회 후 삭제될 경우를 위해 발급 트랜잭션에서도 다시 검사한다. 새 실시간 수집의 규칙은 그대로다.
+
+### 코드 대조 정정 — 재전송의 최신 관측 보존
+
+재전송은 발급 트랜잭션 안에서 같은 로컬 데이터셋·신고의 `source_revision`이 가장 큰 journal payload를 읽는다.
+재공유로 계정별 과거 이력이나 `report_latest` 포인터가 달라도 최신 관측이 기준이다.
+개인 DB에서는 ID와 추정 입력(접수 메뉴·분류 코드·차량번호·사진 시각·발생시각·신고명)만 읽는다.
+법규는 journal payload를 사용하고, **`fine_estimate` 이외의 payload 필드와 신고번호는 그대로 보존**한다.
+확정 금액이 있거나 과태료가 아니거나 추정 규칙이 없으면 추정 필드를 제거한다.
+동일 payload면 계정 문맥이 달라도 새 이벤트를 만들지 않고, `detail_status`의 상태·관측 시각도 갱신하지 않는다.
+`personal_save_state`가 pending/failed여도 보충을 허용하며, 개인 DB의 과태료 문구로 후보를 제한하지 않는다.
+동의·계정 문맥·삭제 차단·기존 커서와 완료 표시는 유지한다. 스키마·개인 DB 원문은 변경하지 않는다.
+
+중복차량 조회의 `normalize_plate` 보조 SQLite 연결은 DB 경로·SQL·인자만 전달한 별도 isolate에서
+열기·정규화·조회·행 변환·닫기를 수행한다. 실패 때도 닫으며 호출자의 DB 수명 보호가 작업 완료까지 유지된다.
+페이지 조회 TEMP 매핑의 `max_report_no`는 원본처럼 NULL을 허용한다. 신고 DB 스키마·원문·교환 계약은 바꾸지 않는다.

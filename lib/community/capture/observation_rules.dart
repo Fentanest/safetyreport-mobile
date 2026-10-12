@@ -301,6 +301,39 @@ Map<String, Object?>? _fineEstimateField(Map<String, Object?> input) {
   };
 }
 
+/// 재전송은 최신 관측의 추정 필드만 바꾼다. 법규도 개인 DB가 아닌 journal을 쓴다.
+Map<String, Object?> refreshFineEstimate(
+  Map<String, Object?> latestPayload,
+  Map<String, Object?> input,
+) {
+  final payload = Map<String, Object?>.from(latestPayload)
+    ..remove('fine_estimate');
+  final amount = payload['amount'];
+  if (amount is! Map ||
+      amount['confirmed_won'] != null ||
+      amount['kind'] != 'fine') {
+    return payload;
+  }
+  final record = _fineRecord({
+    ...input,
+    'category': categoryOf(
+      input['entry_value']?.toString(),
+      ssnpcCd: input['ssnpc_cd'],
+      ssnpcType: input['ssnpc_type'],
+    ),
+    'violation_law': payload['violation_law'],
+  });
+  final result = fine_estimate.estimate(record);
+  if (result != null) {
+    payload['fine_estimate'] = {
+      'won': result['amount'],
+      'rule': result['rule'],
+      'rule_version': fine_estimate.ruleVersion,
+    };
+  }
+  return payload;
+}
+
 /// observation.md 3절 — 어댑터 입력 → 공유 payload (순수 함수).
 ///
 /// 어댑터 입력 키: processing_status, penalty_amount, report_date, response_date,

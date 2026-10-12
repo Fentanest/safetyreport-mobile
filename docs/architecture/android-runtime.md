@@ -27,11 +27,13 @@
 | 중복·디바운스 | 기존 알림 수신 경로에 영구 디바운스 조건은 없었으며, `auto_enqueue_count`는 결과 표시용이었다. 현재 발신 패키지·신고번호·처리 종류·범위 fingerprint를 SQLite에서 2분만 중복 억제한다. 그룹 전체 본문·요약 건수·알림 게시 시각은 식별자로 쓰지 않는다. 2분이 지나 다시 도착한 알림은 처리 중이라도 새 이벤트로 보존한다. receipt 청소가 처리 큐를 삭제하지 않는다. |
 | 재시도·실패 표시 | 한 번의 네트워크 오류를 버리지 않는다. 단발 작업은 30초 시작 지수 백오프, 별도 15분 주기 작업은 KEEP 종료 경합·작업 예약 전 프로세스 종료를 보완한다. OS 지연으로 실제 간격은 더 길 수 있다. 고정 알림으로 대기/재시도를 알리며 성공은 서버 **접수** 또는 로컬 큐 완료로 구분한다. |
 
-Client 새 요청은 `/api/v1/crawl/notification`에 `report_number`, 고유 `request_id`를 보낸다. 같은 ID의 `accepted` 응답을 확인한 뒤에만 ACK한다. 404·거절·응답 유실 시 기존 비멱등 `/crawl/enqueue`로 우회하지 않는다. 구버전의 결과 미확정 enqueue receipt는 자동 재전송하지 않고 보존한다. 따라서 서버와 모바일 변경을 함께 반영해야 한다.
+Client 새 요청은 `/api/v1/crawl/notification`에 `report_number`, 고유 `request_id`를 보낸다. 같은 ID의 `accepted` 응답을 확인한 뒤에만 ACK한다. 404에서만 기존 `/crawl/enqueue`로 전환하고, 거절·응답 유실은 전환 근거로 삼지 않는다. 구경로 POST 전 미확정 표시를 저장하며 응답 유실·종료 시 pending과 함께 보존하고 자동 재전송하지 않는다. HTTP 200 확인 뒤에만 성공 표시와 ACK를 진행한다. **코드 대조 정정:** 이전 문서의 “404에서도 우회하지 않는다”는 현재 404 호환 경로와 달라 정정했다.
 
 #### 처리 큐 격리와 복구 규칙
 
 - Client 자동 재시도의 대상은 현재 scope의 미완료 `inbox.enqueue.native.notification.*`뿐이다. Worker의 시작/종료 판정과 native batch claim에 같은 조건을 적용한다. 구형 `native.<timestamp>…`·`native.legacy_*`는 SQLite와 기존 prefs에 보존하지만 재시도/200개 batch를 점유하지 않는다. Standalone의 정상 `inbox.queue.native.<timestamp>…` 작업은 계속 처리한다.
+- 비멱등 구경로의 `crawl_legacy_enqueue_uncertain.<알림 키>`도 native 조회 **200건 제한 전**, `hasPending`, 같은 신고의 미처리 알림 합치기에서 제외한다. 각 판정 때 영속 prefs로 SQLite TEMP 제외 목록을 재구성하므로 프로세스 재시작에도 적용되고 원본 행·scope·미완료 상태·미확정 표시는 보존한다. HTTP 200 성공 영수증이 함께 남은 경우는 ACK 복구 대상으로 포함한다(SharedPreferences의 기존 직렬화/JSON 목록 모두 지원). 미확정 항목만 남으면 WorkManager는 성공 종료하며, 알림은 접수 확인 필요·자동 재전송 안 함·크롤링 현황 확인 후 필요 시 직접 요청을 안내한다. 안전하게 재시도할 다른 작업이 남은 경우에만 그 작업의 재시도를 안내한다. 별도 15분 복구 작업은 유지되지만 미확정 항목만으로 Flutter 엔진을 시작하지 않는다.
+- `접수 확인 필요` 안내는 실행할 작업이 있던 Worker가 현재 scope의 미확정 **이벤트 키 집합**이 마지막 게시와 다를 때만 게시한다. 게시 성공 뒤 `NotificationWork` prefs의 scope별 receipt에 집합을 저장하므로 사용자가 알림을 지워도 같은 집합은 재게시하지 않는다. 건수가 같은 새 이벤트도 집합 변경으로 구분하며, 미확정 집합이 비면 해당 scope의 receipt를 지운다. 작업 없는 정기 실행은 새 집합도 게시·알림 완료 처리하지 않는다. 다른 계정·서버로 전환해도 원래 scope의 receipt는 유지하며, admission을 얻지 못했거나 처리 중 scope가 바뀐 Worker는 게시하지 않는다. 이 receipt는 안내 중복 방지용이며 서버 접수 성공·큐 ACK 또는 원본 삭제를 뜻하지 않는다.
 - scope가 다른 행은 원래 `scope`, `event_key`, `value`, 미완료 상태를 그대로 보존한다. Dart에는 현재 scope claim만 내보내고 다른 scope의 prefs mirror만 정리한다. 이는 원본 삭제나 성공 ACK가 아니다. 소유권 미확인 단일 prefs 원본도 유지한다.
 - 소유자가 확인된 이전 scope의 알림은 원래 계정·모드·서버 주소·API 키뿐 아니라 **설정 세대(`native_config_generation`)까지 동일한 scope**일 때만 기존 claim 경로에서 다시 처리할 수 있다. 앱에서 설정을 재저장하면 세대가 증가하므로 단순 재로그인/주소 복원으로 복구된다고 보장하지 않는다. 세대 값을 인위적으로 되돌려 격리를 해제해서는 안 된다. 현재 계정으로 scope를 덮어쓰는 자동 이관은 하지 않는다. `standaloneUsername`도 Standalone scope에 포함된다.
 - 인증/설정 전 생성된 scope, `legacy-unverified`, 접수 여부 미확정 구형 Client 요청은 현재 계정 소유라고 추정하지 않는다. 현 버전에는 이를 재귀속하거나 삭제하는 UI/API가 없고, 자동 보존에는 만료 기간을 두지 않는다. 복구 담당자가 원래 계정/서버와 신고 소유권을 별도로 확인하고 해당 서버의 접수·처리 기록 또는 그 계정의 수동 동기화 결과로 미완료 의무가 없음을 검증하기 전에는 폐기할 수 없다. 검증 후에도 원본/접수 근거를 보관하고 사용자가 명시 승인한 별도 복구 절차에서만 정리한다. 재설치·앱 데이터 초기화는 복구 경로가 아니다.
@@ -405,3 +407,15 @@ Client 연결을 재개한다. 지속 알림 갱신은 `setOnlyAlertOnce(true)`�
 - native FGS 시작은 `startForeground` 성공 receipt 이후 true다. Flutter의 작업 실행 상태와 실제 FGS 상태를 별도로 표시하고 native timeout·종료를 owner에 전달한다. 새 headless 엔진은 만들지 않는다. 서비스가 Activity 소유 엔진보다 오래 살아 동기화를 이어 간다고 가정하지 않는다.
 - 알림 builder·channel·device name은 실제 최소 API24/25에서 사용할 수 있는 분기로 나눈다. producer별 notification tag와 PendingIntent data URI를 쓰고 기존 nav5/6 매핑은 보존한다.
 - `verify.yml`/`tool/verify_refactoring.sh`는 고정 Flutter 버전·lockfile, 분석·fixture 테스트·Kotlin 단위 테스트·Android lint를 서명/패키징 전에 검사한다. 외부 fork PR은 개인 self-hosted runner에서 실행하지 않는다. 정식 mapping 보관은 90일이며 APK/AAB 보관 1일, dev 산출물 30일과 구분한다. CI를 새로 실행하거나 릴리즈를 발행했다는 뜻은 아니다.
+
+### 보안 저장소 미이관 설치의 확인형 복구
+
+`SecureStorageRecoveryScreen`의 초기화 버튼 → 삭제·보존 범위를 설명하는 확인창 → 명시적 동의 순서로만
+`com.fentanest.mysafetyreport/secure_storage`의 `resetSecureStorageForReauthentication`을 호출한다.
+`SecureStorageRecovery.reset`은 플러그인 전용 **FlutterSecureStorage**, **FlutterSecureKeyStorage**,
+**FlutterSecureStorageConfiguration**, **FlutterSecureStorageConfiguration:FlutterSecureStorage**만
+`clear().commit()`한다. 구형 암호화 설정과 wrapped AES key까지 비워 v11 초기화를 막지 않도록 한다.
+v9 암호문·ESP keyset을 읽거나 v11 플러그인을 먼저 초기화하지 않는다. FlutterSharedPreferences,
+신고 DB, 커뮤니티 DB 및 서버 자료는 변경하지 않는다. commit 실패는 false로 반환하며 자동 초기화하지 않는다.
+Dart가 빈 보안 저장소를 확인하고 v11 준비 표시를 저장한 뒤 정상 시작(기존 로그인·연결 게이트)으로 돌아간다.
+미이관 설치용 경로이며, 일반 Keystore 읽기 오류 화면에는 초기화 버튼을 노출하지 않는다.

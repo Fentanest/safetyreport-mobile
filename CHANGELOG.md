@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-10-13 (Sonnet) Google Play 내부 테스트 자동 업로드 workflow 추가 (미배포, 브랜치 sonnet/play-upload)
+
+`.github/workflows/build-apk.yml`에 비밀값을 받지 않는 기존 `build-apk`(self-hosted) 와 분리된
+`play-upload`(`ubuntu-latest`, `environment: play`) job 을 추가했다. push·릴리스·VERSION 변경은
+하지 않았다 — 워크플로·스크립트만 추가.
+
+- `play-upload`: `build-apk` 가 올린 서명 AAB·R8 mapping artifact 를 받아
+  `r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5`(v1.1.5, 태그→커밋 SHA 확인 후 고정)로
+  Google Play **internal**(내부 테스트) 트랙에 올린다(`status: completed`). `verify_only` 빌드,
+  `workflow_dispatch` 를 main 이 아닌 브랜치에서 실행한 경우, 이미 같은 버전 태그가 있어
+  `build-apk` 가 아무것도 새로 만들지 않은 경우(`tag_exists == 'true'`)에는 올리지 않는다. 같은
+  versionCode 가 이미 Play 에 있으면 action/Google API 오류 메시지를 그대로 노출한다(삼키지 않음).
+- `scripts/generate_whatsnew.mjs`: `docs/releases/v<VERSION>.md`(기존 사람이 쓰는 릴리즈 노트)에서
+  제목·`**Full Changelog**` 줄과 마크다운 기호(`#`/`**`/`` ` ``)를 제거하고 목록은 `• `로 바꿔
+  `whatsnew/whatsnew-ko-KR`(Play `whatsNewDirectory` 규칙 — `whatsnew/whatsnew-<BCP47 locale>`)을
+  만든다. Play 글자 수 제한 500자를 넘으면 문장 단위로 잘라 "…" 없이 완결된 문장으로 끝맺는다.
+  해당 버전의 릴리즈 노트 파일이 없으면 0이 아닌 코드로 종료해 `play-upload` job 이 실패한다(버전
+  노트 없이 올리지 않음). 단위 시험: `scripts/generate_whatsnew.test.mjs`(`node --test`, 7건 통과 —
+  제목/Full Changelog/마크다운 기호 제거, 목록 변환, 500자 제한 문장 단위 절삭, CLI 성공/실패 경로).
+- `build-apk` job 에 `outputs`(`build_name`/`build_number`/`tag_exists`) 를 추가해 `play-upload` 가
+  같은 버전·태그 존재 여부를 참조하게 했다. `build-apk` 자체에는 비밀값·새 입력을 추가하지 않았다.
+- 검증: `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/build-apk.yml`
+  — 기존에도 있던 self-hosted 커스텀 라벨("235") 관련 경고 1건만 남고(수정 전 원본에도 동일하게
+  존재함을 확인) 새로 추가한 `play-upload` job 에는 오류 없음. `flutter test`는 이번 변경이 워크플로·
+  Node 스크립트만 건드리고 Dart/Flutter 코드를 전혀 바꾸지 않아 실행하지 않았다(기존 baseline과 무관).
+
 ## 2026-10-12 (Sonnet) Client 크롤링 상태 재확인 + 구서버 알림 경로 호환 (미배포, 브랜치 sonnet/client-status)
 
 사용자 보고 2건 수정.

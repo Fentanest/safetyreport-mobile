@@ -28,6 +28,7 @@ import 'map_pin_basis.dart' as pin_rules;
 import 'local_database_exchange.dart';
 import 'attachment_policy.dart';
 import 'photo_capture_time.dart';
+import 'plate_group_sql.dart';
 
 import 'standalone_parser.dart';
 import 'report_category.dart' as report_category;
@@ -244,6 +245,9 @@ class LocalDbService {
       _db = null;
       _initFuture = null;
       await open?.close();
+      // 번호판 정규화 보조 연결(PlateGroupSql)도 같이 닫는다 — 안 그러면 파일이 교체된 뒤
+      // (백업 복원·서버 DB 가져오기·데모 전환) 옛 파일을 가리키는 핸들이 남는다.
+      PlateGroupSql.closeAll();
       _statsCache.clear();
       _summaryCache.clear();
       _mapCache.clear();
@@ -251,6 +255,7 @@ class LocalDbService {
       _mapEffectiveKeys.clear();
       _agencyLookupKey = null;
       _missingLookupKey = null;
+      _dupPlateLookupKey = null;
     } finally {
       _closeRequested = false;
     }
@@ -1904,6 +1909,7 @@ class LocalDbService {
   }
 
   static String? _agencyLookupKey;
+  static String? _dupPlateLookupKey;
   static Future<void> _ensureAgencyLookup(
     Database connection, {
     DatabaseExecutor? executor,
@@ -1995,6 +2001,7 @@ class LocalDbService {
       }
       if (scope == 'duplicates') {
         return _getDuplicatePage(
+          connection,
           d,
           page,
           pageSize,
@@ -2137,7 +2144,68 @@ class LocalDbService {
       .map((c) => 'r."$c"')
       .join(', ');
 
+  static const _dupPlateLookupTable = 'sr_dup_plate_lookup';
+
+  /// `scope: 'duplicates'` 가 쓰는 번호판 그룹 lookup([_getDuplicatePage])을 [d] 위에 TEMP
+  /// 테이블로 준비한다. 그룹핑 키는 `normalize_plate(차량번호)`(PC `_plate_group_key` 와 같은 뜻)인데,
+  /// 그 사용자 정의 SQL 함수는 sqflite(FFI 포함) 연결에 등록할 공개 API가 없다(자세한 설명은
+  /// [PlateGroupSql] docstring) — 그래서 함수가 등록된 보조 연결에서 한 번 계산한 뒤, **원문
+  /// 차량번호 → 그룹 집계** 매핑만 평범한 TEMP 테이블로 복사해 온다. 이후 [d] 위의 쿼리는 전부
+  /// `r.차량번호 = dv.$_colRawPlate`(일반 문자열 비교)로 조인하므로 [q.where] 의 기관 필터
+  /// (`temp.sr_agencies`)·페이지네이션과 그대로 같은 트랜잭션에서 돈다.
+  ///
+  /// `_agencyLookupKey` 와 같은 캐시 규칙(연결 identity + 쓰기 revision + 조건)으로, 같은 조건의
+  /// 반복 호출(페이지 넘기기)마다 전체 테이블을 다시 정규화하지 않는다.
+  static const _colRawPlate = 'raw_plate';
+
+  static Future<void> _ensureDuplicatePlateLookup(
+    Database connection,
+    DatabaseExecutor d,
+    bool excludeWithdraw,
+  ) async {
+    final key =
+        '${identityHashCode(connection)}:${await _readRevision(d)}:$excludeWithdraw';
+    if (_dupPlateLookupKey == key) return;
+    await d.execute(
+      'CREATE TEMP TABLE IF NOT EXISTS $_dupPlateLookupTable('
+      '$_colRawPlate TEXT PRIMARY KEY, plate_key TEXT NOT NULL, '
+      'total_count INTEGER NOT NULL, valid_count INTEGER NOT NULL, '
+      'max_report_no TEXT NOT NULL)',
+    );
+    await d.delete(_dupPlateLookupTable);
+    final withdraw = excludeWithdraw
+        ? "AND ${ReportPolicy.sqlNotWithdrawn('처리상태')}"
+        : '';
+    final path = await getDbPath();
+    final lookup = PlateGroupSql.select(path, '''
+      WITH dv AS (
+        SELECT normalize_plate(차량번호) AS plate_key, COUNT(*) AS total_count,
+          SUM(CASE WHEN ${ReportPolicy.sqlNotWithdrawn('처리상태')} THEN 1 ELSE 0 END) AS valid_count,
+          MAX(신고번호) AS max_report_no FROM $effectiveReportsView
+        WHERE 차량번호 != '' $withdraw GROUP BY plate_key HAVING COUNT(*) >= 2
+      )
+      SELECT DISTINCT r.차량번호 AS $_colRawPlate, dv.plate_key, dv.total_count,
+        dv.valid_count, dv.max_report_no
+      FROM $effectiveReportsView r
+      JOIN dv ON normalize_plate(r.차량번호) = dv.plate_key
+      WHERE r.차량번호 != '' $withdraw
+    ''');
+    final batch = d.batch();
+    for (final row in lookup) {
+      batch.insert(_dupPlateLookupTable, {
+        _colRawPlate: row[_colRawPlate],
+        'plate_key': row['plate_key'],
+        'total_count': row['total_count'],
+        'valid_count': row['valid_count'],
+        'max_report_no': row['max_report_no'],
+      });
+    }
+    await batch.commit(noResult: true);
+    _dupPlateLookupKey = key;
+  }
+
   static Future<({List<Report> reports, int total})> _getDuplicatePage(
+    Database connection,
     DatabaseExecutor d,
     int page,
     int pageSize,
@@ -2148,21 +2216,17 @@ class LocalDbService {
     final withdraw = excludeWithdraw
         ? "AND ${ReportPolicy.sqlNotWithdrawn('처리상태')}"
         : '';
-    final cte =
-        """
-      WITH dv AS (SELECT 차량번호, COUNT(*) AS total_count,
-        SUM(CASE WHEN ${ReportPolicy.sqlNotWithdrawn('처리상태')} THEN 1 ELSE 0 END) AS valid_count,
-        MAX(신고번호) AS max_report_no FROM $effectiveReportsView
-        WHERE 차량번호 != '' $withdraw GROUP BY 차량번호 HAVING COUNT(*) >= 2)
-    """;
+    await _ensureDuplicatePlateLookup(connection, d, excludeWithdraw);
+    final join =
+        'JOIN temp.$_dupPlateLookupTable dv ON r.차량번호 = dv.$_colRawPlate';
     final count = await d.rawQuery(
-      '$cte SELECT COUNT(*) AS n FROM $effectiveReportsView r JOIN dv ON r.차량번호=dv.차량번호 WHERE ${q.where} $withdraw',
+      'SELECT COUNT(*) AS n FROM $effectiveReportsView r $join WHERE ${q.where} $withdraw',
       q.args,
     );
     final rows = await d.rawQuery(
-      '$cte SELECT ${compact ? _listCardSelect : 'r.*'}, dv.total_count, dv.valid_count FROM $effectiveReportsView r '
-      'JOIN dv ON r.차량번호 = dv.차량번호 WHERE ${q.where} $withdraw '
-      'ORDER BY dv.max_report_no DESC, r.차량번호 ASC, r.신고번호 DESC, r.ID DESC LIMIT ? OFFSET ?',
+      'SELECT ${compact ? _listCardSelect : 'r.*'}, dv.total_count, dv.valid_count '
+      'FROM $effectiveReportsView r $join WHERE ${q.where} $withdraw '
+      'ORDER BY dv.max_report_no DESC, dv.plate_key ASC, r.신고번호 DESC, r.ID DESC LIMIT ? OFFSET ?',
       [...q.args, pageSize, page * pageSize],
     );
     return (
@@ -3806,56 +3870,53 @@ class LocalDbService {
 
   // ── 중복차량 ─────────────────────────────────────────────────────────────
 
-  /// 중복차량 — 서버 get_duplicate_records 와 동일 로직.
+  /// 중복차량 — 서버 get_duplicate_records 와 동일 로직(2026-10-12: 정규화된 번호판으로 묶는다).
   ///
   /// 차량별 그룹의 모든 신고를 보여주되, 최근 신고가 있는 그룹부터 위로 오도록 정렬.
   /// 같은 차량끼리 붙어 보이도록 그룹 내에서는 신고번호 역순.
   ///
   /// 정렬 키 (서버 동일):
   ///   1. 그룹의 최근신고번호 DESC  → 최근 신고가 있는 차량 그룹이 위
-  ///   2. 차량번호 ASC              → 같은 차량 행끼리 묶임
+  ///   2. 정규화된 번호판 ASC       → 같은 차량 행끼리 묶임(군더더기·표기 차이가 달라도 같은 그룹)
   ///   3. 개별 신고번호 DESC        → 그룹 내에서 최신 신고 우선
   ///
   /// excludeWithdraw 적용 후 단 1건만 남는 차량은 '중복' 의미가 없어 제외.
+  ///
+  /// `GROUP BY`/`JOIN` 키가 `normalize_plate(차량번호)`(PC `_plate_group_key` 와 같은 뜻)라 사용자
+  /// 정의 SQL 함수가 등록된 [PlateGroupSql] 보조 연결에서 전부 돈다 — sqflite(FFI 포함) 연결에는
+  /// 등록할 공개 API가 없다(자세한 설명은 그 클래스 docstring). 화면에 보이는 `차량번호` 열 값은
+  /// 각 신고의 원문 그대로다(저장값은 바꾸지 않는다).
+  ///
+  /// `package:sqlite3` 직접 FFI 호출은 sqflite 의 MethodChannel 처럼 결과 전체를 하나의 연속
+  /// 버퍼로 직렬화하지 않아([_queryReportsChunked] 의 OOM 사유가 적용되지 않음), 여기서는
+  /// LIMIT/OFFSET 청크 없이 한 번에 읽는다.
   static Future<List<Report>> getDuplicateVehicleReports({
     bool excludeWithdraw = false,
   }) async {
-    final d = await db;
+    await db; // 메인 연결이 스키마를 만들고 WAL 로 전환한 뒤에야 보조 연결을 연다.
+    final path = await getDbPath();
     final withdrawFilter = excludeWithdraw
         ? 'AND ${ReportPolicy.sqlNotWithdrawn('처리상태')}'
         : '';
-    // 신고번호 DESC 가 유니크 tiebreaker 라 LIMIT/OFFSET 페이지 경계에서
-    // 누락/중복 없이 전체 정렬 순서를 그대로 유지한다.
-    final rows = <Map<String, dynamic>>[];
-    var offset = 0;
-    while (true) {
-      final page = await d.rawQuery(
-        '''
-        WITH dup_vehicles AS (
-          SELECT 차량번호,
-                 COUNT(*)                                                 AS total_count,
-                 SUM(CASE WHEN ${ReportPolicy.sqlNotWithdrawn('처리상태')} THEN 1 ELSE 0 END)        AS valid_count,
-                 MAX(신고번호)                                              AS max_report_no
-          FROM $effectiveReportsView
-          WHERE 차량번호 != '' $withdrawFilter
-          GROUP BY 차량번호
-          HAVING COUNT(*) >= 2
-        )
-        SELECT r.*,
-               dv.total_count,
-               dv.valid_count
-        FROM $effectiveReportsView r
-        INNER JOIN dup_vehicles dv ON r.차량번호 = dv.차량번호
-        WHERE r.차량번호 != '' $withdrawFilter
-        ORDER BY dv.max_report_no DESC, r.차량번호 ASC, r.신고번호 DESC
-        LIMIT ? OFFSET ?
-      ''',
-        [_kListChunkSize, offset],
-      );
-      rows.addAll(page);
-      if (page.length < _kListChunkSize) break;
-      offset += _kListChunkSize;
-    }
+    final rows = PlateGroupSql.select(path, '''
+      WITH dup_vehicles AS (
+        SELECT normalize_plate(차량번호)                                   AS plate_key,
+               COUNT(*)                                                 AS total_count,
+               SUM(CASE WHEN ${ReportPolicy.sqlNotWithdrawn('처리상태')} THEN 1 ELSE 0 END)        AS valid_count,
+               MAX(신고번호)                                              AS max_report_no
+        FROM $effectiveReportsView
+        WHERE 차량번호 != '' $withdrawFilter
+        GROUP BY plate_key
+        HAVING COUNT(*) >= 2
+      )
+      SELECT r.*,
+             dv.total_count,
+             dv.valid_count
+      FROM $effectiveReportsView r
+      INNER JOIN dup_vehicles dv ON normalize_plate(r.차량번호) = dv.plate_key
+      WHERE r.차량번호 != '' $withdrawFilter
+      ORDER BY dv.max_report_no DESC, dv.plate_key ASC, r.신고번호 DESC
+    ''');
     return rows.map((r) => _rowToReportWithCounts(r)).toList();
   }
 

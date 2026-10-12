@@ -137,3 +137,12 @@ String? normalizePlate(dynamic raw) {
   if (candidates.length == 1) return candidates.first;
   return null;
 }
+
+/// 중복차량 그룹핑 키: 정규화 성공 시 [normalizePlate] 결과, 실패 시 원문(트림) — PC
+/// `services/report_query_service.py` `_plate_group_key`/`get_duplicate_records` 와 같은 의미
+/// (서로 다른 미인식 값이 하나의 그룹으로 뭉치지 않게 정규화 실패 시 입력을 그대로 키로 쓴다).
+/// 번들 SQLite 사용자 정의 함수 `normalize_plate(text)`([PlateGroupSql])의 Dart 쪽 구현이다.
+String normalizePlateGroupKey(dynamic raw) {
+  final text = raw?.toString() ?? '';
+  return normalizePlate(text) ?? text.trim();
+}

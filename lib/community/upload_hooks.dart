@@ -31,7 +31,7 @@ class CommunityUploadHooks {
   /// T6 `catchUp(reason)` — resume·시작 시 보충 실행.
   static Future<void> Function(String reason)? catchUp;
 
-  /// fine_estimate(observation-v6) 기존 신고 다시 보내기 — 크롤링 없이 로컬 DB 로 한 번만
+  /// fine_estimate(observation-v5(fine_estimate 추가)) 기존 신고 다시 보내기 — 크롤링 없이 로컬 DB 로 한 번만
   /// (community/capture/fine_estimate_resend.dart). T6 미병합 기본값: null(no-op) — 연결이
   /// 없을 때는 보낼 게 없다.
   static Future<void> Function()? resendFineEstimate;

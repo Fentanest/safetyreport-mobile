@@ -7,7 +7,7 @@ import 'community_capture.dart';
 
 /// 개인 DB 에 저장하기 전 공식 상세의 숫자 별점만 어댑터 입력에 넣는다.
 ///
-/// [category]·[photoFirstCapture]·[photoLastCapture] 는 fine_estimate 판정용(observation-v6).
+/// [category]·[photoFirstCapture]·[photoLastCapture] 는 fine_estimate 판정용(observation-v5(fine_estimate 추가)).
 /// 사진 촬영 시각은 capture 시점에 이미 아는 값만 넘긴다(새 네트워크 조회를 여기서 하지 않음) —
 /// 호출자(SyncEngine)가 PC `_prefetch_derived` 와 같은 순서로 capture 전에 준비해 전달한다.
 Map<String, Object?> buildReportAdapterInput(

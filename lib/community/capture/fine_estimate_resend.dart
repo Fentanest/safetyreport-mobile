@@ -1,6 +1,6 @@
 // 기존 신고 다시 보내기(크롤링 없음) — fine-estimate-contract.md "기존 신고 다시 보내기".
 //
-// fine_estimate(observation-v6) 추가 뒤, 이미 커뮤니티에 올라간 적 있는 기존 신고의 payload 를
+// fine_estimate(observation-v5(fine_estimate 추가)) 추가 뒤, 이미 커뮤니티에 올라간 적 있는 기존 신고의 payload 를
 // 로컬 personal DB 값으로 다시 만들어 본다(공식 사이트를 다시 읽지 않음). payload_sha256 이
 // 바뀐 것(=추정 필드가 새로 생긴 것)만 기존 capture()(journal/outbox) 경로로 다시 보낸다 — 대상이
 // 아니면 capture() 가 그대로 이벤트 없음을 돌려준다(기존 decideEvent 규칙, 여기서 새로 판단하지

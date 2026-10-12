@@ -953,7 +953,7 @@ class ReportProvider with ChangeNotifier {
       if (_appMode == AppMode.standalone && !_isStandaloneDemo) {
         await CommunityUploadHooks.registerBackgroundJobsNow();
         await CommunityUploadHooks.catchUpNow('gate-passed');
-        // fine_estimate(observation-v6) 기존 신고 다시 보내기 — 크롤링 없이 로컬 DB 로 한 번만.
+        // fine_estimate(observation-v5(fine_estimate 추가)) 기존 신고 다시 보내기 — 크롤링 없이 로컬 DB 로 한 번만.
         // Client 는 PC 서버가 올리므로 여기서 부르지 않는다.
         unawaited(CommunityUploadHooks.resendFineEstimateNow());
       } else {

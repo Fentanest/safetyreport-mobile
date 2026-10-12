@@ -1,4 +1,4 @@
-// fine_estimate(observation-v6, fine-estimate-contract.md) payload 판정.
+// fine_estimate(observation-v5(fine_estimate 추가), fine-estimate-contract.md) payload 판정.
 //
 // 조건·판정 로직은 lib/services/fine_estimate.dart 를 그대로 호출한다(여기서 다시 구현하지
 // 않음). 벡터는 PC 와 공유하는 test/fixtures/fine_estimate_vectors.json 을 그대로 쓴다.

@@ -59,6 +59,26 @@
   건너뜀·실패 0. `flutter analyze --no-pub` 9 issues(기존 `unnecessary_cast` 9건과 동일, 새 경고 0).
 - `pubspec.yaml`·`pubspec.lock`·`VERSION` 변경 없음. git 커밋만(이 브랜치), push·릴리스 없음.
 
+## 2026-10-12 (Sonnet) 차량번호 정규화(세 레포 공통, 읽을 때만, 미배포)
+
+사용자 눈에 보이는 변화: 커뮤니티 서버 실데이터에서 번호판 끝에 군더더기(`177도7967)`)나 설명 문구(`235호2929/흰색SUV…`)가
+붙어 있거나 보이지 않는 문자가 섞여 있어도 추정 과태료 차종 판정이 더 정확해진다. **로컬 DB 원문(`차량번호`)은 바꾸지
+않는다** — 읽을 때만 새 공통 함수로 번호판 토큰을 뽑는다.
+
+- `lib/services/plate_normalize.dart`(신규): 서버(`services/plate_normalize.py`)·지도(`server/plate.ts`)와 같은
+  규칙(NFKC·공백/제로폭 문자/하이픈 제거 → 지역 접두+본문 패턴 검색 → 경계 규칙으로 군더더기 판정 → 후보 정확히 1개만
+  인정)을 Dart로 포팅했다. 세 레포 공유 벡터(`test/fixtures/plate_normalize_vectors.json`, 바이트 동일)로 검증한다.
+- `lib/services/fine_estimate.dart`: `vehicleKind`/`isCommercialTruck` 이 `plate_normalize.normalizePlate` 를 먼저
+  거친다. 차종 판정표(숫자 구간·사업용 기호)는 그대로라 `ruleVersion` 은 올리지 않았다 — 기존 `fine_estimate_vectors.json`
+  (서버와 동일 파일) 깨끗한 번호판 60건이 모두 같은 결과를 내는 것을 확인했고, 실데이터 garbage 입력 10건을 새 벡터로
+  추가했다. 통계(`local_statistics.dart`)는 `fine_estimate` 를 그대로 호출하므로 함께 좋아진다.
+- Standalone 중복차량(`local_db_service.dart getDuplicateVehicleReports`)은 SQL `GROUP BY 차량번호`(페이지네이션 전제)
+  라 이번에는 그대로 두었다 — 정규화 그룹핑을 넣으려면 전체를 메모리로 읽거나 정규화 값을 저장하는 스키마 변경이 필요해
+  범위를 넘는다(후속 과제로 남김). Client 모드 중복차량은 PC 서버 `get_duplicate_records`(이미 정규화 적용)를 그대로
+  그리므로 영향을 받는다. 감시목록은 신고번호 기반이라 번호판 매칭 대상이 아니다.
+- 검증: 고정 Flutter 3.47.5 `flutter test --no-pub` 전체 1,764 통과(skip 17, 실패 0), `flutter analyze --no-pub` 9건
+  (기존과 동일, 신규 경고 0). `pubspec.lock` 변경 없음. git 커밋만 했고 push·릴리스·VERSION 변경은 하지 않았다.
+
 ## 2026-10-12 (Sonnet) 지도 공유 자료에 추정 과태료 추가 (observation-v6, 미배포)
 
 사용자 눈에 보이는 변화: 커뮤니티 지도로 보내는 자료에, 이미 화면 통계에 보이던 "추정 과태료"(과태료 처분인데 금액이 아직 안 보이는

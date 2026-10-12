@@ -9,10 +9,15 @@
 ///   커뮤니티 payload([observation_rules.dart] `_fineEstimateField`), 신고 목록/상세 화면, 엑셀·CSV 내보내기가
 ///   모두 같은 함수를 호출한다 — 대상 판정 로직을 호출부마다 다시 만들지 않는다(row-estimate, 2026-10-12).
 
+/// - 번호판 입력은 plate_normalize.normalizePlate 로 먼저 정규화한다(세 레포 공통 규칙, 2026-10-12
+///   사용자·Opus 결정). 이 전처리는 "같은 번호판을 가리키는 입력을 더 많이 알아보게" 할 뿐 차종 판정표
+///   (숫자 구간·사업용 기호)는 그대로이므로 ruleVersion 을 올리지 않는다 — 기존 fine_estimate_vectors.json
+///   의 깨끗한 번호판 60건은 전부 같은 결과를 낸다(test/services/fine_estimate_test.dart 로 확인).
 library;
 
 import 'package:intl/intl.dart';
 import '../models/report.dart';
+import 'plate_normalize.dart' as plate_normalize;
 import 'report_category.dart' as report_category;
 
 const String ruleVersion = "2026-10-12.1";
@@ -25,12 +30,13 @@ final RegExp _plateRe = RegExp(r"^(?:[가-힣]{2,})?(\d{2,3})([가-힣])(\d{4})$
 final RegExp _motorcycleRe = RegExp(r"^(?:[가-힣]{2,})?\d?[가-힣]\d?\d{4}$");
 const Set<String> _commercialTruckSymbols = {'바', '사', '아', '자', '배'};
 
-String _normalizePlate(dynamic plate) {
-  return (plate?.toString() ?? "").replaceAll(RegExp(r"\s+"), "");
-}
-
+/// 번호판 차종기호 → 승용/승합/화물/특수/긴급/이륜. 판별 불가면 null. 이륜은 형식 추정.
+///
+/// plate_normalize.normalizePlate 로 먼저 정규화한다(군더더기·설명 문구·보이지 않는 문자 제거,
+/// 서로 다른 후보 2개 이상이거나 미인식이면 null) — 2026-10-12 결정, 원문은 호출자가 그대로 보존한다.
 String? vehicleKind(dynamic plate) {
-  final text = _normalizePlate(plate);
+  final text = plate_normalize.normalizePlate(plate);
+  if (text == null) return null;
   final match = _plateRe.firstMatch(text);
   if (match != null) {
     final digits = match.group(1)!;
@@ -67,7 +73,8 @@ String fineClass(dynamic plate) {
 }
 
 bool isCommercialTruck(dynamic plate) {
-  final text = _normalizePlate(plate);
+  final text = plate_normalize.normalizePlate(plate);
+  if (text == null) return false;
   final match = _plateRe.firstMatch(text);
   return match != null &&
       vehicleKind(text) == "화물" &&

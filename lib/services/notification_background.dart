@@ -7,6 +7,7 @@ import '../community/community_store.dart';
 import '../community/upload/upload_background.dart';
 import 'app_prefs_keys.dart';
 import 'background_login_check.dart';
+import 'bundled_sqlite.dart';
 import 'client_compatibility.dart';
 import 'prefs_inbox.dart';
 import 'secure_storage_migration.dart';
@@ -26,6 +27,8 @@ Future<void> runNotificationBackground() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.reload();
     if (!await SecureStorageMigration.isDone(prefs)) return;
+    // BL-1: 화면 없는 알림 엔진도 main·WorkManager 와 같은 번들 SQLite 로 DB 를 연다(기기 SQLite 와 섞지 않음).
+    await BundledSqlite.initialize();
     final initialScope = await _channel.invokeMethod<String>(
       'notificationWorkScope',
     );

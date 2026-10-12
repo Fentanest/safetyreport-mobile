@@ -267,17 +267,56 @@ class ChangeType {
 - 서명: `android/key.properties` 가 없으면 release 패키징(`packageRelease`·`signReleaseBundle`)이 실패한다 — debug 키로 조용히 대체하지 않는다.
   검증 전용 빌드만 `ALLOW_DEBUG_SIGNED_RELEASE=1`(산출물 이름 `-DEBUG-SIGNED`, 메타 `signing=debug` — 배포·업로드에 쓰지 않는다).
 
-### 이미지 디코딩·Play `H2.h.b` (2026-09-27)
-- 신고 상세 첨부 사진(`report_detail_sheet.dart _RetryableImage`)은 원본 해상도로 디코딩하지 않는다: `ResizeImage(NetworkImage, fit)` —
-  폭 = 화면 폭 × 픽셀 비율(최대 4096), 높이 상한 = 화면 높이 × 픽셀 비율 × 4(최대 8192), 비율 유지·확대 없음(`photoDecodeSize`).
-  원본은 기존 '다른 앱으로 열기'. 측정(호스트 flutter_test, 이미지 캐시 바이트): 4000×3000 48,000,000 → 3,491,644, 1080×20000 86,400,000 → 14,483,456.
-  앱·플러그인의 다른 Android BitmapFactory 호출·알림 이미지는 없다.
-- Play 경고의 `H2.h.b` = file_picker 11.0.2 `FileUtils.processUri/compressImage`(`BitmapFactory.decodeStream` 옵션 없음, `FileUtils.kt:464`) —
-  후보 3개 버전 CI AAB mapping(pg_map_id `fbc35fa…`)으로 확인. 2026-09-27 빌드(pg_map_id `7cfb1fe4…`)에서는 R8 이 같은 코드를 `md0.f` 로 합쳤다.
-  `compressionQuality > 0` 일 때만 실행되고 앱은 항상 0 이라 실행 경로는 아니다. 수정판(file_picker ≥12)은 win32 6 → flutter_secure_storage 11
-  (v10 이전 저장 방식 데이터를 못 읽음)을 요구한다 — **2단계로 진행(2026-09-27 사용자 결정)**: ① 이번 릴리즈에서 flutter_secure_storage 9 → 10(자료 이관,
-  `data-contracts.md` 자격증명 절), ② 다음 릴리즈에서 11 + file_picker 13(+ share_plus 13·package_info_plus 10, `encryptedSharedPreferences` 매개변수 제거).
-  ②는 사용자 대부분이 ①을 거친 뒤에 낸다(①을 건너뛴 설치본은 v11 에서 로그인·연결 비밀을 잃는다).
+### 이미지 디코딩·Play `H2.h.b` / `je0.d`
+
+- 신고 상세 사진은 기존 `ResizeImage`·`photoDecodeSize` 제한을 유지한다.
+- 2.1.3 AAB의 `je0.d`는 file_picker 11.0.2 `FileUtils.compressImage`의 옵션 없는 `BitmapFactory.decodeStream`이다.
+- BL-1 구현은 file_picker 13.1.0(Android 구현 android_file_picker 2.0.1)을 쓴다. 업스트림 코드는
+  `inJustDecodeBounds`로 크기를 조사한 뒤 `inSampleSize`를 설정해 다시 연 스트림을 디코딩한다.
+  앱의 파일 선택은 압축 기본값 0을 유지한다. `pickFiles`는 이제 `List<PlatformFile>`과 취소 시 빈 목록을 반환하며,
+  DB·WAL·SHM 다중 선택을 유지한다. 공유는 `SharePlus.instance.share(ShareParams(...))`를 쓴다.
+- 앱 Kotlin 및 현재 Android Flutter 플러그인 소스에서 다른 `BitmapFactory.decode*` 호출은 발견하지 않았다.
+  release DEX에는 전이 의존성 Media3의 옵션 없는 `decodeByteArray([BII)` 두 곳이 남는다:
+  `Cue.fromBundle`(R8 `rb.apply`)와 `TtmlNode.getCues`/`TtmlSubtitle.getCues`(R8 `i30.p`).
+  앱 자체 코드가 아니므로 이 작업에서 영상 의존성을 추가 업그레이드하거나 바이트코드를 수정하지 않았다.
+- 로컬 debug 서명 release의 `FileUtils.compressImage`는 R8 `f90.h`에 인라인된다.
+  DEX의 `decodeStream(InputStream)` 호출은 0개, `decodeStream(InputStream, Rect, Options)`는 2개다.
+  변경 전 같은 SDK/ABI 빌드에는 `je0.d`의 옵션 없는 호출이 있었다.
+- 로컬 mapping/DEX 검사는 Play Console 경고 해소의 증거가 아니다. 업로드 후 Console에서 따로 확인해야 한다.
+
+### Android SQLite 번들 (BL-1)
+
+- Android의 Dart DB 연결은 `BundledSqlite.initialize()`로 `sqflite_common_ffi 2.4.3`로 바꾼다.
+  `sqflite 2.4.4+1`의 API와 기존 파일을 유지하며, **교체 전에** Android plugin의 `getDatabasesPath()`를 읽어
+  FFI factory에 지정한다. FFI 기본 경로로 이동하거나 새 빈 DB를 만들지 않는다.
+- 포그라운드 `main`과 WorkManager `backgroundTaskDispatcher` 각각 첫 DB 접근 전에 초기화한다.
+  `resetLegacyDatabase`, 개인 DB·community.db, 스냅샷·가져오기·백업/복원은 같은 isolate의 global factory를 사용한다.
+  SQL 실행은 FFI worker isolate에서 수행하며, WorkManager 엔진도 별도 FFI worker/연결로 같은 파일을 연다.
+- 엔진은 `sqlite3 3.7.0` native-assets hook과 공식 SQLite **3.53.4** amalgamation이다.
+  `third_party/sqlite/README.md`에 출처·SHA3-256·public-domain 근거를 둔다. 원문은 변경하지 않는다.
+  hook 진입 소스는 `sqlite3_flutter.c`이며, 원문을 include하는 작은 POSIX sleep 래퍼다.
+  SQLite `unixSleep`의 `nanosleep`이 Dart 프로파일러 `SIGPROF`로 중단되면 남은 시간을 이어서 잔다.
+  원문의 sleep은 EINTR을 무시하여 debug/profile에서 5초 busy_timeout이 수십 ms 만에 소진될 수 있다.
+  Windows의 sleep은 바꾸지 않으며, SQLite 원문·FTS 옵션·DB 파일 형식은 그대로다.
+  `sqlite3_flutter_libs >=0.6.0`은 더 이상 라이브러리를 제공하지 않으므로 채택하지 않는다.
+- sqlite3의 기본 precompiled binary는 FTS5만 제공한다. 기존 Android FTS3/4 가상 표가 열리지 않는 것을 테스트로 확인하여
+  소스 빌드에 `SQLITE_ENABLE_FTS3`와 `SQLITE_ENABLE_FTS3_PARENTHESIS`를 추가했다(FTS4도 활성화).
+  기본 FTS5 옵션은 유지한다. 별도 DB 암호화나 스키마·파일 형식 변환은 도입하지 않는다.
+- 앱 Dart SQL의 최소 엔진은 Android 번들 **3.53.4**로 고정한다. 새 SQL은 이 엔진으로 검사하며,
+  서버와 교환하는 DB의 스키마·값 계약은 `data-contracts.md`를 계속 따른다.
+  Kotlin `ProcessingInboxStore`의 **별도** `processing_inbox.db`는 Android SQLite를 계속 쓴다.
+  Kotlin은 Dart의 개인 DB·community.db를 직접 열지 않는다. 이 네이티브 inbox의 SQL은 기존 3.9 호환 구문을 유지한다.
+- 잠금 대기 래퍼 반영 전 측정한 동일 SDK·세 ABI·debug 서명 release APK는 75,525,411 → 81,450,707바이트,
+  +5,925,296바이트(+5.65 MiB, +7.85%)다. SQLite .so 세 개의 합은 5,763,560바이트이며 APK에 비압축 저장된다.
+  이 차이는 모든 패키지 업그레이드와 번들의 **합계**이고 엔진만 바꾼 A/B 측정은 아니다.
+  arm64-v8a·armeabi-v7a·x86_64 모두 SQLite 3.53.4, FTS3/FTS5 및 ELF LOAD 0x4000 정렬을 산출물에서 확인했다.
+- 선택 근거: [sqflite_common_ffi](https://pub.dev/packages/sqflite_common_ffi),
+  [sqlite3 hook 설정](https://pub.dev/documentation/sqlite3/latest/topics/hook-topic.html),
+  [폐기된 sqlite3_flutter_libs](https://pub.dev/packages/sqlite3_flutter_libs),
+  [SQLite 3.53.4/소스 해시](https://sqlite.org/releaselog/3_53_4.html).
+- 패키지 변경과 엔진 교체는 별도 커밋으로 검토할 수 있다. 엔진 변경 묶음은 `bundled_sqlite.dart`, main/WorkManager 초기화,
+  pubspec의 sqflite/FFI/sqlite3·hook 설정, `third_party/sqlite/`, SQLite 검증 파일이다.
+  기존 FTS와 별도 엔진 간 잠금·백업 무결성이 걸려 있어 단순 패키지 버전 변경보다 위험이 높다.
 
 ### 로컬 테스트 빌드 (`build_test_apk.sh`)
 고정 Flutter 로컬 CLI.

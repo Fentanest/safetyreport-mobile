@@ -4,7 +4,7 @@
 
 | ID | 항목 | 상태 | 언제 |
 |---|---|---|---|
-| BL-1 | Play `H2.h.b` 2단계: flutter_secure_storage 11 + file_picker 13 + **SQLite 엔진 버전 올리기** | 대기 (1단계 dev 반영) | 1단계(v10) 릴리즈 뒤, 사용자 대부분이 v10 을 한 번 연 다음 릴리즈 |
+| BL-1 | Play `H2.h.b` 2단계: flutter_secure_storage 11 + file_picker 13 + **SQLite 엔진 버전 올리기** | 구현·호스트 검증 완료, 옵션 충돌·기기 검증 미해결 | 1단계(v10) 릴리즈 뒤, 사용자 대부분이 v10 을 한 번 연 다음 릴리즈 |
 
 ## BL-1 Play `H2.h.b` 2단계 — flutter_secure_storage 11 + file_picker 13
 
@@ -19,6 +19,17 @@
 - 그래서 1단계(9 → 10, 앱을 열 때 이관 + `secureStorageV10Migrated` 표시)를 먼저 내고, 이 항목(2단계)은 그 다음 릴리즈에 낸다.
   근거: `docs/architecture/android-runtime.md` "이미지 디코딩·Play H2.h.b", `docs/architecture/data-contracts.md` 자격증명 절,
   `docs/reviews/2026-09-27-secure-storage-10-sol.md`.
+
+### 현재 인계 상태
+
+- 패키지 2단계와 SQLite 3.53.4(FTS3/4/5) 번들 구현, 호스트 회귀/DB 왕복 및 debug 서명 release APK 검증을 수행했다.
+  결과와 변경 파일은 `CHANGELOG.md`의 2026-10-12 BL-1 항목, 엔진 설계·크기는 `android-runtime.md`를 따른다.
+- **완료 처리하지 않음**: 브리프의 저장 옵션 유지와 오류 시 자료 보존 요구가 실제 `resetOnError=true` 기본값에서 충돌한다.
+  `false` 명시 예외 여부가 미결이다. 현재 기본 옵션은 바꾸지 않았다. `data-contracts.md` 코드 대조 정정을 따른다.
+- 실제 로그인 완료 자료·배포 서명·v9→v10→v11 기기 업데이트·WorkManager 동시 접근·강제 종료·Keystore 고장·iOS는 미검증이다.
+  시험 기기 연결을 확보하지 못했다. Play v10 분포나 경고 해소를 확인한 것으로 보지 않는다.
+- SQLite 변경은 기본 바이너리의 FTS4 누락 때문에 검증한 공식 소스 빌드가 필요했다. 별도 커밋 검토 단위와 근거를
+  `android-runtime.md`에 분리했다. 이번 작업은 커밋·push·버전 변경·릴리스 없이 인계한다.
 
 ### 시작 전 조건
 - 1단계(v10)가 Play 에 배포되어 있고, 사용자 대부분이 v10 을 한 번 이상 연 뒤일 것(배포 뒤 기간·버전 분포는 Play Console 에서 확인 — 측정하지 않은 비율을 쓰지 않는다).

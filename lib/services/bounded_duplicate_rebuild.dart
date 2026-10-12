@@ -186,7 +186,7 @@ class _BoundedDuplicateRebuild {
       // Stage on an independent connection without holding the main write
       // lock. Publish using the shared connection's queue in one short atomic
       // transaction: sqflite's "exclusive:false" still uses BEGIN IMMEDIATE.
-      final publisher = await openDatabase(db.path, singleInstance: false);
+      final publisher = await openAppDatabase(db.path, singleInstance: false);
       Map<String, dynamic>? result;
       try {
         final revision = Sqflite.firstIntValue(

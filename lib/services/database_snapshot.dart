@@ -1,3 +1,4 @@
+import 'sqlite_connection.dart';
 import 'dart:io';
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:sqflite/sqflite.dart';
@@ -21,13 +22,13 @@ Future<void> copyReadOnlyDatabaseSnapshot(
   String quote(String value) => '"${value.replaceAll('"', '""')}"';
   try {
     if (sourceSnapshot == null) {
-      source = await openDatabase(
+      source = await openAppDatabase(
         sourcePath,
         readOnly: true,
         singleInstance: false,
       );
     }
-    destination = await openDatabase(target, singleInstance: false);
+    destination = await openAppDatabase(target, singleInstance: false);
     final output = destination;
     Future<void> copyFrom(DatabaseExecutor input) async {
       final objects = await input.rawQuery(

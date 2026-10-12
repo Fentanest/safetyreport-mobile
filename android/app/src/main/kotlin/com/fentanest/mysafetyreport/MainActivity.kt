@@ -458,6 +458,11 @@ class MainActivity : FlutterFragmentActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SECURE_STORAGE_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "unmigratedLegacyEntries" -> result.success(unmigratedLegacySecureEntries())
+                // v11: count every entry, including default-cipher v9 data and keysets.
+                // Do not initialize the secure-storage plugin or inspect/log values.
+                "storedSecureEntries" -> result.success(try {
+                    getSharedPreferences(SECURE_STORAGE_PREFS, MODE_PRIVATE).all.size
+                } catch (_: Exception) { -1 })
                 else -> result.notImplemented()
             }
         }

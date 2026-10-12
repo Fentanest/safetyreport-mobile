@@ -8,7 +8,7 @@ import 'community_store.dart';
 /// of tamper-proof storage on a compromised device.
 class ConsentHistory {
   ConsentHistory(this.store, {FlutterSecureStorage? storage})
-    : storage = storage ?? const FlutterSecureStorage();
+    : storage = storage ?? const FlutterSecureStorage(aOptions: AndroidOptions(resetOnError: false));
   final CommunityStore store;
   final FlutterSecureStorage storage;
   static String key(String account) => 'community_consent_history_v1:$account';

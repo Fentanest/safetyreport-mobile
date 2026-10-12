@@ -47,14 +47,16 @@ dependencies:
   path_provider: ^2.1.0
   open_filex: ^4.3.4
   # 시스템 공유 sheet (xlsx 등 직접 핸들러 없을 때 '다른 앱으로 열기' fallback)
-  share_plus: ^10.1.4
-  package_info_plus: ^9.0.1
+  share_plus: ^13.3.1
+  package_info_plus: ^10.2.2
   pointycastle: ^3.9.1
-  flutter_secure_storage: ^10.3.4
-  sqflite: ^2.4.0
+  flutter_secure_storage: ^11.2.0
+  sqflite: ^2.4.4+1
+  sqflite_common_ffi: ^2.4.3
+  sqlite3: 3.7.0
   path: ^1.9.0
   excel: ^4.0.6
-  file_picker: ^11.0.2
+  file_picker: ^13.1.0
   flutter_map: ^8.3.0
   flutter_map_marker_cluster: ^8.2.2
   latlong2: ^0.9.1
@@ -67,7 +69,6 @@ dev_dependencies:
     sdk: flutter
   flutter_test:
     sdk: flutter
-  sqflite_common_ffi: ^2.3.6
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -127,3 +128,15 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# Preserve Android FTS3/4 tables in legacy and imported DBs. The upstream
+# sqlite3 package's precompiled binaries only enable FTS5.
+hooks:
+  user_defines:
+    sqlite3:
+      source: source
+      path: third_party/sqlite/sqlite3_flutter.c
+      defines:
+        defines:
+          - SQLITE_ENABLE_FTS3
+          - SQLITE_ENABLE_FTS3_PARENTHESIS

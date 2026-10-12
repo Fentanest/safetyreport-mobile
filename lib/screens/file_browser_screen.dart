@@ -402,9 +402,12 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     final mime = mimeForPath(file.path);
     final result = await OpenFilex.open(file.path, type: mime);
     if (result.type == ResultType.noAppToOpen && mounted) {
-      await Share.shareXFiles([
-        XFile(file.path),
-      ], subject: file.path.split('/').last);
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path)],
+          subject: file.path.split('/').last,
+        ),
+      );
     } else if (result.type != ResultType.done && mounted) {
       showSrSnack(
         context,
@@ -493,7 +496,9 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
   Future<void> _shareLocalFile(LocalFileEntry f) async {
     final name = f.name;
     try {
-      await Share.shareXFiles([XFile(f.path)], subject: name);
+      await SharePlus.instance.share(
+        ShareParams(files: [XFile(f.path)], subject: name),
+      );
     } catch (e) {
       if (!mounted) return;
       showSrSnack(context, '공유 실패: $e', kind: SrSnackKind.error);
@@ -505,9 +510,11 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
       ..sort((a, b) => _compareNamesDesc(a.name, b.name));
     if (files.isEmpty) return;
     try {
-      await Share.shareXFiles(
-        files.map((file) => XFile(file.path)).toList(),
-        subject: files.length == 1 ? files.first.name : '${files.length}개 파일',
+      await SharePlus.instance.share(
+        ShareParams(
+          files: files.map((file) => XFile(file.path)).toList(),
+          subject: files.length == 1 ? files.first.name : '${files.length}개 파일',
+        ),
       );
       if (mounted) _clearSelection();
     } catch (e) {
@@ -1150,7 +1157,9 @@ class _TreeNodeState extends State<_TreeNode> {
                             ? Icons.check_circle
                             : fileIconForName(item.name),
                         color: item.isDir
-                            ? context.toneOf(serverPartialAcceptColor).foreground
+                            ? context
+                                  .toneOf(serverPartialAcceptColor)
+                                  .foreground
                             : widget.selectionMode && isSelected
                             ? Theme.of(context).colorScheme.primary
                             : context.sr.textDisabled,

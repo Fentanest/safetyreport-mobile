@@ -618,8 +618,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         !lower.endsWith('.db-shm');
   }
 
-  Future<String?> _stagePickedDbFiles(FilePickerResult result) async {
-    final files = result.files.where((file) => file.path != null).toList();
+  Future<String?> _stagePickedDbFiles(List<PlatformFile> result) async {
+    final files = result.where((file) => file.path != null).toList();
     if (files.isEmpty) return null;
 
     PlatformFile? mainDb;
@@ -717,12 +717,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (_isRestoringDb) return;
 
-    final result = await FilePicker.pickFiles(
-      type: FileType.any,
-      allowMultiple: true,
-    );
+    final result = await FilePicker.pickFiles(type: FileType.any);
 
-    if (result == null) return;
+    if (result.isEmpty) return;
 
     final dialogMsg = isStandalone
         ? '선택한 .db 파일 형식을 자동 감지합니다.\n'
@@ -1048,11 +1045,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     } else if (choice == 'pick_backup') {
       try {
-        final result = await FilePicker.pickFiles(
-          type: FileType.any,
-          allowMultiple: true,
-        );
-        if (result == null) return;
+        final result = await FilePicker.pickFiles(type: FileType.any);
+        if (result.isEmpty) return;
         final selectedPath = await _stagePickedDbFiles(result);
         if (selectedPath == null || selectedPath.isEmpty) return;
         pendingAction = DetectAndApplyDbFileAction(selectedPath);

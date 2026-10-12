@@ -1,3 +1,4 @@
+import '../../services/sqlite_connection.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -989,7 +990,7 @@ class CommunityRebuild extends ChangeNotifier {
     if (!await File(path).exists()) return false;
     Database? copy;
     try {
-      copy = await openReadOnlyDatabase(path);
+      copy = await openAppDatabase(path, readOnly: true);
       final result = await copy.rawQuery('PRAGMA integrity_check');
       return result.length == 1 && result.single.values.single == 'ok';
     } catch (_) {

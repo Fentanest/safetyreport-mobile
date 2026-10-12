@@ -9,6 +9,7 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
+import '../services/sqlite_connection.dart';
 
 const int communityStoreSchemaVersion = 3;
 const String communityStoreFileName = 'community.db';
@@ -160,17 +161,16 @@ class CommunityStore {
         path ?? p.join(await getDatabasesPath(), communityStoreFileName);
     final pending = _open.putIfAbsent(resolved, () async {
       final f = factory ?? databaseFactory;
-      final db = await f.openDatabase(
+      final db = await openAppDatabase(
         resolved,
-        options: OpenDatabaseOptions(
-          singleInstance: true,
-          onConfigure: (d) async {
-            await d.rawQuery('PRAGMA journal_mode=WAL');
-            await d.rawQuery('PRAGMA busy_timeout=30000');
-            await d.execute('PRAGMA foreign_keys=ON');
-            await d.execute('PRAGMA synchronous=FULL');
-          },
-        ),
+        factory: f,
+        busyTimeoutMs: 30000,
+        singleInstance: true,
+        onConfigure: (d) async {
+          await d.rawQuery('PRAGMA journal_mode=WAL');
+          await d.execute('PRAGMA foreign_keys=ON');
+          await d.execute('PRAGMA synchronous=FULL');
+        },
       );
       final store = CommunityStore._(db, resolved);
       try {

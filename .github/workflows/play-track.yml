@@ -1,0 +1,103 @@
+name: Play track move (manual)
+
+# 이미 Play 에 올라가 있는 빌드(versionCode)를 다른 트랙에 배정한다. 다시 업로드하지 않는다.
+# 비밀값(PLAY_SERVICE_ACCOUNT_JSON)은 environment: play 에만 있고, 그 environment 는 main 에서만 쓸 수 있다.
+# mode=validate 는 edits:validate 까지만 하고 버린다(Play 쪽 오류 확인용). mode=commit 이 실제 반영이다.
+on:
+  workflow_dispatch:
+    inputs:
+      version_code:
+        description: 'versionCode (비우면 VERSION 의 + 뒤 숫자)'
+        required: false
+        default: ''
+      to_track:
+        description: '배정할 트랙 (alpha = 비공개 테스트)'
+        required: true
+        default: 'alpha'
+      clear_internal:
+        description: '내부 테스트(internal) 트랙의 출시를 비운다'
+        type: boolean
+        default: false
+      mode:
+        description: 'validate | commit'
+        required: true
+        default: 'validate'
+
+permissions:
+  contents: read
+
+jobs:
+  move:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: play
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        ref: ${{ github.sha }}
+
+    - uses: actions/setup-node@v6
+      with:
+        node-version: 22
+
+    - name: Generate Play "what's new" (ko-KR) from release notes
+      run: node scripts/generate_whatsnew.mjs
+
+    - name: Move release
+      env:
+        SA_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        VERSION_CODE: ${{ inputs.version_code }}
+        TO_TRACK: ${{ inputs.to_track }}
+        CLEAR_INTERNAL: ${{ inputs.clear_internal }}
+        MODE: ${{ inputs.mode }}
+      run: |
+        pip install --quiet google-auth requests
+        python3 - <<'PY'
+        import json, os, sys
+        import requests
+        from google.oauth2 import service_account
+        from google.auth.transport.requests import Request
+
+        pkg = "com.fentanest.mysafetyreport"
+        version = open("VERSION").read().strip()
+        name, _, build = version.partition("+")
+        code = os.environ["VERSION_CODE"].strip() or build
+        to_track = os.environ["TO_TRACK"].strip()
+        mode = os.environ["MODE"].strip()
+        if mode not in ("validate", "commit"):
+            sys.exit(f"::error::mode 는 validate 또는 commit: {mode}")
+        notes = open("whatsnew/whatsnew-ko-KR", encoding="utf-8").read().strip()
+
+        creds = service_account.Credentials.from_service_account_info(
+            json.loads(os.environ["SA_JSON"]),
+            scopes=["https://www.googleapis.com/auth/androidpublisher"])
+        creds.refresh(Request())
+        base = f"https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{pkg}/edits"
+        h = {"Authorization": f"Bearer {creds.token}"}
+
+        def call(method, url, body=None):
+            r = requests.request(method, url, headers=h, json=body, timeout=60)
+            print(f"{method} {url.replace(base, '')} -> {r.status_code}")
+            if not r.ok:
+                print(r.text)
+                sys.exit(1)
+            return r.json() if r.text else {}
+
+        edit = call("POST", base)["id"]
+        for t in ("internal", "alpha"):
+            print(t, json.dumps(call("GET", f"{base}/{edit}/tracks/{t}"), ensure_ascii=False))
+
+        release = {"name": f"{name} ({code})", "versionCodes": [code], "status": "completed",
+                   "releaseNotes": [{"language": "ko-KR", "text": notes}]}
+        call("PUT", f"{base}/{edit}/tracks/{to_track}", {"track": to_track, "releases": [release]})
+        if os.environ["CLEAR_INTERNAL"] == "true" and to_track != "internal":
+            call("PUT", f"{base}/{edit}/tracks/internal", {"track": "internal", "releases": []})
+
+        if mode == "validate":
+            call("POST", f"{base}/{edit}:validate")
+            call("DELETE", f"{base}/{edit}")
+            print("검증만 하고 edit 를 버렸습니다.")
+        else:
+            print(json.dumps(call("POST", f"{base}/{edit}:commit"), ensure_ascii=False))
+            print(f"{code} 를 {to_track} 트랙에 반영했습니다.")
+        PY

@@ -5,6 +5,7 @@
 - `build-apk.yml` play-upload job 의 트랙을 내부 테스트(`internal`)에서 비공개 테스트(`alpha`)로 바꿨다(사용자 결정).
   비공개 테스트는 Google 심사를 거치므로 내부 테스트보다 노출이 늦을 수 있다. 테스터 목록·국가는 Play Console 에서 설정한다.
 - 다음 main 릴리스부터 적용된다. 2.2.0+42 는 내부 테스트에 그대로 있다.
+- Play 비공개 테스트로 올라가는 빌드(main)는 GitHub Release 를 pre-release 로 만든다. Play 프로덕션 승격 뒤 GitHub 에서 pre-release 표시를 직접 해제한다.
 
 ## 2026-10-13 — 2.2.0 (빌드 42) 릴리스 준비
 

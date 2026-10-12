@@ -1023,6 +1023,49 @@ class LocalDbService {
     return rows.isEmpty || rows.first['사진_촬영수'] == null;
   }
 
+  /// 이미 저장된 사진 촬영 시각(추정 과태료 입력, Astra fine-estimate 2026-10-12). 없으면 둘 다 null.
+  /// capture 는 상세 저장 전(트랜잭션 밖)에 일어나므로, 이번에 새로 못 읽었으면(주정차가 아니거나
+  /// 이미 읽어 둠) 직전 저장값을 그대로 쓴다 — PC `_prefetch_derived` 의 existing 시드와 같은 역할.
+  static Future<({String? first, String? last})> getStoredPhotoCapture(
+    String id,
+  ) async {
+    final d = await db;
+    final rows = await d.query(
+      'reports',
+      columns: ['사진_첫촬영', '사진_끝촬영'],
+      where: 'ID = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return (first: null, last: null);
+    return (
+      first: rows.first['사진_첫촬영'] as String?,
+      last: rows.first['사진_끝촬영'] as String?,
+    );
+  }
+
+  /// Astra fine-estimate 재전송(2026-10-12)의 입력 열. [ids] 중 과태료 처분 문구가 있는 행만
+  /// 돌려준다(그 외는 추정 대상이 될 수 없어 capture() 를 다시 돌 필요가 없다 — 순수 최적화,
+  /// 적격 조건 자체는 observation_rules._fineEstimateField 가 그대로 다시 검사한다).
+  static Future<List<Map<String, Object?>>> communityResendRows(
+    List<String> ids,
+  ) async {
+    if (ids.isEmpty) return const [];
+    final d = await db;
+    final placeholders = List.filled(ids.length, '?').join(',');
+    return d.query(
+      'reports',
+      columns: const [
+        'ID', '신고번호', '신고명', '신고일', '답변일', '처리기관코드', '처리기관',
+        '담당자', '처리상태', '상태', '범칙금_과태료', '벌점', '차량번호', '위반법규',
+        '위반장소', '위도', '경도', '발생시각', 'entry_value', 'category',
+        'ssnpc_cd', 'ssnpc_type', '사진_첫촬영', '사진_끝촬영', '별점',
+      ],
+      where: "ID IN ($placeholders) AND COALESCE(범칙금_과태료,'') LIKE '%과태료%'",
+      whereArgs: ids,
+    );
+  }
+
   /// 촬영 시각을 저장한다(아직 비어 있을 때만). 사이트 원본이 아니라 계산값이라 변경 알림·synced_at 과 무관.
   static Future<void> setPhotoCapture(String id, PhotoCapture capture) async {
     final d = await db;

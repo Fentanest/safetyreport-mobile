@@ -4,7 +4,9 @@
 // PC `services/parser.py` → 어댑터 입력 키와 같은 의미다.
 library;
 
+import '../../services/fine_estimate.dart' as fine_estimate;
 import '../../services/report_category.dart' as report_category;
+import '../../services/standalone_parser.dart' show extractFineAmount;
 
 /// 문자열 정리 clean(s, n): 제어문자·연속 공백 → 공백 하나, 앞뒤 제거, 코드포인트 n자.
 String? cleanString(Object? value, int n) {
@@ -271,6 +273,41 @@ double? parseGeoDouble(Object? value) {
   return null;
 }
 
+/// fine_estimate(observation-v5(fine_estimate 추가), 2026-10-12): 추정 과태료. local_statistics.dart 가
+/// '추정 대상'(과태료 처분인데 금액을 못 읽음)으로 세는 조건과 같은 입력으로
+/// `fine_estimate.classify`/`estimate` 를 그대로 호출한다(판정 로직을 여기서 다시 만들지 않음).
+/// 대상이 아니거나 규칙이 없으면 null(호출자가 키 자체를 뺀다 — null 로 넣지 않음).
+Map<String, Object?>? _fineEstimateField(Map<String, Object?> input) {
+  final fineRaw = input['penalty_amount']?.toString() ?? '';
+  if (!fineRaw.contains('과태료') || extractFineAmount(fineRaw) != 0) {
+    return null;
+  }
+  final record = <String, Object?>{
+    'category': input['category'],
+    'entry_value': input['entry_value'],
+    'ssnpc_cd': input['ssnpc_cd'],
+    'ssnpc_type': input['ssnpc_type'],
+    '신고명': input['report_name'],
+    '위반법규': input['violation_law'],
+    '차량번호': input['car_number'],
+    '사진_첫촬영': input['photo_first_capture'],
+    '사진_끝촬영': input['photo_last_capture'],
+    '발생시각': input['occurrence_time'],
+  };
+  final result = fine_estimate.estimate(record);
+  if (result == null) return null;
+  final won = result['amount'];
+  final rule = result['rule'];
+  if (won is! int || won < 1 || won > 100000000 || rule is! String) {
+    return null;
+  }
+  return <String, Object?>{
+    'won': won,
+    'rule': rule,
+    'rule_version': fine_estimate.ruleVersion,
+  };
+}
+
 /// observation.md 3절 — 어댑터 입력 → 공유 payload (순수 함수).
 ///
 /// 어댑터 입력 키: processing_status, penalty_amount, report_date, response_date,
@@ -309,7 +346,7 @@ Map<String, Object?> buildPayload(Map<String, Object?> input) {
         }
       : <String, Object?>{'lat': null, 'lng': null, 'source': 'none'};
 
-  return <String, Object?>{
+  final payload = <String, Object?>{
     'address': cleanString(input['violation_location'], 200),
     'agency_name': cleanString(input['processing_agency'], 200),
     'amount': <String, Object?>{
@@ -337,6 +374,12 @@ Map<String, Object?> buildPayload(Map<String, Object?> input) {
     // 사유(blocked:source_agency_code_too_long)로 기록한다 — 조용히 버리지 않음.
     'source_agency_code': payloadAgencyCode(input['agency_code']),
   };
+  // observation-v5(fine_estimate 추가): 대상일 때만 키를 넣는다(null 금지, 대상 아니면 payload·해시가 바뀌지 않음).
+  final fineEstimate = _fineEstimateField(input);
+  if (fineEstimate != null) {
+    payload['fine_estimate'] = fineEstimate;
+  }
+  return payload;
 }
 
 /// payload 가 eligible 인지 (amount.status 기준이 아니라 status 기준).

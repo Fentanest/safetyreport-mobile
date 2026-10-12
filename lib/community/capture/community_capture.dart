@@ -17,7 +17,7 @@ export 'observation_rules.dart' show buildPayload;
 
 /// 공유 payload 버전을 올리지 않고 파서만 구분한다.
 const String mobileParserVersion =
-    'mobile-parser-5'; // 2026-10-11 observation-v5(5분류·SSNPC)
+    'mobile-parser-6'; // 2026-10-12 observation-v5(fine_estimate 추가)
 
 /// 공식 상세 응답에서 읽은 좌표. null이면 좌표 없는 관측으로 보낸다.
 class GeocodeHit {
@@ -63,6 +63,14 @@ Map<String, Object?> buildAdapterInput(
   int? rating,
   GeocodeHit? geo,
   required String progressStatus,
+  // observation-v5(fine_estimate 추가)(2026-10-12): fine_estimate 판정용 보조 입력. payload 에는 직접 안 들어가고
+  // observation_rules.buildPayload 가 local_statistics.dart·fine_estimate.dart 와 같은 입력을
+  // 만드는 재료다(판정 로직은 여기서 다시 구현하지 않는다).
+  String? category,
+  String reportName = '',
+  String occurrenceTime = '',
+  String? photoFirstCapture,
+  String? photoLastCapture,
 }) {
   return <String, Object?>{
     'processing_status': status,
@@ -83,6 +91,11 @@ Map<String, Object?> buildAdapterInput(
     'rating': rating,
     'geocode': geo?.toAdapterGeo(),
     'progress_status': progressStatus,
+    'category': category,
+    'report_name': reportName,
+    'occurrence_time': occurrenceTime,
+    'photo_first_capture': photoFirstCapture,
+    'photo_last_capture': photoLastCapture,
   };
 }
 

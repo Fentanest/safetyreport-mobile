@@ -1,5 +1,42 @@
 # Changelog
 
+## 2026-10-12 (Sonnet) 지도 공유 자료에 추정 과태료 추가 (observation-v6, 미배포)
+
+사용자 눈에 보이는 변화: 커뮤니티 지도로 보내는 자료에, 이미 화면 통계에 보이던 "추정 과태료"(과태료 처분인데 금액이 아직 안 보이는
+주정차 신고의 법정 최저 기준 추정값)가 함께 실릴 수 있게 된다. 서버가 따로 계산하지 않고 폰이 이미 쓰는 같은 규칙·같은 입력을 그대로
+보낸다. 금액을 이미 아는 신고·추정 대상이 아닌 신고는 전혀 영향을 받지 않는다(보내는 자료·해시 그대로, 다시 전송되지 않음).
+
+- `lib/community/capture/observation_rules.dart` `buildPayload`: 로컬 통계가 "추정 과태료"로 세는 조건(과태료 처분인데
+  `extractFineAmount` 로 금액을 못 읽음)과 같을 때만 선택 필드 `fine_estimate: {won, rule, rule_version}` 을 추가한다. 대상이
+  아니면 키 자체를 빼고(null 금지) 판정은 `lib/services/fine_estimate.dart` 의 `classify`/`estimate` 를 그대로 호출한다
+  (판정 로직 중복 구현 없음).
+- `lib/community/capture/community_capture.dart`: `buildAdapterInput` 에 추정용 보조 입력(category·사진 촬영 시각·신고명·
+  발생시각) 추가. `mobileParserVersion` → `mobile-parser-6`(observation-v6, PC `pc-parser-6` 대응). payload 스키마 이름만
+  올리고 envelope/contract 이름은 그대로.
+- `lib/community/capture/report_adapter.dart`, `lib/services/sync_engine.dart`: 사진 촬영 시각 조회를 capture() 보다
+  앞으로 옮겨(PC `_prefetch_derived` 와 같은 순서) 추정 입력이 로컬 통계·확정 저장값과 같아지게 했다(기존에 이미 하던 조회를
+  재사용, 네트워크 호출을 늘리지 않음).
+- `lib/community/capture/fine_estimate_resend.dart`(신규), `lib/community/upload_hooks.dart`·`community_wiring.dart`:
+  기존에 이미 커뮤니티로 보낸 신고를 앱 업데이트 뒤 Standalone 게이트 통과 때 한 번, 공식 사이트를 다시 읽지 않고 로컬 DB 값으로
+  다시 만들어 payload_sha256 이 바뀐 것(=추정 필드가 새로 생긴 것)만 기존 capture/journal/outbox 경로로 다시 올린다. 완료
+  표시는 (규칙 버전, 파서 버전) 기준이라 그중 하나라도 바뀌면 다시 돈다. 중간에 멈추면(종료 등) 커서를 남겨 다음 실행이 이어간다.
+  동의·계정 문맥이 없거나 철회됐으면 기존 규칙대로 전송하지 않는다. 사용자 조작·초기화 크롤링 없음. Client 모드는 PC 서버가
+  올리므로 호출하지 않는다.
+- `lib/services/local_db_service.dart`: `getStoredPhotoCapture`(이미 저장된 사진 촬영 시각 조회), `communityResendRows`
+  (다시 보내기용 열 조회, 과태료 문구 없는 행은 미리 제외) 추가 — 둘 다 읽기 전용.
+- `contracts/community-ingest/observation.schema.json`·`observation.md`(+MANIFEST): observation-v5 → v6, 선택 필드
+  `fine_estimate`(won 1..100000000, rule enum, rule_version ≤40자, additionalProperties false) 추가. PC·지도 사본과
+  같은 내용이어야 한다(병행 작업, 아직 두 쪽 모두 반영 전이면 MANIFEST 자체 일치만 보장됨).
+- 시험(신규): `test/community/fine_estimate_payload_test.dart`(PC 와 공유하는 `test/fixtures/fine_estimate_vectors.json`
+  재사용, 필드 생김/안 생김·확정 금액은 대상 아님·대상 아닌 payload 해시 불변), `test/community/fine_estimate_resend_test.dart`
+  (필드 생김·1회성·재개·동의 없음 제외). 기존 `mobile-parser-5` 하드코딩 2곳(`capture_test.dart`, `uploader_test.dart`) 갱신.
+  `contracts/community-ingest/vectors/observations.json` 기존 3개 케이스(`fine_keyword_without_amount`,
+  `zero_amount_is_not_null`, `amount_man_unit_rejected` — 모두 과태료 금액 미확인)가 새 조건에 걸려 `fine_estimate` 가
+  생겨 payload·canonical_json·payload_sha256 을 갱신했다(기대값을 숨기려 고친 게 아니라 계약이 정한 대로 새로 생긴 값).
+- 검증: `flutter test --no-pub` 전체 1578 통과·17 건너뜀·기존 `renewal_golden_test` 골든 4건 실패(baseline, 로컬
+  Flutter 3.41.6 폰트 환경 — 그 외 새 실패 0). `flutter analyze --no-pub` 새 경고 0(기존 `unnecessary_cast` 9건만).
+  pubspec.yaml·pubspec.lock·VERSION 은 변경하지 않았다. git 커밋·push·릴리스는 하지 않았다(브랜치 작업).
+
 ## 2026-10-12 — 2.1.3 (빌드 41) Standalone 다시 불러오기 중단 복구
 
 - 공유 목록 확인 실패·업로드 충돌·확인 예외는 1·2·5·10·30분 간격으로 최대 5회 자동 재시도한다. 수집 시작 전에도 카드·상세 화면·알림에 실제 예약 시각과 횟수를 표시한다. 소진 뒤에는 자동 대기 표시를 끝내고 수동 재시도를 안내한다.

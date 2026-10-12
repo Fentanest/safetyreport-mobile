@@ -94,7 +94,7 @@ jobs:
             codes = sorted({int(b["versionCode"]) for b in call("GET", f"{base}/{edit}/bundles").get("bundles", [])})
             print("bundles", codes)
             root = f"https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{pkg}/generatedApks"
-            for c in codes[-6:]:
+            for c in codes:
                 r = requests.get(f"{root}/{c}", headers=h, timeout=60)
                 certs = sorted({g.get("certificateSha256Hash") for g in r.json().get("generatedApks", [])}) if r.ok else r.text[:300]
                 print("generatedApks", c, r.status_code, certs)

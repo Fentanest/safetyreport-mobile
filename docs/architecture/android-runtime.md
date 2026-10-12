@@ -375,6 +375,7 @@ ALLOW_DEBUG_SIGNED_RELEASE=1 ./build_android_release.sh   # 검증 전용(debug 
 ```
 
 CI `build-apk.yml`: `workflow_dispatch` 입력 `verify_only` 면 태그 확인·GitHub Release 를 건너뛰고 산출물·`dist/`(mapping·메타)만 artifact 로 남긴다.
+Release를 만드는 실행은 계산된 태그의 `docs/releases/v<버전>.md` 내용 그대로 GitHub Release 본문이 된다(`Full Changelog` 포함, 자동 생성 노트 없음). 파일이 없으면 `::error::`로 경로를 안내하고 빌드·Release 생성 전에 실패한다. dev 수동 실행도 Release를 만들면 파일이 필요하며, `verify_only`와 기존 태그로 릴리스를 건너뛰는 실행은 이 검사를 생략한다.
 정식 실행도 `dist/` 를 artifact(90일)로 올린다. Play 스택(`H2.h.b` 같은 난독화 이름)은 그 빌드의 mapping 으로 되돌린다
 (AAB 는 `BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map` 에도 들어 있다).
 

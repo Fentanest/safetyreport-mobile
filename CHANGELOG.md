@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-13 — GitHub Release 본문 자동 적용
+
+- 릴리스 본문에 해당 버전의 `docs/releases/v<버전>.md`를 그대로 적용하고 자동 생성 노트를 끄며, 노트 파일이 없으면 Release 생성 전에 오류로 중단한다(dev 수동 릴리스 포함, `verify_only` 제외).
+
 ## 2026-10-13 — Play 업로드 트랙을 비공개 테스트로 변경 (dev, 미배포)
 
 - `build-apk.yml` play-upload job 의 트랙을 내부 테스트(`internal`)에서 비공개 테스트(`alpha`)로 바꿨다(사용자 결정).

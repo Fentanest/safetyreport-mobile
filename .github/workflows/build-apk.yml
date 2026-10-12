@@ -74,6 +74,17 @@ jobs:
           exit 1
         fi
 
+    - name: Require release notes
+      if: ${{ !inputs.verify_only && steps.check_tag.outputs.tag_exists == 'false' }}
+      env:
+        RELEASE_TAG: ${{ steps.version.outputs.tag }}
+      run: |
+        notes_file="docs/releases/$RELEASE_TAG.md"
+        if [ ! -f "$notes_file" ]; then
+          echo "::error::릴리스 노트 파일이 없습니다: $notes_file"
+          exit 1
+        fi
+
     # Flutter 는 tool/flutter-version(3.47.5) 고정 — 스크립트가 FLUTTER_BIN 또는 ~/development/flutter-<버전> 을 확인하고,
     # 다르면 실패한다. 서명키가 없으면 실패한다(debug 서명으로 대체하지 않음).
     - name: Build APK & AAB with pinned Flutter CLI
@@ -118,15 +129,13 @@ jobs:
       with:
         tag_name: ${{ steps.version.outputs.tag }}
         name: "나만의 안전신문고 앱 v${{ steps.version.outputs.build_name }}"
-        body: |
-          **나만의 안전신문고 Android 앱** v${{ steps.version.outputs.build_name }} 자동 릴리즈
-          Commit: ${{ github.sha }}
+        body_path: docs/releases/${{ steps.version.outputs.tag }}.md
         files: build/app/outputs/flutter-apk/mysafetyreport.apk
         draft: false
         # Play 비공개 테스트(alpha)로 올라가는 빌드(아래 play-upload 와 같은 조건)는 GitHub 에서도 pre-release 로 둔다.
         # Play 프로덕션으로 승격한 뒤 GitHub 에서 pre-release 표시를 직접 해제한다.
         prerelease: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main' }}
-        generate_release_notes: true
+        generate_release_notes: false
 
   # build-apk 와 분리된 job — 비밀값(PLAY_SERVICE_ACCOUNT_JSON)은 이 job(environment: play)에만 전달되고
   # self-hosted 빌드 러너에는 전달되지 않는다. build-apk 가 만든 서명 AAB·R8 mapping artifact 를 받아

@@ -128,7 +128,7 @@ jobs:
 
   # build-apk 와 분리된 job — 비밀값(PLAY_SERVICE_ACCOUNT_JSON)은 이 job(environment: play)에만 전달되고
   # self-hosted 빌드 러너에는 전달되지 않는다. build-apk 가 만든 서명 AAB·R8 mapping artifact 를 받아
-  # Google Play 내부 테스트(internal) 트랙에만 올린다. verify_only 빌드와, workflow_dispatch 를 main 이
+  # Google Play 비공개 테스트(closed testing, API 트랙 이름 alpha) 트랙에만 올린다(2026-10-13 내부 테스트에서 변경). verify_only 빌드와, workflow_dispatch 를 main 이
   # 아닌 브랜치에서 실행한 경우, 그리고 이미 같은 버전 태그가 있어 build-apk 가 아무 것도 새로 만들지
   # 않은 경우에는 올리지 않는다.
   play-upload:
@@ -190,13 +190,13 @@ jobs:
     # gh api repos/r0adkll/upload-google-play/git/ref/tags/v1.1.5).
     # 같은 versionCode 가 이미 Play 에 있으면 Google Play Developer API 가 그대로 오류를 내고,
     # 이 action 도 그 오류로 실패한다 — 메시지를 가리거나 삼키지 않는다(continue-on-error 없음).
-    - name: Upload to Google Play internal track
+    - name: Upload to Google Play closed testing (alpha) track
       uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
       with:
         serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
         packageName: com.fentanest.mysafetyreport
         releaseFiles: ${{ steps.paths.outputs.aab }}
-        track: internal
+        track: alpha
         status: completed
         mappingFile: ${{ steps.paths.outputs.mapping }}
         whatsNewDirectory: whatsnew

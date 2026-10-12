@@ -15,6 +15,11 @@ object ClientGateGuard {
         false
     }
 
+    fun canRenew(prefs: SharedPreferences): Boolean = try {
+        val cache = JSONObject(prefs.getString("flutter.community_gate_cache_v1", "") ?: "")
+        cache.optString("state") == "ok" && cache.optString("owner").isNotBlank()
+    } catch (_: Exception) { false }
+
     fun configStamp(prefs: SharedPreferences): String {
         val raw = listOf("flutter.appMode", "flutter.baseUrl", "flutter.apiKey", "flutter.standaloneUsername", "flutter.native_config_generation")
             .joinToString("\u0000") { prefs.all[it]?.toString() ?: "" } + "\u0000" + ownerScope(prefs)

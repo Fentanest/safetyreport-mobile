@@ -93,7 +93,10 @@ flutter {
 }
 
 dependencies {
+    implementation("androidx.work:work-runtime:2.11.2")
+    implementation("androidx.concurrent:concurrent-futures:1.1.0")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.16.1")
     testImplementation("org.json:json:20240303")
     // WebSocket 클라이언트 (WsService용)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

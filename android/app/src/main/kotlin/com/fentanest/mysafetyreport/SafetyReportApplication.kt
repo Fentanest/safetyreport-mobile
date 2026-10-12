@@ -39,6 +39,7 @@ class SafetyReportApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        runCatching { NotificationWork.schedule(this) }
         @Suppress("DEPRECATION")
         val info = packageManager.getPackageInfo(packageName, 0)
         val code = if (android.os.Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()

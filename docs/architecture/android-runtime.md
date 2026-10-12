@@ -11,6 +11,38 @@
 - 이 파일로 옮긴 절에서 코드와 충돌하는 기술은 이번 대조에서 발견되지 않았다. 다만 부팅 흐름(`overview.md`)의 `enableEdgeToEdge()` 표기는 구버전이다(`MainActivity.kt:46` 은 `WindowCompat.setDecorFitsSystemWindows`).
 - 알림 채널/FGS/SharedPreferences 키 표는 이번 단계에서 Kotlin 코드와 줄 단위로 재대조하지 않았다 → **미검증**. UI 리뉴얼로 이 영역을 수정할 때 먼저 대조한다.
 
+### 코드 대조 정정: 알림 기반 백그라운드 처리
+
+아래 원문 2·3절의 «Client 즉시 POST / Standalone 앱 복귀 시 drain» 설명보다 이 절을 우선한다. 기존 Dart `backgroundTaskDispatcher`는 로그인 점검·커뮤니티 업로드 작업만 받았으며 알림 큐를 시작하지 않았다. 새 알림 Worker는 별도의 진입점과 엔진을 사용한다.
+
+| 점검 항목 | 코드상 판정과 적용 경계 |
+|---|---|
+| 인증·동의 캐시 10분 만료 | 기존 `ClientGateGuard.isOpen`은 600초 뒤 false. 기존 NotificationService는 저장 전 return, WsService는 만료 후 메시지 수신·재접속 때 종료했다. 권한과 독립된 차단 조건이다. 현재 알림을 먼저 저장하고 `refreshGateHeadless(clientMode: true)`가 폰의 세션·동의를 재검증한다. 캐시 유효 기간을 늘리거나 인증을 생략하지 않는다. |
+| 화면 꺼짐·Doze·앱 대기 버킷 | 기존 HTTP executor는 OS 작업 수명·wake lock·재시도가 없어 지연/실패 가능. 기기 로그 없이 실제 발생 원인은 확정할 수 없다. 현재 WorkManager 네트워크 제약 + Android 12 이상 expedited 요청, 할당량 소진 시 일반 작업으로 전환한다. 즉시 실행 시간은 보장하지 않는다. |
+| FGS 시작 제한·Android 14 유형 | 기존 Client enqueue는 FGS를 시작하지 않아 FGS 시작 예외가 그 POST의 직접 원인은 아니다. WsService `specialUse`, SyncForegroundService `dataSync`와 해당 권한은 Manifest에 있다. 새 Worker는 별도 FGS를 시작하지 않는다(12 미만은 일반 작업). Standalone worker는 `backgroundWorker: true`로 Activity의 `startSyncFgs` 호출을 생략한다. |
+| WS 단절/재연결 | 원래 POST와 WS는 독립이므로 WS 단절만으로 POST가 막히지는 않는다. 양쪽이 같은 만료 캐시에 막힐 수 있었다. 기존 WS가 살아 있으면 만료 시 Worker 갱신을 기다렸다 재연결한다. Worker가 Activity나 WS를 새로 띄워야 접수할 수 있는 구조는 아니다. 결과 WS를 못 받아도 요청 접수/재시도 알림과 서버 현황으로 확인한다. |
+| 프로세스 종료·리스너만 재기동 | `NotificationService → ProcessingInboxStore → NotificationWork → 별도 FlutterEngine → main.notificationBackgroundMain`으로 연결한다. MainActivity 없는 엔진에 inbox·scope·캐시 저장·결과 알림 채널을 제공한다. WorkManager가 재시도 수명을 소유한다. `onStopped`/8분 watchdog에서 엔진을 종료한 후 claim을 반환하고 미완료 이벤트는 ACK하지 않는다. |
+| Standalone 큐 | 기존에는 알림 수신 시 저장/탭 안내만 했다. 현재 Worker가 기존 계정/소유권·동의·초기화 게이트와 `personal_sync` lease를 거쳐 drain한다. 개별 fetch/증분 fallback을 재사용하며 성공 뒤에만 ACK한다. 6분 작업 경계와 OS 중단 시 남은 큐를 다음 작업이 처리한다. |
+| 패키지·문구·그룹/업데이트 | 허용 패키지는 기존 `kr.go.safepeople`, `com.kakao.talk`만. title/text 외 bigText/textLines도 읽고 SPP 번호를 추출한다. 문구 자체에는 의존하지 않는다. 그룹과 자식이 가리키는 아직 claim하지 않은 동일 신고는 합친다. 실제 공식 앱의 패키지/번호 형식 변경 여부는 알림 원본·기기 관찰 없이는 미확인이다. 번호 없는 알림은 전체 수집으로 확대하지 않는다. |
+| 중복·디바운스 | 기존 알림 수신 경로에 영구 디바운스 조건은 없었으며, `auto_enqueue_count`는 결과 표시용이었다. 현재 발신 패키지·신고번호·처리 종류·범위 fingerprint를 SQLite에서 2분만 중복 억제한다. 그룹 전체 본문·요약 건수·알림 게시 시각은 식별자로 쓰지 않는다. 2분이 지나 다시 도착한 알림은 처리 중이라도 새 이벤트로 보존한다. receipt 청소가 처리 큐를 삭제하지 않는다. |
+| 재시도·실패 표시 | 한 번의 네트워크 오류를 버리지 않는다. 단발 작업은 30초 시작 지수 백오프, 별도 15분 주기 작업은 KEEP 종료 경합·작업 예약 전 프로세스 종료를 보완한다. OS 지연으로 실제 간격은 더 길 수 있다. 고정 알림으로 대기/재시도를 알리며 성공은 서버 **접수** 또는 로컬 큐 완료로 구분한다. |
+
+Client 새 요청은 `/api/v1/crawl/notification`에 `report_number`, 고유 `request_id`를 보낸다. 같은 ID의 `accepted` 응답을 확인한 뒤에만 ACK한다. 404·거절·응답 유실 시 기존 비멱등 `/crawl/enqueue`로 우회하지 않는다. 구버전의 결과 미확정 enqueue receipt는 자동 재전송하지 않고 보존한다. 따라서 서버와 모바일 변경을 함께 반영해야 한다.
+
+#### 처리 큐 격리와 복구 규칙
+
+- Client 자동 재시도의 대상은 현재 scope의 미완료 `inbox.enqueue.native.notification.*`뿐이다. Worker의 시작/종료 판정과 native batch claim에 같은 조건을 적용한다. 구형 `native.<timestamp>…`·`native.legacy_*`는 SQLite와 기존 prefs에 보존하지만 재시도/200개 batch를 점유하지 않는다. Standalone의 정상 `inbox.queue.native.<timestamp>…` 작업은 계속 처리한다.
+- scope가 다른 행은 원래 `scope`, `event_key`, `value`, 미완료 상태를 그대로 보존한다. Dart에는 현재 scope claim만 내보내고 다른 scope의 prefs mirror만 정리한다. 이는 원본 삭제나 성공 ACK가 아니다. 소유권 미확인 단일 prefs 원본도 유지한다.
+- 소유자가 확인된 이전 scope의 알림은 원래 계정·모드·서버 주소·API 키뿐 아니라 **설정 세대(`native_config_generation`)까지 동일한 scope**일 때만 기존 claim 경로에서 다시 처리할 수 있다. 앱에서 설정을 재저장하면 세대가 증가하므로 단순 재로그인/주소 복원으로 복구된다고 보장하지 않는다. 세대 값을 인위적으로 되돌려 격리를 해제해서는 안 된다. 현재 계정으로 scope를 덮어쓰는 자동 이관은 하지 않는다. `standaloneUsername`도 Standalone scope에 포함된다.
+- 인증/설정 전 생성된 scope, `legacy-unverified`, 접수 여부 미확정 구형 Client 요청은 현재 계정 소유라고 추정하지 않는다. 현 버전에는 이를 재귀속하거나 삭제하는 UI/API가 없고, 자동 보존에는 만료 기간을 두지 않는다. 복구 담당자가 원래 계정/서버와 신고 소유권을 별도로 확인하고 해당 서버의 접수·처리 기록 또는 그 계정의 수동 동기화 결과로 미완료 의무가 없음을 검증하기 전에는 폐기할 수 없다. 검증 후에도 원본/접수 근거를 보관하고 사용자가 명시 승인한 별도 복구 절차에서만 정리한다. 재설치·앱 데이터 초기화는 복구 경로가 아니다.
+- 그룹 요약 `[A] → [A, B]`와 자식 알림의 다른 본문은 동일 패키지의 A 식별자를 바꾸지 않는다. 공식 알림에 신고별 답변 revision ID가 없으므로 2분 안의 같은 패키지·같은 신고 알림은 하나로 합친다. 서로 다른 답변이 이 짧은 구간에 연달아 오면 별도 이벤트로 구분하지 못하는 한계가 있다. 2분 뒤 새 알림은 다시 처리하며 영구 중복 억제는 하지 않는다.
+
+설정·계정 stamp는 엔진 시작 때 고정하고 채널 호출과 POST 전후 및 Standalone 쓰기 소유권 검사에서 재확인한다. 성공한 인증 캐시의 게시도 네이티브 stamp 확인과 같은 main-thread 구간에서 한다. 다른 계정/서버의 큐는 자동 이관하지 않는다. 결과 알림의 `nav_tab`, `nav_subtab`, `nav_event_type`, `nav_payload_json`을 유지한다.
+
+실기기 확인: 두 모드 각각 앱을 설정한 뒤 화면을 11분 이상 꺼둔 상태에서 실제 답변 알림을 수신한다. Client는 PC 현황/로그에서 접수→대기 큐 크롤링 시작을 확인하고, Standalone은 화면을 열기 전에 처리 결과 알림이 오는지 확인한다. 연결을 잠시 끊었다 복구했을 때 대기가 유지되고 같은 알림 재전송이 중복 크롤을 만들지 않는지도 본다. 별도 시험 에뮬레이터에서는 `adb shell dumpsys deviceidle force-idle` 후 확인하고 `adb shell dumpsys deviceidle unforce`로 복구한다. 개인 운영 앱의 강제 종료·데이터 삭제로 시험하지 않는다.
+
+OS 기준: [Doze와 App Standby](https://developer.android.com/training/monitoring-device-state/doze-standby), [백그라운드 FGS 시작 제한](https://developer.android.com/develop/background-work/services/fgs/restrictions-bg-start). 강제 종료된 앱·제조사 절전·알림 접근 해제·OS quota에서는 즉시 실행을 보장하지 않는다. 사용자 수신 사례의 실제 기기 재현은 별도 검증이 필요하다.
+
 ---
 
 ## Android 15 / Play Console wider-screen 메모
@@ -367,7 +399,7 @@ Client 연결을 재개한다. 지속 알림 갱신은 `setOnlyAlertOnce(true)`�
 ## 코드 대조 정정: 처리 큐와 실행 수명
 
 - `ProcessingInboxStore`는 앱 전용 SQLite이며 교환 DB 스키마와 독립적이다. 새 이벤트마다 UUID를 사용하고 ACK는 처리 전에 claim한 event key와 owner·lease에 한정한다. 보관 상한 200은 알림 이력에만 적용하며 미완료 의도를 자르지 않는다. 한 번 읽는 native batch는 200개다.
-- 기존 prefs 이벤트는 복사·영수증 확인 후에도 원본을 남긴다. 소유권을 알 수 없는 기존 작업은 `legacy-unverified`로 격리하고 명시적 오류를 반환한다. 계정 변경으로 기존 작업을 새 계정에 넘기지 않는다. 네이티브 이관의 종료 지점별 기기 검증 전에는 legacy 삭제를 활성화하지 않는다.
+- 기존 prefs 이벤트는 복사·영수증 확인 후에도 원본을 남긴다. 소유권을 알 수 없는 기존 작업은 `legacy-unverified`로 격리하고 개수를 반환한다. 격리 항목의 존재는 현재 scope 처리의 오류가 아니며 정상 작업은 계속 처리한다. Android의 구형 단일 prefs 큐도 native claim을 우회해 소비하지 않는다. 계정 변경으로 기존 작업을 새 계정에 넘기지 않는다. 네이티브 이관의 종료 지점별 기기 검증 전에는 legacy 삭제를 활성화하지 않는다.
 - 새 private processing DB와 capture retry `.events-v1`는 이전 바이너리가 읽지 못한다. 코드 롤백만으로 미완료 의무를 이전 prefs/JSON로 되돌릴 수 없다. 미완료 작업이 있는 상태의 바이너리 다운그레이드는 지원하지 않으며, 동일 reader를 유지한 수정 배포 또는 검증된 역이관이 필요하다. 재설치·앱 데이터 초기화로 복구하지 않는다.
 - 잘못된 Flutter List 원문은 앱 전용 quarantine 파일에 flush·sync·rename으로 보존한 뒤에만 원래 키를 정리한다. 해석 실패나 저장 실패는 recovery flag를 남기며 빈 큐로 완료시키지 않는다. 이 flag와 격리 자료의 복구·소유권 확인은 검증된 별도 복구 경로가 필요하다.
 - native FGS 시작은 `startForeground` 성공 receipt 이후 true다. Flutter의 작업 실행 상태와 실제 FGS 상태를 별도로 표시하고 native timeout·종료를 owner에 전달한다. 새 headless 엔진은 만들지 않는다. 서비스가 Activity 소유 엔진보다 오래 살아 동기화를 이어 간다고 가정하지 않는다.

@@ -11,7 +11,7 @@ import java.util.UUID
  * ACK receipts survive a crash between the SQLite ACK and Dart mirror removal.
  */
 class ProcessingInboxStore private constructor(context: Context) :
-    SQLiteOpenHelper(context.applicationContext, "processing_inbox.db", null, 1) {
+    SQLiteOpenHelper(context.applicationContext, "processing_inbox.db", null, 2) {
     companion object {
         @Volatile private var instance: ProcessingInboxStore? = null
         fun get(context: Context): ProcessingInboxStore = instance ?: synchronized(this) {
@@ -23,9 +23,53 @@ class ProcessingInboxStore private constructor(context: Context) :
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE events (seq INTEGER PRIMARY KEY AUTOINCREMENT, event_key TEXT UNIQUE NOT NULL, prefix TEXT NOT NULL, value TEXT NOT NULL, scope TEXT NOT NULL, terminal INTEGER NOT NULL DEFAULT 0, claim_owner TEXT, claim_until INTEGER NOT NULL DEFAULT 0)")
         db.execSQL("CREATE INDEX processing_pending ON events(prefix,terminal,seq)")
+        createNotificationReceipts(db)
     }
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        throw IllegalStateException("unsupported processing inbox version")
+        check(oldVersion == 1 && newVersion == 2)
+        createNotificationReceipts(db)
+    }
+
+    private fun createNotificationReceipts(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE notification_receipts (fingerprint TEXT PRIMARY KEY, created_at INTEGER NOT NULL)")
+    }
+
+    /** Two-minute, persistent report identity. Summary text/count changes are not new answers. */
+    @Synchronized fun putNotification(prefs: SharedPreferences, prefix: String, number: String, packageName: String) {
+        require(NotificationReports.accepts(packageName))
+        val scope = scope(prefs, prefix)
+        val fingerprint = java.security.MessageDigest.getInstance("SHA-256")
+            .digest("$scope|$prefix|$packageName|$number".toByteArray()).joinToString("") { "%02x".format(it) }
+        val now = System.currentTimeMillis()
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete("notification_receipts", "created_at<? OR created_at>?", arrayOf((now - 120_000L).toString(), now.toString()))
+            val duplicate = db.rawQuery("SELECT 1 FROM notification_receipts WHERE fingerprint=?", arrayOf(fingerprint)).use { it.moveToFirst() }
+            if (!duplicate) {
+                // Child + group summary can describe the same report with different text.
+                // Coalesce only unclaimed work; an event after the receipt window
+                // must survive even when an earlier fetch is still in progress.
+                val queued = db.rawQuery("SELECT 1 FROM events WHERE prefix=? AND scope=? AND value=? AND terminal=0 AND claim_owner IS NULL AND event_key LIKE ? LIMIT 1",
+                    arrayOf(prefix, scope, number, prefix + "native.notification.%")).use { it.moveToFirst() }
+                if (!queued) put(prefix, number, prefix + "native.notification." + UUID.randomUUID(), scope)
+                db.insertOrThrow("notification_receipts", null, ContentValues().apply { put("fingerprint", fingerprint); put("created_at", now) })
+            }
+            db.setTransactionSuccessful()
+        } finally { db.endTransaction() }
+    }
+
+    // Old Client enqueue receipts have no idempotent server request identity.
+    // Preserve them, but never let them wake a worker or occupy its claim batch.
+    // Standalone QUEUE entries (including timestamp keys) are still actionable.
+    private fun retryableFilter(prefix: String): String =
+        if (prefix == PrefsInbox.ENQUEUE) " AND event_key GLOB '${PrefsInbox.ENQUEUE}native.notification.*'" else ""
+
+    @Synchronized fun hasPending(prefs: SharedPreferences, prefix: String): Boolean =
+        readableDatabase.rawQuery("SELECT 1 FROM events WHERE prefix=? AND scope=? AND terminal=0${retryableFilter(prefix)} LIMIT 1", arrayOf(prefix, scope(prefs, prefix))).use { it.moveToFirst() }
+
+    @Synchronized fun release(owner: String) {
+        writableDatabase.execSQL("UPDATE events SET claim_owner=NULL, claim_until=0 WHERE terminal=0 AND claim_owner=?", arrayOf(owner))
     }
 
     fun scope(prefs: SharedPreferences, prefix: String): String {
@@ -80,7 +124,7 @@ class ProcessingInboxStore private constructor(context: Context) :
         val now = System.currentTimeMillis()
         db.beginTransaction()
         try {
-            db.query("events", arrayOf("event_key", "value"), "prefix=? AND terminal=0 AND scope=? AND (claim_owner IS NULL OR claim_owner=? OR claim_until<=?)", arrayOf(prefix, currentScope, owner, now.toString()), null, null, "seq", "200").use { c ->
+            db.query("events", arrayOf("event_key", "value"), "prefix=? AND terminal=0 AND scope=?${retryableFilter(prefix)} AND (claim_owner IS NULL OR claim_owner=? OR claim_until<=?)", arrayOf(prefix, currentScope, owner, now.toString()), null, null, "seq", "200").use { c ->
                 while (c.moveToNext()) {
                     val key = c.getString(0)
                     pending.add(mapOf("key" to key.removePrefix("flutter."), "value" to c.getString(1)))

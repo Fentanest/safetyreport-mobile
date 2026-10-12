@@ -14,12 +14,13 @@ class PendingChangesClaim {
 
 /// 대기 중인 변경(카드 시트용)의 read/append/clear 를 한 곳으로 모은다.
 /// SyncEngine.emitChanges 와 Kotlin WsService 가 쌓아 두고 main.dart 가 읽어 카드 시트로 뿌린다.
-/// 저장은 [PrefsInbox.pending] 수신함 키(예전 `pending_crawl_changes` 는 남은 값만 읽음).
+/// 저장은 [PrefsInbox.pending] 수신함 키. Android의 예전 `pending_crawl_changes`는
+/// native 저장소에서 소유권 미확인 자료로 격리하며 현재 계정의 변경에 합치지 않는다.
 class PendingChangesStore {
   PendingChangesStore._();
 
   /// 누적된 changes 를 읽고 비운다. main.dart 의 소비 흐름에서 사용.
-  /// 예전 공유 키(업데이트 전에 남은 값) + 수신함 키를 오래된 순으로 합치고, 읽은 키만 지운다(M-29/M-31).
+  /// 소유권이 확인된 수신함을 합치고 읽은 키만 지운다(M-29/M-31).
   static Future<List<Map<String, dynamic>>> readAndClear() async {
     final claim = await readPending();
     await acknowledge(claim);
@@ -33,25 +34,37 @@ class PendingChangesStore {
     await prefs.reload();
     await PrefsInbox.synchronize(prefs, PrefsInbox.pending);
     final result = <Map<String, dynamic>>[];
-    final legacy = prefs.getString(AppPrefsKeys.pendingCrawlChanges);
+    final legacy = PrefsInbox.readLegacyScalar(
+      prefs,
+      AppPrefsKeys.pendingCrawlChanges,
+    );
     if (legacy != null) {
       final decoded = jsonDecode(legacy);
-      if (decoded is! List || decoded.any((e) => e is! Map)) throw const FormatException('대기 변경 자료 형식 오류');
+      if (decoded is! List || decoded.any((e) => e is! Map)) {
+        throw const FormatException('대기 변경 자료 형식 오류');
+      }
       result.addAll(decoded.map((e) => Map<String, dynamic>.from(e as Map)));
     }
     final inbox = PrefsInbox.read(prefs, PrefsInbox.pending);
     for (final entry in inbox) {
       result.addAll(entry.items);
     }
-    return PendingChangesClaim(result, inbox.map((e) => e.key).toList(), legacy);
+    return PendingChangesClaim(
+      result,
+      inbox.map((e) => e.key).toList(),
+      legacy,
+    );
   }
 
   static Future<void> acknowledge(PendingChangesClaim claim) async {
     final prefs = await SharedPreferences.getInstance();
     await PrefsInbox.remove(prefs, claim.keys);
     await prefs.reload();
-    if (claim.legacy != null && prefs.getString(AppPrefsKeys.pendingCrawlChanges) == claim.legacy) {
-      if (!await prefs.remove(AppPrefsKeys.pendingCrawlChanges)) throw StateError('legacy pending ACK failed');
+    if (claim.legacy != null &&
+        prefs.getString(AppPrefsKeys.pendingCrawlChanges) == claim.legacy) {
+      if (!await prefs.remove(AppPrefsKeys.pendingCrawlChanges)) {
+        throw StateError('legacy pending ACK failed');
+      }
     }
   }
 

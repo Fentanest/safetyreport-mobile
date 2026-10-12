@@ -118,6 +118,25 @@
 - 증거: `.agent-runs/bl1/logs/`, `apk-size.json`, `baseline-bitmap-map.json`, `final-bitmap-map.json`, `bitmap-origins.json`,
   `release/app-debug-signed-release.apk`, `release/mapping.txt`. 임시 텔레메트리/Android debug 서명/Kotlin 캐시 경로를 사용하여 샌드박스 쓰기 제한을 처리했다.
 
+## 2026-10-12 — 답변 알림 처리 큐 검수 결함 4건 수정
+
+- Client 멱등 접수 성공 후 `inbox.enqueue.native.*`도 claim owner를 포함해 네이티브 ACK한다. ACK 실패 시 prefs mirror를 남기고 같은 request ID로 재시도한다. 25건/20건 batch 회귀 시험으로 후속 요청 진행과 재전송 종료를 확인했다.
+- 다른 scope·미확인 구형 큐는 원본을 보존하며 현재 scope 처리만 계속한다. Android의 구형 단일 prefs 큐도 소유권 검사를 우회해 소비하지 않도록 격리했다. 소유권 확인·설정 세대·안전한 폐기 조건을 Android 런타임 문서에 명시했다.
+- 결과 미확정 구형 Client `native.<timestamp>…`는 Worker 대기 판정과 claim batch에서 제외했다. 205건을 보존하면서 새 알림을 처리하며 Standalone의 정상 timestamp 큐는 계속 처리한다.
+- fingerprint를 범위·처리 종류·발신 패키지·신고번호로 구성한다. 그룹 요약 `[A] → [A, B]`는 처리 중/완료된 A를 다시 등록하지 않으며, 기존 2분 제한 이후 새 알림을 보존한다.
+- 회귀 증거: 수정 전 Dart ACK/격리 시험 3건 실패, 격리 소비자 시험 2건 실패, 수정 전 Kotlin 구요청·그룹 요약 시험 3건 실패를 확인했다. 수정 후 Dart 집중 11건과 Kotlin 전체 25건 통과. Kotlin은 Robolectric SQLite로 보존·claim·ACK·그룹 요약·발신자/범위 분리를 검증했다.
+- 고정 Flutter 3.47.5 전체 `test --no-pub --concurrency=2`는 1,584건 통과·17건 건너뜀·실패 0건이다. 첫 기본 병렬 실행에서 기존 고정 시간 대기 시험 2건이 실패했으나, 병렬 수를 낮춘 전체 재실행에서 둘 다 통과했다. 두 실행 로그를 모두 보존했다.
+- 정적 분석은 기존 unnecessary_cast 경고 9건이며 새 지적은 없다. 기본 Java의 컴파일러 부재와 시험 캐시 쓰기 제한은 로컬 Android Studio JDK·임시 Robolectric 캐시·in-process Kotlin 컴파일로 해결했고 표준 Gradle 단위 시험을 완료했다. `git diff --check` 통과. 실행 로그는 `.agent-runs/astra-fix-bgcrawl/`에 보존했다. PC 코드·버전·pubspec.lock 변경, 커밋·push·배포 빌드는 하지 않았다. 실제 Android 화면 꺼짐/Doze/WorkManager 수명은 이번 단위 시험으로 검증하지 않았다.
+
+## 2026-10-12 — 화면 꺼짐 중 답변 알림 자동 처리 경로 보완
+
+- Client 인증·동의 캐시가 10분 뒤 만료되면 알림을 저장 전 버리던 경로를 제거했다. 알림을 SQLite에 먼저 보존하고 WorkManager가 별도 FlutterEngine에서 인증·동의를 다시 확인한다. 살아 있는 WS도 만료만으로 종료하지 않고 갱신 뒤 재접속한다.
+- Standalone 알림을 앱 복귀 없이 기존 개별 동기화/증분 fallback에 연결했다. 화면 엔진과 같은 작업 lease·계정 검사를 적용하고, worker에서는 Activity FGS를 요구하지 않는다. 성공 ACK, 중단 시 claim 반환·큐 보존, 8분 watchdog, 30초 시작 백오프·15분 복구 작업과 상태 알림을 추가했다.
+- 확장 본문·줄 목록을 읽고 동일 알림의 2분 중복 억제와 아직 처리 전인 같은 신고의 합치기를 적용했다. 결과 알림 딥링크와 Client 자동 처리 표시용 계수를 유지했다.
+- Client는 서버의 새 멱등 접수 경로만 사용한다. 응답 유실·구서버 404를 성공으로 처리하지 않으며, 구버전에서 결과 미확정으로 남긴 요청은 자동 재전송하지 않는다. 서버 변경과 함께 반영해야 한다.
+- 검증: 고정 Flutter 3.47.5의 소켓 없는 실제 시험 엔진에서 관련 7개 파일 45건 통과(새 Client 재전송/게이트와 Standalone Activity 없는 drain·scope 변경 포함). 전체 `flutter analyze --no-pub`는 기존 unnecessary_cast 경고 9건, 변경 파일 분석 새 지적 0건. Kotlin 전체 소스 직접 컴파일 성공, JUnit 18건 중 15 통과·기존 HTTP fixture 3건은 소켓 권한 오류.
+- 표준 `flutter test --no-pub`는 읽기 전용 SDK를 임시 경로에서 실행한 뒤에도 SQLite native asset 다운로드 제한으로 시작하지 못했다. 직접 시험은 패키지 기대 SHA-256과 일치하는 기존 로컬 SQLite로 실행했다. Gradle은 네트워크 인터페이스/소켓 제한, ADB는 localhost 리스너 생성 제한으로 차단되어 Android Worker 실제 수명·Doze는 미검증이다. 로그/직접 실행기는 `.agent-runs/astra-bg-crawl/`에 보존했다. `git diff --check` 통과. 커밋·push·릴리스·버전 변경·pubspec.lock 변경은 하지 않았다.
+
 ## 2026-10-12 — 2.1.3 (빌드 41) Standalone 다시 불러오기 중단 복구
 
 - 공유 목록 확인 실패·업로드 충돌·확인 예외는 1·2·5·10·30분 간격으로 최대 5회 자동 재시도한다. 수집 시작 전에도 카드·상세 화면·알림에 실제 예약 시각과 횟수를 표시한다. 소진 뒤에는 자동 대기 표시를 끝내고 수동 재시도를 안내한다.

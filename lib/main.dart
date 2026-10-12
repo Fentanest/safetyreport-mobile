@@ -1,4 +1,5 @@
 import 'services/bundled_sqlite.dart';
+import 'services/notification_background.dart';
 import 'community/upload_hooks.dart';
 import 'community/cloud_availability.dart';
 import 'services/community_auth_config.dart';
@@ -60,6 +61,9 @@ import 'widgets/report_detail_sheet.dart';
 import 'widgets/maintenance_status_bar.dart';
 import 'widgets/community_account_card.dart';
 import 'theme/sr_tokens.dart';
+
+@pragma('vm:entry-point')
+Future<void> notificationBackgroundMain() => runNotificationBackground();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

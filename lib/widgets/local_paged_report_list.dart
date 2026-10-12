@@ -389,6 +389,8 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
                             icon: Icons.person_outline,
                             text: r.manager,
                           ),
+                          // 다른 목록 카드와 같이 과태료(금액 미확인이면 추정 보조 표기) — redroid 실기기 확인 2026-10-12
+                          ReportCardMetaItem.fine(r),
                           ReportCardMetaItem(
                             icon: Icons.location_on_outlined,
                             text: r.location,

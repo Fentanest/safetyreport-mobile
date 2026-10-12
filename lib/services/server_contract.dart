@@ -27,6 +27,10 @@ class ServerContract {
   static const watchlistPath = '$apiPrefix/watchlist';
   static const duplicateGroupsPath = '$apiPrefix/duplicates/groups';
   static const editorSchemaPath = '$apiPrefix/editor/schema';
+  // request_id 로 재전송에 안전한(idempotent) 새 경로. 이 경로가 없는(404) 구서버는
+  // [crawlEnqueuePath](request_id 없음, 재전송하면 다시 접수될 수 있음)로 대신 받는다 —
+  // `notification_background.dart` 의 `drainClientNotifications`/`_sendClientNotification` 참고
+  // (2026-10 redroid 실측: 운영 PC 서버에 이 경로가 없어 Doze 중에도 3회 모두 404).
   static const crawlNotificationPath = '$apiPrefix/crawl/notification';
   static const crawlEnqueuePath = '$apiPrefix/crawl/enqueue';
   static const crawlStatusPath = '$apiPrefix/crawl/status';

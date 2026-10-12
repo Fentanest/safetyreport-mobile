@@ -59,6 +59,17 @@ class AppPrefsKeys {
   static const autoEnqueueCount = 'auto_enqueue_count';
   static const autoEnqueueLastAt = 'auto_enqueue_last_at';
 
+  // 구서버 호환(2026-10, redroid 실측: 운영 PC 서버에 /crawl/notification 이 없어 404).
+  // notification_background.dart 가 이 baseUrl·시각을 기억해 재확인 없이 /crawl/enqueue 로 보낸다.
+  static const crawlNotificationUnsupportedBaseUrl =
+      'crawl_notification_unsupported_base_url';
+  static const crawlNotificationUnsupportedAt =
+      'crawl_notification_unsupported_at';
+
+  /// /crawl/enqueue(request_id 없음)로 이미 보낸 알림 의도의 키. pending 제거가 끝나지 못한 채
+  /// 다시 돌 때도 같은 신고번호를 또 접수시키지 않는다 — pending 키를 지우면 같이 지운다.
+  static const crawlLegacyEnqueueSentKeys = 'crawl_legacy_enqueue_sent_keys';
+
   // DB 모드 전환 시 setup_screen 이 적용할 임시 액션
   static const pendingDbImport = 'pending_db_import';
 

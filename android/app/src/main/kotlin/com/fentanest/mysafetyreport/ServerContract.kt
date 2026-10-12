@@ -25,6 +25,9 @@ object ServerContract {
     const val EVENT_CRAWL_CHANGES = "crawl_changes"
 
     const val CRAWL_ENQUEUE_PATH = "$API_PREFIX/crawl/enqueue"
+    // request_id 없는 옛 경로. 새 경로가 없는(404) 구서버로 notification_background.dart 가 확인되면
+    // 이 경로로 대신 보낸다(2026-10 redroid 실측: 운영 PC 서버에 CRAWL_NOTIFICATION_PATH 가 없어 404).
+    const val CRAWL_NOTIFICATION_PATH = "$API_PREFIX/crawl/notification"
     const val SERVER_VERSION_PATH = "$API_PREFIX/server/version"
 
     fun normalizeBaseUrl(baseUrl: String): String = baseUrl.trimEnd('/')

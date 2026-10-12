@@ -346,7 +346,15 @@ final content = _normalizeNumbers(rawContent)
 Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.dart` 와
 `android/.../ServerContract.kt` 를 단일 source of truth 로 사용한다.
 
-- `POST /api/v1/crawl/enqueue` — 단건 큐 등록 `{"report_number": "SPP-..."}`
+- `POST /api/v1/crawl/enqueue` — 단건 큐 등록 `{"report_number": "SPP-..."}`. request_id 없음 — 같은 요청을
+  다시 보내면 서버가 또 접수할 수 있다(idempotent 아님).
+- `POST /api/v1/crawl/notification` — 백그라운드 알림 처리(`notification_background.dart`)가 쓰는 idempotent
+  버전 `{"report_number": "SPP-...", "request_id": "<고유 키>"}`. 같은 `request_id` 재전송은 다시 접수하지 않고
+  같은 ack(`{"status":"accepted","request_id":...}`)를 돌려준다. **이 경로가 없는(404) 구서버**(2026-10 redroid
+  실측: 운영 PC 서버에 없어 Doze 중에도 3회 모두 404)는 `drainClientNotifications`/`_sendClientNotification`
+  가 `/crawl/enqueue` 로 대신 보낸다 — 그 결과(baseUrl·시각)를 기억해 재확인 없이 바로 옛 경로로 보내고,
+  6시간 지나면 새 경로를 한 번 더 시도한다(`AppPrefsKeys.crawlNotificationUnsupportedBaseUrl/At`). 옛 경로는
+  idempotent 하지 않으므로 `AppPrefsKeys.crawlLegacyEnqueueSentKeys` 로 알림 키 단위 중복 전송을 막는다.
 - `POST /api/v1/crawl/start` — 크롤링 시작 (mode/type/queue_list)
 - `GET  /api/v1/crawl/config` — 크롤링 설정
 - `GET  /api/v1/crawl/status` — 크롤링 상태 폴링

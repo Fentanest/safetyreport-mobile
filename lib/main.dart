@@ -1006,6 +1006,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   Future<void> _resumeClientConnection() async {
     final provider = context.read<ReportProvider>();
     if (provider.appMode != AppMode.server || !provider.isConfigured) return;
+    // 재연결 시점에도 대시보드의 '진행 중' 표시를 서버 실제 상태로 다시 맞춘다(SQ-B13) —
+    // 백그라운드 동안 WS 로그 소켓이 끊기거나 크롤링이 끝난 경우를 놓치지 않는다.
+    unawaited(provider.refreshCrawlStatus());
     final gate = context.read<CommunityGate>();
     await gate.refreshNow(silent: true);
     await gate.persistForBackground();
@@ -1069,6 +1072,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     switch (index) {
       case 0:
         if (p.isConfigured) p.fetchSummary();
+        // 크롤링 탭이 닫혀 있는 동안 서버에서 끝난 크롤링을 대시보드가 계속 '진행 중'으로 보이는
+        // 문제(2026-10 사용자 보고) — 대시보드로 돌아올 때마다 실제 상태로 다시 맞춘다(SQ-B13).
+        unawaited(p.refreshCrawlStatus());
         break;
       case 1:
         if (p.isConfigured && p.appMode == AppMode.server) {

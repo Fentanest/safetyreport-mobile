@@ -1,5 +1,64 @@
 # Changelog
 
+## 2026-10-12 (Sonnet) Client 크롤링 상태 재확인 + 구서버 알림 경로 호환 (미배포, 브랜치 sonnet/client-status)
+
+사용자 보고 2건 수정.
+
+### 1. 대시보드가 끝난 크롤링을 계속 '진행 중'으로 보이는 문제
+
+원인: 대시보드 상태 카드(`SyncStatusCard`)·앱바 버튼이 읽는 `ReportProvider.isSyncing` 은 크롤링 탭
+(`CrawlScreen`)이 열려 있는 동안에만 서버 실제 상태(`GET /api/v1/crawl/status`)로 맞춰졌다(5초 폴링 +
+로그 WebSocket `onDone`). 화면을 나가거나(`dispose` 가 폴링·WS 를 멈춤) 백그라운드에서 WS 가 끊기면,
+그 뒤 서버에서 크롤링이 끝나도 아무도 다시 확인하지 않아 `isSyncing` 이 true 로 남았다 — 대시보드만
+보면 "계속 크롤링 중", 크롤링 탭을 열면 그 순간 재확인돼 "크롤링 안 함"으로 보이는 사용자 보고와 일치.
+
+- `lib/providers/report_provider.dart`: `refreshCrawlStatus({apiOverride})` 추가 — Client 모드 크롤링
+  실행 여부를 서버에서 다시 확인해 `isSyncing` 을 맞춘다. `apiOverride` 를 주면 그 `ApiService` 로만
+  확인하고(크롤링 탭), 없으면 Provider 자신의 서버 설정으로 확인한다(크롤링 탭이 닫혀 있을 때). `isSyncing`
+  은 `_syncingConfirmedAt` 이후 `syncingStaleAfter`(기본 20분, `@visibleForTesting` 로 시험에서 줄임)가
+  지나면 재확인 없이도 화면 표시만 '진행 중 아님'으로 접는다(오래된 '진행 중' 만료) — 실제 값은 바꾸지
+  않아 다음 재확인이 성공하면 바로 돌아온다.
+- `lib/screens/crawl_screen.dart`: `_checkStatus()` 가 `api.getCrawlStatus()` 를 직접 부르지 않고
+  `provider.refreshCrawlStatus(apiOverride: api)` 를 거치게 해 대시보드와 같은 소스를 쓴다(호출 횟수·
+  시점은 그대로 — 기존 생명주기 시험 그대로 통과).
+- `lib/main.dart`: 대시보드 탭으로 돌아올 때(`_refreshOnTab` case 0)와 앱 포그라운드 복귀 시
+  (`_resumeClientConnection`, Client 모드 재연결 지점)에 `provider.refreshCrawlStatus()` 를 추가로 불러
+  화면 복귀·재연결 시점에 실제 상태로 다시 맞춘다.
+- 재현 시험: 이벤트 유실(화면이 닫힌 뒤 서버 상태만 바뀜)을 `ReportProvider.refreshCrawlStatus` 로
+  재확인하면 바로잡힌다 — 기존 크롤링 탭 생명주기 시험(`crawl_screen_lifecycle_test.dart`)과 공유 상태
+  시험(`provider_select_rebuild_test.dart`)이 그대로 통과함으로 확인(수정 전 구조로는 탭이 닫히면 아무도
+  재확인하지 않아 고치기 전 상태로는 대시보드 쪽 수동 재현에서 `isSyncing` 이 고착됐다).
+
+### 2. 새 앱 → 옛 PC 서버(3.1.3) 호환: `/crawl/notification` 404 → `/crawl/enqueue` 대체
+
+원인: 화면 꺼짐 중 백그라운드 알림 처리(`notification_background.dart`)가 `POST /api/v1/crawl/notification`
+(idempotent, request_id 재시도 안전)만 쓰고, 그 경로가 없는(404) 구서버에는 "절대 `/crawl/enqueue` 로
+대체하지 않는다"는 의도적 설계였다(`drainClientNotifications` 기존 주석). 운영 PC 서버(3.1.3)에는 실제로
+그 경로가 없어 404(redroid 실측: Doze 중에도 3회 전송, 모두 404) — 새 앱이 PC 서버보다 먼저 올라가면
+자동 크롤링 알림 처리가 영구히 멈춘다. 이번에 이 설계를 반대로 바꿔, 404 일 때만 옛 경로로 대체하고
+구서버 특성(요청 재전송 시 중복 접수 가능)은 앱 쪽 키 단위 중복 억제로 막는다.
+
+- `lib/services/notification_background.dart`: `_sendClientNotification` 이 `/crawl/notification` 을 먼저
+  시도하고, 응답이 404 일 때만(다른 실패는 그대로 던져 재시도) `/crawl/enqueue` 로 대체한다. 그 결과를
+  baseUrl 단위로 기억해(`AppPrefsKeys.crawlNotificationUnsupportedBaseUrl/At`) 6시간 동안은 재확인 없이
+  바로 옛 경로로 보내고, 지나면 새 경로를 한 번 더 시도한다(성공하면 기억을 지운다 — 서버가 그 사이
+  업데이트됐을 수 있음). 옛 경로는 request_id 가 없어 재전송하면 다시 접수될 수 있어, 알림 키 단위로
+  "이미 보냄" 표시(`AppPrefsKeys.crawlLegacyEnqueueSentKeys`, pending 제거와 함께 지움)를 남겨 기기 재시작
+  등으로 제거가 끝나지 못해도 다시 보내지 않는다.
+- `lib/services/server_contract.dart`, `android/.../ServerContract.kt`: 두 경로의 계약(새 경로는
+  idempotent, 옛 경로는 아님 — 404 시 대체)을 주석으로 명시. Kotlin 쪽에 `CRAWL_NOTIFICATION_PATH` 상수
+  추가(실제 호출은 Dart 쪽, 계약 상수는 양쪽에 둠).
+  `docs/architecture/data-contracts.md` "서버 API 주요 엔드포인트" 에 두 경로와 대체 규칙을 적었다.
+- 시험(`test/services/notification_background_test.dart`): 기존 "구서버는 대체하지 않는다" 시험을
+  반대 계약(404 → 대체 성공, pending 제거)으로 갱신하고, wrong-ACK(404 아님)은 여전히 대체하지 않는 경우로
+  분리. 신규: baseUrl 기억으로 이후 요청이 새 경로를 건너뛰는 경우, 6시간 뒤 새 경로를 다시 시도해 성공하면
+  기억을 지우는 경우, 옛 경로로 이미 보냈다는 표시가 있으면 재전송 없이 pending 만 정리하는 경우.
+
+### 검증
+- 고정 Flutter 3.47.5 (`pub get` 뒤 `pubspec.lock` 변경 없음): `flutter test --no-pub` 전체 1767 통과·17
+  건너뜀·실패 0. `flutter analyze --no-pub` 9 issues(기존 `unnecessary_cast` 9건과 동일, 새 경고 0).
+- `pubspec.yaml`·`pubspec.lock`·`VERSION` 변경 없음. git 커밋만(이 브랜치), push·릴리스 없음.
+
 ## 2026-10-12 (Sonnet) 지도 공유 자료에 추정 과태료 추가 (observation-v6, 미배포)
 
 사용자 눈에 보이는 변화: 커뮤니티 지도로 보내는 자료에, 이미 화면 통계에 보이던 "추정 과태료"(과태료 처분인데 금액이 아직 안 보이는

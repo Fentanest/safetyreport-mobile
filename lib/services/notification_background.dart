@@ -106,8 +106,163 @@ Future<void> runNotificationBackground() async {
   }
 }
 
-/// Only the dedicated idempotent endpoint may receive retries. An old server's
-/// 404 leaves the intent pending; it must never fall back to /crawl/enqueue.
+/// `/crawl/notification` 이 없는(404) 서버로 한 번 확인되면 이 기간 동안은 baseUrl 당 다시 두드리지
+/// 않고 바로 `/crawl/enqueue` 로 보낸다. 지나면 새 경로를 한 번 더 시도한다(그 사이 PC 서버가
+/// 업데이트됐을 수 있다 — 2026-10 redroid 실측: 운영 PC 서버(3.1.3)에 새 경로가 없어 Doze 중에도
+/// 3회 모두 404, 새 앱이 PC 서버보다 먼저 올라가면 자동 크롤링이 멈춤).
+const _notificationFallbackRetryAfter = Duration(hours: 6);
+
+bool _notificationPathKnownUnsupported(SharedPreferences prefs, String baseUrl) {
+  if (prefs.getString(AppPrefsKeys.crawlNotificationUnsupportedBaseUrl) !=
+      baseUrl) {
+    return false;
+  }
+  final at = prefs.getInt(AppPrefsKeys.crawlNotificationUnsupportedAt);
+  if (at == null) return false;
+  final since = DateTime.fromMillisecondsSinceEpoch(at);
+  return DateTime.now().difference(since) < _notificationFallbackRetryAfter;
+}
+
+Future<void> _markNotificationPathUnsupported(
+  SharedPreferences prefs,
+  String baseUrl,
+) async {
+  await prefs.setString(
+    AppPrefsKeys.crawlNotificationUnsupportedBaseUrl,
+    baseUrl,
+  );
+  await prefs.setInt(
+    AppPrefsKeys.crawlNotificationUnsupportedAt,
+    DateTime.now().millisecondsSinceEpoch,
+  );
+}
+
+Future<void> _clearNotificationPathUnsupported(
+  SharedPreferences prefs,
+  String baseUrl,
+) async {
+  if (prefs.getString(AppPrefsKeys.crawlNotificationUnsupportedBaseUrl) !=
+      baseUrl) {
+    return;
+  }
+  await prefs.remove(AppPrefsKeys.crawlNotificationUnsupportedBaseUrl);
+  await prefs.remove(AppPrefsKeys.crawlNotificationUnsupportedAt);
+}
+
+Set<String> _readLegacySentKeys(SharedPreferences prefs) =>
+    (prefs.getStringList(AppPrefsKeys.crawlLegacyEnqueueSentKeys) ?? const [])
+        .toSet();
+
+Future<void> _markLegacyEnqueueSent(SharedPreferences prefs, String key) async {
+  final keys = _readLegacySentKeys(prefs)..add(key);
+  // 최근 200개만 — 끝없이 쌓이지 않는다. 오래된 키는 보통 이미 pending 에서도 지워졌다.
+  final bounded = keys.length > 200
+      ? keys.skip(keys.length - 200).toList()
+      : keys.toList();
+  await prefs.setStringList(AppPrefsKeys.crawlLegacyEnqueueSentKeys, bounded);
+}
+
+Future<void> _clearLegacyEnqueueSent(
+  SharedPreferences prefs,
+  String key,
+) async {
+  final keys = _readLegacySentKeys(prefs);
+  if (!keys.remove(key)) return;
+  await prefs.setStringList(
+    AppPrefsKeys.crawlLegacyEnqueueSentKeys,
+    keys.toList(),
+  );
+}
+
+/// 옛 경로(`/crawl/enqueue`, request_id 없음 — 재전송하면 서버가 다시 접수할 수 있다)로 보낸다.
+/// 이미 이 [key] 로 성공했다는 표시가 있으면(성공 뒤 pending 제거가 기기 재시작 등으로 끝나지 못한
+/// 경우) 다시 보내지 않고 바로 받아들인다 — 호출자가 pending 을 지운다(SQ-B14 중복 접수 억제).
+Future<void> _sendLegacyEnqueue(
+  SharedPreferences prefs, {
+  required http.Client client,
+  required String baseUrl,
+  required String apiKey,
+  required String key,
+  required String number,
+}) async {
+  if (_readLegacySentKeys(prefs).contains(key)) return;
+  final response = await client
+      .post(
+        ServerContract.apiUri(baseUrl, ServerContract.crawlEnqueuePath),
+        headers: {
+          ...ServerContract.apiHeaders(apiKey),
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'report_number': number}),
+      )
+      .timeout(const Duration(seconds: 30));
+  if (response.statusCode != 200) {
+    throw StateError('legacy_enqueue_failed');
+  }
+  await _markLegacyEnqueueSent(prefs, key);
+}
+
+/// 알림 의도 하나를 보낸다. 새 경로(`/crawl/notification`, request_id 로 재시도 안전)를 먼저 쓰고,
+/// 그 경로가 없는(404) 구서버로 확인되면 옛 경로(`/crawl/enqueue`)로 대신 보낸다. 404 가 아닌 다른
+/// 실패(인증·타임아웃·잘못된 ACK 등)는 구서버 신호로 보지 않고 그대로 던져 재시도에 맡긴다.
+Future<void> _sendClientNotification(
+  SharedPreferences prefs, {
+  required http.Client client,
+  required String baseUrl,
+  required String apiKey,
+  required String key,
+  required String number,
+}) async {
+  if (_notificationPathKnownUnsupported(prefs, baseUrl)) {
+    await _sendLegacyEnqueue(
+      prefs,
+      client: client,
+      baseUrl: baseUrl,
+      apiKey: apiKey,
+      key: key,
+      number: number,
+    );
+    return;
+  }
+
+  final response = await client
+      .post(
+        ServerContract.apiUri(baseUrl, ServerContract.crawlNotificationPath),
+        headers: {
+          ...ServerContract.apiHeaders(apiKey),
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'report_number': number, 'request_id': key}),
+      )
+      .timeout(const Duration(seconds: 30));
+
+  if (response.statusCode == 200) {
+    final Object? decoded = jsonDecode(response.body);
+    if (decoded is! Map ||
+        decoded['request_id'] != key ||
+        decoded['status'] != 'accepted') {
+      throw StateError('notification_enqueue_unconfirmed');
+    }
+    // 새 경로가 실제로 동작했다 — 이전에 이 서버를 구서버로 기억해 뒀다면(예: 그사이 업데이트됨) 지운다.
+    await _clearNotificationPathUnsupported(prefs, baseUrl);
+    return;
+  }
+
+  if (response.statusCode != 404) {
+    throw StateError('notification_enqueue_unconfirmed');
+  }
+  // 404: 이 경로가 없는 구서버다. 기억해 두고(일정 시간 뒤 새 경로 재시도) 옛 경로로 대신 보낸다.
+  await _markNotificationPathUnsupported(prefs, baseUrl);
+  await _sendLegacyEnqueue(
+    prefs,
+    client: client,
+    baseUrl: baseUrl,
+    apiKey: apiKey,
+    key: key,
+    number: number,
+  );
+}
+
 Future<void> drainClientNotifications(
   SharedPreferences prefs, {
   required String baseUrl,
@@ -130,25 +285,16 @@ Future<void> drainClientNotifications(
   for (final key in keys.take(20)) {
     await checkScope();
     final number = prefs.getString(key)!;
-    final response = await client
-        .post(
-          ServerContract.apiUri(baseUrl, ServerContract.crawlNotificationPath),
-          headers: {
-            ...ServerContract.apiHeaders(apiKey),
-            'Content-Type': 'application/json',
-          },
-          body: jsonEncode({'report_number': number, 'request_id': key}),
-        )
-        .timeout(const Duration(seconds: 30));
+    await _sendClientNotification(
+      prefs,
+      client: client,
+      baseUrl: baseUrl,
+      apiKey: apiKey,
+      key: key,
+      number: number,
+    );
     await checkScope();
-    final Object? decoded = response.statusCode == 200
-        ? jsonDecode(response.body)
-        : null;
-    if (decoded is! Map ||
-        decoded['request_id'] != key ||
-        decoded['status'] != 'accepted') {
-      throw StateError('notification_enqueue_unconfirmed');
-    }
     await PrefsInbox.remove(prefs, [key]);
+    await _clearLegacyEnqueueSent(prefs, key);
   }
 }

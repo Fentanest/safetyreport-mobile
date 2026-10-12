@@ -53,29 +53,150 @@ void main() {
       expect(prefs.containsKey(key), isFalse);
     },
   );
+  test('wrong ACK (not a 404) preserves receipt without legacy fallback', () async {
+    final prefs = await SharedPreferences.getInstance();
+    await expectLater(
+      drainClientNotifications(
+        prefs,
+        baseUrl: 'http://fixture',
+        apiKey: 'fixture',
+        client: MockClient((request) async {
+          expect(request.url.path, '/api/v1/crawl/notification');
+          return http.Response(
+            '{"status":"accepted","request_id":"other"}',
+            200,
+          );
+        }),
+        checkScope: () async {},
+      ),
+      throwsStateError,
+    );
+    expect(prefs.containsKey(key), isTrue);
+  });
+
   test(
-    'old server and wrong ACK preserve receipt without legacy fallback',
+    '404 on the new path falls back to legacy /crawl/enqueue and clears pending',
     () async {
       final prefs = await SharedPreferences.getInstance();
-      for (final response in [
-        http.Response('', 404),
-        http.Response('{"status":"accepted","request_id":"other"}', 200),
-      ]) {
-        await expectLater(
-          drainClientNotifications(
-            prefs,
-            baseUrl: 'http://fixture',
-            apiKey: 'fixture',
-            client: MockClient((request) async {
-              expect(request.url.path, '/api/v1/crawl/notification');
-              return response;
-            }),
-            checkScope: () async {},
-          ),
-          throwsStateError,
-        );
-        expect(prefs.containsKey(key), isTrue);
-      }
+      final paths = <String>[];
+      await drainClientNotifications(
+        prefs,
+        baseUrl: 'http://fixture',
+        apiKey: 'fixture',
+        client: MockClient((request) async {
+          paths.add(request.url.path);
+          if (request.url.path == '/api/v1/crawl/notification') {
+            return http.Response('', 404);
+          }
+          expect(request.url.path, '/api/v1/crawl/enqueue');
+          expect(jsonDecode(request.body), {'report_number': 'SPP-2610-1234567'});
+          return http.Response('{"status":"success"}', 200);
+        }),
+        checkScope: () async {},
+      );
+      expect(paths, ['/api/v1/crawl/notification', '/api/v1/crawl/enqueue']);
+      expect(prefs.containsKey(key), isFalse);
+      expect(
+        prefs.getString('crawl_notification_unsupported_base_url'),
+        'http://fixture',
+      );
+    },
+  );
+
+  test(
+    'once a server is remembered as unsupported, later notifications skip '
+    'straight to /crawl/enqueue',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        key: 'SPP-2610-1234567',
+        'crawl_notification_unsupported_base_url': 'http://fixture',
+        'crawl_notification_unsupported_at': DateTime.now()
+            .millisecondsSinceEpoch,
+      });
+      final prefs = await SharedPreferences.getInstance();
+      final paths = <String>[];
+      await drainClientNotifications(
+        prefs,
+        baseUrl: 'http://fixture',
+        apiKey: 'fixture',
+        client: MockClient((request) async {
+          paths.add(request.url.path);
+          return http.Response('{"status":"success"}', 200);
+        }),
+        checkScope: () async {},
+      );
+      expect(paths, ['/api/v1/crawl/enqueue']);
+      expect(prefs.containsKey(key), isFalse);
+    },
+  );
+
+  test(
+    'after the retry window elapses the new path is tried again, and success '
+    'forgets the old-server memory',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        key: 'SPP-2610-1234567',
+        'crawl_notification_unsupported_base_url': 'http://fixture',
+        'crawl_notification_unsupported_at': DateTime.now()
+            .subtract(const Duration(hours: 7))
+            .millisecondsSinceEpoch,
+      });
+      final prefs = await SharedPreferences.getInstance();
+      final paths = <String>[];
+      await drainClientNotifications(
+        prefs,
+        baseUrl: 'http://fixture',
+        apiKey: 'fixture',
+        client: MockClient((request) async {
+          paths.add(request.url.path);
+          expect(request.url.path, '/api/v1/crawl/notification');
+          return http.Response(
+            jsonEncode({'status': 'accepted', 'request_id': key}),
+            200,
+          );
+        }),
+        checkScope: () async {},
+      );
+      expect(paths, ['/api/v1/crawl/notification']);
+      expect(prefs.containsKey(key), isFalse);
+      expect(
+        prefs.containsKey('crawl_notification_unsupported_base_url'),
+        isFalse,
+        reason: '새 경로가 다시 동작하면 구서버 기억을 지운다',
+      );
+    },
+  );
+
+  test(
+    'a crash between a successful legacy enqueue and pending removal does '
+    'not resend to the old server',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        key: 'SPP-2610-1234567',
+        'crawl_notification_unsupported_base_url': 'http://fixture',
+        'crawl_notification_unsupported_at': DateTime.now()
+            .millisecondsSinceEpoch,
+        'crawl_legacy_enqueue_sent_keys': [key],
+      });
+      final prefs = await SharedPreferences.getInstance();
+      var calls = 0;
+      await drainClientNotifications(
+        prefs,
+        baseUrl: 'http://fixture',
+        apiKey: 'fixture',
+        client: MockClient((request) async {
+          calls++;
+          return http.Response('{"status":"success"}', 200);
+        }),
+        checkScope: () async {},
+      );
+      expect(calls, 0, reason: '이미 보냈다는 표시가 있으면 다시 보내지 않는다');
+      expect(prefs.containsKey(key), isFalse);
+      expect(
+        prefs.getStringList('crawl_legacy_enqueue_sent_keys'),
+        isEmpty,
+        reason: 'pending 을 지우면 보냄 표시도 같이 지운다',
+      );
     },
   );
   test('scope change prevents POST', () async {

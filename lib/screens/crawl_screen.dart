@@ -332,8 +332,12 @@ class CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
     final api = _api();
     if (api == null) return;
     try {
-      final status = await api.getCrawlStatus();
-      if (!mounted) return;
+      // 대시보드(SyncStatusCard)와 같은 소스(ReportProvider.isSyncing)를 거친다(SQ-B13) — 이 화면이
+      // 닫힌 뒤에도 그 소스가 재확인될 수 있게.
+      final status = await context.read<ReportProvider>().refreshCrawlStatus(
+        apiOverride: api,
+      );
+      if (status == null || !mounted) return;
       final running = status['running'] == true;
       final unresolved = CrawlUnresolved.fromStatus(status);
       if (!CrawlUnresolved.sameList(unresolved, _unresolved)) {

@@ -489,12 +489,60 @@ class ReportProvider with ChangeNotifier {
   }
 
   ReportFilter get filter => _filter;
-  bool get isSyncing => _isSyncing;
+
+  // 대시보드 상태 카드(SyncStatusCard)와 크롤링 탭(CrawlScreen)이 공유하는 '진행 중' 신호(SQ-B13).
+  // CrawlScreen 이 열려 있을 때만 서버 상태로 갱신되던 문제(화면을 나가거나 WS 가 끊긴 뒤 크롤링이
+  // 끝나도 대시보드가 계속 '크롤링 중'으로 남음 — 2026-10 사용자 보고)를 고치려고
+  // [_syncingConfirmedAt]/[refreshCrawlStatus] 로 재확인 지점(탭 복귀·앱 재개)과 오래된 값 만료를 둔다.
   bool _isSyncing = false;
+  DateTime? _syncingConfirmedAt;
+
+  /// 테스트에서 만료 시간을 줄여 확인할 수 있게 둔다. 운영 기본값은 20분
+  /// (그 안에는 '진행 중'이 재확인되지 않아도 그대로 보인다 — 긴 전체 크롤링을 거짓으로 끄지 않는다).
+  @visibleForTesting
+  Duration syncingStaleAfter = const Duration(minutes: 20);
+
+  /// [_syncingConfirmedAt] 이후 [syncingStaleAfter] 가 지나면 화면 표시만 '진행 중 아님'으로 접는다.
+  /// 실제 서버 상태는 다음 [refreshCrawlStatus] 가 바로 다시 맞춘다 — 값 자체([_isSyncing])는 바꾸지
+  /// 않으므로 재확인이 성공하면 바로 원래 값으로 돌아온다.
+  bool get isSyncing {
+    if (!_isSyncing) return false;
+    final confirmedAt = _syncingConfirmedAt;
+    if (confirmedAt == null) return false;
+    return DateTime.now().difference(confirmedAt) <= syncingStaleAfter;
+  }
+
   void setSyncing(bool val) {
+    _syncingConfirmedAt = DateTime.now();
     if (_isSyncing == val) return;
     _isSyncing = val;
     notifyListeners();
+  }
+
+  bool _crawlStatusChecking = false;
+
+  /// Client 모드 크롤링 실행 여부를 서버에서 다시 확인해 [isSyncing] 을 맞춘다 — 대시보드·크롤링 탭
+  /// 둘 다 이 메서드를 거쳐야 같은 소스를 쓴다(SQ-B13). [apiOverride] 를 주면 그 [ApiService] 로만 확인하고
+  /// (크롤링 탭이 자신의 서버 연결로 호출), 없으면 Provider 자신의 서버 설정으로 확인한다(대시보드 진입,
+  /// 앱 포그라운드 복귀처럼 크롤링 탭이 열려 있지 않을 때). 호출자가 추가로 쓸 원본 상태 맵을 돌려준다
+  /// (확인하지 않았거나 실패하면 null).
+  Future<Map<String, dynamic>?> refreshCrawlStatus({
+    ApiService? apiOverride,
+  }) async {
+    final api =
+        apiOverride ?? (_appMode == AppMode.server && isConfigured ? _api : null);
+    if (api == null) return null;
+    if (_crawlStatusChecking) return null;
+    _crawlStatusChecking = true;
+    try {
+      final status = await api.getCrawlStatus();
+      setSyncing(status['running'] == true);
+      return status;
+    } catch (_) {
+      return null;
+    } finally {
+      _crawlStatusChecking = false;
+    }
   }
 
   bool get hasFilter => !_filter.isEmpty;

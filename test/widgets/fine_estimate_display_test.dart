@@ -291,6 +291,46 @@ void main() {
     });
   });
 
+  testWidgets('Client JSON의 위반법규로 목록 카드와 상세의 끼어들기 금액 보정', (tester) async {
+    final report = Report.fromJson({
+      'ID': 'fixture-fine-table',
+      '신고명': '끼어들기 금지 위반',
+      '처리상태': '수용',
+      '차량번호': '63너1234',
+      '위반법규': '도로교통법 제23조',
+      '범칙금_과태료': '과태료: 40,0000원',
+      'category': 'traffic',
+    });
+    expect(report.law, '도로교통법 제23조');
+    final errors = await pumpThemed(
+      tester,
+      ReportListCard(
+        report: report,
+        selectionMode: false,
+        isSelected: false,
+        onTap: () {},
+        onLongPress: () {},
+        metaItems: [ReportCardMetaItem.fine(report)],
+      ),
+      brightness: Brightness.light,
+    );
+    expect(errors, isEmpty, reason: describeErrors(errors));
+    expect(find.text('과태료: 40,000원'), findsOneWidget);
+    expect(find.textContaining('추정'), findsNothing);
+    tester.view.physicalSize = const Size(412, 2200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      theme: AppTheme.build(Brightness.light),
+      home: Scaffold(body: ReportDetailSheet(report: report)),
+    ));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(find.text('과태료: 40,000원'), findsOneWidget);
+    expect(find.textContaining('추정'), findsNothing);
+    expect(report.fineInfo, '과태료: 40,0000원');
+  });
+
   group('엑셀 내보내기 — 추정 금액/추정 근거 열', () {
     test('추정 대상이면 끝 두 열에 금액·근거가 들어간다', () {
       final values = excelExportRowValues(_wasteTarget());

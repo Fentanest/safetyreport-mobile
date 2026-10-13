@@ -101,6 +101,48 @@ test('CLI: docs/releases/v<VERSION>.md 가 없으면 실패하고 파일을 만�
   return run();
 });
 
+test('CLI: WHATSNEW_ALLOW_MISSING=1 이면 노트가 없어도 기본 문구로 대체하고 실패하지 않는다', () => {
+  const run = async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'sr-whatsnew-'));
+    try {
+      await writeFile(join(dir, 'VERSION'), '9.9.9+9\n');
+      await mkdir(join(dir, 'docs', 'releases'), { recursive: true });
+      execFileSync(process.execPath, [resolve('scripts/generate_whatsnew.mjs')], {
+        cwd: dir,
+        stdio: 'pipe',
+        env: { ...process.env, WHATSNEW_ALLOW_MISSING: '1', ANDROID_VERSION_CODE: '171' },
+      });
+      const content = await readFile(join(dir, 'whatsnew', 'whatsnew-ko-KR'), 'utf8');
+      assert.equal(content, '테스트 빌드 9.9.9 (171)');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  };
+  return run();
+});
+
+test('CLI: WHATSNEW_ALLOW_MISSING=1 이어도 노트 파일이 있으면 노트 기반으로 만든다', () => {
+  const run = async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'sr-whatsnew-'));
+    try {
+      await writeFile(join(dir, 'VERSION'), '3.4.5+9\n');
+      await mkdir(join(dir, 'docs', 'releases'), { recursive: true });
+      await writeFile(join(dir, 'docs', 'releases', 'v3.4.5.md'), SAMPLE_V213.replace(/2\.1\.3/g, '3.4.5'));
+      execFileSync(process.execPath, [resolve('scripts/generate_whatsnew.mjs')], {
+        cwd: dir,
+        stdio: 'pipe',
+        env: { ...process.env, WHATSNEW_ALLOW_MISSING: '1', ANDROID_VERSION_CODE: '171' },
+      });
+      const content = await readFile(join(dir, 'whatsnew', 'whatsnew-ko-KR'), 'utf8');
+      assert.ok(content.includes('버그 수정'));
+      assert.ok(!content.includes('테스트 빌드'));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  };
+  return run();
+});
+
 test('CLI: docs/releases/v<VERSION>.md 가 있으면 whatsnew/whatsnew-ko-KR 을 만든다', () => {
   const run = async () => {
     const dir = await mkdtemp(join(tmpdir(), 'sr-whatsnew-'));

@@ -11,20 +11,20 @@ Map<String, dynamic> _load(String name) => jsonDecode(
 );
 
 void main() {
-  final manifest = _load('manifest.json') as Map<String, dynamic>;
+  final manifest = _load('manifest.json');
   final registryVersion = manifest['registry_version'] as String;
   final links =
       (_load('data/agency_links.json')['links'] as List).cast<Map<String, dynamic>>();
   final indexBlob = _load('data/agency_index.json');
   final rows = indexBlob['rows'] as List;
   final index = <String, dynamic>{
-    for (final r in rows) (r as List).first as String: (r as List).sublist(1),
+    for (final r in rows) (r as List).first as String: r.sublist(1),
   };
   final compact = <String, dynamic>{
     for (final r in indexBlob['compact_rows'] as List) (r as List)[0] as String: r[1],
   };
   final legacy =
-      _load('data/agency_legacy.json') as Map<String, dynamic>;
+      _load('data/agency_legacy.json');
   final institutions =
       (_load('data/agency_institutions.json')['institutions'] as Map)
           .cast<String, dynamic>();

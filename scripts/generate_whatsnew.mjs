@@ -9,6 +9,11 @@
 // - Google Play "whats new" 글자 수 제한(500자)을 넘으면 문장 단위로 잘라서
 //   500자 이내로 맞추고, "…" 같은 말줄임표를 붙이지 않는다(마지막 문장은 항상 완결된 문장).
 //
+// 환경변수(둘 다 기본 off, 기존 호출자는 영향 없음):
+// - WHATSNEW_ALLOW_MISSING=1: 해당 버전 노트 파일이 없어도 실패하지 않고 짧은 기본 문구로 대체한다
+//   (build-apk.yml push 경로, 2026-10-13 사용자 결정). 노트 파일이 있으면 항상 노트 기반 생성이 우선한다.
+// - ANDROID_VERSION_CODE: 위 대체 문구에 괄호로 넣을 versionCode. 없으면 VERSION 파일의 `+N`을 쓴다.
+//
 // 이 파일은 CLI로도, 라이브러리로도 쓴다(단위 시험은 scripts/generate_whatsnew.test.mjs).
 
 export const PLAY_WHATS_NEW_LIMIT = 500;
@@ -114,6 +119,13 @@ export function generateWhatsNew(markdown, limit = PLAY_WHATS_NEW_LIMIT) {
   return assembleWhatsNew(entries, limit);
 }
 
+// WHATSNEW_ALLOW_MISSING=1 이면 노트 파일이 없어도 실패하지 않고 짧은 기본 문구로 대체한다
+// (2026-10-13 사용자 결정 — push(main) 빌드에서 매 번 새 versionCode 로 Play alpha 트랙에 올릴 때 씀).
+// 설정하지 않으면(기존 호출자: 정식 릴리스 경로, play-track.yml) 노트 파일이 없으면 그대로 실패한다.
+export function buildFallbackWhatsNew(buildName, versionCode) {
+  return versionCode ? `테스트 빌드 ${buildName} (${versionCode})` : `테스트 빌드 ${buildName}`;
+}
+
 async function main() {
   const { readFile, writeFile, mkdir } = await import('node:fs/promises');
   const { resolve } = await import('node:path');
@@ -121,19 +133,25 @@ async function main() {
   const rawVersion = (await readFile(resolve('VERSION'), 'utf8')).trim();
   const buildName = rawVersion.split('+')[0];
   const releaseNotePath = resolve('docs', 'releases', `v${buildName}.md`);
+  const allowMissing = process.env.WHATSNEW_ALLOW_MISSING === '1';
 
-  let markdown;
+  let whatsNew;
   try {
-    markdown = await readFile(releaseNotePath, 'utf8');
-  } catch {
-    console.error(`::error::출시 노트가 없습니다: docs/releases/v${buildName}.md (버전 노트 없이 Play 에 올리지 않습니다)`);
-    process.exit(1);
-  }
-
-  const whatsNew = generateWhatsNew(markdown);
-  if (!whatsNew) {
-    console.error(`::error::docs/releases/v${buildName}.md 에서 추출한 출시 노트가 비어 있습니다.`);
-    process.exit(1);
+    const markdown = await readFile(releaseNotePath, 'utf8');
+    whatsNew = generateWhatsNew(markdown);
+    if (!whatsNew) {
+      console.error(`::error::docs/releases/v${buildName}.md 에서 추출한 출시 노트가 비어 있습니다.`);
+      process.exit(1);
+    }
+  } catch (err) {
+    if (err?.code !== 'ENOENT') throw err;
+    if (!allowMissing) {
+      console.error(`::error::출시 노트가 없습니다: docs/releases/v${buildName}.md (버전 노트 없이 Play 에 올리지 않습니다)`);
+      process.exit(1);
+    }
+    const versionCode = (process.env.ANDROID_VERSION_CODE || rawVersion.split('+')[1] || '').trim();
+    whatsNew = buildFallbackWhatsNew(buildName, versionCode);
+    console.log(`⚠️ 출시 노트가 없어 기본 문구로 대체합니다: docs/releases/v${buildName}.md`);
   }
 
   const outDir = resolve('whatsnew');

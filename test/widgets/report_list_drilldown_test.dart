@@ -43,6 +43,10 @@ Report _report(String number, {String manager = '담당자 가'}) => Report(
 
 /// Client 모드: 서버 페이지가 전체 1,234건 중 한 페이지만 돌려준다.
 class _ClientProvider extends ReportProvider {
+  // This fixture deliberately models the pre-search server contract.
+  @override
+  Future<bool> supportsServerSearch({bool Function()? isCancelled}) async => false;
+
   final List<Report> traffic = [
     _report('SPP-2608-0000001'),
     _report('SPP-2608-0000002', manager: '담당자 나'),

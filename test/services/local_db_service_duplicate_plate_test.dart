@@ -83,6 +83,21 @@ void main() {
     await _insert('S2', 'S-002', '12가9999');
   }
 
+  test('지역 이륜형의 접미·공백 차이는 한 그룹이며 원문은 보존한다', () async {
+    const plates = ['경기군포다2671', '경기도 군포시 다 2671', '경기-군포-다2671'];
+    for (var i = 0; i < plates.length; i++) {
+      await _insert('M$i', 'M-00$i', plates[i]);
+    }
+    await _insert('S1', 'S-001', '서울강남다0025');
+    final page = await LocalDbService.getReportPage(scope: 'duplicates');
+    final reports = await LocalDbService.getDuplicateVehicleReports();
+    expect(page.total, 3);
+    expect(page.reports.map((r) => r.id).toSet(), {'M0', 'M1', 'M2'});
+    expect(reports.map((r) => r.id).toSet(), {'M0', 'M1', 'M2'});
+    expect(reports.map((r) => r.carNumber).toSet(), plates.toSet());
+    expect(reports.every((r) => r.totalCount == 3), isTrue);
+  });
+
   test('NULL 신고번호 중복군도 두 조회에서 보존한다', () async {
     await _insert('N1', null, '12가3456');
     await _insert('N2', null, '12가3456)');

@@ -572,6 +572,63 @@ void main() {
     }
   });
 
+  test('이륜 규칙 버전 변경은 오계산 교정만 한 번 재전송한다', () async {
+    final store = await _openStore();
+    try {
+      final oldPayloads = <String, Map>{};
+      for (final id in ['M1', 'M2']) {
+        await LocalDbService.upsertReport(
+          _report(id: id, fineInfo: '과태료', carNumber: '경기군포다2671'),
+          id == 'M1' ? 'parking' : 'traffic',
+          id == 'M1' ? '불법주정차신고' : '교통위반-버스전용차로 위반',
+        );
+        final db = await LocalDbService.db;
+        await db.update('reports', {
+          '신고명': id == 'M1' ? '불법주정차 위반' : '버스전용차로 위반',
+          'ssnpc_cd': id == 'M1' ? 'EP' : 'TV',
+          'ssnpc_type': null,
+        }, where: 'ID=?', whereArgs: [id]);
+        await _seedOldJournal(store, id, revision: id == 'M1' ? 1 : 2);
+        final old = buildPayload(await _observationInput(id));
+        old['fine_estimate'] = {
+          'won': id == 'M1' ? 40000 : 50000,
+          'rule': id == 'M1' ? 'parking' : 'bus_lane',
+          'rule_version': '2026-10-12.1',
+        };
+        oldPayloads[id] = old;
+        final text = canonicalJson(old);
+        final sha = sha256.convert(utf8.encode(text)).toString();
+        await store.db.update('source_journal', {
+          'payload_json': text, 'payload_sha256': sha,
+          'parser_version': mobileParserVersion,
+        }, where: 'source_report_id=?', whereArgs: [id]);
+        await store.db.update('report_latest', {'payload_sha256': sha},
+          where: 'source_report_id=?', whereArgs: [id]);
+      }
+      await store.setMeta('fine_estimate_resend_done', '2026-10-12.1|$mobileParserVersion');
+      expect(await resendFineEstimateIfNeeded(store: store), 2);
+      for (final id in ['M1', 'M2']) {
+        final events = await store.db.query('source_journal',
+          where: 'source_report_id=?', whereArgs: [id], orderBy: 'source_revision');
+        expect(events.length, 2);
+        final updated = jsonDecode(events.last['payload_json'] as String) as Map;
+        if (id == 'M1') {
+          expect(updated.containsKey('fine_estimate'), isFalse);
+        } else {
+          expect(updated['fine_estimate'], {
+            'won': 40000, 'rule': 'bus_lane', 'rule_version': fine_estimate.ruleVersion,
+          });
+        }
+        updated.remove('fine_estimate');
+        oldPayloads[id]!.remove('fine_estimate');
+        expect(updated, oldPayloads[id], reason: '추정 외 원문은 보존한다');
+      }
+      expect(await resendFineEstimateIfNeeded(store: store), 0);
+    } finally {
+      await _closeStore(store);
+    }
+  });
+
   test('파서 변경 재전송도 확정 판정을 재해석하지 않고 추정만 갱신한다', () async {
     final store = await _openStore();
     try {

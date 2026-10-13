@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:crypto/crypto.dart';
+import 'package:safetyreport/services/traffic_fine_table.g.dart';
 import 'package:safetyreport/models/report.dart';
 import 'package:safetyreport/services/excel_export_service.dart';
 import 'package:safetyreport/widgets/report_list_card.dart';
@@ -22,6 +24,20 @@ void main() {
           )
           as Map<String, dynamic>;
   test('공유 규칙 버전 일치', () => expect(fine.ruleVersion, vectors['rule_version']));
+  test('공유 JSON 바이트·생성 상수·해시 동일', () {
+    final bytes = File('assets/data/traffic_fine_table.json').readAsBytesSync();
+    expect(utf8.encode(trafficFineTableJson), bytes);
+    expect(sha256.convert(bytes).toString(), vectors['table_sha256']);
+    expect(trafficFineTableSha256, vectors['table_sha256']);
+  });
+  for (final c in vectors['table_cases'] as List) {
+    test('차종별 법정 집합 ${c['law']} ${c['plate']}', () {
+      expect(
+        fine.legalFineAmounts({'위반법규': c['law'], '차량번호': c['plate']}),
+        (c['amounts'] as List).cast<int>().toSet(),
+      );
+    });
+  }
   for (final c in vectors['cases'] as List) {
     test(c['name'] as String, () {
       final r = Map<String, dynamic>.from(c['record'] as Map);

@@ -160,3 +160,38 @@ test('CLI: docs/releases/v<VERSION>.md 가 있으면 whatsnew/whatsnew-ko-KR 을
   };
   return run();
 });
+
+// 2026-10-13: Play alpha 수동 업로드 — 입력 문구 → docs/releases/unreleased.md → 기본 문구(커밋 포함) 순.
+async function runCli(env, files = {}) {
+  const dir = await mkdtemp(join(tmpdir(), 'sr-whatsnew-'));
+  try {
+    await writeFile(join(dir, 'VERSION'), '2.2.0+42\n');
+    await mkdir(join(dir, 'docs', 'releases'), { recursive: true });
+    for (const [name, body] of Object.entries(files)) await writeFile(join(dir, 'docs', 'releases', name), body);
+    execFileSync(process.execPath, [resolve('scripts/generate_whatsnew.mjs')], {
+      cwd: dir, stdio: 'pipe',
+      env: { ...process.env, WHATSNEW_ALLOW_MISSING: '1', WHATSNEW_UNRELEASED: '1', ANDROID_VERSION_CODE: '173', WHATSNEW_COMMIT: 'abc1234', ...env },
+    });
+    return await readFile(join(dir, 'whatsnew', 'whatsnew-ko-KR'), 'utf8');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+test('CLI(unreleased): unreleased.md 내용으로 만들고 첫 소제목을 버리지 않는다, v<이름>.md 는 쓰지 않는다', async () => {
+  const content = await runCli({}, {
+    'unreleased.md': '<!-- 미출시 -->\n### 개선\n- 검색이 빨라졌습니다.\n',
+    'v2.2.0.md': SAMPLE_V213.replace(/2\.1\.3/g, '2.2.0'),
+  });
+  assert.equal(content, '개선\n• 검색이 빨라졌습니다.');
+});
+
+test('CLI(unreleased): 비었거나(주석만) 없으면 기본 문구에 커밋을 붙인다', async () => {
+  assert.equal(await runCli({}, { 'unreleased.md': '<!-- 미출시 -->\n' }), '테스트 빌드 2.2.0 (173) · abc1234');
+  assert.equal(await runCli({}), '테스트 빌드 2.2.0 (173) · abc1234');
+});
+
+test('CLI(unreleased): 입력 문구가 있으면 그것이 우선이고 500자를 넘으면 실패한다', async () => {
+  assert.equal(await runCli({ WHATSNEW_TEXT: '직접 입력' }, { 'unreleased.md': '### 개선\n- x\n' }), '직접 입력');
+  await assert.rejects(runCli({ WHATSNEW_TEXT: '가'.repeat(501) }));
+});

@@ -436,3 +436,12 @@ v9 암호문·ESP keyset을 읽거나 v11 플러그인을 먼저 초기화하지
 신고 DB, 커뮤니티 DB 및 서버 자료는 변경하지 않는다. commit 실패는 false로 반환하며 자동 초기화하지 않는다.
 Dart가 빈 보안 저장소를 확인하고 v11 준비 표시를 저장한 뒤 정상 시작(기존 로그인·연결 게이트)으로 돌아간다.
 미이관 설치용 경로이며, 일반 Keystore 읽기 오류 화면에는 초기화 버튼을 노출하지 않는다.
+
+### Play alpha 업로드 (2026-10-13 개정)
+- push(main)은 검증 + AAB 빌드만 하고 업로드하지 않는다. Play alpha 업로드는 `build-apk.yml` 수동 실행 `action=alpha` 로만 한다.
+- 출시 노트: 입력 `whatsnew` → `docs/releases/unreleased.md`(미출시 누적 노트, 비었으면 건너뜀) →
+  `테스트 빌드 <이름> (<versionCode>) · <커밋>` 순. 버전별 노트(`v<이름>.md`)는 alpha 에 쓰지 않는다.
+- 다음 버전 번호는 정식 릴리스 때 정한다(버그 수정/기능 추가 판단). 그 사이 사용자에게 보이는 변경은
+  `docs/releases/unreleased.md` 한 파일에 쌓는다. 정식 릴리스 절차: 버전 결정 → VERSION 갱신 → unreleased.md 를 다듬어
+  `docs/releases/v<버전>.md` 로 확정 → unreleased.md 는 안내 주석만 남기고 비움 → main 반영 → `action=release` 실행.
+  alpha 를 몇 번 올렸든 노트가 한 파일에 모여 있으므로 릴리스 노트에서 빠지지 않는다.

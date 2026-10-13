@@ -13,6 +13,10 @@
 // - WHATSNEW_ALLOW_MISSING=1: 해당 버전 노트 파일이 없어도 실패하지 않고 짧은 기본 문구로 대체한다
 //   (build-apk.yml push 경로, 2026-10-13 사용자 결정). 노트 파일이 있으면 항상 노트 기반 생성이 우선한다.
 // - ANDROID_VERSION_CODE: 위 대체 문구에 괄호로 넣을 versionCode. 없으면 VERSION 파일의 `+N`을 쓴다.
+// - WHATSNEW_TEXT: 수동 alpha 업로드에서 사람이 입력한 출시 노트. 있으면 노트 파일보다 우선한다(500자 초과면 실패).
+// - WHATSNEW_UNRELEASED=1: 버전별 노트(v<이름>.md) 대신 docs/releases/unreleased.md(다음 버전 번호가 정해지기 전
+//   누적하는 미출시 노트)를 쓴다. 비어 있거나(주석만) 없으면 기본 문구. Play alpha 수동 업로드가 쓴다.
+// - WHATSNEW_COMMIT: 대체 문구 끝에 붙일 짧은 커밋 해시.
 //
 // 이 파일은 CLI로도, 라이브러리로도 쓴다(단위 시험은 scripts/generate_whatsnew.test.mjs).
 
@@ -122,8 +126,9 @@ export function generateWhatsNew(markdown, limit = PLAY_WHATS_NEW_LIMIT) {
 // WHATSNEW_ALLOW_MISSING=1 이면 노트 파일이 없어도 실패하지 않고 짧은 기본 문구로 대체한다
 // (2026-10-13 사용자 결정 — push(main) 빌드에서 매 번 새 versionCode 로 Play alpha 트랙에 올릴 때 씀).
 // 설정하지 않으면(기존 호출자: 정식 릴리스 경로, play-track.yml) 노트 파일이 없으면 그대로 실패한다.
-export function buildFallbackWhatsNew(buildName, versionCode) {
-  return versionCode ? `테스트 빌드 ${buildName} (${versionCode})` : `테스트 빌드 ${buildName}`;
+export function buildFallbackWhatsNew(buildName, versionCode, commit = '') {
+  const base = versionCode ? `테스트 빌드 ${buildName} (${versionCode})` : `테스트 빌드 ${buildName}`;
+  return commit ? `${base} · ${commit}` : base;
 }
 
 async function main() {
@@ -136,9 +141,22 @@ async function main() {
   const allowMissing = process.env.WHATSNEW_ALLOW_MISSING === '1';
 
   let whatsNew;
-  try {
-    const markdown = await readFile(releaseNotePath, 'utf8');
+  const manual = (process.env.WHATSNEW_TEXT || '').trim();
+  const unreleased = process.env.WHATSNEW_UNRELEASED === '1';
+  const notePath = unreleased ? resolve('docs', 'releases', 'unreleased.md') : releaseNotePath;
+  const commit = (process.env.WHATSNEW_COMMIT || '').trim();
+  if (manual) {
+    if ([...manual].length > PLAY_WHATS_NEW_LIMIT) {
+      console.error(`::error::입력한 출시 노트가 ${PLAY_WHATS_NEW_LIMIT}자를 넘습니다(${[...manual].length}자).`);
+      process.exit(1);
+    }
+    whatsNew = manual;
+  } else try {
+    let markdown = (await readFile(notePath, 'utf8')).replace(/<!--[\s\S]*?-->/g, '');
+    // 변환기는 첫 줄을 버전 제목으로 보고 버린다. unreleased.md 에는 제목이 없으므로 자리표시 제목을 붙인다.
+    if (unreleased) markdown = `미출시 변경\n${markdown}`;
     whatsNew = generateWhatsNew(markdown);
+    if (!whatsNew && unreleased) throw Object.assign(new Error('empty'), { code: 'ENOENT' });
     if (!whatsNew) {
       console.error(`::error::docs/releases/v${buildName}.md 에서 추출한 출시 노트가 비어 있습니다.`);
       process.exit(1);
@@ -150,8 +168,8 @@ async function main() {
       process.exit(1);
     }
     const versionCode = (process.env.ANDROID_VERSION_CODE || rawVersion.split('+')[1] || '').trim();
-    whatsNew = buildFallbackWhatsNew(buildName, versionCode);
-    console.log(`⚠️ 출시 노트가 없어 기본 문구로 대체합니다: docs/releases/v${buildName}.md`);
+    whatsNew = buildFallbackWhatsNew(buildName, versionCode, commit);
+    console.log(`⚠️ 출시 노트가 없거나 비어 있어 기본 문구로 대체합니다: ${unreleased ? 'docs/releases/unreleased.md' : `docs/releases/v${buildName}.md`}`);
   }
 
   const outDir = resolve('whatsnew');

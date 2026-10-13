@@ -1,5 +1,36 @@
 # Changelog
 
+## 2026-10-13 — 정식 릴리즈를 별도 workflow(production.yml)로 분리 (사용자 결정, 미배포)
+
+- `build-apk.yml`에서 `push(main)` 트리거와 `action=release`(`create-release` job)를 제거했다. 이제 이 파일은
+  **alpha 전용 수동 실행**이다(`workflow_dispatch`, 입력은 `whatsnew` 뿐). 표시 이름을 `Play Alpha Build & Upload
+  (manual)`로 바꿨다(파일 이름은 그대로).
+- 새 `.github/workflows/production.yml`(`workflow_dispatch`, 입력 `version`, `^[0-9]+\.[0-9]+\.[0-9]+$` 검증,
+  `github.ref == 'refs/heads/main'`인 job만 실행)을 추가했다. `build-apk.yml`과 같은 concurrency group
+  (`mobile-build-${{ github.ref }}`)을 써서 두 워크플로를 직렬화한다. 순서: `prepare`(버전 형식·태그 중복·
+  `unreleased.md` 공백 검사, 직전 릴리스 태그 계산) → `next-version-code`(Play 최대 versionCode+1, `build-apk.yml`과
+  같은 로직을 의도적으로 중복) → `verify` → `build-aab`(self-hosted, AAB만, versionName=입력 `version`) →
+  `play-production`(Google Play **production** 트랙 업로드, "새로운 기능"은 `unreleased.md` 본문을
+  `generate_whatsnew.mjs`로 변환) → `finalize`(실행 커밋 위에 `docs/releases/v<version>.md` 확정·
+  `unreleased.md` 비움·`VERSION` 갱신 커밋을 main에 push, dev도 fast-forward 가능하면 push, 빌드한 커밋
+  (`github.sha`, finalize 커밋이 아님)에 태그 `v<version>`을 만들고 GitHub Release 생성).
+- `build_android_release.sh`에 `ANDROID_VERSION_NAME` 환경변수를 추가했다 — versionName을 VERSION 파일의
+  이름 대신 이 값으로 덮어쓴다(비우면 기존 동작 그대로). `production.yml`의 `build-aab`가 입력 `version`을
+  여기로 전달한다 — VERSION 파일은 아직 이전 버전을 담고 있으므로(finalize가 마지막에 갱신) 빌드 시점에 올바른
+  이름을 쓰기 위함이다.
+- 변경 파일: `.github/workflows/build-apk.yml`, `.github/workflows/production.yml`(신규), `build_android_release.sh`,
+  `docs/architecture/android-runtime.md`, `AGENTS.md`, `CHANGELOG.md`.
+- 검증: `python3 -c "import yaml; yaml.safe_load(...)"` 두 파일 통과. `actionlint@v1.7.12` 두 파일 모두 self-hosted
+  러너 라벨("235") 경고만(기존 `build-dev-apk.yml`/`verify.yml`에도 있는 동일 경고, 새 문제 없음). `bash -n
+  build_android_release.sh` 통과. `node --check scripts/generate_whatsnew.mjs` 통과, `node --test
+  scripts/generate_whatsnew.test.mjs` 12 passed(기존 호출자 동작 불변 — 이 스크립트 자체는 변경하지 않았다).
+  버전 형식 검사·태그 존재 검사·HTML 주석 제거 후 공백 검사·직전 태그 계산(`sort -V`) 조각을 가짜 입력으로
+  로컬에서 실행해 확인했다. 임시 git 저장소로 `finalize` job의 커밋·main push·dev fast-forward(가능/불가능
+  양쪽)·태그가 원래 커밋(새 finalize 커밋이 아님)을 가리키는지, main이 그 사이 다른 커밋으로 움직였을 때
+  push가 non-fast-forward로 실패하는지까지 실제 git 명령으로 재현해 확인했다. 실제 GitHub Actions 실행·Flutter
+  빌드·Play 업로드·main/dev push·태그·GitHub Release 생성은 하지 않았다(원격 실행·커밋·push 금지 지시). 커밋·
+  push 없음 — Opus 검토·반영 대기.
+
 - 2026-10-13: 신고 상세 일반·링크 행의 최소 높이를 48dp→34dp로 줄이고, 여러 줄 값의 동일한 내부 여백과 아래 내용 블록 간격을 유지했다.
 
 ## 2026-10-13 — Play alpha 업로드를 수동 실행으로 분리 (사용자 결정, dev)

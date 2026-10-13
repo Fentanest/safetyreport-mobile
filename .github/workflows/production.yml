@@ -1,0 +1,400 @@
+name: Production Release (build + Play production + release notes)
+
+# 2026-10-13 사용자 결정: 정식 릴리즈는 이 파일 하나로 한다(workflow_dispatch, main 에서만).
+# build-apk.yml(alpha 전용 수동)과 같은 concurrency group 을 써서 서로 직렬화한다 — alpha 빌드 중에
+# 정식 릴리즈를 실행해도(또는 반대로) Play versionCode 경합이 나지 않는다.
+#
+# 순서(앞 단계가 실패하면 뒤 단계는 건너뛴다):
+#   prepare            버전 입력 형식 검사, 태그 중복 검사, docs/releases/unreleased.md 비어있는지 검사,
+#                      직전 릴리스 태그(Full Changelog 비교용) 계산.
+#   next-version-code  Play 에 이미 올라간 최대 versionCode + 1(build-apk.yml 의 같은 job 과 동일한 방식 — 의도적 중복,
+#                      재사용 워크플로로 묶지 않았다. 두 파일이 완전히 독립적으로 검증 가능하게 둔다).
+#   verify             ./.github/workflows/verify.yml 재사용(고정 Flutter·analyze·fixture 테스트·lint).
+#   build-aab          self-hosted 러너에서 AAB 만 빌드(SKIP_APK_BUILD=1). versionName=입력 version,
+#                      versionCode=next-version-code 값을 ANDROID_VERSION_NAME/ANDROID_VERSION_CODE 로 전달한다.
+#                      VERSION 파일은 아직 건드리지 않는다(finalize 가 마지막에 갱신한다).
+#   play-production    Google Play **production** 트랙에 업로드. "새로운 기능" 문구는 unreleased.md 본문을
+#                      generate_whatsnew.mjs(WHATSNEW_UNRELEASED=1)로 변환한다 — 이 시점엔 아직 unreleased.md 를
+#                      비우지 않았으므로 원문이 남아 있다.
+#   finalize           실행 커밋(github.sha) 위에 커밋 하나를 만들어 main 에 push:
+#                        - docs/releases/v<version>.md: prepare 가 구한 직전 태그로 Full Changelog 링크를 채운
+#                          최종 노트(제목+빌드 번호, unreleased.md 본문, 스토어 안내, Full Changelog).
+#                        - docs/releases/unreleased.md: 안내 주석 한 줄만 남기고 비움.
+#                        - VERSION: <version>+<versionCode>.
+#                      dev 가 이 커밋으로 fast-forward 가능하면 dev 에도 push(아니면 경고만, 실패시키지 않음).
+#                      그 다음 태그 v<version> 을 **빌드한 커밋(github.sha, finalize 커밋이 아니다)**에 만들고
+#                      GitHub Release 를 만든다(body_path=최종 노트, generate_release_notes:false, prerelease:false,
+#                      files: 미지정 — 소스 zip/tar.gz 만 붙는다. APK/AAB 는 올리지 않는다. Play 가 배포 경로다).
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '정식 릴리즈 버전(SemVer, 예: 2.3.0). 태그는 v<version> 으로 만든다.'
+        type: string
+        required: true
+
+# build-apk.yml(alpha) 과 같은 group — 두 워크플로가 동시에 같은 '최대 versionCode' 를 읽고 같은 번호로
+# 올리지 않도록 직렬화한다(취소 없이 대기).
+concurrency:
+  group: mobile-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ────────────────────────────────────────────────────────────────
+  # 버전 형식·태그 중복·미출시 노트 공백 여부를 미리 검사하고, 직전 릴리스 태그와 unreleased.md 본문을
+  # 뒤 단계(특히 finalize)로 넘긴다. 여기서 실패하면 Play 에 아무것도 올리지 않고 끝난다.
+  # ────────────────────────────────────────────────────────────────
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      prev_tag: ${{ steps.prevtag.outputs.prev_tag }}
+      body_b64: ${{ steps.unreleased.outputs.body_b64 }}
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+      with:
+        ref: ${{ github.sha }}
+        fetch-depth: 0
+        fetch-tags: true
+
+    - name: Validate version input format
+      env:
+        VERSION_INPUT: ${{ inputs.version }}
+      run: |
+        if ! [[ "$VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "::error::version 입력 형식이 올바르지 않습니다(기대: 1.2.3): '$VERSION_INPUT'"
+          exit 1
+        fi
+        echo "✅ version 형식 확인: $VERSION_INPUT"
+
+    - name: Fail if tag already exists
+      env:
+        VERSION_INPUT: ${{ inputs.version }}
+      run: |
+        NEW_TAG="v$VERSION_INPUT"
+        if git rev-parse -q --verify "refs/tags/$NEW_TAG" >/dev/null; then
+          echo "::error::태그 $NEW_TAG 가 이미 있습니다. 같은 버전으로 다시 릴리스할 수 없습니다."
+          exit 1
+        fi
+        echo "✅ 태그 $NEW_TAG 없음 — 새로 만들 수 있습니다."
+
+    - name: Find previous release tag (for Full Changelog link)
+      id: prevtag
+      run: |
+        PREV_TAG="$(git tag -l | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)"
+        if [ -z "$PREV_TAG" ]; then
+          echo "::error::직전 릴리스 태그를 찾지 못했습니다(v<major>.<minor>.<patch> 형식의 기존 태그 없음)."
+          exit 1
+        fi
+        echo "prev_tag=$PREV_TAG" >> "$GITHUB_OUTPUT"
+        echo "ℹ️ 직전 릴리스 태그: $PREV_TAG"
+
+    - name: Validate unreleased notes and capture body
+      id: unreleased
+      run: |
+        python3 - <<'PY'
+        import re, sys, base64, os
+        text = open("docs/releases/unreleased.md", encoding="utf-8").read()
+        stripped = re.sub(r"<!--.*?-->", "", text, flags=re.S).strip()
+        if not stripped:
+            print("::error::미출시 노트가 비어 있습니다")
+            sys.exit(1)
+        encoded = base64.b64encode((stripped + "\n").encode("utf-8")).decode("ascii")
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+            f.write(f"body_b64={encoded}\n")
+        print("✅ docs/releases/unreleased.md 본문 확인")
+        PY
+
+  # ────────────────────────────────────────────────────────────────
+  # build-apk.yml 의 next-version-code job 과 동일한 로직(의도적 중복 — 재사용 워크플로로 묶지 않음).
+  # Play 에 이미 있는 최대 versionCode(번들·APK 전부)를 읽어 +1 한다.
+  # ────────────────────────────────────────────────────────────────
+  next-version-code:
+    if: github.ref == 'refs/heads/main'
+    needs: prepare
+    runs-on: ubuntu-latest
+    environment: play
+    permissions:
+      contents: read
+    outputs:
+      version_code: ${{ steps.code.outputs.version_code }}
+    steps:
+    - name: Read max versionCode from Google Play
+      id: code
+      env:
+        SA_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+      run: |
+        pip install --quiet google-auth requests
+        python3 - <<'PY'
+        import json, os, sys
+        import requests
+        from google.oauth2 import service_account
+        from google.auth.transport.requests import Request
+
+        pkg = "com.fentanest.mysafetyreport"
+        creds = service_account.Credentials.from_service_account_info(
+            json.loads(os.environ["SA_JSON"]),
+            scopes=["https://www.googleapis.com/auth/androidpublisher"])
+        creds.refresh(Request())
+        h = {"Authorization": f"Bearer {creds.token}"}
+        base = f"https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{pkg}/edits"
+        r = requests.post(base, headers=h, timeout=60); r.raise_for_status()
+        edit = r.json()["id"]
+        try:
+            codes = []
+            for kind, key in (("bundles", "bundles"), ("apks", "apks")):
+                r = requests.get(f"{base}/{edit}/{kind}", headers=h, timeout=60); r.raise_for_status()
+                codes += [int(x["versionCode"]) for x in r.json().get(key, [])]
+        finally:
+            requests.delete(f"{base}/{edit}", headers=h, timeout=60)
+        if not codes:
+            sys.exit("::error::Play 에서 기존 versionCode 를 하나도 읽지 못했습니다(권한·패키지 확인).")
+        nxt = max(codes) + 1
+        print(f"Play 최대 versionCode {max(codes)} → 이번 빌드 {nxt}")
+        with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+            f.write(f"version_code={nxt}\n")
+        PY
+
+  verify:
+    if: github.ref == 'refs/heads/main'
+    needs: prepare
+    uses: ./.github/workflows/verify.yml
+    permissions:
+      contents: read
+
+  # ────────────────────────────────────────────────────────────────
+  # AAB 만 빌드한다(APK 없음, build-apk.yml 의 build-aab 와 같은 방식). versionName 은 VERSION 파일이 아니라
+  # 입력 version 을 쓴다(ANDROID_VERSION_NAME) — VERSION 파일은 finalize 가 마지막에 갱신한다.
+  # ────────────────────────────────────────────────────────────────
+  build-aab:
+    if: github.ref == 'refs/heads/main'
+    needs: [verify, next-version-code]
+    runs-on: [self-hosted, Linux, X64, 235]
+    permissions:
+      contents: read
+    outputs:
+      version_code: ${{ steps.version.outputs.version_code }}
+
+    steps:
+    - name: Fix workspace ownership (pre-checkout)
+      run: sudo chown -R $(id -u):$(id -g) "${{ github.workspace }}" 2>/dev/null || true
+
+    - name: Checkout repository
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Resolve version (name = input version, code = Play max + 1)
+      id: version
+      env:
+        VERSION_INPUT: ${{ inputs.version }}
+      run: |
+        VERSION_CODE='${{ needs.next-version-code.outputs.version_code }}'
+        if ! [[ "$VERSION_CODE" =~ ^[0-9]+$ ]]; then
+          echo "::error::Play 에서 다음 versionCode 를 받지 못했습니다: '$VERSION_CODE'"
+          exit 1
+        fi
+        echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+        echo "📦 Version: $VERSION_INPUT+$VERSION_CODE (versionName=입력 version, versionCode=Play 최대+1)"
+
+    # Flutter 는 tool/flutter-version(3.47.5) 고정. 서명키가 없으면 실패한다(debug 서명으로 대체하지 않음).
+    # ANDROID_VERSION_NAME 으로 versionName 을 VERSION 파일 대신 입력 version 으로 덮어쓴다.
+    - name: Build AAB with pinned Flutter CLI
+      env:
+        COMMUNITY_SUPABASE_URL: ${{ vars.LOCAL_SUPABASE_URL }}
+        COMMUNITY_SUPABASE_PUBLISHABLE_KEY: ${{ vars.LOCAL_SUPABASE_PUBLISHABLE_KEY }}
+        FLUTTER_BIN: ${{ vars.FLUTTER_BIN || 'flutter' }}
+        ANDROID_VERSION_NAME: ${{ inputs.version }}
+        ANDROID_VERSION_CODE: ${{ steps.version.outputs.version_code }}
+        SKIP_APK_BUILD: '1'
+      run: |
+        rm -rf -- ./dist   # self-hosted 작업 폴더에 남은 이전 빌드 보존본을 이번 artifact 에 섞지 않는다
+        bash ./build_android_release.sh
+
+    - name: Upload mapping and build metadata
+      uses: actions/upload-artifact@v7
+      with:
+        name: mysafetyreport-${{ inputs.version }}+${{ steps.version.outputs.version_code }}-${{ github.sha }}-mapping
+        path: dist/
+        if-no-files-found: error
+        retention-days: 1
+
+    - name: Upload AAB artifact (Play Store용)
+      uses: actions/upload-artifact@v7
+      with:
+        name: mysafetyreport-${{ inputs.version }}+${{ steps.version.outputs.version_code }}-aab
+        path: build/app/outputs/bundle/release/mysafetyreport.aab
+        retention-days: 1
+
+  # ────────────────────────────────────────────────────────────────
+  # build-aab 와 분리된 job — 비밀값(PLAY_SERVICE_ACCOUNT_JSON)은 이 job(environment: play)에만 전달된다.
+  # Google Play **production** 트랙에 업로드한다(alpha 가 아니다). "새로운 기능"은 unreleased.md 본문을
+  # generate_whatsnew.mjs 로 변환한다 — 스토어 안내 줄·Full Changelog 는 unreleased.md 에 없으므로 섞이지 않는다.
+  # ────────────────────────────────────────────────────────────────
+  play-production:
+    if: github.ref == 'refs/heads/main'
+    needs: build-aab
+    runs-on: ubuntu-latest
+    environment: play
+    permissions:
+      contents: read
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+      with:
+        ref: ${{ github.sha }}
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: 22
+
+    # 미출시 노트는 prepare 가 이미 비어있지 않음을 확인했다 — 여기서는 대체 문구로 넘어가지 않는다
+    # (WHATSNEW_ALLOW_MISSING 미설정, 기본 off). 비어 있으면 그대로 실패한다.
+    - name: Generate Play "what's new" (ko-KR) from unreleased.md
+      env:
+        WHATSNEW_UNRELEASED: '1'
+      run: |
+        node scripts/generate_whatsnew.mjs
+        echo "--- 출시 노트 ---"; cat whatsnew/whatsnew-ko-KR
+
+    - name: Download AAB artifact
+      uses: actions/download-artifact@v5
+      with:
+        name: mysafetyreport-${{ inputs.version }}+${{ needs.build-aab.outputs.version_code }}-aab
+        path: artifacts/aab
+
+    - name: Download mapping artifact
+      uses: actions/download-artifact@v5
+      with:
+        name: mysafetyreport-${{ inputs.version }}+${{ needs.build-aab.outputs.version_code }}-${{ github.sha }}-mapping
+        path: artifacts/mapping
+
+    - name: Resolve AAB and AAB mapping.txt paths
+      id: paths
+      run: |
+        AAB_PATH=$(find artifacts/aab -type f -name '*.aab' | head -n1)
+        MAPPING_PATH=$(find artifacts/mapping -type f -path '*/aab/mapping.txt' | head -n1)
+        if [[ -z "$AAB_PATH" ]]; then
+          echo "::error::다운로드한 artifact 에서 AAB 파일을 찾지 못했습니다."
+          exit 1
+        fi
+        if [[ -z "$MAPPING_PATH" ]]; then
+          echo "::error::다운로드한 artifact 에서 AAB 의 mapping.txt 를 찾지 못했습니다."
+          exit 1
+        fi
+        echo "aab=$AAB_PATH" >> "$GITHUB_OUTPUT"
+        echo "mapping=$MAPPING_PATH" >> "$GITHUB_OUTPUT"
+
+    # r0adkll/upload-google-play v1.1.5 를 커밋 SHA 로 고정(build-apk.yml 과 동일한 SHA).
+    # 같은 versionCode 가 이미 Play 에 있으면 Google Play Developer API 가 그대로 오류를 내고,
+    # 이 action 도 그 오류로 실패한다(continue-on-error 없음).
+    - name: Upload to Google Play production track
+      uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
+      with:
+        serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        packageName: com.fentanest.mysafetyreport
+        releaseFiles: ${{ steps.paths.outputs.aab }}
+        track: production
+        status: completed
+        mappingFile: ${{ steps.paths.outputs.mapping }}
+        whatsNewDirectory: whatsnew
+
+  # ────────────────────────────────────────────────────────────────
+  # Play production 업로드가 끝난 뒤에만 실행한다. 릴리스 노트를 확정하고, VERSION 을 갱신하고,
+  # main(+가능하면 dev)에 커밋을 push 한 뒤, 빌드한 커밋(github.sha)에 태그를 만들고 GitHub Release 를 만든다.
+  # ────────────────────────────────────────────────────────────────
+  finalize:
+    if: github.ref == 'refs/heads/main'
+    needs: [prepare, build-aab, play-production]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+      with:
+        ref: ${{ github.sha }}
+        fetch-depth: 0
+        fetch-tags: true
+
+    - name: Write final release note, clear unreleased.md, bump VERSION
+      id: notes
+      env:
+        VERSION_INPUT: ${{ inputs.version }}
+        VERSION_CODE: ${{ needs.build-aab.outputs.version_code }}
+        PREV_TAG: ${{ needs.prepare.outputs.prev_tag }}
+        BODY_B64: ${{ needs.prepare.outputs.body_b64 }}
+      run: |
+        BODY="$(printf '%s' "$BODY_B64" | base64 -d)"
+        NOTES_FILE="docs/releases/v${VERSION_INPUT}.md"
+        {
+          printf '**나만의 안전신문고 Android 앱 v%s · 빌드 %s**\n\n' "$VERSION_INPUT" "$VERSION_CODE"
+          printf '%s\n\n' "$BODY"
+          printf '앱은 Google Play 스토어에서 설치·업데이트해 주세요: https://play.google.com/store/apps/details?id=com.fentanest.mysafetyreport\n\n'
+          printf '**Full Changelog**: https://github.com/Fentanest/safetyreport-mobile/compare/%s...v%s\n' "$PREV_TAG" "$VERSION_INPUT"
+        } > "$NOTES_FILE"
+        echo "✅ $NOTES_FILE"
+        cat "$NOTES_FILE"
+
+        printf '<!-- 미출시 변경 누적. 정식 릴리스 때 v<버전>.md 로 확정하고 이 파일은 비운다. -->\n' > docs/releases/unreleased.md
+        echo "✅ docs/releases/unreleased.md 비움"
+
+        printf '%s+%s\n' "$VERSION_INPUT" "$VERSION_CODE" > VERSION
+        echo "✅ VERSION -> $(cat VERSION)"
+
+        echo "tag=v$VERSION_INPUT" >> "$GITHUB_OUTPUT"
+        echo "notes_file=$NOTES_FILE" >> "$GITHUB_OUTPUT"
+
+    - name: Commit and push to main (fast-forward only)
+      env:
+        VERSION_INPUT: ${{ inputs.version }}
+        VERSION_CODE: ${{ needs.build-aab.outputs.version_code }}
+        NOTES_FILE: ${{ steps.notes.outputs.notes_file }}
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add "$NOTES_FILE" docs/releases/unreleased.md VERSION
+        git commit -m "chore(release): ${VERSION_INPUT}+${VERSION_CODE} — 프로덕션 출시 노트 확정"
+        if ! git push origin HEAD:main; then
+          echo "::error::main 에 fast-forward push 하지 못했습니다(그 사이 main 에 다른 커밋이 올라갔을 수 있습니다). 태그·Release 는 만들지 않았습니다. 충돌을 해소하고 release 노트를 수동으로 반영한 뒤 다시 실행하세요."
+          exit 1
+        fi
+        echo "✅ main 에 push: $(git rev-parse HEAD)"
+
+    - name: Push same commit to dev if fast-forward (best effort)
+      run: |
+        git fetch origin dev
+        if git merge-base --is-ancestor origin/dev HEAD; then
+          if git push origin HEAD:dev; then
+            echo "✅ dev 에도 fast-forward push 했습니다."
+          else
+            echo "⚠️ dev push 가 실패했습니다(경합 가능) — main 반영은 끝났으므로 계속 진행합니다. dev 는 수동으로 맞춰 주세요."
+          fi
+        else
+          echo "⚠️ dev 가 이 커밋의 조상이 아니라 fast-forward 할 수 없습니다 — dev 는 건드리지 않았습니다. 수동으로 맞춰 주세요."
+        fi
+
+    - name: Tag the built commit (github.sha, not the finalize commit)
+      env:
+        TAG: ${{ steps.notes.outputs.tag }}
+      run: |
+        git tag "$TAG" "${{ github.sha }}"
+        git push origin "$TAG"
+        echo "✅ 태그 $TAG -> ${{ github.sha }}"
+
+    - name: Create GitHub Release (tag + release notes + default source zip only)
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.notes.outputs.tag }}
+        target_commitish: ${{ github.sha }}
+        name: "나만의 안전신문고 앱 ${{ steps.notes.outputs.tag }}"
+        body_path: ${{ steps.notes.outputs.notes_file }}
+        draft: false
+        prerelease: false
+        generate_release_notes: false

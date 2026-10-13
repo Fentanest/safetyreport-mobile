@@ -207,7 +207,7 @@ void main() {
     expect(shown.processContent, '합성 답변\nNULL·빈값·결과 미상');
     expect(shown.attachedFiles, _file);
     expect(shown.supplementRequest, '합성 보완 요청');
-    // 상세 줄이 48dp 로 고르게 바뀌어(줄 간격 통일) 본문이 첫 화면 아래에 있을 수 있다 — 스크롤해서 확인.
+    // 여러 줄 상세 값 때문에 본문이 첫 화면 아래에 있을 수 있다 — 스크롤해서 확인.
     await tester.scrollUntilVisible(
       find.text('합성 본문'),
       200,

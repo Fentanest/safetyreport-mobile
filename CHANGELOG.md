@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-13 — versionCode 를 Play 최대값 + 1 로 (run_number 의존 제거)
+
+- push(main) 빌드의 versionCode 를 `100 + github.run_number` 대신 **Play 에 이미 올라간 최대 versionCode + 1** 로 정한다.
+  새 `next-version-code` job(ubuntu, environment: play)이 Play Developer API 로 번들·APK 의 versionCode 를 모두 읽는다.
+  워크플로 이름 변경·재생성으로 run_number 가 1부터 다시 시작해도 번호가 내려가 Play 가 업로드를 거부하는 일이 없다.
+- 연속 push 가 같은 최대값을 읽어 같은 번호로 올리지 않도록 워크플로에 `concurrency`(취소 없이 대기)를 걸었다.
+- 바로 앞 항목(100+run_number)은 이 변경으로 대체됐다. 이미 올라간 171 이후로 계속 증가한다.
+
 ## 2026-10-13 — Android CI 재구성: push=AAB만 alpha 업로드(versionCode=100+run_number), 정식 릴리즈=workflow_dispatch(태그+Release만) (사용자 결정, 미배포)
 
 - `push(main)`: job `build-apk`를 `build-aab`로 바꿔 APK 빌드를 생략하고(`SKIP_APK_BUILD=1`) AAB만 빌드한다. `play-upload`가 그 AAB·mapping을 Google Play 비공개 테스트(alpha) 트랙에 올린다(기존과 동일한 트랙·job 재사용). 같은 태그로 업로드를 건너뛰던 조건은 제거했다(매 push가 새 versionCode를 만들므로).

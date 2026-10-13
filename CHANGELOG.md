@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-10-13: 설정 앱 정보에 빌드 번호를 표시하고 도움·문의 환경 정보에도 포함했다(번호가 없으면 화면은 `...`, 문의 본문은 `확인 안 됨`).
+
 ## 2026-10-13 — 정식 릴리즈를 별도 workflow(production.yml)로 분리 (사용자 결정, 미배포)
 
 - `build-apk.yml`에서 `push(main)` 트리거와 `action=release`(`create-release` job)를 제거했다. 이제 이 파일은

@@ -83,6 +83,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // 앱 버전
   String _appVersion = '';
+  String _appBuildNumber = '';
 
   // 서버 버전
   String? _serverVersion;
@@ -104,7 +105,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _dbKeyProvider = provider..addListener(_onDbTargetMaybeChanged);
     _dbKey = _dbKeyOf(provider);
     PackageInfo.fromPlatform().then((info) {
-      if (mounted) setState(() => _appVersion = info.version);
+      if (mounted) {
+        setState(() {
+          _appVersion = info.version;
+          _appBuildNumber = info.buildNumber;
+        });
+      }
     });
     if (widget.openReloginOnStart && provider.appMode == AppMode.standalone) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1204,6 +1210,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onBugReport: () => _openSupportLink(
                 SupportLinks.bugReport(
                   appVersion: _appVersion,
+                  buildNumber: _appBuildNumber,
                   modeLabel: _modeLabel,
                   osLabel: _osLabel,
                 ),
@@ -1211,6 +1218,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onFeatureRequest: () => _openSupportLink(
                 SupportLinks.featureRequest(
                   appVersion: _appVersion,
+                  buildNumber: _appBuildNumber,
                   modeLabel: _modeLabel,
                   osLabel: _osLabel,
                 ),
@@ -2055,6 +2063,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _InfoRow(
                       label: '앱 버전',
                       value: _appVersion.isEmpty ? '...' : 'v$_appVersion',
+                    ),
+                    _InfoRow(
+                      label: '빌드 번호',
+                      value: _appBuildNumber.isEmpty ? '...' : _appBuildNumber,
                     ),
                     const _InfoRow(label: '플랫폼', value: 'Android / iOS'),
                     const _InfoRow(label: '공식 출처', value: '안전신문고'),

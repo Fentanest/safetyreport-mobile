@@ -259,6 +259,59 @@ void main() {
     expect(prefs.getString(AppPrefsKeys.themeMode), 'light');
   });
 
+  for (final buildNumber in ['172', '']) {
+    testWidgets('앱 정보: 앱 버전 아래 빌드 번호 표시 ($buildNumber)', (tester) async {
+      PackageInfo.setMockInitialValues(
+        appName: 'safetyreport',
+        packageName: 'x',
+        version: '1.2.3',
+        buildNumber: buildNumber,
+        buildSignature: '',
+      );
+      SharedPreferences.setMockInitialValues({
+        AppPrefsKeys.appMode: 'standalone',
+        AppPrefsKeys.standaloneUsername: 'demo',
+      });
+      final provider = _DemoProvider();
+      addTearDown(provider.dispose);
+      await pumpSettings(tester, provider);
+
+      final infoCard = find.ancestor(
+        of: find.text('앱 정보'),
+        matching: find.byType(Card),
+      );
+      final buildLabel = find.descendant(
+        of: infoCard,
+        matching: find.text('빌드 번호'),
+      );
+      expect(buildLabel.hitTestable(), findsOneWidget);
+      final buildRow = find.ancestor(
+        of: buildLabel,
+        matching: find.byType(Row),
+      );
+      expect(
+        find.descendant(
+          of: buildRow,
+          matching: find.text(buildNumber.isEmpty ? '...' : buildNumber),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: infoCard, matching: find.text('v1.2.3')),
+        findsOneWidget,
+      );
+      expect(
+        topOf(tester, buildLabel),
+        greaterThan(topOf(tester, find.text('앱 버전'))),
+      );
+      expect(
+        topOf(tester, buildLabel),
+        lessThan(topOf(tester, find.text('플랫폼'))),
+      );
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('narrow width at 2.0x text renders without overflow', (
     tester,
   ) async {

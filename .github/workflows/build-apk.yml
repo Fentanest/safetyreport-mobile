@@ -1,8 +1,10 @@
 name: Build & Release APK
 
 # push(main): APK 없이 AAB 만 빌드해 Play 비공개 테스트(alpha) 트랙에 올린다(play-upload job 재사용).
-#   versionCode 는 VERSION 파일의 `+N` 이 아니라 `100 + github.run_number` 로 만든다(2026-10-13 사용자
-#   결정 — Play 기록 최대 42, run_number 71 이므로 항상 단조 증가한다). VERSION 파일의 `+N` 은 이 경로에서
+#   versionCode 는 VERSION 파일의 `+N` 이 아니라 **Play 에 이미 올라간 최대 versionCode + 1** 로 만든다
+#   (next-version-code job, Play Developer API 로 조회). GitHub run_number 에 기대지 않으므로 워크플로 이름 변경·
+#   재생성으로 번호가 내려가 Play 가 거부하는 일이 없다. 연속 push 가 같은 값을 읽지 않게 concurrency 로 직렬화한다.
+#   VERSION 파일의 `+N` 은 이 경로에서
 #   더 이상 실제 빌드 번호로 쓰지 않는다(파일 형식은 유지 — 다른 스크립트가 파싱해도 그대로 동작한다).
 #   artifact(AAB·mapping 전부) 보관 1일. 태그·GitHub Release 없음.
 #
@@ -19,6 +21,11 @@ on:
     branches:
       - main
 
+# 두 push 빌드가 동시에 같은 '최대 versionCode' 를 읽고 같은 번호로 올리지 않도록 한 번에 하나만 돈다(취소 없이 대기).
+concurrency:
+  group: mobile-build-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   verify:
     if: github.event_name == 'push'
@@ -29,9 +36,55 @@ jobs:
   # ────────────────────────────────────────────────────────────────
   # push(main): AAB 만 빌드한다(APK 없음). play-upload 가 alpha 트랙에 올린다. 태그·Release 없음.
   # ────────────────────────────────────────────────────────────────
+  # Play 에 이미 있는 최대 versionCode(번들·APK 전부)를 읽어 +1 한다. 비밀값은 environment: play 의 이 job 에만 간다.
+  next-version-code:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: play
+    permissions:
+      contents: read
+    outputs:
+      version_code: ${{ steps.code.outputs.version_code }}
+    steps:
+    - name: Read max versionCode from Google Play
+      id: code
+      env:
+        SA_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+      run: |
+        pip install --quiet google-auth requests
+        python3 - <<'PY'
+        import json, os, sys
+        import requests
+        from google.oauth2 import service_account
+        from google.auth.transport.requests import Request
+
+        pkg = "com.fentanest.mysafetyreport"
+        creds = service_account.Credentials.from_service_account_info(
+            json.loads(os.environ["SA_JSON"]),
+            scopes=["https://www.googleapis.com/auth/androidpublisher"])
+        creds.refresh(Request())
+        h = {"Authorization": f"Bearer {creds.token}"}
+        base = f"https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{pkg}/edits"
+        r = requests.post(base, headers=h, timeout=60); r.raise_for_status()
+        edit = r.json()["id"]
+        try:
+            codes = []
+            for kind, key in (("bundles", "bundles"), ("apks", "apks")):
+                r = requests.get(f"{base}/{edit}/{kind}", headers=h, timeout=60); r.raise_for_status()
+                codes += [int(x["versionCode"]) for x in r.json().get(key, [])]
+        finally:
+            requests.delete(f"{base}/{edit}", headers=h, timeout=60)
+        if not codes:
+            sys.exit("::error::Play 에서 기존 versionCode 를 하나도 읽지 못했습니다(권한·패키지 확인).")
+        nxt = max(codes) + 1
+        print(f"Play 최대 versionCode {max(codes)} → 이번 빌드 {nxt}")
+        with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+            f.write(f"version_code={nxt}\n")
+        PY
+
   build-aab:
     if: github.event_name == 'push'
-    needs: verify
+    needs: [verify, next-version-code]
     runs-on: [self-hosted, Linux, X64, 235]
     permissions:
       contents: read
@@ -48,9 +101,9 @@ jobs:
       with:
         fetch-depth: 0
 
-    # versionCode(빌드 번호) = 100 + run_number(2026-10-13 사용자 결정). VERSION 파일의 이름(+ 앞)만 쓰고,
+    # versionCode = Play 최대 versionCode + 1(next-version-code job). VERSION 파일의 이름(+ 앞)만 쓰고,
     # 그 뒤 +N 은 더 이상 실제 빌드 번호로 쓰지 않는다(참고용 표시로만 파일에 남는다).
-    - name: Compute version (build name from VERSION, versionCode = 100 + run_number)
+    - name: Compute version (build name from VERSION, versionCode = Play max + 1)
       id: version
       run: |
         BUILD_NAME=$(cut -d'+' -f1 VERSION | tr -d '[:space:]')
@@ -58,10 +111,14 @@ jobs:
           echo "::error::VERSION 파일에서 버전 이름을 읽을 수 없습니다."
           exit 1
         fi
-        VERSION_CODE=$((100 + ${{ github.run_number }}))
+        VERSION_CODE='${{ needs.next-version-code.outputs.version_code }}'
+        if ! [[ "$VERSION_CODE" =~ ^[0-9]+$ ]]; then
+          echo "::error::Play 에서 다음 versionCode 를 받지 못했습니다: '$VERSION_CODE'"
+          exit 1
+        fi
         echo "build_name=$BUILD_NAME" >> "$GITHUB_OUTPUT"
         echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
-        echo "📦 Version: $BUILD_NAME+$VERSION_CODE (versionCode=100+run_number, VERSION 파일의 +N 은 참고용)"
+        echo "📦 Version: $BUILD_NAME+$VERSION_CODE (versionCode=Play 최대+1, VERSION 파일의 +N 은 참고용)"
 
     # Flutter 는 tool/flutter-version(3.47.5) 고정 — 스크립트가 FLUTTER_BIN 또는 ~/development/flutter-<버전> 을 확인하고,
     # 다르면 실패한다. 서명키가 없으면 실패한다(debug 서명으로 대체하지 않음). SKIP_APK_BUILD=1 로 AAB 만 만든다.
@@ -95,7 +152,7 @@ jobs:
   # build-aab 와 분리된 job — 비밀값(PLAY_SERVICE_ACCOUNT_JSON)은 이 job(environment: play)에만 전달되고
   # self-hosted 빌드 러너에는 전달되지 않는다. build-aab 가 만든 서명 AAB·R8 mapping artifact 를 받아
   # Google Play 비공개 테스트(closed testing, API 트랙 이름 alpha) 트랙에 올린다. 매 push 마다 versionCode 가
-  # 새로(100+run_number) 만들어지므로, 예전처럼 같은 태그가 있어 건너뛰는 조건은 없다 — 매 push 가 올린다.
+  # 새로(Play 최대+1) 만들어지므로, 예전처럼 같은 태그가 있어 건너뛰는 조건은 없다 — 매 push 가 올린다.
   play-upload:
     needs: build-aab
     if: github.event_name == 'push'

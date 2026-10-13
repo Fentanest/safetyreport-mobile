@@ -21,7 +21,7 @@ set -euo pipefail
 #   ALLOW_DEBUG_SIGNED_RELEASE
 #   ANDROID_VERSION_CODE    versionCode(빌드 번호)를 VERSION 파일의 `+N` 대신 이 값으로 덮어쓴다.
 #                           build-apk.yml push 경로(2026-10-13 사용자 결정)는 Play versionCode 가
-#                           항상 증가하도록 `100 + github.run_number` 를 여기로 전달한다.
+#                           항상 증가하도록 Play 최대 versionCode + 1 을 여기로 전달한다.
 #                           비우면 기존처럼 VERSION 파일의 `+N` 을 그대로 쓴다(로컬 수동 빌드 기본값).
 #   SKIP_APK_BUILD=1        APK 빌드를 건너뛰고 AAB 만 만든다(산출물 보존·메타도 AAB 만).
 
@@ -83,7 +83,7 @@ if [[ -z "$BUILD_NAME" || -z "$BUILD_NUMBER_FROM_VERSION_FILE" || "$BUILD_NAME" 
 fi
 
 # versionCode(빌드 번호): ANDROID_VERSION_CODE 가 있으면 그 값을 쓰고, 없으면 VERSION 파일의 +N 그대로.
-# (2026-10-13 사용자 결정) CI release 경로는 Play versionCode 단조 증가를 위해 100+run_number 를 전달한다 —
+# (2026-10-13 사용자 결정) CI release 경로는 Play versionCode 단조 증가를 위해 Play 최대 versionCode + 1 을 전달한다 —
 # 이 경로에서 VERSION 파일의 +N 은 실제 빌드 번호가 아니라 참고용 표시로만 남는다.
 BUILD_NUMBER="${ANDROID_VERSION_CODE:-$BUILD_NUMBER_FROM_VERSION_FILE}"
 VERSION="$BUILD_NAME+$BUILD_NUMBER"

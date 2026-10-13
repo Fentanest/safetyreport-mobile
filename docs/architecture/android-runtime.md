@@ -380,10 +380,10 @@ ANDROID_VERSION_CODE=171 ./build_android_release.sh       # versionCode 를 VERS
 
 - **push(main)**: `verify` → `build-aab`(AAB만, `SKIP_APK_BUILD=1`, APK 빌드 없음) → `play-upload`. 태그·GitHub Release 없음.
   AAB·mapping artifact 보관 1일(이전 90일에서 축소 — 정식 릴리스가 아니므로).
-  versionCode(빌드 번호)는 VERSION 파일의 `+N` 이 아니라 `100 + github.run_number` 로 계산해 `ANDROID_VERSION_CODE` 로
-  `build_android_release.sh` 에 전달한다(Play 기록 최대 42, `run_number` 71 → 항상 단조 증가). **VERSION 파일의 `+N` 은
+  versionCode(빌드 번호)는 VERSION 파일의 `+N` 이 아니라 **Play 에 이미 올라간 최대 versionCode + 1**(`next-version-code` job 이 Play Developer API 로 번들·APK 전체를 조회)로 계산해 `ANDROID_VERSION_CODE` 로
+  `build_android_release.sh` 에 전달한다(GitHub run_number 에 기대지 않으므로 워크플로 이름 변경·재생성에도 번호가 내려가지 않는다. 연속 push 는 `concurrency` 로 직렬화). **VERSION 파일의 `+N` 은
   이 경로에서 더 이상 실제 빌드 번호로 쓰이지 않는다**(파일 형식은 유지하므로 다른 파싱 스크립트는 그대로 동작한다).
-  `play-upload`는 이전처럼 같은 태그 존재로 건너뛰지 않는다 — run_number 가 매 push 증가하므로 항상 새 versionCode다.
+  `play-upload`는 이전처럼 같은 태그 존재로 건너뛰지 않는다 — 매 push 가 Play 최대+1 을 쓰므로 항상 새 versionCode다.
   Play "새로운 기능" 문구는 `docs/releases/v<이름>.md` 가 있으면 그 내용, 없으면(`WHATSNEW_ALLOW_MISSING=1`)
   `scripts/generate_whatsnew.mjs` 가 실패하지 않고 "테스트 빌드 <이름> (<versionCode>)" 로 대체한다.
 - **workflow_dispatch(main) = 정식 릴리즈**: 빌드하지 않는다(`build-aab`/`play-upload` 는 `if: github.event_name == 'push'`로

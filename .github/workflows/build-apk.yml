@@ -1,6 +1,8 @@
 name: Build & Release APK
 
-# push(main): APK 없이 AAB 만 빌드해 Play 비공개 테스트(alpha) 트랙에 올린다(play-upload job 재사용).
+# 2026-10-13 사용자 결정(개정): push(main) = 검증 + AAB 빌드만(artifact 1일). **업로드하지 않는다.**
+# Play alpha 업로드는 workflow_dispatch action=alpha 로만 한다(아래 설명의 'push 업로드'는 이 수동 실행을 뜻한다).
+# (이전: push(main): APK 없이 AAB 만 빌드해 Play 비공개 테스트(alpha) 트랙에 올린다.)
 #   versionCode 는 VERSION 파일의 `+N` 이 아니라 **Play 에 이미 올라간 최대 versionCode + 1** 로 만든다
 #   (next-version-code job, Play Developer API 로 조회). GitHub run_number 에 기대지 않으므로 워크플로 이름 변경·
 #   재생성으로 번호가 내려가 Play 가 거부하는 일이 없다. 연속 push 가 같은 값을 읽지 않게 concurrency 로 직렬화한다.
@@ -17,6 +19,18 @@ name: Build & Release APK
 # build-dev-apk.yml(dev, 수동) 또는 매 push 의 build-aab 로 충분하다.
 on:
   workflow_dispatch:
+    inputs:
+      action:
+        description: 'alpha = AAB 빌드 후 Play 비공개(alpha) 업로드 / release = 태그+릴리스 노트+소스 zip'
+        type: choice
+        options: [alpha, release]
+        required: true
+        default: alpha
+      whatsnew:
+        description: 'alpha 출시 노트(선택, 500자 이내). 비우면 미릴리스 버전 노트 파일 → 없으면 "테스트 빌드 <이름> (<versionCode>) · <커밋>"'
+        type: string
+        required: false
+        default: ''
   push:
     branches:
       - main
@@ -28,7 +42,7 @@ concurrency:
 
 jobs:
   verify:
-    if: github.event_name == 'push'
+    if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.action == 'alpha'))
     uses: ./.github/workflows/verify.yml
     permissions:
       contents: read
@@ -38,7 +52,7 @@ jobs:
   # ────────────────────────────────────────────────────────────────
   # Play 에 이미 있는 최대 versionCode(번들·APK 전부)를 읽어 +1 한다. 비밀값은 environment: play 의 이 job 에만 간다.
   next-version-code:
-    if: github.event_name == 'push'
+    if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.action == 'alpha'))
     runs-on: ubuntu-latest
     environment: play
     permissions:
@@ -83,7 +97,7 @@ jobs:
         PY
 
   build-aab:
-    if: github.event_name == 'push'
+    if: (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.action == 'alpha'))
     needs: [verify, next-version-code]
     runs-on: [self-hosted, Linux, X64, 235]
     permissions:
@@ -155,7 +169,7 @@ jobs:
   # 새로(Play 최대+1) 만들어지므로, 예전처럼 같은 태그가 있어 건너뛰는 조건은 없다 — 매 push 가 올린다.
   play-upload:
     needs: build-aab
-    if: github.event_name == 'push'
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'alpha'
     runs-on: ubuntu-latest
     environment: play
     permissions:
@@ -175,11 +189,28 @@ jobs:
     # docs/releases/v<이름>.md(사람이 쓰는 릴리즈 노트)가 있으면 그 내용으로 "새로운 기능" 문구를 만든다.
     # push 빌드는 아직 정식 릴리스 노트가 없는 경우가 보통이라, 없으면(WHATSNEW_ALLOW_MISSING=1) 짧은 기본
     # 문구("테스트 빌드 <이름> (<versionCode>)")로 대체하고 실패하지 않는다(2026-10-13 사용자 결정).
-    - name: Generate Play "what's new" (ko-KR) from release notes, or a short default
+    # 출시 노트 우선순위: 실행 때 입력한 문구 → 아직 릴리스되지 않은 버전(태그 v<이름> 없음)의 노트 파일 →
+    # "테스트 빌드 <이름> (<versionCode>) · <커밋>". 이미 릴리스된 버전 이름의 노트는 이 빌드 내용과 다르므로 쓰지 않는다.
+    - name: Generate Play "what's new" (ko-KR)
       env:
+        GH_TOKEN: ${{ github.token }}
         WHATSNEW_ALLOW_MISSING: '1'
+        WHATSNEW_TEXT: ${{ inputs.whatsnew }}
+        WHATSNEW_COMMIT: ${{ github.sha }}
         ANDROID_VERSION_CODE: ${{ needs.build-aab.outputs.version_code }}
-      run: node scripts/generate_whatsnew.mjs
+        BUILD_NAME: ${{ needs.build-aab.outputs.build_name }}
+      run: |
+        WHATSNEW_COMMIT="${WHATSNEW_COMMIT:0:7}"
+        code=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $GH_TOKEN" \
+          "https://api.github.com/repos/${{ github.repository }}/git/ref/tags/v${BUILD_NAME}")
+        case "$code" in
+          200) export WHATSNEW_SKIP_NOTES=1 ;;
+          404) export WHATSNEW_SKIP_NOTES=0 ;;
+          *) echo "::error::태그 v${BUILD_NAME} 확인 실패(HTTP $code)"; exit 1 ;;
+        esac
+        export WHATSNEW_COMMIT
+        node scripts/generate_whatsnew.mjs
+        echo "--- 출시 노트 ---"; cat whatsnew/whatsnew-ko-KR
 
     - name: Download AAB artifact
       uses: actions/download-artifact@v5
@@ -230,7 +261,7 @@ jobs:
   # GitHub Release 를 만든다(prerelease:false, generate_release_notes:false). 같은 태그가 있으면 실패.
   # ────────────────────────────────────────────────────────────────
   create-release:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'release'
     runs-on: [self-hosted, Linux, X64, 235]
     permissions:
       contents: write

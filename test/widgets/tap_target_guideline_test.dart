@@ -139,7 +139,7 @@ void main() {
     await expectGuidelines(tester);
   });
 
-  testWidgets('상세 시트 링크 줄(담당자·차량번호·위반장소)은 48dp 이상', (tester) async {
+  testWidgets('상세 시트 링크 줄은 34dp 높이로 전체 너비를 누를 수 있다', (tester) async {
     tester.view.physicalSize = const Size(360, 2000);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -171,15 +171,12 @@ void main() {
       ),
     );
     await tester.pump();
-    for (final value in ['담당자 가', '12가3456', '서울 예시구']) {
+    for (final value in ['담당자 가', '12가3456', '도로교통법', '서울 예시구']) {
       final ink = find
           .ancestor(of: find.text(value), matching: find.byType(InkWell))
           .first;
-      expect(
-        tester.getSize(ink).height,
-        greaterThanOrEqualTo(48),
-        reason: '$value 줄',
-      );
+      expect(tester.getSize(ink).height, 34, reason: '$value 줄');
+      expect(tester.getSize(ink).width, 320, reason: '$value 행 전체 너비');
     }
   });
 }

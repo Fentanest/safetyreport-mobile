@@ -3,7 +3,7 @@
 //
 // 대상 판정·계산은 lib/services/fine_estimate.dart 의 isEstimateTarget/estimate 를 그대로 쓴다
 // (test/services/fine_estimate_test.dart 가 규칙표 자체를 검증). 여기서는 화면·내보내기가 그 결과를
-// 올바르게, 확정 값과 섞지 않고, 48dp 균일 간격·접근성·넘침 없이 보이는지만 본다.
+// 올바르게, 확정 값과 섞지 않고, 34dp 최소 높이·접근성·넘침 없이 보이는지만 본다.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/models/report.dart';
@@ -259,18 +259,18 @@ void main() {
       }
     }
 
-    testWidgets('추정 대상 줄은 늘어나고 다른 줄은 48dp 그대로다', (tester) async {
+    testWidgets('추정 대상 줄은 늘어나고 다른 줄은 34dp 그대로다', (tester) async {
       await pumpSheet(tester, _wasteTarget());
       final fineRow = tester.getRect(row('과태료/범칙금'));
       final plateRow = tester.getRect(row('차량번호'));
-      expect(fineRow.height, greaterThan(48));
-      expect(plateRow.height, 48);
+      expect(fineRow.height, greaterThan(34));
+      expect(plateRow.height, 34);
     });
 
-    testWidgets('비대상 줄은 다른 줄과 같은 48dp다', (tester) async {
+    testWidgets('비대상 줄은 다른 줄과 같은 34dp다', (tester) async {
       await pumpSheet(tester, _confirmedAmount());
       final fineRow = tester.getRect(row('과태료/범칙금'));
-      expect(fineRow.height, 48);
+      expect(fineRow.height, 34);
     });
 
     testWidgets('과태료 정보가 없으면 줄 자체가 없다', (tester) async {

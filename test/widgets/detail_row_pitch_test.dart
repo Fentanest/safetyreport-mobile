@@ -83,9 +83,8 @@ Future<void> _pump(
       child: MaterialApp(
         theme: AppTheme.build(brightness),
         builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(
-            context,
-          ).copyWith(textScaler: TextScaler.linear(scale)),
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: TextScaler.linear(scale)),
           child: child!,
         ),
         home: Scaffold(
@@ -110,11 +109,16 @@ Future<void> _pump(
 Finder _row(String label) =>
     find.ancestor(of: find.text(label), matching: find.byType(Container)).first;
 
-void _checkRows(WidgetTester tester, List<String> labels, {bool equal = true}) {
+void _checkRows(
+  WidgetTester tester,
+  List<String> labels, {
+  bool equal = true,
+  double minHeight = 34,
+}) {
   final rects = labels.map((label) => tester.getRect(_row(label))).toList();
   for (var i = 0; i < labels.length; i++) {
     final row = rects[i];
-    expect(row.height, greaterThanOrEqualTo(kMinInteractiveDimension));
+    expect(row.height, greaterThanOrEqualTo(minHeight));
     if (equal) expect(row.height, closeTo(rects.first.height, 0.01));
     if (i > 0) {
       expect(
@@ -174,16 +178,17 @@ void main() {
           );
           _checkRows(tester, _labels);
           if (scale == 1) {
-            expect(tester.getSize(_row(_labels.first)).height, 48);
+            expect(tester.getSize(_row(_labels.first)).height, 34);
           }
           for (final label in ['담당자', '차량번호', '위반법규', '위반장소']) {
             final tap = find
                 .ancestor(of: find.text(label), matching: find.byType(InkWell))
                 .first;
             expect(tester.getRect(tap), tester.getRect(_row(label)));
-            expect(tester.getSize(tap).height, greaterThanOrEqualTo(48));
+            expect(tester.getSize(tap).height, greaterThanOrEqualTo(34));
           }
-          await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+          // 사용자 승인: 링크 행은 전체 너비를 누르는 34dp 높이로 압축한다.
+          // 48dp Android 지침 대신 위에서 실제 행 크기와 전체 너비 터치 영역을 검사한다.
           await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
           semantics.dispose();
         });
@@ -213,6 +218,10 @@ void main() {
             );
             final value = tester.getRect(values);
             final row = tester.getRect(_row(label));
+            final content = find
+                .descendant(of: _row(label), matching: find.byType(Row))
+                .first;
+            expect(tester.getRect(content).top - row.top, closeTo(2, 0.01));
             expect(row.bottom - value.bottom, closeTo(2, 0.01));
           }
         });
@@ -225,7 +234,13 @@ void main() {
             report: _report(),
             duplicate: true,
           );
-          _checkRows(tester, ['ID', '신고번호', '신고명', '처리상태', '처리기관']);
+          _checkRows(tester, [
+            'ID',
+            '신고번호',
+            '신고명',
+            '처리상태',
+            '처리기관',
+          ], minHeight: 48);
           expect(tester.getSize(_row('ID')).height, 48);
         });
         testWidgets('중복 상세 긴 값 행만 확장: $caseName', (tester) async {
@@ -237,13 +252,12 @@ void main() {
             report: _report(longValues: true),
             duplicate: true,
           );
-          _checkRows(tester, [
-            'ID',
-            '신고번호',
-            '신고명',
-            '처리상태',
-            '처리기관',
-          ], equal: false);
+          _checkRows(
+            tester,
+            ['ID', '신고번호', '신고명', '처리상태', '처리기관'],
+            equal: false,
+            minHeight: 48,
+          );
           expect(tester.getSize(_row('ID')).height, 48);
           expect(tester.getSize(_row('처리기관')).height, greaterThan(48));
         });

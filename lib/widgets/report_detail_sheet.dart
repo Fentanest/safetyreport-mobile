@@ -762,7 +762,7 @@ class ReportDetailSheet extends StatelessWidget {
   /// "과태료/범칙금" 줄. 금액 없이 "과태료"만 있으면 법정 최저 기준 추정을 흐린 보조 표기로 더한다
   /// (row-estimate, 2026-10-12). 대상 판정·계산은 [fine_estimate.estimateForReport] 를 그대로 쓴다
   /// (통계·커뮤니티 payload 와 같은 함수). 확정 원문([Report.fineInfo])은 그대로 첫 줄에 두고 섞지 않는다.
-  /// 다른 상세 줄과 같은 [_DetailFieldRow] 를 쓰므로 48dp 균일 간격·세로 가운데 배치가 유지된다.
+  /// 다른 상세 줄과 같은 [_DetailFieldRow] 를 쓰므로 34dp 최소 높이·세로 가운데 배치가 유지된다.
   Widget _fineField(BuildContext context, double labelWidth) {
     final corrected = fine_estimate.correctedFineText(
       report.fineInfo,
@@ -839,7 +839,7 @@ class ReportDetailSheet extends StatelessWidget {
     ReportFilter filter,
   ) {
     final color = Theme.of(context).colorScheme.primary;
-    // 일반 줄과 같은 높이이며 누르는 영역도 48dp 이상이다(SQ-U20).
+    // 일반 줄과 같은 촘촘한 높이이며 행 전체 너비를 누를 수 있다.
     return InkWell(
       borderRadius: BorderRadius.circular(SrRadius.md),
       onTap: () => _navigateToFiltered(context, filter, value),
@@ -925,7 +925,7 @@ class _DetailFieldRow extends StatelessWidget {
     );
     // 줄 사이 여백 없이 같은 높이를 쓰고, 긴 값은 같은 내부 여백으로 늘어난다.
     return Container(
-      constraints: const BoxConstraints(minHeight: kMinInteractiveDimension),
+      constraints: const BoxConstraints(minHeight: 34),
       alignment: Alignment.centerLeft,
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: LayoutBuilder(

@@ -27,7 +27,7 @@ on:
         required: true
         default: alpha
       whatsnew:
-        description: 'alpha 출시 노트(선택, 500자 이내). 비우면 미릴리스 버전 노트 파일 → 없으면 "테스트 빌드 <이름> (<versionCode>) · <커밋>"'
+        description: 'alpha 출시 노트(선택, 500자 이내). 비우면 docs/releases/unreleased.md → 없으면 "테스트 빌드 <이름> (<versionCode>) · <커밋>"'
         type: string
         required: false
         default: ''
@@ -189,26 +189,17 @@ jobs:
     # docs/releases/v<이름>.md(사람이 쓰는 릴리즈 노트)가 있으면 그 내용으로 "새로운 기능" 문구를 만든다.
     # push 빌드는 아직 정식 릴리스 노트가 없는 경우가 보통이라, 없으면(WHATSNEW_ALLOW_MISSING=1) 짧은 기본
     # 문구("테스트 빌드 <이름> (<versionCode>)")로 대체하고 실패하지 않는다(2026-10-13 사용자 결정).
-    # 출시 노트 우선순위: 실행 때 입력한 문구 → 아직 릴리스되지 않은 버전(태그 v<이름> 없음)의 노트 파일 →
-    # "테스트 빌드 <이름> (<versionCode>) · <커밋>". 이미 릴리스된 버전 이름의 노트는 이 빌드 내용과 다르므로 쓰지 않는다.
+    # 출시 노트 우선순위: 실행 때 입력한 문구 → docs/releases/unreleased.md(다음 버전 번호가 정해지기 전 누적하는
+    # 미출시 노트, 비었으면 건너뜀) → "테스트 빌드 <이름> (<versionCode>) · <커밋>". 버전별 노트(v<이름>.md)는 쓰지 않는다.
     - name: Generate Play "what's new" (ko-KR)
       env:
-        GH_TOKEN: ${{ github.token }}
         WHATSNEW_ALLOW_MISSING: '1'
+        WHATSNEW_UNRELEASED: '1'
         WHATSNEW_TEXT: ${{ inputs.whatsnew }}
         WHATSNEW_COMMIT: ${{ github.sha }}
         ANDROID_VERSION_CODE: ${{ needs.build-aab.outputs.version_code }}
-        BUILD_NAME: ${{ needs.build-aab.outputs.build_name }}
       run: |
-        WHATSNEW_COMMIT="${WHATSNEW_COMMIT:0:7}"
-        code=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $GH_TOKEN" \
-          "https://api.github.com/repos/${{ github.repository }}/git/ref/tags/v${BUILD_NAME}")
-        case "$code" in
-          200) export WHATSNEW_SKIP_NOTES=1 ;;
-          404) export WHATSNEW_SKIP_NOTES=0 ;;
-          *) echo "::error::태그 v${BUILD_NAME} 확인 실패(HTTP $code)"; exit 1 ;;
-        esac
-        export WHATSNEW_COMMIT
+        export WHATSNEW_COMMIT="${WHATSNEW_COMMIT:0:7}"
         node scripts/generate_whatsnew.mjs
         echo "--- 출시 노트 ---"; cat whatsnew/whatsnew-ko-KR
 

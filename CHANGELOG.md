@@ -5,10 +5,12 @@
 - push(main): 검증 + AAB 빌드만(artifact 1일). **Play 에 올리지 않는다.**
 - workflow_dispatch `action=alpha`: AAB 빌드(versionCode = Play 최대+1) → Play 비공개(alpha) 업로드.
   `action=release`: 기존 정식 릴리스(태그 + 릴리스 노트 + 소스 zip, 빌드·APK 없음).
-- alpha 출시 노트 우선순위: 실행 때 입력한 `whatsnew`(500자 이내) → 아직 릴리스되지 않은 버전(태그 v<이름> 없음)의
-  `docs/releases/v<이름>.md` → `테스트 빌드 <이름> (<versionCode>) · <커밋7자리>`. 이미 릴리스된 버전 이름의 노트는
-  그 빌드 내용과 다르므로 쓰지 않는다(이전에 alpha 172 에 2.2.0 노트가 그대로 붙었던 문제).
-- 검증: YAML 파싱, actionlint(러너 라벨 경고만), generate_whatsnew 시험 9 통과, 입력/릴리스된 버전/노트/500자 초과 4경우 로컬 실행 확인.
+- alpha 출시 노트 우선순위: 실행 때 입력한 `whatsnew`(500자 이내) → `docs/releases/unreleased.md`(다음 버전 번호가
+  정해지기 전 누적하는 미출시 노트, 비었으면 건너뜀) → `테스트 빌드 <이름> (<versionCode>) · <커밋7자리>`.
+  버전별 노트(v<이름>.md)는 alpha 에 쓰지 않는다(이전에 alpha 172 에 2.2.0 노트가 그대로 붙었던 문제).
+- 정식 릴리스 때 버전을 정하고 unreleased.md 를 `v<버전>.md` 로 확정한 뒤 비운다(절차: docs/architecture/android-runtime.md).
+- 2.2.0 이후 사용자에게 보이는 변경으로 `docs/releases/unreleased.md` 초안을 만들었다.
+- 검증: YAML 파싱, actionlint(러너 라벨 경고만), generate_whatsnew 시험 12 통과(미출시 노트·주석만·입력 우선·500자 초과 포함).
 
 ## 2026-10-13 — versionCode 를 Play 최대값 + 1 로 (run_number 의존 제거)
 

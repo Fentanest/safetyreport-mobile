@@ -439,4 +439,9 @@ Dart가 빈 보안 저장소를 확인하고 v11 준비 표시를 저장한 뒤 
 
 ### Play alpha 업로드 (2026-10-13 개정)
 - push(main)은 검증 + AAB 빌드만 하고 업로드하지 않는다. Play alpha 업로드는 `build-apk.yml` 수동 실행 `action=alpha` 로만 한다.
-- 출시 노트: 입력 `whatsnew` → 미릴리스 버전 노트 파일 → `테스트 빌드 <이름> (<versionCode>) · <커밋>` 순.
+- 출시 노트: 입력 `whatsnew` → `docs/releases/unreleased.md`(미출시 누적 노트, 비었으면 건너뜀) →
+  `테스트 빌드 <이름> (<versionCode>) · <커밋>` 순. 버전별 노트(`v<이름>.md`)는 alpha 에 쓰지 않는다.
+- 다음 버전 번호는 정식 릴리스 때 정한다(버그 수정/기능 추가 판단). 그 사이 사용자에게 보이는 변경은
+  `docs/releases/unreleased.md` 한 파일에 쌓는다. 정식 릴리스 절차: 버전 결정 → VERSION 갱신 → unreleased.md 를 다듬어
+  `docs/releases/v<버전>.md` 로 확정 → unreleased.md 는 안내 주석만 남기고 비움 → main 반영 → `action=release` 실행.
+  alpha 를 몇 번 올렸든 노트가 한 파일에 모여 있으므로 릴리스 노트에서 빠지지 않는다.

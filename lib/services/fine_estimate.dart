@@ -15,12 +15,30 @@
 ///   의 깨끗한 번호판 60건은 전부 같은 결과를 낸다(test/services/fine_estimate_test.dart 로 확인).
 library;
 
+import 'dart:convert';
 import 'package:intl/intl.dart';
 import '../models/report.dart';
 import 'plate_normalize.dart' as plate_normalize;
 import 'report_category.dart' as report_category;
+import 'traffic_fine_table.g.dart';
 
-const String ruleVersion = "2026-10-13.1";
+const String ruleVersion = "2026-10-13.2";
+
+final _trafficFineTable =
+    (jsonDecode(trafficFineTableJson) as Map<String, dynamic>)['articles']
+        as Map<String, dynamic>;
+
+/// 단일 조항만 허용하며 다른 법·복수 조항·미확인 하위 조항은 추측하지 않는다.
+String? normalizeViolationArticle(dynamic value) {
+  final text = (value?.toString() ?? '').replaceAll(RegExp(r'\s+'), '');
+  final match = RegExp(
+    r'^(?:도로교통법)?제([0-9]+)조(의[0-9]+)?(?:제?([0-9]+)항)?(?:제?([0-9]+)호(의[0-9]+)?)?$',
+  ).firstMatch(text);
+  if (match == null) return null;
+  return '도로교통법 제${match[1]}조${match[2] ?? ''}'
+      '${match[3] == null ? '' : '제${match[3]}항'}'
+      '${match[4] == null ? '' : '제${match[4]}호'}${match[5] ?? ''}';
+}
 
 const String _passenger = "승용등";
 const String _van = "승합등";
@@ -280,16 +298,33 @@ Map<String, dynamic>? estimate(Map<String, dynamic> record) {
   return {"amount": amount, "rule": ruleId, "basis": "$basis · $clsText"};
 }
 
-/// 해당 유형·차종의 기본/2시간 가중 금액만 대조한다.
+/// 기존 추정 규칙 ∪ 확인된 위반 조항·차종의 모든 법정 금액(보정 전용).
 Set<int> legalFineAmounts(Map<String, dynamic>? record) {
   record ??= {};
   final rule = _rules[classify(record)];
-  if (rule == null) return {};
   final cls = fineClass(record['차량번호']);
-  return {
-    for (final table in [rule.amounts, rule.surcharge ?? <String?, int>{}])
-      if ((table[cls] ?? table[null]) != null) (table[cls] ?? table[null])!,
-  };
+  final result = <int>{};
+  if (rule != null) {
+    for (final table in [rule.amounts, rule.surcharge ?? <String?, int>{}]) {
+      final value = table[cls] ?? table[null];
+      if (value != null) result.add(value);
+    }
+  }
+  final entry = _trafficFineTable[normalizeViolationArticle(record['위반법규'])];
+  if (entry != null) {
+    final amounts = entry['amounts'] as Map<String, dynamic>;
+    final kind = vehicleKind(record['차량번호']);
+    // 화물의 4톤 경계/긴급의 원차종은 번호판만으로 알 수 없다.
+    final classes = kind == '화물' || kind == '긴급'
+        ? [_passenger, _van]
+        : kind == null
+        ? amounts.keys.toList()
+        : [cls];
+    for (final key in [...classes, '차종무관']) {
+      result.addAll((amounts[key] as List? ?? []).cast<int>());
+    }
+  }
+  return result;
 }
 
 const amountTokenPattern = r'[0-9,.]+';

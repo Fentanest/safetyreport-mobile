@@ -19,7 +19,7 @@ on:
         type: boolean
         default: false
       mode:
-        description: 'inspect | validate | commit'
+        description: 'inspect | validate | commit | clear (to_track 의 출시를 비우고 반영)'
         required: true
         default: 'validate'
 
@@ -64,8 +64,8 @@ jobs:
         code = os.environ["VERSION_CODE"].strip() or build
         to_track = os.environ["TO_TRACK"].strip()
         mode = os.environ["MODE"].strip()
-        if mode not in ("inspect", "validate", "commit"):
-            sys.exit(f"::error::mode 는 inspect, validate, commit 중 하나: {mode}")
+        if mode not in ("inspect", "validate", "commit", "clear"):
+            sys.exit(f"::error::mode 는 inspect, validate, commit, clear 중 하나: {mode}")
         notes = open("whatsnew/whatsnew-ko-KR", encoding="utf-8").read().strip()
 
         creds = service_account.Credentials.from_service_account_info(
@@ -99,6 +99,14 @@ jobs:
                 certs = sorted({g.get("certificateSha256Hash") for g in r.json().get("generatedApks", [])}) if r.ok else r.text[:300]
                 print("generatedApks", c, r.status_code, certs)
             call("DELETE", f"{base}/{edit}")
+            sys.exit(0)
+
+        if mode == "clear":
+            if to_track == "production":
+                sys.exit("::error::production 트랙은 이 워크플로로 비우지 않는다")
+            call("PUT", f"{base}/{edit}/tracks/{to_track}", {"track": to_track, "releases": []})
+            print(json.dumps(call("POST", f"{base}/{edit}:commit"), ensure_ascii=False))
+            print(f"{to_track} 트랙의 출시를 비웠습니다.")
             sys.exit(0)
 
         release = {"name": f"{name} ({code})", "versionCodes": [code], "status": "completed",

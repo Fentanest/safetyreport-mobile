@@ -724,3 +724,40 @@ PC는 `services/fine_estimate.py`, 모바일은 `lib/services/fine_estimate.dart
   Client 페이지 API는 위반법규를 포함한 원문 필드를 반환하고 `ApiService.getReportsPage` → `Report.fromJson` → `law` →
   `fineRecordForReport`로 전달한다. 목록 `ReportCardMetaItem.fine` → `fineTextForReport`, 상세 `_fineField` →
   `correctedFineText`를 사용한다. 화면 보정값·상세 원문 보조 표기만 달라지며 DB/내보내기 원문은 보존한다.
+
+## Client 서버 검색 v1
+
+AppMode.server의 조건 검색·전체 5분류 목록은 `/api/v1/app/config`의
+`capabilities: [...,"report_search_v1"]`와 `report_search_version:1`을 모두 확인한 뒤
+`GET /api/v1/reports/{category}/search`를 사용한다. 제품 버전·protocol 3·DB schema는 변경하지 않는다.
+`category`는 5개 분류 또는 `all`. 파라미터는 `search_version=1`, `filter`(JSON 객체),
+`offset`(결과 기준), `limit`(최대 200), `dedupe=canonical|raw`이다.
+
+`ReportFilter.toSearchJson()`이 모든 필터를 전송한다. 문자열 키는 name/reportNumber/id/ratingCause/agency/
+manager/carNumber/law/location/fine/supplementCount/reportContent/processContent/pollStatus 및
+reportDate·occurDate·responseDate·occurTime 각각의 Start/End이며, ratings/statuses는 문자열 배열,
+excludePolice/onlyPolice는 bool이다. 빈 조건의 의미·쉼표 OR/`&` AND·Unicode 소문자 부분 검색·
+리터럴 `%`/`_`·법규 완전 일치·`__없음__`·별점 `__none__`·NULL·날짜/시각 경계는 기존
+`ReportProvider.matchesFilter`와 같으며 양쪽 `contracts/client-search-vectors.json`으로 대조한다.
+기관은 현행 registry 표시명, 상태는 canonical 표시값을 사용한다.
+
+서버는 정확 판정과 중복 대표건 투영 후 신고번호 DESC/ID DESC 순서로 total·페이지를 같은
+DB 스냅샷에서 구한다. COUNT 캐시는 없다. 응답은 기존 페이지 필드에 `search_version`, `filter` echo,
+`server_ms`를 더하며, 모바일은 버전·조건·분류·offset·limit·dedupe를 검증한다.
+full report(본문·처리내용·첨부·보완 포함)를 받아 기존 상세/편집 흐름을 유지하고,
+`all`의 각 행 category를 임의로 덮지 않는다.
+
+ReportProvider의 in-flight key는 epoch/revision/dedupe/category/offset/limit/**직렬화된 조건**을 포함한다.
+한 소비자의 취소가 다른 소비자의 공유 요청을 끊지 않는다. LocalPagedReportList의 generation/sequence와
+epoch/revision 검증으로 과거 검색 응답을 버리며 최대 3페이지 보관·다음 한 페이지 prefetch만 한다.
+서버·키·계정·모드 전환은 `_resetDatasetView`에서 capability/페이지 in-flight를 무효화하고,
+설정 갱신은 capability를 다시 반영한다. 같은 서버 주소에서 업그레이드한 경우 설정 새로고침으로 확인한다.
+
+capability의 성공적인 미제공은 기존 `scanClientReports` 경로를 사용한다. 원본 200건씩의
+취소 가능한 순회, 전체 정확 total 및 결과 400건 window를 유지한다.
+인증/timeout/5xx, 새 검색 경로 404 또는 echo/버전 오류를 구버전으로 처리하지 않는다.
+페이지 API까지 없는 서버에는 기존 업데이트 필요 오류를 표시한다.
+임의 Dart predicate가 있는 `FilteredListScreen`의 대시보드 드릴다운 및 rating scope는 기존 정확 순회로
+명시 분리한다. 조건 없는 단일 분류는 기존 `/page` 제한 조회를 유지한다. Standalone SQL 검색은 변경하지 않는다.
+PC 계약을 먼저 배포하고 모바일을 갱신한다. Kotlin ServerContract에도 검색 capability/version 상수를
+공유하지만 네이티브 백그라운드 작업에서 이 API를 호출하지 않는다.

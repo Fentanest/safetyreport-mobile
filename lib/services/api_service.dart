@@ -2,14 +2,19 @@ import 'client_compatibility.dart';
 import 'performance_trace.dart';
 import 'server_connection_service.dart';
 import 'app_prefs_keys.dart';
+
 import 'package:shared_preferences/shared_preferences.dart';
+
 import 'dart:math';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+
 import 'package:http/http.dart' as http;
+
 import '../models/report.dart';
+import '../models/report_filter.dart';
 import '../models/report_map.dart';
 import '../models/duplicate_group.dart';
 import '../models/file_item.dart';
@@ -223,9 +228,11 @@ class ApiService {
     int offset = 0,
     int limit = 200,
     String dedupe = 'canonical',
+    ReportFilter? searchFilter,
     bool Function()? isCancelled,
   }) async {
-    if (!report_category.categories.contains(category) ||
+    if ((!report_category.categories.contains(category) &&
+            !(searchFilter != null && category == 'all')) ||
         offset < 0 ||
         limit < 1 ||
         limit > 200) {
@@ -233,11 +240,15 @@ class ApiService {
     }
     final uri = ServerContract.apiUri(
       baseUrl,
-      '${ServerContract.reportsPath(category)}/page',
+      '${ServerContract.reportsPath(category)}/${searchFilter == null ? 'page' : 'search'}',
       queryParameters: {
         'offset': '$offset',
         'limit': '$limit',
         'dedupe': dedupe,
+        if (searchFilter != null) ...{
+          'search_version': '${ServerContract.reportSearchVersion}',
+          'filter': jsonEncode(searchFilter.toSearchJson()),
+        },
       },
     );
     final response = await _sendWithRetry(
@@ -245,7 +256,7 @@ class ApiService {
       isCancelled: isCancelled,
     );
     if (isCancelled?.call() == true) throw const QueryCancelled();
-    if (response.statusCode == 404) {
+    if (response.statusCode == 404 && searchFilter == null) {
       throw const ApiFeatureUnavailableException(
         'PC 서버에 페이지 조회 기능이 없습니다. PC 서버를 업데이트하세요.',
       );
@@ -254,6 +265,20 @@ class ApiService {
       throw Exception('페이지 조회 실패: ${response.statusCode}');
     }
     final body = _decodeResponse(response) as Map;
+    if (searchFilter != null &&
+        (body['search_version'] != ServerContract.reportSearchVersion ||
+            body['category'] != category ||
+            body['offset'] != offset ||
+            body['limit'] != limit ||
+            body['dedupe_mode'] != dedupe ||
+            body['filter'] is! Map ||
+            searchFilter.toSearchJson().entries.any(
+              (e) =>
+                  jsonEncode((body['filter'] as Map)[e.key]) !=
+                  jsonEncode(e.value),
+            ))) {
+      throw const FormatException('검색 계약과 다른 서버 응답');
+    }
     final data = body['data'] as List;
     if (data.length > limit || body['total'] is! int) {
       throw const FormatException('페이지 계약과 다른 서버 응답');
@@ -265,7 +290,7 @@ class ApiService {
             .map(
               (r) => Report.fromJson({
                 ...Map<String, dynamic>.from(r as Map),
-                'category': category,
+                if (category != 'all') 'category': category,
               }),
             )
             .toList(),
@@ -892,12 +917,15 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> getAppConfig() async {
+  Future<Map<String, dynamic>> getAppConfig({
+    bool Function()? isCancelled,
+  }) async {
     final response = await _sendWithRetry(
       (client) => client.get(
         ServerContract.apiUri(baseUrl, ServerContract.appConfigPath),
         headers: _headers,
       ),
+      isCancelled: isCancelled,
     );
     if (response.statusCode == 200) {
       final json = _decodeResponse(response);

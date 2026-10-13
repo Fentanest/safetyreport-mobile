@@ -59,6 +59,36 @@ class ReportFilter {
     this.pollStatus = '',
   });
 
+  /// Version 1 Client search wire format; also the in-flight query identity.
+  Map<String, Object> toSearchJson() => {
+    'name': name,
+    'reportNumber': reportNumber,
+    'id': id,
+    'ratings': ratings,
+    'ratingCause': ratingCause,
+    'agency': agency,
+    'manager': manager,
+    'carNumber': carNumber,
+    'law': law,
+    'location': location,
+    'fine': fine,
+    'supplementCount': supplementCount,
+    'reportContent': reportContent,
+    'processContent': processContent,
+    'statuses': statuses,
+    'reportDateStart': reportDateStart,
+    'reportDateEnd': reportDateEnd,
+    'occurDateStart': occurDateStart,
+    'occurDateEnd': occurDateEnd,
+    'responseDateStart': responseDateStart,
+    'responseDateEnd': responseDateEnd,
+    'occurTimeStart': occurTimeStart,
+    'occurTimeEnd': occurTimeEnd,
+    'excludePolice': excludePolice,
+    'onlyPolice': onlyPolice,
+    'pollStatus': pollStatus,
+  };
+
   List<Object> get _values => [
     name,
     reportNumber,
@@ -238,10 +268,7 @@ class ReportFilter {
       add(ReportFilterField.statuses, '상태: ${statuses.join(', ')}');
     }
     if (reportDateStart.isNotEmpty || reportDateEnd.isNotEmpty) {
-      add(
-        ReportFilterField.reportDate,
-        '신고일: $reportDateStart~$reportDateEnd',
-      );
+      add(ReportFilterField.reportDate, '신고일: $reportDateStart~$reportDateEnd');
     }
     if (occurDateStart.isNotEmpty || occurDateEnd.isNotEmpty) {
       add(ReportFilterField.occurDate, '발생일: $occurDateStart~$occurDateEnd');
@@ -253,10 +280,7 @@ class ReportFilter {
       );
     }
     if (occurTimeStart.isNotEmpty || occurTimeEnd.isNotEmpty) {
-      add(
-        ReportFilterField.occurTime,
-        '발생시각: $occurTimeStart~$occurTimeEnd',
-      );
+      add(ReportFilterField.occurTime, '발생시각: $occurTimeStart~$occurTimeEnd');
     }
     if (excludePolice) add(ReportFilterField.excludePolice, '경찰기관 제외');
     if (onlyPolice) add(ReportFilterField.onlyPolice, '경찰기관만');

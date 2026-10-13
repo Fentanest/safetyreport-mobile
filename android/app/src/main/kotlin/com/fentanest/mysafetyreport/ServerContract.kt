@@ -3,6 +3,9 @@ package com.fentanest.mysafetyreport
 import android.net.Uri
 
 object ServerContract {
+    // Additive Flutter Client search; native background jobs do not query it.
+    const val REPORT_SEARCH_CAPABILITY = "report_search_v1"
+    const val REPORT_SEARCH_VERSION = 1
     const val PROTOCOL_VERSION = 3
     var productVersion: String = ""
     fun headers(apiKey: String): Map<String, String> = mapOf(

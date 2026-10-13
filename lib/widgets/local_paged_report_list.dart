@@ -218,7 +218,22 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
           limit: 200,
           isCancelled: cancelled,
         );
+      } else if (query.predicate == null &&
+          query.scope.isEmpty &&
+          query.metric == null &&
+          query.answerYear == null &&
+          query.missingAddress == null &&
+          await p.supportsServerSearch(isCancelled: cancelled)) {
+        result = await p.readServerSearchPage(
+          query.category,
+          offset: page * 200,
+          limit: 200,
+          filter: query.filter,
+          isCancelled: cancelled,
+        );
       } else {
+        // Arbitrary Dart predicates (FilteredListScreen dashboard drilldowns)
+        // and rating scope retain the exact, cancellable legacy scan.
         final window = await scanClientReports(
           read: p.readServerPage,
           // 2026-10-11 5분류('기타'→안전신고·생활불편·기타). Client 서버가 아직 구버전이면

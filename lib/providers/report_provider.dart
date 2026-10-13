@@ -2,9 +2,13 @@ export '../models/report_filter.dart';
 import '../models/report_filter.dart';
 import '../services/client_compatibility.dart';
 import '../services/performance_trace.dart';
+
 import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../models/app_mode.dart';
 import '../models/app_theme_mode.dart';
 import '../models/rating_batch_result.dart';
@@ -60,6 +64,7 @@ class ReportProvider with ChangeNotifier {
   bool _isStandaloneDemo = false;
   String _baseUrl = '';
   String _apiKey = '';
+
   /// 화면·진행 중 조회가 "이 결과를 아직 써도 되는가"를 보는 세대. 표시 필터(취하 숨기기·대표건만 반영)
   /// 변경도 올라간다 — 필터가 바뀌면 필터 적용 전에 시작한 조회의 결과는 새 화면에 쓰지 않아야 하기 때문이다.
   /// 실제 계정·DB 교체(모드 전환·계정 변경·로그아웃)도 올라간다. 그래서 늦은 응답 버리기·캐시 무효화에는 맞지만,
@@ -530,7 +535,8 @@ class ReportProvider with ChangeNotifier {
     ApiService? apiOverride,
   }) async {
     final api =
-        apiOverride ?? (_appMode == AppMode.server && isConfigured ? _api : null);
+        apiOverride ??
+        (_appMode == AppMode.server && isConfigured ? _api : null);
     if (api == null) return null;
     if (_crawlStatusChecking) return null;
     _crawlStatusChecking = true;
@@ -817,6 +823,11 @@ class ReportProvider with ChangeNotifier {
       if (epoch != _datasetEpoch) return;
       final exclude = cfg['exclude_withdraw'] as bool? ?? false;
       final representative = cfg['use_representative_records'] as bool? ?? true;
+      _serverSearchSupported =
+          (cfg['capabilities'] as List? ?? const []).contains(
+            ServerContract.reportSearchCapability,
+          ) &&
+          cfg['report_search_version'] == ServerContract.reportSearchVersion;
       final capabilities = [
         for (final c in (cfg['capabilities'] as List? ?? const [])) '$c',
       ];
@@ -909,9 +920,28 @@ class ReportProvider with ChangeNotifier {
   final _ratingInFlight = <String>{};
   bool _gatePassed = false;
 
-  final _serverPageInFlight = <(int, int, bool, String, int, int), _PageRead>{};
+  final _serverPageInFlight =
+      <(int, int, bool, String, int, int, String), _PageRead>{};
+  bool? _serverSearchSupported;
+
+  Future<bool> supportsServerSearch({bool Function()? isCancelled}) async {
+    if (isCancelled?.call() == true) throw const QueryCancelled();
+    final known = _serverSearchSupported;
+    if (known != null) return known;
+    final epoch = _datasetEpoch;
+    final cfg = await _api.getAppConfig(isCancelled: isCancelled);
+    if (epoch != _datasetEpoch || isCancelled?.call() == true) {
+      throw const QueryCancelled();
+    }
+    return _serverSearchSupported =
+        (cfg['capabilities'] as List? ?? const []).contains(
+          ServerContract.reportSearchCapability,
+        ) &&
+        cfg['report_search_version'] == ServerContract.reportSearchVersion;
+  }
 
   void _resetDatasetView() {
+    _serverSearchSupported = null;
     _serverPageInFlight.clear();
     _stats = null;
     _trafficReports = [];
@@ -1374,6 +1404,33 @@ class ReportProvider with ChangeNotifier {
     int offset = 0,
     int limit = 200,
     bool Function()? isCancelled,
+  }) => _readServerPageShared(
+    category,
+    offset: offset,
+    limit: limit,
+    isCancelled: isCancelled,
+  );
+
+  Future<({List<Report> reports, int total})> readServerSearchPage(
+    String category, {
+    required ReportFilter filter,
+    int offset = 0,
+    int limit = 200,
+    bool Function()? isCancelled,
+  }) => _readServerPageShared(
+    category,
+    offset: offset,
+    limit: limit,
+    searchFilter: filter,
+    isCancelled: isCancelled,
+  );
+
+  Future<({List<Report> reports, int total})> _readServerPageShared(
+    String category, {
+    int offset = 0,
+    int limit = 200,
+    ReportFilter? searchFilter,
+    bool Function()? isCancelled,
   }) {
     final epoch = _datasetEpoch;
     // 자료가 바뀐 뒤의 요청은 바뀌기 전에 시작한 요청을 공유하지 않는다(SQ-P02: 통계 탭 신호가 아닌 dataRevision).
@@ -1384,6 +1441,7 @@ class ReportProvider with ChangeNotifier {
       category,
       offset,
       limit,
+      searchFilter == null ? '' : jsonEncode(searchFilter.toSearchJson()),
     );
     final reader = isCancelled ?? () => false;
     var owner = _serverPageInFlight[key];
@@ -1402,6 +1460,7 @@ class ReportProvider with ChangeNotifier {
             category,
             offset: offset,
             limit: limit,
+            searchFilter: searchFilter,
             isCancelled: cancelled,
           ).whenComplete(() {
             if (identical(_serverPageInFlight[key], next)) {
@@ -1421,22 +1480,32 @@ class ReportProvider with ChangeNotifier {
     String category, {
     int offset = 0,
     int limit = 200,
+    ReportFilter? searchFilter,
     bool Function()? isCancelled,
   }) async {
     // 구서버(3분류, Astra #5) 는 안전신고·생활불편 엔드포인트가 없다(400). 안전신고·생활불편은
     // 구서버에서 원래 '기타'에 있었으므로 — 미확인이면 먼저 확인을 기다리고(Astra #5-A), 구서버로
     // 확정되면 요청 자체를 보내지 않고 빈 목록으로 본다.
-    if (await _shouldSkipLegacyOnlyCategory(category)) {
+    if (searchFilter == null && await _shouldSkipLegacyOnlyCategory(category)) {
       return (reports: const <Report>[], total: 0);
     }
     final epoch = _datasetEpoch;
-    final page = await _getReportsPageLegacyAware(
-      category,
-      offset: offset,
-      limit: limit,
-      dedupe: _useRepresentativeRecords ? 'canonical' : 'raw',
-      isCancelled: isCancelled,
-    );
+    final page = searchFilter != null
+        ? await _api.getReportsPage(
+            category,
+            offset: offset,
+            limit: limit,
+            dedupe: _useRepresentativeRecords ? 'canonical' : 'raw',
+            searchFilter: searchFilter,
+            isCancelled: isCancelled,
+          )
+        : await _getReportsPageLegacyAware(
+            category,
+            offset: offset,
+            limit: limit,
+            dedupe: _useRepresentativeRecords ? 'canonical' : 'raw',
+            isCancelled: isCancelled,
+          );
     if (epoch == _datasetEpoch) {
       // Preserve custom values discovered on visible pages; keep only metadata.
       _filterStatuses = {

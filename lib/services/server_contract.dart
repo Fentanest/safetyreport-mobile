@@ -15,6 +15,9 @@ class ServerContract {
   static const wsEventsPath = '/ws/events';
   static const wsApiKeyQuery = 'api_key';
 
+  static const reportSearchCapability = 'report_search_v1';
+  static const reportSearchVersion = 1;
+
   static const summaryPath = '$apiPrefix/summary';
   static const filesPath = '$apiPrefix/files';
   static const statsPath = '$apiPrefix/stats';

@@ -372,28 +372,64 @@ class ChangeType {
 ```bash
 ./build_android_release.sh                                # 배포용(서명키 필요, APK+AAB 둘 다)
 ALLOW_DEBUG_SIGNED_RELEASE=1 ./build_android_release.sh   # 검증 전용(debug 서명, 배포 불가)
-SKIP_APK_BUILD=1 ./build_android_release.sh               # AAB 만(build-apk.yml push 경로와 동일)
+SKIP_APK_BUILD=1 ./build_android_release.sh               # AAB 만(build-apk.yml alpha 경로와 동일)
 ANDROID_VERSION_CODE=171 ./build_android_release.sh       # versionCode 를 VERSION 파일의 +N 대신 이 값으로
+ANDROID_VERSION_NAME=2.3.0 ./build_android_release.sh     # versionName 을 VERSION 파일의 이름 대신 이 값으로(production.yml 이 씀)
 ```
 
-### CI `build-apk.yml` (2026-10-13 재구성 — push/dispatch 경로 분리)
+### CI `build-apk.yml` — alpha 전용 수동 실행 (2026-10-13 재개정: push 트리거 제거)
 
-- **push(main)**: `verify` → `build-aab`(AAB만, `SKIP_APK_BUILD=1`, APK 빌드 없음) → `play-upload`. 태그·GitHub Release 없음.
-  AAB·mapping artifact 보관 1일(이전 90일에서 축소 — 정식 릴리스가 아니므로).
-  versionCode(빌드 번호)는 VERSION 파일의 `+N` 이 아니라 **Play 에 이미 올라간 최대 versionCode + 1**(`next-version-code` job 이 Play Developer API 로 번들·APK 전체를 조회)로 계산해 `ANDROID_VERSION_CODE` 로
-  `build_android_release.sh` 에 전달한다(GitHub run_number 에 기대지 않으므로 워크플로 이름 변경·재생성에도 번호가 내려가지 않는다. 연속 push 는 `concurrency` 로 직렬화). **VERSION 파일의 `+N` 은
-  이 경로에서 더 이상 실제 빌드 번호로 쓰이지 않는다**(파일 형식은 유지하므로 다른 파싱 스크립트는 그대로 동작한다).
-  `play-upload`는 이전처럼 같은 태그 존재로 건너뛰지 않는다 — 매 push 가 Play 최대+1 을 쓰므로 항상 새 versionCode다.
-  Play "새로운 기능" 문구는 `docs/releases/v<이름>.md` 가 있으면 그 내용, 없으면(`WHATSNEW_ALLOW_MISSING=1`)
-  `scripts/generate_whatsnew.mjs` 가 실패하지 않고 "테스트 빌드 <이름> (<versionCode>)" 로 대체한다.
-- **workflow_dispatch(main) = 정식 릴리즈**: 빌드하지 않는다(`build-aab`/`play-upload` 는 `if: github.event_name == 'push'`로
-  건너뜀). `create-release` job 이 태그 `v<이름>` 존재를 먼저 확인해 **있으면 실패**하고, 없으면 `docs/releases/v<버전>.md`
-  내용 그대로(`Full Changelog` 포함, 자동 생성 노트 없음, 파일 없으면 `::error::`로 실패) GitHub Release 를 만든다.
-  `files:`를 지정하지 않으므로 GitHub 기본 소스코드 zip/tar.gz 만 붙는다 — **APK/AAB 를 올리지 않는다**(2026-10-13 변경 전에는
-  push 가 만든 APK를 release 에 첨부했다).
-- 이전의 `workflow_dispatch` 입력 `verify_only`(태그·Release 생략하고 빌드 산출물만 artifact 로 보관)는 정리했다 —
-  정식 릴리스 경로가 더 이상 빌드하지 않으므로 그 입력이 의미가 없어졌다. 빌드 전 검증은 `build-dev-apk.yml`(dev, 수동)
-  또는 매 push 의 `build-aab` 로 충분하다.
+`push(main)` 트리거는 없앴다 — main 에 push 해도 이 워크플로는 아무것도 하지 않는다. `workflow_dispatch` 로만
+실행하며, 입력 `action`(alpha/release 선택)도 없앴다 — 항상 alpha 다. 순서: `verify` → `next-version-code`(Play
+최대 versionCode+1) → `build-aab`(AAB만, `SKIP_APK_BUILD=1`, APK 빌드 없음, artifact 1일) →
+`play-upload`(Google Play 비공개 테스트 alpha 트랙). 태그·GitHub Release·Play production 업로드는 이 파일에서
+하지 않는다(아래 `production.yml`).
+
+- versionCode(빌드 번호)는 VERSION 파일의 `+N` 이 아니라 **Play 에 이미 올라간 최대 versionCode + 1**(`next-version-code`
+  job 이 Play Developer API 로 번들·APK 전체를 조회)로 계산해 `ANDROID_VERSION_CODE` 로 `build_android_release.sh` 에
+  전달한다(GitHub run_number 에 기대지 않으므로 워크플로 이름 변경·재생성에도 번호가 내려가지 않는다. 연속 실행은
+  `concurrency` 로 직렬화 — `production.yml` 과 같은 group 을 써서 두 워크플로도 서로 직렬화된다). **VERSION 파일의
+  `+N` 은 이 경로에서 더 이상 실제 빌드 번호로 쓰이지 않는다**(파일 형식은 유지하므로 다른 파싱 스크립트는 그대로
+  동작한다).
+- `play-upload`는 같은 태그 존재로 건너뛰지 않는다 — 매 실행이 Play 최대+1 을 쓰므로 항상 새 versionCode다.
+  Play "새로운 기능" 문구는 실행 때 입력한 `whatsnew` → `docs/releases/unreleased.md`(비었으면 건너뜀) →
+  (`WHATSNEW_ALLOW_MISSING=1`) `scripts/generate_whatsnew.mjs` 가 실패하지 않고 "테스트 빌드 <이름> (<versionCode>) ·
+  <커밋>" 으로 대체하는 순서로 정해진다. 버전별 노트(`v<이름>.md`)는 alpha 에 쓰지 않는다.
+- 이전(2026-10-13 이전 개정)의 `action=release`(`create-release` job — 태그+릴리스 노트+소스 zip)는
+  `production.yml` 로 옮겼다. 그보다 더 이전의 입력 `verify_only`도 이미 정리된 상태였다.
+
+### CI `production.yml` — 정식 릴리즈 (2026-10-13 신설)
+
+`workflow_dispatch`(입력 `version`, SemVer `x.y.z`), `github.ref == 'refs/heads/main'` 인 job 만 돈다.
+`build-apk.yml` 과 같은 concurrency group(`mobile-build-${{ github.ref }}`)을 써서 alpha 실행과 직렬화한다.
+앞 단계가 실패하면 뒤 단계는 건너뛴다:
+
+1. **prepare**: `version` 형식(`^[0-9]+\.[0-9]+\.[0-9]+$`) 검사, 태그 `v<version>` 중복 검사(있으면 실패),
+   `docs/releases/unreleased.md` 가 HTML 주석을 빼고 비어 있으면 실패("미출시 노트가 비어 있습니다"), 직전
+   릴리스 태그(가장 큰 semver `v*`, `sort -V`)를 구해 Full Changelog 비교 링크에 쓴다. unreleased.md 본문은
+   base64 로 job output 에 실어 `finalize` 로 넘긴다.
+2. **next-version-code**(environment: play): `build-apk.yml` 과 같은 로직(Play 최대 versionCode+1) — 의도적
+   중복이며 재사용 워크플로로 묶지 않았다(두 파일을 독립적으로 검증할 수 있게).
+3. **verify**: `./.github/workflows/verify.yml` 재사용.
+4. **build-aab**(self-hosted): AAB만 빌드(`SKIP_APK_BUILD=1`). versionName 은 VERSION 파일이 아니라 입력
+   `version`을 `ANDROID_VERSION_NAME` 으로, versionCode 는 2단계 값을 `ANDROID_VERSION_CODE` 로 전달한다 —
+   VERSION 파일은 아직 건드리지 않는다(6단계가 마지막에 갱신). artifact(AAB·mapping) 보관 1일.
+5. **play-production**(environment: play): Google Play **production** 트랙에 업로드(alpha 가 아니다).
+   "새로운 기능"은 `docs/releases/unreleased.md` 본문을 `scripts/generate_whatsnew.mjs`(`WHATSNEW_UNRELEASED=1`,
+   `WHATSNEW_ALLOW_MISSING` 미설정 — 비어 있으면 그대로 실패)로 변환한다. 스토어 안내 줄·Full Changelog 는
+   unreleased.md 에 없으므로 Play 노트에 섞이지 않는다. 500자 초과 시 기존 규칙(문장 단위로 자름, 말줄임표
+   없음)을 그대로 따른다.
+6. **finalize**(permissions: contents: write): 실행 커밋(`github.sha`) 위에 커밋 하나를 만들어 main 에 push한다 —
+   `docs/releases/v<version>.md`(1단계 직전 태그로 Full Changelog 링크를 채운 최종 노트: 제목+빌드 번호 → unreleased
+   본문 → 스토어 안내 → Full Changelog), `docs/releases/unreleased.md`(안내 주석 한 줄만 남기고 비움),
+   `VERSION`(`<version>+<versionCode>`). 커밋 메시지 `chore(release): <version>+<code> — 프로덕션 출시 노트 확정`.
+   push 가 fast-forward 가 아니면 실패하고 안내만 하고 끝낸다(태그·Release 는 만들지 않는다). dev 가 같은 커밋으로
+   fast-forward 가능하면 push, 아니면 경고만 하고 계속한다(실패시키지 않음). 그 다음 태그 `v<version>` 을
+   **빌드한 커밋(`github.sha`, finalize 커밋이 아니다)**에 만들고, `softprops/action-gh-release`로 GitHub Release
+   를 만든다(`body_path`=최종 노트, `generate_release_notes: false`, `prerelease: false`, `files:` 미지정 —
+   소스 zip/tar.gz 만 붙는다. APK/AAB 는 Play 로만 배포한다).
+
+빌드 전 검증은 `build-dev-apk.yml`(dev, 수동) 또는 `build-apk.yml`/`production.yml` 의 `verify` job 으로 한다.
 
 CI `build-dev-apk.yml`(2026-09-27): `dev` push(문서만 바뀐 push 제외)·수동 실행 때 같은 셀프호스트 러너에서 `build_test_apk.sh --release` 로
 릴리즈 모드 APK 를 만들어 artifact `mysafetyreport-dev-<VERSION>-<sha8>`(APK·mapping·SHA-256, 30일)로만 올린다. 서명은 러너의 업로드 키
@@ -437,11 +473,15 @@ v9 암호문·ESP keyset을 읽거나 v11 플러그인을 먼저 초기화하지
 Dart가 빈 보안 저장소를 확인하고 v11 준비 표시를 저장한 뒤 정상 시작(기존 로그인·연결 게이트)으로 돌아간다.
 미이관 설치용 경로이며, 일반 Keystore 읽기 오류 화면에는 초기화 버튼을 노출하지 않는다.
 
-### Play alpha 업로드 (2026-10-13 개정)
-- push(main)은 검증 + AAB 빌드만 하고 업로드하지 않는다. Play alpha 업로드는 `build-apk.yml` 수동 실행 `action=alpha` 로만 한다.
-- 출시 노트: 입력 `whatsnew` → `docs/releases/unreleased.md`(미출시 누적 노트, 비었으면 건너뜀) →
+### Play alpha 업로드 / 정식 릴리즈 절차 (2026-10-13 재개정)
+- main push 는 아무것도 하지 않는다(트리거 없음). Play alpha 업로드는 `build-apk.yml` 수동 실행(`workflow_dispatch`,
+  입력은 `whatsnew` 뿐 — `action` 선택은 없앴다, 항상 alpha)으로만 한다.
+- alpha 출시 노트: 실행 때 입력한 `whatsnew` → `docs/releases/unreleased.md`(미출시 누적 노트, 비었으면 건너뜀) →
   `테스트 빌드 <이름> (<versionCode>) · <커밋>` 순. 버전별 노트(`v<이름>.md`)는 alpha 에 쓰지 않는다.
 - 다음 버전 번호는 정식 릴리스 때 정한다(버그 수정/기능 추가 판단). 그 사이 사용자에게 보이는 변경은
-  `docs/releases/unreleased.md` 한 파일에 쌓는다. 정식 릴리스 절차: 버전 결정 → VERSION 갱신 → unreleased.md 를 다듬어
-  `docs/releases/v<버전>.md` 로 확정 → unreleased.md 는 안내 주석만 남기고 비움 → main 반영 → `action=release` 실행.
-  alpha 를 몇 번 올렸든 노트가 한 파일에 모여 있으므로 릴리스 노트에서 빠지지 않는다.
+  `docs/releases/unreleased.md` 한 파일에 쌓는다. **정식 릴리스 절차는 `production.yml` workflow_dispatch 실행
+  하나로 끝난다**: 버전(SemVer) 입력 → 그 워크플로가 빌드·Play production 업로드·`docs/releases/v<버전>.md` 확정
+  (unreleased.md 본문 + 직전 태그 Full Changelog 링크)·`unreleased.md` 비우기·`VERSION` 갱신·main(+가능하면 dev)
+  커밋·태그·GitHub Release 를 전부 한다. 사람이 미리 `docs/releases/v<버전>.md` 를 직접 쓰거나 `VERSION` 을 손으로
+  올릴 필요가 없다 — `unreleased.md` 만 사실대로 채워 두면 된다. alpha 를 몇 번 올렸든 노트가 `unreleased.md`
+  한 파일에 모여 있으므로 릴리스 노트에서 빠지지 않는다.

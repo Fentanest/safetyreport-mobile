@@ -19,6 +19,11 @@ set -euo pipefail
 #   KEY_PROPERTIES_PATH
 #   KEYSTORE_PATH
 #   ALLOW_DEBUG_SIGNED_RELEASE
+#   ANDROID_VERSION_CODE    versionCode(빌드 번호)를 VERSION 파일의 `+N` 대신 이 값으로 덮어쓴다.
+#                           build-apk.yml push 경로(2026-10-13 사용자 결정)는 Play versionCode 가
+#                           항상 증가하도록 `100 + github.run_number` 를 여기로 전달한다.
+#                           비우면 기존처럼 VERSION 파일의 `+N` 을 그대로 쓴다(로컬 수동 빌드 기본값).
+#   SKIP_APK_BUILD=1        APK 빌드를 건너뛰고 AAB 만 만든다(산출물 보존·메타도 AAB 만).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/build_android_common.sh"
@@ -71,11 +76,18 @@ if [[ -z "$VERSION" ]]; then
 fi
 
 BUILD_NAME="${VERSION%%+*}"
-BUILD_NUMBER="${VERSION##*+}"
-if [[ -z "$BUILD_NAME" || -z "$BUILD_NUMBER" || "$BUILD_NAME" == "$BUILD_NUMBER" ]]; then
+BUILD_NUMBER_FROM_VERSION_FILE="${VERSION##*+}"
+if [[ -z "$BUILD_NAME" || -z "$BUILD_NUMBER_FROM_VERSION_FILE" || "$BUILD_NAME" == "$BUILD_NUMBER_FROM_VERSION_FILE" ]]; then
   echo "❌ VERSION 형식이 올바르지 않습니다. 기대 형식: 1.2.3+45" >&2
   exit 1
 fi
+
+# versionCode(빌드 번호): ANDROID_VERSION_CODE 가 있으면 그 값을 쓰고, 없으면 VERSION 파일의 +N 그대로.
+# (2026-10-13 사용자 결정) CI release 경로는 Play versionCode 단조 증가를 위해 100+run_number 를 전달한다 —
+# 이 경로에서 VERSION 파일의 +N 은 실제 빌드 번호가 아니라 참고용 표시로만 남는다.
+BUILD_NUMBER="${ANDROID_VERSION_CODE:-$BUILD_NUMBER_FROM_VERSION_FILE}"
+VERSION="$BUILD_NAME+$BUILD_NUMBER"
+SKIP_APK_BUILD="${SKIP_APK_BUILD:-0}"
 
 if [[ "$DEBUG_SIGNED" != "1" ]]; then
   KEY_PROPERTIES_PATH="$(resolve_abs_path "$KEY_PROPERTIES_PATH")"
@@ -127,14 +139,20 @@ mkdir -p "$DIST_DIR"
 
 "$FLUTTER_BIN" --version
 "$FLUTTER_BIN" pub get
-"$FLUTTER_BIN" build apk --release \
-  --build-name="$BUILD_NAME" \
-  --build-number="$BUILD_NUMBER" \
-  "${COMMUNITY_DART_DEFINE_ARGS[@]}"
-APK_BUILT="$SCRIPT_DIR/build/app/outputs/flutter-apk/app-release.apk"
-APK_PATH="$SCRIPT_DIR/build/app/outputs/flutter-apk/mysafetyreport$NAME_SUFFIX.apk"
-cp "$APK_BUILT" "$APK_PATH"
-preserve_android_outputs "$SCRIPT_DIR" apk "$APK_PATH" "$DIST_DIR" "$EXPECT_RELEASE_KEY"
+
+APK_PATH=""
+if [[ "$SKIP_APK_BUILD" == "1" ]]; then
+  echo "⏭️  SKIP_APK_BUILD=1 — APK 빌드를 건너뛰고 AAB 만 만듭니다."
+else
+  "$FLUTTER_BIN" build apk --release \
+    --build-name="$BUILD_NAME" \
+    --build-number="$BUILD_NUMBER" \
+    "${COMMUNITY_DART_DEFINE_ARGS[@]}"
+  APK_BUILT="$SCRIPT_DIR/build/app/outputs/flutter-apk/app-release.apk"
+  APK_PATH="$SCRIPT_DIR/build/app/outputs/flutter-apk/mysafetyreport$NAME_SUFFIX.apk"
+  cp "$APK_BUILT" "$APK_PATH"
+  preserve_android_outputs "$SCRIPT_DIR" apk "$APK_PATH" "$DIST_DIR" "$EXPECT_RELEASE_KEY"
+fi
 
 "$FLUTTER_BIN" build appbundle --release \
   --build-name="$BUILD_NAME" \
@@ -149,6 +167,8 @@ write_android_build_meta "$SCRIPT_DIR" "$DIST_DIR" "$BUILD_NAME" "$BUILD_NUMBER"
 
 echo
 echo "✅ 완료 (서명: $SIGNING_LABEL)"
-echo " APK : $APK_PATH ($(du -sh "$APK_PATH" | cut -f1))"
+if [[ -n "$APK_PATH" ]]; then
+  echo " APK : $APK_PATH ($(du -sh "$APK_PATH" | cut -f1))"
+fi
 echo " AAB : $AAB_PATH ($(du -sh "$AAB_PATH" | cut -f1))"
 echo " 보존: $DIST_DIR (산출물별 mapping·R8 출력·인증서·SHA-256·build-meta.json)"

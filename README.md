@@ -51,7 +51,8 @@
 ## 다운로드
 
 - [Google Play 스토어](https://play.google.com/store/apps/details?id=com.fentanest.mysafetyreport)
-- [GitHub Releases](https://github.com/Fentanest/safetyreport-mobile/releases) — 설치 파일(APK) 직접 받기
+- [GitHub Releases](https://github.com/Fentanest/safetyreport-mobile/releases) — 릴리스 노트·변경 이력
+  (2026-10-13부터 설치 파일은 올리지 않는다. 배포는 Google Play 를 통해서만 한다.)
 
 **Android 7.0 이상**에서 쓸 수 있습니다.
 

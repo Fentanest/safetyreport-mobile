@@ -79,7 +79,7 @@ build_android_release.sh         ── release APK/AAB 빌드
 build_test_apk.sh                ── 빠른 로컬 테스트 빌드
 
 .github/workflows/
-  build-apk.yml                    ── Android APK/AAB CI 빌드 + GitHub Release
+  build-apk.yml                    ── push(main): AAB만 빌드→Play alpha 업로드 / workflow_dispatch(main): 빌드 없이 태그+GitHub Release(소스 zip만)
 android/
   app/src/main/kotlin/com/fentanest/mysafetyreport/
     MainActivity.kt                ── FlutterFragmentActivity, MethodChannel handler, intent 라우팅,

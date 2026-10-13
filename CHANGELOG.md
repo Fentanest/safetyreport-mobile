@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-13 — Android CI 재구성: push=AAB만 alpha 업로드(versionCode=100+run_number), 정식 릴리즈=workflow_dispatch(태그+Release만) (사용자 결정, 미배포)
+
+- `push(main)`: job `build-apk`를 `build-aab`로 바꿔 APK 빌드를 생략하고(`SKIP_APK_BUILD=1`) AAB만 빌드한다. `play-upload`가 그 AAB·mapping을 Google Play 비공개 테스트(alpha) 트랙에 올린다(기존과 동일한 트랙·job 재사용). 같은 태그로 업로드를 건너뛰던 조건은 제거했다(매 push가 새 versionCode를 만들므로).
+- versionCode(빌드 번호)는 VERSION 파일의 `+N`이 아니라 `100 + github.run_number`로 계산해 `build_android_release.sh`에 전달한다(Play 기록 최대 42, run_number 71 → 항상 단조 증가). **VERSION 파일의 `+N`은 이 경로에서 더 이상 실제 빌드 번호로 쓰지 않는다**(파일 형식·기존 파싱 스크립트 동작은 그대로 유지).
+- artifact(AAB·mapping 전부) 보관을 1일로 줄였다(기존 mapping 90일에서 축소 — 정식 릴리스가 아니므로). 태그·GitHub Release는 push에서 만들지 않는다.
+- `scripts/generate_whatsnew.mjs`에 `WHATSNEW_ALLOW_MISSING=1` 옵트인 환경변수를 추가했다. 해당 버전 릴리스 노트(`docs/releases/v<이름>.md`)가 없으면 실패하지 않고 "테스트 빌드 <이름> (<versionCode>)"로 대체한다(`ANDROID_VERSION_CODE`로 괄호 안 번호를 받는다). 노트 파일이 있으면 그 내용이 항상 우선한다. 이 옵션을 켜지 않는 기존 호출자(`play-track.yml`)는 그대로 노트 파일이 없으면 실패한다.
+- `workflow_dispatch(main)` = 정식 릴리즈: 더 이상 빌드하지 않는다(APK를 올리지 않는다). 새 job `create-release`가 태그 `v<이름>` 존재를 먼저 확인해 **있으면 실패**하고, 없으면 릴리스 노트(`docs/releases/v<이름>.md`, 없으면 실패)와 GitHub 기본 소스코드 zip만으로 Release를 만든다(`prerelease:false`, `generate_release_notes:false`, `files:` 미지정이라 APK/AAB는 붙지 않는다).
+- 이전 `workflow_dispatch` 입력 `verify_only`(태그·Release 생략하고 빌드 산출물만 artifact로 보관)는 정리했다 — 정식 릴리스 경로가 더 이상 빌드하지 않으므로 그 입력이 의미가 없어졌다. 빌드 전 검증은 `build-dev-apk.yml`(dev, 수동) 또는 매 push의 `build-aab`로 한다.
+- `build_android_release.sh`에 `ANDROID_VERSION_CODE`(versionCode 덮어쓰기)·`SKIP_APK_BUILD=1`(AAB만 빌드) 환경변수를 추가했다. 두 변수 모두 비우면 로컬 기본 동작(APK+AAB, VERSION 파일의 +N)은 이전과 같다. `play-track.yml`은 건드리지 않았다.
+- 영향: GitHub Release에 더 이상 APK가 첨부되지 않는다 — 배포는 Google Play(alpha→승격)로만 한다. `README.md`의 "GitHub Releases — 설치 파일(APK) 직접 받기" 안내를 제거했다.
+- 변경 파일: `.github/workflows/build-apk.yml`, `build_android_release.sh`, `scripts/generate_whatsnew.mjs`, `scripts/generate_whatsnew.test.mjs`, `docs/architecture/android-runtime.md`, `docs/architecture/overview.md`, `README.md`, `CHANGELOG.md`.
+- 검증: `python3 -c "import yaml; yaml.safe_load(open(F))"` 통과. `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/build-apk.yml` 통과(self-hosted 러너 커스텀 라벨(235) 경고만, 기존에도 있던 경고로 무시). `bash -n build_android_release.sh` 통과. `node --check scripts/generate_whatsnew.mjs` 통과. `node --test scripts/generate_whatsnew.test.mjs` 9 passed(신규 2건 포함, 기존 호출자 동작 불변 확인). versionCode 계산(`100+run_number`, run_number 1/71/999 모두 42 초과)·태그 존재 검사(200/404/500) 셸 조각을 가짜 입력으로 로컬 실행해 확인했다. 실제 GitHub Actions 실행·Flutter 빌드·Play 업로드는 하지 않았다(원격 실행 금지 지시). 커밋·push 없음 — Opus 검토·반영 대기.
+
 ## 2026-10-13 — 위반 조항별 법정 금액 대조 (dev, 미배포)
 
 - 법제처 현행 시행령(2026-10-02 시행) 별표 6·7 원문을 확인하여 44개 조/110개 조회 키의 공유 JSON을 추가했다. 차종별 일반·보호구역·속도 구간·2시간 가중 금액 및 차종 구분 없는 정액·기간 가산액을 출처와 함께 기록했다.

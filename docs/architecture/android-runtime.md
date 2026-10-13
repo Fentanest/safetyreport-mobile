@@ -370,14 +370,30 @@ class ChangeType {
 - 산출물 복사: `build/app/outputs/flutter-apk/mysafetyreport.apk`, `build/app/outputs/bundle/release/mysafetyreport.aab`
 
 ```bash
-./build_android_release.sh                                # 배포용(서명키 필요)
+./build_android_release.sh                                # 배포용(서명키 필요, APK+AAB 둘 다)
 ALLOW_DEBUG_SIGNED_RELEASE=1 ./build_android_release.sh   # 검증 전용(debug 서명, 배포 불가)
+SKIP_APK_BUILD=1 ./build_android_release.sh               # AAB 만(build-apk.yml push 경로와 동일)
+ANDROID_VERSION_CODE=171 ./build_android_release.sh       # versionCode 를 VERSION 파일의 +N 대신 이 값으로
 ```
 
-CI `build-apk.yml`: `workflow_dispatch` 입력 `verify_only` 면 태그 확인·GitHub Release 를 건너뛰고 산출물·`dist/`(mapping·메타)만 artifact 로 남긴다.
-Release를 만드는 실행은 계산된 태그의 `docs/releases/v<버전>.md` 내용 그대로 GitHub Release 본문이 된다(`Full Changelog` 포함, 자동 생성 노트 없음). 파일이 없으면 `::error::`로 경로를 안내하고 빌드·Release 생성 전에 실패한다. dev 수동 실행도 Release를 만들면 파일이 필요하며, `verify_only`와 기존 태그로 릴리스를 건너뛰는 실행은 이 검사를 생략한다.
-정식 실행도 `dist/` 를 artifact(90일)로 올린다. Play 스택(`H2.h.b` 같은 난독화 이름)은 그 빌드의 mapping 으로 되돌린다
-(AAB 는 `BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map` 에도 들어 있다).
+### CI `build-apk.yml` (2026-10-13 재구성 — push/dispatch 경로 분리)
+
+- **push(main)**: `verify` → `build-aab`(AAB만, `SKIP_APK_BUILD=1`, APK 빌드 없음) → `play-upload`. 태그·GitHub Release 없음.
+  AAB·mapping artifact 보관 1일(이전 90일에서 축소 — 정식 릴리스가 아니므로).
+  versionCode(빌드 번호)는 VERSION 파일의 `+N` 이 아니라 `100 + github.run_number` 로 계산해 `ANDROID_VERSION_CODE` 로
+  `build_android_release.sh` 에 전달한다(Play 기록 최대 42, `run_number` 71 → 항상 단조 증가). **VERSION 파일의 `+N` 은
+  이 경로에서 더 이상 실제 빌드 번호로 쓰이지 않는다**(파일 형식은 유지하므로 다른 파싱 스크립트는 그대로 동작한다).
+  `play-upload`는 이전처럼 같은 태그 존재로 건너뛰지 않는다 — run_number 가 매 push 증가하므로 항상 새 versionCode다.
+  Play "새로운 기능" 문구는 `docs/releases/v<이름>.md` 가 있으면 그 내용, 없으면(`WHATSNEW_ALLOW_MISSING=1`)
+  `scripts/generate_whatsnew.mjs` 가 실패하지 않고 "테스트 빌드 <이름> (<versionCode>)" 로 대체한다.
+- **workflow_dispatch(main) = 정식 릴리즈**: 빌드하지 않는다(`build-aab`/`play-upload` 는 `if: github.event_name == 'push'`로
+  건너뜀). `create-release` job 이 태그 `v<이름>` 존재를 먼저 확인해 **있으면 실패**하고, 없으면 `docs/releases/v<버전>.md`
+  내용 그대로(`Full Changelog` 포함, 자동 생성 노트 없음, 파일 없으면 `::error::`로 실패) GitHub Release 를 만든다.
+  `files:`를 지정하지 않으므로 GitHub 기본 소스코드 zip/tar.gz 만 붙는다 — **APK/AAB 를 올리지 않는다**(2026-10-13 변경 전에는
+  push 가 만든 APK를 release 에 첨부했다).
+- 이전의 `workflow_dispatch` 입력 `verify_only`(태그·Release 생략하고 빌드 산출물만 artifact 로 보관)는 정리했다 —
+  정식 릴리스 경로가 더 이상 빌드하지 않으므로 그 입력이 의미가 없어졌다. 빌드 전 검증은 `build-dev-apk.yml`(dev, 수동)
+  또는 매 push 의 `build-aab` 로 충분하다.
 
 CI `build-dev-apk.yml`(2026-09-27): `dev` push(문서만 바뀐 push 제외)·수동 실행 때 같은 셀프호스트 러너에서 `build_test_apk.sh --release` 로
 릴리즈 모드 APK 를 만들어 artifact `mysafetyreport-dev-<VERSION>-<sha8>`(APK·mapping·SHA-256, 30일)로만 올린다. 서명은 러너의 업로드 키

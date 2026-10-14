@@ -625,7 +625,7 @@ canonical, 결과 15,000건. 같은 DB/추가 인덱스 조건에서 기존 전�
 
 ---
 
-## 2026-10-12 — 다시 불러오기 scope 세대를 표시 필터와 분리(Astra 재검수2 #4)
+## 2026-10-12 — 다시 불러오기 scope 세대를 표시 필터와 분리(Astra 재검수2 검토 항목 4)
 
 백그라운드 다시 불러오기 진행 중 설정에서 '취하 데이터 숨기기'·'중복 신고 대표건만 반영'을 바꾸면 `ReportProvider.datasetEpoch`
 가 올라가고, `standaloneRebuild`의 `scopeGeneration`·`_prepare()`의 scope 문자열이 이를 계정·자료셋 교체로 오판해
@@ -764,9 +764,9 @@ canonical, 결과 15,000건. 같은 DB/추가 인덱스 조건에서 기존 전�
 
 ---
 
-## 2026-10-11 — Astra 재검수(#5 A·B) 수정: 능력 확인 전 구서버 400 가능성, 이전 서버 늦은 응답이 판정을 덮던 결함
+## 2026-10-11 — Astra 재검수(검토 항목 5 A·B) 수정: 능력 확인 전 구서버 400 가능성, 이전 서버 늦은 응답이 판정을 덮던 결함
 
-Astra 리뷰 #5 수정(`supportsFiveCategories`/`refreshServerTaxonomySupport`)에 대한 재검수에서 두 결함이 지적됐다.
+Astra 리뷰 검토 항목 5 수정(`supportsFiveCategories`/`refreshServerTaxonomySupport`)에 대한 재검수에서 두 결함이 지적됐다.
 
 - A(중간). `_PostGateFlow` 가 서비스 시작을 unawaited 로 돌려 메인 진입이 능력 확인 완료를 기다리지 않는다. 미확인
   기본값(true) 때문에 확인이 끝나기 전에 안전신고·생활불편 조회가 구서버로 나가 400 이 날 수 있었다.
@@ -792,7 +792,7 @@ Astra 리뷰 #5 수정(`supportsFiveCategories`/`refreshServerTaxonomySupport`)�
 
 ---
 
-## 2026-10-11 — Astra 리뷰 #7 수정: 모르는 소분류(EP-99 등)를 '소분류 없음'으로 오인해 밤샘주차로 추정하던 결함
+## 2026-10-11 — Astra 리뷰 검토 항목 7 수정: 모르는 소분류(EP-99 등)를 '소분류 없음'으로 오인해 밤샘주차로 추정하던 결함
 
 - `lib/services/fine_estimate.dart`: 서버 `fine_estimate.py` 와 같은 결함 — `classify()` 의 밤샘주차(`overnight_truck`)
   분기가 `code == null || code == "EP-02"` 로 "코드 없음"과 "코드는 있지만 모르는 값"(`report_category.resolve()` 도 이
@@ -807,7 +807,7 @@ Astra 리뷰 #5 수정(`supportsFiveCategories`/`refreshServerTaxonomySupport`)�
 
 ---
 
-## 2026-10-11 — Astra 리뷰 #3 수정: C_NOW=12(검토중) 답변이 답변완료로 조기 종결되던 결함
+## 2026-10-11 — Astra 리뷰 검토 항목 3 수정: C_NOW=12(검토중) 답변이 답변완료로 조기 종결되던 결함
 
 - `lib/services/standalone_parser.dart`: 서버 `services/parser.py` 와 같은 결함 — 답변완료 대역 안전망(`answeredBand`,
   C_NOW 10~19 + 답변 있음)이 C_NOW 가 명시적으로 비종결 상태(진행·처리중·검토중)로 매핑된 경우까지 답변완료로 덮어쓰고
@@ -818,7 +818,7 @@ Astra 리뷰 #5 수정(`supportsFiveCategories`/`refreshServerTaxonomySupport`)�
 
 ---
 
-## 2026-10-11 — Astra 리뷰 #4 수정: Standalone 실제 통계 경로가 SSNPC 코드를 빼먹던 결함
+## 2026-10-11 — Astra 리뷰 검토 항목 4 수정: Standalone 실제 통계 경로가 SSNPC 코드를 빼먹던 결함
 
 - `lib/services/local_db_service.dart` `_statsColumns`: 통계 SELECT·GROUP BY 열 목록에 `ssnpc_cd`·`ssnpc_type` 이 없어서
   `computeStatsBundle()` 이 `fine_estimate.estimate()` 에 넘기는 행에 SSNPC 코드가 없었다. 그 결과 EP-03(소방차 전용구역)
@@ -831,7 +831,7 @@ Astra 리뷰 #5 수정(`supportsFiveCategories`/`refreshServerTaxonomySupport`)�
 
 ---
 
-## 2026-10-11 — Astra 리뷰 #5 수정: 구서버에 안전신고·생활불편을 요청해 400 이 나던 결함
+## 2026-10-11 — Astra 리뷰 검토 항목 5 수정: 구서버에 안전신고·생활불편을 요청해 400 이 나던 결함
 
 - `ServerVersionInfo.supportsFiveCategories`(`/server/version` 의 `report_taxonomy`)가 선언만 있고 어디서도 쓰이지
   않아, 신버전 앱이 구서버(5분류를 모름)에 연결해도 항상 5분류로 조회했다 — 안전신고·생활불편 탭이나 `전체` 드릴다운이
@@ -3444,3 +3444,9 @@ S-02 평균 처리일 직접 계산(Standalone 로컬, Client 서버 API), Clien
 - standalone → client 자동 백업, client → standalone 3-way 선택, 서버 DB → 모바일 DB 변환 경로 추가
 - standalone 로그인 Step 3과 Client `downloadDb`에 retry/timeout 매트릭스 보강
 - `main` 브랜치 병합으로 1.0.7+11 누적 변경, 권한/개인정보처리방침 정리 반영
+
+
+## 2026-10-14 — 이슈 대응 로컬 수정
+
+- 명시 과태료 콜론·정수 만원 문법과 Python 공통 벡터를 추가. 모호한 복수 금액/상한 보류, 파서 버전8. 기존 처분·법규·최소 추정 규칙은 유지.
+- AI 내부 번호의 GitHub 자동참조 방지 규칙 추가.

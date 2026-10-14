@@ -1,3 +1,4 @@
+import '../services/law_values.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -149,7 +150,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     _responseDateEnd = f.responseDateEnd;
     _excludePolice = f.excludePolice;
     _onlyPolice = f.onlyPolice;
-    _selectedLaw = f.law;
+    _selectedLaw = canonicalLaw(f.law);
     _pollStatus = widget.ratingManagementMode ? '' : f.pollStatus;
     _moreExpanded = _hasHiddenValue;
     widget.provider.addListener(_metadataChanged);
@@ -297,7 +298,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     final seen = <String>{};
     final values = <String>[...widget.provider.availableLaws, _selectedLaw];
     return values
-        .map((value) => value.trim())
+        .map(canonicalLaw)
         .where((value) => value.isNotEmpty && seen.add(value))
         .toList();
   }

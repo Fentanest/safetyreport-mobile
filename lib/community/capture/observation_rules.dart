@@ -4,6 +4,8 @@
 // PC `services/parser.py` → 어댑터 입력 키와 같은 의미다.
 library;
 
+import '../../services/law_values.dart';
+
 import '../../services/fine_estimate.dart' as fine_estimate;
 import '../../services/report_category.dart' as report_category;
 
@@ -394,7 +396,7 @@ Map<String, Object?> buildPayload(Map<String, Object?> input) {
     'status': status,
     'status_raw': statusRaw,
     'vehicle_raw': cleanString(input['car_number'], 64),
-    'violation_law': cleanString(input['violation_law'], 60),
+    'violation_law': cleanString(primaryLaw(input['violation_law']), 60),
     'rating':
         input['rating'] is int &&
             (input['rating'] as int) >= 1 &&

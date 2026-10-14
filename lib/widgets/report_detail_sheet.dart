@@ -1,3 +1,4 @@
+import '../services/law_values.dart';
 import '../services/attachment_policy.dart';
 import '../services/attachment_cache.dart';
 import 'dart:async';
@@ -349,14 +350,14 @@ class ReportDetailSheet extends StatelessWidget {
                 report.carNumber,
                 ReportFilter(carNumber: report.carNumber),
               ),
-            if (report.law.isNotEmpty)
+            for (final law in readLaws(report.law))
               _linkField(
                 context,
                 labelWidth,
                 Icons.gavel_outlined,
                 '위반법규',
-                report.law,
-                ReportFilter(law: report.law),
+                law,
+                ReportFilter(law: law),
               ),
             if (report.location.isNotEmpty)
               _linkField(

@@ -1,3 +1,4 @@
+import 'law_values.dart';
 import 'sqlite_connection.dart';
 import '../models/report_filter.dart';
 import 'report_query.dart';
@@ -1958,7 +1959,10 @@ class LocalDbService {
     );
     return (
       statuses: statuses.map((r) => r['value'] as String).toList(),
-      laws: laws.map((r) => r['value'] as String).toList(),
+      laws: [
+        if (laws.any((r) => readLaws(r['value']).isEmpty)) '',
+        ...availableLawValues(laws.map((r) => r['value'])),
+      ],
     );
   });
 
@@ -1991,7 +1995,23 @@ class LocalDbService {
         agencyExpression =
             "(SELECT display FROM temp.sr_agencies a WHERE a.code = IFNULL(r.처리기관코드,'') AND a.raw = IFNULL(r.처리기관,''))";
       }
-      final q = ReportQuery(filter, agencyExpression: agencyExpression);
+      List<String>? lawValues;
+      if (filter.law.isNotEmpty) {
+        // Resolve inside the count/page read transaction. No persistent index,
+        // no schema migration, and no filtering after LIMIT.
+        final distinct = await d.rawQuery(
+          'SELECT DISTINCT CAST(위반법규 AS BLOB) AS value FROM $effectiveReportsView',
+        );
+        lawValues = distinct
+            .map((r) => lawSqlRawValue(r['value']))
+            .where((value) => matchesLaws(value, filter.law))
+            .toList();
+      }
+      final q = ReportQuery(
+        filter,
+        agencyExpression: agencyExpression,
+        lawValues: lawValues,
+      );
       if (answerYear != null && answerYear != 'all') {
         q.clauses.add('r.답변일 LIKE ?');
         q.args.add('$answerYear%');
@@ -2698,7 +2718,7 @@ class LocalDbService {
     '발생시각',
     '사진_첫촬영',
     '사진_끝촬영',
-    // Astra #4(2026-10-11): fine_estimate.classify 가 SSNPC 코드로 세부 규칙(예: EP-03 소방차
+    // Astra 검토 항목 4(2026-10-11): fine_estimate.classify 가 SSNPC 코드로 세부 규칙(예: EP-03 소방차
     // 전용구역)을 가른다. 이 열이 없으면 추정기가 코드를 못 봐 일반 주정차로 떨어지고, 코드만
     // 다른 신고가 같은 그룹으로 합쳐질 수도 있다 — GROUP BY 도 이 목록을 그대로 쓴다.
     'ssnpc_cd',
@@ -2784,8 +2804,7 @@ class LocalDbService {
               if (cat == null) continue;
               cat.addLaw(row);
               final rowLaw = row['위반법규']?.toString() ?? '';
-              if (law != null &&
-                  (law == '__없음__' ? rowLaw.isNotEmpty : rowLaw != law)) {
+              if (law != null && !matchesLaws(rowLaw, law)) {
                 continue;
               }
               cat.add(row);
@@ -2795,8 +2814,7 @@ class LocalDbService {
             final selected = rows
                 .where((r) {
                   final value = r['위반법규']?.toString() ?? '';
-                  return law == null ||
-                      (law == '__없음__' ? value.isEmpty : value == law);
+                  return law == null || matchesLaws(value, law);
                 })
                 .toList(growable: false);
             overview['all']!.add(selected);
@@ -2971,6 +2989,7 @@ class LocalDbService {
     var confirmedCount = 0;
     final typeCounts = <String, int>{};
     final lawCounts = <String, int>{};
+    final lawUniverse = availableLawValues(rows.map((r) => r['위반법규'])).toSet();
     var resultUnknown = 0;
     for (final r in rows) {
       final weight = (r['_weight'] as int?) ?? 1;
@@ -2984,8 +3003,10 @@ class LocalDbService {
       }
       final name = (r['신고명']?.toString() ?? '').trim();
       typeCounts[name] = (typeCounts[name] ?? 0) + weight;
-      final law = (r['위반법규']?.toString() ?? '').trim();
-      lawCounts[law] = (lawCounts[law] ?? 0) + weight;
+      final memberships = lawMemberships(r['위반법규'], lawUniverse);
+      for (final law in memberships.isEmpty ? [''] : memberships) {
+        lawCounts[law] = (lawCounts[law] ?? 0) + weight;
+      }
       if (status == ReportPolicy.answeredUnknownStatus) resultUnknown += weight;
     }
     final types = typeCounts.entries.toList()
@@ -3825,16 +3846,8 @@ class LocalDbService {
         .toList();
 
     // 법규 목록은 카테고리 전체에서 추출 (필터 변경 시 다른 법규 선택지 유지)
-    final allLaws =
-        lawScopeCatRows
-            .map((r) => r['위반법규'] as String? ?? '')
-            .where((l) => l.isNotEmpty)
-            .toSet()
-            .toList()
-          ..sort();
-    final hasEmptyLaw = lawScopeCatRows.any(
-      (r) => (r['위반법규'] as String? ?? '').isEmpty,
-    );
+    final allLaws = availableLawValues(lawScopeCatRows.map((r) => r['위반법규']));
+    final hasEmptyLaw = lawScopeCatRows.any((r) => readLaws(r['위반법규']).isEmpty);
 
     int categoryTotalFine = 0;
     int categoryEstimatedFineAmount = 0;
@@ -4478,7 +4491,7 @@ class LocalDbService {
 
   /// Reject rows the converter could silently omit or replace.
   /// 앱에는 상세까지 받은 신고(category 가 있는 행)만 둘 자리가 있다. 목록에서만 본 신고(category NULL — 서버 크롤링이
-  /// 상세를 아직 못 받은 행)가 있으면 옮기면 사라지므로 가져오기를 거절한다(Astra 재검수 #1, 예전 앱의
+  /// 상세를 아직 못 받은 행)가 있으면 옮기면 사라지므로 가져오기를 거절한다(Astra 재검수 검토 항목 1, 예전 앱의
   /// '목록에 대응하는 상세 행이 없습니다' 거절과 같은 규칙). 분류는 5분류만, 본문 행은 가져올 신고가 있어야 한다.
   static Future<void> _preflightServerPopulation(
     Database serverDb,

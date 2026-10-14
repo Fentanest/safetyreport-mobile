@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-10-15 — 복수 법규 저장·개별 검색 통합 (미배포)
+
+- 최종 파서에서 같은 근거 순위의 채택 조문을 기존 위반법규 TEXT에 LF로 저장하도록 연결했다. 기존 단일값, 사용자 수정값, 대표 조문의 금액 보정·최소 추정 정책을 유지한다. DB 구조·스키마 버전 변경 없음. 추가 조문으로 추정액을 올리거나 금액을 중복 합산하지 않는다.
+- 웹·API·모바일 Client/Standalone의 법규 검색·선택 목록·상세 링크·통계를 개별 조문에 맞췄다. 조/항/호 경계, 제17조와 제170조·제17조의2 구분, OR/AND, COUNT/LIMIT 이전 검색을 공통 벡터로 검증했다. 법규별 소속 합계와 전체 고유 신고 수를 구분한다. 편집기 여러 줄, CSV/Excel, 백업/양방향 교환을 유지하며 커뮤니티 업로드는 기존 계약대로 대표 조문만 보낸다.
+- 독립 검수에서 일반 안내·미확인·상충 인용을 기존값 복구 경로가 되살리는 조건, 부정 문맥 판정, 법령명 없는 검색어 정규화를 보완했다. 실자료에서 위반이 아니라고 답한 한 신고의 법규 제거를 추가 확정했다. 이 판정 변경의 이전 기대값과 근거는 분석 자료에 보존했다. 제2조→제2호 보정, 기신고 분기, 도로교통법 우선순위는 추가하지 않았다.
+- Python/실제 Dart 파서 출력이 전체 백업15,804행에서 동일했다. 고유9,596건 중 법규 인식5,554건·복수832건·법규 소속6,810개. 개별 조문83종을 서버와 Dart SQLite에서 조회하여 해당 신고 누락0건. 고유9,596건의 금액·최소 추정 결과 변경0건 및 Python/Dart 차이0건. 이 결과는 제공 자료 범위이며 전체 자연어의 무오류를 뜻하지 않는다.
+- 9,596행 인메모리 SQLite 측정: 서버 검색 중앙값21.378ms/최대27.304ms, Dart DISTINCT+정확 조회 중앙값14.502ms/최대58.061ms. 두 경로 모두 EXPLAIN에서 SCAN reports이며 별도 인덱스는 없다. 기기별 실제 지연과 대규모 DB는 별도 확인이 필요하다.
+- 검증: Python 관련72개, 편집/Excel6개, 기존 검색/통계22개, 최종 파서→저장→웹/API 통합5개 통과(중복 실행 포함, 합산하지 않음). Flutter 관련269개, LF 백업/Excel/로컬 조회18개, Client/내비게이션12개, 최종 로컬 통합4개 통과(중복 실행 포함). 공통 검색35개는 Python/Dart/JS 통과. 서버→모바일→서버와 모바일→서버→모바일 실제 변환 왕복에서 교환 대상 모든 값 차이0건(NULL/빈값·수정값·중복군·메타 포함, 합성24건).
+- Chromium·Firefox에서 두 번째/세 번째 법규 URL·상세검색·상세 링크·개별 선택 목록·무관 필드 편집6개 통과. 라이트/다크1440·390px 상세 화면을 확인했다. CSV 다운로드의 LF 셀 보존2개도 두 브라우저에서 통과했다. 초기 브라우저 시험 실패는 열린 검색창 재열기, 아이콘 포함 접근성 이름, 상·하단 버튼 중복 선택의 시험 선택자 문제였으며 초기 trace를 보존했다. Flutter360px 양 테마 개별 법규 링크 위젯 시험도 통과했다.
+- 모바일 SQLite FFI가 TEXT 선두 BOM을 제거해 정확 조회가 누락되는 경계를 BLOB 읽기로 수정했다. 웹 textarea CRLF 제출은 기존 유효값과 동일하면 법규 override를 생성하지 않는다. 별도 검수자가 두 경로를 재현·검증했다. Dart 변경 제품13파일 분석은 error/warning0, 기존 local_db_service.dart의 중괄호 info1. 웹 라우트/템플릿 인벤토리 전후 동일.
+- 원본 DB3개·이미지·WAL·SHM 해시 유지. 기존 DB 자동 재파싱/보정 없음. 구버전 클라이언트의 복수 법규 동작은 보장하지 않으므로 서버·모바일을 함께 갱신해야 한다. 파서 버전 pc-parser-11/mobile-parser-11. 실행파일/APK·실기기·Docker/Tailscale 전체환경 검증, 실제 업로드·푸시·배포는 하지 않았다.
+- 이번 변경 파일의 AI 내부 이슈형 축약 표기를 정리했다. 나머지 후보는 PC7행/7파일, 모바일17행/10파일로 별도 목록에 남겼으며 실제 이슈 참조·과거 이력·게시된 댓글은 일괄 수정하지 않았다.
+- 실행 증거: 각 worktree `.agent-runs/b-implementation/`. 제품 코드 변경과 원본 데이터 재파싱은 별도 작업이다.
+- 관련 이슈: https://github.com/Fentanest/safetyreport-mobile/issues/8
+
+## 2026-10-15 — 기존 법규 파서 인식·사건 근거 보완 (미배포)
+
+- 기존 법규 인식을 유지하고 약칭·괄호·공백·연속 조문·조/항/호 인식을 보완했다. 위반 근거를 부과·정비 근거보다 우선하며 일반 안내·명시 배제·포상금·경고 지침은 사건의 위반법규와 구분한다. 경고·계도는 배제 조건이 아니다. 원문 위치를 보존하고 제2조를 제2호로 고치지 않는다.
+- 동일 의미의 기존 단일값 표기는 유지하고, 기존 DB와 사용자 수정값은 자동 재파싱하지 않는다. 공통 법규 문법/벡터를 Python·Dart에서 공유하며 파서 버전을 pc-parser-10/mobile-parser-10으로 구분한다. 최소 추정 정책·DB 구조 변경 없음.
+- 검증: Python 파서·기존 A·신규 B 회귀 12개 및 Flutter 회귀97개 통과. 실제 Python/Dart 법규 진입점 모두 15,804행에서 현행 기존 파서+승인된 B 실험 기준과 일치했다. 오래된 백업48행은 당시 저장값과 현행 기존 파서 결과가 달라, 저장값 대신 현행 함수 실행으로 기준을 맞췄고 초기 차이는 실행 자료에 보존했다.
+- 관련 이슈: https://github.com/Fentanest/safetyreport-mobile/issues/8
+
+## 2026-10-14 — 기존 파서 뒤에 미확인 과태료 처분 보완 (미배포)
+
+- 기존 처분·명시액·최종 상태·취하 처리를 유지하고, 완료된 신고의 빈 처분/미확인에만 사건별 과태료 보완을 추가했다. 불수용이어도 본문의 부과 결정이 명확하면 처분만 보완하며, 구조화된 수용 결과가 명시된 경우 표시 처리상태도 보완한다. 진행/취하/이송, 기존 과태료·범칙금·벌점·경고와 명시액은 보존한다.
+- Python `case_fine_supplement.py`와 Dart `case_fine_supplement.dart`를 같은 실제 관측 발췌34개로 검증했다(식별정보 제거). 추가 기신고 판정, 법규 저장 형식 변경, 복수 조문 선택, 제2호 오타 보정은 넣지 않았다. 최소 추정 규칙 버전은 유지하고 파서 버전만 pc-parser-9/mobile-parser-9로 올렸다. 기존 DB 자동 재파싱/일괄 보정 없음.
+- 검증: Python 파서/금액/정책 회귀53개 및 journal 재전송31개 통과. Flutter 관련 회귀275개 통과, 최종 보완36개 재검증 및 변경 Dart 분석 문제0. Python·Dart 실제 구현 모두 제공 DB snapshot15,804행에서 검토 결과와 일치(중복 포함35행, 고유22건 보완). 공통 벡터 바이트 일치, DB/JPG/WAL/SHM 원본 해시 유지. 실행 증거는 각 worktree `.agent-runs/a-implementation/`에 보관.
+- PC·모바일 원본 체크아웃, 사용자 수정값, 운영 계정/설정/자료를 변경하지 않았다. 원격 push·릴리스·배포·실제 크롤링/업로드, 실행파일/APK 빌드는 하지 않았다.
+
 - 2026-10-14: 2.2.0 정식 출시용 unreleased.md에 2.1.3 이후 변경과 로그인 재입력·빠른 검색의 PC 3.3.0 이상 조건을 통합하고, Play 변환 결과 498자·본문 누락 없음을 확인했다.
 
 - 2026-10-13: 설정 앱 정보에 빌드 번호를 표시하고 도움·문의 환경 정보에도 포함했다(번호가 없으면 화면은 `...`, 문의 본문은 `확인 안 됨`).
@@ -625,7 +654,7 @@ canonical, 결과 15,000건. 같은 DB/추가 인덱스 조건에서 기존 전�
 
 ---
 
-## 2026-10-12 — 다시 불러오기 scope 세대를 표시 필터와 분리(Astra 재검수2 #4)
+## 2026-10-12 — 다시 불러오기 scope 세대를 표시 필터와 분리(Astra 재검수2 검토 항목 4)
 
 백그라운드 다시 불러오기 진행 중 설정에서 '취하 데이터 숨기기'·'중복 신고 대표건만 반영'을 바꾸면 `ReportProvider.datasetEpoch`
 가 올라가고, `standaloneRebuild`의 `scopeGeneration`·`_prepare()`의 scope 문자열이 이를 계정·자료셋 교체로 오판해
@@ -764,9 +793,9 @@ canonical, 결과 15,000건. 같은 DB/추가 인덱스 조건에서 기존 전�
 
 ---
 
-## 2026-10-11 — Astra 재검수(#5 A·B) 수정: 능력 확인 전 구서버 400 가능성, 이전 서버 늦은 응답이 판정을 덮던 결함
+## 2026-10-11 — Astra 재검수(검토 항목 5 A·B) 수정: 능력 확인 전 구서버 400 가능성, 이전 서버 늦은 응답이 판정을 덮던 결함
 
-Astra 리뷰 #5 수정(`supportsFiveCategories`/`refreshServerTaxonomySupport`)에 대한 재검수에서 두 결함이 지적됐다.
+Astra 리뷰 검토 항목 5 수정(`supportsFiveCategories`/`refreshServerTaxonomySupport`)에 대한 재검수에서 두 결함이 지적됐다.
 
 - A(중간). `_PostGateFlow` 가 서비스 시작을 unawaited 로 돌려 메인 진입이 능력 확인 완료를 기다리지 않는다. 미확인
   기본값(true) 때문에 확인이 끝나기 전에 안전신고·생활불편 조회가 구서버로 나가 400 이 날 수 있었다.
@@ -792,7 +821,7 @@ Astra 리뷰 #5 수정(`supportsFiveCategories`/`refreshServerTaxonomySupport`)�
 
 ---
 
-## 2026-10-11 — Astra 리뷰 #7 수정: 모르는 소분류(EP-99 등)를 '소분류 없음'으로 오인해 밤샘주차로 추정하던 결함
+## 2026-10-11 — Astra 리뷰 검토 항목 7 수정: 모르는 소분류(EP-99 등)를 '소분류 없음'으로 오인해 밤샘주차로 추정하던 결함
 
 - `lib/services/fine_estimate.dart`: 서버 `fine_estimate.py` 와 같은 결함 — `classify()` 의 밤샘주차(`overnight_truck`)
   분기가 `code == null || code == "EP-02"` 로 "코드 없음"과 "코드는 있지만 모르는 값"(`report_category.resolve()` 도 이
@@ -807,7 +836,7 @@ Astra 리뷰 #5 수정(`supportsFiveCategories`/`refreshServerTaxonomySupport`)�
 
 ---
 
-## 2026-10-11 — Astra 리뷰 #3 수정: C_NOW=12(검토중) 답변이 답변완료로 조기 종결되던 결함
+## 2026-10-11 — Astra 리뷰 검토 항목 3 수정: C_NOW=12(검토중) 답변이 답변완료로 조기 종결되던 결함
 
 - `lib/services/standalone_parser.dart`: 서버 `services/parser.py` 와 같은 결함 — 답변완료 대역 안전망(`answeredBand`,
   C_NOW 10~19 + 답변 있음)이 C_NOW 가 명시적으로 비종결 상태(진행·처리중·검토중)로 매핑된 경우까지 답변완료로 덮어쓰고
@@ -818,7 +847,7 @@ Astra 리뷰 #5 수정(`supportsFiveCategories`/`refreshServerTaxonomySupport`)�
 
 ---
 
-## 2026-10-11 — Astra 리뷰 #4 수정: Standalone 실제 통계 경로가 SSNPC 코드를 빼먹던 결함
+## 2026-10-11 — Astra 리뷰 검토 항목 4 수정: Standalone 실제 통계 경로가 SSNPC 코드를 빼먹던 결함
 
 - `lib/services/local_db_service.dart` `_statsColumns`: 통계 SELECT·GROUP BY 열 목록에 `ssnpc_cd`·`ssnpc_type` 이 없어서
   `computeStatsBundle()` 이 `fine_estimate.estimate()` 에 넘기는 행에 SSNPC 코드가 없었다. 그 결과 EP-03(소방차 전용구역)
@@ -831,7 +860,7 @@ Astra 리뷰 #5 수정(`supportsFiveCategories`/`refreshServerTaxonomySupport`)�
 
 ---
 
-## 2026-10-11 — Astra 리뷰 #5 수정: 구서버에 안전신고·생활불편을 요청해 400 이 나던 결함
+## 2026-10-11 — Astra 리뷰 검토 항목 5 수정: 구서버에 안전신고·생활불편을 요청해 400 이 나던 결함
 
 - `ServerVersionInfo.supportsFiveCategories`(`/server/version` 의 `report_taxonomy`)가 선언만 있고 어디서도 쓰이지
   않아, 신버전 앱이 구서버(5분류를 모름)에 연결해도 항상 5분류로 조회했다 — 안전신고·생활불편 탭이나 `전체` 드릴다운이
@@ -3444,3 +3473,9 @@ S-02 평균 처리일 직접 계산(Standalone 로컬, Client 서버 API), Clien
 - standalone → client 자동 백업, client → standalone 3-way 선택, 서버 DB → 모바일 DB 변환 경로 추가
 - standalone 로그인 Step 3과 Client `downloadDb`에 retry/timeout 매트릭스 보강
 - `main` 브랜치 병합으로 1.0.7+11 누적 변경, 권한/개인정보처리방침 정리 반영
+
+
+## 2026-10-14 — 이슈 대응 로컬 수정
+
+- 명시 과태료 콜론·정수 만원 문법과 Python 공통 벡터를 추가. 모호한 복수 금액/상한 보류, 파서 버전8. 기존 처분·법규·최소 추정 규칙은 유지.
+- AI 내부 번호의 GitHub 자동참조 방지 규칙 추가.

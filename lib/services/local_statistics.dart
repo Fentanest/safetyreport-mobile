@@ -133,11 +133,11 @@ class _StatsCategoryAccumulator {
   int fine = 0, estimated = 0, estimatedCount = 0;
 
   void addLaw(Map<String, dynamic> r) {
-    final law = r['위반법규']?.toString() ?? '';
+    final law = readLaws(r['위반법규']);
     if (law.isEmpty) {
       emptyLaw = true;
     } else {
-      laws.add(law);
+      laws.addAll(law);
     }
   }
 
@@ -214,7 +214,7 @@ class _OverviewAccumulator {
   final counts = <String, int>{};
   final series = <String, Map<String, int>>{};
   final types = <String, int>{};
-  final lawCounts = <String, int>{};
+  final lawSignatures = <String, int>{};
   final resultDistribution = <String, int>{};
   final disposition = <String, int>{};
   final fine = <String, int>{};
@@ -240,9 +240,11 @@ class _OverviewAccumulator {
       final name = row['name'] as String;
       types[name] = (types[name] ?? 0) + (row['count'] as int);
     }
-    for (final row in json['violation_laws'] as List) {
-      final name = row['name'] as String;
-      lawCounts[name] = (lawCounts[name] ?? 0) + (row['count'] as int);
+    for (final row in rows) {
+      final keys = readLaws(row['위반법규']).toList()..sort();
+      final signature = keys.join('\n');
+      lawSignatures[signature] =
+          (lawSignatures[signature] ?? 0) + ((row['_weight'] as int?) ?? 1);
     }
     for (final pair in [
       ('disposition', disposition),
@@ -264,6 +266,14 @@ class _OverviewAccumulator {
         return c != 0 ? c : a.key.compareTo(b.key);
       });
     final n = counts['avg_days_count'] ?? 0;
+    final lawCounts = <String, int>{};
+    final universe = availableLawValues(lawSignatures.keys).toSet();
+    for (final entry in lawSignatures.entries) {
+      final members = lawMemberships(entry.key, universe);
+      for (final law in members.isEmpty ? [''] : members) {
+        lawCounts[law] = (lawCounts[law] ?? 0) + entry.value;
+      }
+    }
     return {
       for (final e in counts.entries)
         if (e.key != '_day_sum') e.key: e.value,

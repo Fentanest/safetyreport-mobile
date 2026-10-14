@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'package:safetyreport/models/report_filter.dart';
+import 'package:safetyreport/services/law_values.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:safetyreport/services/api_service.dart';
@@ -6,6 +8,47 @@ import '../support/selfhost_client_fixture.dart';
 
 void main() {
   setUp(resetSelfhostFixture);
+  test(
+    'Client sends individual second/third law and retains LF response',
+    () async {
+      const value = '도로교통법 제32조\n도로교통법 제33조\n도로교통법 제34조';
+      for (final law in readLaws(value).skip(1)) {
+        final filter = ReportFilter(law: law);
+        await http.runWithClient(
+          () async {
+            final page = await ApiService(
+              baseUrl: 'https://fixture.test',
+              apiKey: 'fixture',
+            ).getReportsPage('all', searchFilter: filter);
+            expect(page.total, 1);
+            expect(page.reports.single.law, value);
+            expect(matchesLaws(page.reports.single.law, law), true);
+          },
+          () => selfhostMockClient((r) async {
+            expect(r.url.path, '/api/v1/reports/all/search');
+            expect(jsonDecode(r.url.queryParameters['filter']!)['law'], law);
+            return http.Response(
+              jsonEncode({
+                'status': 'success',
+                'search_version': 1,
+                'category': 'all',
+                'offset': 0,
+                'limit': 200,
+                'dedupe_mode': 'canonical',
+                'filter': filter.toSearchJson(),
+                'total': 1,
+                'data': [
+                  {'ID': 'fixture', '위반법규': value, 'category': 'traffic'},
+                ],
+              }),
+              200,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }),
+        );
+      }
+    },
+  );
   test(
     'page uses canonical route, exact total, NULL and category with no full-report fallback',
     () async {
@@ -146,26 +189,44 @@ void main() {
     },
   );
 
-  test('getReportsPage allows all 5 categories, rejects unknown ones', () async {
-    final api = ApiService(baseUrl: 'https://fixture.test', apiKey: 'fixture');
-    for (final category in const ['traffic', 'parking', 'safety', 'living', 'other']) {
-      final requests = <String>[];
-      await http.runWithClient(
-        () async {
-          final page = await api.getReportsPage(category);
-          expect(page.total, 0);
-        },
-        () => selfhostMockClient((r) async {
-          requests.add(r.url.path);
-          return http.Response(
-            jsonEncode({'status': 'success', 'total': 0, 'offset': 0, 'limit': 200, 'data': []}),
-            200,
-            headers: {'content-type': 'application/json; charset=utf-8'},
-          );
-        }),
+  test(
+    'getReportsPage allows all 5 categories, rejects unknown ones',
+    () async {
+      final api = ApiService(
+        baseUrl: 'https://fixture.test',
+        apiKey: 'fixture',
       );
-      expect(requests, ['/api/v1/reports/$category/page']);
-    }
-    await expectLater(api.getReportsPage('bogus'), throwsArgumentError);
-  });
+      for (final category in const [
+        'traffic',
+        'parking',
+        'safety',
+        'living',
+        'other',
+      ]) {
+        final requests = <String>[];
+        await http.runWithClient(
+          () async {
+            final page = await api.getReportsPage(category);
+            expect(page.total, 0);
+          },
+          () => selfhostMockClient((r) async {
+            requests.add(r.url.path);
+            return http.Response(
+              jsonEncode({
+                'status': 'success',
+                'total': 0,
+                'offset': 0,
+                'limit': 200,
+                'data': [],
+              }),
+              200,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }),
+        );
+        expect(requests, ['/api/v1/reports/$category/page']);
+      }
+      await expectLater(api.getReportsPage('bogus'), throwsArgumentError);
+    },
+  );
 }

@@ -63,6 +63,8 @@ dependencies:
   geolocator: ^14.0.2
   workmanager: ^0.10.10
   in_app_review: ^2.0.12
+  html: 0.15.6
+  unorm_dart: ^0.3.3
 
 dev_dependencies:
   integration_test:

@@ -1,6 +1,9 @@
 import '../models/report.dart';
 import 'report_category.dart' as report_category;
 import 'fine_estimate.dart' as fine_estimate;
+import 'fine_amount_syntax.dart';
+import 'case_fine_supplement.dart';
+import 'law_values.dart';
 
 // ── 상수 ─────────────────────────────────────────────────────────────────────
 
@@ -277,7 +280,7 @@ Report parseJsonToReport(
   final rawStatus = _cNowStatus[cNow] ?? (cNow > 0 ? cNow.toString() : '진행');
   // 답변완료 대역(C_NOW 10~19)에 답변이 있는데 상태를 못 알아보면 '처리중'으로 떨어지지 않게 한다.
   // 단, C_NOW 가 명시적으로 비종결 상태(진행·처리중·검토중, 예: 12=검토중)로 매핑되면 이 안전망이
-  // 그 상태를 덮어 '답변완료'로 조기 종결시키지 않는다(Astra #3). 16~19처럼 매핑이 없는 코드는
+  // 그 상태를 덮어 '답변완료'로 조기 종결시키지 않는다(Astra 검토 항목 3). 16~19처럼 매핑이 없는 코드는
   // 선택한 답변의 상태도 비종결이 아닐 때(빈 값·모르는 라벨)만 닫는다 — 아래 최종 상태 판정 참고.
   final answeredBand =
       answersList.isNotEmpty &&
@@ -339,20 +342,8 @@ Report parseJsonToReport(
     );
   }
 
-  // 위반법규
-  var violationLaw = '';
-  final lawMatch = RegExp(
-    r'(?:「\s*([가-힣·\s]{1,40}?법)\s*」|(도로교통법))\s*제\s*(\d+\s*조(?:\s*의\s*\d+)?)(?:\s*(제?\s*\d{1,2}\s*항))?',
-  ).firstMatch(processingContent);
-  if (lawMatch != null) {
-    final lawName = (lawMatch.group(1) ?? lawMatch.group(2)!).replaceAll(
-      RegExp(r'\s+'),
-      '',
-    );
-    final article = lawMatch.group(3)!.replaceAll(RegExp(r'\s+'), '');
-    final paragraph = (lawMatch.group(4) ?? '').replaceAll(RegExp(r'\s+'), '');
-    violationLaw = '$lawName 제$article$paragraph';
-  }
+  // 기존 법규 인식 결과를 공통 보완기로 검증·보완한다.
+  final violationLaw = parseViolationLaw(processingContent);
 
   // 과태료/범칙금
   var fineEntry = '';
@@ -367,15 +358,13 @@ Report parseJsonToReport(
   final penaltyMatch = RegExp(
     r'범칙금\s*([\d,.]+)\s*원[,\s]*벌점\s*(\d{0,4})\s*점',
   ).firstMatch(processingContent);
-  final fineMatch = RegExp(
-    r'과태료\s*([\d,.]+)\s*원',
-  ).firstMatch(processingContent);
+  final fineNumber = explicitFineNumber(processingContent);
 
   if (penaltyMatch != null) {
     penaltyAmount = '범칙금: ${penaltyMatch.group(1)}원';
     penaltyPoints = '벌점: ${penaltyMatch.group(2)}점';
-  } else if (fineMatch != null) {
-    penaltyAmount = '과태료: ${fineMatch.group(1)}원';
+  } else if (fineNumber != null) {
+    penaltyAmount = '과태료: $fineNumber원';
   } else {
     penaltyAmount = fineEntry;
   }
@@ -415,7 +404,7 @@ Report parseJsonToReport(
   } else if (answeredBand &&
       !_notFinalAnswerStatuses.contains(processingStatus)) {
     // 답변완료 대역(2026-10, 답변완료인데 진행중으로 보이던 버그) — 새 canonical 값은 만들지 않고 '답변완료'로만 닫는다.
-    // 답변이 스스로 진행·처리중·검토중이라고 밝히면 모르는 C_NOW(16~19)라도 닫지 않는다(Astra 재검수 #3).
+    // 답변이 스스로 진행·처리중·검토중이라고 밝히면 모르는 C_NOW(16~19)라도 닫지 않는다(Astra 재검수 검토 항목 3).
     processingStatus = '답변완료';
   } else {
     processingStatus = '처리중';
@@ -428,6 +417,12 @@ Report parseJsonToReport(
     penaltyAmount = '';
     penaltyPoints = '';
   }
+
+  (processingStatus, penaltyAmount) = supplementCaseFine(
+    processingStatus,
+    penaltyAmount,
+    processingContent,
+  );
 
   // ── 첨부파일 ─────────────────────────────────────────────────────────────
   var mapImage = '';

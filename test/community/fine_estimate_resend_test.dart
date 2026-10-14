@@ -672,7 +672,7 @@ void main() {
         "SELECT * FROM source_journal WHERE source_report_id='T1' ORDER BY source_revision",
       );
       expect(events.length, 2);
-      expect(events.last['parser_version'], 'mobile-parser-7');
+      expect(events.last['parser_version'], 'mobile-parser-11');
       final updated = jsonDecode(events.last['payload_json'] as String) as Map;
       expect((updated['amount'] as Map)['confirmed_won'], isNull);
       expect(updated['fine_estimate'], {

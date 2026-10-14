@@ -51,7 +51,9 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     await LocalDbService.closeDb();
     await deleteDatabase(await LocalDbService.getDbPath());
-    await stampOwner(await LocalDbService.db); // 게이트가 적는 이 기기 DB 의 주인 — 백업에 함께 들어간다
+    await stampOwner(
+      await LocalDbService.db,
+    ); // 게이트가 적는 이 기기 DB 의 주인 — 백업에 함께 들어간다
   });
   tearDownAll(() async {
     await LocalDbService.closeDb();
@@ -90,22 +92,37 @@ void main() {
   }
 
   for (final version in [10, 11, 14]) {
-    test('older app backup (v$version) is refused, not migrated, and the live DB is untouched', () async {
-      final path = await makeBackup(
-        'old-$version',
-        version: version,
-        dropColumns: version <= 10 ? ['사진_첫촬영', '사진_끝촬영', '사진_촬영수'] : [],
-      );
-      expect(await _ids(), {'live'});
-      await expectLater(
-        LocalDbService.replaceFromBackup(path),
-        throwsA(isA<LegacyDatabaseException>().having(
-            (e) => e.toString(), 'message', contains('이전 버전 모바일 앱 DB(스키마 $version)'))),
-      );
-      expect(await _ids(), {'live'});
-      expect(await (await LocalDbService.db).getVersion(), LocalDbService.dbVersion);
-      expect(await LocalDbService.latestImportBackup(), isNull, reason: '교체하지 않았으니 before_import 사본도 없다');
-    });
+    test(
+      'older app backup (v$version) is refused, not migrated, and the live DB is untouched',
+      () async {
+        final path = await makeBackup(
+          'old-$version',
+          version: version,
+          dropColumns: version <= 10 ? ['사진_첫촬영', '사진_끝촬영', '사진_촬영수'] : [],
+        );
+        expect(await _ids(), {'live'});
+        await expectLater(
+          LocalDbService.replaceFromBackup(path),
+          throwsA(
+            isA<LegacyDatabaseException>().having(
+              (e) => e.toString(),
+              'message',
+              contains('이전 버전 모바일 앱 DB(스키마 $version)'),
+            ),
+          ),
+        );
+        expect(await _ids(), {'live'});
+        expect(
+          await (await LocalDbService.db).getVersion(),
+          LocalDbService.dbVersion,
+        );
+        expect(
+          await LocalDbService.latestImportBackup(),
+          isNull,
+          reason: '교체하지 않았으니 before_import 사본도 없다',
+        );
+      },
+    );
   }
 
   test('a backup from this app version is swapped in', () async {
@@ -128,6 +145,38 @@ void main() {
       expect(await _ids(), {'live'});
     },
   );
+
+  test('복수 법규 원본과 사용자 수정값을 백업 복원한다', () async {
+    const raw = '도로교통법 제32조\n도로교통법 제33조';
+    const edited = '장애인복지법 제39조제3항\n장애인복지법 제90조제3항';
+    await LocalDbService.upsertReport(
+      _report('law', 'SPP-law').copyWith(law: raw),
+      'traffic',
+      '자동차·교통위반-신호위반',
+    );
+    await LocalDbService.updateEditableRecord('law', {'위반법규': edited});
+    final path = '${files.path}/multilaw.db';
+    await LocalDbService.exportBackup(path);
+    await deleteDatabase(await LocalDbService.getDbPath());
+    await LocalDbService.replaceFromBackup(path);
+    final d = await LocalDbService.db;
+    expect((await d.query('reports', columns: ['위반법규'])).single['위반법규'], raw);
+    expect(
+      (await d.query(
+        'report_override',
+        where: 'column_name = ?',
+        whereArgs: ['위반법규'],
+      )).single['value'],
+      edited,
+    );
+    expect(
+      (await d.query(
+        LocalDbService.effectiveReportsView,
+        columns: ['위반법규'],
+      )).single['위반법규'],
+      edited,
+    );
+  });
 
   test('a server DB is refused by the app backup restore', () async {
     final path = '${files.path}/server.db';
@@ -156,7 +205,10 @@ void main() {
     final path = await makeBackup('cur-2');
     await LocalDbService.replaceFromBackup(path);
     final refused = await makeBackup('old-2', version: 11, dropColumns: []);
-    await expectLater(LocalDbService.replaceFromBackup(refused), throwsA(isA<LegacyDatabaseException>()));
+    await expectLater(
+      LocalDbService.replaceFromBackup(refused),
+      throwsA(isA<LegacyDatabaseException>()),
+    );
     var leftovers = staging().difference(before);
     for (var i = 0; i < 50 && leftovers.isNotEmpty; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 100));

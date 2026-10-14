@@ -3,6 +3,7 @@ import 'report_category.dart' as report_category;
 import 'fine_estimate.dart' as fine_estimate;
 import 'fine_amount_syntax.dart';
 import 'case_fine_supplement.dart';
+import 'law_values.dart';
 
 // ── 상수 ─────────────────────────────────────────────────────────────────────
 
@@ -341,20 +342,8 @@ Report parseJsonToReport(
     );
   }
 
-  // 위반법규
-  var violationLaw = '';
-  final lawMatch = RegExp(
-    r'(?:「\s*([가-힣·\s]{1,40}?법)\s*」|(도로교통법))\s*제\s*(\d+\s*조(?:\s*의\s*\d+)?)(?:\s*(제?\s*\d{1,2}\s*항))?',
-  ).firstMatch(processingContent);
-  if (lawMatch != null) {
-    final lawName = (lawMatch.group(1) ?? lawMatch.group(2)!).replaceAll(
-      RegExp(r'\s+'),
-      '',
-    );
-    final article = lawMatch.group(3)!.replaceAll(RegExp(r'\s+'), '');
-    final paragraph = (lawMatch.group(4) ?? '').replaceAll(RegExp(r'\s+'), '');
-    violationLaw = '$lawName 제$article$paragraph';
-  }
+  // 기존 법규 인식 결과를 공통 보완기로 검증·보완한다.
+  final violationLaw = parseViolationLaw(processingContent);
 
   // 과태료/범칙금
   var fineEntry = '';

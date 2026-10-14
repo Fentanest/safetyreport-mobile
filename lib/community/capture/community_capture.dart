@@ -17,7 +17,7 @@ export 'observation_rules.dart' show buildPayload;
 
 /// 공유 payload 버전을 올리지 않고 파서만 구분한다.
 const String mobileParserVersion =
-    'mobile-parser-9'; // 미확인 처분 보완: 기존 journal amount는 자동 재파싱하지 않음
+    'mobile-parser-10'; // 법규 인식 보완: 기존 journal amount는 자동 재파싱하지 않음
 
 /// 공식 상세 응답에서 읽은 좌표. null이면 좌표 없는 관측으로 보낸다.
 class GeocodeHit {

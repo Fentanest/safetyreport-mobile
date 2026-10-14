@@ -95,6 +95,26 @@ class _FakeController extends VideoPlayerController {
 }
 
 void main() {
+  for (final brightness in Brightness.values) {
+    testWidgets('복수 법규 개별 링크 표시: $brightness', (tester) async {
+      final r = _report().copyWith(law: '도로교통법 제32조\n도로교통법 제33조\n도로교통법 제34조');
+      final errors = await _pumpSheet(
+        tester,
+        r,
+        brightness: brightness,
+        width: 360,
+      );
+      expect(errors, isEmpty);
+      for (final law in r.law.split('\n')) {
+        expect(find.text(law), findsOneWidget);
+        expect(
+          find.ancestor(of: find.text(law), matching: find.byType(InkWell)),
+          findsWidgets,
+        );
+      }
+    });
+  }
+
   testWidgets('보정 과태료와 원문 보조 표기를 함께 표시한다', (tester) async {
     final r = _report(fineInfo: '과태료: 40,0000원').copyWith(category: 'parking');
     final errors = await _pumpSheet(tester, r);

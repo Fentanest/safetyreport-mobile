@@ -1,51 +1,51 @@
 import 'law_citations.dart';
 
-final _boundary = RegExp(
+final _boundary = lawRegex(
   r'''(?<=[다요])[.。!?](?!\s*\()|\n\s*\n|(?<=\n)(?=\s*(?:[가-하]|\d+)[.)]\s)|(?=그러나|다만[,\s]|추가로|※)''',
   unicode: true,
 );
-final _finding = RegExp(
+final _finding = lawRegex(
   r'''위반행위로판단|에저촉되어|위반에따라|위반되는사항|적합하지않다고판단|해당하는사실을확인|위반(?:한)?(?:사실|사항|행위)(?:이|가|을|를|은|는)?확인|위반(?:으로)?확인|위반한(?:사실|사항|불법|행위)|위반(?:으로|한행위로)판단|위반(?:사항|행위)?에해당(?:되어|하여|하므로|되나)|위반하였|위반하여|위반사항을통지|위반을확인|위반,|위반으로원상복구''',
   unicode: true,
 );
-final _sanction = RegExp(
+final _sanction = lawRegex(
   r'''과태료(?:를)?부과(?:할예정|예정|처분|처리|하였|합니다|하겠습니다|대상)|과태료[0-9,.]+원을부과하고자|과태료처분(?:예정|대상)|과태료(?:를)?부과절차(?:를)?진행|행정처분하겠''',
   unicode: true,
 );
-final _remedy = RegExp(
+final _remedy = lawRegex(
   r'''(?:원상복구|시정|정비)(?:명령|조치|요청)|원상복구(?:및[^.]{0,20})?(?:하도록|명령|의견진술)|번호판교체에대하여안내|행정조치하였|계도조치|행정계도|점검하여안전운행하도록행정지도''',
   unicode: true,
 );
-final _case = RegExp(
+final _case = lawRegex(
   r'''귀하|해당차량|신고차량|신고된차량|차량소유|차주|피신고|신고하신|신고해주신|제보(?:하신|해주신)|소유주|민원신고사항|보내주신|첨부파일|첨부해주신|제출하신''',
   unicode: true,
 );
-final _denial = RegExp(
-  r'''위반(?:한)?(?:사실|사항|행위)?(?:이|을|를|가)?(?:명확히)?(?:확인되지않|확정할수없)|위반이있었다고확정할수없|명확(?:하게|히)판단하기어려|식별이곤란한정도가아닌|대상(?:은|이)?(?:아니|아닙|아님)|해당되지않|적용하지않|위반으로의율하기는어렵|철거는못''',
+final _denial = lawRegex(
+  r'''위반(?:한)?(?:사실|사항|행위)(?:이|가|은|는)?없(?:습니다|음|어)|위반(?:한)?(?:사실|사항|행위)(?:을|를)?확인(?:할수없|하지못)|해당하지않|위반(?:한)?(?:사실|사항|행위)?(?:이|을|를|가)?(?:명확히)?(?:확인되지않|확정할수없)|위반이있었다고확정할수없|명확(?:하게|히)판단하기어려|식별이곤란한정도가아닌|대상(?:은|이)?(?:아니|아닙|아님)|해당되지않|적용하지않|위반으로의율하기는어렵|철거는못''',
   unicode: true,
 );
-final _allow = RegExp(
+final _allow = lawRegex(
   r'''주차가가능한곳|주차가능함을|주차가가능함을|주차가능표지를발급받은차량''',
   unicode: true,
 );
-final _reject = RegExp(
+final _reject = lawRegex(
   r'''과태료(?:를)?부과(?:는|가|하기|에)?(?:어려|곤란|불가)|과태료처분(?:은|이)?(?:어려|곤란|불가)|과태료(?:를)?부과할수없|단속(?:이|은)?어려|과태료를부과하지아니''',
   unicode: true,
 );
-final _future = RegExp(
+final _future = lawRegex(
   r'''(?:위반사항|위반행위)에해당하는경우|검토후조치|위반사항확인후|단속검토예정|승인내역이없음|위반으로의심''',
   unicode: true,
 );
-final _procTitle = RegExp(
+final _procTitle = lawRegex(
   r'''사전통지|의견제출|자진납부|과태료경감|경고처분|적용배제|특례''',
   unicode: true,
 );
-final _procText = RegExp(
+final _procText = lawRegex(
   r'''신고포상금|포상금을지급|포상금을수령|신고는육하원칙|증거자료를객관적|영상에의해위반사실이명백히확인될것|신청권이나자료요청권한|촬영을삼가''',
   unicode: true,
 );
-final _sanctionTitle = RegExp(r'''과태료|부과기준''', unicode: true);
-final _remedyTitle = RegExp(r'''점검및정비|정비명령|점검및정비명령''', unicode: true);
+final _sanctionTitle = lawRegex(r'''과태료|부과기준''', unicode: true);
+final _remedyTitle = lawRegex(r'''점검및정비|정비명령|점검및정비명령''', unicode: true);
 
 List<int> _span(dynamic value) => (value as List).cast<int>();
 List<LawMap> _occ(LawMap r) => (r['occurrences'] as List).cast<LawMap>();
@@ -123,7 +123,7 @@ LawMap chooseLawBasis(String answer, {String oldKey = ''}) {
       parts.add(answer.substring(cursor, start));
       final gap = normalizeLawText(parts.join());
       final residue = gap.replaceAll(
-        RegExp(
+        lawRegex(
           r'''(?:및|또는|동법|같은법|시행령|시행규칙|와|과)|[「」『』【】\[\]"“”‘’(),、]''',
           unicode: true,
         ),
@@ -171,7 +171,7 @@ LawMap chooseLawBasis(String answer, {String oldKey = ''}) {
     final q = normalizeLawText(g['text'] as String);
     final caseNexus =
         _case.hasMatch(q) ||
-        RegExp(
+        lawRegex(
           r'(?:행위|사실|위반사항)(?:이|가|을|를|은|는)?(?:확인되|확인하|파악되|판단되)',
           unicode: true,
         ).hasMatch(q) ||
@@ -179,18 +179,18 @@ LawMap chooseLawBasis(String answer, {String oldKey = ''}) {
     final afterGroup = normalizeLawText(
       answer.substring(g['tail_start'] as int, _span(g['span'])[1]),
     );
-    final generic = RegExp(
+    final generic = lawRegex(
       r'(?:가입하지아니한자|위반자|차량소유자)는과태료(?:가)?부과(?:대상|됩니다)',
       unicode: true,
     ).hasMatch(q);
     final policy =
-        RegExp(r'(?:경고처리|계도처분|경고처분)', unicode: true).hasMatch(q) &&
-        RegExp(r'경우|개선안|지침|기준', unicode: true).hasMatch(q) &&
+        lawRegex(r'(?:경고처리|계도처분|경고처분)', unicode: true).hasMatch(q) &&
+        lawRegex(r'경우|개선안|지침|기준', unicode: true).hasMatch(q) &&
         !_finding.hasMatch(q);
     final proof =
         _finding.hasMatch(q) ||
-        RegExp(r'^(?:을|를)위반한', unicode: true).hasMatch(afterGroup) ||
-        RegExp(
+        lawRegex(r'^(?:을|를)위반한', unicode: true).hasMatch(afterGroup) ||
+        lawRegex(
           r'''^(?:\([^)]*\))?["“‘「][^"”’」]*["”’」](?:에해당되어|로판단되어)''',
           unicode: true,
         ).hasMatch(afterGroup);
@@ -203,7 +203,7 @@ LawMap chooseLawBasis(String answer, {String oldKey = ''}) {
       final tail = normalizeLawText(
         answer.substring(_span(o['source_span'])[1], _span(g['span'])[1]),
       );
-      final definition = RegExp(
+      final definition = lawRegex(
         r'''^(?:\([^)]*\))?(?:에서|는|은)["“‘'「]''',
         unicode: true,
       ).hasMatch(tail);
@@ -285,11 +285,15 @@ LawMap chooseLawBasis(String answer, {String oldKey = ''}) {
         !_remedy.hasMatch(q) ||
         _denial.hasMatch(q) ||
         _future.hasMatch(q) ||
-        RegExp(r'경우|미이행|추후').hasMatch(q)) {
+        lawRegex(r'경우|미이행|추후').hasMatch(q)) {
       continue;
     }
     final roles = _evidence(annotated[ri]).map((e) => e['role']).toSet();
-    if (roles.intersection({'excluded', 'procedure', 'unresolved'}).isNotEmpty) {
+    if (roles.intersection({
+      'excluded',
+      'procedure',
+      'unresolved',
+    }).isNotEmpty) {
       continue;
     }
     _evidence(annotated[ri]).add({
@@ -321,6 +325,10 @@ LawMap chooseLawBasis(String answer, {String oldKey = ''}) {
       r['rank'] = null;
     } else if (roles.length == 1 && roles.contains('procedure')) {
       r['decision'] = 'procedure';
+      r['rank'] = null;
+    } else if (roles.isNotEmpty &&
+        roles.difference({'general', 'procedure'}).isEmpty) {
+      r['decision'] = 'general';
       r['rank'] = null;
     } else {
       r['decision'] = 'unknown';

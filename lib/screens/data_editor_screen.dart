@@ -306,7 +306,13 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
   }
 
   static const _finishOptions = <String>['', 'Y', 'N'];
-  static const _multilineFields = <String>{'신고내용', '처리내용', '첨부사진', '첨부파일'};
+  static const _multilineFields = <String>{
+    '신고내용',
+    '처리내용',
+    '첨부사진',
+    '첨부파일',
+    '위반법규',
+  };
   static const _dateFields = <String>{'답변일', '발생일자'};
 
   @override

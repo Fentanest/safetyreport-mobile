@@ -15,6 +15,8 @@
 ///   의 깨끗한 번호판 60건은 전부 같은 결과를 낸다(test/services/fine_estimate_test.dart 로 확인).
 library;
 
+import 'law_values.dart';
+
 import 'dart:convert';
 import 'package:intl/intl.dart';
 import '../models/report.dart';
@@ -166,11 +168,11 @@ int? _occurHour(dynamic occurTime) {
 /// 진짜 '소분류 없음'(메뉴만 있고 세부가 없음)일 때만 true.
 ///
 /// 소분류 코드(SSNPC_TYPE)가 있으면(모르는 코드라도) 소분류가 있는데 못 알아본 것이므로 false —
-/// EP-99 처럼 코드표에 없는 코드는 밤샘주차가 아니라 일반 주정차로 떨어져야 한다(Astra #7).
-/// 대분류(SSNPC_CD)만 있고 소분류가 비면 소분류 없음이다(Astra 재검수 #6). 그때는 entry_value 의
+/// EP-99 처럼 코드표에 없는 코드는 밤샘주차가 아니라 일반 주정차로 떨어져야 한다(Astra 검토 항목 7).
+/// 대분류(SSNPC_CD)만 있고 소분류가 비면 소분류 없음이다(Astra 재검수 검토 항목 6). 그때는 entry_value 의
 /// '메뉴-소분류'에서 '-' 뒤가 비어 있는지로 판단한다.
 bool _noSubcategoryInfo(report_category.Resolved resolved, dynamic entryValue) {
-  // 소분류 코드가 있으면(모르는 코드라도) 못 알아본 소분류 — 대분류만 있으면 소분류 없음(Astra 재검수 #6).
+  // 소분류 코드가 있으면(모르는 코드라도) 못 알아본 소분류 — 대분류만 있으면 소분류 없음(Astra 재검수 검토 항목 6).
   if (resolved.ssnpcType != null) return false;
   // 대분류가 IP(소화전·교차로 등 지정 구역)면 '기타 불법주정차'가 아니다 — 밤샘주차는 EP(일반)만(최종 감사 #3).
   if (resolved.ssnpcCd != null && resolved.ssnpcCd != 'EP') return false;
@@ -188,7 +190,7 @@ String? classify(Map<String, dynamic> record) {
   );
   final code = resolved.code;
   final name = _text(record["신고명"]);
-  final law = _text(record["위반법규"]);
+  final law = _text(primaryLaw(record["위반법규"]));
   final plate = record["차량번호"];
   final first = record["사진_첫촬영"];
   final last = record["사진_끝촬영"];
@@ -310,7 +312,8 @@ Set<int> legalFineAmounts(Map<String, dynamic>? record) {
       if (value != null) result.add(value);
     }
   }
-  final entry = _trafficFineTable[normalizeViolationArticle(record['위반법규'])];
+  final entry =
+      _trafficFineTable[normalizeViolationArticle(primaryLaw(record['위반법규']))];
   if (entry != null) {
     final amounts = entry['amounts'] as Map<String, dynamic>;
     final kind = vehicleKind(record['차량번호']);

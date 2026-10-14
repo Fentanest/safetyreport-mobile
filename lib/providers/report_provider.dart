@@ -1,3 +1,4 @@
+import '../services/law_values.dart';
 export '../models/report_filter.dart';
 import '../models/report_filter.dart';
 import '../services/client_compatibility.dart';
@@ -69,7 +70,7 @@ class ReportProvider with ChangeNotifier {
   /// 변경도 올라간다 — 필터가 바뀌면 필터 적용 전에 시작한 조회의 결과는 새 화면에 쓰지 않아야 하기 때문이다.
   /// 실제 계정·DB 교체(모드 전환·계정 변경·로그아웃)도 올라간다. 그래서 늦은 응답 버리기·캐시 무효화에는 맞지만,
   /// **계정·자료셋 정체성**(예: Standalone 초기화 다시 불러오기의 scope) 판정에는 쓰지 않는다 — 그건
-  /// [accountConfigEpoch] 가 맡는다(Astra 재검수2 #4, 2026-10-12). 표시 필터만 바뀌어도 다시 불러오기가
+  /// [accountConfigEpoch] 가 맡는다(Astra 재검수2 검토 항목 4, 2026-10-12). 표시 필터만 바뀌어도 다시 불러오기가
   /// 계정이 바뀐 것으로 오판해 멈추는 사고가 있었다.
   int _datasetEpoch = 0;
   int get datasetEpoch => _datasetEpoch;
@@ -127,7 +128,7 @@ class ReportProvider with ChangeNotifier {
       _serverCapabilitiesKnown &&
       _serverCapabilities.contains(ServerContract.communityAccountCapability);
 
-  /// `/server/version` 의 report_taxonomy 로 확인한 값(2026-10-11, Astra #5).
+  /// `/server/version` 의 report_taxonomy 로 확인한 값(2026-10-11, Astra 검토 항목 5).
   /// null = 아직 확인 전 — 실제로 구서버라고 확인되기 전까지는 5분류로 보고 평소대로 안전신고·
   /// 생활불편을 조회한다(연결 초기 짧은 창 동안 기존 동작을 바꾸지 않는다, `onGatePassed` 가
   /// 탭이 뜨기 전에 먼저 확인한다). 확인해서 구서버로 밝혀지면 그 뒤로는 3분류로 본다.
@@ -138,7 +139,7 @@ class ReportProvider with ChangeNotifier {
       _appMode == AppMode.standalone ||
       (_serverSupportsFiveCategoriesKnown ?? true);
 
-  /// [refreshServerTaxonomySupport] 진행 중인 확인을 공유한다(Astra #5-A, 중복 요청 금지).
+  /// [refreshServerTaxonomySupport] 진행 중인 확인을 공유한다(Astra 검토 항목 5-A, 중복 요청 금지).
   /// 서버·모드가 바뀌면 [_forgetServerTaxonomySupport] 가 버린다 — 늦게 끝난 이전 연결의 확인이
   /// 새 연결의 호출과 섞이지 않는다.
   Future<void>? _taxonomyLoadFuture;
@@ -154,7 +155,7 @@ class ReportProvider with ChangeNotifier {
   /// `/server/version` 으로 서버의 report_taxonomy 를 확인해 저장한다(Client 모드만 의미 있음).
   /// 조회 자체가 실패하면(네트워크 오류 등) 이전 값을 유지한다 — 일시적 실패로 알던 서버가
   /// 갑자기 구서버로 보이면 안 된다. 같은 연결에 대해 이미 진행 중인 확인이 있으면 그 Future 를
-  /// 그대로 돌려줘 중복 요청을 보내지 않는다(Astra #5-A).
+  /// 그대로 돌려줘 중복 요청을 보내지 않는다(Astra 검토 항목 5-A).
   Future<void> refreshServerTaxonomySupport() {
     if (_appMode != AppMode.server || _baseUrl.isEmpty || _apiKey.isEmpty) {
       return Future.value();
@@ -179,7 +180,7 @@ class ReportProvider with ChangeNotifier {
       apiKey: apiKey,
     );
     // 늦게 도착한 이전 연결의 응답이 그 사이 바뀐 지금 연결의 분류 지원 여부를 덮지 않게, 적용
-    // 직전에 요청 당시 epoch·baseUrl·apiKey 가 지금과 같은지 다시 확인한다(Astra #5-B, 신규 회귀).
+    // 직전에 요청 당시 epoch·baseUrl·apiKey 가 지금과 같은지 다시 확인한다(Astra 검토 항목 5-B, 신규 회귀).
     if (epoch != _datasetEpoch ||
         _baseUrl != baseUrl ||
         _apiKey != apiKey ||
@@ -194,7 +195,7 @@ class ReportProvider with ChangeNotifier {
     }
   }
 
-  /// 안전신고·생활불편 요청 전 공통 게이트(Astra #5-A). 능력이 아직 미확인이면 같은 연결에 대한
+  /// 안전신고·생활불편 요청 전 공통 게이트(Astra 검토 항목 5-A). 능력이 아직 미확인이면 같은 연결에 대한
   /// 확인을 먼저 기다린다 — [refreshServerTaxonomySupport] 자체가 진행 중인 확인을 공유하므로
   /// 안전신고·생활불편을 동시에 요청해도 확인은 한 번만 나간다. 확인 뒤 구서버로 밝혀졌으면
   /// true(요청 자체를 건너뛴다). 확인이 실패해 그래도 미확인이면 false — 호출자가 평소대로
@@ -212,10 +213,10 @@ class ReportProvider with ChangeNotifier {
   }
 
   /// `ApiService.getReportsPage` 가 안전신고·생활불편 요청에 400(Invalid category)으로 실패했는지
-  /// 판별해 구서버로 확정한다(Astra #5-A). `getReportsPage` 는 상태코드를 그대로 담아
+  /// 판별해 구서버로 확정한다(Astra 검토 항목 5-A). `getReportsPage` 는 상태코드를 그대로 담아
   /// `'페이지 조회 실패: $statusCode'` 를 던진다 — 그 외 오류(네트워크 오류 등)는 구서버 판정에
   /// 쓰지 않는다. 확인 대기 중 연결이 바뀌었으면(epoch·baseUrl·apiKey) 지금 연결에 적용하지 않는다
-  /// (Astra #5-B 와 같은 보호).
+  /// (Astra 검토 항목 5-B 와 같은 보호).
   bool _markLegacyCategoryIfRejected(
     String category,
     Object error, {
@@ -238,7 +239,7 @@ class ReportProvider with ChangeNotifier {
   }
 
   /// `getReportsPage` 를 부르고, 안전신고·생활불편이 구서버 400 으로 거부되면 빈 페이지로 바꾼다
-  /// (Astra #5-A). 다른 오류는 그대로 올린다. [_readServerPageOwned]·[resolveReportCategory] 공용.
+  /// (Astra 검토 항목 5-A). 다른 오류는 그대로 올린다. [_readServerPageOwned]·[resolveReportCategory] 공용.
   Future<({List<Report> reports, int total})> _getReportsPageLegacyAware(
     String category, {
     required int offset,
@@ -436,7 +437,7 @@ class ReportProvider with ChangeNotifier {
     // The canonical server has category pages, but no single-report lookup.
     // This rare, explicit navigation fallback holds at most one 200-row page.
     for (final category in _kCoreCategories) {
-      // 구서버(Astra #5-A)는 안전신고·생활불편을 모른다 — 확인하고 건너뛴다.
+      // 구서버(Astra 검토 항목 5-A)는 안전신고·생활불편을 모른다 — 확인하고 건너뛴다.
       if (await _shouldSkipLegacyOnlyCategory(category)) continue;
       var offset = 0;
       while (epoch == _datasetEpoch) {
@@ -617,24 +618,25 @@ class ReportProvider with ChangeNotifier {
     final discovered = <String>[];
     var hasEmptyLaw = false;
 
+    void collectValue(String value) {
+      final laws = readLaws(value);
+      if (laws.isEmpty || value == kEmptyLawFilterValue) {
+        hasEmptyLaw = true;
+      } else {
+        for (final law in laws) {
+          if (seen.add(law)) discovered.add(law);
+        }
+      }
+    }
+
     void collect(Iterable<Report> reports) {
       for (final report in reports) {
-        final law = report.law.trim();
-        if (law.isEmpty) {
-          hasEmptyLaw = true;
-          continue;
-        }
-        if (!seen.add(law)) continue;
-        discovered.add(law);
+        collectValue(report.law);
       }
     }
 
     for (final law in _filterLaws) {
-      if (law.isEmpty || law == kEmptyLawFilterValue) {
-        hasEmptyLaw = true;
-      } else if (seen.add(law)) {
-        discovered.add(law);
-      }
+      collectValue(law);
     }
     collect(_trafficReports);
     collect(_parkingReports);
@@ -642,7 +644,7 @@ class ReportProvider with ChangeNotifier {
     collect(_livingReports);
     collect(_otherReports);
 
-    final selectedLaw = _filter.law.trim();
+    final selectedLaw = canonicalLaw(_filter.law.trim());
     if (selectedLaw == kEmptyLawFilterValue) {
       hasEmptyLaw = true;
     } else if (selectedLaw.isNotEmpty && seen.add(selectedLaw)) {
@@ -1017,7 +1019,7 @@ class ReportProvider with ChangeNotifier {
           } catch (_) {}
         }
       } else {
-        // 안전신고·생활불편 탭이 뜨기 전에 구서버(3분류) 여부를 먼저 안다(Astra #5).
+        // 안전신고·생활불편 탭이 뜨기 전에 구서버(3분류) 여부를 먼저 안다(Astra 검토 항목 5).
         await refreshServerTaxonomySupport();
         fetchWatchlistNumbers();
         fetchAppConfig();
@@ -1133,7 +1135,7 @@ class ReportProvider with ChangeNotifier {
   /// 실제 계정·DB 교체 세대 — Client 서버 설정 변경([setConfig]), Standalone 계정·데모 전환
   /// ([setStandaloneConfig]), 로그아웃([resetConfig])에서만 올라간다. 표시 필터 변경([setStandaloneFilter])
   /// 으로는 올라가지 않는다 — Standalone 초기화 다시 불러오기의 scope·scopeGeneration(`main.dart`
-  /// `standaloneRebuild`·`standaloneRebuildScope`)이 이 값을 본다(Astra 재검수2 #4).
+  /// `standaloneRebuild`·`standaloneRebuildScope`)이 이 값을 본다(Astra 재검수2 검토 항목 4).
   /// DB 복원·서버 DB 가져오기는 여기 얹지 않는다 — `CommunityStore.rotateDataset` 이 돌리는
   /// `local_dataset_id` 자체가 바뀌어 CommunityRebuild 의 scope 비교가 이미 따로 잡아낸다.
   int accountConfigEpoch = 0;
@@ -1483,8 +1485,8 @@ class ReportProvider with ChangeNotifier {
     ReportFilter? searchFilter,
     bool Function()? isCancelled,
   }) async {
-    // 구서버(3분류, Astra #5) 는 안전신고·생활불편 엔드포인트가 없다(400). 안전신고·생활불편은
-    // 구서버에서 원래 '기타'에 있었으므로 — 미확인이면 먼저 확인을 기다리고(Astra #5-A), 구서버로
+    // 구서버(3분류, Astra 검토 항목 5) 는 안전신고·생활불편 엔드포인트가 없다(400). 안전신고·생활불편은
+    // 구서버에서 원래 '기타'에 있었으므로 — 미확인이면 먼저 확인을 기다리고(Astra 검토 항목 5-A), 구서버로
     // 확정되면 요청 자체를 보내지 않고 빈 목록으로 본다.
     if (searchFilter == null && await _shouldSkipLegacyOnlyCategory(category)) {
       return (reports: const <Report>[], total: 0);

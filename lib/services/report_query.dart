@@ -1,3 +1,4 @@
+import 'law_values.dart';
 import '../models/report_filter.dart';
 import 'report_filter_spec.dart';
 import 'report_policy.dart';
@@ -10,7 +11,11 @@ class ReportQuery {
   final clauses = <String>[];
   final args = <Object?>[];
   String get where => clauses.isEmpty ? '1=1' : clauses.join(' AND ');
-  ReportQuery(ReportFilter f, {required String agencyExpression}) {
+  ReportQuery(
+    ReportFilter f, {
+    required String agencyExpression,
+    List<String>? lawValues,
+  }) {
     void text(String column, String query) {
       final clause = ReportFilterSpec.sqlText(column, query, args);
       if (clause != null) clauses.add(clause);
@@ -38,7 +43,9 @@ class ReportQuery {
       );
       args.addAll(f.ratings);
     }
-    final law = ReportFilterSpec.sqlLaw('위반법규', f.law, args);
+    final law = lawValues == null
+        ? ReportFilterSpec.sqlLaw('위반법규', f.law, args)
+        : lawSqlValues('위반법규', lawValues);
     if (law != null) clauses.add(law);
     if (f.statuses.isNotEmpty) {
       final status = ReportPolicy.sqlNorm('처리상태');

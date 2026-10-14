@@ -3,29 +3,29 @@ import 'package:unorm_dart/unorm_dart.dart' as unorm;
 import 'law_recognition_data.dart';
 
 typedef LawMap = Map<String, dynamic>;
-final _entity = RegExp(r'&(?:#[xX][0-9a-fA-F]+|#\d+|[a-zA-Z]+);');
+final _entity = lawRegex(r'&(?:#[xX][0-9a-fA-F]+|#\d+|[a-zA-Z]+);');
 String decodeLawEntities(String text) => text.replaceAllMapped(
   _entity,
   (m) => html.parseFragment(m[0]!).text ?? m[0]!,
 );
 String normalizeLawText(String text) => unorm
     .nfkc(decodeLawEntities(text))
-    .replaceAll(RegExp(r'\s', unicode: true), '');
-final lawNames = RegExp(
+    .replaceAll(lawRegex(r'[\s\u0085\u001c-\u001f]', unicode: true), '');
+final lawNames = lawRegex(
   (lawAliases.keys.toList()..sort((a, b) => b.length.compareTo(a.length)))
       .map(RegExp.escape)
       .join('|'),
   unicode: true,
 );
-final _article = RegExp(lawArticlePattern, unicode: true);
-final _short = RegExp(lawShortPattern, unicode: true);
-final _annex = RegExp(r'별표\s*(?:제)?(?<n>\d+)', unicode: true);
-final _reference = RegExp(
+final _article = lawRegex(lawArticlePattern, unicode: true);
+final _short = lawRegex(lawShortPattern, unicode: true);
+final _annex = lawRegex(r'별표\s*(?:제)?(?<n>\d+)', unicode: true);
+final _reference = lawRegex(
   r'''(같은법|동법|(?<![가-힣])법)(시행령|시행규칙)?[」』】\]"”’']*''',
   unicode: true,
 );
-final _quotes = RegExp(r'''[「」『』【】\[\]"“”’‘']*''', unicode: true);
-final _connector = RegExp(r'(?:및|,|、|와|과|또는)+', unicode: true);
+final _quotes = lawRegex(r'''[「」『』【】\[\]"“”’‘']*''', unicode: true);
+final _connector = lawRegex(r'(?:및|,|、|와|과|또는)+', unicode: true);
 const _articleFields = ['a', 'sub', 'p', 'i', 'isub', 'l'];
 RegExpMatch? _at(RegExp re, String s, int pos) =>
     re.matchAsPrefix(s, pos) as RegExpMatch?;
@@ -33,7 +33,7 @@ RegExpMatch? _at(RegExp re, String s, int pos) =>
 ({String text, List<List<int>> mapping}) normalizedLawCopy(String text) {
   final out = StringBuffer();
   final mapping = <List<int>>[];
-  final tokens = RegExp(
+  final tokens = lawRegex(
     r'&(?:#[xX][0-9a-fA-F]+|#\d+|[a-zA-Z]+);|.',
     dotAll: true,
     unicode: true,
@@ -42,7 +42,8 @@ RegExpMatch? _at(RegExp re, String s, int pos) =>
     final folded = unorm.nfkc(decodeLawEntities(m[0]!));
     for (final rune in folded.runes) {
       final char = String.fromCharCode(rune);
-      if (RegExp(r'\s', unicode: true).hasMatch(char) || '·ㆍ･・ᆞ'.contains(char)) {
+      if (lawRegex(r'[\s\u0085\u001c-\u001f]', unicode: true).hasMatch(char) ||
+          '·ㆍ･・ᆞ\ufeff'.contains(char)) {
         continue;
       }
       out.write(char);
@@ -65,7 +66,7 @@ String _key(String law, LawMap g) =>
   final refs = <LawMap>[];
   final covered = <List<int>>[];
   final pending = <LawMap>[];
-  final plates = RegExp(
+  final plates = lawRegex(
     r'(?<!\d)\d{2,3}[가-힣][\d*]{2,4}',
     unicode: true,
   ).allMatches(t).map((m) => [m.start, m.end]).toList();
@@ -99,14 +100,14 @@ String _key(String law, LawMap g) =>
     var pos = n.end;
     final end = ni + 1 < names.length ? names[ni + 1].start : t.length;
     final nameSpan = source(n.start, n.end);
-    final sf = _at(RegExp(r'(시행령|시행규칙)'), t, pos);
+    final sf = _at(lawRegex(r'(시행령|시행규칙)'), t, pos);
     if (sf != null) {
       law += ' ${sf[0]}';
       pos = sf.end;
     }
     for (var i = 0; i < 2; i++) {
       pos = _at(_quotes, t, pos)!.end;
-      final q = _at(RegExp(r'\((?:약칭|이하같음|경찰청지침)\)'), t, pos);
+      final q = _at(lawRegex(r'\((?:약칭|이하같음|경찰청지침)\)'), t, pos);
       if (q != null) pos = q.end;
     }
     RegExpMatch? a = _at(_article, t, pos);
@@ -158,7 +159,7 @@ String _key(String law, LawMap g) =>
         }
         pos = a.end;
         lastFinish = pos;
-        if (_at(RegExp(r'(?:부터|내지|~|∼|～)'), t, pos) != null) {
+        if (_at(lawRegex(r'(?:부터|내지|~|∼|～)'), t, pos) != null) {
           pending.add({
             'type': 'range_not_expanded',
             'span': source(a.start, a.end),
@@ -192,7 +193,7 @@ String _key(String law, LawMap g) =>
       if (found.isEmpty) break;
       final rr = found.first;
       final gap = t.substring(lastFinish, rr.start);
-      if (RegExp(
+      if (lawRegex(
         r'[「『][^」』]{2,100}(?:법|법률|조례|고시)[」』]',
         unicode: true,
       ).hasMatch(gap)) {
@@ -220,7 +221,10 @@ String _key(String law, LawMap g) =>
     }
   }
   // A paragraph-only reference inherits only the sole local law/article.
-  for (final block in RegExp(r'.+?(?=\n\s*\n|$)', dotAll: true).allMatches(s)) {
+  for (final block in lawRegex(
+    r'.+?(?=\n\s*\n|$)',
+    dotAll: true,
+  ).allMatches(s)) {
     final parents = refs
         .where(
           (r) =>
@@ -236,7 +240,7 @@ String _key(String law, LawMap g) =>
         )
         .toSet();
     if (identities.length != 1) continue;
-    for (final m in RegExp(r'제\s*(\d+)\s*항(?=에)').allMatches(block[0]!)) {
+    for (final m in lawRegex(r'제\s*(\d+)\s*항(?=에)').allMatches(block[0]!)) {
       final span = [block.start + m.start, block.start + m.end];
       if (parents.any(
         (r) => r['source_span'][0] <= span[0] && span[0] < r['source_span'][1],
@@ -262,7 +266,7 @@ String _key(String law, LawMap g) =>
       });
     }
   }
-  for (final m in RegExp(r'\[별표\](\d+)호([가-하])목').allMatches(t)) {
+  for (final m in lawRegex(r'\[별표\](\d+)호([가-하])목').allMatches(t)) {
     final span = source(m.start, m.end);
     final before = refs.where((r) => r['source_span'][1] <= span[0]).toList();
     if (before.isEmpty) continue;
@@ -271,7 +275,7 @@ String _key(String law, LawMap g) =>
           (a['source_span'][1] as int).compareTo(b['source_span'][1] as int),
     );
     final parent = before.last;
-    if (RegExp(
+    if (lawRegex(
       r'[。!?]|[다요]\.|\n\s*\n',
     ).hasMatch(s.substring(parent['source_span'][1] as int, span[0]))) {
       continue;
@@ -323,4 +327,13 @@ String _key(String law, LawMap g) =>
     });
   }
   return (refs: unique.values.toList(), pending: pending);
+}
+
+final _regexCache = <String, RegExp>{};
+RegExp lawRegex(String pattern, {bool unicode = false, bool dotAll = false}) {
+  final key = '$unicode|$dotAll|$pattern';
+  return _regexCache.putIfAbsent(
+    key,
+    () => RegExp(pattern, unicode: unicode, dotAll: dotAll),
+  );
 }

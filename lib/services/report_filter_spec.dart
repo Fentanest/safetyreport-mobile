@@ -1,3 +1,4 @@
+import 'law_values.dart';
 import 'report_policy.dart';
 
 /// 신고 목록 필터의 의미(EO R-02). 서버 `services/report_filter_spec.py`·웹 `list-predicates.js` 와 같고,
@@ -79,8 +80,7 @@ class ReportFilterSpec {
 
   static bool matchesLaw(Object? value, String law) {
     if (law.isEmpty) return true;
-    final text = ReportPolicy.norm(value);
-    return law == emptyLaw ? text.isEmpty : text == ReportPolicy.norm(law);
+    return matchesLaws(value, law);
   }
 
   // ── SQL(SQLite) ─────────────────────────────────────────────────────

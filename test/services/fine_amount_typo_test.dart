@@ -141,6 +141,6 @@ void main() {
     final r = Map<String, dynamic>.from(vectors['cases'][0]['record'] as Map);
     expect(fine.correctedFineText('과태료: 40,0000원', r), '과태료: 40,000원');
     expect(fine.correctedFineText('과태료: 400,000원', r), isNull);
-    expect(mobileParserVersion, 'mobile-parser-8');
+    expect(mobileParserVersion, 'mobile-parser-9');
   });
 }

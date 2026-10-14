@@ -2,6 +2,7 @@ import '../models/report.dart';
 import 'report_category.dart' as report_category;
 import 'fine_estimate.dart' as fine_estimate;
 import 'fine_amount_syntax.dart';
+import 'case_fine_supplement.dart';
 
 // ── 상수 ─────────────────────────────────────────────────────────────────────
 
@@ -427,6 +428,12 @@ Report parseJsonToReport(
     penaltyAmount = '';
     penaltyPoints = '';
   }
+
+  (processingStatus, penaltyAmount) = supplementCaseFine(
+    processingStatus,
+    penaltyAmount,
+    processingContent,
+  );
 
   // ── 첨부파일 ─────────────────────────────────────────────────────────────
   var mapImage = '';

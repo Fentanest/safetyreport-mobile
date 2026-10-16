@@ -208,7 +208,13 @@ class MaintenanceService {
     try {
       final capture = await collectPhotoCapture(photos, fetch: fetch);
       if (capture == null) return false;
-      if (!await LocalDbService.setPhotoCapture(id, capture)) return false;
+      if (!await LocalDbService.setPhotoCapture(
+        id,
+        capture,
+        attachedPhotos: photos,
+      )) {
+        return false;
+      }
     } catch (_) {
       return false;
     }

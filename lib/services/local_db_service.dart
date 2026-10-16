@@ -1082,7 +1082,15 @@ class LocalDbService {
 
   /// 촬영 시각을 저장한다(아직 비어 있을 때만). 사이트 원본이 아니라 계산값이라 변경 알림·synced_at 과 무관.
   /// 실제로 저장했으면 true(PC `fill_one` 의 rowcount 검사와 같음).
-  static Future<bool> setPhotoCapture(String id, PhotoCapture capture) async {
+  ///
+  /// [attachedPhotos] = 촬영 시각을 읽은 첨부 원문. 지금 행의 첨부가 그것과 같을 때만 쓴다 — 네트워크를 기다리는 동안
+  /// DB 복원·재동기화로 첨부가 바뀌었으면 다른 사진의 촬영 정보를 저장하게 되므로 버린다(PC `fill_one`, 기술일지 A2-02).
+  /// 다음 훑기에서 새 첨부로 다시 시도한다.
+  static Future<bool> setPhotoCapture(
+    String id,
+    PhotoCapture capture, {
+    required String attachedPhotos,
+  }) async {
     final d = await db;
     final n = await d.update(
       'reports',
@@ -1091,8 +1099,8 @@ class LocalDbService {
         '사진_끝촬영': capture.last,
         '사진_촬영수': capture.count,
       },
-      where: 'ID = ? AND 사진_촬영수 IS NULL',
-      whereArgs: [id],
+      where: 'ID = ? AND 사진_촬영수 IS NULL AND 첨부사진 = ?',
+      whereArgs: [id, attachedPhotos],
     );
     if (n > 0) invalidateCaches();
     return n > 0;

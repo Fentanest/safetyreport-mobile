@@ -428,6 +428,36 @@ void main() {
       expect(downloads, 3);
     });
 
+    test('읽는 동안 첨부가 바뀌면 다른 사진의 촬영 시각을 저장하지 않는다(PC fill_one 과 같음)', () async {
+      await seed();
+      final refreshed = <String>[];
+      MaintenanceService.refreshSharedEstimateForTest = (id) async =>
+          refreshed.add(id);
+      Future<String?> swapDuringFetch(String url) async {
+        // 네트워크를 기다리는 동안 재동기화가 신고 1의 첨부를 새 사진으로 바꾼 상황.
+        final d = await LocalDbService.db;
+        await d.update(
+          'reports',
+          {'첨부사진': 'https://x/new.jpg'},
+          where: 'ID = ?',
+          whereArgs: ['1'],
+        );
+        return fetchTimes(url);
+      }
+
+      expect(
+        await MaintenanceService.backfillMissing(fetch: swapDuringFetch),
+        1,
+      );
+      expect((await _row('1'))['사진_촬영수'], isNull);
+      expect(refreshed, ['2']);
+      // 다음 훑기에서 새 첨부로 다시 시도한다.
+      expect(
+        (await LocalDbService.pendingPhotoRows()).map((r) => r.photos),
+        ['https://x/new.jpg'],
+      );
+    });
+
     test('재시도 의도 기록까지 실패해도 촬영 시각은 남는다', () async {
       await seed();
       MaintenanceService.refreshSharedEstimateForTest = (_) async =>

@@ -636,7 +636,7 @@ PC는 `services/fine_estimate.py`, 모바일은 `lib/services/fine_estimate.dart
 | 판정 입력 | category, entry_value, ssnpc_cd, ssnpc_type, 신고명, 위반법규, 차량번호, 사진_첫촬영, 사진_끝촬영, 발생시각을 함께 넘긴다. 모바일 Report 변환은 fineRecordForReport가 정본이다. |
 | 코드 우선순위 | 분류 코드가 있으면 메뉴보다 우선한다. 일반 주정차 메뉴 + EP-03은 fire_lane 500000원, 코드가 없으면 parking 40000원이다. 통계·업로드·목록/상세·추정 금액 내보내기 모두 같다. |
 | 규칙 버전 | 양쪽 RULE_VERSION/ruleVersion은 2026-10-13.2. 파서 버전은 pc-parser-7/mobile-parser-7을 유지한다. 공유 벡터와 커뮤니티 계약 벡터·MANIFEST도 함께 변경한다. |
-| 재전송 범위 | PC `_backfill_payload`, 모바일 `refreshFineEstimate`는 journal의 `amount`를 보존하고 `fine_estimate`만 재계산한다. 버전 상승만으로 과거 공유 확정 금액을 보정하지 않는다. PC의 종전 “로컬 값으로 payload를 만든다”는 설명을 이 코드에 맞춰 정정한다. |
+| 재전송 범위 | PC `_backfill_payload`, 모바일 `refreshFineEstimate`는 journal의 `amount`를 보존하고 `fine_estimate`만 재계산한다. 버전 상승만으로 과거 공유 확정 금액을 보정하지 않는다. PC의 종전 “로컬 값으로 payload를 만든다”는 설명을 이 코드에 맞춰 정정한다. 2026-10-16: 추정 판정은 일반 캡처와 같은 `estimateIfUnknown` 을 개인 DB 현재 원문(범칙금_과태료·위반법규 포함)에 적용하되, 그 원문의 지금 금액 판정(confirmed_won·kind·disposition)이 journal 과 같을 때만 — 아래 "재전송·사진 보충의 추정 판정" 절. |
 | 저장·표시·내보내기 | DB와 내보내기의 확정 원문은 보존한다. 목록/상세만 해석한 보정값을 쓰고, 상세에만 원문 보조를 붙인다. 미확인 금액의 추정은 같은 상세 줄에서 별도로 표시한다. |
 
 추정 과태료 업로드는 아직 미릴리스다. 코드 우선 적용으로 추정액·payload 해시가 바뀌는 범위는 있지만,
@@ -653,12 +653,34 @@ PC는 `services/fine_estimate.py`, 모바일은 `lib/services/fine_estimate.dart
 
 재전송은 발급 트랜잭션 안에서 같은 로컬 데이터셋·신고의 `source_revision`이 가장 큰 journal payload를 읽는다.
 재공유로 계정별 과거 이력이나 `report_latest` 포인터가 달라도 최신 관측이 기준이다.
-개인 DB에서는 ID와 추정 입력(접수 메뉴·분류 코드·차량번호·사진 시각·발생시각·신고명)만 읽는다.
-법규는 journal payload를 사용하고, **`fine_estimate` 이외의 payload 필드와 신고번호는 그대로 보존**한다.
+개인 DB에서는 ID와 추정 입력(접수 메뉴·분류 코드·차량번호·사진 시각·발생시각·신고명, 2026-10-16부터 범칙금_과태료 원문·위반법규 포함)만 읽는다.
+**`fine_estimate` 이외의 payload 필드와 신고번호는 그대로 보존**한다(2026-10-16 이전에는 법규도 journal payload 를 썼다 — 아래 절로 정정).
 확정 금액이 있거나 과태료가 아니거나 추정 규칙이 없으면 추정 필드를 제거한다.
 동일 payload면 계정 문맥이 달라도 새 이벤트를 만들지 않고, `detail_status`의 상태·관측 시각도 갱신하지 않는다.
 `personal_save_state`가 pending/failed여도 보충을 허용하며, 개인 DB의 과태료 문구로 후보를 제한하지 않는다.
 동의·계정 문맥·삭제 차단·기존 커서와 완료 표시는 유지한다. 스키마·개인 DB 원문은 변경하지 않는다.
+
+
+### 재전송·사진 보충의 추정 판정 (2026-10-16, PC와 1:1)
+
+- `refreshFineEstimate`(PC `_backfill_payload`)는 `buildPayload` 와 같은 추정 레코드(`_fineRecord`, category 는 분류 코드·접수 메뉴로 계산)와
+  같은 `estimateIfUnknown` 을 개인 DB 현재 행에 적용한다. 위반법규는 어댑터 단계에서 `primaryLaw` 로 대표 법규만 고른다(`adapterInputFromResendRow`,
+  일반 캡처는 `buildAdapterInput` — PC `build_adapter_input` 과 같은 호출 지점. `buildPayload` 는 계약 벡터대로 정리·60자 자르기만 한다).
+- 단, 개인 원문을 지금 규칙으로 읽은 `(confirmed_won, kind, disposition)` 이 journal 최신 payload 와 같을 때만 적용한다. 다르면(개인 저장 지연,
+  금액표 보정으로 확정 금액이 새로 읽힘) 추정을 싣지 않고 기존 추정을 걷어 낸다. 예: 일반 주정차 + 제32조 + `과태료: 120,0000원` 의 옛 journal(추정
+  40,000/2026-10-13.1)은 추정을 걷어 내고 새 규칙 버전 추정을 붙이지 않는다. `과태료 40,000원`·`과태료: 40,000원(감경…)` 은 추정 없음,
+  `과태료: 0원`·`범칙금 및 과태료 처분`·`경고 및 과태료 부과` 는 일반 캡처처럼 추정 있음. 공통 사례 `test/fixtures/community_backfill_vectors.json`(PC와 바이트 동일).
+- 재전송은 journal 금액(`amount`)을 보존한다는 결정은 그대로다. 확정 금액 갱신은 다음 실시간 상세 수집이 맡고, 그 전까지는 추정 없이 남는다.
+- 재전송 관측은 PC 와 같이 `personal_save_state='saved'` 로 표시한다.
+- 사진 보충(`MaintenanceService._fillOne`)은 촬영 시각을 저장한 뒤 `refreshFineEstimateFor(id)` 로 그 신고의 공유 추정만 다시 계산한다(PC `photo_capture_time.fill_one`
+  과 같은 자리, 재전송 완료 표시와 무관). 공유 캡처가 실패해도 촬영 시각은 남기고 `SyncEngine.queueCaptureRetry(id, 'photo_backfill_capture_failed')` 로 S-03 재시도
+  의도에 넣어 다음 증분 동기화가 공식 상세를 다시 읽게 한다. 삭제(`deleted_by_user`)된 관측은 기존 capture 의 삭제 차단으로 되살리지 않는다.
+
+| 종전 | 현재 |
+|---|---|
+| 추정은 journal `amount.kind=='fine'` 이고 `confirmed_won==null` 일 때, 법규는 journal | 일반 캡처와 같은 함수를 개인 원문에, journal 금액 판정과 같을 때만 |
+| 사진 보충은 촬영 시각만 저장(공유 추정 갱신 없음 — PC와 달랐음) | 저장 뒤 그 신고의 공유 추정 갱신, 실패 시 재시도 의도 |
+| `buildPayload` 안에서 `primaryLaw` 호출(계약 벡터 실패) | `buildAdapterInput`·`adapterInputFromResendRow` 에서 호출 |
 
 중복차량 조회의 `normalize_plate` 보조 SQLite 연결은 DB 경로·SQL·인자만 전달한 별도 isolate에서
 열기·정규화·조회·행 변환·닫기를 수행한다. 실패 때도 닫으며 호출자의 DB 수명 보호가 작업 완료까지 유지된다.

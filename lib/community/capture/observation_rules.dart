@@ -4,8 +4,6 @@
 // PC `services/parser.py` → 어댑터 입력 키와 같은 의미다.
 library;
 
-import '../../services/law_values.dart';
-
 import '../../services/fine_estimate.dart' as fine_estimate;
 import '../../services/report_category.dart' as report_category;
 
@@ -169,17 +167,17 @@ bool _isValidDate(String cand) {
 }
 
 /// 금액 확정 규칙. (kind, confirmedWon) — kind 는 문법 불일치여도 앞머리로 판정.
+///
+/// 계약(observation.md §3): 앞머리 `범칙금` → penalty, `과태료` → fine, 그 밖 → unknown.
+/// `combined` 는 예약값이라 만들지 않는다(PC `_parse_amount` 와 같음, 2026-10-16). 예전 모바일은 두 낱말이
+/// 함께 있으면 combined 를 냈다 — 그 journal 은 [refreshFineEstimate] 가 [isLegacyCombinedKind] 로 같은 판정으로 본다.
 ({String kind, int? confirmedWon}) parseAmount(
   Object? value, [
   Map<String, dynamic>? record,
 ]) {
   final raw = value is String ? value.trim() : '';
-  final hasPenalty = raw.contains('범칙금');
-  final hasFine = raw.contains('과태료');
   final String kind;
-  if (hasPenalty && hasFine) {
-    kind = 'combined';
-  } else if (raw.startsWith('범칙금')) {
+  if (raw.startsWith('범칙금')) {
     kind = 'penalty';
   } else if (raw.startsWith('과태료')) {
     kind = 'fine';
@@ -271,11 +269,12 @@ double? parseGeoDouble(Object? value) {
 
 /// fine_estimate(observation-v5(fine_estimate 추가), 2026-10-12): 추정 과태료. local_statistics.dart 가
 /// '추정 대상'(과태료 처분인데 금액을 못 읽음)으로 세는 조건과 같은 입력으로
-/// `fine_estimate.classify`/`estimate` 를 그대로 호출한다(판정 로직을 여기서 다시 만들지 않음).
-/// 대상이 아니거나 규칙이 없으면 null(호출자가 키 자체를 뺀다 — null 로 넣지 않음).
-Map<String, dynamic> _fineRecord(Map<String, Object?> input) => {
-  'category': input['category'],
-  'entry_value': input['entry_value'],
+/// `fine_estimate.estimateIfUnknown` 을 그대로 호출한다(판정 로직을 여기서 다시 만들지 않음).
+/// 일반 캡처([buildPayload])와 재전송·사진 보충([refreshFineEstimate])이 같은 레코드를 만든다
+/// (PC community_capture._fine_record 와 같음 — category 는 분류 코드·접수 메뉴로 계산한 값).
+Map<String, dynamic> _fineRecord(Map<String, Object?> input, String category) => {
+  'category': category,
+  'entry_value': input['entry_value'] is String ? input['entry_value'] : '',
   'ssnpc_cd': input['ssnpc_cd'],
   'ssnpc_type': input['ssnpc_type'],
   '신고명': input['report_name'],
@@ -286,9 +285,18 @@ Map<String, dynamic> _fineRecord(Map<String, Object?> input) => {
   '발생시각': input['occurrence_time'],
 };
 
-Map<String, Object?>? _fineEstimateField(Map<String, Object?> input) {
+String _inputCategory(Map<String, Object?> input) => categoryOf(
+  input['entry_value']?.toString(),
+  ssnpcCd: input['ssnpc_cd'],
+  ssnpcType: input['ssnpc_type'],
+);
+
+/// 대상이 아니거나 규칙이 없으면 null(호출자가 키 자체를 뺀다 — null 로 넣지 않음).
+Map<String, Object?>? _fineEstimateField(
+  Map<String, Object?> input,
+  Map<String, dynamic> record,
+) {
   final fineRaw = input['penalty_amount']?.toString() ?? '';
-  final record = _fineRecord(input);
   final result = fine_estimate.estimateIfUnknown(fineRaw, record);
   if (result == null) return null;
   final won = result['amount'];
@@ -303,36 +311,43 @@ Map<String, Object?>? _fineEstimateField(Map<String, Object?> input) {
   };
 }
 
-/// 재전송은 최신 관측의 추정 필드만 바꾼다. 법규도 개인 DB가 아닌 journal을 쓴다.
+/// 예전 모바일 파서가 같은 원문에서 낸 `combined`(두 낱말이 함께 있는 원문)인지. 재전송·사진 보충이 그런 journal 을
+/// 금액 판정 불일치로 보지 않게 한다(journal amount 는 보존 — 다음 실시간 수집 때만 kind 가 바뀐다).
+/// PC `_is_legacy_combined_kind` 와 같다.
+bool isLegacyCombinedKind(Object? journalKind, Object? rawAmount) {
+  final raw = rawAmount is String ? rawAmount.trim() : '';
+  return journalKind == 'combined' &&
+      raw.contains('범칙금') &&
+      raw.contains('과태료');
+}
+
+/// 재전송·사진 보충: journal 최신 payload 를 보존하고 fine_estimate 만 일반 캡처와 같은 판정으로 다시 정한다
+/// (PC community_capture._backfill_payload 와 1:1).
+///
+/// [input] 은 개인 DB 현재 행의 어댑터 입력(범칙금_과태료 원문·위반법규 포함)이다. 그 원문을 지금 규칙으로
+/// 읽은 금액 판정(amount.kind·confirmed_won, disposition)이 journal 의 것과 같을 때만 [buildPayload] 와 같은
+/// `estimateIfUnknown` 을 적용한다. 다르면(개인 저장 지연, 금액표 보정으로 확정 금액이 새로 읽힘) 추정을
+/// 싣지 않는다(PROJECT_RULES 3-2). journal 의 amount 는 바꾸지 않는다(확정 금액 갱신은 다음 실시간 수집).
 Map<String, Object?> refreshFineEstimate(
   Map<String, Object?> latestPayload,
   Map<String, Object?> input,
 ) {
   final payload = Map<String, Object?>.from(latestPayload)
     ..remove('fine_estimate');
+  final record = _fineRecord(input, _inputCategory(input));
+  final current = parseAmount(input['penalty_amount'], record);
   final amount = payload['amount'];
+  final journalStatus = payload['status']?.toString() ?? 'other';
   if (amount is! Map ||
-      amount['confirmed_won'] != null ||
-      amount['kind'] != 'fine') {
+      amount['confirmed_won'] != current.confirmedWon ||
+      (amount['kind'] != current.kind &&
+          !isLegacyCombinedKind(amount['kind'], input['penalty_amount'])) ||
+      payload['disposition'] !=
+          dispositionOf(journalStatus, input['penalty_amount'])) {
     return payload;
   }
-  final record = _fineRecord({
-    ...input,
-    'category': categoryOf(
-      input['entry_value']?.toString(),
-      ssnpcCd: input['ssnpc_cd'],
-      ssnpcType: input['ssnpc_type'],
-    ),
-    'violation_law': payload['violation_law'],
-  });
-  final result = fine_estimate.estimate(record);
-  if (result != null) {
-    payload['fine_estimate'] = {
-      'won': result['amount'],
-      'rule': result['rule'],
-      'rule_version': fine_estimate.ruleVersion,
-    };
-  }
+  final fineEstimate = _fineEstimateField(input, record);
+  if (fineEstimate != null) payload['fine_estimate'] = fineEstimate;
   return payload;
 }
 
@@ -345,7 +360,9 @@ Map<String, Object?> buildPayload(Map<String, Object?> input) {
   final statusRaw = cleanString(input['processing_status'], 40);
   final status = mapStatus(statusRaw);
   final eligible = isEligibleStatus(status);
-  final amount = parseAmount(input['penalty_amount'], _fineRecord(input));
+  final category = _inputCategory(input);
+  final fineRecord = _fineRecord(input, category);
+  final amount = parseAmount(input['penalty_amount'], fineRecord);
   final reportDate = parseDay(input['report_date']);
   final responseDay = parseDay(input['response_date']);
   final completedDate = eligible ? responseDay : null;
@@ -383,11 +400,7 @@ Map<String, Object?> buildPayload(Map<String, Object?> input) {
       'kind': amount.kind,
       'penalty_points': parsePenaltyPoints(input['penalty_points']),
     },
-    'category': categoryOf(
-      input['entry_value']?.toString(),
-      ssnpcCd: input['ssnpc_cd'],
-      ssnpcType: input['ssnpc_type'],
-    ),
+    'category': category,
     'completed_date': completedDate,
     'disposition': dispositionOf(status, input['penalty_amount']),
     'location': location,
@@ -396,7 +409,7 @@ Map<String, Object?> buildPayload(Map<String, Object?> input) {
     'status': status,
     'status_raw': statusRaw,
     'vehicle_raw': cleanString(input['car_number'], 64),
-    'violation_law': cleanString(primaryLaw(input['violation_law']), 60),
+    'violation_law': cleanString(input['violation_law'], 60),
     'rating':
         input['rating'] is int &&
             (input['rating'] as int) >= 1 &&
@@ -409,7 +422,7 @@ Map<String, Object?> buildPayload(Map<String, Object?> input) {
     'source_agency_code': payloadAgencyCode(input['agency_code']),
   };
   // observation-v5(fine_estimate 추가): 대상일 때만 키를 넣는다(null 금지, 대상 아니면 payload·해시가 바뀌지 않음).
-  final fineEstimate = _fineEstimateField(input);
+  final fineEstimate = _fineEstimateField(input, fineRecord);
   if (fineEstimate != null) {
     payload['fine_estimate'] = fineEstimate;
   }

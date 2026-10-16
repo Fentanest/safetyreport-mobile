@@ -8,6 +8,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../../services/law_values.dart';
 import '../community_store.dart';
 import 'canonical_json.dart';
 import 'observation_rules.dart';
@@ -87,7 +88,8 @@ Map<String, Object?> buildAdapterInput(
     'ssnpc_cd': ssnpcCd,
     'ssnpc_type': ssnpcType,
     'penalty_points': penaltyPoints,
-    'violation_law': violationLaw,
+    // PC build_adapter_input 과 같은 단계에서 대표 법규(첫 줄)만 고른다. buildPayload 는 정리·60자 자르기만(계약 벡터).
+    'violation_law': primaryLaw(violationLaw),
     'rating': rating,
     'geocode': geo?.toAdapterGeo(),
     'progress_status': progressStatus,

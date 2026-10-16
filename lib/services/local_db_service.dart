@@ -1060,8 +1060,8 @@ class LocalDbService {
     );
   }
 
-  /// 재전송용 추정 입력만 읽는다. 처분·확정 금액 판단은 최신 journal이 정본이므로
-  /// 개인 DB의 금액 문구로 후보를 제외하지 않는다.
+  /// 재전송·사진 보충용 추정 판정 입력만 읽는다(범칙금_과태료 원문·위반법규 포함, PC BACKFILL_PERSONAL_FIELDS).
+  /// 후보는 개인 DB의 금액 문구로 거르지 않는다 — 판정은 capture() 발급 트랜잭션에서 한다.
   static Future<List<Map<String, Object?>>> communityResendRows(
     List<String> ids,
   ) async {
@@ -1073,6 +1073,7 @@ class LocalDbService {
       columns: const [
         'ID', '신고명', '차량번호', '발생시각', 'entry_value',
         'ssnpc_cd', 'ssnpc_type', '사진_첫촬영', '사진_끝촬영',
+        '범칙금_과태료', '위반법규',
       ],
       where: 'ID IN ($placeholders)',
       whereArgs: ids,
@@ -1080,7 +1081,16 @@ class LocalDbService {
   }
 
   /// 촬영 시각을 저장한다(아직 비어 있을 때만). 사이트 원본이 아니라 계산값이라 변경 알림·synced_at 과 무관.
-  static Future<void> setPhotoCapture(String id, PhotoCapture capture) async {
+  /// 실제로 저장했으면 true(PC `fill_one` 의 rowcount 검사와 같음).
+  ///
+  /// [attachedPhotos] = 촬영 시각을 읽은 첨부 원문. 지금 행의 첨부가 그것과 같을 때만 쓴다 — 네트워크를 기다리는 동안
+  /// DB 복원·재동기화로 첨부가 바뀌었으면 다른 사진의 촬영 정보를 저장하게 되므로 버린다(PC `fill_one`, 기술일지 A2-02).
+  /// 다음 훑기에서 새 첨부로 다시 시도한다.
+  static Future<bool> setPhotoCapture(
+    String id,
+    PhotoCapture capture, {
+    required String attachedPhotos,
+  }) async {
     final d = await db;
     final n = await d.update(
       'reports',
@@ -1089,10 +1099,11 @@ class LocalDbService {
         '사진_끝촬영': capture.last,
         '사진_촬영수': capture.count,
       },
-      where: 'ID = ? AND 사진_촬영수 IS NULL',
-      whereArgs: [id],
+      where: 'ID = ? AND 사진_촬영수 IS NULL AND 첨부사진 = ?',
+      whereArgs: [id, attachedPhotos],
     );
     if (n > 0) invalidateCaches();
+    return n > 0;
   }
 
   static const preUpgradeBackupKeep = 3;

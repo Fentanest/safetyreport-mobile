@@ -16,7 +16,17 @@ import '../support/ui_harness.dart';
 /// fine_estimate_vectors.json 의 record(Korean 열 이름) → buildPayload 어댑터 입력.
 /// 금액은 고정으로 '과태료'(미확인)를 줘 늘 적격으로 만든다 — 이 테스트의 목적은 gate 가 아니라
 /// classify/estimate 결과가 payload 에 그대로 실리는지다.
+///
+/// payload 의 category(추정 판정 입력 포함)는 PC build_payload 와 같이 분류 코드·접수 메뉴로 계산한다.
+/// 그래서 분류 코드·메뉴 없이 category 만 가진 벡터 레코드는 그 category 로 분류되는 접수 메뉴를 넣는다.
+const _menuForCategory = {'traffic': '자동차·교통위반', 'parking': '불법주정차신고'};
+
 Map<String, Object?> _inputFromVectorRecord(Map<String, dynamic> record) {
+  final entryValue =
+      record['entry_value']?.toString() ??
+      (record['ssnpc_cd'] == null
+          ? _menuForCategory[record['category']] ?? ''
+          : '');
   return buildAdapterInput(
     status: '수용',
     fineInfo: '과태료',
@@ -27,7 +37,7 @@ Map<String, Object?> _inputFromVectorRecord(Map<String, dynamic> record) {
     carNumber: record['차량번호']?.toString() ?? '',
     location: '서울특별시 중구 세종대로 110',
     penaltyPoints: '',
-    entryValue: record['entry_value']?.toString() ?? '',
+    entryValue: entryValue,
     ssnpcCd: record['ssnpc_cd']?.toString(),
     ssnpcType: record['ssnpc_type']?.toString(),
     violationLaw: record['위반법규']?.toString() ?? '',

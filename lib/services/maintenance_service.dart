@@ -8,6 +8,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../community/capture/fine_estimate_resend.dart';
 import 'local_db_service.dart';
 import 'photo_capture_time.dart';
 import 'attachment_policy.dart';
@@ -183,7 +184,22 @@ class MaintenanceService {
     );
   }
 
+  /// 사진 보충 뒤 공유 캡처가 실패했을 때 남기는 재시도 의도 사유(PC `PHOTO_BACKFILL_RETRY_REASON`).
+  static const photoBackfillRetryReason = 'photo_backfill_capture_failed';
+
+  /// 테스트용: 촬영 시각 저장 뒤 공유 추정 갱신(기본 [refreshFineEstimateFor]).
+  @visibleForTesting
+  static Future<void> Function(String id)? refreshSharedEstimateForTest;
+
+  /// 테스트용: 공유 갱신 실패 때 재시도 의도 기록(기본 [SyncEngine.queueCaptureRetry]).
+  @visibleForTesting
+  static Future<void> Function(String id, String reason)? queueRetryForTest;
+
   /// 한 신고의 촬영 시각을 읽어 저장한다. 네트워크 오류면 false — 다음에 다시(서버 `photo_capture_time.fill_one`).
+  ///
+  /// 저장한 뒤 그 신고의 공유 추정(fine_estimate)만 다시 계산한다(서버와 같은 자리, 재전송 완료 표시와 무관).
+  /// 촬영 시각 저장은 공유 캡처 성공과 묶지 않는다: 캡처가 실패해도 촬영 시각은 남기고(같은 사진을 다시 받지
+  /// 않음) 재시도 의도(S-03)에 넣어 다음 증분 동기화가 공식 상세를 다시 읽어 전체 캡처하게 한다.
   static Future<bool> _fillOne(
     String id,
     String photos,
@@ -192,10 +208,35 @@ class MaintenanceService {
     try {
       final capture = await collectPhotoCapture(photos, fetch: fetch);
       if (capture == null) return false;
-      await LocalDbService.setPhotoCapture(id, capture);
-      return true;
+      if (!await LocalDbService.setPhotoCapture(
+        id,
+        capture,
+        attachedPhotos: photos,
+      )) {
+        return false;
+      }
     } catch (_) {
       return false;
+    }
+    await _refreshSharedEstimate(id);
+    return true;
+  }
+
+  static Future<void> _refreshSharedEstimate(String id) async {
+    try {
+      final refresh = refreshSharedEstimateForTest;
+      if (refresh != null) {
+        await refresh(id);
+      } else {
+        await refreshFineEstimateFor(id);
+      }
+    } catch (_) {
+      try {
+        await (queueRetryForTest ?? SyncEngine.queueCaptureRetry)(
+          id,
+          photoBackfillRetryReason,
+        );
+      } catch (_) {}
     }
   }
 
@@ -247,6 +288,8 @@ class MaintenanceService {
 
   @visibleForTesting
   static void resetForTest() {
+    refreshSharedEstimateForTest = null;
+    queueRetryForTest = null;
     photoJob.value = null;
     _running = null;
     _starting = false;

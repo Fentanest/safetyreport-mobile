@@ -167,17 +167,17 @@ bool _isValidDate(String cand) {
 }
 
 /// 금액 확정 규칙. (kind, confirmedWon) — kind 는 문법 불일치여도 앞머리로 판정.
+///
+/// 계약(observation.md §3): 앞머리 `범칙금` → penalty, `과태료` → fine, 그 밖 → unknown.
+/// `combined` 는 예약값이라 만들지 않는다(PC `_parse_amount` 와 같음, 2026-10-16). 예전 모바일은 두 낱말이
+/// 함께 있으면 combined 를 냈다 — 그 journal 은 [refreshFineEstimate] 가 [isLegacyCombinedKind] 로 같은 판정으로 본다.
 ({String kind, int? confirmedWon}) parseAmount(
   Object? value, [
   Map<String, dynamic>? record,
 ]) {
   final raw = value is String ? value.trim() : '';
-  final hasPenalty = raw.contains('범칙금');
-  final hasFine = raw.contains('과태료');
   final String kind;
-  if (hasPenalty && hasFine) {
-    kind = 'combined';
-  } else if (raw.startsWith('범칙금')) {
+  if (raw.startsWith('범칙금')) {
     kind = 'penalty';
   } else if (raw.startsWith('과태료')) {
     kind = 'fine';
@@ -311,6 +311,16 @@ Map<String, Object?>? _fineEstimateField(
   };
 }
 
+/// 예전 모바일 파서가 같은 원문에서 낸 `combined`(두 낱말이 함께 있는 원문)인지. 재전송·사진 보충이 그런 journal 을
+/// 금액 판정 불일치로 보지 않게 한다(journal amount 는 보존 — 다음 실시간 수집 때만 kind 가 바뀐다).
+/// PC `_is_legacy_combined_kind` 와 같다.
+bool isLegacyCombinedKind(Object? journalKind, Object? rawAmount) {
+  final raw = rawAmount is String ? rawAmount.trim() : '';
+  return journalKind == 'combined' &&
+      raw.contains('범칙금') &&
+      raw.contains('과태료');
+}
+
 /// 재전송·사진 보충: journal 최신 payload 를 보존하고 fine_estimate 만 일반 캡처와 같은 판정으로 다시 정한다
 /// (PC community_capture._backfill_payload 와 1:1).
 ///
@@ -330,7 +340,8 @@ Map<String, Object?> refreshFineEstimate(
   final journalStatus = payload['status']?.toString() ?? 'other';
   if (amount is! Map ||
       amount['confirmed_won'] != current.confirmedWon ||
-      amount['kind'] != current.kind ||
+      (amount['kind'] != current.kind &&
+          !isLegacyCombinedKind(amount['kind'], input['penalty_amount'])) ||
       payload['disposition'] !=
           dispositionOf(journalStatus, input['penalty_amount'])) {
     return payload;

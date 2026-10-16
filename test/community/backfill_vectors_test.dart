@@ -53,11 +53,13 @@ Map<String, Object?> _journalPayload(Map<String, dynamic> testCase) {
     _captureInput(_row(testCase, fine: testCase['journal_raw'] as String)),
   );
   final override = testCase['journal_override'] as Map<String, dynamic>;
-  if (override.containsKey('confirmed_won')) {
-    payload['amount'] = {
-      ...(payload['amount'] as Map<String, Object?>),
-      'confirmed_won': override['confirmed_won'],
-    };
+  for (final key in ['kind', 'confirmed_won']) {
+    if (override.containsKey(key)) {
+      payload['amount'] = {
+        ...(payload['amount'] as Map<String, Object?>),
+        key: override[key],
+      };
+    }
   }
   if (override.containsKey('fine_estimate')) {
     payload.remove('fine_estimate');
@@ -80,6 +82,7 @@ void main() {
       final expected = testCase['expected'] as Map<String, dynamic>;
       final captured = buildPayload(_captureInput(row));
       expect({
+        'kind': (captured['amount'] as Map)['kind'],
         'confirmed_won': (captured['amount'] as Map)['confirmed_won'],
         'disposition': captured['disposition'],
         'violation_law': captured['violation_law'],

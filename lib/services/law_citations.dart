@@ -3,14 +3,100 @@ import 'package:unorm_dart/unorm_dart.dart' as unorm;
 import 'law_recognition_data.dart';
 
 typedef LawMap = Map<String, dynamic>;
-final _entity = lawRegex(r'&(?:#[xX][0-9a-fA-F]+|#\d+|[a-zA-Z]+);');
-String decodeLawEntities(String text) => text.replaceAllMapped(
-  _entity,
-  (m) => html.parseFragment(m[0]!).text ?? m[0]!,
-);
+
+/// Explicit whitespace class shared with Python `law_citations.SPACE_CLASS`
+/// (union of Python and Dart `\s`: includes U+001C-U+001F, U+0085, U+FEFF).
+const lawSpaceClass =
+    r'[\t\n\x0b\x0c\r\x1c-\x20\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]';
+final _spaceRunes = <int>{
+  0x09,
+  0x0a,
+  0x0b,
+  0x0c,
+  0x0d,
+  0x1c,
+  0x1d,
+  0x1e,
+  0x1f,
+  0x20,
+  0x85,
+  0xa0,
+  0x1680,
+  for (var c = 0x2000; c <= 0x200a; c++) c,
+  0x2028,
+  0x2029,
+  0x202f,
+  0x205f,
+  0x3000,
+  0xfeff,
+};
+const _dotRunes = {0xb7, 0x318d, 0xff65, 0x30fb, 0x119e};
+final _entity = lawRegex(r'&(?:#[xX][0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);');
+// HTML5 numeric character reference replacements (html package / browsers).
+const _numericReplacements = <int, int>{
+  0x00: 0xfffd,
+  0x0d: 0x0d,
+  0x80: 0x20ac,
+  0x81: 0x81,
+  0x82: 0x201a,
+  0x83: 0x0192,
+  0x84: 0x201e,
+  0x85: 0x2026,
+  0x86: 0x2020,
+  0x87: 0x2021,
+  0x88: 0x02c6,
+  0x89: 0x2030,
+  0x8a: 0x0160,
+  0x8b: 0x2039,
+  0x8c: 0x0152,
+  0x8d: 0x8d,
+  0x8e: 0x017d,
+  0x8f: 0x8f,
+  0x90: 0x90,
+  0x91: 0x2018,
+  0x92: 0x2019,
+  0x93: 0x201c,
+  0x94: 0x201d,
+  0x95: 0x2022,
+  0x96: 0x2013,
+  0x97: 0x2014,
+  0x98: 0x02dc,
+  0x99: 0x2122,
+  0x9a: 0x0161,
+  0x9b: 0x203a,
+  0x9c: 0x0153,
+  0x9d: 0x9d,
+  0x9e: 0x017e,
+  0x9f: 0x0178,
+};
+
+/// One `&...;` token (semicolon required). Numeric references are decoded
+/// here with a bounded digit count (the html tokenizer throws on huge values);
+/// named references use the html parser. Mirrors Python `decode_entity`.
+String decodeLawEntity(String token) {
+  if (token.startsWith('&#')) {
+    final hex = token.length > 2 && (token[2] == 'x' || token[2] == 'X');
+    var digits = token
+        .substring(hex ? 3 : 2, token.length - 1)
+        .replaceFirst(RegExp(r'^0+'), '');
+    if (digits.isEmpty) digits = '0';
+    if (digits.length > 8) return String.fromCharCode(0xfffd);
+    final number = int.parse(digits, radix: hex ? 16 : 10);
+    final replacement = _numericReplacements[number];
+    if (replacement != null) return String.fromCharCode(replacement);
+    if ((number >= 0xd800 && number <= 0xdfff) || number > 0x10ffff) {
+      return String.fromCharCode(0xfffd);
+    }
+    return String.fromCharCode(number);
+  }
+  return html.parseFragment(token).text ?? token;
+}
+
+String decodeLawEntities(String text) =>
+    text.replaceAllMapped(_entity, (m) => decodeLawEntity(m[0]!));
 String normalizeLawText(String text) => unorm
     .nfkc(decodeLawEntities(text))
-    .replaceAll(lawRegex(r'[\s\u0085\u001c-\u001f]', unicode: true), '');
+    .replaceAll(lawRegex('$lawSpaceClass+'), '');
 final lawNames = lawRegex(
   (lawAliases.keys.toList()..sort((a, b) => b.length.compareTo(a.length)))
       .map(RegExp.escape)
@@ -19,7 +105,7 @@ final lawNames = lawRegex(
 );
 final _article = lawRegex(lawArticlePattern, unicode: true);
 final _short = lawRegex(lawShortPattern, unicode: true);
-final _annex = lawRegex(r'별표\s*(?:제)?(?<n>\d+)', unicode: true);
+final _annex = lawRegex(r'별표 ?(?:제)?(?<n>[0-9]+)', unicode: true);
 final _reference = lawRegex(
   r'''(같은법|동법|(?<![가-힣])법)(시행령|시행규칙)?[」』】\]"”’']*''',
   unicode: true,
@@ -30,26 +116,41 @@ const _articleFields = ['a', 'sub', 'p', 'i', 'isub', 'l'];
 RegExpMatch? _at(RegExp re, String s, int pos) =>
     re.matchAsPrefix(s, pos) as RegExpMatch?;
 
+/// Whitespace/dot-free recognition copy with a source-offset map. A whitespace
+/// run between two ASCII digits is kept as one ' ' ('제32조의2 1항').
 ({String text, List<List<int>> mapping}) normalizedLawCopy(String text) {
   final out = StringBuffer();
   final mapping = <List<int>>[];
   final tokens = lawRegex(
-    r'&(?:#[xX][0-9a-fA-F]+|#\d+|[a-zA-Z]+);|.',
+    r'&(?:#[xX][0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);|.',
     dotAll: true,
     unicode: true,
   );
+  List<int>? gap;
+  var lastDigit = false;
   for (final m in tokens.allMatches(text)) {
-    final folded = unorm.nfkc(decodeLawEntities(m[0]!));
+    final token = m[0]!;
+    final folded = unorm.nfkc(
+      token.length > 1 ? decodeLawEntity(token) : token,
+    );
     for (final rune in folded.runes) {
-      final char = String.fromCharCode(rune);
-      if (lawRegex(r'[\s\u0085\u001c-\u001f]', unicode: true).hasMatch(char) ||
-          '·ㆍ･・ᆞ\ufeff'.contains(char)) {
+      if (_spaceRunes.contains(rune)) {
+        gap ??= [m.start, m.end];
         continue;
       }
+      if (_dotRunes.contains(rune)) continue;
+      final digit = rune >= 0x30 && rune <= 0x39;
+      if (gap != null && lastDigit && digit) {
+        out.write(' ');
+        mapping.add(gap);
+      }
+      gap = null;
+      final char = String.fromCharCode(rune);
       out.write(char);
       for (var i = 0; i < char.length; i++) {
         mapping.add([m.start, m.end]);
       }
+      lastDigit = digit;
     }
   }
   return (text: out.toString(), mapping: mapping);
@@ -67,7 +168,7 @@ String _key(String law, LawMap g) =>
   final covered = <List<int>>[];
   final pending = <LawMap>[];
   final plates = lawRegex(
-    r'(?<!\d)\d{2,3}[가-힣][\d*]{2,4}',
+    r'(?<![0-9])[0-9]{2,3}[가-힣][0-9*]{2,4}',
     unicode: true,
   ).allMatches(t).map((m) => [m.start, m.end]).toList();
   List<int> source(int a, int b) => [mapping[a][0], mapping[b - 1][1]];
@@ -222,7 +323,7 @@ String _key(String law, LawMap g) =>
   }
   // A paragraph-only reference inherits only the sole local law/article.
   for (final block in lawRegex(
-    r'.+?(?=\n\s*\n|$)',
+    '.+?(?=\\n$lawSpaceClass*\\n|\$)',
     dotAll: true,
   ).allMatches(s)) {
     final parents = refs
@@ -240,7 +341,9 @@ String _key(String law, LawMap g) =>
         )
         .toSet();
     if (identities.length != 1) continue;
-    for (final m in lawRegex(r'제\s*(\d+)\s*항(?=에)').allMatches(block[0]!)) {
+    for (final m in lawRegex(
+      '제$lawSpaceClass*([0-9]+)$lawSpaceClass*항(?=에)',
+    ).allMatches(block[0]!)) {
       final span = [block.start + m.start, block.start + m.end];
       if (parents.any(
         (r) => r['source_span'][0] <= span[0] && span[0] < r['source_span'][1],
@@ -266,7 +369,7 @@ String _key(String law, LawMap g) =>
       });
     }
   }
-  for (final m in lawRegex(r'\[별표\](\d+)호([가-하])목').allMatches(t)) {
+  for (final m in lawRegex(r'\[별표\]([0-9]+)호([가-하])목').allMatches(t)) {
     final span = source(m.start, m.end);
     final before = refs.where((r) => r['source_span'][1] <= span[0]).toList();
     if (before.isEmpty) continue;
@@ -276,7 +379,7 @@ String _key(String law, LawMap g) =>
     );
     final parent = before.last;
     if (lawRegex(
-      r'[。!?]|[다요]\.|\n\s*\n',
+      '[。!?]|[다요]\\.|\\n$lawSpaceClass*\\n',
     ).hasMatch(s.substring(parent['source_span'][1] as int, span[0]))) {
       continue;
     }

@@ -1,7 +1,7 @@
 import 'law_citations.dart';
 
 final _boundary = lawRegex(
-  r'''(?<=[다요])[.。!?](?!\s*\()|\n\s*\n|(?<=\n)(?=\s*(?:[가-하]|\d+)[.)]\s)|(?=그러나|다만[,\s]|추가로|※)''',
+  '(?<=[다요])[.。!?](?!$lawSpaceClass*\\()|\\n$lawSpaceClass*\\n|(?<=\\n)(?=$lawSpaceClass*(?:[가-하]|[0-9]+)[.)]$lawSpaceClass)|(?=그러나|다만(?:,|$lawSpaceClass)|추가로|※)',
   unicode: true,
 );
 final _finding = lawRegex(

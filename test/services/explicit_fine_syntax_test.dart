@@ -42,4 +42,21 @@ void main() {
       }
     });
   }
+  test('huge digit runs are not amounts', () {
+    for (final text in [
+      '과태료 ${'1' * 5000}만원',
+      '과태료 ${'1' * 5000}원',
+      '과태료 40,000원, 안내 ${'9' * 5000}원',
+    ]) {
+      expect(explicitFineNumber(text), isNull);
+    }
+    final report = parseJsonToReport({}, {
+      'C_NOW': 10,
+      'C_APP_GUBUN_NM': record['entry_value'],
+      'answers': [
+        {'C_MANAGER_TYPE_NM': '수용', 'C_MANAGE_CONTENTS': '과태료 ${'1' * 5000}만원'},
+      ],
+    });
+    expect(report.fineInfo, '과태료');
+  });
 }

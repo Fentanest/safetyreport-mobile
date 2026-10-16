@@ -1,5 +1,7 @@
 import 'report_policy.dart';
+
 import 'dart:convert';
+
 import 'law_citations.dart';
 import 'law_selection.dart';
 import 'law_recognition_data.dart';
@@ -95,7 +97,19 @@ String legacyViolationLaw(String answer) {
   ).firstMatch(answer);
   if (m == null) return '';
   String compact(String value) => value.replaceAll(lawRegex(r'\s+'), '');
-  return '${compact(m[1] ?? m[2]!)} 제${compact(m[3]!)}${compact(m[4] ?? '')}';
+  final article = compact(m[3]!);
+  var paragraph = compact(m[4] ?? '');
+  // '제32조의2 1항': removing the whitespace would merge the branch number and
+  // the paragraph number ('의21항'). Keep the boundary with '제' only when two
+  // digits would touch; '제13조3항' and a source-joined '제32조의21항' keep
+  // their existing notation. Same rule in Python parser._legacy_violation_law.
+  bool digit(String c) => c.isNotEmpty && '0123456789'.contains(c);
+  if (paragraph.isNotEmpty &&
+      digit(paragraph[0]) &&
+      digit(article[article.length - 1])) {
+    paragraph = '제$paragraph';
+  }
+  return '${compact(m[1] ?? m[2]!)} 제$article$paragraph';
 }
 
 String parseViolationLaw(String answer) =>
@@ -272,9 +286,13 @@ bool matchesLawKeys(Object? value, String query) {
   return readLaws(text).every(parents.contains);
 }
 
-List<String> lawMemberships(Object? value, Set<String> universe) => readLaws(
-  value,
-).expand(ancestorLaws).where(universe.contains).toSet().toList()..sort();
+List<String> lawMemberships(Object? value, Set<String> universe) =>
+    readLaws(value)
+        .expand(ancestorLaws)
+        .where(universe.contains)
+        .toSet()
+        .toList()
+      ..sort();
 
 /// Exact raw-value SQL after resolving distinct values with matchesLaws.
 /// Hex literals avoid SQL quoting and host-parameter limits, including NUL text.

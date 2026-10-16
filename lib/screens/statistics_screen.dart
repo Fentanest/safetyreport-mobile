@@ -1216,6 +1216,8 @@ class _RowCard extends StatelessWidget {
         agency: agency,
         manager: person,
         law: law ?? '',
+        // 통계 법규 선택과 같은 저장 키 소속 판정(서버 /stats·로컬 통계의 법규 필터와 같은 함수).
+        lawExact: law != null,
         responseDateStart: responseDateStart,
         responseDateEnd: responseDateEnd,
       ),

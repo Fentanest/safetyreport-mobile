@@ -18,6 +18,18 @@ class ServerContract {
   static const reportSearchCapability = 'report_search_v1';
   static const reportSearchVersion = 1;
 
+  /// 법규 검색 v2(2026-10-16, 서버가 하위호환으로 추가): 서버가 저장 법규를 개별 키로 정규화해 검색하고
+  /// 검색 필터 `lawExact` 를 받는다. 이 신호가 없는 서버(v3.3.0 이하)는 법규를 저장값 완전 일치로만 보므로
+  /// 앱은 정규화한 키 대신 저장 원문 값을 보내고 `lawExact` 를 보내지 않는다(모르는 키는 400).
+  static const lawSearchCapability = 'law_search_v2';
+  static const lawSearchVersion = 2;
+
+  static bool supportsLawSearch(Map<dynamic, dynamic> appConfig) =>
+      (appConfig['capabilities'] as List? ?? const []).contains(
+        lawSearchCapability,
+      ) &&
+      appConfig['law_search_version'] == lawSearchVersion;
+
   static const summaryPath = '$apiPrefix/summary';
   static const filesPath = '$apiPrefix/files';
   static const statsPath = '$apiPrefix/stats';

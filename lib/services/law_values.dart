@@ -4,21 +4,38 @@ import 'law_citations.dart';
 import 'law_selection.dart';
 import 'law_recognition_data.dart';
 
+// Anchored: Python `fullmatch` / JS `^…$` backtrack until the whole text is
+// one key; `matchAsPrefix` only saw the first (shortest) prefix match.
 final _key = lawRegex(
-  r'(.+?)제?(\d+)조(의\d+)?(?:제?(\d+)항)?(?:제?(\d+)호(의\d+)?)?(?:([가-하])목)?',
+  r'^(.+?)제?([0-9]+)조(의[0-9]+)?(?:제?([0-9]+)항)?(?:제?([0-9]+)호(의[0-9]+)?)?(?:([가-하])목)?$',
   unicode: true,
 );
+// A law name never contains another article or a list separator. Such text
+// ('도로교통법 제32조, 제33조', '도로교통법 제32조 및 제33조') stays one raw key.
+final _badName = lawRegex(r'[,&]|[0-9]조');
 final _cache = <String, List<String>>{};
-String canonicalLaw(String value) {
-  final raw = ReportPolicy.norm(value);
-  final text = normalizeLawText(raw).replaceAll(lawRegex('[·ㆍ･・ᆞ]'), '');
-  final m = _key.matchAsPrefix(text);
-  if (m == null || m.end != text.length) return raw;
-  var name = m[1]!;
-  if (name == '제' || lawRegex(r'^[0-9]+$').hasMatch(name)) return raw;
-  name = name
+
+String _lawCompact(String value) =>
+    normalizeLawText(value).replaceAll(lawRegex('[·ㆍ･・ᆞ]'), '');
+
+/// Full (backtracking) match of one article key, or null. Same rule in Python/JS.
+RegExpMatch? _structured(String compact) {
+  final m = _key.firstMatch(compact);
+  if (m == null) return null;
+  final name = m[1]!;
+  if (name == '제' ||
+      lawRegex(r'^[0-9]+$').hasMatch(name) ||
+      _badName.hasMatch(name)) {
+    return null;
+  }
+  return m;
+}
+
+String _lawName(String name) {
+  String clean(String value) => value
       .replaceAll(lawRegex(r'''[「」『』【】\[\]“”‘’"']'''), '')
       .replaceAll(lawRegex(r'\((?:약칭|이하같음|경찰청지침)\)'), '');
+  name = clean(name);
   var suffix = '';
   for (final s in ['시행규칙', '시행령']) {
     if (name.endsWith(s)) {
@@ -27,10 +44,17 @@ String canonicalLaw(String value) {
       break;
     }
   }
-  name = name
-      .replaceAll(lawRegex(r'''[「」『』【】\[\]“”‘’"']'''), '')
-      .replaceAll(lawRegex(r'\((?:약칭|이하같음|경찰청지침)\)'), '');
-  name = (lawAliases[name] ?? name) + (suffix.isEmpty ? '' : ' $suffix');
+  name = clean(name);
+  if (name.isEmpty) return '';
+  return (lawAliases[name] ?? name) + (suffix.isEmpty ? '' : ' $suffix');
+}
+
+String canonicalLaw(String value) {
+  final raw = ReportPolicy.norm(value);
+  final m = _structured(_lawCompact(raw));
+  if (m == null) return raw;
+  final name = _lawName(m[1]!);
+  if (name.isEmpty) return raw;
   return '$name 제${m[2]}조${m[3] ?? ''}${m[4] == null ? '' : '제${m[4]}항'}${m[5] == null ? '' : '제${m[5]}호'}${m[6] ?? ''}${m[7] == null ? '' : '${m[7]}목'}';
 }
 
@@ -48,6 +72,14 @@ List<String> readLaws(Object? value) {
   if (_cache.length >= 8192) _cache.remove(_cache.keys.first);
   _cache[text] = result;
   return result;
+}
+
+/// 상세 법규 링크 값. [keyed] 면 개별 저장 키(`readLaws`), 아니면(법규 검색 v2 를 모르는 구서버)
+/// 예전처럼 저장 원문 하나(앞뒤 공백 제거) — 구서버는 저장값 완전 일치로 찾는다.
+List<String> lawLinkValues(Object? value, {required bool keyed}) {
+  if (keyed) return readLaws(value);
+  final raw = ReportPolicy.norm(value);
+  return raw.isEmpty ? const [] : [raw];
 }
 
 String primaryLaw(Object? value) => (value?.toString() ?? '')
@@ -82,9 +114,8 @@ bool _termMatches(List<String> keys, String term, {required bool partial}) {
         .any((p) => p == tail || p.endsWith(' $tail'));
   }
   final query = canonicalLaw(term);
-  final compact = normalizeLawText(query).replaceAll(lawRegex('[·ㆍ･・ᆞ]'), '');
-  final m = _key.matchAsPrefix(compact);
-  final structured = m != null && m.end == compact.length;
+  final compact = _lawCompact(query);
+  final structured = _structured(compact) != null;
   var nameQuery = compact.replaceAll(lawRegex(r'''[「」『』【】\[\]“”‘’"']'''), '');
   var suffix = '';
   for (final s in ['시행규칙', '시행령']) {
@@ -105,10 +136,7 @@ bool _termMatches(List<String> keys, String term, {required bool partial}) {
     if (partial &&
         !structured &&
         name == null &&
-        normalizeLawText(key)
-            .replaceAll(lawRegex('[·ㆍ･・ᆞ]'), '')
-            .toLowerCase()
-            .contains(compact.toLowerCase())) {
+        _lawCompact(key).toLowerCase().contains(compact.toLowerCase())) {
       return true;
     }
   }
@@ -131,6 +159,9 @@ bool _matchesLawsUncached(Object? value, String query, {bool partial = false}) {
   if (text.isEmpty) return true;
   final keys = readLaws(value);
   if (text == '__없음__') return keys.isEmpty;
+  // A query equal to one stored key matches it whole, even if that raw key
+  // itself contains ',' or '&' (e.g. a user-edited '제32조, 제33조').
+  if (keys.contains(text)) return true;
   if (lawRegex(r'[\r\n\u2028\u2029]').hasMatch(text)) {
     return readLaws(text).every((q) => _termMatches(keys, q, partial: partial));
   }
@@ -212,9 +243,8 @@ String parseLawValues(String answer, String legacy, {bool multiple = true}) {
 }
 
 List<String> ancestorLaws(String key) {
-  final compact = normalizeLawText(key).replaceAll(lawRegex('[·ㆍ･・ᆞ]'), '');
-  final m = _key.matchAsPrefix(compact);
-  if (m == null || m.end != compact.length || !key.contains(' 제')) return [key];
+  final m = _structured(_lawCompact(key));
+  if (m == null || !key.contains(' 제')) return [key];
   var root = '${key.split(' 제').first} 제${m[2]}조${m[3] ?? ''}';
   final values = <String>{key, root};
   if (m[4] != null) {
@@ -223,6 +253,23 @@ List<String> ancestorLaws(String key) {
   }
   if (m[5] != null) values.add('$root제${m[5]}호${m[6] ?? ''}');
   return values.toList();
+}
+
+/// Stored-key membership: the predicate behind every per-law statistic.
+///
+/// [query] is one stored key (or several, one per line = AND) exactly as the
+/// statistics/detail links pass it. A row belongs to key K when one of its keys
+/// is K or a descendant paragraph/item of K ([ancestorLaws]) — the same rule as
+/// [lawMemberships], so a law bar's count equals the rows this returns. Unlike
+/// [matchesLaws] there is no ','/'&' splitting and no law-name prefix search.
+/// `__없음__` selects rows without any law. Same as Python `matches_law_keys`.
+bool matchesLawKeys(Object? value, String query) {
+  final text = ReportPolicy.norm(query);
+  if (text.isEmpty) return true;
+  final keys = readLaws(value);
+  if (text == '__없음__') return keys.isEmpty;
+  final parents = keys.expand(ancestorLaws).toSet();
+  return readLaws(text).every(parents.contains);
 }
 
 List<String> lawMemberships(Object? value, Set<String> universe) => readLaws(

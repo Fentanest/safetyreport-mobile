@@ -64,6 +64,21 @@ Widget list(ReportProvider p, String term) => ChangeNotifierProvider.value(
     ),
   ),
 );
+http.Response lawConfig({required bool lawSearch}) => http.Response(
+  jsonEncode({
+    'data': {
+      'capabilities': [
+        'report_search_v1',
+        if (lawSearch) ServerContract.lawSearchCapability,
+      ],
+      'report_search_version': 1,
+      if (lawSearch) 'law_search_version': ServerContract.lawSearchVersion,
+    },
+  }),
+  200,
+  headers: {'content-type': 'application/json; charset=utf-8'},
+);
+
 void main() {
   setUp(() {
     resetSelfhostFixture();
@@ -372,4 +387,55 @@ void main() {
       }),
     );
   });
+
+  // 2026-10-16: 법규 검색 v2 를 알린 서버에만 lawExact 를 보낸다. v3.3.0(신호 없음)은 모르는 키를 400 으로
+  // 거절하고 법규를 저장값 완전 일치로 보므로 lawExact 를 빼고 원문 값을 그대로 보낸다.
+  for (final lawSearch in [true, false]) {
+    testWidgets(
+      'law drilldown sends lawExact only to law_search_v2 ($lawSearch)',
+      (tester) async {
+        final p = ReportProvider();
+        await p.init();
+        addTearDown(p.dispose);
+        final filters = <Map<String, dynamic>>[];
+        const law = '도로교통법 제5조, 제6조';
+        await http.runWithClient(
+          () async {
+            await tester.pumpWidget(
+              ChangeNotifierProvider.value(
+                value: p,
+                child: const MaterialApp(
+                  home: Scaffold(
+                    body: LocalPagedReportList(
+                      filter: ReportFilter(law: law, lawExact: true),
+                    ),
+                  ),
+                ),
+              ),
+            );
+            await tester.pumpAndSettle();
+            expect(filters, isNotEmpty);
+            for (final f in filters) {
+              expect(f['law'], law);
+              expect(f.containsKey('lawExact'), lawSearch);
+              if (lawSearch) expect(f['lawExact'], isTrue);
+            }
+            expect(p.lawKeySearchSupported, lawSearch);
+            await tester.pumpWidget(const SizedBox.shrink());
+          },
+          () => selfhostMockClient((r) async {
+            if (r.url.path == ServerContract.appConfigPath) {
+              return lawConfig(lawSearch: lawSearch);
+            }
+            filters.add(
+              Map<String, dynamic>.from(
+                jsonDecode(r.url.queryParameters['filter']!) as Map,
+              ),
+            );
+            return searchPage(r, total: 1);
+          }),
+        );
+      },
+    );
+  }
 }

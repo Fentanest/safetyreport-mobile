@@ -12,6 +12,11 @@ class ReportFilter {
   final String manager;
   final String carNumber;
   final String law;
+
+  /// 저장 키 소속 판정(통계 막대·통계 법규 선택·상세 법규 링크). true 면 [law] 를 저장 키 그대로 보고
+  /// 쉼표·& 로 나누지 않으며 하위 항·호를 포함한다(`matchesLawKeys`, 서버 `matches_law_keys`).
+  /// false 면 검색 의미(`matchesLaws`). Client 모드는 서버가 `law_search_v2` 를 알릴 때만 보낸다.
+  final bool lawExact;
   final String location;
   final String fine;
   final String supplementCount;
@@ -40,6 +45,7 @@ class ReportFilter {
     this.manager = '',
     this.carNumber = '',
     this.law = '',
+    this.lawExact = false,
     this.location = '',
     this.fine = '',
     this.supplementCount = '',
@@ -70,6 +76,8 @@ class ReportFilter {
     'manager': manager,
     'carNumber': carNumber,
     'law': law,
+    // 2026-10-16 하위호환 추가: false 일 때는 보내지 않아 예전 v1 요청과 바이트가 같다.
+    if (lawExact && law.isNotEmpty) 'lawExact': true,
     'location': location,
     'fine': fine,
     'supplementCount': supplementCount,
@@ -114,6 +122,7 @@ class ReportFilter {
     excludePolice,
     onlyPolice,
     pollStatus,
+    lawExact && law.isNotEmpty,
   ];
   @override
   bool operator ==(Object other) =>
@@ -138,6 +147,7 @@ class ReportFilter {
     String? manager,
     String? carNumber,
     String? law,
+    bool? lawExact,
     String? location,
     String? fine,
     String? supplementCount,
@@ -166,6 +176,7 @@ class ReportFilter {
       manager: manager ?? this.manager,
       carNumber: carNumber ?? this.carNumber,
       law: law ?? this.law,
+      lawExact: lawExact ?? this.lawExact,
       location: location ?? this.location,
       fine: fine ?? this.fine,
       supplementCount: supplementCount ?? this.supplementCount,
@@ -300,7 +311,7 @@ class ReportFilter {
     ReportFilterField.agency => copyWith(agency: ''),
     ReportFilterField.manager => copyWith(manager: ''),
     ReportFilterField.carNumber => copyWith(carNumber: ''),
-    ReportFilterField.law => copyWith(law: ''),
+    ReportFilterField.law => copyWith(law: '', lawExact: false),
     ReportFilterField.location => copyWith(location: ''),
     ReportFilterField.fine => copyWith(fine: ''),
     ReportFilterField.supplementCount => copyWith(supplementCount: ''),

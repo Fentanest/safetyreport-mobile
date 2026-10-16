@@ -19,6 +19,20 @@ void main() {
     expect(payload.toString(), isNot(contains('범칙금을 부과')));
   });
 
+  test('adapter picks the primary law like PC build_adapter_input; buildPayload only cleans', () {
+    // 결함 1: 대표 법규 고르기는 어댑터 입력 단계(PC build_adapter_input 과 같은 호출 지점)에서 한다.
+    final report = longFieldReport(status: '수용').copyWith(
+      law: '도로교통법 제32조\n도로교통법 제33조',
+    );
+    final input = buildReportAdapterInput(report, '불법주정차신고');
+    expect(input['violation_law'], '도로교통법 제32조');
+    expect(buildPayload(input)['violation_law'], '도로교통법 제32조');
+    // 계약 벡터(observations violation_law_cleaned_and_truncated): buildPayload 는 입력 문자열을 정리·60자 자르기만.
+    final contractStyle = Map<String, Object?>.from(input)
+      ..['violation_law'] = '  자동차관리법\n 제29조';
+    expect(buildPayload(contractStyle)['violation_law'], '자동차관리법 제29조');
+  });
+
   test('empty law becomes null', () {
     final payload = buildPayload(
       buildReportAdapterInput(longFieldReport(status: '수용'), '자동차·교통위반'),

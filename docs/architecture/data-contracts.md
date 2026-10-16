@@ -818,6 +818,23 @@ PC 계약을 먼저 배포하고 모바일을 갱신한다. Kotlin ServerContrac
 
 법규별 통계에는 동일 신고가 복수 법규에 소속될 수 있다. 법규별 건수를 더하면 전체 고유 신고 수와 다를 수 있으며 화면에 이를 표시한다. 전체 건수·금액은 고유 신고 기준이고, 같은 상위 조문에 여러 하위 조문이 걸려도 그 조문에서는 한 번만 센다. 기존 금액 오타 보정·최소 추정 분류는 대표 조문인 첫 줄만 사용한다. 추가 조문으로 금액을 올리거나 후보 금액을 합산하지 않는다.
 
+### 통계 막대·드릴다운 불변식과 법규 검색 capability (2026-10-16, 서버와 같은 계약)
+
+- **저장 키 소속 판정** `matchesLawKeys`(서버 `matches_law_keys`, 웹 `SrLawValues.matchesKeys`): 질의는 저장 키 그대로(여러 줄은 AND).
+  행의 키 중 하나가 그 키이거나 하위 항·호·목이면 속한다. 쉼표·`&` 분해, 법령명 접두·법령명 없는 조 번호 검색은 없다.
+  `lawMemberships`(법규 막대 집계)와 같은 규칙이라 막대 건수 == 드릴다운 행 수.
+- 이 판정을 쓰는 곳: Standalone 통계 법규 선택(`computeStatsBundle(law:)`), 통계 행 드릴다운과 상세 법규 링크의 `ReportFilter(lawExact: true)`
+  (Standalone `getReportPage`, Client 검색 API 필터 `lawExact`, 구서버 순회 fallback `ReportFilterSpec.matchesLaw(exact:)`).
+  검색 시트에서 법규를 바꾸지 않고 적용하면 lawExact 를 유지하고, 바꾸면 검색 의미(`matchesLaws`)로 돌아간다.
+- 구조화된 한 키로 완전히 읽히지 않는 값(`도로교통법 제32조, 제33조`, `… 제32조 제33조`, `… 및 제33조`)은 원문 공백을 지킨 한 개의 키다.
+  Dart 키 정규식은 앵커(`^…$`) 백트래킹 전체 일치로 Python `fullmatch`·JS 와 같다(예전 `matchAsPrefix` 는 `도로교통법 제32조의21항` 을 못 읽었다).
+- 공통 벡터 `contracts/law-search-vectors.json` v2(`cases`·`canonical_cases`·`key_cases`·`stats_cases`), 서버와 바이트 동일.
+  `test/services/law_stats_invariant_test.dart` 가 로컬 DB 통계 막대 == 목록·통계 필터 건수를 확인한다.
+- **capability**: 서버 `/api/v1/app/config` 의 `capabilities` 에 `law_search_v2` 와 `law_search_version: 2`(추가 필드, `ServerContract.supportsLawSearch`).
+  Client 모드는 이 신호를 확인한 서버에만 정규화한 개별 키·`lawExact` 를 쓴다. 신호가 없거나 아직 모르는 서버(v3.3.0 이하)에는
+  `ReportProvider.lawKeySearchSupported == false` 로 예전처럼 저장 원문 값(앞뒤 공백 제거)을 선택지·상세 링크(한 개)·검색 값으로 쓰고,
+  `lawExact` 는 보내지 않으며(구서버는 모르는 키 400), 순회 fallback 도 저장값 완전 일치로 판정한다. `report_search_version` 은 1 그대로다.
+
 CSV/Excel 및 DB 백업·양방향 변환은 원본 LF 문자열과 사용자 수정값을 그대로 전달한다. 웹·모바일 편집기는 여러 줄을 유지한다. 웹 textarea가 CRLF로 제출해도 기존 유효값과 줄바꿈 외에 차이가 없으면 법규 수정값을 새로 만들지 않는다. 커뮤니티 업로드 `violation_law`는 기존 60자 계약에 맞춰 대표 조문만 기존 정제기에 전달한다. 외부 저장 구조·업로드 계약은 바꾸지 않는다.
 
 구버전은 LF 문자열을 보관할 수 있어도 개별 법규 선택·검색·금액 보정을 보장하지 못한다. 서버와 모바일은 함께 갱신해야 한다. 파서 버전은 pc-parser-11/mobile-parser-11이다. 기존 DB 일괄 보정은 수행하지 않는다. 과거 답변에 새 인식을 적용하려면 별도의 명시적 재파싱이 필요하며 사용자 수정값을 덮어쓰면 안 된다.

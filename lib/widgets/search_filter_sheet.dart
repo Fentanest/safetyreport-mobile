@@ -75,6 +75,9 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   late bool _excludePolice;
   late bool _onlyPolice;
   late String _selectedLaw;
+  // 드릴다운(통계 막대·상세 링크)에서 받은 저장 키 소속 판정. 법규를 바꾸지 않고 적용하면 그대로 유지한다.
+  late String _initialLaw;
+  late bool _initialLawExact;
   late String _pollStatus;
   bool _statusExpanded = false;
   bool _ratingExpanded = false;
@@ -150,7 +153,12 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     _responseDateEnd = f.responseDateEnd;
     _excludePolice = f.excludePolice;
     _onlyPolice = f.onlyPolice;
-    _selectedLaw = canonicalLaw(f.law);
+    // 법규 검색 v2 를 모르는 Client 서버는 저장값 완전 일치 — 원문 값을 정규화하지 않는다.
+    _selectedLaw = widget.provider.lawKeySearchSupported
+        ? canonicalLaw(f.law)
+        : f.law.trim();
+    _initialLaw = _selectedLaw;
+    _initialLawExact = f.lawExact;
     _pollStatus = widget.ratingManagementMode ? '' : f.pollStatus;
     _moreExpanded = _hasHiddenValue;
     widget.provider.addListener(_metadataChanged);
@@ -248,6 +256,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
         manager: _managerCtrl.text.trim(),
         carNumber: _carCtrl.text.trim(),
         law: _selectedLaw,
+        lawExact: _initialLawExact && _selectedLaw == _initialLaw,
         location: _locationCtrl.text.trim(),
         fine: _fineCtrl.text.trim(),
         supplementCount: _supplementCountCtrl.text.trim(),
@@ -297,8 +306,9 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   List<String> get _lawOptions {
     final seen = <String>{};
     final values = <String>[...widget.provider.availableLaws, _selectedLaw];
+    final keyed = widget.provider.lawKeySearchSupported;
     return values
-        .map(canonicalLaw)
+        .map((value) => keyed ? canonicalLaw(value) : value.trim())
         .where((value) => value.isNotEmpty && seen.add(value))
         .toList();
   }

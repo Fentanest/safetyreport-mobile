@@ -113,8 +113,18 @@ class ReportProvider with ChangeNotifier {
   void _forgetServerCapabilities() {
     _serverCapabilities = const [];
     _serverCapabilitiesKnown = false;
+    _serverLawSearchSupported = null;
     _appConfigLoadFuture = null;
   }
+
+  /// 서버가 법규 검색 v2(`law_search_v2`)를 알렸는가. null = 아직 모름.
+  bool? _serverLawSearchSupported;
+
+  /// 정규화한 개별 법규 키와 `lawExact`(저장 키 소속 판정)를 쓸 수 있는가. Standalone 은 항상.
+  /// Client 는 서버가 `law_search_v2` 를 알린 뒤에만 — 모르는 동안·구서버(v3.3.0 이하)는 예전처럼
+  /// 저장 원문 값을 선택지·상세 링크·검색 값으로 쓴다(구서버는 저장값 완전 일치만 본다).
+  bool get lawKeySearchSupported =>
+      _appMode == AppMode.standalone || (_serverLawSearchSupported ?? false);
 
   /// 별점 공통 사유를 보낼 수 있는가 — Standalone 은 항상, Client 는 서버가 rating_cause 를 알릴 때만.
   bool get ratingCauseSupported =>
@@ -618,8 +628,11 @@ class ReportProvider with ChangeNotifier {
     final discovered = <String>[];
     var hasEmptyLaw = false;
 
+    final keyed = lawKeySearchSupported;
     void collectValue(String value) {
-      final laws = readLaws(value);
+      // 구서버(law_search_v2 없음)는 저장값 완전 일치 — 원문 값(앞뒤 공백 제거)을 그대로 선택지로 둔다.
+      final trimmed = value.trim();
+      final laws = keyed ? readLaws(value) : [if (trimmed.isNotEmpty) trimmed];
       if (laws.isEmpty || value == kEmptyLawFilterValue) {
         hasEmptyLaw = true;
       } else {
@@ -644,7 +657,9 @@ class ReportProvider with ChangeNotifier {
     collect(_livingReports);
     collect(_otherReports);
 
-    final selectedLaw = canonicalLaw(_filter.law.trim());
+    final selectedLaw = keyed
+        ? canonicalLaw(_filter.law.trim())
+        : _filter.law.trim();
     if (selectedLaw == kEmptyLawFilterValue) {
       hasEmptyLaw = true;
     } else if (selectedLaw.isNotEmpty && seen.add(selectedLaw)) {
@@ -728,7 +743,14 @@ class ReportProvider with ChangeNotifier {
       if (!_contains(r.agency, f.agency)) return false;
       if (!_contains(r.manager, f.manager)) return false;
       if (!_contains(r.carNumber, f.carNumber)) return false;
-      if (!ReportFilterSpec.matchesLaw(r.law, f.law)) return false;
+      if (!ReportFilterSpec.matchesLaw(
+        r.law,
+        f.law,
+        exact: f.lawExact,
+        legacy: !lawKeySearchSupported,
+      )) {
+        return false;
+      }
       if (!_contains(r.location, f.location)) return false;
       if (!_contains(r.fineInfo, f.fine)) return false;
       if (!_contains(r.supplementCount.toString(), f.supplementCount)) {
@@ -833,7 +855,11 @@ class ReportProvider with ChangeNotifier {
       final capabilities = [
         for (final c in (cfg['capabilities'] as List? ?? const [])) '$c',
       ];
-      if (exclude == _excludeWithdraw &&
+      final lawSearch = ServerContract.supportsLawSearch(cfg);
+      final lawSearchChanged = lawSearch != _serverLawSearchSupported;
+      _serverLawSearchSupported = lawSearch;
+      if (!lawSearchChanged &&
+          exclude == _excludeWithdraw &&
           representative == _useRepresentativeRecords &&
           _serverCapabilitiesKnown &&
           _sameList(capabilities, _serverCapabilities)) {
@@ -935,6 +961,7 @@ class ReportProvider with ChangeNotifier {
     if (epoch != _datasetEpoch || isCancelled?.call() == true) {
       throw const QueryCancelled();
     }
+    _serverLawSearchSupported = ServerContract.supportsLawSearch(cfg);
     return _serverSearchSupported =
         (cfg['capabilities'] as List? ?? const []).contains(
           ServerContract.reportSearchCapability,
@@ -944,6 +971,7 @@ class ReportProvider with ChangeNotifier {
 
   void _resetDatasetView() {
     _serverSearchSupported = null;
+    _serverLawSearchSupported = null;
     _serverPageInFlight.clear();
     _stats = null;
     _trafficReports = [];
@@ -1423,7 +1451,10 @@ class ReportProvider with ChangeNotifier {
     category,
     offset: offset,
     limit: limit,
-    searchFilter: filter,
+    // law_search_v2 를 모르는 서버는 lawExact 를 400 으로 거절한다 — 그 서버의 법규는 원래 저장값 완전 일치다.
+    searchFilter: lawKeySearchSupported
+        ? filter
+        : filter.copyWith(lawExact: false),
     isCancelled: isCancelled,
   );
 

@@ -78,9 +78,20 @@ class ReportFilterSpec {
         (end.isEmpty || key.compareTo(end) <= 0);
   }
 
-  static bool matchesLaw(Object? value, String law) {
+  /// [exact]: 저장 키 소속 판정(통계·상세 링크, 서버 `matches_law_keys`). [legacy]: 법규 검색 v2 를
+  /// 모르는 Client 서버(v3.3.0 이하)와 같은 저장값 완전 일치(앞뒤 공백 무시, `__없음__` = 빈 값).
+  static bool matchesLaw(
+    Object? value,
+    String law, {
+    bool exact = false,
+    bool legacy = false,
+  }) {
     if (law.isEmpty) return true;
-    return matchesLaws(value, law);
+    if (legacy) {
+      final text = ReportPolicy.norm(value);
+      return law == emptyLaw ? text.isEmpty : text == ReportPolicy.norm(law);
+    }
+    return exact ? matchesLawKeys(value, law) : matchesLaws(value, law);
   }
 
   // ── SQL(SQLite) ─────────────────────────────────────────────────────

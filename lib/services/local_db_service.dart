@@ -2004,7 +2004,11 @@ class LocalDbService {
         );
         lawValues = distinct
             .map((r) => lawSqlRawValue(r['value']))
-            .where((value) => matchesLaws(value, filter.law))
+            .where(
+              (value) => filter.lawExact
+                  ? matchesLawKeys(value, filter.law)
+                  : matchesLaws(value, filter.law),
+            )
             .toList();
       }
       final q = ReportQuery(
@@ -2804,7 +2808,8 @@ class LocalDbService {
               if (cat == null) continue;
               cat.addLaw(row);
               final rowLaw = row['위반법규']?.toString() ?? '';
-              if (law != null && !matchesLaws(rowLaw, law)) {
+              // 통계 법규 선택 = 저장 키 소속 판정(법규 막대 건수·서버 _apply_stats_law_filter 와 같은 함수).
+              if (law != null && !matchesLawKeys(rowLaw, law)) {
                 continue;
               }
               cat.add(row);
@@ -2814,7 +2819,7 @@ class LocalDbService {
             final selected = rows
                 .where((r) {
                   final value = r['위반법규']?.toString() ?? '';
-                  return law == null || matchesLaws(value, law);
+                  return law == null || matchesLawKeys(value, law);
                 })
                 .toList(growable: false);
             overview['all']!.add(selected);

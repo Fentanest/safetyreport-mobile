@@ -218,6 +218,10 @@ class ReportDetailSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final labelWidth = _labelColumnWidth(context);
+    // 법규 링크: 개별 저장 키 + lawExact(통계 막대와 같은 소속 판정). 법규 검색 v2 를 모르는 Client 서버에는
+    // 예전처럼 저장 원문 값 하나(서버가 저장값 완전 일치로 찾는다). Provider 가 없는 단독 위젯은 개별 키.
+    final lawKeys =
+        context.read<ReportProvider?>()?.lawKeySearchSupported ?? true;
     final expired = attachmentsExpired(report.date);
     final photos = expired ? <String>[] : _splitUrls(report.attachedPhotos);
     final files = expired ? <String>[] : _splitUrls(report.attachedFiles);
@@ -350,14 +354,14 @@ class ReportDetailSheet extends StatelessWidget {
                 report.carNumber,
                 ReportFilter(carNumber: report.carNumber),
               ),
-            for (final law in readLaws(report.law))
+            for (final law in lawLinkValues(report.law, keyed: lawKeys))
               _linkField(
                 context,
                 labelWidth,
                 Icons.gavel_outlined,
                 '위반법규',
                 law,
-                ReportFilter(law: law),
+                ReportFilter(law: law, lawExact: lawKeys),
               ),
             if (report.location.isNotEmpty)
               _linkField(

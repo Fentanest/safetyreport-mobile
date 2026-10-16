@@ -401,7 +401,10 @@ ANDROID_VERSION_NAME=2.3.0 ./build_android_release.sh     # versionName 을 VERS
 ### CI `production.yml` — 정식 릴리즈 (2026-10-13 신설)
 
 `workflow_dispatch`(입력 `version`, SemVer `x.y.z`), `github.ref == 'refs/heads/main'` 인 job 만 돈다.
-`build-apk.yml` 과 같은 concurrency group(`mobile-build-${{ github.ref }}`)을 써서 alpha 실행과 직렬화한다.
+`build-apk.yml` 과 같은 concurrency group 을 써서 alpha 실행과 직렬화한다. group 은 2026-10-16 부터 브랜치와 무관한 고정값
+`mobile-play-version-code` 다(예전 `mobile-build-${{ github.ref }}` 는 다른 브랜치의 alpha 와 main 정식 릴리스가 같은
+'Play 최대 versionCode + 1' 을 동시에 읽을 수 있었다). GitHub concurrency 는 group 당 실행 1 + 대기 1 이라 대기 중 새 실행이
+들어오면 앞 대기 실행은 취소된다 — 다시 실행한다.
 앞 단계가 실패하면 뒤 단계는 건너뛴다:
 
 1. **prepare**: `version` 형식(`^[0-9]+\.[0-9]+\.[0-9]+$`) 검사, 태그 `v<version>` 중복 검사(있으면 실패),

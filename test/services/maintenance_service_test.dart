@@ -376,4 +376,67 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
   });
+  group('사진 보충 뒤 공유 추정 갱신(서버 photo_capture_time.fill_one 과 같은 자리)', () {
+    Future<String?> fetchTimes(String url) async =>
+        url.endsWith('a.jpg') ? '2026-09-01 10:00:00' : '2026-09-01 12:01:00';
+
+    test('촬영 시각을 저장한 신고만 공유 추정을 다시 계산한다', () async {
+      await seed();
+      final refreshed = <String>[];
+      MaintenanceService.refreshSharedEstimateForTest = (id) async =>
+          refreshed.add(id);
+      expect(await MaintenanceService.backfillMissing(fetch: fetchTimes), 2);
+      expect(refreshed, ['2', '1']);
+      // 네트워크 오류(촬영 시각 못 읽음)면 저장도 갱신도 하지 않는다.
+      refreshed.clear();
+      await _resetDb();
+      await seed();
+      MaintenanceService.refreshSharedEstimateForTest = (id) async =>
+          refreshed.add(id);
+      expect(
+        await MaintenanceService.backfillMissing(
+          fetch: (_) async => throw const SocketException('offline'),
+        ),
+        0,
+      );
+      expect(refreshed, isEmpty);
+    });
+
+    test('공유 캡처가 실패해도 촬영 시각은 남기고 재시도 의도를 기록한다', () async {
+      await seed();
+      final queued = <String>[];
+      var downloads = 0;
+      MaintenanceService.refreshSharedEstimateForTest = (_) async =>
+          throw StateError('journal unavailable');
+      MaintenanceService.queueRetryForTest = (id, reason) async =>
+          queued.add('$id:$reason');
+      Future<String?> counting(String url) {
+        downloads++;
+        return fetchTimes(url);
+      }
+
+      expect(await MaintenanceService.backfillMissing(fetch: counting), 2);
+      expect(queued, [
+        '2:${MaintenanceService.photoBackfillRetryReason}',
+        '1:${MaintenanceService.photoBackfillRetryReason}',
+      ]);
+      expect((await _row('1'))['사진_촬영수'], 2);
+      expect((await _row('1'))['사진_첫촬영'], '2026-09-01 10:00:00');
+      // 다음 훑기 대상이 아니므로 같은 사진을 다시 내려받지 않는다.
+      expect(await LocalDbService.pendingPhotoRows(), isEmpty);
+      expect(await MaintenanceService.backfillMissing(fetch: counting), 0);
+      expect(downloads, 3);
+    });
+
+    test('재시도 의도 기록까지 실패해도 촬영 시각은 남는다', () async {
+      await seed();
+      MaintenanceService.refreshSharedEstimateForTest = (_) async =>
+          throw StateError('journal unavailable');
+      MaintenanceService.queueRetryForTest = (_, _) async =>
+          throw const FileSystemException('disk full');
+      expect(await MaintenanceService.backfillMissing(fetch: fetchTimes), 2);
+      expect((await _row('2'))['사진_촬영수'], 1);
+    });
+  });
 }
+

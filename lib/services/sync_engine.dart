@@ -1000,7 +1000,14 @@ class SyncEngine {
 
   /// 사이트가 숫자 별점을 확인한 신고는 다음 증분 동기화에서 공식 상세를 다시 읽는다.
   /// 개인 DB의 별점사유를 공유하지 않고 상세 파서의 숫자만 캡처한다.
-  static Future<void> queueRatingRecapture(String sourceReportId) async {
+  static Future<void> queueRatingRecapture(String sourceReportId) =>
+      queueCaptureRetry(sourceReportId, 'rating_confirmed_refetch');
+
+  /// 다음 증분 동기화에서 공식 상세를 다시 읽어 전체 캡처하도록 재시도 의도(S-03)를 남긴다.
+  static Future<void> queueCaptureRetry(
+    String sourceReportId,
+    String reason,
+  ) async {
     final file =
         retryFileForTest ??
         File(
@@ -1009,11 +1016,7 @@ class SyncEngine {
             'community_capture_retry.json',
           ),
         );
-    await CaptureRetryStore.addIntent(
-      file,
-      sourceReportId,
-      'rating_confirmed_refetch',
-    );
+    await CaptureRetryStore.addIntent(file, sourceReportId, reason);
   }
 
   /// manifest scope 검사. context 가 없으면(journal-only) true.

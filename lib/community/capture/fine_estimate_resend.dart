@@ -11,6 +11,7 @@
 
 import '../../services/community_auth_config.dart';
 import '../../services/fine_estimate.dart' as fine_estimate;
+import '../../services/law_values.dart';
 import '../../services/local_db_service.dart';
 import '../../services/sync_operation_admission.dart';
 import '../community_store.dart';
@@ -24,8 +25,12 @@ const int _batchSize = 200;
 
 String _targetVersion() => '${fine_estimate.ruleVersion}|$mobileParserVersion';
 
-/// 개인 DB에서는 추정 판정에 필요한 입력만 전달한다.
+/// 개인 DB 현재 행에서 일반 캡처와 같은 추정 판정 입력(범칙금_과태료 원문·위반법규 포함)만 전달한다
+/// (PC `_resend_adapter_input` + `BACKFILL_PERSONAL_FIELDS`). 나머지 payload 필드는 journal 그대로다.
 Map<String, Object?> adapterInputFromResendRow(Map<String, Object?> row) => {
+  'penalty_amount': row['범칙금_과태료'],
+  // buildAdapterInput 과 같은 단계에서 대표 법규(첫 줄)만 고른다(PC build_adapter_input).
+  'violation_law': primaryLaw(row['위반법규']),
   'entry_value': row['entry_value'],
   'ssnpc_cd': row['ssnpc_cd'],
   'ssnpc_type': row['ssnpc_type'],
@@ -35,6 +40,42 @@ Map<String, Object?> adapterInputFromResendRow(Map<String, Object?> row) => {
   'photo_first_capture': row['사진_첫촬영'],
   'photo_last_capture': row['사진_끝촬영'],
 };
+
+// 업로더가 현재 네임스페이스와 같은 journal 행만 올린다(community_uploader.dart) — 실시간
+// capture() 와 같은 방식으로 구해야 재전송분이 outbox 에 쌓인 채 영영 안 올라가지 않는다.
+String _projectNamespace() {
+  try {
+    return projectNamespace(CommunityAuthConfig.fromEnvironment.supabaseUrl);
+  } catch (_) {
+    return 'unconfigured';
+  }
+}
+
+/// 사진 촬영 시각을 채운 뒤 그 신고 하나의 공유 추정만 다시 계산한다(PC `photo_capture_time.fill_one` 의
+/// `fine_estimate_backfill` 캡처와 같은 자리·같은 판정). 재전송 완료 표시와 무관하다. journal 이 없거나
+/// 사용자가 지웠거나 payload 가 바뀌지 않으면 이벤트가 없다. 실패는 호출자에게 던진다(호출자가 재시도 의도를 남김).
+Future<CaptureResult?> refreshFineEstimateFor(
+  String id, {
+  CommunityStore? store,
+}) async {
+  final rows = await LocalDbService.communityResendRows([id]);
+  if (rows.isEmpty) return null;
+  final s = store ?? await CommunityStore.open();
+  final cap = await capture(
+    adapterInputFromResendRow(rows.first),
+    sourceReportId: id,
+    trigger: 'fine_estimate_resend',
+    store: s,
+    projectNamespace: _projectNamespace(),
+    beforeWrite: (tx) => SyncOperationAdmission.checkOwnership(executor: tx),
+  );
+  // 개인 DB 는 이미 커밋돼 있다(사진 시각 저장 뒤) — PC 와 같이 saved 로 표시한다.
+  await markPersonalSave(cap.eventId, true, store: s);
+  if (cap.eventId != null) {
+    CommunityUploadHooks.wakeUploadNow('fine_estimate_resend');
+  }
+  return cap;
+}
 
 /// 이미 이 (rule_version, parser_version) 로 끝났으면 바로 반환(0). 아니면 ID 오름차순으로
 /// 기존에 한 번이라도 적격 캡처된 신고(`report_latest`)를 훑어 capture() 를 다시 돌린다.
@@ -49,14 +90,7 @@ Future<int> resendFineEstimateIfNeeded({CommunityStore? store}) async {
     () => SyncOperationAdmission.run(
       () async {
         var resent = 0;
-        // 업로더가 현재 네임스페이스와 같은 journal 행만 올린다(community_uploader.dart) — 실시간
-        // capture() 와 같은 방식으로 구해야 재전송분이 outbox 에 쌓인 채 영영 안 올라가지 않는다.
-        var ns = 'unconfigured';
-        try {
-          ns = projectNamespace(
-            CommunityAuthConfig.fromEnvironment.supabaseUrl,
-          );
-        } catch (_) {}
+        final ns = _projectNamespace();
         final datasetId = await s.localDatasetId();
         final cursorVersion = await s.meta(_metaCursorVersionKey);
         var afterId = cursorVersion == target
@@ -94,6 +128,8 @@ Future<int> resendFineEstimateIfNeeded({CommunityStore? store}) async {
                   beforeWrite: (tx) =>
                       SyncOperationAdmission.checkOwnership(executor: tx),
                 );
+                // PC resend_fine_estimate_updates 와 같이 개인 DB 가 이미 있는 재해석 관측은 saved 로 둔다.
+                await markPersonalSave(cap.eventId, true, store: s);
                 if (cap.eventId != null) resent++;
               } catch (_) {
                 // 이 신고에서 멈춘다 — 다음 실행이 같은 커서(이 ID 이전)부터 다시 본다.

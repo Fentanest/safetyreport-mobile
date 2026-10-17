@@ -29,13 +29,17 @@ final _clause = RegExp('(?:며|으나|지만|는데|(?:였|했|하|되)고)(?=,|
 final _planned = RegExp('예정');
 final _contrastEnd = RegExp(r'(?:으나|지만|는데)$');
 final _withdrawal = RegExp(
-  '부과하지|부과할$_s*수$_s*없|부과(?:가|는)?$_s*(?:불가(?!피)|어렵|곤란)',
+  '부과하지|부과할$_s*수$_s*없|부과(?:가|는)?$_s*(?:불가(?!피)|어렵|곤란)'
+  '|부과(?:를|가|는)?$_s*취소',
 );
+final _leading = RegExp('[,，$_spaceSet]*');
 // The sentence after a contrast ends at a sentence-final mark or a line break not following a comma.
 final _sentenceEnd = RegExp(r'。|(?<=[다요])[.!?]|\n');
 final _commaTail = RegExp(r'[,，][\t\r \xa0\u3000]*$');
 // An amount the fine is reduced to ("80,000원으로 감경") is a second stated amount.
-final _reducedTo = RegExp('$_s*(?:으로|로)$_s*(?:감경|경감|감면)');
+final _reducedTo = RegExp(
+  '$_s*\\)?$_s*(?:으로|로)$_s*(?:[0-9]+$_s*%$_s*)?(?:감경|경감|감면)',
+);
 
 String? _number(String token, String? unit) {
   if (token.replaceAll(RegExp(r'[^0-9]'), '').length > _maxDigits) return null;
@@ -51,7 +55,9 @@ bool _withdrawn(String text, int a, int b) {
   final own = text.substring(a, b);
   if (!_planned.hasMatch(own) || !_contrastEnd.hasMatch(own)) return false;
   var end = text.length;
-  for (final m in _sentenceEnd.allMatches(text, b)) {
+  // "예정이었으나,\n검토 결과 …": the next sentence starts after separators.
+  final start = _leading.matchAsPrefix(text, b)!.end;
+  for (final m in _sentenceEnd.allMatches(text, start)) {
     if (m[0] != '\n' || !_commaTail.hasMatch(text.substring(0, m.start))) {
       end = m.end;
       break;

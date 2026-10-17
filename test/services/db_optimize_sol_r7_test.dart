@@ -219,7 +219,7 @@ void main() {
     expect(job.message, contains('다음 재시도'));
   });
 
-  test('P1 완료 메타: round 0·보류 없음·next_retry_at 생략', () async {
+  test('P1 완료 메타: 첫 바퀴 완료는 round 1(서버와 같음)·보류 없음·next_retry_at 생략', () async {
     const id = '94000002';
     await seedReports([reportFor(id)]);
     DbOptimize.captureForTest = (input, rid) async => null;
@@ -228,7 +228,7 @@ void main() {
     final meta = await DbOptimize.readMeta();
     expect(meta!['done'], isTrue);
     expect((meta['holds'] as List? ?? const []), isEmpty);
-    expect(meta['round'], 0);
+    expect(meta['round'], 1);
     expect(meta.containsKey('next_retry_at'), isFalse);
     expect(meta.containsKey('pending'), isFalse);
   });

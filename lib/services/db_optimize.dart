@@ -1542,7 +1542,8 @@ class DbOptimize {
           'stats': stats,
           'attempts': <String, int>{},
           'holds': <String>[],
-          'round': 0,
+          // 한 바퀴를 끝낼 때마다 round +1 — 서버 db_optimize 완료 메타와 같은 모양(Opus P1).
+          'round': round + 1,
         });
         await clearLastError();
         _restArmed = false;

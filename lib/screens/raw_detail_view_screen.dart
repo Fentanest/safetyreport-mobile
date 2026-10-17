@@ -227,7 +227,12 @@ Future<void> sharePrettyRawJson(String reportId, String pretty) async {
   await shareDir.create(recursive: true);
   _activeRawShareDirs.add(shareDir.path);
   final file = File('${shareDir.path}/$reportId.json');
-  await file.writeAsString(pretty, encoding: utf8);
+  final write = debugRawShareFileWrite;
+  if (write != null) {
+    await write(file, pretty);
+  } else {
+    await file.writeAsString(pretty, encoding: utf8);
+  }
   try {
     final params = ShareParams(
       files: [XFile(file.path)],
@@ -298,6 +303,16 @@ Future<Directory> Function()? debugRawShareTempDir;
 /// 시험용 공유 훅. null 이면 실제 공유 시트를 띄운다.
 @visibleForTesting
 Future<ShareResult> Function(ShareParams params)? debugRawShareHook;
+
+/// 시험용 공유 파일 쓰기 훅. null 이면 실제 파일에 쓴다.
+/// 쓰기 실패 시 정리(임시 폴더·활성 경로 기록)를 시험할 때 주입한다.
+@visibleForTesting
+Future<void> Function(File file, String content)? debugRawShareFileWrite;
+
+/// 진행 중인 공유 하위 폴더로 기록됐는지 시험에서 확인한다.
+@visibleForTesting
+bool debugRawShareDirIsActive(String path) =>
+    _activeRawShareDirs.contains(path);
 
 /// 신고 상세 시트의 "원본 응답" 동작 → 전체 화면 JSON 보기(명세 4절, 모바일).
 /// 고정폭·들여쓰기 2칸, 검색(일치 강조·다음·이전·건수), 전체 복사·공유,

@@ -39,6 +39,7 @@ Map<String, dynamic> envelopeFor(
   int cNow = 10,
   double? lat,
   double? lng,
+  String? answerDate = '2026-01-02',
 }) => {
   'resultCode': '0000',
   'result': {
@@ -58,15 +59,18 @@ Map<String, dynamic> envelopeFor(
     'STTEMNT_NO': 'SPP-2512-$id',
     'C_A_TITLE': '(자동차·교통위반) 신호위반',
     'C_DATE': '2025-12-30 23:40:00',
-    'answers': [
-      {
-        'C_MANAGER_TYPE_NM': status,
-        'C_MANAGE_CONTENTS': amount,
-        'C_MANAGE_ORG_NAME': agency,
-        'C_MANAGE_MAN': '김담당',
-        'C_DATE': '2026-01-02',
-      },
-    ],
+    if (answerDate != null)
+      'answers': [
+        {
+          'C_MANAGER_TYPE_NM': status,
+          'C_MANAGE_CONTENTS': amount,
+          'C_MANAGE_ORG_NAME': agency,
+          'C_MANAGE_MAN': '김담당',
+          'C_DATE': answerDate,
+        },
+      ]
+    else
+      'answers': const [],
   },
 };
 
@@ -372,7 +376,8 @@ void main() {
           envelope: <String, dynamic>{'error': 'HTTP 500'},
         );
       }
-      final envelope = envelopeFor(id);
+      // 새 활동 없음(진행·답변 없음) — 일반 저장 경로를 탄다(7-2 넘김이 아님).
+      final envelope = envelopeFor(id, cNow: 0, answerDate: null);
       return (
         result: Map<String, dynamic>.from(envelope['result'] as Map<String, dynamic>),
         envelope: envelope,
@@ -396,7 +401,7 @@ void main() {
     expect(meta['attempts'] ?? {}, isEmpty);
   });
 
-  test('3b. 3회 일시 실패는 retry_exceeded 로 건너뛰고 done', () async {
+  test('3b. 3회 초과 일시 실패는 보류 목록에 남기고 done 아님·partial', () async {
     final ids = ['90000001', '90000002'];
     await seedReports(ids);
     final target = ids.first;
@@ -408,7 +413,8 @@ void main() {
           envelope: <String, dynamic>{'error': 'HTTP 500'},
         );
       }
-      final envelope = envelopeFor(id);
+      // 새 활동 없음(진행·답변 없음) — 일반 저장 경로를 탄다(7-2 넘김이 아님).
+      final envelope = envelopeFor(id, cNow: 0, answerDate: null);
       return (
         result: Map<String, dynamic>.from(envelope['result'] as Map<String, dynamic>),
         envelope: envelope,
@@ -419,13 +425,26 @@ void main() {
     final events = <String>[];
     DbOptimize.captureForTest = fakeCapture(seen, events);
     final result = await runAll(fetchFn: fetch);
-    expect(result.finished, isTrue);
-    expect(
-      (result.stats['skipped'] as Map)[DbOptimize.retryExceededReason],
-      1,
-    );
+    // 7-1: 일시 실패로 완료하지 않는다. 보류만 남으면 partial(실행 중 아님)이다.
+    expect(result.finished, isFalse);
+    expect(result.rest, 'partial');
+    expect(DbOptimizeState.state, 'partial');
     final meta = await DbOptimize.readMeta();
-    expect(meta!['done'], isTrue);
+    expect(meta!['done'], isNot(true));
+    expect((meta['pending'] as List), contains(target));
+    expect(await LocalDbService.getDetailRaw(target), isNull);
+    // 다음 실행에 보류만 다시 시도해 끝낸다.
+    Future<({Map<String, dynamic> result, Map<String, dynamic> envelope})>
+    fetchOk(String id) async {
+      final envelope = envelopeFor(id, cNow: 0, answerDate: null);
+      return (
+        result: Map<String, dynamic>.from(envelope['result'] as Map<String, dynamic>),
+        envelope: envelope,
+      );
+    }
+    final second = await runAll(fetchFn: fetchOk);
+    expect(second.finished, isTrue);
+    expect((await DbOptimize.readMeta())!['done'], isTrue);
   });
 
   test('3c. 저장 실패는 재시도한다', () async {

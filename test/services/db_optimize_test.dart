@@ -27,6 +27,7 @@ Map<String, dynamic> envelopeFor(
   String agency = '서울특별시 강서경찰서 교통과',
   String amount = '과태료 40,000원을 부과하였습니다.',
   int cNow = 10,
+  String? answerDate = '2026-01-02',
 }) => {
   'resultCode': '0000',
   'result': {
@@ -44,15 +45,18 @@ Map<String, dynamic> envelopeFor(
     'STTEMNT_NO': 'SPP-2512-$id',
     'C_A_TITLE': '(자동차·교통위반) 신호위반',
     'C_DATE': '2025-12-30 23:40:00',
-    'answers': [
-      {
-        'C_MANAGER_TYPE_NM': status,
-        'C_MANAGE_CONTENTS': amount,
-        'C_MANAGE_ORG_NAME': agency,
-        'C_MANAGE_MAN': '김담당',
-        'C_DATE': '2026-01-02',
-      },
-    ],
+    if (answerDate != null)
+      'answers': [
+        {
+          'C_MANAGER_TYPE_NM': status,
+          'C_MANAGE_CONTENTS': amount,
+          'C_MANAGE_ORG_NAME': agency,
+          'C_MANAGE_MAN': '김담당',
+          'C_DATE': answerDate,
+        },
+      ]
+    else
+      'answers': const [],
   },
 };
 
@@ -229,7 +233,8 @@ void main() {
     Future<({Map<String, dynamic> result, Map<String, dynamic> envelope})>
     fetch(String id) async {
       calls.add(id);
-      final envelope = envelopeFor(id);
+      // 새 활동 없음(진행·답변 없음) — 일반 저장 경로를 탄다(7-2 넘김이 아님).
+      final envelope = envelopeFor(id, cNow: 0, answerDate: null);
       return (
         result: Map<String, dynamic>.from(
           envelope['result'] as Map<String, dynamic>,
@@ -253,7 +258,7 @@ void main() {
         row['raw_zlib'] as Uint8List,
         row['raw_sha256'] as String,
       );
-      expect(payload, prepareRawDetail(envelopeFor(id)).canonical);
+      expect(payload, prepareRawDetail(envelopeFor(id, cNow: 0, answerDate: null)).canonical);
       final file = File('${tempRawDir.path}/$id.json');
       expect(file.existsSync(), isTrue);
       final stored =
@@ -281,7 +286,8 @@ void main() {
     Future<({Map<String, dynamic> result, Map<String, dynamic> envelope})>
     fetch(String id) async {
       fetched.add(id);
-      final envelope = envelopeFor(id);
+      // 새 활동 없음(진행·답변 없음) — 일반 저장 경로를 탄다(7-2 넘김이 아님).
+      final envelope = envelopeFor(id, cNow: 0, answerDate: null);
       return (
         result: Map<String, dynamic>.from(
           envelope['result'] as Map<String, dynamic>,
@@ -298,7 +304,7 @@ void main() {
     expect(result.stats['refetched'], 1);
   });
 
-  test('로그인 필요하면 멈췄다가 이어서 한다', () async {
+  test('로그인 필요하면 전체가 쉬고 이어서 한다(신고당 대기 없음)', () async {
     final ids = ['90000001', '90000002'];
     await seedReports(ids);
     final seen = <String, String>{};
@@ -308,8 +314,11 @@ void main() {
     Future<({Map<String, dynamic> result, Map<String, dynamic> envelope})>
     fetch(String id) async {
       attempts++;
-      if (attempts <= 2) throw const TokenExpiredException('만료');
-      final envelope = envelopeFor(id);
+      // 7-1: 로그인 문제는 신고별 시도 없이 작업 전체를 쉰다. 첫 호출 뒤에는
+      // 로그인된 것으로 보고(신고당 대기는 없다) 바로 쉼으로 끝난다.
+      if (attempts <= 1) throw const TokenExpiredException('만료');
+      // 새 활동 없음(진행·답변 없음) — 일반 저장 경로를 탄다(7-2 넘김이 아님).
+      final envelope = envelopeFor(id, cNow: 0, answerDate: null);
       return (
         result: Map<String, dynamic>.from(
           envelope['result'] as Map<String, dynamic>,
@@ -317,13 +326,27 @@ void main() {
         envelope: envelope,
       );
     }
-    final result = await DbOptimize.processAll(
+    final first = await DbOptimize.processAll(
       fetchFn: fetch,
       isSyncing: () => false,
       rebuildPending: () async => false,
     );
-    expect(result.finished, isTrue);
-    expect(result.stats['refetched'], ids.length);
+    expect(first.finished, isFalse);
+    expect(first.rest, 'login_required');
+    expect(attempts, 1);
+    final meta = await DbOptimize.readMeta();
+    expect(meta!['done'], isNot(true));
+    expect(meta['attempts'] ?? {}, isEmpty);
+    // 쉬는 동안 동기화 게이트는 열린다.
+    expect(DbOptimize.blocksSync, isFalse);
+    // 로그인 뒤(동기화 성공) 이어서 하면 끝난다.
+    final second = await DbOptimize.processAll(
+      fetchFn: fetch,
+      isSyncing: () => false,
+      rebuildPending: () async => false,
+    );
+    expect(second.finished, isTrue);
+    expect(second.stats['refetched'], ids.length);
     final logText = (DbOptimizeState.jobForStatus()!['log'] as List).join('\n');
     expect(logText, contains('로그인 필요'));
     expect(logText, contains('이어서'));
@@ -339,7 +362,8 @@ void main() {
     Future<({Map<String, dynamic> result, Map<String, dynamic> envelope})>
     fetch(String id) async {
       if (id == ids.first) throw Exception('상세 조회 실패 ($id, 404)');
-      final envelope = envelopeFor(id);
+      // 새 활동 없음(진행·답변 없음) — 일반 저장 경로를 탄다(7-2 넘김이 아님).
+      final envelope = envelopeFor(id, cNow: 0, answerDate: null);
       return (
         result: Map<String, dynamic>.from(
           envelope['result'] as Map<String, dynamic>,

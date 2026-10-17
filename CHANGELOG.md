@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-10-17 — DB 최적화 작업·크롤 순서·하단 표시 (명세 3절, 미배포)
+
+- 파서 버전을 `mobile-parser-13`(서버 `pc-parser-13`과 같은 시점)으로 올려 첫 실행에 한 번 돈다.
+  Standalone 앱 실행(게이트 통과 뒤) 때 `sync_meta.detail_raw_optimize`(서버와 같은 키·같은 모양)가
+  현재 버전이 아니거나 `done`이 아니면 `DbOptimize`가 신고 ID 순으로 이어서 훑는다. Client 모드는 하지 않는다(서버가 함).
+- 원본 표 행이 있고 sha가 맞으면 네트워크 없이 저장된 원본의 `result`로 다시 파싱하고,
+  없거나 손상이면 상세 API로 다시 받아 `source='backfill'`로 원본 표·파일에 저장한 뒤 파싱한다
+  (크롤과 같은 요청 간격 300ms·재시도, 로그인 필요면 `login_required` 표시·주기 재시도, 404·삭제 등은 사유 남기고 건너뜀).
+- 저장은 `LocalDbService.reparseReport`(서버 `reparse_one`과 같은 열 규칙: 파서 열만 갱신, 목록 열·override 유지,
+  화면용 보기는 그대로, 공유 캡처 trigger `'reparse'`로 바뀐 신고만 새 `completed_observation`).
+  `fine_estimate_resend`는 그대로 둔다. 원본 파일이 없으면 만든다. 끝나면 `done=true`, 커서부터 이어서 한다.
+- 최적화가 도는 동안 수동 동기화·알림 동기화는 바로 시작하지 않고 대기열 뒤에 붙는다.
+  크롤 화면 로그에 서버와 같은 문구 "DB 최적화 중입니다. 최적화가 끝난 뒤 크롤링을 시작합니다." 한 줄을 남기고
+  끝나면 자동 시작한다. 크롤링 상태 UI에 넣지 않고 취소 수단도 없다.
+- 하단 표시줄에 작업 `db_optimize`(라벨 "DB 최적화 중입니다…", done/total, stage, 최근 50줄 로그)를 보이고
+  탭하면 로그 시트. Standalone은 로컬 작업, Client는 서버 상태 API의 추가 필드를 읽는다(없으면 예전처럼).
+  앱 시작 DB 업그레이드 중에는 시작 화면 하단에 같은 문구와 단계 로그(백업·표 생성·버전)를 보여 준다.
+- 서버와 다르게 한 점: 대기열을 1건의 수동 동기화 + 1건의 알림 drain으로 합침(1인 순차 동기화라 동시 크롤이 없음).
+  바이트 단위 압축 동일성은 맞추지 않고 저장된 BLOB을 그대로 옮긴다(명세 1-1과 같은 규칙).
+- 검증: 신규 `test/services/db_optimize_test.dart` 15개 통과(서버 `tests/test_db_optimize.py` 대응),
+  파서 버전 기대 시험 4곳 갱신. 전체 `flutter test`·`flutter analyze`는 아래 기준선/최종 기록 참조.
+
 ## 2026-10-17 — 상세 원본 저장·스키마 18 (명세 1·2절, 미배포)
 
 - 상세 API 응답 envelope 을 정규 직렬화(신고자 키 5개 제거·`jsonEncode`·sha256·zlib 레벨 6, 서버와 같은 규칙 `lib/services/raw_detail.dart`)해

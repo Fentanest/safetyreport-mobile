@@ -487,6 +487,61 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
   (예전엔 Android 7~10 에서 백업이 실패해 초기화 크롤링을 시작할 수 없었다).
 - 계약: `contracts/community-ingest/rebuild.md` "이전 버전 개인 DB"(map 레포 원본의 사본).
 
+## 2026-10-17 DB 최적화 작업 — 상세 원본 기반 재파싱 (명세 3절, 서버와 1:1)
+
+서버 `services/db_optimize.py` 와 같은 시점·같은 규칙으로 돈다. 호출 지점 대응은 명세서
+`docs/plans/2026-10-17-raw-detail-reparse.md` 3절을 따른다.
+
+- **파서 버전**: `mobile-parser-13`(`lib/community/capture/community_capture.dart`,
+  서버 `pc-parser-13`). 첫 실행에 한 번 돈다. 앞으로 파서 로직이 바뀌면 버전만 올리면 된다.
+- **메타 키** `sync_meta.detail_raw_optimize` =
+  `{"target": "mobile-parser-13", "cursor": "<마지막 처리 ID>", "done": bool, "total": int,
+  "stats": {"reused", "refetched", "changed", "events", "skipped": {사유: 건수}}}`.
+  서버 `mysafety_sync_meta.detail_raw_optimize` 와 같은 키·같은 모양이다.
+  `target`이 현재 파서 버전과 다르거나 `done`이 아니면 시작/이어서 한다.
+- **시작**: Standalone 앱 실행(게이트 통과 뒤 `ReportProvider._startDbOptimizeIfNeeded`) 때
+  `DbOptimize.maybeStart` — 할 일 없으면 아무 것도 안 함. Client 모드는 부르지 않는다(서버가 함).
+  `SyncEngine`이 돌고 있으면 끝난 뒤, 초기화(rebuild) 필요 상태면 초기화 우선(서버 `wait_for_turn`과 같음).
+- **신고마다(ID 순, 커서로 이어서)**: 원본 표 행이 있고 sha가 맞으면 네트워크 없이 저장된 원본의
+  `result`로 다시 파싱한다. 행이 없거나 손상이면 `StandaloneApiService.fetchReportDetail`
+  (크롤과 같은 요청 간격 300ms·재시도 — 서버 0.3초·3회와 같음. API 안의 5회/1초 전송 재시도는 그대로)로
+  다시 받아 `source='backfill'`로 원본 표·파일에 저장하고 파싱한다.
+  로그인이 필요하면(`TokenExpiredException`) 상태 `login_required`로 멈췄다가 주기 재시도한다.
+  받을 수 없는 신고(404·삭제 등)는 사유(`not_found` 등)를 남기고 건너뛴다.
+- **저장**(`LocalDbService.reparseReport`, 서버 `reports_repo.reparse_one`과 같은 열 규칙):
+  파서가 만드는 열만 갱신하고 목록 크롤이 채우는 열
+  (상태·신고번호·신고명·신고일·만족도조사여부·별점·별점사유·감시목록)은 손대지 않는다.
+  공식 좌표·사진 촬영 시각은 저장된 값을 그대로 둔다(네트워크 prefetch 없음).
+  화면용 보기(`reports_effective`)가 수정값(`report_override`)을 그대로 다시 얹으므로 override는 유지된다.
+  기존 공유 캡처(`capture`, trigger `'reparse'`)를 그대로 타서 공유 payload가 바뀐 신고만 새
+  `completed_observation`(source_revision 증가)으로 나간다. 바뀌지 않으면 이벤트 없음.
+  `fine_estimate_resend`는 그대로 둔다(확정 판정은 원본 재파싱이 정답 — 기존 "journal amount 보존" 결정은 이 작업에 적용하지 않음).
+- **원본 파일이 없으면 만든다.** 진행 로그(단계·건수·건너뜀 사유)를 남긴다. 끝나면 `done=true`.
+- **크롤과의 순서**: 최적화가 도는 동안 수동 동기화(크롤 화면 `SyncEngine.start`)와 알림 동기화
+  (`StandaloneAutoSyncService.drainIfPending`)는 바로 시작하지 않고 대기열 뒤에 붙는다.
+  크롤 화면 로그(`SyncEngine` 이벤트)에 서버와 같은 문구
+  "DB 최적화 중입니다. 최적화가 끝난 뒤 크롤링을 시작합니다."를 한 줄 남기고,
+  작업이 끝나면 자동으로 이어서 시작한다(등록된 after-finish 훅).
+  서버와 다른 점: 모바일은 1인 순차 동기화라 대기열을 최대 1건의 수동 동기화 + 1건의 알림 drain으로 합친다
+  (서버의 번호 대기열·미루기 목록과 같은 뜻, 이유: 동시 크롤 프로세스가 없음).
+  크롤링 상태 UI(크롤 창의 진행/중지 버튼)에 넣지 않는다. 사용자가 취소할 수 없다.
+  서버 종료·앱 종료 뒤에는 커서부터 이어서 한다. 앱이 뒤로 가도 가능한 범위에서 이어 하고,
+  앱이 죽어도 다음 실행에 이어서 하면 된다.
+- **표시**: `MaintenanceService.localJobs()`에 작업 `db_optimize`를 추가한다
+  (`label` "DB 최적화 중입니다…", `done`/`total`, `stage`, `log` 최근 50줄 — 서버 `status()`와 같은 필드).
+  `MaintenanceJob`에 `stage`·`log`·`finishedAt`을 추가했다(기존 필드·의미 불변, 추가만).
+  `widgets/maintenance_status_bar.dart`에 같은 작업·로그를 보이고 탭하면 로그 시트.
+  Standalone은 로컬 작업, Client는 서버 상태 API(`/api/v1/maintenance/status`)의 추가 필드를 읽는다
+  (필드 없으면 예전처럼 보인다 — 구서버 호환).
+  모바일 DB 업그레이드(앱 시작 때 DB를 여는 단계)는 시작 화면 하단에 "DB 최적화 중입니다…"와
+  단계 로그(백업·표 생성·버전)를 보여 준다. 업그레이드 단계 로그는 최적화 작업 로그에도 이어 남긴다
+  (`LocalDbService.upgradeLog` → `DbOptimizeState`, 서버 `record_migration_event`와 같은 자리).
+- **시험**: `test/services/db_optimize_test.dart` — 서버 `tests/test_db_optimize.py`와 대응
+  (커서 이어하기, 원본 있음→네트워크 없이 재파싱, 원본 없음→가짜 응답 재수신·저장·파일,
+  로그인 필요 멈춤·재개, 건너뜀, 파서 열만 변경·override 유지, 바뀐 건만 공유 이벤트,
+  done이면 noop, 최적화 중 수동·알림 동기화 대기·로그·자동 시작, 상태 표시 필드,
+  Client 모드 서버 필드 읽기·없을 때 호환), 위젯 시험(표시줄·로그 시트·시작 화면 업그레이드 표시).
+
 ## 2026-09-27 신고 자료의 주인 = 카카오 계정 (서버·모바일 함께)
 
 사용자 결정: 카카오 로그인은 필수, 카카오 로그아웃은 신고 자료를 지운다, 다른 사람의 DB 는 가져오지 못한다.

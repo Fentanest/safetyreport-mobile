@@ -212,4 +212,53 @@ void main() {
       dir.deleteSync(recursive: true);
     }
   });
+
+  test('unsafe report id does not escape raw_details', () async {
+    // 서버 is_safe_report_id·raw_file_path 와 같은 규칙: 영숫자·_·- 만, 64자 이내,
+    // 정규화 최종 경로가 raw_details 아래일 때만 쓴다. 위반은 쓰지 않고 진단만.
+    expect(isSafeReportId('90000001'), isTrue);
+    expect(isSafeReportId('r-1_A'), isTrue);
+    for (final bad in [
+      '../outside',
+      '..',
+      '',
+      'a/b',
+      r'a\b',
+      'a.json',
+      'a b',
+      '한글',
+      'a' * 65,
+    ]) {
+      expect(isSafeReportId(bad), isFalse, reason: bad);
+    }
+    final dir = await Directory.systemTemp.createTemp('sr_raw_detail_escape_');
+    try {
+      final rawDir = Directory('${dir.path}/raw_details')..createSync();
+      expect(rawFilePath('../outside', rawDir), isNull);
+      expect(rawFilePath('', rawDir), isNull);
+      expect(
+        rawFilePath('90000001', rawDir),
+        '${rawDir.absolute.path}/90000001.json',
+      );
+      final sanitized = <String, dynamic>{
+        'result': {'C_NO': 'x'},
+      };
+      expect(
+        await writeRawDetailFile('../outside', sanitized, dir: rawDir),
+        isNull,
+      );
+      expect(
+        File('${dir.path}/outside.json').existsSync(),
+        isFalse,
+        reason: 'raw_details 밖(mysafetyreport/outside.json)에 쓰면 안 된다',
+      );
+      expect(rawDir.listSync(), isEmpty);
+      expect(
+        File('${rawDir.path}/../outside.json.tmp').existsSync(),
+        isFalse,
+      );
+    } finally {
+      dir.deleteSync(recursive: true);
+    }
+  });
 }

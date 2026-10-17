@@ -275,8 +275,9 @@ class SyncEngine {
         errorMessage: 'db_optimize_running',
       );
     }
+    late SyncRunResult result;
     try {
-      return await SyncOperationAdmission.run(
+      result = await SyncOperationAdmission.run(
         () => _startOwned(
           fullSync: fullSync,
           preserveDataset: preserveDataset,
@@ -294,7 +295,7 @@ class SyncEngine {
         openStore: openCommunityStoreForTest,
       );
     } catch (_) {
-      return SyncRunResult(
+      result = SyncRunResult(
         done: 0,
         errors: 0,
         failed: true,
@@ -302,10 +303,18 @@ class SyncEngine {
         errorMessage: 'community_store_unavailable: 작업 소유권 저장소를 확인하지 못했습니다.',
       );
     }
+    // 동기화 종료 경로(성공·실패·거절·취소 공통): 영속 보류 요청이 남아 있으면 시작한다.
+    // 최적화가 진행 중이면 계속 보류한다. 재시도 starter 가 다시 이 함수를 부르고
+    // 그 종료 훅은 재진입 방지로 그냥 둔다(무한 재귀 없음).
+    try {
+      await DbOptimize.notifySyncFinished();
+    } catch (_) {}
+    return result;
   }
 
   /// 최적화가 끝난·오류 난 뒤 보류한 수동 동기화를 정확히 한 번 시작한다(서버 _after_finish 와 같은 자리).
   /// 반환: 실제로 시작했으면 true. 소유권을 얻지 못해 시작하지 못했으면 false — 보류를 유지한다(유실 금지).
+  /// 거절(게이트·초기화 대기)·취소도 시작하지 못한 것이므로 false — 보류를 유지한다.
   /// DbOptimize 가 true 일 때만 보류를 지운다.
   static Future<bool> runDeferredManual() async {
     final params = await DbOptimize.peekManualSync();
@@ -318,6 +327,15 @@ class SyncEngine {
     );
     // 소유권 경쟁으로 시작하지 못했으면(sync_busy) 보류를 유지하고 다음 기회에 다시.
     if (result.busy) return false;
+    // 중지·소유권 상실로 시작하지 못했으면 보류를 유지한다.
+    if (result.cancelled) return false;
+    // 게이트·초기화 대기·저장소 확인 실패로 실행하지 못했으면 보류를 유지한다.
+    final message = result.errorMessage ?? '';
+    if (message == 'local_account_unverified' ||
+        message == rebuildBlockedMessage ||
+        message.startsWith('community_store_unavailable')) {
+      return false;
+    }
     return true;
   }
 

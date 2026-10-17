@@ -85,6 +85,10 @@ class StandaloneAutoSyncService {
         openStore: SyncEngine.openCommunityStoreForTest,
         validateScope: validateScope,
       );
+      // drain 종료 경로: 영속 보류 요청이 남아 있으면 시작한다(최적화 진행 중이면 계속 보류).
+      try {
+        await DbOptimize.notifySyncFinished();
+      } catch (_) {}
       return started;
     } catch (_) {
       SyncEngine.emitLog('작업 소유권 저장소를 확인하지 못해 개별 동기화를 시작하지 않았습니다. 큐는 보존했습니다.');

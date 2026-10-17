@@ -935,6 +935,8 @@ class ReportProvider with ChangeNotifier {
       // WsService 시작은 게이트 통과 뒤 onGatePassed() 에서 1회 실행한다.
       try {
         await LocalDbService.db.timeout(const Duration(seconds: 30));
+        // 새 프로세스에서도 마지막 최적화 오류를 표시줄에 보인다 — 영속분을 복원한다.
+        await DbOptimize.restorePersistedError();
       } catch (_) {
         // 열기 실패(예전 DB·잠금 등)는 뒤 흐름(초기화 안내·오류 화면)이 다룬다.
       }
@@ -1129,17 +1131,34 @@ class ReportProvider with ChangeNotifier {
     if (_appMode == AppMode.standalone) await refreshAll();
   }
 
+  /// DB 교체(백업 복원·서버 DB 가져오기) 완료 뒤 최적화 재판단
+  /// (Sol 재검수 R2 #2, 성공·실패 공통 종료에서 호출 — `LocalDbService.onDatabaseReplaced`
+  /// 훅·설정 화면 되돌리기/복원 버튼).
+  /// Standalone(데모 제외)에서만 `DbOptimize.maybeStart` 로 새 DB 의 메타부터 다시
+  /// 판단한다. Client·데모·미설정은 아무 것도 안 한다.
+  /// 모드 전환(setConfig/setStandaloneConfig/resetConfig)에서는 부르지 않는다 —
+  /// 전환마다 게이트가 리셋돼 뒤따르는 onGatePassed() 가 같은 재판단을 수행한다. 전환
+  /// 직후 바로 시작하면 백그라운드 독점을 잡아 뒤따르는 백업·복원이 거부되므로 두지 않는다.
+  void reevaluateDbOptimize() {
+    _startDbOptimizeIfNeeded();
+  }
+
   /// DB 최적화 시작/이어서(Standalone 만, Client 는 서버가 함 — 명세 3-1).
   /// SyncEngine 이 돌고 있으면 끝난 뒤, 초기화(rebuild) 필요 상태면 초기화 우선(서버 wait_for_turn 과 같음).
+  bool _dbOptimizeWired = false;
+
   void _startDbOptimizeIfNeeded() {
     if (_appMode != AppMode.standalone || _isStandaloneDemo) return;
     // 보류 starter 는 미리 등록한다 — 앱 재시작 뒤(정적 상태 초기화)에도 기동 경로에서
     // 영속 보류를 꺼내 시작할 수 있게(서버 maybe_start 의 재시작 복구와 같음).
     DbOptimize.manualStarter ??= SyncEngine.runDeferredManual;
     DbOptimize.drainStarter ??= StandaloneAutoSyncService.runDeferredDrain;
-    DbOptimize.addAfterFinishHook(() async {
-      await refreshAll();
-    });
+    if (!_dbOptimizeWired) {
+      _dbOptimizeWired = true;
+      DbOptimize.addAfterFinishHook(() async {
+        await refreshAll();
+      });
+    }
     unawaited(
       DbOptimize.maybeStart(
         isSyncing: () =>

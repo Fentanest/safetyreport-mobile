@@ -76,6 +76,15 @@ class DbOptimize {
   /// 여기에는 "최적화 뒤 drain 1회" 표시만 남긴다.
   static const String deferredDrainKey = 'detail_raw_optimize_deferred_drain';
 
+  /// 마지막 최적화 오류 스냅샷 키(`sync_meta`). 새 프로세스에서도 표시줄에 오류를
+  /// 보이기 위해 `{at, message, log(최근 20줄)}` 를 남긴다. 재시도 시작·완료 때 지운다.
+  static const String lastErrorKey = 'detail_raw_optimize_last_error';
+
+  /// 테스트 주입점. null 이면 실제 `LocalDbService.deleteMeta` 를 쓴다.
+  /// 보류 삭제 실패(진단 기록 분기)를 실제 경로로 재현할 때 쓴다.
+  @visibleForTesting
+  static Future<void> Function(String key)? deleteMetaForTest;
+
   /// 크롤 실행 중·초기화 대기 때 다음 확인까지 쉬는 시간.
   static Duration waitInterval = const Duration(seconds: 5);
 
@@ -86,6 +95,16 @@ class DbOptimize {
 
   static Future<void>? _running;
   static bool _stopRequested = false;
+
+  /// 동기화 종료 훅 재진입 방지. 보류 재시도 starter 가 다시 동기화를 일으키고 그
+  /// 종료 훅이 또 보류를 보려 하면(무한 재귀) 그냥 둔다 — 바깥 훅이 이미 처리 중이다.
+  static bool _notifyingSyncFinished = false;
+
+  /// 보류 실행 재진입 방지. `_afterFinish`·`_afterError`·종료 훅이 직접 부른 바깥 실행이
+  /// 끝나기 전, starter 가 일으킨 동기화·drain 의 종료 훅이 또 실행을 부르면(보류가 아직
+  /// 지워지지 않아 중복 시작됨) 그냥 둔다 — 바깥 실행이 지우기까지 맡는다.
+
+  static bool _dispatchingDeferred = false;
 
   /// 끝나면 자동 시작할 대기 작업(수동 동기화·알림 동기화가 등록). 서버 `_after_finish` 와 같은 자리.
   /// import 순환을 피하려고 콜백으로 받는다(SyncEngine·StandaloneAutoSyncService 가 등록).
@@ -119,9 +138,12 @@ class DbOptimize {
     DbOptimizeState.resetForTest();
     _running = null;
     _stopRequested = false;
+    _notifyingSyncFinished = false;
+    _dispatchingDeferred = false;
     openStoreForTest = null;
     fetchDetailForTest = null;
     captureForTest = null;
+    deleteMetaForTest = null;
     rawFileDirForTest = null;
     namespaceForTest = null;
     datasetIdForTest = null;
@@ -1030,6 +1052,7 @@ class DbOptimize {
         'stats': stats,
         'attempts': <String, int>{},
       });
+      await clearLastError();
       final changed = stats['changed'] as int? ?? 0;
       final events = stats['events'] as int? ?? 0;
       final skippedTotal = (stats['skipped'] as Map? ?? {}).values.fold<int>(
@@ -1088,20 +1111,113 @@ class DbOptimize {
     await runDeferredStarters();
   }
 
-  /// 보류 요청 시작(수동 1건 합침 + drain 1회). 실제로 시작될 때만 보류를 지운다(유실 금지).
+  /// 보류 요청 시작(수동 1건 합침 + drain 1회). 실제로 시작된 뒤에만 보류를 지운다
+  /// (유실 금지, 서버와 같은 규칙 — started 표시는 쓰지 않는다).
+  /// 지우기 실패는 진단 기록만 남긴다. 드물게 다음 훅·실행에서 한 번 더 시작될 수 있으나
+  /// 요청 유실보다 낫다. 시작 실패·busy·거절·취소면 보류는 그대로 남아 다음에 시작한다.
   static Future<void> runDeferredStarters() async {
+    // 재진입이면 그냥 둔다. 바깥 실행이 starter 완료 뒤 보류 지우기까지 맡는다.
+    // (_afterFinish·_afterError 직접 호출 + starter 가 일으킨 동기화·drain 종료 훅의
+    // 중첩 호출이 같은 보류를 두 번 시작하지 않게 — 유실이 아닌 중복 방지가 목적.)
+    if (_dispatchingDeferred) return;
+    _dispatchingDeferred = true;
     try {
-      final starter = manualStarter;
-      if (starter != null && await hasDeferredManual()) {
-        if (await starter()) await clearDeferredManual();
+      try {
+        final starter = manualStarter;
+        if (starter != null && await hasDeferredManual()) {
+          if (await starter()) {
+            await _clearDeferredLogged(deferredManualKey);
+          }
+        }
+      } catch (_) {}
+      try {
+        final starter = drainStarter;
+        if (starter != null && await isDrainDeferred()) {
+          if (await starter()) {
+            await _clearDeferredLogged(deferredDrainKey);
+          }
+        }
+      } catch (_) {}
+    } finally {
+      _dispatchingDeferred = false;
+    }
+  }
+
+  /// 시작 성공 뒤 보류 기록을 지운다. 실패하면 진단 기록만 남긴다(다음에 한 번 더
+  /// 시작될 수 있음 — 요청 유실보다 낫다, 서버와 같음).
+  static Future<void> _clearDeferredLogged(String key) async {
+    try {
+      final deleter = deleteMetaForTest;
+      if (deleter != null) {
+        await deleter(key);
+      } else {
+        await LocalDbService.deleteMeta(key);
       }
+    } catch (e) {
+      DbOptimizeState.appendLog('보류 삭제 실패(다음에 다시 시작할 수 있음: ${e.runtimeType})');
+    }
+  }
+
+  /// 모든 동기화 종료 경로(SyncEngine.start·drain 끝)에서 부른다. 영속 보류 요청이
+  /// 남아 있으면 시작한다. 최적화가 진행 중이면 계속 보류한다(starter 가 다시
+  /// defer 하므로 여기서 그냥 두는 것과 같지만 로그·메타를 다시 쓰지 않게 먼저 둔다).
+  static Future<void> notifySyncFinished() async {
+    if (_notifyingSyncFinished) return;
+    if (isRunning) return;
+    _notifyingSyncFinished = true;
+    try {
+      await runDeferredStarters();
+    } catch (_) {
+    } finally {
+      _notifyingSyncFinished = false;
+    }
+  }
+
+  /// 마지막 최적화 오류를 영속한다(새 프로세스의 표시줄 복원용).
+  static Future<void> persistLastError(String message) async {
+    List<String> logs = const [];
+    try {
+      final job = DbOptimizeState.jobForStatus();
+      final raw = job?['log'] as List? ?? const [];
+      logs = [for (final line in raw) '$line'];
     } catch (_) {}
     try {
-      final starter = drainStarter;
-      if (starter != null && await isDrainDeferred()) {
-        if (await starter()) await clearDrainDeferred();
-      }
+      await LocalDbService.setMeta(
+        lastErrorKey,
+        jsonEncode({
+          'at': DateTime.now().toUtc().toIso8601String(),
+          'message': message,
+          'log': logs.length > 20 ? logs.sublist(logs.length - 20) : logs,
+        }),
+      );
     } catch (_) {}
+  }
+
+  static Future<void> clearLastError() async {
+    try {
+      await LocalDbService.deleteMeta(lastErrorKey);
+    } catch (_) {}
+  }
+
+  /// 영속된 마지막 최적화 오류를 메모리 상태로 복원한다. 복원했으면 true.
+  /// 이미 error 상태거나 남긴 오류가 없으면 아무 것도 하지 않고 false.
+  static Future<bool> restorePersistedError() async {
+    try {
+      if (DbOptimizeState.state == 'error') return false;
+      final raw = await LocalDbService.getMeta(lastErrorKey);
+      if (raw == null || raw.isEmpty) return false;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return false;
+      final message = '${decoded['message'] ?? ''}';
+      final logs = [
+        for (final line in (decoded['log'] as List? ?? const [])) '$line',
+      ];
+      if (message.isEmpty && logs.isEmpty) return false;
+      DbOptimizeState.restoreErrorSnapshot(message: message, logs: logs);
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// 작업 예외(error) 뒤: 동기화 보류를 풀어 대기 요청을 실행한다(서버 _after_error 와 같음).
@@ -1163,6 +1279,8 @@ class DbOptimize {
         message: '',
         finishedAt: '',
       );
+      // 재시도 시작: 남았던 마지막 오류 표시를 해제한다(표시줄 복원용 영속분 포함).
+      await clearLastError();
       final meta = await readMeta() ?? {};
       DbOptimizeState.appendLog(
         'DB 최적화 시작(대상 ${countRows.length}건, 파서 $mobileParserVersion)'
@@ -1184,6 +1302,8 @@ class DbOptimize {
           stage: 'error',
           message: e.runtimeType.toString(),
         );
+        // 새 프로세스에서도 표시줄에 보이도록 마지막 오류를 영속한다.
+        await persistLastError(e.runtimeType.toString());
         // 작업 예외(error) 뒤 동기화 보류를 풀어 대기 요청을 실행한다(서버 _after_error 와 같음).
         // 최적화는 다음 기회에 다시 시도한다. 표시줄은 error 를 '작업 완료'가 아닌 '오류'로 보인다.
         try {

@@ -82,6 +82,11 @@ Future<void> main() async {
     return;
   }
   await BundledSqlite.initialize();
+  // 첫 프레임을 DB 열기(17→18 업그레이드 포함)보다 먼저 그린다(Sol 재검수 R2 #1).
+  // DB 를 여는 동안 시작 화면(StartupLoadingScreen)이 그려지고, 업그레이드 단계 로그가
+  // DbOptimizeState 변경마다 다시 그려진다. 아래 준비(게이트·알림 초기화·백그라운드 작업
+  // 등록 — onGatePassed 에서 1회)의 순서·의존은 그대로 두고, 첫 화면 지연은 늘지 않는다.
+  runApp(const StartupLoadingApp());
   // 아래 네 준비는 서로 기다릴 필요가 없어 함께 기다린다(SQ-P12). 순서가 필요한 보안 저장소 확인과 DB 엔진 초기화는 위에서 먼저 끝냈다.
   // 각 단계의 실패 처리는 예전과 같다(카카오 세션 복원 실패만 시작을 멈춘다).
   final communityAuth = CommunityAuthService.instance;
@@ -163,6 +168,8 @@ Future<void> main() async {
   // 서버 연결은 루트에서 PC 버전 3 이상을 확인한 뒤 시작한다.
   // 모드 전환(Client·데모 → Standalone 등) 뒤에는 그 기기 DB 의 주인을 다시 확인한다.
   reportProvider.addListener(gate.onAppModeChanged);
+  // DB 교체(백업 복원·서버 DB 가져오기·되돌리기) 완료 뒤 Standalone 이면 최적화 재판단.
+  LocalDbService.onDatabaseReplaced = reportProvider.reevaluateDbOptimize;
   if (communityStore != null) {
     CommunityWiring.wire(communityGate: gate, store: communityStore);
   }
@@ -388,7 +395,7 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
     // 최초 설정: 모드 선택 → 카카오 동의 → 공통 권한 → 해당 모드 설정.
     // 데모는 합성 자료만 쓰므로 인증·권한·서비스를 시작하지 않는다.
     if (!provider.isInitialized) {
-      return const _StartupLoadingScreen();
+      return const StartupLoadingScreen();
     }
     if (provider.isConfigured) _initialModeChoice = null;
     if (provider.isStandaloneDemo) return const MainNavigationScreen();
@@ -504,12 +511,65 @@ class _ServerVersionBlockedScreen extends StatelessWidget {
   );
 }
 
+/// DB를 열기 전 첫 프레임을 그리는 시작 앱(main 2단계 runApp의 1단계).
+/// `ReportProvider.init` 의 실제 DB 열기(17→18 변환이 일어나는 지점)가 끝날 때까지
+/// [StartupLoadingScreen] 을 보인다. 변환 단계 로그는 `DbOptimizeState.revision`
+/// 변경마다 다시 그려진다.
+class StartupLoadingApp extends StatelessWidget {
+  const StartupLoadingApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const MaterialApp(
+      title: '나만의 안전신문고',
+      debugShowCheckedModeBanner: false,
+      home: StartupLoadingScreen(),
+    );
+  }
+}
+
+/// 실제 main 시작 경로와 같은 순서(runApp → DB 열기)를 시험하는 부트스트랩.
+/// [openDb] 가 끝날 때까지 시작 화면을 보이고, 끝나면 [child] 로 바꾼다. DB 열기
+/// 중간에 남는 업그레이드 단계 로그가 그대로 화면에 streaming 되는지 확인한다.
+class StartupBootstrap extends StatefulWidget {
+  const StartupBootstrap({
+    super.key,
+    required this.openDb,
+    required this.child,
+  });
+
+  /// 실제 DB 열기(가짜 오프너를 주입). 끝나면 시작 화면을 걷는다.
+  final Future<void> Function() openDb;
+  final Widget child;
+
+  @override
+  State<StartupBootstrap> createState() => _StartupBootstrapState();
+}
+
+class _StartupBootstrapState extends State<StartupBootstrap> {
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.openDb().then((_) {
+      if (mounted) setState(() => _ready = true);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_ready) return widget.child;
+    return const MaterialApp(home: StartupLoadingScreen());
+  }
+}
+
 /// 앱 시작 로딩 화면. DB 업그레이드(17→18 등) 중에는 하단에 "DB 최적화 중입니다…"와
 /// 단계 로그(백업·표 생성·버전)를 보여 앱이 멈춘 것처럼 보이지 않게 한다(명세 3-4).
 /// 실제 DB 열기(`ReportProvider.init` 의 warmup = 17→18 변환이 실제로 일어나는 지점)와
 /// 연결돼 있고, 상태 변경(`DbOptimizeState.revision`) 때마다 다시 그린다.
-class _StartupLoadingScreen extends StatelessWidget {
-  const _StartupLoadingScreen();
+class StartupLoadingScreen extends StatelessWidget {
+  const StartupLoadingScreen({super.key});
 
   @override
   Widget build(BuildContext context) {

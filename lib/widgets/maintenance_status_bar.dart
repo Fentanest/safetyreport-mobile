@@ -42,6 +42,10 @@ class _MaintenanceStatusBarState extends State<MaintenanceStatusBar>
     MaintenanceService.photoJob.addListener(_refreshLocal);
     DbOptimizeState.revision.addListener(_refreshLocal);
     _foreground = !_isBackground(WidgetsBinding.instance.lifecycleState);
+    // 마지막 최적화 오류 복원은 `ReportProvider.init` 이 맡는다(실제 DB 열기 뒤, 실제
+    // 비동기 구간). 위젯 initState 에서는 DB 를 열지 않는다 — 시험 FakeAsync zone 에서
+    // 정적 캐시 비동기 초기화가 영원히 대기한다(community/gate_passed_hooks_test.dart 앞
+    // 주석과 같은 이유). 복원되면 revision 이 올라 여기서 다시 그린다.
     if (_foreground) _tick();
   }
 
@@ -147,7 +151,11 @@ class _MaintenanceStatusBarState extends State<MaintenanceStatusBar>
         _doneIsError = false;
         _wasActive = true;
       });
-    } else if (_wasActive || _doneText != null) {
+    } else if (_wasActive ||
+        _doneText != null ||
+        jobs.any((j) => j.state == 'error' || j.state == 'completed')) {
+      // error 상태로 처음 마운트돼도 '오류'와 로그를 보인다. 다음 상태 변화 전까지
+      // 유지한다(6초 자동 숨김 없음 — 완료만 잠깐 보였다 사라진다).
       final done = jobs.where((j) => j.state == 'completed').toList();
       // 작업 예외(error)는 '작업 완료'가 아닌 '오류'와 로그로 보인다(서버 표시줄과 같음).
       final errors = jobs.where((j) => j.state == 'error').toList();
@@ -202,6 +210,8 @@ class _MaintenanceStatusBarState extends State<MaintenanceStatusBar>
         _jobs = const [];
         _wasActive = false;
       });
+      // 오류는 다음 상태 변화(재시도 시작·완료 등) 전까지 유지한다 — 6초 자동 숨김 없음.
+      if (isError) return;
       _hideTimer = Timer(const Duration(seconds: 6), () {
         if (mounted) {
           setState(() {

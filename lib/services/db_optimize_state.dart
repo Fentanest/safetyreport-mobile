@@ -82,6 +82,22 @@ class DbOptimizeState {
   /// `LocalDbService` 스키마 업그레이드가 부르는 기록 지점. 최적화 작업 전에도 로그가 남는다.
   static void recordMigrationEvent(String message) => appendLog(message);
 
+  /// 실패 스냅샷 복원(새 프로세스에서 마지막 최적화 오류를 표시줄에 보일 때).
+  /// 로그를 통째로 갈아끼우고 `error` 로 둔다(최근 50줄만). 재시도 시작(`update` running)이
+  /// 오면 이 표시는 사라진다.
+  static void restoreErrorSnapshot({
+    required String message,
+    required List<String> logs,
+  }) {
+    _state = 'error';
+    _stage = 'error';
+    _message = message;
+    _log.clear();
+    final tail = logs.length > _logKeep ? logs.sublist(logs.length - _logKeep) : logs;
+    _log.addAll(tail);
+    _bump();
+  }
+
   /// 값이 바뀌지 않아도 화면을 다시 그리게 한다(업그레이드 시작·끝 전환용).
   static void notifyChanged() => _bump();
 

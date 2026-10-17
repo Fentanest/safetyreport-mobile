@@ -713,6 +713,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } finally {
       if (mounted) setState(() => _isRestoringDb = false);
       await _loadPreviousImportBackup();
+      // 되돌리기 완료(성공·실패 공통)에서 Standalone 이면 최적화 재판단.
+      if (mounted) {
+        try {
+          context.read<ReportProvider>().reevaluateDbOptimize();
+        } catch (_) {}
+      }
     }
   }
 
@@ -811,6 +817,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } finally {
       if (mounted) setState(() => _isRestoringDb = false);
       await _loadPreviousImportBackup();
+      // 복원 완료(성공·실패 공통)에서 Standalone 이면 최적화 재판단.
+      if (mounted) {
+        try {
+          context.read<ReportProvider>().reevaluateDbOptimize();
+        } catch (_) {}
+      }
     }
   }
 

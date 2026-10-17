@@ -5150,7 +5150,14 @@ class LocalDbService {
   /// 반환: 임포트한 신고 건수.
   static Future<int> importFromServerDb(String serverDbPath) async {
     _refuseDuringBackgroundWork('서버 DB 가져오기를');
-    return _withFileExclusive(() => _importFromServerDbLocked(serverDbPath));
+    try {
+      return await _withFileExclusive(
+        () => _importFromServerDbLocked(serverDbPath),
+      );
+    } finally {
+      // 파일 잠금이 풀린 뒤 — 성공·실패 공통 종료에서 새 DB 의 최적화를 재판단한다.
+      _notifyDatabaseReplaced();
+    }
   }
 
   static Future<int> _importFromServerDbLocked(String serverDbPath) async {
@@ -5466,12 +5473,31 @@ class LocalDbService {
     }
   }
 
+  /// DB 교체(백업 복원·서버 DB 가져오기·되돌리기) 완료 뒤 부르는 훅(성공·실패 공통 종료).
+  /// 새 DB 의 최적화 메타를 재판단한다. `ReportProvider` 가 Standalone 일 때
+  /// 최적화를 다시 판단하는 함수로 등록한다(main 시작 때 1회). 없으면 아무 것도 안 한다.
+  /// `DbOptimize` 를 직접 import 하지 않고 콜백으로 받는다(순환 import 방지).
+  static void Function()? onDatabaseReplaced;
+
+  static void _notifyDatabaseReplaced() {
+    try {
+      onDatabaseReplaced?.call();
+    } catch (_) {}
+  }
+
   /// 모바일 백업 .db 로 현재 DB 를 바꾼다(저장 계층 재설계 R1d, M-11).
   /// 임시 사본에서 종류·버전 확인 → 마이그레이션 → 무결성 검사를 마친 뒤 `_commitImportedDatabase` 로 교체한다
   /// (기존 DB 는 `<db>.before_import.<시각>.bak` 으로 남기고(최근 3개) 실패하면 되돌린다). 서버 DB 는 importFromServerDb 를 쓴다.
   static Future<void> replaceFromBackup(String backupDbPath) async {
     _refuseDuringBackgroundWork('백업 복원을');
-    return _withFileExclusive(() => _replaceFromBackupLocked(backupDbPath));
+    try {
+      return await _withFileExclusive(
+        () => _replaceFromBackupLocked(backupDbPath),
+      );
+    } finally {
+      // 파일 잠금이 풀린 뒤 — 성공·실패 공통 종료에서 새 DB 의 최적화를 재판단한다.
+      _notifyDatabaseReplaced();
+    }
   }
 
   static Future<void> _replaceFromBackupLocked(String backupDbPath) async {

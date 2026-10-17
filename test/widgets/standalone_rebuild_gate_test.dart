@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/main.dart';
 import 'package:safetyreport/community/rebuild/community_rebuild.dart';
+import 'package:safetyreport/screens/rebuild_prepare_failure_screen.dart';
+import 'package:safetyreport/services/db_failure.dart';
 
 void main() {
   Future<int Function()> pumpGate(
@@ -79,5 +81,94 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(done, 1);
+  });
+
+  // 2026-10-17 제보(판정 실패 화면에서 막힘, 캐시 삭제 뒤 정상): 원인별 자동 복구·들어가기·종료·오류 내용.
+  testWidgets('DB lock: waits and re-decides once by itself', (tester) async {
+    var attempts = 0;
+    var done = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StandaloneRebuildGate(
+          lockRetryDelay: Duration.zero,
+          prepare: () async {
+            attempts++;
+            if (attempts == 1) throw Exception('database is locked');
+            return null;
+          },
+          onDone: () => done++,
+        ),
+      ),
+    );
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+    expect(attempts, 2);
+    expect(done, 1);
+    expect(find.byType(RebuildPrepareFailureScreen), findsNothing);
+  });
+
+  testWidgets('storage full: cleans the cache, explains, and can enter', (
+    tester,
+  ) async {
+    var attempts = 0;
+    var cleanups = 0;
+    var done = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StandaloneRebuildGate(
+          cleanup: () async => cleanups++,
+          prepare: () async {
+            attempts++;
+            throw Exception('SqliteException(13): database or disk is full');
+          },
+          onDone: () => done++,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(attempts, 2);
+    expect(cleanups, 1);
+    expect(
+      find.text(
+        RebuildPrepareFailureScreen.messageFor(DbFailureKind.storageFull),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('rebuildPrepareExit')), findsNothing);
+    expect(find.textContaining('disk is full'), findsOneWidget);
+
+    // 다시 시도는 캐시를 한 번 더 정리한 뒤 판정한다(자동 재판정 포함 두 번).
+    await tester.tap(find.byKey(const Key('rebuildPrepareRetry')));
+    await tester.pumpAndSettle();
+    expect(cleanups, 3);
+    expect(attempts, 4);
+    expect(done, 0);
+
+    await tester.tap(find.byKey(const Key('rebuildPrepareEnter')));
+    await tester.pump();
+    expect(done, 1);
+  });
+
+  testWidgets('unknown failure: shows the error and can exit the app', (
+    tester,
+  ) async {
+    var exits = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StandaloneRebuildGate(
+          exitApp: () async => exits++,
+          prepare: () async => throw StateError('store unavailable'),
+          onDone: () {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('필요한지 확인하지 못했습니다'), findsOneWidget);
+    expect(find.textContaining('StateError'), findsOneWidget);
+    await tester.ensureVisible(find.byKey(const Key('rebuildPrepareExit')));
+    await tester.tap(find.byKey(const Key('rebuildPrepareExit')));
+    await tester.pump();
+    expect(exits, 1);
   });
 }

@@ -1,4 +1,6 @@
 import 'services/bundled_sqlite.dart';
+import 'services/cache_hygiene.dart';
+import 'services/db_failure.dart';
 import 'services/notification_background.dart';
 import 'community/upload_hooks.dart';
 import 'community/cloud_availability.dart';
@@ -9,6 +11,7 @@ import 'services/server_contract.dart';
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show exit;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -21,6 +24,7 @@ import 'screens/report_list_screen.dart';
 import 'screens/report_management_screen.dart';
 import 'screens/statistics_screen.dart';
 import 'screens/setup_screen.dart';
+import 'screens/rebuild_prepare_failure_screen.dart';
 import 'screens/official_account_start_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/permission_screen.dart';
@@ -87,6 +91,8 @@ Future<void> main() async {
   // DbOptimizeState 변경마다 다시 그려진다. 아래 준비(게이트·알림 초기화·백그라운드 작업
   // 등록 — onGatePassed 에서 1회)의 순서·의존은 그대로 두고, 첫 화면 지연은 늘지 않는다.
   runApp(const StartupLoadingApp());
+  // 앱 캐시에 남은 스테이징 사본·오래된 첨부를 정리한다(2026-10-17 제보 — 캐시 삭제 뒤 정상). 시작을 기다리게 하지 않는다.
+  unawaited(CacheHygiene.runAtStartup());
   // 아래 네 준비는 서로 기다릴 필요가 없어 함께 기다린다(SQ-P12). 순서가 필요한 보안 저장소 확인과 DB 엔진 초기화는 위에서 먼저 끝냈다.
   // 각 단계의 실패 처리는 예전과 같다(카카오 세션 복원 실패만 시작을 멈춘다).
   final communityAuth = CommunityAuthService.instance;
@@ -882,6 +888,9 @@ class StandaloneRebuildGate extends StatefulWidget {
     required this.onDone,
     this.prepare,
     this.runner,
+    this.cleanup,
+    this.exitApp,
+    this.lockRetryDelay = const Duration(seconds: 2),
   });
   final VoidCallback onDone;
 
@@ -890,6 +899,15 @@ class StandaloneRebuildGate extends StatefulWidget {
 
   /// 시험용 실행기. 없으면 앱 전역 [StandaloneRebuildRunner.instance].
   final StandaloneRebuildRunner? runner;
+
+  /// 시험용 캐시 정리. 없으면 [CacheHygiene.run] (저장공간 부족 판정 때 aggressive).
+  final Future<void> Function()? cleanup;
+
+  /// 시험용 앱 종료. 없으면 화면을 닫고 프로세스를 끝낸다(같은 프로세스의 멈춘 백그라운드 엔진까지 정리).
+  final Future<void> Function()? exitApp;
+
+  /// DB 잠금으로 실패했을 때 한 번 자동으로 다시 판정하기 전 대기.
+  final Duration lockRetryDelay;
 
   @override
   State<StandaloneRebuildGate> createState() => _StandaloneRebuildGateState();
@@ -908,11 +926,78 @@ class _StandaloneRebuildGateState extends State<StandaloneRebuildGate> {
   @override
   void initState() {
     super.initState();
-    _future = _decide();
+    // 오류는 FutureBuilder 가 보인다. 화면이 붙기 전에 끝나도 처리되지 않은 오류로 올리지 않는다.
+    _future = _decide()..ignore();
+  }
+
+  /// 판정 실패 종류(화면 문구·버튼). 실패하지 않았으면 의미 없다.
+  DbFailureKind _failureKind = DbFailureKind.other;
+  bool _exiting = false;
+
+  /// [_decideOnce] 를 부르되, 저장공간 부족이면 앱 캐시를 정리하고, DB 잠금이면 잠시 기다린 뒤 한 번 더 판정한다
+  /// (2026-10-17 제보: 판정 실패 화면에서 막혔고 캐시 삭제 뒤 정상). 실패는 로그로 남긴다 — 예전에는 버려서 원인을 알 수 없었다.
+  Future<CommunityRebuild?> _decide() async {
+    try {
+      return await _decideOnce();
+    } on ForeignDatabaseException {
+      rethrow;
+    } catch (e, st) {
+      final kind = classifyDbFailure(e);
+      debugPrint('[rebuild-gate] prepare failed ($kind): $e\n$st');
+      if (kind == DbFailureKind.other) {
+        _failureKind = kind;
+        rethrow;
+      }
+      if (kind == DbFailureKind.storageFull) {
+        await _cleanup();
+      } else {
+        await Future<void>.delayed(widget.lockRetryDelay);
+      }
+      try {
+        return await _decideOnce();
+      } on ForeignDatabaseException {
+        rethrow;
+      } catch (e2, st2) {
+        _failureKind = classifyDbFailure(e2);
+        debugPrint('[rebuild-gate] retry failed ($_failureKind): $e2\n$st2');
+        rethrow;
+      }
+    }
+  }
+
+  Future<void> _cleanup() async {
+    try {
+      final injected = widget.cleanup;
+      if (injected != null) {
+        await injected();
+      } else {
+        await CacheHygiene.run(aggressive: true);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _retry() async {
+    if (_failureKind == DbFailureKind.storageFull) await _cleanup();
+    if (!mounted) return;
+    setState(() {
+      _future = _decide()..ignore();
+    });
+  }
+
+  Future<void> _exit() async {
+    if (_exiting) return;
+    setState(() => _exiting = true);
+    final injected = widget.exitApp;
+    if (injected != null) {
+      await injected();
+      return;
+    }
+    await SystemNavigator.pop();
+    exit(0);
   }
 
   /// 안내가 필요하면 그 객체를, 아니면 null(이미 확인한 사용자는 여기서 백그라운드 재개를 요청한다).
-  Future<CommunityRebuild?> _decide() async {
+  Future<CommunityRebuild?> _decideOnce() async {
     final injected = widget.prepare;
     final rebuild = injected != null ? await injected() : await _prepare();
     if (rebuild == null) return null;
@@ -992,31 +1077,13 @@ class _StandaloneRebuildGateState extends State<StandaloneRebuildGate> {
           );
         }
         if (snap.hasError) {
-          return Scaffold(
-            appBar: AppBar(title: const Text('신고 내역 다시 불러오기')),
-            body: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      '다시 불러오기가 필요한지 확인하지 못했습니다. 기존 자료는 그대로입니다. 잠시 후 다시 시도해 주세요.',
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 16),
-                    FilledButton.icon(
-                      key: const Key('rebuildPrepareRetry'),
-                      onPressed: () => setState(() {
-                        _future = _decide();
-                      }),
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('다시 시도'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+          return RebuildPrepareFailureScreen(
+            kind: _failureKind,
+            detail: describeDbFailure(snap.error),
+            exiting: _exiting,
+            onRetry: _retry,
+            onEnter: widget.onDone,
+            onExit: _exit,
           );
         }
         final rebuild = snap.data;

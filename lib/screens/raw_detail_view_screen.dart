@@ -227,13 +227,13 @@ Future<void> sharePrettyRawJson(String reportId, String pretty) async {
   await shareDir.create(recursive: true);
   _activeRawShareDirs.add(shareDir.path);
   final file = File('${shareDir.path}/$reportId.json');
-  final write = debugRawShareFileWrite;
-  if (write != null) {
-    await write(file, pretty);
-  } else {
-    await file.writeAsString(pretty, encoding: utf8);
-  }
   try {
+    final write = debugRawShareFileWrite;
+    if (write != null) {
+      await write(file, pretty);
+    } else {
+      await file.writeAsString(pretty, encoding: utf8);
+    }
     final params = ShareParams(
       files: [XFile(file.path)],
       subject: '$reportId.json',
@@ -443,10 +443,24 @@ class _RawDetailViewScreenState extends State<RawDetailViewScreen> {
       data.pretty.split('\n'),
       _searchController.text,
     );
+    // 진행 중인 이동 체인을 취소하고 새 대상의 구간을 새로 시작한다.
+    // 옛 체인이 새 대상에 옛 화소 구간을 적용해 최대 시도까지 프레임을
+    // 예약하는 것을 막는다.
+    _revealGen++;
     setState(() {
       _matches = matches;
       _current = matches.isEmpty ? -1 : 0;
     });
+    if (matches.isEmpty) return;
+    _revealCycle(
+      gen: _revealGen,
+      loPx: 0,
+      hiPx: null,
+      pendingMid: null,
+      prevMax: null,
+      backtrackPx: null,
+      attempt: 0,
+    );
   }
 
   /// 검색 이동 체인 세대. 다음·이전·검색 변경 때 올려 이전 체인이 멈추게 한다.

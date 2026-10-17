@@ -2014,6 +2014,8 @@ class DbOptimize {
       }
       _retryTimer?.cancel();
       _retryTimer = null;
+      // 준비(needsRun 등)를 기다리는 사이 Client 전환됐으면 시작하지 않는다(Astra 재확인).
+      if (!_startAllowedNow) return;
       _stopRequested = false;
       _restArmed = false;
       final d = await LocalDbService.db;
@@ -2039,6 +2041,11 @@ class DbOptimize {
       try {
         var restRounds = 0;
         while (true) {
+          // 회차마다 모드를 다시 본다 — 시작 준비·쉼 사이 Client 전환이면 로컬 최적화를 돌리지 않는다.
+          if (!_startAllowedNow) {
+            DbOptimizeState.update(state: 'idle', stage: '', message: '');
+            break;
+          }
           OptimizeRunResult result;
           try {
             result = await LocalDbService.runBackgroundWork(

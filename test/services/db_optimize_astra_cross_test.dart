@@ -291,4 +291,27 @@ void main() {
     }
     expect(fetched, [held]);
   });
+
+  test('시작 준비 중 Client 로 전환되면 로컬 최적화를 시작하지 않는다', () async {
+    const id = '95000071';
+    await seedReports([reportFor(id)]);
+    var allowed = true;
+    DbOptimize.startAllowed = () => allowed;
+    final fetched = <String>[];
+    final started = DbOptimize.maybeStart(
+      isSyncing: () => false,
+      rebuildPending: () async => false,
+      fetchFn: (rid) async {
+        fetched.add(rid);
+        return fetchOk(rid);
+      },
+      wait: true,
+    );
+    // maybeStart 는 needsRun 을 기다리는 중이다 — 그사이 모드 전환.
+    allowed = false;
+    DbOptimize.cancelScheduledRetry();
+    await started;
+    expect(fetched, isEmpty);
+    expect((await DbOptimize.readMeta())?['done'], isNot(true));
+  });
 }

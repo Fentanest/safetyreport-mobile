@@ -17,23 +17,6 @@ final _limit = RegExp(
   // Future conditions ("다시 적발될 시", "적발되면", "~할 시", "~하면").
   '|(?:될|할|적발|위반)$_s*시(?:에는?|에도)?$_end|(?:하|되|않으)면$_end',
 );
-// A refusal from the amount's clause to the end of its sentence ("부과할 예정이었으나, ... 부과하지
-// 않습니다") withdraws that amount. A refusal of another charge ("가산금은 부과하지 않습니다"), a reason
-// noun ("부과 불가 사유") or one in another sentence does not.
-final _refusal = RegExp(
-  '(?:부과하지|부과할$_s*수$_s*없|부과(?:가|는)?$_s*(?:불가(?!피)|어렵|곤란))'
-  '(?!는?$_s*사유)',
-);
-final _subject = RegExp('([가-힣]+)(?:을|를|은|는|이|가)$_s*\$');
-// A decision sentence ends at a sentence-final mark or a line break, except a line ending with a comma
-// ("예정이었으나,\n...").
-final _decisionEnd = RegExp(r'。|(?<=[다요])[.!?]|\n');
-final _commaTail = RegExp(r'[,，][\t\r \xa0\u3000]*$');
-// Another amount in a reduction clause ("경우 과태료 80,000원으로 감경") is a second stated amount
-// even when its clause is conditional.
-final _reduction = RegExp('감경|경감|감면');
-// A limit amount ("20만원 이하", "최대 200만원", "감경액의 상한은 2만원") is guidance, not a second stated amount.
-final _limitBefore = RegExp('최대|상한|(?<!기)한도');
 final _previousLimit = RegExp(
   '(?:최대|상한|(?:미이행|불이행|불응)$_s*시|않을$_s*경우)$_s*[:：]?$_s*\$',
 );
@@ -42,6 +25,17 @@ final _close = RegExp('$_s*\\)');
 // Sentence ends and post-predicate clause connectives ("부과할 예정이며, ...").
 final _sentence = RegExp(r'\n|。|(?<=[다요])[.!?]');
 final _clause = RegExp('(?:며|으나|지만|는데|(?:였|했|하|되)고)(?=,|$_s)');
+// A planned amount withdrawn by the contrasting sentence that follows ("부과할 예정이었으나, … 부과하지 않습니다").
+final _planned = RegExp('예정');
+final _contrastEnd = RegExp(r'(?:으나|지만|는데)$');
+final _withdrawal = RegExp(
+  '부과하지|부과할$_s*수$_s*없|부과(?:가|는)?$_s*(?:불가(?!피)|어렵|곤란)',
+);
+// The sentence after a contrast ends at a sentence-final mark or a line break not following a comma.
+final _sentenceEnd = RegExp(r'。|(?<=[다요])[.!?]|\n');
+final _commaTail = RegExp(r'[,，][\t\r \xa0\u3000]*$');
+// An amount the fine is reduced to ("80,000원으로 감경") is a second stated amount.
+final _reducedTo = RegExp('$_s*(?:으로|로)$_s*(?:감경|경감|감면)');
 
 String? _number(String token, String? unit) {
   if (token.replaceAll(RegExp(r'[^0-9]'), '').length > _maxDigits) return null;
@@ -52,17 +46,18 @@ String? _number(String token, String? unit) {
   return null;
 }
 
-bool _refuses(String text, int start, int end) {
-  final scope = text.substring(start, end);
-  for (final refusal in _refusal.allMatches(scope)) {
-    final subject = _subject.firstMatch(scope.substring(0, refusal.start));
-    if (subject != null &&
-        !(subject[1]!.endsWith('과태료') || subject[1] == '원')) {
-      continue; // Another charge ("가산금은 부과하지 않습니다").
+/// The amount's clause [a, b) is a plan and the next sentence withdraws it.
+bool _withdrawn(String text, int a, int b) {
+  final own = text.substring(a, b);
+  if (!_planned.hasMatch(own) || !_contrastEnd.hasMatch(own)) return false;
+  var end = text.length;
+  for (final m in _sentenceEnd.allMatches(text, b)) {
+    if (m[0] != '\n' || !_commaTail.hasMatch(text.substring(0, m.start))) {
+      end = m.end;
+      break;
     }
-    return true;
   }
-  return false;
+  return _withdrawal.hasMatch(text.substring(b, end));
 }
 
 String? _identity(String? n) => n?.replaceAll(RegExp(r'[,.]'), '');
@@ -76,12 +71,6 @@ String? explicitFineNumber(String source) {
   }
   final matches = _fine.allMatches(text).toList();
   if (matches.isEmpty) return null;
-  final decisionEnds = <int>{
-    text.length,
-    for (final m in _decisionEnd.allMatches(text))
-      if (m[0] != '\n' || !_commaTail.hasMatch(text.substring(0, m.start)))
-        m.end,
-  }.toList()..sort();
   final cuts = <int>{
     0,
     text.length,
@@ -97,12 +86,11 @@ String? explicitFineNumber(String source) {
       return null;
     }
     final (a, b) = clause(match.start, match.end);
-    final sentenceEnd = decisionEnds.firstWhere((e) => e >= match.end);
     var before = text.substring(0, a);
     if (before.endsWith('\n')) before = before.substring(0, before.length - 1);
     final previous = a == 0 ? '' : before.split('\n').last;
-    if (_refuses(text, a, sentenceEnd) ||
-        _limit.hasMatch(text.substring(a, b)) ||
+    if (_limit.hasMatch(text.substring(a, b)) ||
+        _withdrawn(text, a, b) ||
         _previousLimit.hasMatch(previous) ||
         _followingLimit.matchAsPrefix(text, match.end) != null) {
       skipped.add((match.start, match.end));
@@ -113,19 +101,17 @@ String? explicitFineNumber(String source) {
     candidates.add(value);
   }
   if (candidates.toSet().length != 1) return null;
-  // Other monetary values (e.g. before/after reduction, a surcharge) make the
-  // statement ambiguous; a limit amount in generic guidance does not.
+  // Other monetary values (e.g. before/after reduction) make the statement
+  // ambiguous; generic guidance in its own clause does not.
   for (final m in _money.allMatches(text)) {
     if (_identity(_number(m[1]!, m[2])) == _identity(candidates.first)) {
       continue;
     }
-    final (a, b) = clause(m.start, m.end);
-    if (_followingLimit.matchAsPrefix(text, m.end) != null ||
-        _limitBefore.hasMatch(text.substring(a, m.start))) {
-      continue;
-    }
-    if (_reduction.hasMatch(text.substring(a, b))) return null;
+    // Even in a conditional clause ("경우 (과태료) 80,000원으로 감경").
+    if (_reducedTo.matchAsPrefix(text, m.end) != null) return null;
     if (skipped.any((x) => x.$1 <= m.start && m.start < x.$2)) continue;
+    final (a, b) = clause(m.start, m.end);
+    if (_limit.hasMatch(text.substring(a, b))) continue;
     return null;
   }
   return candidates.first;

@@ -41,6 +41,9 @@ class DbOptimizeState {
 
   static bool get isRunning => _state == 'running' || _state == 'paused';
 
+  static String get state => _state;
+  static String get stage => _stage;
+
   static void _bump() => revision.value++;
 
   static void update({
@@ -78,6 +81,9 @@ class DbOptimizeState {
 
   /// `LocalDbService` 스키마 업그레이드가 부르는 기록 지점. 최적화 작업 전에도 로그가 남는다.
   static void recordMigrationEvent(String message) => appendLog(message);
+
+  /// 값이 바뀌지 않아도 화면을 다시 그리게 한다(업그레이드 시작·끝 전환용).
+  static void notifyChanged() => _bump();
 
   /// `maintenance_service.status()` 가 그대로 싣는 작업 dict. 할 일 없으면 null(서버와 같음).
   static Map<String, dynamic>? jobForStatus() {

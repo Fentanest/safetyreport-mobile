@@ -61,51 +61,56 @@ class StandaloneAutoSyncService {
   static List<Map<String, dynamic>> _singleFetchChanges = [];
 
   /// 공유 DB 연결을 쓰는 백그라운드 작업으로 등록한다 — 백업·복원이 도중에 연결을 닫지 않게(M-25).
-  static Future<void> drainIfPending({
+  ///
+  /// 반환: 실제 작업을 시작했으면 true. 최적화 중 보류·소유권 경합이면 false — 알림 대기열(기존 영속 큐)은
+  /// 그대로 두고, 최적화 보류 표시는 [DbOptimize] 가 실제로 시작된 뒤에만 지운다(유실 금지).
+  static Future<bool> drainIfPending({
     bool backgroundWorker = false,
     Future<void> Function()? validateScope,
   }) async {
-    // DB 최적화가 도는 동안 알림 동기화는 바로 시작하지 않고 대기열 뒤에 붙는다(명세 3-3).
-    // 소유권을 잡기 전에 판단해 큐를 막지 않는다.
+    // DB 최적화가 도는 동안 알림 동기화는 바로 시작하지 않고 표시만 영속한다(명세 3-3).
+    // 알림 대기열 자체는 기존 영속 큐가 맡는다. 소유권을 잡기 전에 판단해 큐를 막지 않는다.
     if (DbOptimize.isRunning) {
       SyncEngine.emitLog(DbOptimizeState.deferLogLine);
-      DbOptimize.addAfterFinishHook(() async {
-        await StandaloneAutoSyncService.drainIfPending(
-          backgroundWorker: backgroundWorker,
-        );
-      });
-      return;
+      DbOptimize.drainStarter ??= StandaloneAutoSyncService.runDeferredDrain;
+      await DbOptimize.markDrainDeferred();
+      return false;
     }
     try {
-      await SyncOperationAdmission.run(
+      final started = await SyncOperationAdmission.run(
         () => LocalDbService.runBackgroundWork(
           () => _drainIfPending(backgroundWorker: backgroundWorker),
         ),
-        null,
+        false,
         openStore: SyncEngine.openCommunityStoreForTest,
         validateScope: validateScope,
       );
+      return started;
     } catch (_) {
       SyncEngine.emitLog('작업 소유권 저장소를 확인하지 못해 개별 동기화를 시작하지 않았습니다. 큐는 보존했습니다.');
+      return false;
     }
   }
 
-  static Future<void> _drainIfPending({bool backgroundWorker = false}) async {
+  /// 최적화가 끝난·오류 난 뒤 보류한 drain 을 한 번 시작한다. 실제로 시작했을 때만 true.
+  static Future<bool> runDeferredDrain() async {
+    if (!await DbOptimize.isDrainDeferred()) return true;
+    return drainIfPending();
+  }
+
+  static Future<bool> _drainIfPending({bool backgroundWorker = false}) async {
     final deadline = DateTime.now().add(const Duration(minutes: 6));
-    if (_running || SyncEngine.isRunning) return;
+    if (_running || SyncEngine.isRunning) return false;
     // (소유권을 잡기 전 drainIfPending() 에서 이미 판단했다. 여기서 한 번 더 막아 경합에 대비한다.)
     if (DbOptimize.isRunning) {
       SyncEngine.emitLog(DbOptimizeState.deferLogLine);
-      DbOptimize.addAfterFinishHook(() async {
-        await StandaloneAutoSyncService.drainIfPending(
-          backgroundWorker: backgroundWorker,
-        );
-      });
-      return;
+      DbOptimize.drainStarter ??= StandaloneAutoSyncService.runDeferredDrain;
+      await DbOptimize.markDrainDeferred();
+      return false;
     }
     if (SyncEngine.localAccessAllowed != null &&
         !await SyncEngine.localAccessAllowed!()) {
-      return;
+      return false;
     }
     SyncEngine.beginOperation();
     _running = true;
@@ -227,6 +232,8 @@ class StandaloneAutoSyncService {
       }
       if (fgsAcquired) await SyncEngine.releaseFgs();
     }
+    // 소유권을 잡고 실제 작업을 시작한 뒤에만 true — 보류 표시는 이때 지운다.
+    return true;
   }
 
   /// 신고번호로 DB 조회 → C_NO 있으면 상세 API 개별 호출 + upsert.

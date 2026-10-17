@@ -169,6 +169,11 @@ Future<CaptureResult> capture(
 }) async {
   final s = store ?? await CommunityStore.open();
   final resend = trigger == 'fine_estimate_resend';
+  // 재파싱도 되살리면 안 된다: 사용자가 지운 공유 관측은 새 completed_observation 을
+  // 만들지 않는다(서버 community_capture 의 보충 경로와 같은 검사, 발급 트랜잭션 안).
+  // 재파싱은 일반 payload 를 그대로 쓰므로 삭제 검사만 공유하고, 아래 resend 의
+  // 옛 관측 재해석은 재전송에만 둔다.
+  final guardDeleted = trigger == 'reparse';
   var payload = resend ? <String, Object?>{} : buildPayload(adapterInput);
   // REVIEW3 낮음-1: 상한 초과 원문 기관코드는 조용히 null 로 버리지 않고 명시적
   // 거절한다. 원문은 로컬 신고 DB에 그대로 있고, journal/outbox 에 사유를
@@ -189,6 +194,41 @@ Future<CaptureResult> capture(
     final localDatasetId = await s.meta('local_dataset_id', tx) ?? '';
     // Resend is a reinterpretation of an old observation, not a new collection.
     // Recheck under the publishing transaction: deletion may follow candidate selection.
+    // 재파싱도 되살리면 안 된다: 사용자가 지운 공유 관측은 새 completed_observation 을
+    // 만들지 않는다(보충 경로와 같은 검사, 발급 트랜잭션 안). 재파싱은 일반 payload 를
+    // 그대로 쓰므로 삭제 검사만 하고 옛 관측 재해석은 하지 않는다.
+    if (guardDeleted) {
+      final deleted = await tx.rawQuery(
+        "SELECT 1 FROM report_latest l JOIN source_journal j ON j.event_id=l.event_id "
+        "WHERE l.local_dataset_id=? AND l.source_report_id=? AND j.blocked_reason='deleted_by_user'",
+        [localDatasetId, sourceReportId],
+      );
+      if (deleted.isNotEmpty) {
+        return CaptureResult(
+          eventId: null,
+          eventType: null,
+          eligible: false,
+          payloadSha256: sha,
+          sourceRevision: null,
+        );
+      }
+      final latest = await tx.rawQuery(
+        'SELECT blocked_reason FROM source_journal '
+        'WHERE local_dataset_id=? AND source_report_id=? '
+        'ORDER BY source_revision DESC LIMIT 1',
+        [localDatasetId, sourceReportId],
+      );
+      if (latest.isNotEmpty &&
+          latest.first['blocked_reason'] == 'deleted_by_user') {
+        return CaptureResult(
+          eventId: null,
+          eventType: null,
+          eligible: false,
+          payloadSha256: sha,
+          sourceRevision: null,
+        );
+      }
+    }
     if (resend) {
       final deleted = await tx.rawQuery(
         "SELECT 1 FROM report_latest l JOIN source_journal j ON j.event_id=l.event_id "

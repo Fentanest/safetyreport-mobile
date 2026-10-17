@@ -506,44 +506,51 @@ class _ServerVersionBlockedScreen extends StatelessWidget {
 
 /// 앱 시작 로딩 화면. DB 업그레이드(17→18 등) 중에는 하단에 "DB 최적화 중입니다…"와
 /// 단계 로그(백업·표 생성·버전)를 보여 앱이 멈춘 것처럼 보이지 않게 한다(명세 3-4).
+/// 실제 DB 열기(`ReportProvider.init` 의 warmup = 17→18 변환이 실제로 일어나는 지점)와
+/// 연결돼 있고, 상태 변경(`DbOptimizeState.revision`) 때마다 다시 그린다.
 class _StartupLoadingScreen extends StatelessWidget {
   const _StartupLoadingScreen();
 
   @override
   Widget build(BuildContext context) {
-    final upgrading = LocalDbService.upgradeRunning;
-    final logs = LocalDbService.upgradeLog;
-    final optimize = DbOptimizeState.jobForStatus();
-    final showOptimize =
-        upgrading ||
-        logs.isNotEmpty ||
-        (optimize != null &&
-            (optimize['state'] == 'running' ||
-                optimize['state'] == 'paused'));
-    return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const CircularProgressIndicator(),
-              if (showOptimize) ...[
-                const SizedBox(height: 16),
-                const Text('DB 최적화 중입니다…'),
-                if (logs.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
-                    child: Text(
-                      logs.take(3).join('\n'),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                  ),
-              ],
-            ],
+    return ValueListenableBuilder<int>(
+      valueListenable: DbOptimizeState.revision,
+      builder: (context, _, _) {
+        final upgrading = LocalDbService.upgradeRunning;
+        final logs = LocalDbService.upgradeLog;
+        final optimize = DbOptimizeState.jobForStatus();
+        final showOptimize =
+            upgrading ||
+            logs.isNotEmpty ||
+            (optimize != null &&
+                (optimize['state'] == 'running' ||
+                    optimize['state'] == 'paused'));
+        return Scaffold(
+          body: SafeArea(
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const CircularProgressIndicator(),
+                  if (showOptimize) ...[
+                    const SizedBox(height: 16),
+                    const Text('DB 최적화 중입니다…'),
+                    if (logs.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+                        child: Text(
+                          logs.take(3).join('\n'),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                  ],
+                ],
+              ),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

@@ -255,20 +255,18 @@ class SyncEngine {
     bool backgroundWorker = false,
     String? rebuildRunId,
   }) async {
-    // DB 최적화가 도는 동안 수동 동기화는 바로 시작하지 않고 대기열 뒤에 붙는다(명세 3-3).
+    // DB 최적화가 도는 동안 수동 동기화는 바로 시작하지 않고 하나로 합쳐 영속한다(명세 3-3).
     // 초기화 run 은 막지 않는다(초기화 우선). 소유권을 잡기 전에 판단해 큐를 막지 않는다.
+    // 실제로 시작될 때까지 sync_meta 에 남기므로(시작 성공 뒤에 지움) 앱 종료 뒤에도 남는다.
     if (rebuildRunId == null && DbOptimize.isRunning) {
       _log(DbOptimizeState.deferLogLine);
-      DbOptimize.addAfterFinishHook(() async {
-        unawaited(
-          SyncEngine.start(
-            fullSync: fullSync,
-            preserveDataset: preserveDataset,
-            catchupKey: catchupKey,
-            backgroundWorker: backgroundWorker,
-          ),
-        );
-      });
+      DbOptimize.manualStarter ??= SyncEngine.runDeferredManual;
+      await DbOptimize.deferManualSync(
+        fullSync: fullSync,
+        preserveDataset: preserveDataset,
+        catchupKey: catchupKey,
+        backgroundWorker: backgroundWorker,
+      );
       return const SyncRunResult(
         done: 0,
         errors: 0,
@@ -306,6 +304,23 @@ class SyncEngine {
     }
   }
 
+  /// 최적화가 끝난·오류 난 뒤 보류한 수동 동기화를 정확히 한 번 시작한다(서버 _after_finish 와 같은 자리).
+  /// 반환: 실제로 시작했으면 true. 소유권을 얻지 못해 시작하지 못했으면 false — 보류를 유지한다(유실 금지).
+  /// DbOptimize 가 true 일 때만 보류를 지운다.
+  static Future<bool> runDeferredManual() async {
+    final params = await DbOptimize.peekManualSync();
+    if (params == null) return true;
+    final result = await SyncEngine.start(
+      fullSync: params['fullSync'] == true,
+      preserveDataset: params['preserveDataset'] == true,
+      catchupKey: params['catchupKey']?.toString(),
+      backgroundWorker: params['backgroundWorker'] != false,
+    );
+    // 소유권 경쟁으로 시작하지 못했으면(sync_busy) 보류를 유지하고 다음 기회에 다시.
+    if (result.busy) return false;
+    return true;
+  }
+
   static Future<SyncRunResult> _startOwned({
     bool fullSync = false,
     bool preserveDataset = false,
@@ -330,21 +345,18 @@ class SyncEngine {
         errorMessage: 'sync_busy',
       );
     }
-    // DB 최적화가 도는 동안 수동 동기화는 바로 시작하지 않고 대기열 뒤에 붙는다(명세 3-3, 서버와 같음).
+    // DB 최적화가 도는 동안 수동 동기화는 바로 시작하지 않고 하나로 합쳐 영속한다(명세 3-3, 서버와 같음).
     // 초기화 run 은 막지 않는다(초기화 우선 — 최적화가 끝나길 기다리는 쪽이다).
     // (소유권을 잡기 전 start() 에서 이미 판단했다. 여기서 한 번 더 막아 경합에 대비한다.)
     if (rebuildRunId == null && DbOptimize.isRunning) {
       _log(DbOptimizeState.deferLogLine);
-      DbOptimize.addAfterFinishHook(() async {
-        unawaited(
-          SyncEngine.start(
-            fullSync: fullSync,
-            preserveDataset: preserveDataset,
-            catchupKey: catchupKey,
-            backgroundWorker: backgroundWorker,
-          ),
-        );
-      });
+      DbOptimize.manualStarter ??= SyncEngine.runDeferredManual;
+      await DbOptimize.deferManualSync(
+        fullSync: fullSync,
+        preserveDataset: preserveDataset,
+        catchupKey: catchupKey,
+        backgroundWorker: backgroundWorker,
+      );
       return const SyncRunResult(
         done: 0,
         errors: 0,

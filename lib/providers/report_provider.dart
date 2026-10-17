@@ -928,8 +928,16 @@ class ReportProvider with ChangeNotifier {
         notifyListeners();
       });
 
-      // 게이트 전에는 설정 로드만 한다. BackgroundLoginCheck 예약·drain·자동 동기화·
+      // 시작 화면 업그레이드 표시와 실제 DB 열기를 연결한다(명세 3-4): 17→18 변환이
+      // 실제로 일어나는 지점이다. 시작 화면(_StartupLoadingScreen)이 보이는 동안 변환
+      // 단계 로그가 남는다. 실패해도 시작을 막지 않는다(뒤 흐름이 표면화한다).
+      // 게이트 전에는 설정 로드·DB 열기만 한다. BackgroundLoginCheck 예약·drain·자동 동기화·
       // WsService 시작은 게이트 통과 뒤 onGatePassed() 에서 1회 실행한다.
+      try {
+        await LocalDbService.db.timeout(const Duration(seconds: 30));
+      } catch (_) {
+        // 열기 실패(예전 DB·잠금 등)는 뒤 흐름(초기화 안내·오류 화면)이 다룬다.
+      }
     } catch (e) {
       _errorMessage = '초기화 실패: $e';
       ReviewPromptService.markSessionError();
@@ -1125,6 +1133,10 @@ class ReportProvider with ChangeNotifier {
   /// SyncEngine 이 돌고 있으면 끝난 뒤, 초기화(rebuild) 필요 상태면 초기화 우선(서버 wait_for_turn 과 같음).
   void _startDbOptimizeIfNeeded() {
     if (_appMode != AppMode.standalone || _isStandaloneDemo) return;
+    // 보류 starter 는 미리 등록한다 — 앱 재시작 뒤(정적 상태 초기화)에도 기동 경로에서
+    // 영속 보류를 꺼내 시작할 수 있게(서버 maybe_start 의 재시작 복구와 같음).
+    DbOptimize.manualStarter ??= SyncEngine.runDeferredManual;
+    DbOptimize.drainStarter ??= StandaloneAutoSyncService.runDeferredDrain;
     DbOptimize.addAfterFinishHook(() async {
       await refreshAll();
     });

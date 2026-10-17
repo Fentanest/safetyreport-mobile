@@ -299,6 +299,7 @@ class LocalDbService {
     // 16 미만은 [resetLegacyDatabase] 가 백업 뒤 비운다(2026-09-26 초기화 크롤링 릴리스 규칙 유지).
     // 업그레이드 단계는 시작 화면 하단·최적화 작업 로그에 남긴다(명세 3-4, 서버 record_migration_event 와 같은 자리).
     upgradeRunning = true;
+    DbOptimizeState.notifyChanged();
     try {
       // 데모 DB(심사용 합성 데이터)는 실제 계정의 커뮤니티 데이터셋과 무관하다 — 선회전하지 않는다(Sol 재검증 2).
       // 버전 16 DB 는 제자리 변환(백업 → 열 추가·분류 다시 정하기 → 행 수 대조 → 커밋)으로 신고·수정값·판단을 그대로 둔다.
@@ -307,6 +308,7 @@ class LocalDbService {
       await migrate17To18(path);
     } finally {
       upgradeRunning = false;
+      DbOptimizeState.notifyChanged();
     }
     await resetLegacyDatabase(
       path,
@@ -2035,8 +2037,11 @@ class LocalDbService {
 
   /// DB 최적화 재파싱 저장(2026-10-17 명세 3-2, 서버 reports_repo.reparse_one 과 같은 열 규칙).
   ///
-  /// 파서가 만드는 열만 바꾼다. 목록 크롤이 채우는 열(상태·신고번호·신고명·신고일·만족도조사여부·별점·별점사유·감시목록)과
-  /// 공식 좌표·사진 촬영 시각·synced_at(바뀔 때만 갱신)은 손대지 않는다.
+  /// 파서가 만드는 열만 바꾼다. 목록 크롤이 채우는 열(상태·신고번호·신고명·신고일·만족도조사여부·별점·별점사유·감시목록)은
+  /// 손대지 않는다. 좌표 열(주소정규화·행정구역·위도·경도·지오코딩상태)은 파서가 만드는 값이라
+  /// 일반 상세 저장([upsertReport])과 같은 함수([officialGeoPayload])·같은 규칙으로 파싱 결과에서
+  /// 계산해 쓰기 잠금(트랜잭션) 안에서 쓴다. 사진 촬영 시각 열은 읽지도 덮지도 않는다(다른 작업이 채움).
+  /// 변경 판정도 [upsertReport]와 같게 좌표는 세지 않는다(쓰기는 하되 synced_at·공유 이벤트 판정 제외).
   /// 화면용 보기(reports_effective)가 수정값(report_override)을 그대로 다시 얹으므로 override 는 유지된다.
   /// [rawDetail] 이 있으면(원본 표에 없던 신고를 다시 받아온 경우) 같은 트랜잭션에서 원본 표에 upsert 한다.
   /// 반환: 바뀐 신고면 true(서버 change dict 와 같은 뜻), 그대로면 false. 신고 행이 없으면 [ReparseSkipped].
@@ -2071,6 +2076,8 @@ class LocalDbService {
       final resolvedCategory = cd != null || entryValue.trim().isNotEmpty
           ? report_category.categoryOf(cd, type, entryValue)
           : category;
+      // 좌표는 파서 결과에서 계산한다 — 일반 저장과 같은 함수·같은 규칙(위 트랜잭션 안에서).
+      final geoPayload = officialGeoPayload(r.location, r.latitude, r.longitude);
       final siteRow = <String, Object?>{
         '처리상태': r.status,
         '차량번호': r.carNumber,
@@ -2101,6 +2108,7 @@ class LocalDbService {
         '보완_완료일시': r.supplementCompletedAt,
         '보완_요청_내용': r.supplementRequest,
         '보완_신고자_의견': r.supplementOpinion,
+        for (final e in geoPayload.entries) e.key: e.value,
       };
       final existingRaw = await _getRawPayload(txn, r.id);
       final rawChanged =
@@ -2117,9 +2125,20 @@ class LocalDbService {
               existing['entry_value'] != entryValue) ||
           (existing['ssnpc_cd'] != null && existing['ssnpc_cd'] != cd) ||
           (existing['ssnpc_type'] != null && existing['ssnpc_type'] != type);
+      // 좌표는 쓰되 변경 판정에는 넣지 않는다 — 일반 저장([upsertReport]의
+      // [_syncedAtTrackedKeys], 서버 CHANGE_TRACKED)와 같은 규칙.
+      const geoKeys = {
+        '주소정규화',
+        '행정구역',
+        '위도',
+        '경도',
+        '지오코딩상태',
+      };
       final changed =
           classificationChanged ||
-          siteRow.keys.any(cellChanged) ||
+          siteRow.keys
+              .where((k) => !geoKeys.contains(k))
+              .any(cellChanged) ||
           rawChanged;
       changedResult = changed;
       await txn.update(
@@ -2794,6 +2813,12 @@ class LocalDbService {
     final d = await db;
     final rows = await d.query('sync_meta', where: 'key = ?', whereArgs: [key]);
     return rows.isEmpty ? null : rows.first['value'] as String?;
+  }
+
+  /// DB 최적화 보류 요청 등 1회성 표시를 지운다(시작 성공 뒤에만 지움 — 유실 금지).
+  static Future<void> deleteMeta(String key) async {
+    final d = await db;
+    await d.delete('sync_meta', where: 'key = ?', whereArgs: [key]);
   }
 
   // ── 대시보드 요약 ─────────────────────────────────────────────────────────

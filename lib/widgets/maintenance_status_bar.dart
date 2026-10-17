@@ -3,6 +3,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../services/db_optimize_state.dart';
@@ -25,6 +26,8 @@ class _MaintenanceStatusBarState extends State<MaintenanceStatusBar>
   List<MaintenanceJob> _jobs = const [];
   bool _wasActive = false;
   String? _doneText;
+  List<String> _doneLogs = const [];
+  bool _doneIsError = false;
   Timer? _timer;
   Timer? _hideTimer;
 
@@ -140,25 +143,73 @@ class _MaintenanceStatusBarState extends State<MaintenanceStatusBar>
       setState(() {
         _jobs = activeJobs;
         _doneText = null;
+        _doneLogs = const [];
+        _doneIsError = false;
         _wasActive = true;
       });
-    } else if (_wasActive) {
+    } else if (_wasActive || _doneText != null) {
       final done = jobs.where((j) => j.state == 'completed').toList();
+      // 작업 예외(error)는 '작업 완료'가 아닌 '오류'와 로그로 보인다(서버 표시줄과 같음).
+      final errors = jobs.where((j) => j.state == 'error').toList();
+      if (done.isEmpty && errors.isEmpty) {
+        if (_wasActive) {
+          // idle 정리(복원·닫기로 멈춤) — '작업 완료'로 보이지 않게 조용히 지운다.
+          _hideTimer?.cancel();
+          setState(() {
+            _jobs = const [];
+            _doneText = null;
+            _doneLogs = const [];
+            _doneIsError = false;
+            _wasActive = false;
+          });
+        }
+        // 표시 중인 완료·오류는 타이머가 지운다(여기서 건드리지 않음).
+        return;
+      }
+      final errorText = errors
+          .map(
+            (j) =>
+                '오류 · ${j.label}${j.message.isEmpty ? '' : ' · ${j.message}'}',
+          )
+          .join('   |   ');
+      final doneText = done
+          .map(
+            (j) =>
+                '${j.label} 완료${j.message.isEmpty ? '' : ' · ${j.message}'}',
+          )
+          .join('   |   ');
+      final text = [
+        if (errorText.isNotEmpty) errorText,
+        if (doneText.isNotEmpty) doneText,
+      ].join('   |   ');
+      final logs = [
+        for (final j in [...errors, ...done])
+          ...j.log,
+      ];
+      final isError = errors.isNotEmpty;
+      // 같은 표시면 다시 그리지 않는다(완료·오류 뒤 따라붙는 로그는 갱신한다).
+      if (!_wasActive &&
+          text == _doneText &&
+          isError == _doneIsError &&
+          listEquals(logs, _doneLogs)) {
+        return;
+      }
       _hideTimer?.cancel();
       setState(() {
-        _doneText = done.isEmpty
-            ? '작업 완료'
-            : done
-                  .map(
-                    (j) =>
-                        '${j.label} 완료${j.message.isEmpty ? '' : ' · ${j.message}'}',
-                  )
-                  .join('   |   ');
+        _doneText = text;
+        _doneLogs = logs;
+        _doneIsError = isError;
         _jobs = const [];
         _wasActive = false;
       });
       _hideTimer = Timer(const Duration(seconds: 6), () {
-        if (mounted) setState(() => _doneText = null);
+        if (mounted) {
+          setState(() {
+            _doneText = null;
+            _doneLogs = const [];
+            _doneIsError = false;
+          });
+        }
       });
     }
   }
@@ -169,10 +220,12 @@ class _MaintenanceStatusBarState extends State<MaintenanceStatusBar>
     final sr = context.sr;
     final paused = _jobs.isNotEmpty && _jobs.every((j) => j.state == 'paused');
     final text = _doneText ?? _jobs.map((j) => j.line).join('   |   ');
-    final logLines = [
-      for (final j in _jobs)
-        ...j.log,
-    ];
+    final logLines = _doneText != null
+        ? _doneLogs
+        : [
+            for (final j in _jobs)
+              ...j.log,
+          ];
     return Semantics(
       liveRegion: true,
       label: text,
@@ -200,9 +253,11 @@ class _MaintenanceStatusBarState extends State<MaintenanceStatusBar>
             children: [
               _doneText != null
                   ? Icon(
-                      Icons.check_circle,
+                      _doneIsError ? Icons.error : Icons.check_circle,
                       size: 18,
-                      color: Theme.of(context).colorScheme.primary,
+                      color: _doneIsError
+                          ? Theme.of(context).colorScheme.error
+                          : Theme.of(context).colorScheme.primary,
                     )
                   : BusyRing(size: 18, color: sr.brand, slow: paused),
               const SizedBox(width: 10),

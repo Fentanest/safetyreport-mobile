@@ -246,6 +246,8 @@ class DbOptimize {
     _dispatchingDeferred = false;
     _syncSuccessWake = false;
     _restArmed = false;
+    _retryTimer?.cancel();
+    _retryTimer = null;
     _lastIsSyncing = null;
     _lastRebuildPending = null;
     openStoreForTest = null;
@@ -1216,6 +1218,11 @@ class DbOptimize {
         for (final id in holds) {
           if (order.containsKey(id)) workSet.add(id);
         }
+        // 커서 앞에서 일시 실패해 시도 횟수만 남은 신고도 다시 시도한다 — 강제 종료·교환 뒤
+        // 재개 때 빠뜨리고 완료하지 않게(Astra 교차 확인, 서버와 같음).
+        for (final id in attempts.keys) {
+          if (order.containsKey(id)) workSet.add(id);
+        }
         sweep = workSet.toList()
           ..sort((a, b) => order[a]!.compareTo(order[b]!));
       }
@@ -1416,7 +1423,10 @@ class DbOptimize {
 
         index += 1;
         doneCount += 1;
-        lastCursor = reportId;
+        // 커서는 뒤로 가지 않는다 — 커서 앞 보류·재시도분을 처리해도 이미 훑은 꼬리를 다시 훑지 않게.
+        if ((order[reportId] ?? -1) > (order[lastCursor] ?? -1)) {
+          lastCursor = reportId;
+        }
         DbOptimizeState.update(done: doneCount);
         if (await stopReason() == null) {
           await writeProgress(lastCursor);
@@ -1533,7 +1543,8 @@ class DbOptimize {
           stats: run,
         );
       }
-      if (holds.isEmpty) {
+      // 보류뿐 아니라 시도 횟수만 남은 일시 실패도 없어야 완료다(서버 has_pending 과 같음).
+      if (holds.isEmpty && attempts.isEmpty) {
         await writeMeta({
           'target': mobileParserVersion,
           'cursor': ids.isEmpty ? '' : ids.last,
@@ -1577,6 +1588,8 @@ class DbOptimize {
             );
           } catch (_) {}
         }
+        // 처리 중 영속 표시를 먼저 지운다 — 넘김 큐 배출이 자기 표시에 막히지 않게(Astra 교차 확인).
+        await clearProcessingMarker();
         await _afterFinish();
         return OptimizeRunResult(
           total: total,
@@ -1704,6 +1717,7 @@ class DbOptimize {
           maybeStart(
                 isSyncing: _lastIsSyncing,
                 rebuildPending: _lastRebuildPending,
+                ignoreBackoff: true,
               ) ??
               Future<void>.value(),
         );
@@ -1849,6 +1863,8 @@ class DbOptimize {
 
   /// 스키마 업그레이드 뒤 Standalone 앱 실행 때 한 번. 할 일 없으면 null(서버와 같음).
   /// Client 모드는 부르지 않는다(서버가 한다).
+  /// 보류 재시도 시각(`next_retry_at`) 전이면 시작하지 않고 그 시각에 다시 판단한다 —
+  /// 동기화 성공 뒤(`notifySyncSucceeded`)는 [ignoreBackoff] 로 바로 시작한다(서버와 같음).
   static Future<void>? maybeStart({
     bool Function()? isSyncing,
     Future<bool> Function()? rebuildPending,
@@ -1856,6 +1872,7 @@ class DbOptimize {
     Function(String id)?
     fetchFn,
     bool wait = false,
+    bool ignoreBackoff = false,
   }) {
     if (_running != null) return _running;
     return _maybeStartAsync(
@@ -1863,7 +1880,49 @@ class DbOptimize {
       rebuildPending: rebuildPending,
       fetchFn: fetchFn,
       wait: wait,
+      ignoreBackoff: ignoreBackoff,
     );
+  }
+
+  /// 보류가 남았고 저장된 다음 재시도 시각이 아직이면 그 시각, 아니면 null
+  /// (서버 `_retry_allowed_by_backoff` 와 같은 판단 — 다른 세대 메타는 보지 않는다).
+  static DateTime? pendingRetryAt(Map<String, dynamic>? meta, {DateTime? now}) {
+    if (meta == null || meta['done'] == true) return null;
+    if (!sameTarget(meta['target'], mobileParserVersion)) return null;
+    final holds = meta['holds'] ?? meta['pending'];
+    if (holds is! List || holds.isEmpty) return null;
+    final due = parseNextRetryAt(meta['next_retry_at']);
+    if (due == null) return null;
+    return due.isAfter((now ?? DateTime.now()).toUtc()) ? due : null;
+  }
+
+  static Timer? _retryTimer;
+
+  /// 재시도 시각에 한 번 다시 판단하는 타이머(하나만 유지). 앱이 그때까지 살아 있을 때만
+  /// 돈다 — 종료됐다면 다음 실행·동기화 성공이 다시 판단한다.
+  static void _scheduleRetry(
+    DateTime due, {
+    bool Function()? isSyncing,
+    Future<bool> Function()? rebuildPending,
+    Future<({Map<String, dynamic> result, Map<String, dynamic> envelope})>
+    Function(String id)?
+    fetchFn,
+  }) {
+    _retryTimer?.cancel();
+    final delay =
+        due.difference(DateTime.now().toUtc()) + const Duration(milliseconds: 500);
+    _retryTimer = Timer(delay.isNegative ? Duration.zero : delay, () {
+      _retryTimer = null;
+      if (_stopRequested) return;
+      unawaited(
+        maybeStart(
+              isSyncing: isSyncing,
+              rebuildPending: rebuildPending,
+              fetchFn: fetchFn,
+            ) ??
+            Future<void>.value(),
+      );
+    });
   }
 
   static Future<void>? _maybeStartAsync({
@@ -1873,6 +1932,7 @@ class DbOptimize {
     Function(String id)?
     fetchFn,
     bool wait = false,
+    bool ignoreBackoff = false,
   }) {
     final future = () async {
       final bool need;
@@ -1897,10 +1957,31 @@ class DbOptimize {
         await runDeferredStarters();
         return;
       }
-      _stopRequested = false;
-      _restArmed = false;
       _lastIsSyncing = isSyncing;
       _lastRebuildPending = rebuildPending;
+      // 저장된 다음 재시도 시각 전이면 바로 돌리지 않는다 — 재실행·DB 가져오기로 백오프를
+      // 우회하지 않게(Astra 교차 확인). 동기화 성공 wake 는 _restArmed 로 바로 깨운다.
+      if (!ignoreBackoff) {
+        DateTime? due;
+        try {
+          due = pendingRetryAt(await readMeta());
+        } catch (_) {}
+        if (due != null) {
+          _restArmed = true;
+          _scheduleRetry(
+            due,
+            isSyncing: isSyncing,
+            rebuildPending: rebuildPending,
+            fetchFn: fetchFn,
+          );
+          await runDeferredStarters();
+          return;
+        }
+      }
+      _retryTimer?.cancel();
+      _retryTimer = null;
+      _stopRequested = false;
+      _restArmed = false;
       final d = await LocalDbService.db;
       final countRows = await d.query('reports', columns: ['ID']);
       DbOptimizeState.update(
@@ -1954,7 +2035,17 @@ class DbOptimize {
           if (result.finished || result.rest == null) break;
           // 쉼: 지수 백오프 뒤 다음 회차로 가고, 동기화 성공 wake 면 바로 간다(명세 7-1).
           restRounds++;
-          final backoff = restBackoff(result.rest!, restRounds);
+          var backoff = restBackoff(result.rest!, restRounds);
+          if (result.rest == 'partial') {
+            // partial 은 메타에 남긴 회차 기준 재시도 시각을 따른다(재실행·교환 뒤에도 같은 값).
+            try {
+              final due = parseNextRetryAt((await readMeta())?['next_retry_at']);
+              if (due != null) {
+                final left = due.difference(DateTime.now().toUtc());
+                backoff = left.isNegative ? Duration.zero : left;
+              }
+            } catch (_) {}
+          }
           final backoffText = backoff.inSeconds >= 60
               ? '${backoff.inMinutes}분'
               : '${backoff.inSeconds}초';
@@ -1974,13 +2065,19 @@ class DbOptimize {
       }
     }();
     _running = future;
-    if (wait) return future;
-    unawaited(future.whenComplete(() {
+    // 일찍 끝나는 경로(할 일 없음·재시도 시각 전)도 기다린 호출에서 _running 을 비운다 —
+    // 남으면 다음 maybeStart 가 끝난 future 를 돌려받아 시작하지 못한다.
+    // 오류는 기다린 호출자가 받는다 — 이 정리용 사슬에서는 삼켜 미처리 오류로 만들지 않는다.
+    future.whenComplete(() {
       if (identical(_running, future)) _running = null;
-    }));
+    }).ignore();
     return future;
   }
 
   /// 앱 종료 때: 다음 신고 경계에서 멈춘다.
-  static void requestStop() => _stopRequested = true;
+  static void requestStop() {
+    _stopRequested = true;
+    _retryTimer?.cancel();
+    _retryTimer = null;
+  }
 }

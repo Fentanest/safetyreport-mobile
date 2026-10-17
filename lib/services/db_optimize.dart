@@ -2048,13 +2048,24 @@ class DbOptimize {
           }
           OptimizeRunResult result;
           try {
-            result = await LocalDbService.runBackgroundWork(
-              () => processAll(
+            result = await LocalDbService.runBackgroundWork(() async {
+              // 파일 작업 잠금을 기다린 뒤에도 모드를 다시 본다 — 그사이 Client 로 바뀌었으면
+              // 로컬 최적화를 시작하지 않고 끝낸다(Astra 재확인).
+              if (!_startAllowedNow) {
+                DbOptimizeState.update(state: 'idle', stage: '', message: '');
+                return const OptimizeRunResult(
+                  total: 0,
+                  done: 0,
+                  finished: false,
+                  stats: <String, dynamic>{},
+                );
+              }
+              return processAll(
                 fetchFn: fetchFn,
                 isSyncing: isSyncing,
                 rebuildPending: rebuildPending,
-              ),
-            );
+              );
+            });
           } catch (e) {
             // 로그를 먼저 남기고 상태를 바꾼다 — 표시줄이 error 스냅샷에 로그를 함께 싣게.
             DbOptimizeState.appendLog('오류로 멈춤(${e.runtimeType})');

@@ -6,10 +6,12 @@
 //   있다(넘김 큐 배출이 자기 표시에 막히지 않음).
 // M5 재시도 시각: 보류가 남고 `next_retry_at` 이 아직이면 기동·가져오기 경로가 바로
 //   돌지 않는다. 동기화 성공 wake(ignoreBackoff)는 바로 돈다.
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/services/db_optimize.dart';
+import 'package:safetyreport/services/db_optimize_state.dart';
 import 'package:safetyreport/services/local_db_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -310,6 +312,43 @@ void main() {
     // maybeStart 는 needsRun 을 기다리는 중이다 — 그사이 모드 전환.
     allowed = false;
     DbOptimize.cancelScheduledRetry();
+    await started;
+    expect(fetched, isEmpty);
+    expect((await DbOptimize.readMeta())?['done'], isNot(true));
+  });
+
+  test('파일 작업 잠금을 기다리는 사이 Client 로 전환되면 로컬 최적화를 시작하지 않는다', () async {
+    const id = '95000081';
+    await seedReports([reportFor(id)]);
+    var allowed = true;
+    DbOptimize.startAllowed = () => allowed;
+    final fetched = <String>[];
+    final release = Completer<void>();
+    final lockHeld = Completer<void>();
+    // 백업·복원처럼 파일 작업 잠금을 잡고 있는 동안 최적화가 시작 준비를 마친다.
+    final fileOp = LocalDbService.withFileExclusiveForTest(() async {
+      lockHeld.complete();
+      await release.future;
+    });
+    await lockHeld.future;
+    final started = DbOptimize.maybeStart(
+      isSyncing: () => false,
+      rebuildPending: () async => false,
+      fetchFn: (rid) async {
+        fetched.add(rid);
+        return fetchOk(rid);
+      },
+      wait: true,
+    );
+    // 시작 준비(회차 모드 검사까지)를 마치고 잠금 대기에 들어갈 때까지 기다린다.
+    for (var i = 0; i < 100 && DbOptimizeState.state != 'running'; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    allowed = false;
+    DbOptimize.cancelScheduledRetry();
+    release.complete();
+    await fileOp;
     await started;
     expect(fetched, isEmpty);
     expect((await DbOptimize.readMeta())?['done'], isNot(true));

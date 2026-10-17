@@ -1140,7 +1140,20 @@ class ReportProvider with ChangeNotifier {
   /// 전환마다 게이트가 리셋돼 뒤따르는 onGatePassed() 가 같은 재판단을 수행한다. 전환
   /// 직후 바로 시작하면 백그라운드 독점을 잡아 뒤따르는 백업·복원이 거부되므로 두지 않는다.
   void reevaluateDbOptimize() {
-    _startDbOptimizeIfNeeded();
+    if (_appMode == AppMode.standalone && !_isStandaloneDemo) {
+      // Standalone: maybeStart 안에서 needsRun 뒤 새 DB 기준으로 표시를 다시
+      // 맞춘다(닫힌 DB 를 훅에서 바로 열면 되돌리기 위젯 시험이 끝나지 않는다).
+      _startDbOptimizeIfNeeded();
+      return;
+    }
+    // Client·데모·미설정: 최적화는 시작하지 않지만 표시만 새 DB 기준으로 맞춘다.
+    unawaited(_reconcileDisplayAsync());
+  }
+
+  Future<void> _reconcileDisplayAsync() async {
+    try {
+      await DbOptimize.resyncDisplayAfterDatabaseReplaced();
+    } catch (_) {}
   }
 
   /// DB 최적화 시작/이어서(Standalone 만, Client 는 서버가 함 — 명세 3-1).

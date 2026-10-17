@@ -117,7 +117,8 @@ class DbOptimizeState {
     };
   }
 
-  static void resetForTest() {
+  /// DB 교체 뒤 표시 재동기화용: 진행·오류·로그를 비우고 idle 로 둔다.
+  static void clearDisplay() {
     _state = 'idle';
     _total = 0;
     _done = 0;
@@ -127,4 +128,6 @@ class DbOptimizeState {
     _log.clear();
     _bump();
   }
+
+  static void resetForTest() => clearDisplay();
 }

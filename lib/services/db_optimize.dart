@@ -1199,6 +1199,35 @@ class DbOptimize {
     } catch (_) {}
   }
 
+  /// DB 교체(백업 복원·서버 DB 가져오기) 완료 뒤 표시 재동기화 — 새 DB 기준.
+  /// 메모리의 오류·로그를 지우고, 새 DB 가 done 이면 오류 없음, done 이 아니고
+  /// 오류 기록([lastErrorKey])이 있으면 그것만 복원한다. 다른 DB 의 오류가
+  /// 남지 않게. 새 DB 를 읽지 못하면 메모리를 유지한다.
+  static Future<void> resyncDisplayAfterDatabaseReplaced() async {
+    Map<String, dynamic>? meta;
+    try {
+      meta = await readMeta();
+      // 오류 기록까지 읽혀야 새 DB 기준이 확정된다 — 하나라도 실패하면 유지.
+      await LocalDbService.getMeta(lastErrorKey);
+    } catch (_) {
+      return;
+    }
+    DbOptimizeState.clearDisplay();
+    try {
+      final done =
+          meta != null &&
+          meta['target'] == mobileParserVersion &&
+          meta['done'] == true;
+      if (done) {
+        // done DB 에 낡은 오류 기록이 남아 있으면 지운다 — 다음 시작 때
+        // 복원되지 않게(완료 때 [clearLastError] 와 같은 정리).
+        await clearLastError();
+        return;
+      }
+      await restorePersistedError();
+    } catch (_) {}
+  }
+
   /// 영속된 마지막 최적화 오류를 메모리 상태로 복원한다. 복원했으면 true.
   /// 이미 error 상태거나 남긴 오류가 없으면 아무 것도 하지 않고 false.
   static Future<bool> restorePersistedError() async {
@@ -1256,16 +1285,25 @@ class DbOptimize {
     bool wait = false,
   }) {
     final future = () async {
+      final bool need;
       try {
-        if (!await needsRun()) {
-          // 최적화는 done 이어도 미뤄 둔 보류 요청이 있으면 기동 경로에서 시작한다
-          // (서버와 같음 — done=true 기록 직후 끝났어도 유실 없음).
-          await runDeferredStarters();
-          return;
-        }
+        need = await needsRun();
       } catch (_) {
         // DB 를 열지 못하는 환경에서는 조용히 건너뛴다(다음 실행에 다시 시도).
         // 게이트 통과 흐름을 깨지 않는다 — F18 회귀 방지.
+        return;
+      }
+      // DB 교체 뒤 표시 재동기화(새 DB 기준 — Sol R3). needsRun 이 DB 를 방금
+      // 읽었으므로 여기서 읽는다: 교체 훅에서 닫힌 DB 를 바로 열면 되돌리기
+      // 위젯 시험이 끝나지 않는 것을 확인했다. done 이면 오류 없음, 오류
+      // 기록이 있으면 그것만 복원한다(다른 DB 의 오류가 남지 않게).
+      try {
+        await resyncDisplayAfterDatabaseReplaced();
+      } catch (_) {}
+      if (!need) {
+        // 최적화는 done 이어도 미뤄 둔 보류 요청이 있으면 기동 경로에서 시작한다
+        // (서버와 같음 — done=true 기록 직후 끝났어도 유실 없음).
+        await runDeferredStarters();
         return;
       }
       _stopRequested = false;

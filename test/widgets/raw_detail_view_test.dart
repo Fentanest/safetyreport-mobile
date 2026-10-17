@@ -60,6 +60,10 @@ class _RecordingFiles extends LocalFileSource {
   Future<Directory> root() async => Directory('/fake/root');
 
   @override
+  Future<Directory> subDir(String name) async =>
+      Directory('/fake/root/$name');
+
+  @override
   Future<bool> exists(Directory dir) async => true;
 
   @override

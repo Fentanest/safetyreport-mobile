@@ -248,6 +248,7 @@ class DbOptimize {
     _restArmed = false;
     _retryTimer?.cancel();
     _retryTimer = null;
+    startAllowed = null;
     _lastIsSyncing = null;
     _lastRebuildPending = null;
     openStoreForTest = null;
@@ -1706,7 +1707,7 @@ class DbOptimize {
     try {
       await runDeferredStarters();
     } catch (_) {}
-    if (_running == null && _restArmed) {
+    if (_running == null && _restArmed && _startAllowedNow) {
       _restArmed = false;
       var need = false;
       try {
@@ -1898,6 +1899,26 @@ class DbOptimize {
 
   static Timer? _retryTimer;
 
+  /// 앱 모드가 최적화를 허용하는지(Standalone·데모 아님). 재시도 타이머·동기화 성공
+  /// 재판단처럼 화면 밖에서 시작하는 경로가 확인한다 — Client 전환 뒤 로컬 최적화가
+  /// 다시 돌지 않게(Astra 재확인). ReportProvider 가 등록한다. null 이면 허용.
+  static bool Function()? startAllowed;
+
+  static bool get _startAllowedNow {
+    try {
+      return startAllowed?.call() ?? true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 예약한 재시도와 쉼 재판단을 버린다(모드 전환 — Client·초기화).
+  static void cancelScheduledRetry() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    _restArmed = false;
+  }
+
   /// 재시도 시각에 한 번 다시 판단하는 타이머(하나만 유지). 앱이 그때까지 살아 있을 때만
   /// 돈다 — 종료됐다면 다음 실행·동기화 성공이 다시 판단한다.
   static void _scheduleRetry(
@@ -1911,9 +1932,15 @@ class DbOptimize {
     _retryTimer?.cancel();
     final delay =
         due.difference(DateTime.now().toUtc()) + const Duration(milliseconds: 500);
-    _retryTimer = Timer(delay.isNegative ? Duration.zero : delay, () {
-      _retryTimer = null;
-      if (_stopRequested) return;
+    void fire() {
+      if (_stopRequested || !_startAllowedNow) return;
+      // 다른 판단(보류 배출 등)이 아직 돌면 끝난 뒤 다시 본다 — 돌려받은 future 에
+      // 묻혀 재시도가 사라지지 않게(Astra 재확인).
+      final busy = _running;
+      if (busy != null) {
+        busy.whenComplete(fire).ignore();
+        return;
+      }
       unawaited(
         maybeStart(
               isSyncing: isSyncing,
@@ -1922,6 +1949,11 @@ class DbOptimize {
             ) ??
             Future<void>.value(),
       );
+    }
+
+    _retryTimer = Timer(delay.isNegative ? Duration.zero : delay, () {
+      _retryTimer = null;
+      fire();
     });
   }
 
@@ -1974,7 +2006,9 @@ class DbOptimize {
             rebuildPending: rebuildPending,
             fetchFn: fetchFn,
           );
-          await runDeferredStarters();
+          // 보류 요청 배출은 기다리지 않는다 — 배출한 동기화의 성공 wake 가 바로
+          // 재판단할 수 있게(_running 이 그동안 남아 있으면 wake 가 사라진다).
+          unawaited(runDeferredStarters());
           return;
         }
       }

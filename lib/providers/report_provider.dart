@@ -1177,6 +1177,9 @@ class ReportProvider with ChangeNotifier {
 
   void _startDbOptimizeIfNeeded() {
     if (_appMode != AppMode.standalone || _isStandaloneDemo) return;
+    // 화면 밖 시작 경로(재시도 타이머·동기화 성공 재판단)가 현재 모드를 다시 확인한다.
+    DbOptimize.startAllowed ??= () =>
+        _appMode == AppMode.standalone && !_isStandaloneDemo;
     // 보류 starter 는 미리 등록한다 — 앱 재시작 뒤(정적 상태 초기화)에도 기동 경로에서
     // 영속 보류를 꺼내 시작할 수 있게(서버 maybe_start 의 재시작 복구와 같음).
     DbOptimize.manualStarter ??= SyncEngine.runDeferredManual;
@@ -1200,6 +1203,7 @@ class ReportProvider with ChangeNotifier {
 
   Future<void> setConfig(String url, String key) async {
     SyncEngine.stop();
+    DbOptimize.cancelScheduledRetry();
     StandaloneAuthService.invalidateOperations();
     await PermissionService.stopWsService();
     StandaloneAuthService.stopKeepAlive();
@@ -1373,6 +1377,7 @@ class ReportProvider with ChangeNotifier {
 
   Future<void> resetConfig() async {
     SyncEngine.stop();
+    DbOptimize.cancelScheduledRetry();
     StandaloneAuthService.invalidateOperations();
     await PermissionService.stopWsService();
     _gatePassed = false;

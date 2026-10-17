@@ -194,4 +194,101 @@ void main() {
       isNull,
     );
   });
+
+  Future<void> writeHeldMeta(String held, DateTime due) => DbOptimize.writeMeta({
+    'target': 'mobile-parser-13',
+    'cursor': '',
+    'done': false,
+    'total': 1,
+    'stats': <String, dynamic>{},
+    'attempts': <String, dynamic>{},
+    'holds': [held],
+    'round': 1,
+    'next_retry_at': DbOptimize.formatNextRetryAt(due),
+  });
+
+  test('M5 재시도 타이머는 시각이 되면 다시 판단해 보류를 처리한다', () async {
+    const held = '95000041';
+    await seedReports([reportFor(held)]);
+    await writeHeldMeta(
+      held,
+      DateTime.now().toUtc().add(const Duration(milliseconds: 300)),
+    );
+    final fetched = <String>[];
+    await DbOptimize.maybeStart(
+      isSyncing: () => false,
+      rebuildPending: () async => false,
+      fetchFn: (rid) async {
+        fetched.add(rid);
+        return fetchOk(rid);
+      },
+      wait: true,
+    );
+    expect(fetched, isEmpty);
+    for (var i = 0; i < 100 && fetched.isEmpty; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    expect(fetched, [held]);
+    for (var i = 0; i < 100; i++) {
+      if ((await DbOptimize.readMeta())?['done'] == true) break;
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    expect((await DbOptimize.readMeta())!['done'], isTrue);
+  });
+
+  test('Client 전환처럼 시작이 막히면 재시도 타이머·동기화 성공 재판단이 돌지 않는다', () async {
+    const held = '95000051';
+    await seedReports([reportFor(held)]);
+    await writeHeldMeta(
+      held,
+      DateTime.now().toUtc().add(const Duration(milliseconds: 300)),
+    );
+    var allowed = true;
+    DbOptimize.startAllowed = () => allowed;
+    final fetched = <String>[];
+    await DbOptimize.maybeStart(
+      isSyncing: () => false,
+      rebuildPending: () async => false,
+      fetchFn: (rid) async {
+        fetched.add(rid);
+        return fetchOk(rid);
+      },
+      wait: true,
+    );
+    allowed = false;
+    await DbOptimize.notifySyncSucceeded();
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    expect(fetched, isEmpty);
+    expect((await DbOptimize.readMeta())!['done'], isFalse);
+  });
+
+  test('재시도 시각 전이라도 동기화 성공 wake 는 바로 보류를 처리한다', () async {
+    const held = '95000061';
+    await seedReports([reportFor(held)]);
+    await writeHeldMeta(
+      held,
+      DateTime.now().toUtc().add(const Duration(hours: 1)),
+    );
+    final fetched = <String>[];
+    Future<({Map<String, dynamic> result, Map<String, dynamic> envelope})>
+    spy(String rid) async {
+      fetched.add(rid);
+      return fetchOk(rid);
+    }
+    await DbOptimize.maybeStart(
+      isSyncing: () => false,
+      rebuildPending: () async => false,
+      fetchFn: spy,
+      wait: true,
+    );
+    expect(fetched, isEmpty);
+    // 실제 wake 경로는 기억한 확인 함수로 maybeStart(ignoreBackoff) 를 부른다 —
+    // 시험은 fetch 주입점으로 같은 경로를 탄다.
+    DbOptimize.fetchDetailForTest = (rid) async => spy(rid);
+    await DbOptimize.notifySyncSucceeded();
+    for (var i = 0; i < 100 && fetched.isEmpty; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    expect(fetched, [held]);
+  });
 }

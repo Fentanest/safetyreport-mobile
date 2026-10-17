@@ -484,47 +484,55 @@ void main() {
     expect(n, greaterThanOrEqualTo(3));
   });
 
-  test('최적화 중 수동 동기화는 대기열 뒤로·로그 한 줄·끝나면 자동 시작', () async {
+  test('최적화 중 수동 동기화는 하나로 합쳐 영속·끝나면 한 번 시작', () async {
     DbOptimizeState.update(state: 'running', stage: 'running', total: 2, done: 0);
     final messages = <String>[];
     final sub = SyncEngine.events.listen((e) {
       if (e.type == SyncEventType.log) messages.add(e.message);
     });
-    final result = await SyncEngine.start(fullSync: false);
-    expect(result.busy, isTrue);
-    expect(result.errorMessage, 'db_optimize_running');
+    final first = await SyncEngine.start(fullSync: false);
+    expect(first.busy, isTrue);
+    expect(first.errorMessage, 'db_optimize_running');
     expect(messages, contains(DbOptimizeState.deferLogLine));
-    var autoStarted = false;
-    DbOptimize.clearAfterFinishHooksForTest();
-    DbOptimize.addAfterFinishHook(() async {
-      autoStarted = true;
-    });
-    // afterFinish 훅은 작업이 끝나면 돈다 — 여기서는 직접 훅을 꺼내지 않고,
-    // 빈 DB 로 processAll 을 끝까지 돌려 훅이 불리는지 확인한다.
-    await resetDb();
-    DbOptimize.rawFileDirForTest = tempRawDir;
-    DbOptimize.requestInterval = Duration.zero;
-    DbOptimize.waitInterval = const Duration(milliseconds: 1);
-    DbOptimize.loginRetryInterval = const Duration(milliseconds: 1);
-    DbOptimize.clearAfterFinishHooksForTest();
-    DbOptimize.addAfterFinishHook(() async {
-      autoStarted = true;
-    });
-    final run = await DbOptimize.processAll(
-      fetchFn: (_) async => throw Exception('상세 조회 실패 (x, 404)'),
-      isSyncing: () => false,
-      rebuildPending: () async => false,
+    // 두 번째 요청(전체)은 합쳐진다 — DB 에는 1건만 남는다(서버와 같음).
+    final second = await SyncEngine.start(fullSync: true);
+    expect(second.busy, isTrue);
+    final peeked = await DbOptimize.peekManualSync();
+    expect(peeked, isNotNull);
+    expect(peeked!['fullSync'], isTrue);
+    final raw = await LocalDbService.getMeta(DbOptimize.deferredManualKey);
+    expect(jsonDecode(raw!)['fullSync'], isTrue);
+    // 끝나면 정확히 한 번 시작하고 시작 성공 뒤에만 지운다.
+    var starts = 0;
+    DbOptimize.manualStarter = () async {
+      starts++;
+      return true;
+    };
+    await DbOptimize.runDeferredStarters();
+    expect(starts, 1);
+    expect(await DbOptimize.peekManualSync(), isNull);
+    // 소유권 경쟁으로 시작하지 못하면 유실 없이 유지한다.
+    await DbOptimize.deferManualSync(
+      fullSync: false,
+      preserveDataset: false,
+      backgroundWorker: false,
     );
-    expect(run.finished, isTrue);
-    expect(autoStarted, isTrue);
+    DbOptimize.manualStarter = () async => false;
+    await DbOptimize.runDeferredStarters();
+    expect(await DbOptimize.peekManualSync(), isNotNull);
+    DbOptimize.manualStarter = null;
     await sub.cancel();
   });
 
-  test('최적화 중 알림 동기화는 바로 시작하지 않음', () async {
+  test('최적화 중 알림 동기화는 바로 시작하지 않고 표시만 영속', () async {
     DbOptimizeState.update(state: 'running', stage: 'running', total: 1, done: 0);
-    // 큐를 비워 둬도 defer 판단이 먼저다 — 로그 한 줄과 함께 그냥 돌아온다.
-    await StandaloneAutoSyncService.drainIfPending();
+    // 큐를 비워 둬도 defer 판단이 먼저다 — 로그 한 줄과 함께 표시만 남기고 그냥 돌아온다.
+    // 알림 대기열 자체는 기존 영속 큐가 맡는다.
+    final started = await StandaloneAutoSyncService.drainIfPending();
+    expect(started, isFalse);
     expect(DbOptimize.isRunning, isTrue);
+    expect(await DbOptimize.isDrainDeferred(), isTrue);
+    await DbOptimize.clearDrainDeferred();
   });
 
   test('상태 표시는 label·done/total·stage·log 50줄, Client 는 추가 필드를 읽고 없으면 호환', () {
@@ -599,37 +607,7 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
 
-    testWidgets('시작 화면 업그레이드 표시', (tester) async {
-      LocalDbService.upgradeRunning = true;
-      LocalDbService.upgradeLog.addAll([
-        '업그레이드 전 백업 완료(before_v18_1.bak)',
-        '새 표 생성(스키마 18)',
-      ]);
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: AppTheme.light(),
-          home: Builder(
-            builder: (context) {
-              final upgrading = LocalDbService.upgradeRunning;
-              return Scaffold(
-                body: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const CircularProgressIndicator(),
-                      if (upgrading) const Text('DB 최적화 중입니다…'),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-      );
-      await tester.pump();
-      expect(find.text('DB 최적화 중입니다…'), findsOneWidget);
-      LocalDbService.upgradeRunning = false;
-      await tester.pumpWidget(const SizedBox());
-    });
+    // 시작 화면 업그레이드 표시는 test/services/db_optimize_review7_test.dart 에서
+    // 실제 시작 경로(SafetyReportApp + ReportProvider.init 의 DB 열기)로 검증한다.
   });
 }

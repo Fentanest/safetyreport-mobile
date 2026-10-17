@@ -146,20 +146,6 @@ class ReportDetailSheet extends StatelessWidget {
     return rawDetailSupported;
   }
 
-  bool _showRawDetailAction(BuildContext context) {
-    ReportProvider? p;
-    try {
-      p = context.read<ReportProvider?>();
-    } catch (_) {
-      return false;
-    }
-    if (p == null) return false;
-    return showRawDetailAction(
-      mode: p.appMode,
-      rawDetailSupported: p.rawDetailSupported,
-    );
-  }
-
   String _ratingLabel() {
     final rating = report.rating;
     if (rating == null || rating <= 0) return '';
@@ -568,38 +554,7 @@ class ReportDetailSheet extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            if (_showRawDetailAction(context)) ...[
-              SizedBox(
-                width: double.infinity,
-                child: Semantics(
-                  button: true,
-                  label: '원본 응답 보기',
-                  child: OutlinedButton.icon(
-                    icon: Icon(Icons.data_object, size: 18),
-                    label: const Text('원본 응답'),
-                    onPressed: report.id.isEmpty
-                        ? null
-                        : () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => RawDetailViewScreen(
-                                reportId: report.id,
-                              ),
-                            ),
-                          ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '신고자 정보를 뺀 상세 원본 JSON을 보여줍니다.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: SrFontSize.caption,
-                  color: context.sr.textSecondary,
-                ),
-              ),
-              const SizedBox(height: 12),
-            ],
+            _RawDetailAction(report: report),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
@@ -952,6 +907,61 @@ class ReportDetailSheet extends StatelessWidget {
       filter: filter,
       title: '$value · 신고',
       initialTabIndex: tabIndex,
+    );
+  }
+}
+
+/// 신고 상세 시트의 "원본 응답" 동작(명세 4절).
+/// capability 구독은 이 위젯의 build 에서 한다 — 설정 응답 뒤에도 열린 시트가
+/// 그대로 갱신된다(read 로 읽으면 응답 전 열린 시트는 다시 열 때까지 숨겨진다).
+class _RawDetailAction extends StatelessWidget {
+  final Report report;
+
+  const _RawDetailAction({required this.report});
+
+  @override
+  Widget build(BuildContext context) {
+    final visible = context.select<ReportProvider?, bool>(
+      (p) =>
+          p != null &&
+          ReportDetailSheet.showRawDetailAction(
+            mode: p.appMode,
+            rawDetailSupported: p.rawDetailSupported,
+          ),
+    );
+    if (!visible) return const SizedBox.shrink();
+    return Column(
+      children: [
+        SizedBox(
+          width: double.infinity,
+          child: Semantics(
+            button: true,
+            label: '원본 응답 보기',
+            child: OutlinedButton.icon(
+              icon: Icon(Icons.data_object, size: 18),
+              label: const Text('원본 응답'),
+              onPressed: report.id.isEmpty
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            RawDetailViewScreen(reportId: report.id),
+                      ),
+                    ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '신고자 정보를 뺀 상세 원본 JSON을 보여줍니다.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: SrFontSize.caption,
+            color: context.sr.textSecondary,
+          ),
+        ),
+        const SizedBox(height: 12),
+      ],
     );
   }
 }

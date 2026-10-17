@@ -24,6 +24,11 @@ import '../widgets/sr_snack_bar.dart';
 String prettyRawJson(Map<String, dynamic> json) =>
     const JsonEncoder.withIndent('  ').convert(json);
 
+/// 원본 보기 줄 한 개의 대략 높이(고정폭 12pt·줄간격 1.5 → 18 + 여유).
+/// 화면 밖 일치로 이동할 때 줄 번호 × 이 값으로 먼저 점프한다(지연 생성 목록 대응).
+@visibleForTesting
+const estimatedRawLineHeight = 20.0;
+
 /// 검색 일치 위치(줄 번호·줄 안 시작·끝, 대소문자 무시).
 @visibleForTesting
 class RawMatch {
@@ -76,7 +81,14 @@ class RawDetailData {
 abstract class RawDetailSource {
   bool get isStandalone;
 
+  /// 시험 주입용 경계. null 이면 Provider(모드·서버 설정)에서 실제 경계를 만든다.
+  /// source 를 주입하지 않는 실제 진입 경로 시험에서 쓴다.
+  @visibleForTesting
+  static RawDetailSource? debugSourceOverride;
+
   factory RawDetailSource.of(BuildContext context) {
+    final test = debugSourceOverride;
+    if (test != null) return test;
     final p = context.read<ReportProvider>();
     if (p.appMode == AppMode.standalone) return StandaloneRawDetailSource();
     return ClientRawDetailSource(baseUrl: p.baseUrl, apiKey: p.apiKey);
@@ -142,11 +154,22 @@ class ClientRawDetailSource implements RawDetailSource {
 
   ClientRawDetailSource({required this.baseUrl, required this.apiKey});
 
+  /// 시험용 서버 응답 훅(Client 가짜 API). null 이면 실제 서버를 부른다.
+  @visibleForTesting
+  static Future<RawDetailData> Function(
+    String baseUrl,
+    String apiKey,
+    String reportId,
+  )?
+  debugLoadOverride;
+
   @override
   bool get isStandalone => false;
 
   @override
   Future<RawDetailData> load(String reportId) async {
+    final hook = debugLoadOverride;
+    if (hook != null) return hook(baseUrl, apiKey, reportId);
     final payload = await ApiService(
       baseUrl: baseUrl,
       apiKey: apiKey,
@@ -175,17 +198,57 @@ class ClientRawDetailSource implements RawDetailSource {
 
 /// 공유용 `<ID>.json` 임시 파일을 만들어 다른 앱으로 공유한다.
 /// ID 검증 규칙([isSafeReportId])을 유지한다 — 어기면 쓰지 않고 던진다.
+/// 공유가 끝나면(성공·취소·실패 모두) 임시 파일을 지운다.
 Future<void> sharePrettyRawJson(String reportId, String pretty) async {
   if (!isSafeReportId(reportId)) {
     throw StateError('공유할 수 없는 신고 ID입니다: $reportId');
   }
-  final dir = await getTemporaryDirectory();
+  final dir = await _shareTempDir();
   final file = File('${dir.path}/$reportId.json');
   await file.writeAsString(pretty, encoding: utf8);
-  await SharePlus.instance.share(
-    ShareParams(files: [XFile(file.path)], subject: '$reportId.json'),
-  );
+  try {
+    final params = ShareParams(
+      files: [XFile(file.path)],
+      subject: '$reportId.json',
+    );
+    final hook = debugRawShareHook;
+    if (hook != null) {
+      await hook(params);
+    } else {
+      await SharePlus.instance.share(params);
+    }
+  } finally {
+    try {
+      if (await file.exists()) await file.delete();
+    } catch (_) {}
+  }
 }
+
+/// 공유 뒤 임시 디렉터리에 남은 `<ID>.json` 을 지운다(공유 취소·실패 뒤 잔여분,
+/// 화면을 떠날 때 남은 파일 정리용). 없으면 아무 것도 안 한다.
+@visibleForTesting
+Future<void> cleanupRawShareTempFile(String reportId) async {
+  if (!isSafeReportId(reportId)) return;
+  try {
+    final dir = await _shareTempDir();
+    final file = File('${dir.path}/$reportId.json');
+    if (await file.exists()) await file.delete();
+  } catch (_) {}
+}
+
+Future<Directory> _shareTempDir() async {
+  final override = debugRawShareTempDir;
+  if (override != null) return override();
+  return getTemporaryDirectory();
+}
+
+/// 시험용 임시 디렉터리 훅. null 이면 실제 [getTemporaryDirectory] 를 쓴다.
+@visibleForTesting
+Future<Directory> Function()? debugRawShareTempDir;
+
+/// 시험용 공유 훅. null 이면 실제 공유 시트를 띄운다.
+@visibleForTesting
+Future<ShareResult> Function(ShareParams params)? debugRawShareHook;
 
 /// 신고 상세 시트의 "원본 응답" 동작 → 전체 화면 JSON 보기(명세 4절, 모바일).
 /// 고정폭·들여쓰기 2칸, 검색(일치 강조·다음·이전·건수), 전체 복사·공유,
@@ -212,6 +275,10 @@ class _RawDetailViewScreenState extends State<RawDetailViewScreen> {
   final _currentKey = GlobalKey();
 
   RawDetailSource? _source;
+
+  /// 소스가 정해져 첫 불러오기를 시작했는가. 주입이 없으면
+  /// [didChangeDependencies] 에서 Provider 로 정한 뒤 시작한다.
+  bool _sourceResolved = false;
   bool _loading = true;
   RawDetailData? _data;
   bool _missing = false;
@@ -224,20 +291,43 @@ class _RawDetailViewScreenState extends State<RawDetailViewScreen> {
   void initState() {
     super.initState();
     _searchController.addListener(_onSearchChanged);
-    _source = widget.source;
-    _load();
+    // 주입이 있으면 바로 불러온다. 없으면 didChangeDependencies 에서
+    // 실제 진입 경로(Provider·모드)로 소스를 정한 뒤 불러온다 — initState 에서
+    // 미리 불러오면 소스가 null 이라 오류 화면이 뜬다.
+    if (widget.source != null) {
+      _source = widget.source;
+      _sourceResolved = true;
+      _load();
+    }
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _source ??= RawDetailSource.of(context);
+    if (_sourceResolved) return;
+    _source = widget.source ?? RawDetailSource.of(context);
+    _sourceResolved = true;
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(RawDetailViewScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.reportId != widget.reportId ||
+        oldWidget.source != widget.source) {
+      // 위젯 교체로는 didChangeDependencies 가 다시 불리지 않아 여기서 정한다.
+      _source = widget.source ?? RawDetailSource.of(context);
+      _sourceResolved = true;
+      _load();
+    }
   }
 
   @override
   void dispose() {
     _searchController.dispose();
     _scrollController.dispose();
+    // 공유 뒤 남은 임시 `<ID>.json` 이 있으면 지운다.
+    unawaited(cleanupRawShareTempFile(widget.reportId));
     super.dispose();
   }
 
@@ -298,7 +388,16 @@ class _RawDetailViewScreenState extends State<RawDetailViewScreen> {
       _current = (_current + delta) % _matches.length;
       if (_current < 0) _current += _matches.length;
     });
+    _revealCurrent(attempt: 0);
+  }
+
+  /// 현재 일치를 화면에 보이게 한다. 수천 줄 JSON 에서는 대상 줄이 지연 생성
+  /// 목록 밖에 있어 키가 없을 수 있다 — 그때는 실측 평균 줄 높이로 어림한
+  /// 위치로 먼저 점프해 줄을 만든 뒤 맞춘다. 어림이 빗나가면 화면 크기만큼씩
+  /// 다가가며 바로잡는다(최대 10번).
+  void _revealCurrent({required int attempt}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _matches.isEmpty || !_scrollController.hasClients) return;
       final ctx = _currentKey.currentContext;
       if (ctx != null) {
         unawaited(
@@ -308,7 +407,32 @@ class _RawDetailViewScreenState extends State<RawDetailViewScreen> {
             alignment: 0.3,
           ),
         );
+        return;
       }
+      if (attempt >= 10) return;
+      final pos = _scrollController.position;
+      final totalLines = _data?.pretty.split('\n').length ?? 0;
+      var perLine = estimatedRawLineHeight;
+      if (totalLines > 1 &&
+          pos.maxScrollExtent > 0 &&
+          pos.viewportDimension > 0) {
+        perLine = (pos.maxScrollExtent + pos.viewportDimension) / totalLines;
+      }
+      final target = (_matches[_current].line * perLine)
+          .clamp(0.0, pos.maxScrollExtent)
+          .toDouble();
+      final double next;
+      if (attempt == 0) {
+        // 첫 시도는 어림 위치로 직접 — 화면 단위 이동만으로는 수천 줄을 못 간다.
+        next = target;
+      } else {
+        final gap = target - pos.pixels;
+        next = gap.abs() <= pos.viewportDimension
+            ? target
+            : pos.pixels + pos.viewportDimension * 0.9 * gap.sign;
+      }
+      _scrollController.jumpTo(next.clamp(0.0, pos.maxScrollExtent).toDouble());
+      _revealCurrent(attempt: attempt + 1);
     });
   }
 

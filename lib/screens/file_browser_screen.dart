@@ -111,6 +111,11 @@ class LocalFileSource {
   /// 내보내기 루트(mysafetyreport).
   Future<Directory> root() async => AppStoragePaths.exportsRoot();
 
+  /// 기능별 하위 폴더. 원본 쓰기([AppStoragePaths.subDir])와 같은 함수로 정한다 —
+  /// Documents 아래 폴더 생성이 막혀 Download 로 대체된 기기에서도 '원본 응답 폴더'가
+  /// 실제 `raw_details` 폴더를 열게 한다.
+  Future<Directory> subDir(String name) async => AppStoragePaths.subDir(name);
+
   Future<bool> exists(Directory dir) => dir.exists();
 
   /// [dir] 의 바로 아래 항목을 비동기로 나열하고 각 항목을 한 번씩 stat 한다(정렬 전).
@@ -320,12 +325,13 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
             : _currentLocalPath;
       }
       // 설정 "원본 응답 폴더" 진입 — 첫 읽기 때만 하위 폴더로 들어간다.
+      // 원본 쓰기와 같은 함수(subDir)로 폴더를 정한다(Documents 대체 경로 대응).
       final pending = _pendingInitialSubdir;
       _pendingInitialSubdir = null;
       if (pending != null &&
           pending.isNotEmpty &&
           (targetPath == rootDir.path)) {
-        final sub = Directory('${rootDir.path}/$pending');
+        final sub = await widget.localFiles.subDir(pending);
         if (await widget.localFiles.exists(sub)) {
           targetPath = sub.path;
         }

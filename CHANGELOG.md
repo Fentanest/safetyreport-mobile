@@ -18,6 +18,12 @@
   원본 폴더 자체 삭제는 금지 — 서버와 같은 규칙).
 - 서버와 다르게 한 점: 모바일 Client 에는 다시 쓰기·원본 폴더 항목이 없고 서버 웹을
   쓰게 한다. 폴더 삭제 금지는 양쪽이 같다.
+- Sol 검수 P4 5건 수정(미배포): source 미주입 실제 진입 경로(Provider 해결 뒤 불러오기,
+  `didUpdateWidget` 포함)로 오류 화면 수정 · 상세 시트 '원본 응답'을 capability 구독
+  별도 위젯으로 분리해 설정 응답 뒤 열린 시트 갱신 · 수천 줄 JSON 화면 밖 일치를 실측
+  평균 높이 점프+화면 단위 보정으로 이동 · 공유 뒤 임시 `<ID>.json` 삭제(성공·취소·실패,
+  화면 종료 시 잔여 포함) · '원본 응답 폴더'를 원본 쓰기와 같은 `subDir` 결정으로
+  Download 대체 경로 대응.
 - 검증: 신규 `test/services/raw_detail_api_test.dart` 7개,
   `test/widgets/raw_detail_view_test.dart` 22개 통과.
   전체 `flutter test`·`flutter analyze` 는 아래 기준선/최종 기록 참조.

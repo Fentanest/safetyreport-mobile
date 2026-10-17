@@ -1,5 +1,42 @@
 # Changelog
 
+## 2026-10-17 — DB 최적화 Sol 재검수 R2 5건 수정 (명세 3절, 서버와 같은 규칙, 미배포)
+
+- 시작 화면: `runApp` 을 DB 열기(17→18 업그레이드) 전에 먼저 호출한다(`StartupLoadingApp`).
+  DB 를 여는 동안 시작 화면(`StartupLoadingScreen`)이 그려지고, 업그레이드 단계 로그가
+  `DbOptimizeState` 변경마다 다시 그려진다. 게이트·알림 초기화·백그라운드 작업 등록 순서
+  (2단계 `runApp` 뒤 단계)는 그대로라 첫 화면 지연이 늘지 않는다. 시험은 실제 시작 경로와
+  같은 순서의 `StartupBootstrap`(DB 열기를 지연시키는 가짜 오프너)으로 '업그레이드 중 시작
+  화면과 단계 문구가 보인다'를 검증한다.
+- DB 교체(백업 복원·서버 DB 가져오기·되돌리기) 완료 지점(성공·실패 공통 종료)에서
+  Standalone 이면 최적화 재판단(`ReportProvider.reevaluateDbOptimize` → `DbOptimize.maybeStart`,
+  새 DB 의 메타부터 다시 판단). 서비스층은 `LocalDbService.onDatabaseReplaced` 훅으로 알리고
+  (`DbOptimize` 직접 import 없이 콜백 — 순환 방지), 설정 화면 되돌리기/복원 버튼에서도
+  재판단한다(Client·데모·미설정은 no-op).
+  모드 전환 3종(`setConfig`·`setStandaloneConfig`·`resetConfig`)에서는 직접 부르지 않는다 —
+  전환마다 게이트가 리셋돼 뒤따르는 `onGatePassed()` 가 같은 재판단을 수행한다. 전환 직후
+  바로 시작하면 백그라운드 독점을 잡아 뒤따르는 백업·복원이 거부되는 회귀가 있어
+  두지 않는다(`official_account_binding_test` 2건 실패로 확인 후 수정).
+- 모든 동기화 종료 경로(`SyncEngine.start`·알림 drain 끝)에서 영속 보류 요청이 남아 있으면
+  시작한다(`DbOptimize.notifySyncFinished`, 최적화 진행 중이면 계속 보류, 재진입 방지).
+  `runDeferredManual` 은 실제로 시작됐을 때만 보류를 지우고, busy·거절(게이트 미확인·초기화
+  대기·공유 저장소 확인 실패)·취소면 유지한다. `_afterFinish`·`_afterError` 직접 호출과
+  종료 훅의 중첩 호출이 같은 보류를 두 번 시작하지 않게 `runDeferredStarters` 에도
+  재진입 가드를 둔다.
+- 이중 시작 방지(Opus 변경 규칙, 서버와 동일): started 표시를 쓰지 않는다. 보류 동기화는
+  실제로 시작이 성공한 뒤에 보류 기록을 지우고, 지우기 실패는 진단 기록만 남긴다(드물게
+  다음 훅·실행에서 한 번 더 시작될 수 있음 — 요청 유실보다 낫다). 시작 실패·busy·거절
+  (게이트 미확인·초기화 대기·공유 저장소 확인 실패)·취소·앱 종료면 보류는 남아 다음 훅·실행에서
+  시작한다.
+- 표시줄: `error` 상태로 처음 마운트돼도 '오류'와 로그를 보이고, 다음 상태 변화 전까지
+  유지한다(6초 자동 숨김은 완료만). 마지막 최적화 오류를 `sync_meta` 에 영속해
+  (`DbOptimize.lastErrorKey`) 앱을 새로 열어도 표시줄에 보이고(`restorePersistedError` —
+  `ReportProvider.init` 의 실제 DB 열기 뒤에 복원; 위젯 initState 에서는 DB 를 열지
+  않음), 재시도 시작·완료 때 해제한다.
+- 검증: 신규 `test/services/db_optimize_sol_r2_test.dart` 16개 통과(각 항목 수정 전 실패 확인),
+  기존 `db_optimize_test`·`db_optimize_review7_test` 통과.
+  전체 `flutter test`·`flutter analyze` 는 아래 기준선/최종 기록 참조.
+
 ## 2026-10-17 — DB 최적화 Opus 판정 7건 수정 (명세 3절, 서버와 같은 규칙, 미배포)
 
 - DB 교체(백업 복원·서버 DB 가져오기·모드 전환) 중에는 현재 신고를 끝내고 멈추고, 교체 뒤에는

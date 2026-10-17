@@ -502,8 +502,16 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
   `target`이 현재 파서 버전과 다르거나 `done`이 아니면 시작/이어서 한다.
   `target`이 바뀌었으면 커서·통계·시도 횟수를 버리고 처음부터 훑는다. 복원된 DB에 옛 커서가
   가리키는 ID가 없으면 처음부터 판단한다(옛 ID 목록·커서·done 을 새 DB 에 쓰지 않음).
-- **시작**: Standalone 앱 실행(게이트 통과 뒤 `ReportProvider._startDbOptimizeIfNeeded`) 때
-  `DbOptimize.maybeStart` — 할 일 없으면 아무 것도 안 함. Client 모드는 부르지 않는다(서버가 함).
+- **시작**: Standalone 앱 실행 때 `DbOptimize.maybeStart` — 할 일 없으면 아무 것도 안 함.
+  Client 모드는 부르지 않는다(서버가 함).
+  첫 호출은 게이트 통과 뒤 `ReportProvider._startDbOptimizeIfNeeded`에서, 이후 DB 교체
+  (백업 복원·서버 DB 가져오기·되돌리기) 완료 뒤(성공·실패 공통 종료)에는
+  `ReportProvider.reevaluateDbOptimize`에서 다시 판단한다(Standalone·데모 제외에서만,
+  새 DB 의 메타부터 — 서비스층 `LocalDbService.onDatabaseReplaced` 훅 + 설정 화면
+  되돌리기/복원 버튼, `DbOptimize` 직접 import 없이 콜백).
+  모드 전환 3종(setConfig/setStandaloneConfig/resetConfig)에서는 직접 부르지 않는다 —
+  전환마다 게이트가 리셋돼 뒤따르는 onGatePassed() 가 같은 재판단을 수행한다. 전환 직후
+  바로 시작하면 백그라운드 독점을 잡아 뒤따르는 백업·복원이 거부되므로 두지 않는다.
   `SyncEngine`이 돌고 있으면 끝난 뒤, 초기화(rebuild) 필요 상태면 초기화 우선(서버 `wait_for_turn`과 같음).
 - **DB 교체 중**(백업 복원·서버 DB 가져오기·모드 전환 — `closeDb`가 닫기를 요청하면 다음 신고
   경계에서 멈추고, 교체 뒤에는 새 DB 의 메타부터 다시 판단한다. 매 신고 처리 때 DB 정체
@@ -543,8 +551,14 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
   보류한 수동 동기화 요청은 하나로 합쳐 `sync_meta.detail_raw_optimize_deferred`에 영속한다
   (실제로 시작될 때까지 남기므로 앱 종료 뒤에도 유지, 시작 성공 뒤에 지움).
   알림 drain 보류는 `sync_meta.detail_raw_optimize_deferred_drain` 표시만 남기고, 알림 대기열
-  자체는 기존 영속 큐가 맡는다. 작업이 끝나면 보류를 정확히 한 번 시작한다
-  (소유권 경쟁으로 시작하지 못하면 유실 없이 유지해 다음 기회에 다시).
+  자체는 기존 영속 큐가 맡는다. 작업이 끝나면 보류를 정확히 한 번 시작한다.
+  모든 동기화 종료 경로(`SyncEngine.start`·알림 drain 끝)에서도 영속 보류가 남아 있으면
+  시작한다(`DbOptimize.notifySyncFinished` — 최적화 진행 중이면 계속 보류, 재진입 방지).
+  실제로 시작됐을 때만 보류를 지운다: busy·거절(게이트 미확인·초기화 대기·공유 저장소 확인
+  실패)·취소면 유지한다(유실 없음).
+  이중 시작 방지는 started 표시 없이(서버와 같음): 시작 성공 뒤에 보류 기록을 지우고,
+  지우기 실패는 진단 기록만 남긴다. 드물게 다음 훅·실행에서 한 번 더 시작될 수 있으나
+  요청 유실보다 낫다. 시작 실패·busy·거절·취소·앱 종료면 보류는 남아 다음에 시작한다.
   최적화가 이미 `done`인데 앱이 재시작돼도 기동 경로에서 영속 보류를 꺼내 시작한다.
   크롤링 상태 UI(크롤 창의 진행/중지 버튼)에 넣지 않는다. 사용자가 취소할 수 없다.
   서버 종료·앱 종료 뒤에는 커서부터 이어서 한다. 앱이 뒤로 가도 가능한 범위에서 이어 하고,
@@ -554,9 +568,15 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
   `MaintenanceJob`에 `stage`·`log`·`finishedAt`을 추가했다(기존 필드·의미 불변, 추가만).
   `widgets/maintenance_status_bar.dart`에 같은 작업·로그를 보이고 탭하면 로그 시트.
   작업 예외(`error`)는 '작업 완료'가 아닌 '오류'와 로그로 보인다(서버 표시줄과 같음).
+  `error` 상태로 처음 마운트돼도 보이고, 다음 상태 변화 전까지 유지한다(6초 자동 숨김은
+  완료만). 마지막 최적화 오류는 `sync_meta.detail_raw_optimize_last_error`에 영속해 앱을
+  새로 열어도 표시줄에 보이고(`DbOptimize.restorePersistedError` — `ReportProvider.init`
+  의 실제 DB 열기 뒤에 복원; 위젯 initState 에서는 DB 를 열지 않음 — 시험 FakeAsync
+  zone 에서 정적 캐시 비동기 초기화가 영원히 대기하므로), 재시도 시작·완료 때 해제한다.
   Standalone은 로컬 작업, Client는 서버 상태 API(`/api/v1/maintenance/status`)의 추가 필드를 읽는다
   (필드 없으면 예전처럼 보인다 — 구서버 호환).
-  모바일 DB 업그레이드(17→18 등)는 `ReportProvider.init` 때 실제 DB 열기에서 수행하고, 시작 화면
+  모바일 DB 업그레이드(17→18 등)는 시작 화면이 먼저 그려진 뒤(`main` 2단계 `runApp`의
+  1단계 `StartupLoadingApp`) `ReportProvider.init` 때 실제 DB 열기에서 수행하고, 시작 화면
   하단에 "DB 최적화 중입니다…"와 단계 로그(백업·표 생성·버전)를 보여 준다. 시작 화면은 상태 변경
   (`DbOptimizeState.revision`) 때마다 다시 그린다.
   업그레이드 단계 로그는 최적화 작업 로그에도 이어 남긴다
@@ -569,6 +589,9 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
   `test/services/db_optimize_review7_test.dart` — 서버 `tests/test_db_optimize_review7.py`와
   대응하는 Opus 판정 7건 재현(복원 경합·버전 상향·일시 실패 재시도·삭제 관측 미발급(실제 캡처 경로)·
   보류 합침·영속·1회 시작·좌표 쓰기·사진 보존·error 해제·시작 화면 실제 경로 — 수정 전 실패 확인).
+  `test/services/db_optimize_sol_r2_test.dart` — Sol 재검수 R2 5건 재현(2단계 runApp 시작
+  화면·교체 완료 재판단·동기화 종료 보류 재시도·성공 뒤 삭제/삭제 실패 진단·표시줄 오류 첫
+  마운트·영속·재시작 복원 — 수정 전 실패 확인).
 
 ## 2026-09-27 신고 자료의 주인 = 카카오 계정 (서버·모바일 함께)
 

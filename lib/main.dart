@@ -987,8 +987,19 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   void _selectTab(int index) {
     if (!mounted) return;
     final clamped = index.clamp(0, _tabCount - 1);
+    _clearSharedFilterOnLeave(_selectedIndex, clamped);
     setState(() => _selectedIndex = clamped);
     _refreshOnTab(clamped);
+  }
+
+  /// 신고내역·별점·데이터 수정이 쓰는 공용 검색 조건은 그 화면을 떠나면 비운다
+  /// (2026-10-17 명세 5절). 드릴다운은 별도 화면 조건이라 영향 없다.
+  void _clearSharedFilterOnLeave(int from, int to) {
+    if (from == to) return;
+    if (from != MainTabs.reports && from != MainTabs.management) return;
+    if (!mounted) return;
+    final provider = context.read<ReportProvider>();
+    if (provider.hasFilter) provider.clearFilter();
   }
 
   @override
@@ -1126,6 +1137,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
         action: SnackBarAction(
           label: payloadJson.isNotEmpty ? '상세 보기' : '알림 보기',
           onPressed: () {
+            _clearSharedFilterOnLeave(_selectedIndex, 4);
             setState(() => _selectedIndex = 4);
             if (payloadJson.isNotEmpty) {
               _openNotificationPayloadDetail(payloadJson);
@@ -1192,6 +1204,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
       }
 
       // 알림 탭으로 이동
+      _clearSharedFilterOnLeave(_selectedIndex, 4);
       setState(() => _selectedIndex = 4);
 
       // 변경 신고건 카드 뷰 표시

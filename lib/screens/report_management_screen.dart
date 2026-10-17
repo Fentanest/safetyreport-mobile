@@ -24,6 +24,9 @@ class _ReportManagementScreenState extends State<ReportManagementScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
 
+  /// 마지막으로 머문 하위 탭. 별점·데이터 수정에서 다른 하위 탭으로 떠나면 공용 조건을 비운다.
+  late int _lastTab;
+
   @override
   void initState() {
     super.initState();
@@ -32,12 +35,23 @@ class _ReportManagementScreenState extends State<ReportManagementScreen>
       vsync: this,
       initialIndex: widget.initialTabIndex.clamp(0, 3),
     );
+    _lastTab = _tabController.index;
     _tabController.addListener(_onTabChanged);
   }
 
   /// 앱바 검색/필터 아이콘은 지금 하위 탭의 검색을 연다(SQ-U16). 하위 탭이 바뀌면 다시 그린다.
+  /// 별점·데이터 수정에서 떠나면 공용 검색 조건을 비운다(2026-10-17 명세 5절).
   void _onTabChanged() {
     if (!mounted || _tabController.indexIsChanging) return;
+    final previous = _lastTab;
+    final current = _tabController.index;
+    if (previous != current) {
+      if (previous == _ratingTab || previous == _editorTab) {
+        final provider = context.read<ReportProvider>();
+        if (provider.hasFilter) provider.clearFilter();
+      }
+      _lastTab = current;
+    }
     setState(() {});
   }
 

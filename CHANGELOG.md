@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-17 — 상세 원본 저장·스키마 18 (명세 1·2절, 미배포)
+
+- 상세 API 응답 envelope 을 정규 직렬화(신고자 키 5개 제거·`jsonEncode`·sha256·zlib 레벨 6, 서버와 같은 규칙 `lib/services/raw_detail.dart`)해
+  신고 행과 같은 트랜잭션에서 `report_detail_raw` 에 저장한다(증분/전체 `sync`·rebuild·알림 단건 `notification` 출처 구분).
+  파서 입력은 지금처럼 `result` 이다. 원본 파일은 `Documents/mysafetyreport/raw_details/<ID>.json`(들여쓰기 2칸, 임시→rename, 실패해도 DB 저장 유지).
+- 앱 DB 18·서버 스키마 7. `_open` 체인 16→17→18(업그레이드 전 `before_v18` 백업, 실패하면 무변경), 17 미만 규칙 유지.
+  가져오기·백업 복원은 지원 범위(서버 6~7·모바일 17~18)면 올려서 받고 벗어나면 거절한다. 원본 표는 BLOB 바이트 그대로 양방향 교환한다.
+- 계약 `contracts/raw-detail-vectors.json` 대조(Dart 바이트·sha가 서버 Python 과 동일), 업그레이드·예전 DB 가져오기·교환 왕복·저장 경로 시험 추가.
+  검증: 관련 시험 통과(신규 20개 내외), 왕복 검사는 서버 `scripts/dev/db_roundtrip_check.py` 로 확인한다.
+
 ## 2026-10-17 — 모바일 검색 필터·별점 탭 로딩 결함 수정 (명세 5절, 미배포)
 
 - 신고내역·별점·데이터 수정이 쓰는 공용 검색 조건을 다른 하단 탭이나 신고관리의 다른 하위 탭으로 떠나면 비운다. 드릴다운 화면의 자체 조건은 그대로다.

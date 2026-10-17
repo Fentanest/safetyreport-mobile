@@ -450,7 +450,8 @@ void main() {
       await backup.close();
 
       final db = await openDatabase(path, singleInstance: false);
-      expect(await db.getVersion(), LocalDbService.dbVersion);
+      // migrateInPlace 는 16→17 단계만 맡는다(17→18은 migrate17To18 몫 — [_open] 체인).
+      expect(await db.getVersion(), 17);
       final cols = (await db.rawQuery('PRAGMA table_info(reports)')).map((r) => r['name'] as String).toSet();
       expect(cols, containsAll(['ssnpc_cd', 'ssnpc_type']));
       final living = (await db.query('reports', where: 'ID = ?', whereArgs: ['m-living'])).single;
@@ -490,6 +491,175 @@ void main() {
       }
     },
   );
+
+  // ── migrate17To18: v17 → 18 제자리 변환(2026-10-17 명세 2절) ─────────────────
+
+  List<File> v18Backups(String path) {
+    final folder = File(path).parent;
+    final name = File(path).uri.pathSegments.last;
+    return folder
+        .listSync()
+        .whereType<File>()
+        .where((f) => f.uri.pathSegments.last.startsWith('$name.before_v18.'))
+        .toList();
+  }
+
+  /// 지금 스키마에서 report_detail_raw 만 걷어 내 버전 17 로 만든다(올려 받을 예전 DB 와 같은 상태).
+  Future<void> makeV17Db() async {
+    await LocalDbService.upsertReport(
+      _report(1),
+      'traffic',
+      '자동차·교통위반-신호위반',
+    );
+    final db = await LocalDbService.db;
+    await db.insert('report_override', {
+      'ID': 'm-1',
+      'column_name': '처리상태',
+      'value': '수용',
+      'updated_at': 1,
+    });
+    await LocalDbService.setWatchlistNumbers({'SPP-2609-000011'});
+    await db.execute(
+      'DROP VIEW IF EXISTS ${LocalDbService.effectiveReportsView}',
+    );
+    await db.execute('DROP TABLE report_detail_raw');
+    await db.setVersion(17);
+    await LocalDbService.closeDb();
+  }
+
+  test('migrate17To18: report_detail_raw 만 추가하고 신고·수정값·감시목록은 그대로 둔다', () async {
+    await makeV17Db();
+    final path = await LocalDbService.getDbPath();
+    for (final f in v18Backups(path)) {
+      f.deleteSync();
+    }
+
+    final info = await LocalDbService.migrate17To18(path);
+    expect(info, isNotNull);
+    expect(info!['from_version'], 17);
+    expect(File(info['backup'] as String).existsSync(), isTrue);
+
+    final backup = await openDatabase(
+      info['backup'] as String,
+      readOnly: true,
+      singleInstance: false,
+    );
+    expect(await backup.getVersion(), 17, reason: '백업은 변환 전 버전 그대로');
+    expect(
+      backup.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='report_detail_raw'",
+      ),
+      completion(isEmpty),
+      reason: '백업에는 원본 표가 없다(서버 6·모바일 17 과 같음)',
+    );
+    await backup.close();
+
+    final db = await openDatabase(path, singleInstance: false);
+    expect(await db.getVersion(), LocalDbService.dbVersion);
+    expect(
+      (await db.rawQuery('PRAGMA table_info("report_detail_raw")'))
+          .map((r) => r['name'] as String)
+          .toSet(),
+      {'ID', 'raw_zlib', 'raw_sha256', 'raw_size', 'fetched_at', 'source'},
+    );
+    expect(
+      (await db.query(
+        'reports',
+        where: 'ID = ?',
+        whereArgs: ['m-1'],
+      )).single['신고명'],
+      '불법주정차신고',
+      reason: '신고 값은 그대로',
+    );
+    expect(
+      await db.query('report_override', where: 'ID = ?', whereArgs: ['m-1']),
+      hasLength(1),
+      reason: '사용자 수정값은 그대로',
+    );
+    expect(
+      await db.query('report_detail_raw'),
+      isEmpty,
+      reason: '올려 받은 예전 DB 의 원본 표는 비어 있다(최적화 작업이 채움)',
+    );
+    await db.close();
+    expect(
+      await LocalDbService.migrate17To18(path),
+      isNull,
+      reason: '이미 18 이면 할 일이 없다(두 번째 호출)',
+    );
+
+    // 이후 정상 경로로 열어도 신고·감시목록 그대로.
+    await LocalDbService.closeDb();
+    final opened = await LocalDbService.db;
+    expect(await opened.getVersion(), LocalDbService.dbVersion);
+    expect(await opened.query('reports'), hasLength(1));
+    expect(await LocalDbService.getWatchlistNumbers(), {'SPP-2609-000011'});
+    for (final f in v18Backups(path)) {
+      f.deleteSync();
+    }
+  });
+
+  test('migrate17To18: 실패하면 DB 를 바꾸지 않는다', () async {
+    await makeV17Db();
+    final path = await LocalDbService.getDbPath();
+    for (final f in v18Backups(path)) {
+      f.deleteSync();
+    }
+    // 원본 표 자리에 열이 다른 표를 미리 두면 대조에서 실패한다.
+    final raw = await openDatabase(path, singleInstance: false);
+    await raw.execute(
+      'CREATE TABLE report_detail_raw (ID TEXT PRIMARY KEY)',
+    );
+    await raw.close();
+
+    await expectLater(LocalDbService.migrate17To18(path), throwsStateError);
+    final kept = await openDatabase(path, singleInstance: false);
+    expect(await kept.getVersion(), 17, reason: '버전 그대로');
+    expect(
+      (await kept.query(
+        'reports',
+        where: 'ID = ?',
+        whereArgs: ['m-1'],
+      )).single['신고명'],
+      '불법주정차신고',
+      reason: '자료 그대로',
+    );
+    await kept.close();
+    for (final f in v18Backups(path)) {
+      f.deleteSync();
+    }
+  });
+
+  test('v16 → 17 → 18 체인: _open 이 끝까지 올려 받는다', () async {
+    await _makeV16Db();
+    final path = await LocalDbService.getDbPath();
+    await LocalDbService.closeDb();
+    final opened = await LocalDbService.db;
+    expect(await opened.getVersion(), LocalDbService.dbVersion);
+    expect(await opened.query('reports'), hasLength(2));
+    expect(
+      (await opened.query(
+        'reports',
+        where: 'ID = ?',
+        whereArgs: ['m-living'],
+      )).single['category'],
+      'living',
+      reason: '16→17 분류 변환도 함께 돈다',
+    );
+    expect(
+      await opened.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='report_detail_raw'",
+      ),
+      hasLength(1),
+      reason: '17→18 표 생성도 함께 돈다',
+    );
+    for (final f in inPlaceBackups(path)) {
+      f.deleteSync();
+    }
+    for (final f in v18Backups(path)) {
+      f.deleteSync();
+    }
+  });
 
   test('a v15 DB still goes through resetLegacyDatabase; a v16 DB does not(제자리 변환 몫)', () async {
     await _makeOldDb(15);

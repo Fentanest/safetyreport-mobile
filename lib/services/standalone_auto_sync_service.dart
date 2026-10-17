@@ -226,9 +226,10 @@ class StandaloneAutoSyncService {
     final beforeStatus = existing.status;
     try {
       SyncEngine.emitLog('상세 API 호출 (ID=${existing.id})');
-      final detail = await StandaloneApiService.fetchReportDetail(existing.id);
+      final fetched = await StandaloneApiService.fetchReportDetail(existing.id);
       // 증분·rebuild 와 같은 함수로 capture+저장한다. 재로그인 재시도 경로가
       // 같은 건을 두 번 불러도 두 번째는 동일 내용이라 이벤트가 생기지 않는다.
+      // 알림 단건도 원본 표·파일에 저장한다(원본 출처 'notification', 명세 1-3).
       final community = await SyncEngine.openCommunitySession();
       var captureActive = false;
       if (community.store != null) {
@@ -242,7 +243,9 @@ class StandaloneAutoSyncService {
         saved = await SyncEngine.captureAndSaveDetail(
           cNo: existing.id,
           item: <String, dynamic>{},
-          detail: detail,
+          detail: fetched.result,
+          envelope: fetched.envelope,
+          rawSource: 'notification',
           trigger: 'realtime',
           tracker: CaptureTracker(),
           communityStore: community.store,

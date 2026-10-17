@@ -416,7 +416,8 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
   - 계약 `contracts/storage-contract.json`(서버와 바이트 동일). `test/storage/storage_contract_test.dart` 가 스키마·버전 일치를 검사.
   - DB v12: `report_override`(사용자 수정값), `duplicate_decision`(중복 판단) 표 추가. 버전 상수는 `LocalDbService.dbVersion` 하나. 열 추가는 `lib/storage/schema_utils.dart addColumnIfMissing`(이미 있는 경우만 건너뜀).
   - 서버 DB 가져오기: 값 그대로(NULL 유지), 숫자 열 형 맞춤, `감시목록` 은 서버 `mysafety_watchlist` 로 전부 다시 계산하고 sync_meta 'watchlist' 를 항상 기록(서버 sync_meta 의 옛 사본은 무시), 새 표 복사, 표 읽기 오류는 가져오기 실패로(임시 DB 라 기존 데이터 보존).
-  - 앱 백업 복원(`replaceFromBackup`): 종류(모바일)·버전(0 < v ≤ dbVersion) 확인 → 임시 사본 마이그레이션·무결성 검사 → `.bak` 롤백 교체.
+  - 앱 백업 복원(`replaceFromBackup`): 종류(모바일)·버전(지원 범위: 모바일 17~18, 서버 6~7) 확인 → 범위 안 예전 사본은 스테이징에서
+  같은 업그레이드 로직으로 올리기 → 무결성 검사 → `.bak` 롤백 교체. 범위 밖은 `LegacyDatabaseException` 으로 스테이징·교체 전에 멈춘다.
   - **2026-09-26 감사 보강(SOL-02·03·05, 서버 레포와 함께 변경)**:
     - 모르는 열: 서버 DB 에서 읽는 표에 이 앱의 대상 표에 없는 열이 있고 NULL 아닌 값('' 포함)이 있으면 교체 전에 `UnknownColumnsException`.
       값이 모두 NULL 인 열은 통과. 서버는 반대 방향에 같은 규칙(`exchange.UnknownColumns`, 409).
@@ -430,11 +431,33 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
 ## 이전 버전 DB 처리 — 초기화 크롤링 릴리스 (2026-09-27, 서버 레포와 함께)
 이번 릴리스는 이전 DB 를 새 구조로 옮기지 않는다. 아래 "앱 업데이트 때 DB 처리" 의 업데이트 로직(`onUpgrade: _migrateLocalDatabase`, `backupBeforeUpgrade`)은
 `lib/services/local_db_service.dart` 의 `_open`·`_createImportTargetDb` 에서 **주석으로 남겨 비활성**했다(함수 본체는 다음 스키마 변경 때 다시 켜려고 남김).
-- **2026-10-11 앱 DB 17 (현재 기준, 이 아래 v16 설명보다 우선)**: `reports` 에 `ssnpc_cd`·`ssnpc_type`(안전신문고 분류 코드), `category` 는 5분류
+- **2026-10-17 앱 DB 18·서버 스키마 7 (현재 기준, 이 아래 v17 설명보다 우선)**: 상세 원본 표 `report_detail_raw`
+  (서버 `mysafety_report_detail_raw` 와 같은 6열: `ID`·`raw_zlib`(zlib 레벨 6 압축 BLOB)·`raw_sha256`·`raw_size`·`fetched_at`(UTC ISO8601 밀리초 Z)·`source`).
+  - 정규 직렬화(서버 `core/utils/raw_detail.py` 와 같은 규칙, `lib/services/raw_detail.dart`): envelope 전체에서 `result` 객체의 신고자 키 5개
+    (`C_NAME`·`C_EMAIL`·`C_PHONE`·`C_PHONE2`·`C_ID`)만 제거 → `jsonEncode`(UTF-8·비ASCII 그대로·공백 없는 구분자) → sha256 → zlib 압축.
+    계약 벡터 `contracts/raw-detail-vectors.json`(서버와 바이트 동일)이 Python·Dart 동일 바이트를 고정한다.
+    교환·백업은 저장된 BLOB 바이트를 그대로 옮긴다(재압축 금지). 읽을 때는 해제 뒤 sha 대조, 불일치는 손상(조용히 버리지 않음).
+  - 저장 시점(서버와 같은 시점·호출 지점 1:1): `StandaloneApiService.fetchReportDetail` 이 envelope 도 돌려주고
+    (`result` 는 기존 의미 유지 — 파서 입력은 지금처럼 result), `SyncEngine.captureAndSaveDetail` 이 `upsertReport` 와 같은 트랜잭션에서
+    원본을 저장한다(증분/전체 루프 `source='sync'`·rebuild `'rebuild'`·알림 단건 `'notification'`). 증분/전체/rebuild 루프·알림 단건 모두.
+    원본 파일(사람이 보는 사본)은 `Documents/mysafetyreport/raw_details/<ID>.json`(들여쓰기 2칸, 임시 파일→rename) —
+    파일 쓰기 실패는 DB 저장을 막지 않고 로그만 남긴다.
+  - `_open` 체인: `migrateInPlace`(16→17) → `migrate17To18`(17→18: 업그레이드 전 백업 `<db>.before_v18.<ms>.bak` → 표 생성 → 표·열 대조 →
+    버전 → COMMIT, 실패하면 무변경) → `resetLegacyDatabase`(16 미만만 비움). 17 미만 규칙·문구는 유지한다.
+    `onUpgrade` 는 체인을 거치지 않은 예외 경로의 안전망(`_refuseLegacyUpgrade`)이다. 죽은 코드 `_migrateLocalDatabase` 는 두되 설명만 갱신했다.
+  - 가져오기·복원 버전 검사(서버 `exchange.refuse_other_version` 과 같은 규칙): 지원 범위(서버 6~7, 모바일 17~18)면 같은 업그레이드 로직으로
+    올려서 받고(원본 표는 비어 있다 — 최적화 작업이 채움), 더 새 버전은 거절, 더 오래된 버전은 지금처럼 거절한다.
+    서버 DB 가져오기는 `mysafety_report_detail_raw` → `report_detail_raw` 를 BLOB 바이트 그대로 옮기고(`_refuseUnknownServerColumns` 에 매핑 추가,
+    보존할 신고 없는 원본 행은 거절), 백업 복원·내보내기(파일 복사)·모드 전환(별도 파일·삭제 경로는 표를 함께 지움)도 원본 표를 양방향으로 옮긴다.
+    신고 행을 지우는 경로(`removeReportsNotIn`·`clearAll`·전체 비우기)는 원본 행도 같이 지운다.
+  - 왕복 검사: 서버 `scripts/dev/db_roundtrip_check.py` 가 서버 7 fixture(원본 2건 포함)로 모바일 가져오기→서버 복원을 돌려
+    원본 표 모든 열의 바이트 동일(BLOB·sha 포함)을 확인한다. `test/tool/db_roundtrip_harness_test.dart` 인터페이스는 그대로다.
+- **2026-10-11 앱 DB 17**: `reports` 에 `ssnpc_cd`·`ssnpc_type`(안전신문고 분류 코드), `category` 는 5분류
   (`traffic` `parking` `safety` `living` `other`, `lib/services/report_category.dart` — 정본 `contracts/report-categories.json`, 서버와 바이트 동일).
   `_open` 은 `migrateInPlace(path)`(버전 16 → 17 제자리 변환: 백업 `<db>.before_v17.<ms>.bak` → 열 추가 → entry_value 로 분류 다시 정하기 →
-  행 수·값 대조 → 커밋) 다음 `resetLegacyDatabase`(이제 16 미만만). 서버 DB 가져오기는 서버 스키마 6(`mysafety_report` 의 category 있는 행 +
-  `mysafety_report_body` + 사용자 표)만 받는다. category NULL(목록만 본 신고)이 한 건이라도 있으면 앱에 둘 자리가 없어 가져오기를
+  행 수·값 대조 → 커밋) 다음 `migrate17To18`(17 → 18: 상세 원본 표만 추가, 실패하면 무변경) 다음 `resetLegacyDatabase`(이제 16 미만만).
+  서버 DB 가져오기는 서버 스키마 6~7을 받는다(6은 원본 표 없이 그대로 받는다. `mysafety_report` 의 category 있는 행 +
+  `mysafety_report_body` + 사용자 표 + 7의 `mysafety_report_detail_raw`). category NULL(목록만 본 신고)이 한 건이라도 있으면 앱에 둘 자리가 없어 가져오기를
   거절한다(`_preflightServerPopulation`, 조용히 빼면 그 DB 를 빈 서버에 복원할 때 사라진다). Client 는 `X-SR-Taxonomy: 5` 를 보내야 5분류 응답을 받는다(서버 `core/utils/taxonomy_compat.py`).
   계획: 서버 레포 `docs/plans/2026-10-11-report-taxonomy.md`.
 - `_open`: 먼저 `resetLegacyDatabase(path)`. 저장 버전이 1 이상 `dbVersion` 미만이면 **파일을 바꾸지 않고 그 자리에서** 한 쓰기 트랜잭션(`BEGIN IMMEDIATE`)으로:
@@ -448,10 +471,10 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
   트랜잭션 동안 다른 연결의 쓰기는 잠김 오류로 실패한다(백업에도 새 DB 에도 없는 쓰기가 생기지 않게, Sol 재검증 1). 열린 DB 의 WAL 삭제·파일 이름 교체는
   SQLite 가 손상 경로로 꼽으므로 하지 않는다(Sol 재검증 3). 데모 DB(`demoDbFileName`)를 비울 때는 커뮤니티 dataset 을 선회전하지 않는다(Sol 재검증 2).
   수정값·중복 판단·메모·신고는 옮기지 않는다(백업에만 남음). 초기화 크롤링이 신고를 다시 채운다.
-- `onUpgrade` 는 `_refuseLegacyUpgrade`(옛 버전이 비우기를 거치지 않고 여기 오면 `LegacyDatabaseException` 으로 멈춤 — sqflite 는 onUpgrade 가 없으면 옛 구조에 새 번호만 적는다).
-- 가져오기 거절(`_refuseOtherVersion`, 서버 `exchange.refuse_other_version` 과 같은 규칙·문구): 서버 DB 가져오기는 `user_version == LocalDbService.serverSchemaVersion`(계약
-  `schema_version.server`, 테스트가 확인), 앱 백업 복원·직전 DB 되돌리기는 `version == dbVersion` 만 받는다. 아니면 `LegacyDatabaseException`
-  (`이전 버전 {서버|모바일 앱} DB(스키마 N)는 가져올 수 없습니다(지금 M). …` / `더 새 버전 …`) — 스테이징·교체 전에 멈춘다. Client 모드의 복원은 서버가 같은 규칙으로 409.
+- `onUpgrade` 는 `_refuseLegacyUpgrade`(체인을 거치지 않고 옛 버전이 여기 오면 `LegacyDatabaseException` 으로 멈춤 — sqflite 는 onUpgrade 가 없으면 옛 구조에 새 번호만 적는다).
+- 가져오기 거절(`_refuseOutOfRangeVersion`, 서버 `exchange.refuse_other_version` 과 같은 규칙·문구): 지원 범위(서버 6~7, 모바일 앱 17~18)
+  밖이면 `LegacyDatabaseException`(`이전 버전 {서버|모바일 앱} DB(스키마 N)는 가져올 수 없습니다(지원 …). …` / `더 새 버전 …`) —
+  스테이징·교체 전에 멈춘다. 범위 안 예전 DB 는 스테이징에서 같은 업그레이드 로직으로 올려서 받는다. Client 모드의 복원은 서버가 같은 규칙으로 409.
 - 초기화 크롤링(`lib/community/rebuild/community_rebuild.dart`): 새 설치(`personalDbFacts`: 신고 0건 ∧ `legacy_reset` 없음)는 필요 없음 — 공식 계정이 있으면 완료 기준선
   (`confirmed_at='fresh_install'`)을 적는다. `legacy_reset` 이 있으면 필요하고 안내 화면이 보존 항목 대신 이전 DB 백업·비움 안내(`communityRebuildLegacyText`)를 보인다.
   Client 는 서버 상태의 `required=false` 면 안내 화면을 바로 지나가고, 서버의 `legacy_reset` 을 같은 문구로 보인다.

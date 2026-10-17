@@ -1,11 +1,14 @@
 // 서버 DB 가져오기 변환 규칙 (저장 계층 재설계 R1b/R1c, 서버 레포 docs/plans/storage-refactor-plan.md).
 // 2026-10-11: 서버 스키마 6(mysafety_report 단일 표 + mysafety_report_body) — 옛 mysafety + mysafetymerge_* 묶음은
-// 버전 검사만으로 거절된다(같은 버전 백업만 받는다는 사용자 결정). 구조를 들여다보지 않는다.
+// 버전 검사만으로 거절된다. 2026-10-17: 지원 범위(서버 6~7, 모바일 17~18)는 올려서 받고 벗어나면 거절한다.
+// 서버 6에는 상세 원본 표가 없다(7에서 추가) — 올려 받은 6의 원본 표는 비어 있다.
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/services/local_db_service.dart';
+import 'package:safetyreport/services/raw_detail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../support/kakao_owner.dart';
@@ -15,9 +18,15 @@ Future<String> _serverDb(
   Directory dir, {
   required List<String> watchlist,
   String? staleMetaWatchlist,
+  int? version,
+  bool withDetailRaw = true,
 }) async {
   final path = '${dir.path}/server_${DateTime.now().microsecondsSinceEpoch}.db';
-  final db = await openServerSchemaDb(path);
+  final db = await openServerSchemaDb(
+    path,
+    version: version,
+    withDetailRaw: withDetailRaw,
+  );
   await stampOwner(db, table: 'mysafety_sync_meta');
   for (final (id, number, merged) in [
     ('s1', 'SPP-1', 'Y'),
@@ -289,10 +298,10 @@ void main() {
     expect(raw.single['raw_content'], '본문 원문');
   });
 
-  // ── 2026-09-26 초기화 크롤링 릴리스: 이전(또는 더 새) 버전 서버 DB 는 가져오지 않는다 (PC exchange.refuse_other_version) ──
-  // 5 는 2026-10-11 전 서버 스키마(생활불편·안전신고 분리 전) — 구조가 지금과 같아도(같은 fixture) 버전만으로 거절된다.
+  // ── 2026-10-17 명세 2절: 지원 범위(서버 6~7, 모바일 17~18)는 올려서 받고, 벗어나면 거절한다 (PC exchange.refuse_other_version) ──
+  // 5 이하는 2026-10-11 전 서버 스키마(생활불편·안전신고 분리 전) — 구조가 지금과 같아도(같은 fixture) 버전만으로 거절된다.
 
-  for (final version in [0, 1, 2, 3, 4, 5, 7]) {
+  for (final version in [0, 1, 2, 3, 4, 5, 8]) {
     test(
       'server DB of schema $version is refused before replacing the DB',
       () async {
@@ -331,6 +340,175 @@ void main() {
       LocalDbService.serverSchemaVersion,
       (contract['schema_version'] as Map)['server'],
     );
+  });
+
+  // ── 2026-10-17 명세 2절: 예전 서버 DB 올려 받기 + 원본 표 양방향 ──
+
+  /// 합성 envelope(신고자 키 5개 포함)을 서버 원본 행으로 넣는다. 반환: 넣은 정규 바이트·sha.
+  Future<({Uint8List zlib, String sha256, int size})> insertServerDetail(
+    String path,
+    String id,
+  ) async {
+    final envelope = <String, dynamic>{
+      'result': {
+        'C_NO': int.parse(id.substring(1)),
+        'C_NAME': '홍길동',
+        'C_EMAIL': 'a@b.c',
+        'C_PHONE': '01012345678',
+        'C_PHONE2': '010-1234-5678',
+        'C_ID': 'fixtureid',
+        'C_A_CONTENTS': '합성 본문 $id',
+      },
+      'resultCode': '0000',
+    };
+    final prepared = prepareRawDetail(envelope);
+    final zlib = compressRawDetail(prepared.canonical);
+    final db = await openDatabase(path, singleInstance: false);
+    await db.insert('mysafety_report_detail_raw', {
+      'ID': id,
+      'raw_zlib': zlib,
+      'raw_sha256': prepared.sha256,
+      'raw_size': prepared.canonical.length,
+      'fetched_at': '2026-10-17T12:00:00.000Z',
+      'source': 'crawl',
+    });
+    await db.close();
+    return (zlib: zlib, sha256: prepared.sha256, size: prepared.canonical.length);
+  }
+
+  test('server 6 DB (no detail table) imports; the detail table stays empty', () async {
+    final path = await _serverDb(
+      dir,
+      watchlist: [],
+      version: 6,
+      withDetailRaw: false,
+    );
+    expect(await LocalDbService.importFromServerDb(path), 2);
+    expect(
+      (await (await LocalDbService.db).query(
+        'reports',
+      )).map((r) => r['ID']),
+      unorderedEquals(['s1', 's2']),
+    );
+    expect(await (await LocalDbService.db).query('report_detail_raw'), isEmpty);
+  });
+
+  test('server 7 detail rows move with identical bytes and columns', () async {
+    final path = await _serverDb(dir, watchlist: []);
+    final want = <String, ({Uint8List zlib, String sha256, int size})>{
+      's1': await insertServerDetail(path, 's1'),
+      's2': await insertServerDetail(path, 's2'),
+    };
+    expect(await LocalDbService.importFromServerDb(path), 2);
+    final db = await LocalDbService.db;
+    for (final id in ['s1', 's2']) {
+      final row =
+          (await db.query(
+            'report_detail_raw',
+            where: 'ID = ?',
+            whereArgs: [id],
+          )).single;
+      expect(row['raw_zlib'], want[id]!.zlib, reason: '$id BLOB 바이트 그대로');
+      expect(row['raw_sha256'], want[id]!.sha256);
+      expect(row['raw_size'], want[id]!.size);
+      expect(row['fetched_at'], '2026-10-17T12:00:00.000Z');
+      expect(row['source'], 'crawl');
+      // 저장된 BLOB 을 풀면 신고자 키가 빠진 정규 바이트(sha 일치)다.
+      final raw = decompressAndVerifyRawDetail(
+        row['raw_zlib'] as Uint8List,
+        row['raw_sha256'] as String,
+      );
+      expect(raw.length, row['raw_size']);
+      expect(
+        (jsonDecode(utf8.decode(raw)) as Map)['result'],
+        isNot(contains('C_NAME')),
+      );
+    }
+  });
+
+  test('unknown detail column with a value refuses without replacing (SOL-02)', () async {
+    final path = await _serverDb(dir, watchlist: []);
+    await insertServerDetail(path, 's1');
+    final source = await openDatabase(path, singleInstance: false);
+    await source.execute(
+      'ALTER TABLE mysafety_report_detail_raw ADD COLUMN 미래열 TEXT',
+    );
+    await source.update(
+      'mysafety_report_detail_raw',
+      {'미래열': '값'},
+      where: 'ID = ?',
+      whereArgs: ['s1'],
+    );
+    await source.close();
+    await expectLater(
+      LocalDbService.importFromServerDb(path),
+      throwsA(
+        isA<UnknownColumnsException>().having(
+          (e) => e.toString(),
+          'message',
+          contains('mysafety_report_detail_raw.미래열(1행)'),
+        ),
+      ),
+    );
+    expect(await (await LocalDbService.db).query('reports'), isEmpty);
+  });
+
+  test('orphan detail rows refuse without replacing (no report to keep them)', () async {
+    final path = await _serverDb(dir, watchlist: []);
+    final db = await openDatabase(path, singleInstance: false);
+    await db.insert('mysafety_report_detail_raw', {
+      'ID': 'absent',
+      'raw_zlib': Uint8List.fromList([120, 156, 3, 0]),
+      'raw_sha256': '0' * 64,
+      'raw_size': 1,
+      'fetched_at': '2026-10-17T12:00:00.000Z',
+      'source': 'crawl',
+    });
+    await db.close();
+    await expectLater(
+      LocalDbService.importFromServerDb(path),
+      throwsA(
+        isA<FormatException>().having(
+          (e) => e.toString(),
+          'message',
+          contains('상세 원본 행을 보존할 신고가 없습니다'),
+        ),
+      ),
+    );
+    expect(await (await LocalDbService.db).query('reports'), isEmpty);
+  });
+
+  test('server 7 detail rows move with identical bytes and columns', () async {
+    final path = await _serverDb(dir, watchlist: []);
+    final want = <String, ({Uint8List zlib, String sha256, int size})>{
+      's1': await insertServerDetail(path, 's1'),
+      's2': await insertServerDetail(path, 's2'),
+    };
+    expect(await LocalDbService.importFromServerDb(path), 2);
+    final db = await LocalDbService.db;
+    for (final id in ['s1', 's2']) {
+      final row =
+          (await db.query(
+            'report_detail_raw',
+            where: 'ID = ?',
+            whereArgs: [id],
+          )).single;
+      expect(row['raw_zlib'], want[id]!.zlib, reason: '$id BLOB 바이트 그대로');
+      expect(row['raw_sha256'], want[id]!.sha256);
+      expect(row['raw_size'], want[id]!.size);
+      expect(row['fetched_at'], '2026-10-17T12:00:00.000Z');
+      expect(row['source'], 'crawl');
+      // 저장된 BLOB 을 풀면 신고자 키가 빠진 정규 바이트(sha 일치)다.
+      final raw = decompressAndVerifyRawDetail(
+        row['raw_zlib'] as Uint8List,
+        row['raw_sha256'] as String,
+      );
+      expect(raw.length, row['raw_size']);
+      expect(
+        (jsonDecode(utf8.decode(raw)) as Map)['result'],
+        isNot(contains('C_NAME')),
+      );
+    }
   });
 
   // ── 2026-09-26 감사 SOL-02·03·05 (PC exchange 와 같은 규칙) ──────────────────

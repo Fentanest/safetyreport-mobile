@@ -8,7 +8,12 @@ import 'package:safetyreport/services/local_db_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-const _sqlTypes = {'TEXT': 'text', 'INTEGER': 'integer', 'REAL': 'real'};
+const _sqlTypes = {
+  'TEXT': 'text',
+  'INTEGER': 'integer',
+  'REAL': 'real',
+  'BLOB': 'blob',
+};
 
 Map<String, dynamic> _contract() =>
     jsonDecode(File('contracts/storage-contract.json').readAsStringSync())

@@ -285,12 +285,15 @@ void main() {
           {'C_NO': '002', 'C_TITLE': '합성 신고'},
         ],
       };
-      StandaloneApiService.detailForTest = (_) async => {
-        'C_NO': '002',
-        'C_TITLE': '합성 신고',
-        'C_NOW': 0,
-        'C_DATE': '2026-09-01',
-        'C_CONTENT': '합성 내용',
+      StandaloneApiService.detailForTest = (_) async {
+        final result = <String, dynamic>{
+          'C_NO': '002',
+          'C_TITLE': '합성 신고',
+          'C_NOW': 0,
+          'C_DATE': '2026-09-01',
+          'C_CONTENT': '합성 내용',
+        };
+        return (result: result, envelope: {'result': result});
       };
       CommunityUploadHooks.uploadBeforeSync = () =>
           throw StateError('must not deliver');
@@ -334,7 +337,10 @@ void main() {
         ],
       };
       final entered = Completer<void>();
-      final response = Completer<Map<String, dynamic>>();
+      final response =
+          Completer<
+            ({Map<String, dynamic> result, Map<String, dynamic> envelope})
+          >();
       StandaloneApiService.detailForTest = (_) {
         entered.complete();
         return response.future;
@@ -342,11 +348,20 @@ void main() {
       final run = SyncEngine.start(fullSync: true, rebuildRunId: 'cancel-run');
       await entered.future;
       SyncEngine.stop();
-      response.complete({
-        'C_NO': '002',
-        'C_NOW': 0,
-        'C_CONTENT': 'late synthetic response',
-      });
+      response.complete((
+        result: {
+          'C_NO': '002',
+          'C_NOW': 0,
+          'C_CONTENT': 'late synthetic response',
+        },
+        envelope: {
+          'result': {
+            'C_NO': '002',
+            'C_NOW': 0,
+            'C_CONTENT': 'late synthetic response',
+          },
+        },
+      ));
       final result = await run;
       expect(result.failed || result.cancelled, isTrue);
       expect(await LocalDbService.getReport('002'), isNull);

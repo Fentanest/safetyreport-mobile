@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/models/report.dart';
 import 'package:safetyreport/services/local_db_service.dart';
+import 'package:safetyreport/services/raw_detail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../support/kakao_owner.dart';
@@ -145,6 +146,81 @@ void main() {
       expect(await _ids(), {'live'});
     },
   );
+
+  test('a v17 app backup is upgraded in place (detail table created empty)', () async {
+    await LocalDbService.upsertReport(
+      _report('old-17', 'SPP-old-17'),
+      'traffic',
+      '자동차·교통위반-신호위반',
+    );
+    final d = await LocalDbService.db;
+    await (await LocalDbService.db).execute(
+      'DROP VIEW IF EXISTS ${LocalDbService.effectiveReportsView}',
+    );
+    await d.execute('DROP TABLE report_detail_raw');
+    await d.setVersion(17);
+    final path = '${files.path}/backup_v17.db';
+    await LocalDbService.exportBackup(path);
+    // 원본 표가 없는 v17 백업 — 교체 전에 올린다.
+    await deleteDatabase(await LocalDbService.getDbPath());
+    await LocalDbService.upsertReport(
+      _report('live', 'SPP-live'),
+      'traffic',
+      '자동차·교통위반-신호위반',
+    );
+    await LocalDbService.replaceFromBackup(path);
+    expect(await _ids(), {'old-17'});
+    expect(
+      await (await LocalDbService.db).getVersion(),
+      LocalDbService.dbVersion,
+    );
+    expect(
+      await (await LocalDbService.db).query('report_detail_raw'),
+      isEmpty,
+      reason: '올려 받은 예전 백업의 원본 표는 비어 있다',
+    );
+  });
+
+  test('export and restore keep detail rows with identical bytes', () async {
+    final envelope = <String, dynamic>{
+      'result': {
+        'C_NO': 7,
+        'C_NAME': '홍길동',
+        'C_A_CONTENTS': '합성 본문',
+      },
+      'resultCode': '0000',
+    };
+    final prepared = prepareRawDetail(envelope);
+    await LocalDbService.upsertReport(
+      _report('raw-1', 'SPP-raw-1'),
+      'traffic',
+      '자동차·교통위반-신호위반',
+      rawDetail: RawDetailUpsert(
+        zlib: compressRawDetail(prepared.canonical),
+        sha256: prepared.sha256,
+        size: prepared.canonical.length,
+        fetchedAt: '2026-10-17T12:00:00.000Z',
+        source: 'sync',
+      ),
+    );
+    final path = '${files.path}/backup_raw.db';
+    await LocalDbService.exportBackup(path);
+    await deleteDatabase(await LocalDbService.getDbPath());
+    await LocalDbService.replaceFromBackup(path);
+    final d = await LocalDbService.db;
+    final row =
+        (await d.query(
+          'report_detail_raw',
+          where: 'ID = ?',
+          whereArgs: ['raw-1'],
+        )).single;
+    final want = compressRawDetail(prepared.canonical);
+    expect(row['raw_zlib'], want, reason: '백업·복원에서 BLOB 바이트 그대로');
+    expect(row['raw_sha256'], prepared.sha256);
+    expect(row['raw_size'], prepared.canonical.length);
+    expect(row['fetched_at'], '2026-10-17T12:00:00.000Z');
+    expect(row['source'], 'sync');
+  });
 
   test('복수 법규 원본과 사용자 수정값을 백업 복원한다', () async {
     const raw = '도로교통법 제32조\n도로교통법 제33조';

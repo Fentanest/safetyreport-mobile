@@ -58,11 +58,16 @@ const serverReportCreateSql = '''
   )
 ''';
 
-/// [path] 에 스키마 6 서버 DB(신고 + 본문 + 사용자 표)를 새로 만들어 연다. 호출한 쪽이 닫아야 한다.
+/// [path] 에 스키마 6~7 서버 DB(신고 + 본문 + 사용자 표)를 새로 만들어 연다. 호출한 쪽이 닫아야 한다.
 /// `mysafety_report` 는 category 가 NULL 이면 목록에서만 본 신고다(가져오기가 세지 않는다).
-Future<Database> openServerSchemaDb(String path) async {
+/// 스키마 6에는 상세 원본 표가 없다(7에서 추가) — [withDetailRaw] 로 옛 구조를 흉내 낸다(명세 2절 예전 DB 가져오기 시험용).
+Future<Database> openServerSchemaDb(
+  String path, {
+  int? version,
+  bool withDetailRaw = true,
+}) async {
   final db = await openDatabase(path);
-  await db.setVersion(LocalDbService.serverSchemaVersion);
+  await db.setVersion(version ?? LocalDbService.serverSchemaVersion);
   await db.execute(serverReportCreateSql);
   await db.execute('''
     CREATE TABLE mysafety_report_body (
@@ -139,6 +144,19 @@ Future<Database> openServerSchemaDb(String path) async {
       updated_at          INTEGER NOT NULL
     )
   ''');
+  if (withDetailRaw) {
+    // 스키마 7(2026-10-17): 상세 원본 표. 서버 core/database/models.py 와 같은 열.
+    await db.execute('''
+      CREATE TABLE mysafety_report_detail_raw (
+        ID         TEXT PRIMARY KEY,
+        raw_zlib   BLOB NOT NULL,
+        raw_sha256 TEXT NOT NULL,
+        raw_size   INTEGER NOT NULL,
+        fetched_at TEXT NOT NULL,
+        source     TEXT NOT NULL
+      )
+    ''');
+  }
   return db;
 }
 

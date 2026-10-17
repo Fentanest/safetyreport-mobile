@@ -13,7 +13,9 @@ class StandaloneApiService {
   @visibleForTesting
   static Future<Map<String, dynamic>> Function(int start, int end)? listForTest;
   @visibleForTesting
-  static Future<Map<String, dynamic>> Function(String id)? detailForTest;
+  static Future<({Map<String, dynamic> result, Map<String, dynamic> envelope})>
+  Function(String id)?
+  detailForTest;
 
   static const _base = 'https://www.safetyreport.go.kr';
 
@@ -271,8 +273,11 @@ class StandaloneApiService {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
-  /// 신고 상세 조회
-  static Future<Map<String, dynamic>> fetchReportDetail(String cNo) async {
+  /// 신고 상세 조회. 상세 원본(envelope 전체)도 함께 돌려준다(2026-10-17 명세 1-3).
+  /// [result] 는 기존 반환값과 같은 의미(응답의 `result`, 없으면 envelope 전체) — 파서 입력은 지금처럼 result 이다.
+  /// [envelope] 은 저장용 상세 원본(신고자 키 제거 전 전체) — [SyncEngine.captureAndSaveDetail] 이 같은 시점에 저장한다.
+  static Future<({Map<String, dynamic> result, Map<String, dynamic> envelope})>
+  fetchReportDetail(String cNo) async {
     final injected = detailForTest;
     if (injected != null) return injected(cNo);
     final uri = Uri.parse('$_base/api/v1/portal/mypage/mysafereport/$cNo');
@@ -285,8 +290,11 @@ class StandaloneApiService {
       throw Exception('상세 조회 실패 ($cNo, ${res.statusCode})');
     }
 
-    final json = jsonDecode(res.body) as Map<String, dynamic>;
-    return (json['result'] as Map<String, dynamic>?) ?? json;
+    final envelope = jsonDecode(res.body) as Map<String, dynamic>;
+    return (
+      result: (envelope['result'] as Map<String, dynamic>?) ?? envelope,
+      envelope: envelope,
+    );
   }
 
   /// 전체 신고 건수 확인 (totalCnt 필드)

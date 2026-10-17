@@ -32,6 +32,7 @@ import 'photo_capture_time.dart';
 import 'plate_group_sql.dart';
 
 import 'standalone_parser.dart';
+import 'raw_detail.dart';
 import 'report_category.dart' as report_category;
 import 'report_policy.dart';
 
@@ -85,7 +86,7 @@ class UnknownColumnsException implements Exception {
       '${columns.join(', ')}. 앱을 최신 버전으로 업데이트한 뒤 다시 시도하세요.';
 }
 
-/// 이전(또는 모르는 새) 버전 DB — 2026-09-26 초기화 크롤링 릴리스는 이전 DB 를 새 구조로 옮기지 않는다.
+/// 지원 범위를 벗어난 버전 DB(2026-10-17 명세 2절: 모바일 17~18, 서버 6~7은 올려서 받는다).
 /// 가져오기·복원은 이 오류로 멈추고(무엇이든 바꾸기 전에), 앱의 기존 DB 는 [LocalDbService.resetLegacyDatabase] 가 백업 뒤 비운다.
 /// 서버 core/storage/exchange.py 의 LegacyDatabaseRefused 와 같은 규칙·문구.
 /// 다른 카카오 계정의 DB(또는 주인을 모르는 DB) — 가져오지 않는다(PC account_data.ForeignDatabaseRefused 와 같은 규칙).
@@ -264,23 +265,34 @@ class LocalDbService {
 
   /// 앱 DB 스키마 버전. contracts/storage-contract.json 의 schema_version.mobile 과 같아야 한다(테스트가 확인).
   /// 17(2026-10-11): SSNPC 코드 열(ssnpc_cd·ssnpc_type), category 5분류(traffic·parking·safety·living·other).
-  static const dbVersion = 17;
+  /// 18(2026-10-17): 상세 원본 표(report_detail_raw) 추가. 자료를 그대로 두는 추가만 하는 제자리 변환.
+  static const dbVersion = 18;
 
-  /// 이 버전부터는 제자리 변환([migrateInPlace])으로 올린다. 더 낮은 DB 는 [resetLegacyDatabase] 가 백업 뒤 비운다.
+  /// 제자리 변환으로 올리는 하한. 이보다 낮은 DB 는 [resetLegacyDatabase] 가 백업 뒤 비운다.
+  /// 체인: 16→17([migrateInPlace])→18([migrate17To18]). 서버 database.MIGRATE_CHAIN(5→6→7)과 같은 뜻.
   static const inPlaceFrom = 16;
 
+  /// 제자리 변환으로 올려서 받는 모바일 DB 하한(2026-10-17 명세 2절). 17 미만은 지금처럼 거절한다.
+  static const mobileMinSupportedSchema = 17;
+
   /// 서버 DB 스키마 버전(PRAGMA user_version). contracts/storage-contract.json 의 schema_version.server 와 같아야 한다(테스트가 확인).
-  /// 서버 DB 가져오기는 정확히 이 버전만 받는다(이전 버전 서버 DB 는 거절).
-  static const serverSchemaVersion = 6;
+  /// 서버 DB 가져오기는 6~7을 받는다(6은 같은 업그레이드 로직으로 올려서 받는다 — 원본 표는 비어 있다).
+  static const serverSchemaVersion = 7;
+
+  /// 올려서 받는 서버 DB 하한(2026-10-17 명세 2절). 6 미만은 지금처럼 거절한다.
+  static const serverMinSupportedSchema = 6;
 
   static Future<Database> _open() async {
     final path = await getDbPath();
     await LocalDatabaseExchange.recover(path);
-    // [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스] 이전 버전 DB 는 옮기지 않고 백업 뒤 비운다.
+    // 이전 버전 DB 는 제자리 변환 체인으로 올린다(2026-10-17 명세 2절): 16→17→18.
+    // 16 미만은 [resetLegacyDatabase] 가 백업 뒤 비운다(2026-09-26 초기화 크롤링 릴리스 규칙 유지).
     // await backupBeforeUpgrade(path);
     // 데모 DB(심사용 합성 데이터)는 실제 계정의 커뮤니티 데이터셋과 무관하다 — 선회전하지 않는다(Sol 재검증 2).
     // 버전 16 DB 는 제자리 변환(백업 → 열 추가·분류 다시 정하기 → 행 수 대조 → 커밋)으로 신고·수정값·판단을 그대로 둔다.
     await migrateInPlace(path);
+    // 버전 17 DB 는 상세 원본 표만 추가한다(백업 → 표 생성 → 버전 → 커밋, 실패하면 무변경).
+    await migrate17To18(path);
     await resetLegacyDatabase(
       path,
       beforeReset: basename(path) == demoDbFileName ? () async {} : null,
@@ -292,7 +304,8 @@ class LocalDbService {
         await db.rawQuery('PRAGMA journal_mode=WAL');
       },
       onCreate: _create,
-      // [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스]
+      // 제자리 변환은 [_open] 이 열기 전에 끝낸다(16→[migrateInPlace]→17→[migrate17To18]→18).
+      // 체인을 거치지 않고 여기까지 옛 버전으로 오는 경로는 멈춘다.
       // onUpgrade: _migrateLocalDatabase,
       onUpgrade: _refuseLegacyUpgrade,
     );
@@ -300,7 +313,7 @@ class LocalDbService {
     return database;
   }
 
-  /// 업데이트 로직 대신: 이전 버전 파일이 여기까지 오면(비우기를 거치지 않은 경로) 옮기지 않고 멈춘다.
+  /// 안전망: 제자리 변환 체인([migrateInPlace]→[migrate17To18])을 거치지 않은 옛 파일이 여기까지 오면 옮기지 않고 멈춘다.
   /// sqflite 는 onUpgrade 가 없으면 옛 구조에 새 버전 번호만 적으므로 비워 두지 않는다.
   static Future<void> _refuseLegacyUpgrade(
     Database db,
@@ -313,17 +326,24 @@ class LocalDbService {
     );
   }
 
-  /// 가져올 DB 의 스키마 버전이 이 앱과 정확히 같아야 한다(서버 exchange.refuse_other_version 과 같은 규칙).
-  static void _refuseOtherVersion(int version, int expected, String label) {
-    if (version < expected) {
+  /// 가져올 DB 의 스키마 버전이 지원 범위([min] 이상 [max] 이하)여야 한다
+  /// (2026-10-17 명세 2절, 서버 exchange.refuse_other_version 과 같은 규칙).
+  /// 범위 안의 예전 DB 는 같은 업그레이드 로직으로 올려서 받는다. 범위 밖은 무엇이든 바꾸기 전에 멈춘다.
+  static void _refuseOutOfRangeVersion(
+    int version, {
+    required int min,
+    required int max,
+    required String label,
+  }) {
+    if (version < min) {
       throw LegacyDatabaseException(
-        '이전 버전 $label DB(스키마 $version)는 가져올 수 없습니다(지금 $expected). '
-        '이번 업데이트는 이전 DB 를 옮기지 않습니다 — 초기화 크롤링으로 안전신문고에서 다시 수집하세요.',
+        '이전 버전 $label DB(스키마 $version)는 가져올 수 없습니다(지원 $min~$max). '
+        '초기화 크롤링으로 안전신문고에서 다시 수집하세요.',
       );
     }
-    if (version > expected) {
+    if (version > max) {
       throw LegacyDatabaseException(
-        '더 새 버전 $label DB(스키마 $version)는 가져올 수 없습니다(지금 $expected). 앱을 먼저 업데이트하세요.',
+        '더 새 버전 $label DB(스키마 $version)는 가져올 수 없습니다(지원 $min~$max). 앱을 먼저 업데이트하세요.',
       );
     }
   }
@@ -562,8 +582,9 @@ class LocalDbService {
   /// 버전 16 DB 를 17 로 제자리 변환한다(서버 database.migrate_schema 와 같은 뜻, 2026-10-11).
   /// 한 쓰기 트랜잭션: 버전 재확인 → 일관된 사본 `<db>.before_v17.<epoch ms>.bak` → `ssnpc_cd`·`ssnpc_type` 열 추가 →
   /// 신고마다 entry_value 로 category 다시 정하기([report_category.categoryOf]) → 중복 멤버의 category 사본 갱신 →
-  /// 행 수·분류 외 값 대조 → 버전 → COMMIT. 대조가 어긋나면 되돌리고 예외(파일은 그대로).
+  /// 행 수·분류 외 값 대조 → 버전 17 → COMMIT. 대조가 어긋나면 되돌리고 예외(파일은 그대로).
   /// 반환: {from_version, backup, reports, moved_categories} (할 일이 없으면 null). SSNPC 코드는 다음 수집이 채운다.
+  /// 17→18은 [migrate17To18] 이 이어서 한다([_open] 체인).
   @visibleForTesting
   static Future<Map<String, Object?>?> migrateInPlace(String path) async {
     if (!File(path).existsSync()) return null;
@@ -581,7 +602,7 @@ class LocalDbService {
             0;
         if (version != inPlaceFrom) return; // 다른 연결이 먼저 끝냈다
         final backup =
-            '$path.before_v$dbVersion.${DateTime.now().millisecondsSinceEpoch}.bak';
+            '$path.before_v17.${DateTime.now().millisecondsSinceEpoch}.bak';
         await copyReadOnlyDatabaseSnapshot(path, backup, sourceSnapshot: txn);
 
         final before = await txn.rawQuery(
@@ -621,13 +642,69 @@ class LocalDbService {
         if (after != before.length || await _reportDigest(txn) != digestBefore) {
           throw StateError('앱 DB 17 변환 대조 실패 — 되돌렸습니다(DB 는 그대로).');
         }
-        await txn.execute('PRAGMA user_version = $dbVersion');
+        await txn.execute('PRAGMA user_version = 17');
         info = {
           'from_version': version,
           'backup': backup,
           'reports': before.length,
           'moved_categories': moved,
         };
+      });
+      return info;
+    } finally {
+      await db.close();
+    }
+  }
+
+  /// 버전 17 DB 를 18 로 제자리 변환한다(2026-10-17 명세 2절, 서버 `_migrate_6_to_7` 과 같은 뜻).
+  /// 추가만 하는 변환이라 신고·수정값·판단은 그대로 둔다.
+  /// 한 쓰기 트랜잭션: 버전 재확인 → 일관된 사본 `<db>.before_v18.<epoch ms>.bak` →
+  /// 상세 원본 표(report_detail_raw) 생성 → 표·열 대조 → 버전 18 → COMMIT.
+  /// 대조가 어긋나거나 실패하면 되돌리고 예외(파일은 그대로).
+  /// 반환: {from_version, backup} (할 일이 없으면 null). 올려 받은 예전 DB(모바일 17)의 원본 표는 비어 있다.
+  @visibleForTesting
+  static Future<Map<String, Object?>?> migrate17To18(String path) async {
+    if (!File(path).existsSync()) return null;
+    final db = await openAppDatabase(
+      path,
+      singleInstance: false,
+      busyTimeoutMs: 30000,
+    );
+    try {
+      if (await db.getVersion() != 17) return null;
+      Map<String, Object?>? info;
+      await db.transaction((txn) async {
+        final version =
+            Sqflite.firstIntValue(await txn.rawQuery('PRAGMA user_version')) ??
+            0;
+        if (version != 17) return; // 다른 연결이 먼저 끝냈다
+        final backup =
+            '$path.before_v18.${DateTime.now().millisecondsSinceEpoch}.bak';
+        await copyReadOnlyDatabaseSnapshot(path, backup, sourceSnapshot: txn);
+        await _createDetailRawTable(txn);
+        final tables = (await txn.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='report_detail_raw'",
+        ));
+        if (tables.isEmpty) {
+          throw StateError('앱 DB 18 변환 실패 — report_detail_raw 표가 없습니다(DB 는 그대로).');
+        }
+        final columns = (await txn.rawQuery(
+          'PRAGMA table_info("report_detail_raw")',
+        )).map((r) => r['name'] as String).toList()
+          ..sort();
+        const expected = [
+          'ID',
+          'fetched_at',
+          'raw_sha256',
+          'raw_size',
+          'raw_zlib',
+          'source',
+        ];
+        if (columns.join(',') != expected.join(',')) {
+          throw StateError('앱 DB 18 변환 대조 실패 — report_detail_raw 열이 다릅니다(DB 는 그대로).');
+        }
+        await txn.execute('PRAGMA user_version = 18');
+        info = {'from_version': version, 'backup': backup};
       });
       return info;
     } finally {
@@ -1347,7 +1424,8 @@ class LocalDbService {
       """);
   }
 
-  // [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스] 호출하는 곳(onUpgrade)을 주석 처리했다. 다음 스키마 변경 때 다시 켠다.
+  // 죽은 코드: onUpgrade 에 물리지 않는다. 제자리 변환은 [_open] 의 체인([migrateInPlace]→[migrate17To18])과
+  // 가져오기·복원의 스테이징 올리기가 맡는다. 2026-10-17 규칙에 맞게 설명만 남기고 본체는 다음 스키마 변경 때까지 둔다.
   // ignore: unused_element
   static Future<void> _migrateLocalDatabase(
     Database db,
@@ -1538,6 +1616,7 @@ class LocalDbService {
       )
     ''');
     await _createRawTable(db);
+    await _createDetailRawTable(db);
     await _createGeocodeCacheTable(db);
     await DuplicateProjectionService.createSchema(db);
     await _createStorageTables(db);
@@ -1556,6 +1635,23 @@ class LocalDbService {
         raw_content TEXT NOT NULL DEFAULT '',
         raw_type    TEXT NOT NULL DEFAULT '',
         saved_at    INTEGER
+      )
+    ''');
+  }
+
+  /// 상세 원본 표(2026-10-17 명세 1-2, 서버 mysafety_report_detail_raw 와 같은 열).
+  /// 안전신문고 상세 API 응답 envelope 전체에서 result 의 신고자 키 5개만 뺀 정규 바이트를
+  /// zlib 압축한 BLOB. 교환·백업은 BLOB 바이트를 그대로 옮긴다(재압축 금지).
+  /// 신고 행과 1:1, 같은 ID 로 다시 받으면 덮어쓴다. 신고 행을 지우는 경로는 이 표도 같이 지운다.
+  static Future<void> _createDetailRawTable(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS report_detail_raw (
+        ID         TEXT PRIMARY KEY,
+        raw_zlib   BLOB NOT NULL,
+        raw_sha256 TEXT NOT NULL,
+        raw_size   INTEGER NOT NULL,
+        fetched_at TEXT NOT NULL,
+        source     TEXT NOT NULL
       )
     ''');
   }
@@ -1699,6 +1795,8 @@ class LocalDbService {
   /// - 별점·사유·만족도조사여부는 [ratingLookup] 에 따라(결정 D-2·D-3): 사이트 값이 있으면 사이트, 조회 실패·미시도면 기존 유지,
   ///   '참여 완료' 는 되돌리지 않는다.
   /// - 변경 판정(synced_at): [_syncedAtTrackedKeys] + 본문, NULL 과 '' 는 같게. 본문·entry_value 는 이전 값이 있을 때만 비교.
+  /// - 상세 원본([rawDetail]): 신고 행과 같은 트랜잭션에서 report_detail_raw 에 upsert 한다
+  ///   (서버 reports_repo._save_one 과 같은 시점·같은 트랜잭션, 2026-10-17 명세 1-3).
   /// 반환: 새 신고인지, 저장으로 바뀌었는지(synced_at 을 갱신했는지 — 서버 reports_repo 의 "신규"/"변경" 판정과 같음), 저장된 synced_at.
   static Future<({bool isNew, bool changed, int syncedAt})> upsertReport(
     Report r,
@@ -1711,6 +1809,7 @@ class LocalDbService {
     PhotoCapture? photoCapture,
     String? ssnpcCd,
     String? ssnpcType,
+    RawDetailUpsert? rawDetail,
   }) async {
     final d = await db;
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -1876,9 +1975,31 @@ class LocalDbService {
               : previousSavedAt,
         );
       }
+      if (rawDetail != null) {
+        await txn.insert('report_detail_raw', {
+          'ID': r.id,
+          'raw_zlib': rawDetail.zlib,
+          'raw_sha256': rawDetail.sha256,
+          'raw_size': rawDetail.size,
+          'fetched_at': rawDetail.fetchedAt,
+          'source': rawDetail.source,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
     });
     _invalidateProjectRowsCache();
     return (isNew: isNew, changed: changedResult, syncedAt: syncedAtResult);
+  }
+
+  /// 상세 원본 1건을 읽는다(없으면 null). zlib 해제·sha256 대조는 [raw_detail] 모듈이 맡는다.
+  static Future<Map<String, Object?>?> getDetailRaw(String reportId) async {
+    final rows = await (await db).query(
+      'report_detail_raw',
+      where: 'ID = ?',
+      whereArgs: [reportId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return Map<String, Object?>.from(rows.first);
   }
 
   static Future<Set<String>> _readWatchlist(DatabaseExecutor db) async {
@@ -4106,7 +4227,7 @@ class LocalDbService {
     return projected.map((r) => _rowToReport(r)).toList();
   }
 
-  /// 전체 재동기화에서 사이트 목록에 없는 신고를 정리한다. 수정값도 함께 지운다(신고가 사라졌으므로).
+  /// 전체 재동기화에서 사이트 목록에 없는 신고를 정리한다. 수정값·원본도 함께 지운다(신고가 사라졌으므로).
   static Future<int> removeReportsNotIn(Set<String> keepIds) async {
     if (keepIds.isEmpty) return 0;
     final d = await db;
@@ -4120,7 +4241,12 @@ class LocalDbService {
       for (var i = 0; i < stale.length; i += 500) {
         final chunk = stale.sublist(i, (i + 500).clamp(0, stale.length));
         final marks = List.filled(chunk.length, '?').join(',');
-        for (final table in ['reports', 'report_raw', 'report_override']) {
+        for (final table in [
+          'reports',
+          'report_raw',
+          'report_detail_raw',
+          'report_override',
+        ]) {
           await txn.delete(table, where: 'ID IN ($marks)', whereArgs: chunk);
         }
       }
@@ -4135,6 +4261,7 @@ class LocalDbService {
     final d = await db;
     _invalidateProjectRowsCache();
     await d.delete('report_raw');
+    await d.delete('report_detail_raw');
     try {
       await d.delete('geocode_cache');
     } catch (_) {}
@@ -4260,7 +4387,7 @@ class LocalDbService {
   }
 
   /// 업로드/선택된 .db 파일의 종류 판별.
-  /// - server: mysafety_report(스키마 6) 서버 DB(이전 버전 mysafetymerge_* 도 server — 가져오기가 버전으로 거절)
+  /// - server: mysafety_report(스키마 6~7) 서버 DB(이전 버전 mysafetymerge_* 도 server — 가져오기가 버전으로 거절)
   /// - mobile: reports + category 컬럼을 가진 모바일 standalone DB
   /// - unknown: 알 수 없음
   static Future<String> detectDbKind(String dbPath) async {
@@ -4293,7 +4420,7 @@ class LocalDbService {
         } catch (_) {}
       }
 
-      // 스키마 6 서버 DB. 이전 버전(mysafety + mysafetymerge_*)도 server 로 알아보고 가져오기의 버전 검사가 거절한다.
+      // 스키마 6~7 서버 DB. 이전 버전(mysafety + mysafetymerge_*)도 server 로 알아보고 가져오기의 버전 검사가 거절한다.
       if (tableNames.contains('mysafety_report') ||
           (tableNames.contains('mysafety') &&
               (tableNames.contains('mysafetymerge_traffic') ||
@@ -4498,7 +4625,8 @@ class LocalDbService {
       path,
       version: dbVersion,
       onCreate: _create,
-      // [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스]
+      // 가져오기·복원은 스테이징 사본을 미리 올려 받는다(17→[migrate17To18]).
+      // 체인을 거치지 않고 여기까지 옛 버전으로 오는 경로는 멈춘다.
       // onUpgrade: _migrateLocalDatabase,
       onUpgrade: _refuseLegacyUpgrade,
     );
@@ -4575,6 +4703,17 @@ class LocalDbService {
       );
       if (orphan.isNotEmpty) {
         throw const FormatException('mysafety_report_body 원문 행을 보존할 신고가 없습니다.');
+      }
+    }
+    // 상세 원본도 보존할 신고가 있어야 한다 — 없으면 옮기다 조용히 사라지므로 거절한다(본문 원문과 같은 규칙).
+    // 표가 없으면(서버 6) 검사가 필요 없다.
+    if (tables.contains('mysafety_report_detail_raw')) {
+      final orphan = await serverDb.rawQuery(
+        'SELECT 1 FROM mysafety_report_detail_raw d WHERE NOT EXISTS '
+        '(SELECT 1 FROM ($source) r WHERE r.ID=d.ID) LIMIT 1',
+      );
+      if (orphan.isNotEmpty) {
+        throw const FormatException('상세 원본 행을 보존할 신고가 없습니다.');
       }
     }
   }
@@ -4776,6 +4915,10 @@ class LocalDbService {
         localDb,
         'report_raw',
       )).keys.toSet(),
+      'mysafety_report_detail_raw': (await _columnTypes(
+        localDb,
+        'report_detail_raw',
+      )).keys.toSet(),
       'mysafety_sync_meta': const {'key', 'value'},
       'mysafety_watchlist': const {'신고번호'},
       'mysafety_geocode_cache': (await _columnTypes(
@@ -4821,8 +4964,9 @@ class LocalDbService {
 
   // ── 서버 DB → 모바일 DB 변환 ────────────────────────────────────────────────
 
-  /// 서버 DB(스키마 6: mysafety_report + mysafety_report_body + 사용자 표 + mysafety_watchlist)를 읽어
-  /// 모바일 DB(같은 열의 reports 표)로 옮긴다. 같은 스키마 버전만 받는다.
+  /// 서버 DB(스키마 6~7: mysafety_report + mysafety_report_body + 사용자 표 + mysafety_watchlist)를 읽어
+  /// 모바일 DB(같은 열의 reports 표)로 옮긴다. 6은 같은 업그레이드 로직으로 올려서 받는다(원본 표는 비어 있다).
+  /// 상세 원본(mysafety_report_detail_raw → report_detail_raw)은 BLOB 바이트 그대로 옮긴다(재압축 금지).
   ///
   /// [serverDbPath] 서버에서 받은 .db 파일의 절대 경로.
   /// 반환: 임포트한 신고 건수.
@@ -4842,11 +4986,13 @@ class LocalDbService {
     Database? localDb;
 
     try {
-      // 이전(또는 더 새) 버전 서버 DB 는 가져오지 않는다 — 같은 버전 백업만(복원 뒤 초기화 크롤링, 2026-10-11 결정).
-      _refuseOtherVersion(
+      // 지원 범위(서버 6~7) 밖의 서버 DB 는 가져오지 않는다 — 무엇이든 바꾸기 전에.
+      // 6은 원본 표 없이 그대로 받는다(서버가 같은 업그레이드 로직으로 올리면 채운다).
+      _refuseOutOfRangeVersion(
         await serverDb.getVersion(),
-        serverSchemaVersion,
-        '서버',
+        min: serverMinSupportedSchema,
+        max: serverSchemaVersion,
+        label: '서버',
       );
       // 다른 카카오 계정(또는 주인을 모르는) 서버 DB 는 가져오지 않는다 — 무엇이든 바꾸기 전에
       await _refuseForeignOwner(serverDb, 'mysafety_sync_meta');
@@ -4946,6 +5092,7 @@ class LocalDbService {
           'mysafety_duplicate_member': DuplicateProjectionService.memberTable,
           'mysafety_report_override': 'report_override',
           'mysafety_duplicate_decision': 'duplicate_decision',
+          'mysafety_report_detail_raw': 'report_detail_raw',
         };
         for (final pair in copied.entries) {
           final types = await _columnTypes(txn, pair.value);
@@ -5014,6 +5161,7 @@ class LocalDbService {
         'mysafety_duplicate_member': DuplicateProjectionService.memberTable,
         'mysafety_report_override': 'report_override',
         'mysafety_duplicate_decision': 'duplicate_decision',
+        'mysafety_report_detail_raw': 'report_detail_raw',
       }.entries) {
         await _verifyImportedTable(
           serverDb,
@@ -5182,7 +5330,7 @@ class LocalDbService {
       );
       final version = await probe.getVersion();
       String? probeError;
-      if (version == dbVersion) {
+      if (version >= mobileMinSupportedSchema && version <= dbVersion) {
         // 다른 카카오 계정(또는 주인을 모르는) 백업은 복원하지 않는다(직전 DB 되돌리기도 이 경로) — 무엇이든 바꾸기 전에
         try {
           await _refuseForeignOwner(probe, 'sync_meta');
@@ -5195,11 +5343,20 @@ class LocalDbService {
       if (version <= 0) {
         throw Exception('백업 파일의 DB 버전을 알 수 없습니다.');
       }
-      if (version > dbVersion) {
-        throw Exception('더 새 버전 앱에서 만든 백업입니다(v$version). 앱을 업데이트한 뒤 복원하세요.');
+      // 지원 범위(모바일 17~18) 밖은 거절한다(2026-10-17 명세 2절).
+      // 범위 안의 예전 백업(17)은 아래에서 같은 업그레이드 로직으로 올려서 받는다(원본 표는 비어 있다).
+      _refuseOutOfRangeVersion(
+        version,
+        min: mobileMinSupportedSchema,
+        max: dbVersion,
+        label: '모바일 앱',
+      );
+      if (version < dbVersion) {
+        final upgraded = await migrate17To18(stagedPath);
+        if (upgraded == null) {
+          throw Exception('예전 백업 올리기에 실패했습니다(스키마 $version). DB 는 바꾸지 않았습니다.');
+        }
       }
-      // 이전 버전 앱 DB 는 옮기지 않는다(2026-09-26 초기화 크롤링 릴리스) — 예전엔 여기서 마이그레이션했다.
-      _refuseOtherVersion(version, dbVersion, '모바일 앱');
 
       staged = await _createImportTargetDb(stagedPath);
       await staged.delete(

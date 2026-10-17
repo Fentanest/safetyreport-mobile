@@ -23,6 +23,7 @@ import 'community_auth_config.dart';
 import 'duplicate_projection_service.dart';
 import 'local_db_service.dart';
 import 'maintenance_service.dart';
+import 'raw_detail.dart';
 import 'pending_changes_store.dart';
 import 'standalone_api_service.dart';
 import 'review_prompt_service.dart';
@@ -670,12 +671,15 @@ class SyncEngine {
 
           try {
             await SyncOperationAdmission.checkOwnership();
-            final detail = await StandaloneApiService.fetchReportDetail(cNo);
+            final fetched = await StandaloneApiService.fetchReportDetail(cNo);
             await SyncOperationAdmission.checkOwnership();
             final saved = await captureAndSaveDetail(
               cNo: cNo,
               item: item,
-              detail: detail,
+              detail: fetched.result,
+              envelope: fetched.envelope,
+              // 증분·전체 루프는 'sync', rebuild 루프는 'rebuild' 로 원본 출처를 남긴다(명세 1-2 source).
+              rawSource: isRebuild ? 'rebuild' : 'sync',
               trigger: trigger,
               rebuildRunId: rebuildRunId,
               tracker: captureTracker,
@@ -1112,6 +1116,12 @@ class SyncEngine {
   /// 상세 1건: parse 직후·_augmentRatingCause 전에 capture →
   /// 개인 저장 → markPersonalSave. 단건·증분·rebuild 가 같은 함수를 쓴다.
   ///
+  /// [detail] 은 상세 응답의 `result`(파서 입력 — 지금처럼 result 이다).
+  /// [envelope] 은 저장용 상세 원본(응답 전체). 있으면 같은 시점에 정규 직렬화해
+  /// [upsertReport] 와 같은 트랜잭션에서 원본 표에 저장하고, 원본 파일도 쓴다
+  /// (서버 detail_pipeline.build_detail_result + reports_repo._save_one 과 같은 시점, 명세 1-3).
+  /// 파일 쓰기 실패는 DB 저장을 막지 않고 로그만 남긴다(명세 1-4).
+  ///
   /// capture 가 실패하면 그 신고의 upsert 를 하지 않는다([DetailFailed] throw,
   /// 호출자는 오류로 집계하고 계속한다). 한 실행에서 연속 3회 실패하면
   /// [CaptureStoreUnavailable] 을 던져 동기화를 멈춘다.
@@ -1119,6 +1129,9 @@ class SyncEngine {
     required String cNo,
     required Map<String, dynamic> item,
     required Map<String, dynamic> detail,
+    Map<String, dynamic>? envelope,
+    String rawSource = 'sync',
+    Directory? rawFileDir,
     required String trigger,
     String? rebuildRunId,
     required CaptureTracker tracker,
@@ -1199,6 +1212,27 @@ class SyncEngine {
 
     checkCancel();
     ({bool isNew, bool changed, int syncedAt}) saved;
+    // 상세 원본: 응답 envelope 을 정규 직렬화해 신고 행과 같은 트랜잭션에서 저장한다.
+    // 준비 실패는 원본 저장만 건너뛰고 신고 저장은 계속한다(조용히 버리지 않고 로그).
+    RawDetailUpsert? rawDetail;
+    Map<String, dynamic>? rawSanitized;
+    if (envelope != null) {
+      try {
+        final prepared = prepareRawDetail(envelope);
+        rawSanitized = prepared.sanitized;
+        rawDetail = RawDetailUpsert(
+          zlib: compressRawDetail(prepared.canonical),
+          sha256: prepared.sha256,
+          size: prepared.canonical.length,
+          fetchedAt: formatRawFetchedAt(DateTime.now()),
+          source: rawSource,
+        );
+      } catch (e) {
+        emitLog('원본 저장 준비 실패 — 신고 저장은 계속합니다 ($cNo): $e');
+        rawDetail = null;
+        rawSanitized = null;
+      }
+    }
     try {
       saved = await SyncOperationAdmission.protectWrite(
         () => LocalDbService.upsertReport(
@@ -1210,6 +1244,7 @@ class SyncEngine {
           photoCapture: photo,
           ssnpcCd: report.ssnpcCd,
           ssnpcType: report.ssnpcType,
+          rawDetail: rawDetail,
         ),
       );
     } catch (e) {
@@ -1218,6 +1253,14 @@ class SyncEngine {
       rethrow;
     }
     await markPersonalSave(cap.eventId, true, store: communityStore);
+    // 원본 파일(사람이 보는 사본): DB 저장을 막지 않는다. 실패하면 로그만 남긴다(명세 1-4).
+    if (rawSanitized != null) {
+      try {
+        await writeRawDetailFile(cNo, rawSanitized, dir: rawFileDir);
+      } catch (e) {
+        emitLog('원본 파일 쓰기 실패 — DB 저장은 유지합니다 ($cNo): $e');
+      }
+    }
     // 개인 저장 완료 뒤에 깨운다. pending 상태에서 먼저 돌면 업로더가 보낼 행을 찾지 못할 수 있다.
     if (cap.eventId != null) CommunityUploadHooks.wakeUploadNow();
     try {

@@ -249,6 +249,62 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
 
+    testWidgets('별점→데이터 수정: 애니메이션 도중에 비워 도착 탭이 이전 조건으로 조회하지 않는다', (
+      tester,
+    ) async {
+      final provider = _QuietProvider();
+      addTearDown(provider.dispose);
+      provider.setFilter(const ReportFilter(manager: '담당자 가'));
+      await _pumpManagement(tester, provider, initialTabIndex: 0);
+      expect(provider.hasFilter, isTrue);
+
+      await tester.tap(find.text('데이터 수정'));
+      // 탭 이동 애니메이션(300ms)이 끝나기 전 첫 프레임들만 진행한다.
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(
+        provider.filter,
+        const ReportFilter(),
+        reason: '탭 이동 시작 시점에 바로 비워야 도착 탭이 이전 조건으로 조회하지 않는다',
+      );
+      for (final list in tester.widgetList<LocalPagedReportList>(
+        find.byType(LocalPagedReportList),
+      )) {
+        expect(
+          list.filter,
+          const ReportFilter(),
+          reason: '애니메이션 도중 도착 탭 목록에 이전 조건이 전달되면 안 된다',
+        );
+      }
+
+      await _settle(tester);
+      expect(provider.filter, const ReportFilter());
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('데이터 수정→별점: 애니메이션 도중에 비워 중복 스캔을 시작하지 않는다', (
+      tester,
+    ) async {
+      final provider = _QuietProvider();
+      addTearDown(provider.dispose);
+      provider.setFilter(const ReportFilter(manager: '담당자 가'));
+      await _pumpManagement(tester, provider, initialTabIndex: 3);
+      expect(provider.hasFilter, isTrue);
+
+      await tester.tap(find.text('별점'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(
+        provider.filter,
+        const ReportFilter(),
+        reason: '탭 이동 시작 시점에 바로 비워야 별점 전체 스캔이 이전 조건으로 중복 시작하지 않는다',
+      );
+
+      await _settle(tester);
+      expect(provider.filter, const ReportFilter());
+      await tester.pumpWidget(const SizedBox());
+    });
+
     testWidgets('하단 탭 이동은 MainTabs 신고관리 하위 탭 요청과 함께 비운다', (tester) async {
       final provider = await _pumpMain(tester);
       await tester.tap(find.text('신고내역').last);

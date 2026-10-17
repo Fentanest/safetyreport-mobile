@@ -41,8 +41,10 @@ class _ReportManagementScreenState extends State<ReportManagementScreen>
 
   /// 앱바 검색/필터 아이콘은 지금 하위 탭의 검색을 연다(SQ-U16). 하위 탭이 바뀌면 다시 그린다.
   /// 별점·데이터 수정에서 떠나면 공용 검색 조건을 비운다(2026-10-17 명세 5절).
+  /// 탭 이동 애니메이션이 끝날 때까지 미루면 도착 탭이 이전 조건으로 먼저 조회하고
+  /// 초기화 뒤 다시 조회하므로, 이동 시작 첫 알림에서 바로 비운다.
   void _onTabChanged() {
-    if (!mounted || _tabController.indexIsChanging) return;
+    if (!mounted) return;
     final previous = _lastTab;
     final current = _tabController.index;
     if (previous != current) {
@@ -51,8 +53,10 @@ class _ReportManagementScreenState extends State<ReportManagementScreen>
         if (provider.hasFilter) provider.clearFilter();
       }
       _lastTab = current;
+      setState(() {});
+    } else if (!_tabController.indexIsChanging) {
+      setState(() {});
     }
-    setState(() {});
   }
 
   static const _ratingTab = 0;

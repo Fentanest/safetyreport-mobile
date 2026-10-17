@@ -23,6 +23,36 @@ const _canonicalDoneStatuses = {'수용', '일부수용', '불수용', '기타',
 // 이 값이면 다른 칸(C_R_PROC_STAT_NM)·신고 상태로 보완 — 서버 parser.py 와 같은 규칙.
 const _notFinalAnswerStatuses = {'진행', '처리중', '검토중'};
 
+// DB 최적화 새 활동 판정(2026-10-17 명세 7-2, 서버 `_C_NOW_STATUS` 대응 표).
+// 상세의 `C_NOW` 를 위 표로 바꾼 값 — 없으면 양수는 숫자 문자열·그 밖은 '진행'
+// (파서 본문 280행과 같은 규칙, `contracts/reparse-new-activity-vectors.json` 고정).
+// 서버와 바이트 동일한 계약이므로 표·규칙을 바꾸면 계약부터 먼저 바꾼다(여기 단독 변경 금지).
+Map<int, String> cNowStatusTable() => Map<int, String>.of(_cNowStatus);
+
+int parseCNowValue(Object? rawCNow) {
+  if (rawCNow is num) return rawCNow.toInt();
+  return double.tryParse('${rawCNow ?? ''}'.trim())?.toInt() ?? 0;
+}
+
+String mapCNowStatus(Object? rawCNow) {
+  final cNow = parseCNowValue(rawCNow);
+  return _cNowStatus[cNow] ?? (cNow > 0 ? cNow.toString() : '진행');
+}
+
+/// 네트워크로 다시 받은 상세가 저장된 행보다 새 활동을 담으면 true: 매핑한 진행 단계가
+/// 저장된 목록 `상태` 와 다르거나, 파싱한 `답변일` 이 저장된 `답변일` 과 다르면
+/// (NULL 과 빈 문자열은 같음) 새 활동이다. 저장된 원본 재파싱 경로에는 쓰지 않는다.
+bool hasReparseNewActivity({
+  required String storedStatus,
+  required Object? storedAnswerDate,
+  required Object? detailCNow,
+  required Object? parsedAnswerDate,
+}) {
+  if (mapCNowStatus(detailCNow) != storedStatus) return true;
+  String norm(Object? v) => v == null ? '' : '$v';
+  return norm(parsedAnswerDate) != norm(storedAnswerDate);
+}
+
 const _rejectKeywords = ['부득이하게', '종결합니다', '처벌이 어려운 점', '처분이 불가'];
 const _warningKeywords = [
   '교통질서 안내장',

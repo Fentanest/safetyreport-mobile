@@ -33,14 +33,14 @@ class MaintenanceJob {
   final String key;
   final String label;
 
-  /// running | paused | completed
+  /// running | paused | partial(보류만 남음, 실행 중 아님) | completed | error
   final String state;
   final int total;
   final int done;
   final String current;
   final String message;
 
-  /// DB 최적화 단계(running|waiting_crawl|waiting_rebuild|login_required|done|error, 서버와 같음).
+  /// DB 최적화 단계(running|waiting_crawl|waiting_rebuild|login_required|outage|partial|done|error, 서버와 같음).
   final String stage;
 
   /// 단계 로그(최근 최대 50줄, 시각+문구, 서버와 같음). 탭하면 로그 시트로 보인다.

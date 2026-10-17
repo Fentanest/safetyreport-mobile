@@ -28,7 +28,7 @@ class DbOptimizeState {
 
   static const _logKeep = 50;
 
-  static String _state = 'idle'; // idle | running | paused | completed | error
+  static String _state = 'idle'; // idle | running | paused | partial | completed | error
   static int _total = 0;
   static int _done = 0;
   static String _stage = '';

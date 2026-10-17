@@ -255,10 +255,11 @@ class SyncEngine {
     bool backgroundWorker = false,
     String? rebuildRunId,
   }) async {
-    // DB 최적화가 도는 동안 수동 동기화는 바로 시작하지 않고 하나로 합쳐 영속한다(명세 3-3).
+    // DB 최적화가 실제로 신고를 처리하는 동안만 수동 동기화를 하나로 합쳐 영속한다(명세 7-3).
+    // 쉬는 동안(login_required·outage·partial·대기)에는 바로 실행한다.
     // 초기화 run 은 막지 않는다(초기화 우선). 소유권을 잡기 전에 판단해 큐를 막지 않는다.
     // 실제로 시작될 때까지 sync_meta 에 남기므로(시작 성공 뒤에 지움) 앱 종료 뒤에도 남는다.
-    if (rebuildRunId == null && DbOptimize.isRunning) {
+    if (rebuildRunId == null && DbOptimize.blocksSync) {
       _log(DbOptimizeState.deferLogLine);
       DbOptimize.manualStarter ??= SyncEngine.runDeferredManual;
       await DbOptimize.deferManualSync(
@@ -304,10 +305,16 @@ class SyncEngine {
       );
     }
     // 동기화 종료 경로(성공·실패·거절·취소 공통): 영속 보류 요청이 남아 있으면 시작한다.
-    // 최적화가 진행 중이면 계속 보류한다. 재시도 starter 가 다시 이 함수를 부르고
+    // 최적화가 실제로 처리 중이면 계속 보류한다. 성공으로 끝나면 쉬는 최적화를 깨워
+    // 재판단한다(명세 7-1·7-3). 재시도 starter 가 다시 이 함수를 부르고
     // 그 종료 훅은 재진입 방지로 그냥 둔다(무한 재귀 없음).
+    final succeeded = !result.failed && !result.busy && !result.cancelled;
     try {
-      await DbOptimize.notifySyncFinished();
+      if (succeeded) {
+        await DbOptimize.notifySyncSucceeded();
+      } else {
+        await DbOptimize.notifySyncFinished();
+      }
     } catch (_) {}
     return result;
   }
@@ -363,10 +370,10 @@ class SyncEngine {
         errorMessage: 'sync_busy',
       );
     }
-    // DB 최적화가 도는 동안 수동 동기화는 바로 시작하지 않고 하나로 합쳐 영속한다(명세 3-3, 서버와 같음).
+    // DB 최적화가 실제로 신고를 처리하는 동안만 수동 동기화를 하나로 합쳐 영속한다(명세 7-3, 서버와 같음).
     // 초기화 run 은 막지 않는다(초기화 우선 — 최적화가 끝나길 기다리는 쪽이다).
     // (소유권을 잡기 전 start() 에서 이미 판단했다. 여기서 한 번 더 막아 경합에 대비한다.)
-    if (rebuildRunId == null && DbOptimize.isRunning) {
+    if (rebuildRunId == null && DbOptimize.blocksSync) {
       _log(DbOptimizeState.deferLogLine);
       DbOptimize.manualStarter ??= SyncEngine.runDeferredManual;
       await DbOptimize.deferManualSync(

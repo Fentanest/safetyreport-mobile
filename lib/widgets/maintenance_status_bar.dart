@@ -28,6 +28,7 @@ class _MaintenanceStatusBarState extends State<MaintenanceStatusBar>
   String? _doneText;
   List<String> _doneLogs = const [];
   bool _doneIsError = false;
+  bool _doneIsPartial = false;
   Timer? _timer;
   Timer? _hideTimer;
 
@@ -149,25 +150,36 @@ class _MaintenanceStatusBarState extends State<MaintenanceStatusBar>
         _doneText = null;
         _doneLogs = const [];
         _doneIsError = false;
+        _doneIsPartial = false;
         _wasActive = true;
       });
     } else if (_wasActive ||
         _doneText != null ||
-        jobs.any((j) => j.state == 'error' || j.state == 'completed')) {
+        jobs.any(
+          (j) =>
+              j.state == 'error' ||
+              j.state == 'completed' ||
+              j.state == 'partial',
+        )) {
       // error 상태로 처음 마운트돼도 '오류'와 로그를 보인다. 다음 상태 변화 전까지
       // 유지한다(6초 자동 숨김 없음 — 완료만 잠깐 보였다 사라진다).
+      // partial(보류만 남음, 실행 중 아님)도 조용히 사라지지 않고 보인다 —
+      // 다음 회차 시작·완료·중단 때 바뀐다(명세 7-1).
       final done = jobs.where((j) => j.state == 'completed').toList();
       // 작업 예외(error)는 '작업 완료'가 아닌 '오류'와 로그로 보인다(서버 표시줄과 같음).
       final errors = jobs.where((j) => j.state == 'error').toList();
-      if (done.isEmpty && errors.isEmpty) {
-        if (_wasActive) {
+      final partials = jobs.where((j) => j.state == 'partial').toList();
+      if (done.isEmpty && errors.isEmpty && partials.isEmpty) {
+        if (_wasActive || _doneIsPartial) {
           // idle 정리(복원·닫기로 멈춤) — '작업 완료'로 보이지 않게 조용히 지운다.
+          // error 표시는 다음 상태 변화 전까지 유지한다(기존 동작).
           _hideTimer?.cancel();
           setState(() {
             _jobs = const [];
             _doneText = null;
             _doneLogs = const [];
             _doneIsError = false;
+            _doneIsPartial = false;
             _wasActive = false;
           });
         }
@@ -186,19 +198,23 @@ class _MaintenanceStatusBarState extends State<MaintenanceStatusBar>
                 '${j.label} 완료${j.message.isEmpty ? '' : ' · ${j.message}'}',
           )
           .join('   |   ');
+      final partialText = partials.map((j) => j.line).join('   |   ');
       final text = [
         if (errorText.isNotEmpty) errorText,
         if (doneText.isNotEmpty) doneText,
+        if (partialText.isNotEmpty) partialText,
       ].join('   |   ');
       final logs = [
-        for (final j in [...errors, ...done])
+        for (final j in [...errors, ...done, ...partials])
           ...j.log,
       ];
       final isError = errors.isNotEmpty;
-      // 같은 표시면 다시 그리지 않는다(완료·오류 뒤 따라붙는 로그는 갱신한다).
+      final isPartial = errors.isEmpty && done.isEmpty && partials.isNotEmpty;
+      // 같은 표시면 다시 그리지 않는다(완료·오류·보류 뒤 따라붙는 로그는 갱신한다).
       if (!_wasActive &&
           text == _doneText &&
           isError == _doneIsError &&
+          isPartial == _doneIsPartial &&
           listEquals(logs, _doneLogs)) {
         return;
       }
@@ -207,17 +223,19 @@ class _MaintenanceStatusBarState extends State<MaintenanceStatusBar>
         _doneText = text;
         _doneLogs = logs;
         _doneIsError = isError;
+        _doneIsPartial = isPartial;
         _jobs = const [];
         _wasActive = false;
       });
-      // 오류는 다음 상태 변화(재시도 시작·완료 등) 전까지 유지한다 — 6초 자동 숨김 없음.
-      if (isError) return;
+      // 오류·보류는 다음 상태 변화(재시도 시작·완료 등) 전까지 유지한다 — 6초 자동 숨김 없음.
+      if (isError || isPartial) return;
       _hideTimer = Timer(const Duration(seconds: 6), () {
         if (mounted) {
           setState(() {
             _doneText = null;
             _doneLogs = const [];
             _doneIsError = false;
+            _doneIsPartial = false;
           });
         }
       });
@@ -263,7 +281,11 @@ class _MaintenanceStatusBarState extends State<MaintenanceStatusBar>
             children: [
               _doneText != null
                   ? Icon(
-                      _doneIsError ? Icons.error : Icons.check_circle,
+                      _doneIsError
+                          ? Icons.error
+                          : (_doneIsPartial
+                                ? Icons.schedule
+                                : Icons.check_circle),
                       size: 18,
                       color: _doneIsError
                           ? Theme.of(context).colorScheme.error

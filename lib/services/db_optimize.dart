@@ -1,13 +1,23 @@
-// DB 최적화 작업: 상세 원본 기반 재파싱 (2026-10-17 명세 3절, 서버 services/db_optimize.py 와 같은 역할).
+// DB 최적화 작업: 상세 원본 기반 재파싱 (2026-10-17 명세 3절·7절, 서버 services/db_optimize.py 와 같은 역할).
 //
 // 파서 버전이 오르면 Standalone 앱 실행 때 한 번, 신고 ID 순으로 훑는다. 원본 표에 행이 있고
 // sha 가 맞으면 네트워크 없이 저장된 원본의 `result` 로 다시 파싱하고, 없으면 상세 API 로 다시 받아
 // 원본 표·파일에 저장(`source='backfill'`)한 뒤 파싱한다. 저장은 `LocalDbService.reparseReportWithCapture`
 // (파서가 만드는 열만 갱신, 목록 열·사용자 override 유지, 바뀐 신고만 공유 `completed_observation` —
-// 공유 캡처 입력의 목록 값·진행 상태·사진 촬영 값은 쓰기 잠금 안 기존 행으로 채움)이다.
+// 공유 캡처 입력의 목록 값·진행 상태·사진 촬영 값은 lease 안에서 읽은 기존 행 스냅샷으로 채움)이다.
+//
+// 실패 처리(7-1): 영구는 없음·삭제(404·410)만. 401·403·토큰 만료·로그인 화면은 auth 로 본다.
+// 신고 하나가 일시 실패하면 시도 횟수를 쌓고 3번을 넘기면 보류 목록(`sync_meta` pending)에 남긴다.
+// `done=true` 는 보류가 비었을 때만. 보류만 남으면 `partial`(실행 중 아님)이고 다음 기동·동기화 성공 뒤
+// 보류만 다시 시도한다(회차마다 시도 초기화, 회차 사이 지수 백오프 최대 1시간).
+// 연속 5건 일시 실패·로그인 문제는 신고별 횟수 없이 작업 전체를 쉰다(`outage`/`login_required`).
+// 새 답변이 온 신고(7-2)는 저장하지 않고 일반 크롤 대기 큐(영속)에 넣어 "새 답변 — 일반 크롤로 넘김" 을 남긴다.
+// 쉬는 동안(7-3)은 동기화를 막지 않는다 — 게이트(`blocksSync`)는 실제 처리 중에만 닫힌다.
+// 엔진 간 배제(7-4): 처리 중 표시는 `sync_meta` 영속(갱신 시각·만료), 신고 1건 처리는 일반 동기화와
+// 같은 영속 lease(`personal_sync`)를 잡고, 저장 직전 트랜잭션 안에서 답변일·처리내용·상태를 재확인한다.
 //
 // 취소 수단 없음. 앱 종료 뒤에는 메타 커서부터 이어서 한다. 크롤(수동 동기화·알림 동기화)과는
-// `isRunning` 으로 순서를 맞춘다(최적화가 도는 동안 시작 요청은 대기열 뒤에 붙는다).
+// `blocksSync` 로 순서를 맞춘다(실제로 처리하는 동안의 시작 요청만 대기열 뒤에 붙는다).
 // 크롤링 상태 UI(크롤 창의 진행/중지 버튼, 크롤 run 상태)에는 넣지 않는다.
 import 'dart:async';
 import 'dart:convert';
@@ -28,6 +38,8 @@ import 'raw_detail.dart';
 import 'standalone_api_service.dart';
 import 'standalone_auth_service.dart';
 import 'standalone_parser.dart';
+import 'standalone_pending_queue_store.dart';
+import 'sync_operation_admission.dart';
 
 /// 최적화 한 번 훑기 결과(이번 실행분). 서버 process_all 반환과 같은 모양이다.
 class OptimizeRunResult {
@@ -36,12 +48,17 @@ class OptimizeRunResult {
     required this.done,
     required this.finished,
     required this.stats,
+    this.rest,
   });
 
   final int total;
   final int done;
   final bool finished;
   final Map<String, dynamic> stats;
+
+  /// 끝내지 못한 이유. null 이면 완료·정상 종료·외부 중지 중 하나다.
+  /// 'outage'(전역 일시 장애 쉼) | 'login_required'(로그인 필요 쉼) | 'partial'(보류만 남음, 실행 중 아님).
+  final String? rest;
 }
 
 /// 일시 저장 실패 — 신고별 시도 횟수를 남기고 나중에 다시 시도하라는 신호(서버 _SaveTransient 와 같음).
@@ -51,6 +68,9 @@ class SaveTransient implements Exception {
   @override
   String toString() => 'SaveTransient($note)';
 }
+
+/// lease 대기 중 중지·DB 닫기 — 라운드를 멈추라는 내부 신호(오류 아님).
+class _OptimizeStop implements Exception {}
 
 class DbOptimize {
   DbOptimize._();
@@ -62,12 +82,46 @@ class DbOptimize {
   /// 1차 전송 재시도를 맡고, 여기서는 envelope 단위 실패를 이 횟수만큼 다시 받는다(서버와 같음).
   static int fetchRetryAttempts = 3;
 
-  /// 일시 실패(네트워크·저장 실패·토큰 갱신 중 예외)를 영구 건너뜀으로 바꾸기 전 신고별 시도 횟수
-  /// (메타 attempts 에 누적, 서버 MAX_RETRY_ATTEMPTS 와 같음).
+  /// 일시 실패(네트워크·저장 실패·토큰 갱신 중 예외)를 보류 목록으로 넘기기 전 신고별 시도 횟수
+  /// (회차마다 초기화, 서버 MAX_RETRY_ATTEMPTS 와 같음). 3번을 넘기면(4번째 실패)
+  /// 그 신고를 보류 목록에 남기고 이번 회차는 건너뛴다(명세 7-1).
   static const int maxRetryAttempts = 3;
 
-  /// 3회 일시 실패 뒤 건너뜀 사유(통계 skipped 키, 서버 RETRY_EXCEEDED_REASON 과 같음).
+  /// 옛 건너뜀 사유(7-1 전). 지금은 일시 실패를 보류 목록에 남기므로 더 쓰지 않는다.
+  /// 계약·시험 참조용으로만 둔다.
   static const String retryExceededReason = 'retry_exceeded';
+
+  /// 전역 장애로 쉬기 전 연속 일시 실패 건수(명세 7-1). 이 횟수만큼 연속으로
+  /// 일시 실패하면 신고별 시도 횟수를 늘리지 않고(롤백) 작업 전체를 쉰다.
+  static int outageThreshold = 5;
+
+  /// 쉼 사이 재시도 간격 밑값(지수 백오프, 최대 [maxRestBackoff] 1시간, 명세 7-1).
+  /// 로그인 쉼은 [loginRetryInterval], 전역 장애 쉼은 [outageRetryInterval],
+  /// 보류 재시도 회차 사이는 [roundRetryInterval] 을 쓴다. 시험에서 좁힌다.
+  static Duration outageRetryInterval = const Duration(seconds: 60);
+  static Duration roundRetryInterval = const Duration(seconds: 60);
+  static const Duration maxRestBackoff = Duration(hours: 1);
+
+  /// 쉼 중 동기화 성공 wake· 중지 확인 주기.
+  static Duration restPollInterval = const Duration(seconds: 1);
+
+  /// 신고 1건 lease 대기 한계·확인 주기(명세 7-4). 다른 엔진이 lease 를 쥐면
+  /// 이 한계까지 기다렸다가 일시 실패로 넘기고 다음 신고로 간다.
+  static Duration leaseWaitTimeout = const Duration(seconds: 60);
+  static Duration leaseWaitPollInterval = const Duration(seconds: 1);
+
+  /// 처리 중 영속 표시(`sync_meta`) 유효 기간(명세 7-4). 매 신고 처리 때 갱신하므로
+  /// 이 시간보다 오래된 표시는 죽은 작업으로 보고 무시한다.
+  static Duration processingMarkerTtl = const Duration(seconds: 120);
+
+  /// 처리 중 영속 표시 키(`sync_meta`). 값은
+  /// `{"updated_at": <epoch ms>, "report_id": "<처리 중 ID>"}`.
+  /// 별도 엔진(알림 백그라운드)도 읽는다. 실제로 처리하는 동안만 남긴다.
+  static const String processingKey = 'detail_raw_optimize_processing';
+
+  /// 동기화 성공 wake 표시 키(`sync_meta`). 값은 epoch ms 문자열.
+  /// 쉼 중 확인하면 백오프를 기다리지 않고 바로 다음 회차로 간다(명세 7-1·7-3).
+  static const String wakeKey = 'detail_raw_optimize_wake';
 
   /// 보류한 수동 동기화 저장 키(`sync_meta`). 하나로 합쳐 실제로 시작될 때까지 남긴다
   /// (서버 DEFERRED_META_KEY 와 같은 자리 — 값은 합쳐진 1건의 요청 JSON).
@@ -89,8 +143,52 @@ class DbOptimize {
   /// 크롤 실행 중·초기화 대기 때 다음 확인까지 쉬는 시간.
   static Duration waitInterval = const Duration(seconds: 5);
 
-  /// 로그인 필요 때 다음 확인까지 쉬는 시간(서버 60s).
+  /// 로그인 필요 때 다음 확인까지 쉬는 시간 — 7-1 에서는 로그인 쉼(`login_required`)
+  /// 재시도 간격의 밑값으로 쓴다(지수 백오프, 최대 1시간). 신고당 긴 대기는 두지 않는다.
   static Duration loginRetryInterval = const Duration(seconds: 60);
+
+  /// 실제로 신고를 처리하는 동안만 true 인 동기화 게이트(명세 7-3).
+  /// `login_required`·`outage`·`partial`·대기 상태에서는 false — 수동·알림 동기화를
+  /// 바로 실행하고, 동기화 성공 뒤 최적화를 재판단한다.
+  static bool get blocksSync =>
+      DbOptimizeState.state == 'running' &&
+      DbOptimizeState.stage == 'running';
+
+  /// 별도 엔진(알림 백그라운드)이 보는 처리 중 영속 표시가 살아 있으면 true.
+  static Future<bool> isProcessingPersisted() async {
+    try {
+      final raw = await LocalDbService.getMeta(processingKey);
+      if (raw == null || raw.isEmpty) return false;
+      final data = jsonDecode(raw);
+      if (data is! Map) return false;
+      final at = int.tryParse('${data['updated_at'] ?? ''}');
+      if (at == null) return false;
+      return DateTime.now().millisecondsSinceEpoch - at <
+          processingMarkerTtl.inMilliseconds;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 처리 중 영속 표시를 갱신한다(매 신고 처리 때). 실패하면 무시한다.
+  static Future<void> touchProcessingMarker(String reportId) async {
+    try {
+      await LocalDbService.setMeta(
+        processingKey,
+        jsonEncode({
+          'updated_at': DateTime.now().millisecondsSinceEpoch,
+          'report_id': reportId,
+        }),
+      );
+    } catch (_) {}
+  }
+
+  /// 처리 중 영속 표시를 지운다(쉼·완료·중지 때). 실패하면 무시한다(만료로 사라짐).
+  static Future<void> clearProcessingMarker() async {
+    try {
+      await LocalDbService.deleteMeta(processingKey);
+    } catch (_) {}
+  }
 
   static bool get isRunning => DbOptimizeState.isRunning;
 
@@ -141,6 +239,10 @@ class DbOptimize {
     _stopRequested = false;
     _notifyingSyncFinished = false;
     _dispatchingDeferred = false;
+    _syncSuccessWake = false;
+    _restArmed = false;
+    _lastIsSyncing = null;
+    _lastRebuildPending = null;
     openStoreForTest = null;
     fetchDetailForTest = null;
     captureForTest = null;
@@ -155,6 +257,13 @@ class DbOptimize {
     fetchRetryAttempts = 3;
     waitInterval = const Duration(seconds: 5);
     loginRetryInterval = const Duration(seconds: 60);
+    outageThreshold = 5;
+    outageRetryInterval = const Duration(seconds: 60);
+    roundRetryInterval = const Duration(seconds: 60);
+    restPollInterval = const Duration(seconds: 1);
+    leaseWaitTimeout = const Duration(seconds: 60);
+    leaseWaitPollInterval = const Duration(seconds: 1);
+    processingMarkerTtl = const Duration(seconds: 120);
     _afterFinishHooks.clear();
     LocalDbService.upgradeLog.clear();
     LocalDbService.upgradeRunning = false;
@@ -387,16 +496,21 @@ class DbOptimize {
 
   /// 상세 조회 실패 분류(서버 crawldetail_api.classify_fetch_error 와 같은 뜻).
   /// 모바일 상세 조회는 `상세 조회 실패 (<id>, 404)` 처럼 bare 코드를 던지므로
-  /// `HTTP ` 접두사 없이 숫자 코드(401·419→auth, 403·404·410→permanent)도 본다.
+  /// `HTTP ` 접두사 없이 숫자 코드를 본다. 401·403·419·토큰 만료·로그인 화면 응답은
+  /// 로그인 문제(auth)다(명세 7-1). 영구는 그 신고가 없음·삭제됨이 분명한 응답
+  /// (404·410)만이다. 나머지는 일시 실패다.
   @visibleForTesting
   static String classifyFetchError(Object error) {
     if (error is TokenExpiredException) return 'auth';
     final text = error.toString();
-    if (RegExp(r'\b40[19]\b').hasMatch(text) ||
-        text.toLowerCase().contains('unauthorized')) {
+    final lower = text.toLowerCase();
+    if (RegExp(r'\b40[13]\b|\b419\b').hasMatch(text) ||
+        lower.contains('unauthorized') ||
+        lower.contains('login') ||
+        text.contains('로그인')) {
       return 'auth';
     }
-    if (RegExp(r'\b40[34]\b|\b410\b').hasMatch(text)) {
+    if (RegExp(r'\b404\b|\b410\b').hasMatch(text)) {
       return 'permanent';
     }
     return 'retryable';
@@ -460,14 +574,23 @@ class DbOptimize {
   }
 
   /// 재파싱 1건 저장. [ReparseSkipped] 는 로그 뒤 그대로 던진다(영구 건너뜀 확정 —
-  /// 호출자가 사유를 집계한다). 일시 실패(저장소 없음·캡처·저장 예외)는 [SaveTransient] 로
+  /// 호출자가 사유를 집계한다). [ReparseConflict] 는 그대로 던진다(다른 엔진이 그사이
+  /// 저장함 — 덮지 않고 다음 회차로 넘기며 시도 횟수는 늘리지 않는다, 명세 7-4).
+  /// 일시 실패(저장소 없음·캡처·저장 예외·lease 대기 초과)는 [SaveTransient] 로
   /// 던진다(시도 횟수 누적·재시도). [CaptureStoreUnavailable] 은 그대로 던진다
   /// (작업 전체를 멈춘다, 서버와 같음). 반환: 바뀐 신고면 true.
   ///
+  /// 신고 1건 처리는 일반 동기화와 같은 영속 lease(`personal_sync`)를 잡고 한다
+  /// (명세 7-4). 다른 엔진이 lease 를 쥐면 [leaseWaitTimeout] 까지 기다렸다가
+  /// 일시 실패로 넘긴다. 캡처(커뮤니티 쓰기)는 개인 DB 트랜잭션 밖에서 먼저 하고
+  /// 개인 DB 쓰기는 뒤 트랜잭션에서 한다 — 일반 저장과 같은 잠금 순서다.
+  /// [preRead] 는 lease 전에 읽은 기준 행(없으면 여기서 읽는다). lease 안에서 다시
+  /// 읽은 행의 답변일·처리내용·상태가 기준과 다르면 저장하지 않는다.
+  ///
   /// 공유 캡처 입력의 목록 값(상태·신고번호·신고명·신고일·만족도조사여부·별점·별점사유 —
   /// 일반 동기화가 목록·만족도에서 채우는 열 전부)과 진행 상태·사진 촬영 값은
-  /// [LocalDbService.reparseReportWithCapture] 의 쓰기 트랜잭션 안에서 읽은 기존 행으로
-  /// 채운다(서버 REPARSE_CAPTURE_TITLE_COLUMNS 와 같은 규칙). DB 목록 열은 갱신하지 않는다.
+  /// lease 안에서 읽은 기존 행 스냅샷으로 채운다(서버 REPARSE_CAPTURE_TITLE_COLUMNS 와 같은 규칙).
+  /// DB 목록 열은 갱신하지 않는다.
   static Future<bool> saveReparsed(
     Report report,
     String entryValue,
@@ -481,24 +604,31 @@ class DbOptimize {
     Future<CommunityStore?> Function()? openStore,
     String? projectNamespace,
     File? retryFile,
+    Map<String, Object?>? preRead,
   }) async {
     final capture = captureFn ?? captureForTest;
     CommunityStore? store;
-    if (capture == null) {
-      try {
-        store = openStore != null
-            ? await openStore()
-            : (openStoreForTest != null
-                  ? await openStoreForTest!()
-                  : await CommunityStore.open());
-      } catch (e) {
-        DbOptimizeState.appendLog('${report.id} 저장 실패(community_store_unavailable)');
-        throw SaveTransient('community_store_unavailable: $e');
-      }
-      if (store == null) {
-        DbOptimizeState.appendLog('${report.id} 저장 실패(community_store_unavailable)');
-        throw SaveTransient('community_store_unavailable');
-      }
+    try {
+      store = openStore != null
+          ? await openStore()
+          : (openStoreForTest != null
+                ? await openStoreForTest!()
+                : await CommunityStore.open());
+    } catch (e) {
+      DbOptimizeState.appendLog('${report.id} 저장 실패(community_store_unavailable)');
+      throw SaveTransient('community_store_unavailable: $e');
+    }
+    if (store == null) {
+      DbOptimizeState.appendLog('${report.id} 저장 실패(community_store_unavailable)');
+      throw SaveTransient('community_store_unavailable');
+    }
+    final leaseStore = store;
+    final base = preRead != null
+        ? Map<String, Object?>.from(preRead)
+        : await LocalDbService.readReparseBase(report.id);
+    if (base == null) {
+      DbOptimizeState.appendLog('${report.id} 건너뜀(no_report)');
+      throw ReparseSkipped('no_report');
     }
     CaptureResult? cap;
     var changed = false;
@@ -506,46 +636,85 @@ class DbOptimize {
     // 롤백되면 이 이벤트의 personal_save_state 를 failed 로 표시한다(서버·일반 동기화와 같음).
     CaptureResult? capturedBeforePersonalSave;
     try {
-      final saved = await LocalDbService.reparseReportWithCapture(
-        report,
-        category,
-        entryValue,
-        rawContent: rawContent,
-        ssnpcCd: report.ssnpcCd,
-        ssnpcType: report.ssnpcType,
-        rawDetail: rawDetail,
-        capture: (captureReport, photoFirst, photoLast) async {
-          final adapterInput = buildReportAdapterInput(
-            captureReport,
-            entryValue,
-            category: category,
-            photoFirstCapture: photoFirst,
-            photoLastCapture: photoLast,
-          );
-          CaptureResult? inner;
-          if (capture != null) {
-            inner = await capture(adapterInput, report.id);
-          } else {
-            final ns =
-                projectNamespace ?? namespaceForTest ?? _projectNamespace();
-            inner = await captureReal(
-              adapterInput,
-              report.id,
-              store: store,
-              projectNamespace: ns,
+      final leaseDeadline = DateTime.now().add(leaseWaitTimeout);
+      while (true) {
+        if (_stopRequested || LocalDbService.closeRequested) {
+          throw _OptimizeStop();
+        }
+        final outcome = await SyncOperationAdmission.run(
+          () async {
+            // lease 안에서: 재확인 → 캡처(커뮤니티 쓰기) → 개인 DB 저장(트랜잭션).
+            final now = await LocalDbService.readReparseBase(report.id);
+            if (now == null) throw ReparseSkipped('no_report');
+            for (final key in const ['답변일', '처리내용', '상태']) {
+              if ('${now[key] ?? ''}' != '${base[key] ?? ''}') {
+                throw ReparseConflict('row_changed:$key');
+              }
+            }
+            final saved = await LocalDbService.reparseReportWithCapture(
+              report,
+              category,
+              entryValue,
+              rawContent: rawContent,
+              ssnpcCd: report.ssnpcCd,
+              ssnpcType: report.ssnpcType,
+              rawDetail: rawDetail,
+              baseRow: now,
+              capture: (captureReport, photoFirst, photoLast) async {
+                final adapterInput = buildReportAdapterInput(
+                  captureReport,
+                  entryValue,
+                  category: category,
+                  photoFirstCapture: photoFirst,
+                  photoLastCapture: photoLast,
+                );
+                CaptureResult? inner;
+                if (capture != null) {
+                  inner = await capture(adapterInput, report.id);
+                } else {
+                  final ns =
+                      projectNamespace ?? namespaceForTest ?? _projectNamespace();
+                  inner = await captureReal(
+                    adapterInput,
+                    report.id,
+                    store: leaseStore,
+                    projectNamespace: ns,
+                  );
+                }
+                capturedBeforePersonalSave = inner;
+                return inner;
+              },
             );
-          }
-          capturedBeforePersonalSave = inner;
-          return inner;
-        },
-      );
-      changed = saved.changed;
-      cap = saved.cap;
+            changed = saved.changed;
+            cap = saved.cap;
+            return (ran: true, changed: changed);
+          },
+          (ran: false, changed: false),
+          openStore: () async => leaseStore,
+          stopRequested: () =>
+              _stopRequested || LocalDbService.closeRequested,
+        );
+        if (outcome.ran) break;
+        if (!DateTime.now().isBefore(leaseDeadline)) {
+          DbOptimizeState.appendLog(
+            '${report.id} 저장 대기(다른 엔진이 처리 중, 다음에 다시 시도합니다)',
+          );
+          throw SaveTransient('lease_busy');
+        }
+        final poll = leaseWaitPollInterval;
+        if (poll > Duration.zero) {
+          await Future<void>.delayed(poll);
+        }
+      }
     } on ReparseSkipped catch (e) {
       final reason = e.reason.isEmpty ? 'skipped' : e.reason;
       DbOptimizeState.appendLog('${report.id} 건너뜀($reason)');
       rethrow;
+    } on ReparseConflict {
+      rethrow;
     } on CaptureStoreUnavailable {
+      rethrow;
+    } on _OptimizeStop {
       rethrow;
     } catch (e) {
       DbOptimizeState.appendLog('${report.id} 저장 실패(${e.runtimeType})');
@@ -624,50 +793,53 @@ class DbOptimize {
     Future<bool> Function()? rebuildPending,
     Duration? interval,
     Duration? wait,
-    Duration? loginRetry,
     bool Function()? isStopped,
   }) async {
     final gap = interval ?? requestInterval;
-    final loginGap = loginRetry ?? loginRetryInterval;
     final d = await LocalDbService.db;
     final idRows = await d.query('reports', columns: ['ID'], orderBy: 'ID');
     final ids = [for (final r in idRows) '${r['ID']}'];
     final total = ids.length;
     final meta = await readMeta() ?? {};
-    // target 이 현재 파서 버전과 다르면 cursor·통계·시도 횟수를 버리고 처음부터.
-    final String cursor;
-    final Map<String, dynamic> stats;
-    final Map<String, int> attempts;
-    if (meta['target'] != mobileParserVersion) {
-      cursor = '';
-      stats = {};
-      attempts = {};
-    } else {
-      cursor = '${meta['cursor'] ?? ''}';
-      stats = Map<String, dynamic>.from(meta['stats'] as Map? ?? {});
-      attempts = {};
-      final rawAttempts = meta['attempts'];
-      if (rawAttempts is Map) {
-        for (final entry in rawAttempts.entries) {
-          final count = int.tryParse('${entry.value}');
-          if (count != null && count > 0) {
-            attempts['${entry.key}'] = count;
-          }
+    // target 이 현재 파서 버전과 다르면 커서·통계·보류를 버리고 처음부터.
+    final bool targetChanged = meta['target'] != mobileParserVersion;
+    final String cursor = targetChanged ? '' : '${meta['cursor'] ?? ''}';
+    // 보류 목록(다음 회차에 다시 시도할 신고, 명세 7-1). 복원된 DB 에 없는 ID 는 버린다.
+    final pending = <String>{};
+    if (!targetChanged) {
+      final rawPending = meta['pending'];
+      if (rawPending is List) {
+        for (final e in rawPending) {
+          final id = '$e';
+          if (ids.contains(id)) pending.add(id);
         }
       }
-      // 복원된 DB 에 없는 ID 의 시도 기록은 버린다(다음 기동 판정을 막지 않게).
-      attempts.removeWhere((id, _) => !ids.contains(id));
     }
+    final Map<String, dynamic> stats;
+    final int round;
+    if (targetChanged) {
+      stats = {};
+      round = 1;
+    } else {
+      stats = Map<String, dynamic>.from(meta['stats'] as Map? ?? {});
+      round = (meta['round'] as int? ?? 0) + 1;
+    }
+    // 시도 횟수는 회차마다 초기화한다(명세 7-1).
+    final attempts = <String, int>{};
+    // 이번 회차에 새로 보류로 넘긴 신고(전역 장애 롤백 때만 뺀다).
+    final newlyPending = <String>{};
     stats['reused'] ??= 0;
     stats['refetched'] ??= 0;
     stats['changed'] ??= 0;
     stats['events'] ??= 0;
+    stats['forwarded'] ??= 0;
     stats['skipped'] ??= <String, dynamic>{};
     final run = <String, dynamic>{
       'reused': 0,
       'refetched': 0,
       'changed': 0,
       'events': 0,
+      'forwarded': 0,
       'skipped': <String, dynamic>{},
     };
     // 시작 때 DB 정체(개인 DB 경로·커뮤니티 데이터셋)를 잡는다.
@@ -678,6 +850,7 @@ class DbOptimize {
       bool refetched = false,
       bool changed = false,
       bool event = false,
+      bool forwarded = false,
       String? skipped,
     }) {
       for (final target in [stats, run]) {
@@ -685,6 +858,9 @@ class DbOptimize {
         if (refetched) target['refetched'] = (target['refetched'] as int? ?? 0) + 1;
         if (changed) target['changed'] = (target['changed'] as int? ?? 0) + 1;
         if (event) target['events'] = (target['events'] as int? ?? 0) + 1;
+        if (forwarded) {
+          target['forwarded'] = (target['forwarded'] as int? ?? 0) + 1;
+        }
         if (skipped != null) {
           final missing = Map<String, dynamic>.from(target['skipped'] as Map? ?? {});
           missing[skipped] = (missing[skipped] as int? ?? 0) + 1;
@@ -696,10 +872,13 @@ class DbOptimize {
     void recordTransient(String reportId, String note) {
       final count = (attempts[reportId] ?? 0) + 1;
       attempts[reportId] = count;
-      if (count >= maxRetryAttempts) {
-        tally(skipped: retryExceededReason);
+      if (count > maxRetryAttempts) {
+        // 3번을 넘기면 보류 목록에 남기고 이번 회차는 건너뛴다(명세 7-1).
+        // 이미 보류 목록에 있으면(이전 회차분) 그대로 둔다.
+        if (pending.add(reportId)) newlyPending.add(reportId);
         DbOptimizeState.appendLog(
-          '$reportId 건너뜀($retryExceededReason${note.isEmpty ? '' : ': $note'})',
+          '$reportId 보류(일시 실패 계속, 다음 회차에 다시 시도합니다'
+          '${note.isEmpty ? '' : ': $note'})',
         );
       } else {
         DbOptimizeState.appendLog(
@@ -708,7 +887,19 @@ class DbOptimize {
       }
     }
 
-    void recordResolved(String reportId) => attempts.remove(reportId);
+    void recordResolved(String reportId) {
+      attempts.remove(reportId);
+      pending.remove(reportId);
+      newlyPending.remove(reportId);
+    }
+
+    /// 다른 엔진이 그사이 저장해 덮지 않고 다음 회차로 넘긴다(시도 횟수 증가 없음, 명세 7-4).
+    void carryNext(String reportId, String note) {
+      pending.add(reportId);
+      DbOptimizeState.appendLog(
+        '$reportId 다음 회차에 다시 시도합니다($note)',
+      );
+    }
 
     Future<void> writeProgress(String cursorId) => writeMeta({
       'target': mobileParserVersion,
@@ -717,6 +908,8 @@ class DbOptimize {
       'total': total,
       'stats': stats,
       'attempts': attempts,
+      'pending': pending.toList(),
+      'round': round,
     });
 
     /// null | 'stop'(중지 요청) | 'restore'(DB 교체 — 옛 커서를 새 DB 에 쓰지 않고 멈춤).
@@ -727,9 +920,19 @@ class DbOptimize {
       return null;
     }
 
-    /// 한 신고를 한 번 시도한다. 반환: 'resolved'(성공·영구 건너뜀) | 'deferred'(일시 실패,
-    /// 나중에 다시) | 'login_wait'(대기 중 멈춤 — 바깥에서 끝낸다).
+    /// 한 신고를 한 번 시도한다. 반환: 'resolved'(성공·영구 건너뜀·새 답변 넘김) |
+    /// 'deferred'(일시 실패, 시도 횟수 누적) | 'carried'(다른 엔진이 먼저 저장 —
+    /// 시도 횟수 없이 다음 회차) | 'auth'(로그인 문제 — 작업 전체를 쉰다).
+    /// [CaptureStoreUnavailable]·[_OptimizeStop] 은 그대로 던진다.
     Future<String> attemptReport(String reportId) async {
+      // 기준 행(목록 상태·답변일·처리내용·신고번호) — 새 활동 판정·대기 큐 등록용.
+      final base = await LocalDbService.readReparseBase(reportId);
+      if (base == null) {
+        tally(skipped: 'no_report');
+        DbOptimizeState.appendLog('$reportId 건너뜀(no_report)');
+        recordResolved(reportId);
+        return 'resolved';
+      }
       final (envelope, rawState) = await storedResult(reportId);
       if (rawState == 'ok' && envelope != null) {
         final result = envelope['result'];
@@ -758,8 +961,9 @@ class DbOptimize {
             rawContent: rawContent,
             tallyChanged: changedTallies,
             tallyEvents: eventTallies,
+            preRead: base,
           );
-          // 저장 실패·영구 건너뜀은 예외로 나가므로 여기 오면 저장 시도 성공이다.
+          // 저장 실패·영구 건너뜀·재확인 불일치는 예외로 나가므로 여기 오면 저장 시도 성공이다.
           tally(reused: true);
           if (changed) tally(changed: true);
           if ((eventTallies['events'] ?? 0) > 0) tally(event: true);
@@ -768,7 +972,12 @@ class DbOptimize {
           tally(skipped: reason);
           recordResolved(reportId);
           return 'resolved';
+        } on ReparseConflict catch (e) {
+          carryNext(reportId, e.reason);
+          return 'carried';
         } on CaptureStoreUnavailable {
+          rethrow;
+        } on _OptimizeStop {
           rethrow;
         } on SaveTransient catch (e) {
           recordTransient(reportId, '저장 실패(${e.note})');
@@ -778,129 +987,162 @@ class DbOptimize {
         await ensureRawFile(reportId, envelope);
         return 'resolved';
       }
-      // 원본 없음·손상 → 다시 받기.
-      var authTries = 0;
-      var fetchNote = '';
-      while (true) {
-        final fetched = await fetchEnvelope(
-          reportId,
-          fetchFn: fetchFn,
-          interval: gap,
+      // 원본 없음·손상 → 다시 받기(네트워크).
+      final fetched = await fetchEnvelope(
+        reportId,
+        fetchFn: fetchFn,
+        interval: gap,
+      );
+      // 실패해도 요청 간격은 지킨다(명세 7-1).
+      if (gap > Duration.zero) {
+        await Future<void>.delayed(gap);
+      }
+      if (fetched.outcome == 'auth') {
+        // 로그인 문제면 신고별 시도 횟수를 늘리지 않고 작업 전체를 쉰다(명세 7-1).
+        // 신고당 긴 대기는 두지 않는다.
+        _restArmed = true;
+        DbOptimizeState.update(
+          state: 'paused',
+          stage: 'login_required',
+          message: '로그인 뒤 이어서 합니다',
         );
-        if (gap > Duration.zero && fetched.outcome == 'ok') {
-          await Future<void>.delayed(gap);
-        }
-        if (fetched.outcome == 'auth') {
-          authTries++;
-          fetchNote = fetched.note;
-          if (authTries >= maxRetryAttempts) {
-            recordTransient(
-              reportId,
-              '로그인 갱신 중 예외(${fetchNote.isEmpty ? 'auth' : fetchNote})',
-            );
-            return 'deferred';
-          }
-          DbOptimizeState.update(
-            state: 'paused',
-            stage: 'login_required',
-            message: '로그인 뒤 이어서 합니다',
-          );
-          DbOptimizeState.appendLog(
-            '로그인 필요 — 로그인 뒤 이어서 합니다(${fetched.note})',
-          );
-          await Future<void>.delayed(loginGap);
-          if (await stopReason() != null) return 'login_wait';
-          DbOptimizeState.update(state: 'running', stage: 'running', message: '');
-          continue; // 같은 신고부터 다시
-        }
-        if (fetched.outcome == 'permanent') {
-          tally(skipped: 'not_found');
-          final detail = fetched.note.isEmpty ? fetchNote : fetched.note;
-          DbOptimizeState.appendLog(
-            '$reportId 건너뜀(not_found${detail.isEmpty ? '' : ': $detail'})',
-          );
-          recordResolved(reportId);
-          return 'resolved';
-        }
-        if (fetched.outcome == 'retryable') {
-          recordTransient(reportId, fetched.note.isEmpty ? 'fetch_failed' : fetched.note);
-          return 'deferred';
-        }
-        if (fetched.outcome != 'ok' || fetched.envelope == null) {
-          final note = fetched.note.isEmpty ? fetchNote : fetched.note;
-          recordTransient(reportId, note.isEmpty ? fetched.outcome : note);
-          return 'deferred';
-        }
-        final data = fetched.envelope!;
-        final prepared = prepareRawDetail(data);
-        final result = data['result'];
-        if (result is! Map<String, dynamic>) {
-          tally(skipped: 'result_not_object');
-          DbOptimizeState.appendLog('$reportId 건너뜀(result 없음)');
-          recordResolved(reportId);
-          return 'resolved';
-        }
-        final report = parseStoredResult(reportId, result);
-        if (report == null) {
-          tally(skipped: 'parse_failed');
-          recordResolved(reportId);
-          return 'resolved';
-        }
-        final entry = entryValueFromDetail(const {}, result);
-        final cat = categoryFromDetail(report, entry);
-        final rawContent = normalizeRawPayloadText(rawContentOf(result));
-        final upsert = RawDetailUpsert(
-          zlib: compressRawDetail(prepared.canonical),
-          sha256: prepared.sha256,
-          size: prepared.canonical.length,
-          fetchedAt: formatRawFetchedAt(DateTime.now()),
-          source: DbOptimizeState.backfillSource,
+        DbOptimizeState.appendLog(
+          '로그인 필요 — 쉽니다(신고별 시도 없이 다음 회차·동기화 성공 뒤 이어서 시도합니다'
+          '${fetched.note.isEmpty ? '' : ': ${fetched.note}'})',
         );
-        final changedTallies = <String, int>{};
-        final eventTallies = <String, int>{};
-        try {
-          final changed = await saveReparsed(
-            report,
-            entry,
-            cat,
-            rawDetail: upsert,
-            rawContent: rawContent,
-            tallyChanged: changedTallies,
-            tallyEvents: eventTallies,
-          );
-          // 저장 실패·영구 건너뜀은 예외로 나가므로 여기 오면 저장 시도 성공이다.
-          tally(refetched: true);
-          if (changed) tally(changed: true);
-          if ((eventTallies['events'] ?? 0) > 0) tally(event: true);
-        } on ReparseSkipped catch (e) {
-          final reason = e.reason.isEmpty ? 'skipped' : e.reason;
-          tally(skipped: reason);
-          recordResolved(reportId);
-          return 'resolved';
-        } on CaptureStoreUnavailable {
-          rethrow;
-        } on SaveTransient catch (e) {
-          recordTransient(reportId, '저장 실패(${e.note})');
-          return 'deferred';
-        }
+        return 'auth';
+      }
+      if (fetched.outcome == 'permanent') {
+        tally(skipped: 'not_found');
+        DbOptimizeState.appendLog(
+          '$reportId 건너뜀(not_found${fetched.note.isEmpty ? '' : ': ${fetched.note}'})',
+        );
         recordResolved(reportId);
-        try {
-          await writeRawDetailFile(
-            reportId,
-            prepared.sanitized,
-            dir: rawFileDirForTest,
-          );
-        } catch (_) {}
         return 'resolved';
       }
+      if (fetched.outcome == 'retryable') {
+        recordTransient(reportId, fetched.note.isEmpty ? 'fetch_failed' : fetched.note);
+        return 'deferred';
+      }
+      if (fetched.outcome != 'ok' || fetched.envelope == null) {
+        recordTransient(
+          reportId,
+          fetched.note.isEmpty ? fetched.outcome : fetched.note,
+        );
+        return 'deferred';
+      }
+      final data = fetched.envelope!;
+      final prepared = prepareRawDetail(data);
+      final result = data['result'];
+      if (result is! Map<String, dynamic>) {
+        tally(skipped: 'result_not_object');
+        DbOptimizeState.appendLog('$reportId 건너뜀(result 없음)');
+        recordResolved(reportId);
+        return 'resolved';
+      }
+      final report = parseStoredResult(reportId, result);
+      if (report == null) {
+        tally(skipped: 'parse_failed');
+        recordResolved(reportId);
+        return 'resolved';
+      }
+      // 새 답변이 온 신고는 저장하지 않고 일반 크롤 대기 큐(영속)에 넘긴다(명세 7-2).
+      // 저장된 원본으로 재파싱하는 경로(네트워크 없음)는 해당하지 않는다.
+      if (hasReparseNewActivity(
+        storedStatus: '${base['상태'] ?? ''}',
+        storedAnswerDate: base['답변일'],
+        detailCNow: result['C_NOW'],
+        parsedAnswerDate: report.responseDate,
+      )) {
+        final number = '${base['신고번호'] ?? ''}';
+        try {
+          await StandalonePendingQueueStore.append([
+            number.isNotEmpty ? number : reportId,
+          ]);
+        } catch (e) {
+          recordTransient(reportId, '대기 큐 등록 실패($e)');
+          return 'deferred';
+        }
+        await markDrainDeferred();
+        tally(forwarded: true);
+        DbOptimizeState.appendLog('$reportId 새 답변 — 일반 크롤로 넘김');
+        recordResolved(reportId);
+        return 'resolved';
+      }
+      final entry = entryValueFromDetail(const {}, result);
+      final cat = categoryFromDetail(report, entry);
+      final rawContent = normalizeRawPayloadText(rawContentOf(result));
+      final upsert = RawDetailUpsert(
+        zlib: compressRawDetail(prepared.canonical),
+        sha256: prepared.sha256,
+        size: prepared.canonical.length,
+        fetchedAt: formatRawFetchedAt(DateTime.now()),
+        source: DbOptimizeState.backfillSource,
+      );
+      final changedTallies = <String, int>{};
+      final eventTallies = <String, int>{};
+      try {
+        final changed = await saveReparsed(
+          report,
+          entry,
+          cat,
+          rawDetail: upsert,
+          rawContent: rawContent,
+          tallyChanged: changedTallies,
+          tallyEvents: eventTallies,
+          preRead: base,
+        );
+        // 저장 실패·영구 건너뜀·재확인 불일치는 예외로 나가므로 여기 오면 저장 시도 성공이다.
+        tally(refetched: true);
+        if (changed) tally(changed: true);
+        if ((eventTallies['events'] ?? 0) > 0) tally(event: true);
+      } on ReparseSkipped catch (e) {
+        final reason = e.reason.isEmpty ? 'skipped' : e.reason;
+        tally(skipped: reason);
+        recordResolved(reportId);
+        return 'resolved';
+      } on ReparseConflict catch (e) {
+        carryNext(reportId, e.reason);
+        return 'carried';
+      } on CaptureStoreUnavailable {
+        rethrow;
+      } on _OptimizeStop {
+        rethrow;
+      } on SaveTransient catch (e) {
+        recordTransient(reportId, '저장 실패(${e.note})');
+        return 'deferred';
+      }
+      recordResolved(reportId);
+      try {
+        await writeRawDetailFile(
+          reportId,
+          prepared.sanitized,
+          dir: rawFileDirForTest,
+        );
+      } catch (_) {}
+      return 'resolved';
     }
 
+    // 작업 목록: 커서 꼬리 + 보류 합집합(ID 순). 보류만 남았으면 보류만 다시
+    // 시도하고(명세 7-1), 쉼으로 중간에 끊겼으면 커서 꼬리도 이어서 한다.
+    final order = {for (var i = 0; i < ids.length; i++) ids[i]: i};
     var startIndex = 0;
     if (cursor.isNotEmpty) {
       final at = ids.indexOf(cursor);
       startIndex = at >= 0 ? at + 1 : 0;
     }
-    var doneCount = startIndex;
+    final List<String> sweep;
+    {
+      final tail = ids.sublist(startIndex);
+      final workSet = <String>{...tail};
+      for (final id in pending) {
+        if (order.containsKey(id)) workSet.add(id);
+      }
+      sweep = workSet.toList()
+        ..sort((a, b) => order[a]!.compareTo(order[b]!));
+    }
+    var doneCount = pending.isNotEmpty ? 0 : startIndex;
+    var lastCursor = cursor;
     DbOptimizeState.update(
       total: total,
       done: doneCount,
@@ -909,85 +1151,83 @@ class DbOptimize {
       message: '',
     );
 
-    // 이전 회차에서 커서는 넘겼지만 다시 시도하기로 한 신고(시도 3회 미만)는 이번 회차 끝 재시도 대상이다.
-    final order = {for (var i = 0; i < ids.length; i++) ids[i]: i};
-    final pendingRetry = <String>[
-      for (final entry in attempts.entries)
-        if (entry.value > 0 &&
-            entry.value < maxRetryAttempts &&
-            (order[entry.key] ?? startIndex) < startIndex)
-          entry.key,
-    ]..sort((a, b) => order[a]!.compareTo(order[b]!));
-
-    var index = startIndex;
-    String? stoppedReason; // null | 'stop' | 'restore'
-    while (index < ids.length) {
-      stoppedReason = await stopReason();
-      if (stoppedReason != null) break;
-      final turn = await waitForTurn(
-        isSyncing: isSyncing,
-        rebuildPending: rebuildPending,
-        wait: wait,
-        isStopped: isStopped,
-      );
-      if (!turn) {
-        stoppedReason = await stopReason() ?? 'stop';
-        break;
-      }
-      stoppedReason = await stopReason();
-      if (stoppedReason != null) break;
-      if (DbOptimizeState.stage == 'waiting_crawl' ||
-          DbOptimizeState.stage == 'waiting_rebuild') {
-        DbOptimizeState.update(state: 'running', stage: 'running', message: '');
-      }
-      final reportId = ids[index];
-      final String outcome;
-      try {
-        outcome = await attemptReport(reportId);
-      } on CaptureStoreUnavailable {
-        rethrow;
-      }
-      if (outcome == 'login_wait') {
-        stoppedReason = await stopReason() ?? 'stop';
-        break;
-      }
-      if (outcome == 'deferred' && !pendingRetry.contains(reportId)) {
-        pendingRetry.add(reportId);
-      }
-      // 매 신고 처리 때 DB 정체 확인 — 복원이 끼면 옛 커서를 복원 DB 에 쓰지 않고 멈춘다.
-      stoppedReason = await stopReason();
-      if (stoppedReason != null) break;
-
-      index += 1;
-      doneCount = index;
-      DbOptimizeState.update(done: doneCount);
-      if (await stopReason() == null) {
-        await writeProgress(ids[index - 1]);
-      }
+    // 같은 회차 재시도분(시도 1~3회). 보류로 넘어간 신고·다음 회차분은 제외한다.
+    bool retryable(String id) {
+      final c = attempts[id] ?? 0;
+      return c >= 1 && c <= maxRetryAttempts;
     }
 
-    // 이번 회차 끝 재시도: 일시 실패분 중 아직 3회 미만인 것만 같은 회차에서 다시 시도한다.
-    var retryRound = 0;
-    while (stoppedReason == null && pendingRetry.isNotEmpty) {
-      retryRound++;
-      if (retryRound > maxRetryAttempts) break;
-      final current = [
-        for (final id in pendingRetry)
-          if ((attempts[id] ?? 0) < maxRetryAttempts) id,
-      ];
-      if (current.isEmpty) break;
-      pendingRetry.clear();
-      for (var i = 0; i < current.length; i++) {
-        final reportId = current[i];
-        stoppedReason = await stopReason();
-        if (stoppedReason != null) {
-          pendingRetry.addAll(
-            current.sublist(i).where(
-              (r) => (attempts[r] ?? 0) < maxRetryAttempts,
-            ),
-          );
-          break;
+    final pendingRetry = <String>[];
+    // 연속 일시 실패 추적(전역 장애 판정용, 명세 7-1).
+    var consecutiveTransient = 0;
+    final streak = <String>[];
+
+    /// 성공·다음 회차분은 연속 실패를 끊는다(다음 회차분은 다른 엔진의 저장이라 실패가 아니다).
+    void breakStreak() {
+      consecutiveTransient = 0;
+      streak.clear();
+    }
+
+    /// 일시 실패 1건을 센다. 전역 장애(연속 [outageThreshold] 건)가 되면 true —
+    /// 이 연속 실패들의 신고별 시도 횟수는 롤백한다(늘리지 않음, 명세 7-1).
+    /// 롤백된 신고 ID 목록(`streak`)은 그대로 두고 [abortRest] 가 보류에 넣는다.
+    bool noteDeferredTurn(String reportId) {
+      consecutiveTransient++;
+      streak.add(reportId);
+      if (consecutiveTransient < outageThreshold) return false;
+      for (final id in streak) {
+        final c = (attempts[id] ?? 1) - 1;
+        if (c <= 0) {
+          attempts.remove(id);
+        } else {
+          attempts[id] = c;
         }
+        if (newlyPending.remove(id)) pending.remove(id);
+      }
+      return true;
+    }
+
+    /// 쉼으로 끝낸다. 훑다 만 신고(재시도분·시도분)는 보류에 넣어 다음 회차에
+    /// 다시 시도한다. 전역 장애로 롤백된 연속 실패분도 시도 횟수 없이 보류에 넣어
+    /// 빠뜨리지 않는다. 메타·표시를 남기고 `rest` 로 돌아간다.
+    Future<OptimizeRunResult> abortRest(
+      String rest,
+      String stage,
+      String message,
+      String log, {
+      String? currentId,
+    }) async {
+      _restArmed = true;
+      pending.addAll(pendingRetry);
+      pending.addAll(attempts.keys);
+      if (currentId != null) pending.add(currentId);
+      if (rest == 'outage') pending.addAll(streak);
+      streak.clear();
+      consecutiveTransient = 0;
+      await writeProgress(lastCursor);
+      await clearProcessingMarker();
+      DbOptimizeState.update(
+        state: rest == 'partial' ? 'partial' : 'paused',
+        stage: stage,
+        message: message,
+      );
+      DbOptimizeState.appendLog(log);
+      return OptimizeRunResult(
+        total: total,
+        done: doneCount,
+        finished: false,
+        stats: run,
+        rest: rest,
+      );
+    }
+
+    try {
+      String? stoppedReason; // null | 'stop' | 'restore'
+      String? restAbort; // null | 'outage' | 'login_required'
+      var index = 0;
+      while (index < sweep.length) {
+        stoppedReason = await stopReason();
+        if (stoppedReason != null) break;
         final turn = await waitForTurn(
           isSyncing: isSyncing,
           rebuildPending: rebuildPending,
@@ -996,126 +1236,233 @@ class DbOptimize {
         );
         if (!turn) {
           stoppedReason = await stopReason() ?? 'stop';
-          pendingRetry.addAll(current.sublist(i));
           break;
         }
+        stoppedReason = await stopReason();
+        if (stoppedReason != null) break;
+        if (DbOptimizeState.stage == 'waiting_crawl' ||
+            DbOptimizeState.stage == 'waiting_rebuild') {
+          DbOptimizeState.update(state: 'running', stage: 'running', message: '');
+        }
+        final reportId = sweep[index];
+        await touchProcessingMarker(reportId);
         final String outcome;
         try {
           outcome = await attemptReport(reportId);
         } on CaptureStoreUnavailable {
           rethrow;
-        }
-        if (outcome == 'login_wait') {
-          stoppedReason = await stopReason() ?? 'stop';
-          pendingRetry.addAll(
-            current.sublist(i).where(
-              (r) => (attempts[r] ?? 0) < maxRetryAttempts,
-            ),
-          );
+        } on _OptimizeStop {
+          stoppedReason = 'stop';
           break;
         }
-        if (outcome == 'deferred' &&
-            (attempts[reportId] ?? 0) < maxRetryAttempts &&
-            !pendingRetry.contains(reportId)) {
-          pendingRetry.add(reportId);
+        if (outcome == 'auth') {
+          restAbort = 'login_required';
+          return await abortRest(
+            'login_required',
+            'login_required',
+            '로그인 뒤 이어서 합니다',
+            '로그인 필요 — 쉽니다(신고별 시도 없이 다음 회차·동기화 성공 뒤 이어서 시도합니다)',
+            currentId: reportId,
+          );
         }
+        if (outcome == 'deferred') {
+          if (noteDeferredTurn(reportId)) {
+            restAbort = 'outage';
+            return await abortRest(
+              'outage',
+              'outage',
+              '일시 장애 — 잠시 뒤 다시 시도합니다',
+              '일시 장애가 계속돼 쉽니다(신고별 시도 횟수 없이 다음 회차·동기화 성공 뒤 다시 시도합니다)',
+            );
+          }
+          if (retryable(reportId) && !pendingRetry.contains(reportId)) {
+            pendingRetry.add(reportId);
+          }
+        } else {
+          breakStreak();
+        }
+        // 매 신고 처리 때 DB 정체 확인 — 복원이 끼면 옛 커서를 복원 DB 에 쓰지 않고 멈춘다.
         stoppedReason = await stopReason();
         if (stoppedReason != null) break;
+
+        index += 1;
+        doneCount += 1;
+        lastCursor = reportId;
+        DbOptimizeState.update(done: doneCount);
         if (await stopReason() == null) {
-          await writeProgress(index > 0 ? ids[index - 1] : '');
+          await writeProgress(lastCursor);
         }
       }
-    }
 
-    // 다음 기동 때 다시 시도할 일시 실패가 남아 있으면 done 이 아니다.
-    final hasPending = attempts.values.any((v) => v < maxRetryAttempts);
-    final finished =
-        stoppedReason == null &&
-        index >= ids.length &&
-        pendingRetry.isEmpty &&
-        !hasPending;
-    if (stoppedReason == 'restore') {
-      // 복원된 DB 에 옛 ID 목록·커서·done 을 쓰지 않는다 — 메타를 그대로 둔다.
-      DbOptimizeState.appendLog('DB 복원으로 멈춤 — 복원된 DB에서 처음부터 다시 판단합니다');
-      DbOptimizeState.update(
-        state: 'idle',
-        stage: '',
-        message: 'DB 복원으로 멈춤 — 다음 기동 때 다시 판단합니다',
-      );
-      return OptimizeRunResult(
-        total: total,
-        done: doneCount,
-        finished: false,
-        stats: run,
-      );
-    }
-    if (stoppedReason == 'stop') {
-      // closeDb 로 멈춰도 상태를 정리한다 — isRunning 이 남으면 동기화가 무한 보류된다.
-      DbOptimizeState.appendLog('중단됨 — 다음 실행 때 커서부터 이어서 합니다');
-      DbOptimizeState.update(state: 'idle', stage: '', message: '중단됨');
-      return OptimizeRunResult(
-        total: total,
-        done: doneCount,
-        finished: false,
-        stats: run,
-      );
-    }
-    if (finished) {
-      await writeMeta({
-        'target': mobileParserVersion,
-        'cursor': ids.isEmpty ? '' : ids.last,
-        'done': true,
-        'total': total,
-        'stats': stats,
-        'attempts': <String, int>{},
-      });
-      await clearLastError();
-      final changed = stats['changed'] as int? ?? 0;
-      final events = stats['events'] as int? ?? 0;
-      final skippedTotal = (stats['skipped'] as Map? ?? {}).values.fold<int>(
-        0,
-        (a, e) => a + ((e as num?)?.toInt() ?? 0),
-      );
-      DbOptimizeState.appendLog(
-        '완료(재파싱 변경 $changed건, 공유 재전송 $events건'
-        '${skippedTotal > 0 ? ', 건너뜀 $skippedTotal건' : ''})',
-      );
-      final now = DateTime.now();
-      String two(int v) => v.toString().padLeft(2, '0');
-      final finishedAt =
-          '${now.year}-${two(now.month)}-${two(now.day)} ${two(now.hour)}:${two(now.minute)}:${two(now.second)}';
-      DbOptimizeState.update(
-        state: 'completed',
-        stage: 'done',
-        done: total,
-        finishedAt: finishedAt,
-        message: '재파싱 변경 $changed건${events > 0 ? ', 공유 재전송 $events건' : ''}',
-      );
-      if (changed > 0) {
-        try {
-          await DuplicateProjectionService.refreshDuplicateGroups(
-            await LocalDbService.db,
+      // 이번 회차 끝 재시도: 일시 실패분 중 아직 3회 이하인 것만 같은 회차에서 다시 시도한다.
+      while (stoppedReason == null && restAbort == null && pendingRetry.isNotEmpty) {
+        final current = [
+          for (final id in pendingRetry)
+            if (retryable(id)) id,
+        ];
+        if (current.isEmpty) break;
+        pendingRetry.clear();
+        for (var i = 0; i < current.length; i++) {
+          final reportId = current[i];
+          stoppedReason = await stopReason();
+          if (stoppedReason != null) {
+            pendingRetry.addAll(current.sublist(i).where(retryable));
+            break;
+          }
+          final turn = await waitForTurn(
+            isSyncing: isSyncing,
+            rebuildPending: rebuildPending,
+            wait: wait,
+            isStopped: isStopped,
           );
-        } catch (_) {}
+          if (!turn) {
+            stoppedReason = await stopReason() ?? 'stop';
+            pendingRetry.addAll(current.sublist(i));
+            break;
+          }
+          await touchProcessingMarker(reportId);
+          final String outcome;
+          try {
+            outcome = await attemptReport(reportId);
+          } on CaptureStoreUnavailable {
+            rethrow;
+          } on _OptimizeStop {
+            stoppedReason = 'stop';
+            pendingRetry.addAll(current.sublist(i).where(retryable));
+            break;
+          }
+          if (outcome == 'auth') {
+            restAbort = 'login_required';
+            pendingRetry.addAll(current.sublist(i + 1).where(retryable));
+            return await abortRest(
+              'login_required',
+              'login_required',
+              '로그인 뒤 이어서 합니다',
+              '로그인 필요 — 쉽니다(신고별 시도 없이 다음 회차·동기화 성공 뒤 이어서 시도합니다)',
+              currentId: reportId,
+            );
+          }
+          if (outcome == 'deferred') {
+            if (noteDeferredTurn(reportId)) {
+              restAbort = 'outage';
+              pendingRetry.addAll(current.sublist(i + 1).where(retryable));
+              return await abortRest(
+                'outage',
+                'outage',
+                '일시 장애 — 잠시 뒤 다시 시도합니다',
+                '일시 장애가 계속돼 쉽니다(신고별 시도 횟수 없이 다음 회차·동기화 성공 뒤 다시 시도합니다)',
+              );
+            }
+            if (retryable(reportId) && !pendingRetry.contains(reportId)) {
+              pendingRetry.add(reportId);
+            }
+          } else {
+            breakStreak();
+          }
+          stoppedReason = await stopReason();
+          if (stoppedReason != null) {
+            pendingRetry.addAll(current.sublist(i + 1).where(retryable));
+            break;
+          }
+          if (await stopReason() == null) {
+            await writeProgress(lastCursor);
+          }
+        }
       }
-      await _afterFinish();
-    }
-    if (!finished && stoppedReason == null) {
-      // 방어: 일시 실패 잔여 등으로 끝나지 않았는데 정지 사유도 없으면 상태를 정리한다 —
-      // isRunning 이 남으면 동기화가 무한 보류된다. 메타 attempts 는 그대로 두어 다음에 이어서 한다.
-      DbOptimizeState.appendLog('일시 실패 잔여 — 다음 실행 때 이어서 합니다');
-      DbOptimizeState.update(
-        state: 'idle',
-        stage: '',
-        message: '다음 실행 때 이어서 합니다',
+
+      if (stoppedReason == 'restore') {
+        // 복원된 DB 에 옛 ID 목록·커서·done 을 쓰지 않는다 — 메타를 그대로 둔다.
+        DbOptimizeState.appendLog('DB 복원으로 멈춤 — 복원된 DB에서 처음부터 다시 판단합니다');
+        DbOptimizeState.update(
+          state: 'idle',
+          stage: '',
+          message: 'DB 복원으로 멈춤 — 다음 기동 때 다시 판단합니다',
+        );
+        return OptimizeRunResult(
+          total: total,
+          done: doneCount,
+          finished: false,
+          stats: run,
+        );
+      }
+      if (stoppedReason == 'stop') {
+        // closeDb 로 멈춰도 상태를 정리한다 — blocksSync 이 남으면 동기화가 무한 보류된다.
+        // 훑다 만 신고는 보류에 넣어(쓸 수 있으면) 다음에 이어서 한다.
+        pending.addAll(pendingRetry);
+        pending.addAll(attempts.keys);
+        try {
+          await writeProgress(lastCursor);
+        } catch (_) {}
+        DbOptimizeState.appendLog('중단됨 — 다음 실행 때 이어서 합니다');
+        DbOptimizeState.update(state: 'idle', stage: '', message: '중단됨');
+        return OptimizeRunResult(
+          total: total,
+          done: doneCount,
+          finished: false,
+          stats: run,
+        );
+      }
+      if (pending.isEmpty) {
+        await writeMeta({
+          'target': mobileParserVersion,
+          'cursor': ids.isEmpty ? '' : ids.last,
+          'done': true,
+          'total': total,
+          'stats': stats,
+          'attempts': <String, int>{},
+          'pending': <String>[],
+          'round': round,
+        });
+        await clearLastError();
+        _restArmed = false;
+        final changed = stats['changed'] as int? ?? 0;
+        final events = stats['events'] as int? ?? 0;
+        final forwarded = stats['forwarded'] as int? ?? 0;
+        final skippedTotal = (stats['skipped'] as Map? ?? {}).values.fold<int>(
+          0,
+          (a, e) => a + ((e as num?)?.toInt() ?? 0),
+        );
+        DbOptimizeState.appendLog(
+          '완료(재파싱 변경 $changed건, 공유 재전송 $events건'
+          '${forwarded > 0 ? ', 일반 크롤로 넘김 $forwarded건' : ''}'
+          '${skippedTotal > 0 ? ', 건너뜀 $skippedTotal건' : ''})',
+        );
+        final now = DateTime.now();
+        String two(int v) => v.toString().padLeft(2, '0');
+        final finishedAt =
+            '${now.year}-${two(now.month)}-${two(now.day)} ${two(now.hour)}:${two(now.minute)}:${two(now.second)}';
+        DbOptimizeState.update(
+          state: 'completed',
+          stage: 'done',
+          done: total,
+          finishedAt: finishedAt,
+          message: '재파싱 변경 $changed건${events > 0 ? ', 공유 재전송 $events건' : ''}',
+        );
+        if (changed > 0) {
+          try {
+            await DuplicateProjectionService.refreshDuplicateGroups(
+              await LocalDbService.db,
+            );
+          } catch (_) {}
+        }
+        await _afterFinish();
+        return OptimizeRunResult(
+          total: total,
+          done: doneCount,
+          finished: true,
+          stats: run,
+        );
+      }
+      // 보류 목록만 남으면 partial(실행 중 아님) — 다음 기동·동기화 성공 뒤 보류만 다시 시도한다.
+      return await abortRest(
+        'partial',
+        'partial',
+        '보류 ${pending.length}건 — 다음에 다시 시도합니다',
+        '보류 ${pending.length}건 남음 — 다음 실행·동기화 성공 뒤 보류만 다시 시도합니다',
       );
+    } finally {
+      await clearProcessingMarker();
     }
-    return OptimizeRunResult(
-      total: total,
-      done: doneCount,
-      finished: finished,
-      stats: run,
-    );
   }
 
   /// 끝나면 대기 작업·보류 요청을 이어서 시작한다(메모리 훅은 순서대로, 보류는 영속분 — 서버 _after_finish 와 같음).
@@ -1175,12 +1522,111 @@ class DbOptimize {
     }
   }
 
+  /// 쉼 사이 재시도 간격: 밑값의 2의 거듭제곱, 최대 1시간(명세 7-1).
+  /// [restRounds] 는 이번 구동에서 쉼으로 끝난 회차 수(1부터).
+  static Duration restBackoff(String rest, int restRounds) {
+    final base = switch (rest) {
+      'login_required' => loginRetryInterval,
+      'outage' => outageRetryInterval,
+      _ => roundRetryInterval,
+    };
+    var delay = base;
+    for (var i = 1; i < restRounds; i++) {
+      if (delay >= maxRestBackoff) break;
+      delay *= 2;
+      if (delay > maxRestBackoff) {
+        delay = maxRestBackoff;
+        break;
+      }
+    }
+    return delay;
+  }
+
+  /// 동기화 성공 wake(메모리 + 영속). 쉬는 최적화는 백오프를 기다리지 않고
+  /// 바로 다음 회차로 간다(명세 7-1·7-3). 직접 라운드를 돌린 뒤 쉼으로 끝난
+  /// 상태(`_restArmed`)에서 구동 중인 작업이 없으면 재판단을 시작한다.
+  static bool _syncSuccessWake = false;
+
+  /// processAll 이 쉼(`outage`·`login_required`·`partial`)으로 끝난 상태.
+  /// 다음 동기화 성공 때 구동 중인 작업이 없으면 재판단을 시작한다.
+  static bool _restArmed = false;
+
+  /// 재판단 시작 때 같이 쓸 최근 확인 함수(킥 경로용).
+  static bool Function()? _lastIsSyncing;
+  static Future<bool> Function()? _lastRebuildPending;
+
+  static Future<void> notifySyncSucceeded() async {
+    _syncSuccessWake = true;
+    try {
+      await LocalDbService.setMeta(
+        wakeKey,
+        '${DateTime.now().millisecondsSinceEpoch}',
+      );
+    } catch (_) {}
+    try {
+      await runDeferredStarters();
+    } catch (_) {}
+    if (_running == null && _restArmed) {
+      _restArmed = false;
+      var need = false;
+      try {
+        need = await needsRun();
+      } catch (_) {}
+      if (need) {
+        unawaited(
+          maybeStart(
+                isSyncing: _lastIsSyncing,
+                rebuildPending: _lastRebuildPending,
+              ) ??
+              Future<void>.value(),
+        );
+      }
+    }
+  }
+
+  /// 쉼: [delay] 가 끝나거나 동기화 성공 wake 때 'wake'·'timeout' 으로 깬다.
+  /// 중지·DB 닫기·DB 교체면 'stop' 으로 멈춘다.
+  static Future<String> _sleepRest(
+    Duration delay,
+    (String, String) startIdentity,
+  ) async {
+    final sleepStart = DateTime.now().millisecondsSinceEpoch;
+    final deadline = DateTime.now().add(delay);
+    while (DateTime.now().isBefore(deadline)) {
+      if (_stopRequested || LocalDbService.closeRequested) return 'stop';
+      try {
+        if (await _identityChanged(startIdentity)) return 'stop';
+      } catch (_) {}
+      if (_syncSuccessWake) {
+        _syncSuccessWake = false;
+        return 'wake';
+      }
+      try {
+        final raw = await LocalDbService.getMeta(wakeKey);
+        final at = int.tryParse(raw ?? '');
+        if (at != null && at > sleepStart) return 'wake';
+      } catch (_) {}
+      final step = restPollInterval;
+      final remaining = deadline.difference(DateTime.now());
+      if (remaining <= Duration.zero) break;
+      await Future<void>.delayed(remaining < step ? remaining : step);
+    }
+    return 'timeout';
+  }
+
+  static String _restLogLabel(String rest) => switch (rest) {
+    'login_required' => '로그인 필요로 쉽니다',
+    'outage' => '일시 장애가 계속돼 쉽니다',
+    _ => '보류만 남아 쉽니다',
+  };
+
   /// 모든 동기화 종료 경로(SyncEngine.start·drain 끝)에서 부른다. 영속 보류 요청이
-  /// 남아 있으면 시작한다. 최적화가 진행 중이면 계속 보류한다(starter 가 다시
-  /// defer 하므로 여기서 그냥 두는 것과 같지만 로그·메타를 다시 쓰지 않게 먼저 둔다).
+  /// 남아 있으면 시작한다. 최적화가 실제로 처리 중이면 계속 보류한다(쉬는 동안은
+  /// 보류를 풀어 동기화를 바로 실행한다 — starter 가 다시 defer 하므로 여기서 그냥
+  /// 두는 것과 같지만 로그·메타를 다시 쓰지 않게 먼저 둔다).
   static Future<void> notifySyncFinished() async {
     if (_notifyingSyncFinished) return;
-    if (isRunning) return;
+    if (blocksSync) return;
     _notifyingSyncFinished = true;
     try {
       await runDeferredStarters();
@@ -1318,12 +1764,16 @@ class DbOptimize {
         await resyncDisplayAfterDatabaseReplaced();
       } catch (_) {}
       if (!need) {
+        _restArmed = false;
         // 최적화는 done 이어도 미뤄 둔 보류 요청이 있으면 기동 경로에서 시작한다
         // (서버와 같음 — done=true 기록 직후 끝났어도 유실 없음).
         await runDeferredStarters();
         return;
       }
       _stopRequested = false;
+      _restArmed = false;
+      _lastIsSyncing = isSyncing;
+      _lastRebuildPending = rebuildPending;
       final d = await LocalDbService.db;
       final countRows = await d.query('reports', columns: ['ID']);
       DbOptimizeState.update(
@@ -1339,31 +1789,59 @@ class DbOptimize {
       final meta = await readMeta() ?? {};
       DbOptimizeState.appendLog(
         'DB 최적화 시작(대상 ${countRows.length}건, 파서 $mobileParserVersion)'
-        '${(meta['cursor'] as String?)?.isNotEmpty == true ? ', 커서 ${meta['cursor']}부터 이어서' : ''}',
+        '${(meta['cursor'] as String?)?.isNotEmpty == true ? ', 커서 ${meta['cursor']}부터 이어서' : ''}'
+        '${(meta['pending'] as List?)?.isNotEmpty == true ? ', 보류 ${(meta['pending'] as List).length}건부터 다시 시도' : ''}',
       );
+      // 시작 때 DB 정체를 잡는다(쉼 중 교체 감지용).
+      final driverIdentity = await _captureIdentity();
       try {
-        await LocalDbService.runBackgroundWork(
-          () => processAll(
-            fetchFn: fetchFn,
-            isSyncing: isSyncing,
-            rebuildPending: rebuildPending,
-          ),
-        );
-      } catch (e) {
-        // 로그를 먼저 남기고 상태를 바꾼다 — 표시줄이 error 스냅샷에 로그를 함께 싣게.
-        DbOptimizeState.appendLog('오류로 멈춤(${e.runtimeType})');
-        DbOptimizeState.update(
-          state: 'error',
-          stage: 'error',
-          message: e.runtimeType.toString(),
-        );
-        // 새 프로세스에서도 표시줄에 보이도록 마지막 오류를 영속한다.
-        await persistLastError(e.runtimeType.toString());
-        // 작업 예외(error) 뒤 동기화 보류를 풀어 대기 요청을 실행한다(서버 _after_error 와 같음).
-        // 최적화는 다음 기회에 다시 시도한다. 표시줄은 error 를 '작업 완료'가 아닌 '오류'로 보인다.
-        try {
-          await _afterError();
-        } catch (_) {}
+        var restRounds = 0;
+        while (true) {
+          OptimizeRunResult result;
+          try {
+            result = await LocalDbService.runBackgroundWork(
+              () => processAll(
+                fetchFn: fetchFn,
+                isSyncing: isSyncing,
+                rebuildPending: rebuildPending,
+              ),
+            );
+          } catch (e) {
+            // 로그를 먼저 남기고 상태를 바꾼다 — 표시줄이 error 스냅샷에 로그를 함께 싣게.
+            DbOptimizeState.appendLog('오류로 멈춤(${e.runtimeType})');
+            DbOptimizeState.update(
+              state: 'error',
+              stage: 'error',
+              message: e.runtimeType.toString(),
+            );
+            // 새 프로세스에서도 표시줄에 보이도록 마지막 오류를 영속한다.
+            await persistLastError(e.runtimeType.toString());
+            // 작업 예외(error) 뒤 동기화 보류를 풀어 대기 요청을 실행한다(서버 _after_error 와 같음).
+            // 최적화는 다음 기회에 다시 시도한다. 표시줄은 error 를 '작업 완료'가 아닌 '오류'로 보인다.
+            try {
+              await _afterError();
+            } catch (_) {}
+            break;
+          }
+          // 완료·외부 중지는 processAll 이 상태·메타를 정리했다.
+          if (result.finished || result.rest == null) break;
+          // 쉼: 지수 백오프 뒤 다음 회차로 가고, 동기화 성공 wake 면 바로 간다(명세 7-1).
+          restRounds++;
+          final backoff = restBackoff(result.rest!, restRounds);
+          final backoffText = backoff.inSeconds >= 60
+              ? '${backoff.inMinutes}분'
+              : '${backoff.inSeconds}초';
+          DbOptimizeState.appendLog(
+            '${_restLogLabel(result.rest!)} — $backoffText 뒤 다시 시도합니다'
+            '(동기화 성공 뒤에는 바로)',
+          );
+          final reason = await _sleepRest(backoff, driverIdentity);
+          if (reason == 'stop') {
+            DbOptimizeState.appendLog('중단됨 — 다음 실행 때 이어서 합니다');
+            DbOptimizeState.update(state: 'idle', stage: '', message: '중단됨');
+            break;
+          }
+        }
       } finally {
         _running = null;
       }

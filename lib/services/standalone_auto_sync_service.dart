@@ -68,16 +68,19 @@ class StandaloneAutoSyncService {
     bool backgroundWorker = false,
     Future<void> Function()? validateScope,
   }) async {
-    // DB 최적화가 도는 동안 알림 동기화는 바로 시작하지 않고 표시만 영속한다(명세 3-3).
+    // DB 최적화가 실제로 신고를 처리하는 동안만 알림 동기화를 뒤로 미루고 표시만 영속한다(명세 7-3).
+    // 쉬는 동안(login_required·outage·partial·대기)에는 바로 실행한다.
+    // 별도 엔진(알림 백그라운드)에서는 메모리 상태가 보이지 않으므로 영속 표시도 본다(명세 7-4).
     // 알림 대기열 자체는 기존 영속 큐가 맡는다. 소유권을 잡기 전에 판단해 큐를 막지 않는다.
-    if (DbOptimize.isRunning) {
+    if (DbOptimize.blocksSync || await DbOptimize.isProcessingPersisted()) {
       SyncEngine.emitLog(DbOptimizeState.deferLogLine);
       DbOptimize.drainStarter ??= StandaloneAutoSyncService.runDeferredDrain;
       await DbOptimize.markDrainDeferred();
       return false;
     }
+    var started = false;
     try {
-      final started = await SyncOperationAdmission.run(
+      started = await SyncOperationAdmission.run(
         () => LocalDbService.runBackgroundWork(
           () => _drainIfPending(backgroundWorker: backgroundWorker),
         ),
@@ -85,18 +88,25 @@ class StandaloneAutoSyncService {
         openStore: SyncEngine.openCommunityStoreForTest,
         validateScope: validateScope,
       );
-      return started;
     } catch (_) {
       SyncEngine.emitLog('작업 소유권 저장소를 확인하지 못해 개별 동기화를 시작하지 않았습니다. 큐는 보존했습니다.');
-      return false;
-    } finally {
-      // drain 종료 경로(성공·예외 공통): 영속 보류 요청이 남아 있으면 시작한다.
-      // 예외 종료(소유권 상실 등)에서도 남은 보류 요청을 재확인한다(재진입 가드
-      // 유지 — 최적화 진행 중이면 계속 보류, 이중 시작 금지).
       try {
         await DbOptimize.notifySyncFinished();
       } catch (_) {}
+      return false;
     }
+    // drain 종료 경로(성공·소유권 경합 공통): 영속 보류 요청이 남아 있으면 시작한다.
+    // 성공으로 끝나면 쉬는 최적화를 깨워 재판단한다(명세 7-1·7-3). 최적화가 실제로
+    // 처리 중이면 계속 보류한다. 예외 종료(소유권 상실 등)에서도 남은 보류 요청을
+    // 재확인한다(재진입 가드 유지 — 이중 시작 금지).
+    try {
+      if (started) {
+        await DbOptimize.notifySyncSucceeded();
+      } else {
+        await DbOptimize.notifySyncFinished();
+      }
+    } catch (_) {}
+    return started;
   }
 
   /// 최적화가 끝난·오류 난 뒤 보류한 drain 을 한 번 시작한다. 실제로 시작했을 때만 true.
@@ -108,8 +118,10 @@ class StandaloneAutoSyncService {
   static Future<bool> _drainIfPending({bool backgroundWorker = false}) async {
     final deadline = DateTime.now().add(const Duration(minutes: 6));
     if (_running || SyncEngine.isRunning) return false;
+    // DB 최적화가 실제로 신고를 처리하는 동안만 뒤로 미룬다(명세 7-3).
     // (소유권을 잡기 전 drainIfPending() 에서 이미 판단했다. 여기서 한 번 더 막아 경합에 대비한다.)
-    if (DbOptimize.isRunning) {
+    // 별도 엔진에서는 메모리 상태가 보이지 않으므로 영속 표시도 본다(명세 7-4).
+    if (DbOptimize.blocksSync || await DbOptimize.isProcessingPersisted()) {
       SyncEngine.emitLog(DbOptimizeState.deferLogLine);
       DbOptimize.drainStarter ??= StandaloneAutoSyncService.runDeferredDrain;
       await DbOptimize.markDrainDeferred();

@@ -117,6 +117,16 @@ class ReparseSkipped implements Exception {
   String toString() => reason;
 }
 
+/// DB 최적화 재파싱 저장 직전 재확인(명세 7-4)에서 다른 엔진이 그사이 같은 행을
+/// 저장했음을 알리는 신호. 덮지 않고 다음 회차로 넘긴다(시도 횟수 증가 없음).
+class ReparseConflict implements Exception {
+  ReparseConflict([this.reason = 'row_changed']);
+  final String reason;
+
+  @override
+  String toString() => reason;
+}
+
 class LocalDbService {
   static Database? _db;
   static Future<Database>? _initFuture;
@@ -2040,11 +2050,14 @@ class LocalDbService {
   /// (2026-10-17 명세 3-2, 서버 reports_repo.reparse_one·REPARSE_CAPTURE_TITLE_COLUMNS 와 같은 열 규칙).
   ///
   /// 공유 캡처 입력에 쓰는 목록 값(상태·신고번호·신고명·신고일·만족도조사여부·별점·별점사유 —
-  /// 일반 동기화가 목록·만족도 조회로 채우는 열 전부)과 진행 상태(`상태`)는 같은 트랜잭션 안에서
-  /// 읽은 기존 행 값으로 채워 일반 동기화와 같은 adapter 입력이 되게 한다. 파서 출력에는
+  /// 일반 동기화가 목록·만족도 조회로 채우는 열 전부)과 진행 상태(`상태`)는 같은 신고 처리
+  /// 단위의 영속 lease 안에서 읽은 기존 행 스냅샷으로 채워 일반 동기화와 같은 adapter
+  /// 입력이 되게 한다. 파서 출력에는
   /// 만족도 조회 값(별점·별점사유 등)이 없어 그대로 쓰면 같은 원본도 payload 가 달라져 새
   /// `completed_observation` 이 나가고 공유 최신값(특히 별점)을 덮는다.
-  /// 사진 촬영 값도 같은 트랜잭션 안에서 읽는다(잠금 밖에서 읽고 쓰지 않게).
+  /// 사진 촬영 값도 lease 안에서 읽은 스냅샷을 쓴다(트랜잭션 밖에서 읽고 쓰지 않게 —
+  /// 캡처(커뮤니티 쓰기)가 개인 DB 트랜잭션 밖에 있으므로 트랜잭션 안에서 다시 읽으면
+  /// 캡처 입력과 달라질 수 있다).
   /// DB 목록 열 자체는 갱신하지 않는다(아래 UPDATE 에 없음 — 파서가 만드는 열만 갱신,
   /// 목록 열·사용자 override 유지, 바뀐 신고만 공유 `completed_observation`).
   ///
@@ -2056,6 +2069,19 @@ class LocalDbService {
   /// [rawDetail] 이 있으면(원본 표에 없던 신고를 다시 받아온 경우) 같은 트랜잭션에서 원본 표에 upsert 한다.
   /// 반환: 바뀐 신고인지 + 공유 캡처 결과(서버 change dict·capture_result 와 같은 뜻).
   /// 신고 행이 없으면 [ReparseSkipped].
+  /// DB 최적화 재파싱 기준 행(ID 행 전체, 7-4 재확인·캡처 제목용). 없으면 null.
+  static Future<Map<String, Object?>?> readReparseBase(String id) async {
+    final d = await db;
+    final rows = await d.query(
+      'reports',
+      where: 'ID = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return Map<String, Object?>.from(rows.first);
+  }
+
   static Future<({bool changed, CaptureResult? cap})> reparseReportWithCapture(
     Report r,
     String category,
@@ -2065,6 +2091,10 @@ class LocalDbService {
     String? ssnpcCd,
     String? ssnpcType,
     RawDetailUpsert? rawDetail,
+    // 7-4 재확인 기준(lease 안에서 읽은 스냅샷). null 이면 여기서 읽는다.
+    // 트랜잭션 안에서 다시 읽은 행의 답변일·처리내용·상태가 이 스냅샷과 다르면
+    // [ReparseConflict] 를 던진다(덮지 않고 다음 회차, 시도 횟수 증가 없음).
+    Map<String, Object?>? baseRow,
     required Future<CaptureResult?> Function(
       Report captureReport,
       String? photoFirst,
@@ -2077,6 +2107,22 @@ class LocalDbService {
     final code = report_category.normalizeCode(ssnpcCd, ssnpcType);
     var changedResult = false;
     CaptureResult? capResult;
+    // 공유 캡처 입력의 목록 값·사진 촬영 값은 기존 행 스냅샷으로 채운다.
+    // 개인 DB 트랜잭션을 잡은 채 커뮤니티 DB 에 쓰면 일반 동기화와 잠금 순서가
+    // 반대가 되므로(교착 위험) 캡처(커뮤니티 쓰기)를 트랜잭션 밖에서 먼저 하고
+    // 개인 DB 쓰기는 뒤 트랜잭션에서 한다 — 일반 저장과 같은 순서다.
+    final base = baseRow != null
+        ? Map<String, Object?>.from(baseRow)
+        : await readReparseBase(r.id);
+    if (base == null) throw ReparseSkipped('no_report');
+    // 공유 캡처 입력의 목록 값·사진 촬영 값은 쓰기 잠금 안에서 읽은 기존 행으로 채운다 —
+    // 잠금 전에 읽은 옛값·파서 기본값으로 payload 가 달라지지 않게(서버와 같음).
+    final captureReport = _captureReportWithExistingTitles(r, base);
+    capResult = await capture(
+      captureReport,
+      base['사진_첫촬영'] as String?,
+      base['사진_끝촬영'] as String?,
+    );
     await d.transaction((txn) async {
       final existingRows = await txn.query(
         'reports',
@@ -2086,14 +2132,13 @@ class LocalDbService {
       );
       if (existingRows.isEmpty) throw ReparseSkipped('no_report');
       final existing = Map<String, Object?>.from(existingRows.first);
-      // 공유 캡처 입력의 목록 값·사진 촬영 값은 쓰기 잠금 안에서 읽은 기존 행으로 채운다 —
-      // 잠금 전에 읽은 옛값·파서 기본값으로 payload 가 달라지지 않게(서버와 같음).
-      final captureReport = _captureReportWithExistingTitles(r, existing);
-      capResult = await capture(
-        captureReport,
-        existing['사진_첫촬영'] as String?,
-        existing['사진_끝촬영'] as String?,
-      );
+      // 저장 직전 재확인(7-4, 서버도 같음): 다른 엔진이 그사이 이 행의
+      // 답변일·처리내용·상태를 바꿨으면 저장하지 않고 다음 회차로 넘긴다.
+      for (final key in const ['답변일', '처리내용', '상태']) {
+        if (_stringify(existing[key]) != _stringify(base[key])) {
+          throw ReparseConflict('row_changed:$key');
+        }
+      }
       // 목록 열은 일부러 읽지도 쓰지도 않는다 — 목록 크롤이 채운 값을 유지한다(서버와 같음).
       final cd = code.ssnpcCd ?? existing['ssnpc_cd']?.toString();
       final type = code.ssnpcCd != null

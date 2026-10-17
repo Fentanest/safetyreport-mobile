@@ -72,6 +72,40 @@ class DownloadCancelled implements Exception {
   String toString() => 'DB 다운로드를 취소했습니다.';
 }
 
+/// 신고 상세 원본 1건(2026-10-17, 명세 4절 — 서버 `GET /api/v1/reports/{id}/raw-detail`).
+/// `json` 은 신고자 키 5개가 이미 빠진 저장 원본 그대로(객체)다.
+class RawDetailPayload {
+  final String id;
+  final String fetchedAt;
+  final String source;
+  final String sha256;
+  final Map<String, dynamic> json;
+
+  const RawDetailPayload({
+    required this.id,
+    required this.fetchedAt,
+    required this.source,
+    required this.sha256,
+    required this.json,
+  });
+}
+
+/// 원본 없음(404 `{error: "raw_detail_missing"}`, ID 이탈 포함).
+class RawDetailMissing implements Exception {
+  const RawDetailMissing();
+
+  @override
+  String toString() => '아직 원본이 없습니다(DB 최적화가 채웁니다)';
+}
+
+/// 저장 원본 손상(409 `{error: "raw_detail_corrupt"}`).
+class RawDetailCorrupt implements Exception {
+  const RawDetailCorrupt();
+
+  @override
+  String toString() => '저장된 원본이 손상되었습니다';
+}
+
 class ApiService {
   final String baseUrl;
   final String apiKey;
@@ -551,6 +585,32 @@ class ApiService {
     return DeleteFilesResult(
       deletedCount: (json['deleted_count'] as num?)?.toInt() ?? 0,
       errors: rawErrors.map((error) => error.toString()).toList(),
+    );
+  }
+
+    /// 신고 상세 원본(2026-10-17, 명세 4절, 추가만). 200 → payload, 404 → [RawDetailMissing],
+  /// 409 → [RawDetailCorrupt]. 그 밖의 상태·네트워크 오류는 그대로 던진다(화면에서 재시도).
+  Future<RawDetailPayload> fetchRawDetail(String reportId) async {
+    final response = await _sendWithRetry(
+      (client) => client.get(
+        ServerContract.apiUri(baseUrl, ServerContract.rawDetailPath(reportId)),
+        headers: _headers,
+      ),
+    );
+    if (response.statusCode == 404) throw const RawDetailMissing();
+    if (response.statusCode == 409) throw const RawDetailCorrupt();
+    if (response.statusCode != 200) {
+      throw Exception('원본 응답 조회 실패: ${response.statusCode}');
+    }
+    final body = _decodeResponse(response) as Map<String, dynamic>;
+    final json = body['json'];
+    if (json is! Map) throw const RawDetailCorrupt();
+    return RawDetailPayload(
+      id: (body['id'] ?? reportId).toString(),
+      fetchedAt: (body['fetched_at'] ?? '').toString(),
+      source: (body['source'] ?? '').toString(),
+      sha256: (body['raw_sha256'] ?? '').toString(),
+      json: Map<String, dynamic>.from(json),
     );
   }
 

@@ -1689,6 +1689,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         onPressed: () => AppRoutes.openFiles(context),
                       ),
                     ),
+                    // 원본 응답 폴더(Standalone만, 명세 4절): 기존 파일 탐색기를
+                    // `mysafetyreport/raw_details` 에서 연다. Client 는 서버 웹의
+                    // 파일 탐색기를 쓴다.
+                    if (provider.appMode == AppMode.standalone) ...[
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          icon: const Icon(Icons.data_object, size: 18),
+                          label: const Text('원본 응답 폴더'),
+                          onPressed: () => AppRoutes.openRawDetails(context),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 14),
                     Text(
                       '현재 기기(또는 서버)의 데이터를 파일로 백업합니다.\n${DbExportLocation.backupLocationHint}',

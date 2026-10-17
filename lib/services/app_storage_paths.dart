@@ -8,6 +8,10 @@ import 'dart:io';
 class AppStoragePaths {
   AppStoragePaths._();
 
+  /// 상세 원본 사본(사람이 보는 JSON) 하위 디렉터리 이름(명세 1-4·4절).
+  /// `Documents/mysafetyreport/raw_details/<ID>.json`.
+  static const rawDetailsSubdir = 'raw_details';
+
   static const _documentsRoot = '/storage/emulated/0/Documents/mysafetyreport';
   static const _downloadRoot = '/storage/emulated/0/Download/mysafetyreport';
 
@@ -17,8 +21,7 @@ class AppStoragePaths {
   static Directory exportsRoot() => _ensure('');
 
   /// sunwi/ 처럼 기능별 하위 디렉토리. [subdir] 는 슬래시 없는 단일 이름이어야 한다.
-  static Directory subDir(String subdir) {
-    final clean = subdir.replaceAll(RegExp(r'^/+|/+$'), '');
+  static Directory subDir(String subdir) {    final clean = subdir.replaceAll(RegExp(r'^/+|/+$'), '');
     return _ensure(clean);
   }
 

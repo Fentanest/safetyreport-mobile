@@ -93,6 +93,17 @@ class LocalFileEntry {
   });
 }
 
+/// 원본 파일 사본 폴더(`mysafetyreport/raw_details`) 자체는 삭제할 수 없다.
+/// 원본은 DB 에서 다시 만들 뿐 지우지 않는다(서버 파일 탐색기의 raw_details
+/// 삭제 금지와 같은 규칙). 안의 파일은 기존 탐색기 규칙(보기·공유·삭제)을 따른다.
+/// [path] 가 raw_details 폴더 자체면 true.
+@visibleForTesting
+bool isProtectedRawDetailsDir(String path, String rootPath) {
+  final norm = path.replaceAll(RegExp(r'/+$'), '');
+  final raw = '$rootPath/${AppStoragePaths.rawDetailsSubdir}';
+  return norm == raw;
+}
+
 /// 파일 화면이 쓰는 로컬 파일 시스템 접근. 화면 build 는 이것을 부르지 않는다(목록을 읽을 때만 비동기로 쓴다).
 class LocalFileSource {
   const LocalFileSource();
@@ -138,10 +149,15 @@ class FileBrowserScreen extends StatefulWidget {
   const FileBrowserScreen({
     super.key,
     this.localFiles = const LocalFileSource(),
+    this.initialSubdir,
   });
 
   /// Standalone 로컬 파일 접근. 테스트는 가짜 나열기를 넣는다.
   final LocalFileSource localFiles;
+
+  /// 열자마자 들어갈 하위 폴더(단일 이름, 예: `raw_details`).
+  /// 설정 '데이터 관리'의 "원본 응답 폴더"에서 쓴다. 없거나 없으면 루트.
+  final String? initialSubdir;
 
   @override
   State<FileBrowserScreen> createState() => _FileBrowserScreenState();
@@ -168,6 +184,9 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
 
   bool _loading = true;
   late final bool _isStandalone;
+
+  /// 생성자 [FileBrowserScreen.initialSubdir] — 첫 목록 읽기 때 한 번만 쓴다.
+  String? _pendingInitialSubdir;
 
   int _lastRefreshNonce = 0;
 
@@ -247,6 +266,7 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     _isStandalone =
         Provider.of<ReportProvider>(context, listen: false).appMode ==
         AppMode.standalone;
+    _pendingInitialSubdir = widget.initialSubdir;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_isStandalone) {
         _loadLocalFiles();
@@ -298,6 +318,17 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
         targetPath = _currentLocalPath.isEmpty
             ? rootDir.path
             : _currentLocalPath;
+      }
+      // 설정 "원본 응답 폴더" 진입 — 첫 읽기 때만 하위 폴더로 들어간다.
+      final pending = _pendingInitialSubdir;
+      _pendingInitialSubdir = null;
+      if (pending != null &&
+          pending.isNotEmpty &&
+          (targetPath == rootDir.path)) {
+        final sub = Directory('${rootDir.path}/$pending');
+        if (await widget.localFiles.exists(sub)) {
+          targetPath = sub.path;
+        }
       }
       var dir = Directory(targetPath);
       if (!await widget.localFiles.exists(dir)) {
@@ -524,6 +555,14 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
   }
 
   void _deleteLocalFile(LocalFileEntry f) async {
+    // 원본 폴더 자체는 삭제할 수 없다(원본은 DB 에서 다시 만들 뿐 지우지 않는다).
+    if (f.isDirectory &&
+        isProtectedRawDetailsDir(f.path, _localRootPath)) {
+      if (mounted) {
+        showSrSnack(context, '원본 응답 폴더는 삭제할 수 없습니다.');
+      }
+      return;
+    }
     final name = f.name;
     final ok = await showDialog<bool>(
       context: context,
@@ -552,7 +591,11 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
   }
 
   Future<void> _deleteSelectedLocalFiles() async {
-    final files = _selectedLocalFiles.values.toList();
+    // 원본 폴더 자체는 선택 삭제에서도 제외한다(폴더는 선택 불가라 도달하지 않지만
+    // 규칙을 코드로 고정한다).
+    final files = _selectedLocalFiles.values
+        .where((f) => !isProtectedRawDetailsDir(f.path, _localRootPath))
+        .toList();
     if (files.isEmpty) return;
     final ok = await showDialog<bool>(
       context: context,

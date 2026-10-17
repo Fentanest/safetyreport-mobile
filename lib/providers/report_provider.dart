@@ -115,11 +115,20 @@ class ReportProvider with ChangeNotifier {
     _serverCapabilities = const [];
     _serverCapabilitiesKnown = false;
     _serverLawSearchSupported = null;
+    _serverRawDetailSupported = null;
     _appConfigLoadFuture = null;
   }
 
   /// 서버가 법규 검색 v2(`law_search_v2`)를 알렸는가. null = 아직 모름.
   bool? _serverLawSearchSupported;
+
+  /// 서버가 원본 응답 보기(`raw_detail_v1`)를 알렸는가. null = 아직 모름.
+  bool? _serverRawDetailSupported;
+
+  /// 상세 원본(원본 응답)을 볼 수 있는가. Standalone 은 로컬 DB라 항상, Client 는
+  /// 서버가 `raw_detail_v1` 을 알린 뒤에만 — 모르는 동안·구서버는 동작을 숨긴다.
+  bool get rawDetailSupported =>
+      _appMode == AppMode.standalone || (_serverRawDetailSupported ?? false);
 
   /// 정규화한 개별 법규 키와 `lawExact`(저장 키 소속 판정)를 쓸 수 있는가. Standalone 은 항상.
   /// Client 는 서버가 `law_search_v2` 를 알린 뒤에만 — 모르는 동안·구서버(v3.3.0 이하)는 예전처럼
@@ -859,7 +868,11 @@ class ReportProvider with ChangeNotifier {
       final lawSearch = ServerContract.supportsLawSearch(cfg);
       final lawSearchChanged = lawSearch != _serverLawSearchSupported;
       _serverLawSearchSupported = lawSearch;
+      final rawDetail = ServerContract.supportsRawDetail(cfg);
+      final rawDetailChanged = rawDetail != _serverRawDetailSupported;
+      _serverRawDetailSupported = rawDetail;
       if (!lawSearchChanged &&
+          !rawDetailChanged &&
           exclude == _excludeWithdraw &&
           representative == _useRepresentativeRecords &&
           _serverCapabilitiesKnown &&
@@ -973,6 +986,7 @@ class ReportProvider with ChangeNotifier {
       throw const QueryCancelled();
     }
     _serverLawSearchSupported = ServerContract.supportsLawSearch(cfg);
+    _serverRawDetailSupported = ServerContract.supportsRawDetail(cfg);
     return _serverSearchSupported =
         (cfg['capabilities'] as List? ?? const []).contains(
           ServerContract.reportSearchCapability,
@@ -983,6 +997,7 @@ class ReportProvider with ChangeNotifier {
   void _resetDatasetView() {
     _serverSearchSupported = null;
     _serverLawSearchSupported = null;
+    _serverRawDetailSupported = null;
     _serverPageInFlight.clear();
     _stats = null;
     _trafficReports = [];

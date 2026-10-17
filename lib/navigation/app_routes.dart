@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../screens/crawl_screen.dart';
 import '../screens/file_browser_screen.dart';
+import '../services/app_storage_paths.dart';
 
 /// 하단 탭에서 빠진 화면(동기화/크롤링, 파일)으로 가는 공용 경로 (D-06, 2026-09-24).
 ///
@@ -52,6 +53,21 @@ class AppRoutes {
         MaterialPageRoute(
           settings: const RouteSettings(name: filesRouteName),
           builder: (_) => const FileBrowserScreen(),
+        ),
+      ),
+    );
+  }
+
+  /// 원본 응답 폴더(Standalone, 설정 > 데이터 관리). 기존 파일 탐색기를
+  /// `mysafetyreport/raw_details` 에서 연다(보기·공유만, 폴더 삭제 금지).
+  static void openRawDetails(BuildContext context) {
+    unawaited(
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          settings: const RouteSettings(name: filesRouteName),
+          builder: (_) => FileBrowserScreen(
+            initialSubdir: AppStoragePaths.rawDetailsSubdir,
+          ),
         ),
       ),
     );

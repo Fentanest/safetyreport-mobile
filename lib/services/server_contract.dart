@@ -24,11 +24,23 @@ class ServerContract {
   static const lawSearchCapability = 'law_search_v2';
   static const lawSearchVersion = 2;
 
+  /// 원본 응답 보기(2026-10-17, 명세 4절, 추가만): 서버가 `GET /api/v1/reports/{id}/raw-detail`
+  /// (API 키 인증 → `{id, fetched_at, source, raw_sha256, json}`, 없음 404, 손상 409)을
+  /// 알리는 신호. 이 신호가 없는 구서버에는 Client 모드에서 원본 보기 동작을 보이지 않는다.
+  static const rawDetailCapability = 'raw_detail_v1';
+  static const rawDetailVersion = 1;
+
   static bool supportsLawSearch(Map<dynamic, dynamic> appConfig) =>
       (appConfig['capabilities'] as List? ?? const []).contains(
         lawSearchCapability,
       ) &&
       appConfig['law_search_version'] == lawSearchVersion;
+
+  static bool supportsRawDetail(Map<dynamic, dynamic> appConfig) =>
+      (appConfig['capabilities'] as List? ?? const []).contains(
+        rawDetailCapability,
+      ) &&
+      appConfig['raw_detail_version'] == rawDetailVersion;
 
   static const summaryPath = '$apiPrefix/summary';
   static const filesPath = '$apiPrefix/files';
@@ -89,6 +101,8 @@ class ServerContract {
       baseUrl.trim().replaceFirst(RegExp(r'/+$'), '');
 
   static String reportsPath(String category) => '$apiPrefix/reports/$category';
+  static String rawDetailPath(String reportId) =>
+      '$apiPrefix/reports/${Uri.encodeComponent(reportId)}/raw-detail';
   static String duplicateGroupPath(String groupId) =>
       '$duplicateGroupsPath/$groupId';
   static String editorRecordPath(String category, String recordId) =>

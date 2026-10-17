@@ -23,6 +23,7 @@ import '../screens/report_list_screen.dart';
 import '../services/review_prompt_service.dart';
 import '../services/standalone_auth_service.dart';
 import '../models/app_mode.dart';
+import '../screens/raw_detail_view_screen.dart';
 import '../services/client_media_access.dart';
 import '../services/client_compatibility.dart';
 import '../services/local_db_service.dart';
@@ -132,6 +133,32 @@ class ReportDetailSheet extends StatelessWidget {
   /// 대기열 꼬리가 다음 테스트의 불러오기를 막지 않게 한다.
   @visibleForTesting
   static void resetVideoLoadQueue() => _VideoLoadQueue.reset();
+
+  /// "원본 응답" 동작 표시 조건(명세 4절, 시험용 노출).
+  /// Standalone 은 로컬 DB라 항상, Client 는 서버가 `raw_detail_v1` 을 알릴 때만.
+  /// 구서버·신호 모름 상태에서는 숨긴다.
+  @visibleForTesting
+  static bool showRawDetailAction({
+    required AppMode mode,
+    required bool rawDetailSupported,
+  }) {
+    if (mode == AppMode.standalone) return true;
+    return rawDetailSupported;
+  }
+
+  bool _showRawDetailAction(BuildContext context) {
+    ReportProvider? p;
+    try {
+      p = context.read<ReportProvider?>();
+    } catch (_) {
+      return false;
+    }
+    if (p == null) return false;
+    return showRawDetailAction(
+      mode: p.appMode,
+      rawDetailSupported: p.rawDetailSupported,
+    );
+  }
 
   String _ratingLabel() {
     final rating = report.rating;
@@ -541,6 +568,38 @@ class ReportDetailSheet extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
+            if (_showRawDetailAction(context)) ...[
+              SizedBox(
+                width: double.infinity,
+                child: Semantics(
+                  button: true,
+                  label: '원본 응답 보기',
+                  child: OutlinedButton.icon(
+                    icon: Icon(Icons.data_object, size: 18),
+                    label: const Text('원본 응답'),
+                    onPressed: report.id.isEmpty
+                        ? null
+                        : () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => RawDetailViewScreen(
+                                reportId: report.id,
+                              ),
+                            ),
+                          ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '신고자 정보를 뺀 상세 원본 JSON을 보여줍니다.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: SrFontSize.caption,
+                  color: context.sr.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),

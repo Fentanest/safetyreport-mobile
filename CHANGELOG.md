@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-10-17 — 원본 응답 보기 (명세 4절 모바일, 미배포)
+
+- 신고 상세 시트('안전신문고 앱에서 보기' 근처)에 "원본 응답" 동작 → 전체 화면 JSON 보기
+  (고정폭·들여쓰기 2칸, 검색 일치 강조·다음/이전·건수, 전체 복사·공유 `<ID>.json`,
+  가로 스크롤 없이 줄바꿈, 360px·라이트/다크·시맨틱 레이블).
+  Standalone 은 로컬 `report_detail_raw` 읽기(zlib 해제·sha 검증), Client 는
+  서버 `GET /api/v1/reports/{id}/raw-detail`(경로 상수 `ServerContract.rawDetailPath`,
+  읽기 전용 참고 — 서버 `api_route.py::get_report_raw_detail`·`raw_detail_service.py`).
+  없음 → "아직 원본이 없습니다(DB 최적화가 채웁니다)", 손상 → 손상 안내,
+  구서버(capability `raw_detail_v1` 없음) → 동작 숨김, 네트워크 오류 → 재시도.
+  `lib/services/db_optimize*.dart` 는 건드리지 않았다.
+- Standalone 원본 보기 화면에 "파일로 다시 쓰기"(DB 원본으로
+  `Documents/mysafetyreport/raw_details/<ID>.json` 재생성, ID 검증 규칙 유지).
+- 설정 '데이터 관리'에 "원본 응답 폴더"(Standalone만, Client 는 서버 웹의 파일 탐색기) →
+  기존 파일 탐색기를 `raw_details` 에서 연다(보기·공유만, 삭제는 기존 규칙,
+  원본 폴더 자체 삭제는 금지 — 서버와 같은 규칙).
+- 서버와 다르게 한 점: 모바일 Client 에는 다시 쓰기·원본 폴더 항목이 없고 서버 웹을
+  쓰게 한다. 폴더 삭제 금지는 양쪽이 같다.
+- 검증: 신규 `test/services/raw_detail_api_test.dart` 7개,
+  `test/widgets/raw_detail_view_test.dart` 22개 통과.
+  전체 `flutter test`·`flutter analyze` 는 아래 기준선/최종 기록 참조.
+
 ## 2026-10-17 — DB 최적화 Sol 재검수 R2 5건 수정 (명세 3절, 서버와 같은 규칙, 미배포)
 
 - 시작 화면: `runApp` 을 DB 열기(17→18 업그레이드) 전에 먼저 호출한다(`StartupLoadingApp`).

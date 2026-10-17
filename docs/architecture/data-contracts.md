@@ -593,6 +593,54 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
   화면·교체 완료 재판단·동기화 종료 보류 재시도·성공 뒤 삭제/삭제 실패 진단·표시줄 오류 첫
   마운트·영속·재시작 복원 — 수정 전 실패 확인).
 
+## 2026-10-17 원본 보기 — 모바일 화면·Client API 사용 (명세 4절)
+
+서버 `web/routers/api_route.py::get_report_raw_detail`,
+`services/raw_detail_service.py` 는 읽기 전용 참고(모바일이 바꾸지 않음).
+표시하는 JSON 은 신고자 키 5개가 이미 빠진 저장 원본 그대로다.
+
+- **Client API 사용**(`lib/services/api_service.dart::fetchRawDetail`,
+  경로 상수 `ServerContract.rawDetailPath(id)` = `/api/v1/reports/{id}/raw-detail`,
+  추가만·기존 응답 불변): 200 → `{id, fetched_at, source, raw_sha256, json}`
+  (`json` 이 객체가 아니면 손상으로 취급), 404 → [RawDetailMissing]
+  (없음·ID 이탈 — "아직 원본이 없습니다(DB 최적화가 채웁니다)"),
+  409 → [RawDetailCorrupt](손상 안내). 그 밖의 상태·네트워크 오류는 그대로 던져
+  화면에서 "다시 시도"한다.
+  ID 는 `Uri.encodeComponent` 로 경로에 넣는다(슬래시 이탈 시도가 경로를 깨지 않음).
+- **신호 게이트**(`ServerContract.supportsRawDetail` — `capabilities` 에
+  `raw_detail_v1` 이 있고 `raw_detail_version == 1`,
+  `ReportProvider.rawDetailSupported`): Standalone 은 로컬 DB라 항상 참,
+  Client 는 서버가 이 신호를 알릴 때만 참. 구서버·신호 모름 상태에서는
+  신고 상세 시트의 "원본 응답" 동작을 숨긴다(모르는 동안 예전처럼 보인다).
+- **Standalone 읽기**: `LocalDbService.getDetailRaw` → `report_detail_raw` 행이
+  없으면 없음, `decompressAndVerifyRawDetail` 실패(zlib 해제·sha 불일치)나
+  JSON 복원 실패면 손상. 읽을 때 재압축하지 않는다.
+- **화면**(`lib/screens/raw_detail_view_screen.dart`): 신고 상세 시트
+  (`lib/widgets/report_detail_sheet.dart`, '안전신문고 앱에서 보기' 근처)의
+  "원본 응답" 동작 → 전체 화면 JSON 보기. 들여쓰기 2칸·고정폭,
+  검색(일치 강조·다음·이전·건수, 대소문자 무시), 전체 복사, 공유(임시 `<ID>.json`),
+  가로 스크롤 없이 줄바꿈(긴 본문 문자열 고려), 360px·라이트·다크,
+  시맨틱 레이블(동작·건수·복사·공유·다시 쓰기).
+  로딩/없음/손상/오류(재시도) 상태를 구분한다.
+- **"파일로 다시 쓰기"**(Standalone만):
+  `writeRawDetailFile(reportId, sanitized)` 로 DB 원본을
+  `Documents/mysafetyreport/raw_details/<ID>.json` 에 재생성한다
+  (임시 파일→rename, ID 검증 규칙 유지 — 어기면 쓰지 않고 안내).
+  Client 에는 이 동작이 없다(원본 파일은 서버 웹의 파일 탐색기가 맡는다).
+- **설정 '데이터 관리' "원본 응답 폴더"**(Standalone만, Client 는 서버 웹의
+  파일 탐색기): `AppRoutes.openRawDetails` → 기존 파일 탐색기
+  (`FileBrowserScreen.initialSubdir = AppStoragePaths.rawDetailsSubdir`)를
+  `raw_details` 에서 연다. 안의 파일은 기존 탐색기 규칙(보기·공유·삭제)을 따르고,
+  폴더 자체는 삭제할 수 없다(`isProtectedRawDetailsDir` — 서버 파일 탐색기의
+  raw_details 삭제 금지와 같은 규칙, UI 에 폴더 삭제 수단은 원래 없다).
+- **서버와 다르게 한 점**: 모바일 Client 에는 다시 쓰기·원본 폴더 항목이 없고
+  같은 서버의 웹 화면을 쓰게 한다(모바일이 서버 파일을 직접 쓰지 않음).
+  raw_details 폴더 삭제 금지는 양쪽이 같다.
+- **시험**: `test/services/raw_detail_api_test.dart`(200·404·409·비객체·그 밖 상태·경로),
+  `test/widgets/raw_detail_view_test.dart`(표시 조건 Standalone/Client capability 유무,
+  정상 표시·검색·복사, 없음·손상·네트워크 오류 안내, 다시 쓰기, 설정 항목·폴더 열기,
+  360px 라이트/다크 오버플로 없음).
+
 ## 2026-09-27 신고 자료의 주인 = 카카오 계정 (서버·모바일 함께)
 
 사용자 결정: 카카오 로그인은 필수, 카카오 로그아웃은 신고 자료를 지운다, 다른 사람의 DB 는 가져오지 못한다.

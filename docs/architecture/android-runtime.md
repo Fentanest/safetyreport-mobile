@@ -351,6 +351,11 @@ class ChangeType {
 - 패키지 변경과 엔진 교체는 별도 커밋으로 검토할 수 있다. 엔진 변경 묶음은 `bundled_sqlite.dart`, main/WorkManager 초기화,
   pubspec의 sqflite/FFI/sqlite3·hook 설정, `third_party/sqlite/`, SQLite 검증 파일이다.
   기존 FTS와 별도 엔진 간 잠금·백업 무결성이 걸려 있어 단순 패키지 버전 변경보다 위험이 높다.
+- **앱 캐시 정리(2026-10-17)**: Android 앱 프로세스의 `TMPDIR`·`Directory.systemTemp`는 AOSP `ActivityThread` 설정상 앱 캐시 폴더다(실기기 미확인 — 정리는 두 경로를 모두 본다). 가져오기·복원·중복 재계산의
+  스테이징 폴더와 백업 내보내기 사본은 `finally`에서 지우지만 도중에 프로세스가 끝나면 DB 사본 크기 그대로 남고, 첨부 캐시
+  (`attachments/`)는 지우는 코드가 없었다. `CacheHygiene.runAtStartup()`(main, `StartupLoadingApp` 직후, 기다리지 않음)이
+  6시간 넘은 스테이징·사본, 14일 넘은 첨부, 300MB를 넘는 첨부(오래된 것부터)를 지운다. 최근에 바뀐 항목은 다른 엔진이 쓰는 중일 수 있어 남긴다.
+  DB 파일(databases 폴더)·Documents 산출물·플러그인 캐시(share_plus·file_picker)는 건드리지 않는다.
 
 ### 로컬 테스트 빌드 (`build_test_apk.sh`)
 고정 Flutter 로컬 CLI.

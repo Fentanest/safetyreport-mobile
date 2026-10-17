@@ -10,7 +10,7 @@
 - 통계 법규 막대·드릴다운: `matchesLawKeys`로 Standalone 통계 법규 선택·드릴다운·상세 법규 링크가 막대 집계와 같은 판정을 쓴다. 서버가 `law_search_v2`를 알릴 때만 정규화한 키와 `lawExact`를 보내고, 구서버(v3.3.0 이하)에는 예전처럼 저장 원문 값을 쓴다(새 앱+구서버 법규 검색 0건 해소).
 - 공유 캡처: `amount.kind`를 계약대로 앞머리 기준으로 판정해 예약값 `combined`를 더 만들지 않는다(예전 journal은 보충이 불일치로 보지 않음). 재전송·사진 보충 추정 판정을 일반 캡처와 같게 맞추고, 사진 보충 뒤 그 신고의 공유 추정을 다시 계산한다(PC `fill_one`과 같은 자리). 촬영 시각 저장은 첨부가 그사이 바뀌지 않았을 때만 한다. 공유 갱신과 재시도 의도가 모두 실패하면 `clearPhotoCapture`로 촬영 시각을 되돌려 다음 훑기가 다시 시도한다(10-17, PC 롤백과 같은 의미). 되돌리는 쓰기까지 실패하는 경우는 잔여 한계로 문서에 남겼다.
 - CI: Play versionCode 경합을 막도록 `build-apk.yml`·`production.yml`의 concurrency group을 브랜치와 무관한 고정값으로 바꿨다(실행하지 않음). 2.2.0 이후 미출시 노트(`docs/releases/unreleased.md`)를 작성했다. 이륜 번호판 모호 예시 문서를 정정했다. 파서 버전 mobile-parser-12.
-- 검증: 모바일 전체 `flutter test` 2,116개 통과(건너뜀 19), 변경 파일 `dart analyze` 문제 없음. 제공 백업 15,804행에서 Dart와 Python 결과(법규·명시 금액·보완·전체 파서) 차이 0행, 10-16 결과 대비 변경 0행. 공통 벡터(`explicit-fine-vectors.json`·`case-fine-supplement-vectors.json`·`community_backfill_vectors.json`·`law-search-vectors.json`)는 PC와 바이트 동일.
+- 검증: 모바일 전체 `flutter test` 2,139개 통과(건너뜀 19, 최종 커밋 기준), 변경 파일 `dart analyze` 문제 없음. 제공 백업 15,804행에서 Dart와 Python 결과(법규·명시 금액·보완·전체 파서) 차이 0행, 10-16 결과 대비 변경 0행. 공통 벡터(`explicit-fine-vectors.json`·`case-fine-supplement-vectors.json`·`community_backfill_vectors.json`·`law-search-vectors.json`)는 PC와 바이트 동일.
 
 ## 2026-10-15 — 복수 법규 저장·개별 검색 통합 (미배포)
 

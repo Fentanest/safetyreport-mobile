@@ -439,7 +439,7 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
     교환·백업은 저장된 BLOB 바이트를 그대로 옮긴다(재압축 금지). 읽을 때는 해제 뒤 sha 대조, 불일치는 손상(조용히 버리지 않음).
   - 저장 시점(서버와 같은 시점·호출 지점 1:1): `StandaloneApiService.fetchReportDetail` 이 envelope 도 돌려주고
     (`result` 는 기존 의미 유지 — 파서 입력은 지금처럼 result), `SyncEngine.captureAndSaveDetail` 이 `upsertReport` 와 같은 트랜잭션에서
-    원본을 저장한다(증분/전체 루프 `source='sync'`·rebuild `'rebuild'`·알림 단건 `'notification'`). 증분/전체/rebuild 루프·알림 단건 모두.
+    원본을 저장한다(증분/전체 루프 `source='crawl'`·rebuild `'rebuild'`·알림 단건 `'notification'`). 증분/전체/rebuild 루프·알림 단건 모두.
     원본 파일(사람이 보는 사본)은 `Documents/mysafetyreport/raw_details/<ID>.json`(들여쓰기 2칸, 임시 파일→rename) —
     파일 쓰기 실패는 DB 저장을 막지 않고 로그만 남긴다.
   - `_open` 체인: `migrateInPlace`(16→17) → `migrate17To18`(17→18: 업그레이드 전 백업 `<db>.before_v18.<ms>.bak` → 표 생성 → 표·열 대조 →

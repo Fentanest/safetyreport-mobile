@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+
+import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 
 import 'app_storage_paths.dart';
 
@@ -101,19 +103,46 @@ String formatRawFetchedAt(DateTime now) {
       'T${two(utc.hour)}:${two(utc.minute)}:${two(utc.second)}.${three(utc.millisecond)}Z';
 }
 
+/// 원본 파일 이름에 쓸 수 있는 신고 ID(서버 `is_safe_report_id` 와 같은 규칙).
+/// 영숫자·`_`·`-`만, 1~64자. 슬래시·역슬래시·점·공백·빈 값 등은 쓰지 않는다.
+final _safeReportId = RegExp(r'^[A-Za-z0-9_-]{1,64}$');
+
+/// 원본 파일 이름에 그대로 넣어도 되는 신고 ID 인지. 아니면 false.
+bool isSafeReportId(String reportId) => _safeReportId.hasMatch(reportId);
+
+/// `directory/<ID>.json` 정규화 경로(서버 `raw_file_path` 와 같은 규칙).
+/// ID 가 파일 이름 규칙에 안 맞거나 정규화한 최종 경로가 `directory` 를
+/// 벗어나면 null(쓰지 않고 호출자가 진단만 기록한다).
+String? rawFilePath(String reportId, Directory directory) {
+  if (!isSafeReportId(reportId)) return null;
+  final base = p.normalize(directory.absolute.path);
+  final path = p.normalize(p.join(base, '$reportId.json'));
+  if (p.dirname(path) != base) return null;
+  return path;
+}
+
 /// 원본 파일(사람이 보는 사본): 신고자 키를 뺀 객체를 들여쓰기 2칸 UTF-8 JSON(비ASCII 그대로)으로 쓴다.
 /// 신고당 최신 1개, 받을 때마다 덮어쓴다(임시 파일 → rename).
 /// 기본 위치는 `Documents/mysafetyreport/raw_details/<ID>.json`([AppStoragePaths.subDir]).
 /// [dir] 을 지정하면 그곳에 쓴다(시험용).
-Future<void> writeRawDetailFile(
+/// ID 가 파일 이름 규칙에 안 맞거나 최종 경로가 디렉터리를 벗어나면 쓰지 않고
+/// 진단 기록만 남기고 null 을 돌려준다(서버 `write_raw_file` 과 같음). 쓴 경로면 그 경로.
+/// 파일 쓰기 실패는 예외를 던진다(호출자가 DB 저장을 유지하고 로그만 남긴다).
+Future<String?> writeRawDetailFile(
   String reportId,
   Map<String, dynamic> sanitized, {
   Directory? dir,
 }) async {
   final targetDir = dir ?? AppStoragePaths.subDir('raw_details');
-  final tmp = File('${targetDir.path}/$reportId.json.tmp');
-  final target = File('${targetDir.path}/$reportId.json');
+  final targetPath = rawFilePath(reportId, targetDir);
+  if (targetPath == null) {
+    debugPrint('원본 파일 쓰기 건너뜀 — 안전하지 않은 ID: $reportId');
+    return null;
+  }
+  final tmp = File('$targetPath.tmp');
+  final target = File(targetPath);
   const encoder = JsonEncoder.withIndent('  ');
   await tmp.writeAsString(encoder.convert(sanitized), encoding: utf8);
   await tmp.rename(target.path);
+  return targetPath;
 }

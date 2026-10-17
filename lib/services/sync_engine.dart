@@ -678,8 +678,8 @@ class SyncEngine {
               item: item,
               detail: fetched.result,
               envelope: fetched.envelope,
-              // 증분·전체 루프는 'sync', rebuild 루프는 'rebuild' 로 원본 출처를 남긴다(명세 1-2 source).
-              rawSource: isRebuild ? 'rebuild' : 'sync',
+              // 증분·전체 루프는 'crawl', rebuild 루프는 'rebuild' 로 원본 출처를 남긴다(명세 1-2 source·서버와 같음).
+              rawSource: isRebuild ? 'rebuild' : 'crawl',
               trigger: trigger,
               rebuildRunId: rebuildRunId,
               tracker: captureTracker,
@@ -1130,7 +1130,7 @@ class SyncEngine {
     required Map<String, dynamic> item,
     required Map<String, dynamic> detail,
     Map<String, dynamic>? envelope,
-    String rawSource = 'sync',
+    String rawSource = 'crawl',
     Directory? rawFileDir,
     required String trigger,
     String? rebuildRunId,
@@ -1254,9 +1254,17 @@ class SyncEngine {
     }
     await markPersonalSave(cap.eventId, true, store: communityStore);
     // 원본 파일(사람이 보는 사본): DB 저장을 막지 않는다. 실패하면 로그만 남긴다(명세 1-4).
+    // 안전하지 않은 ID 면 쓰지 않고 진단만 기록한다(서버 write_raw_file 과 같음).
     if (rawSanitized != null) {
       try {
-        await writeRawDetailFile(cNo, rawSanitized, dir: rawFileDir);
+        final written = await writeRawDetailFile(
+          cNo,
+          rawSanitized,
+          dir: rawFileDir,
+        );
+        if (written == null) {
+          emitLog('원본 파일 쓰기 건너뜀 — 안전하지 않은 ID ($cNo)');
+        }
       } catch (e) {
         emitLog('원본 파일 쓰기 실패 — DB 저장은 유지합니다 ($cNo): $e');
       }

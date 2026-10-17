@@ -200,7 +200,7 @@ void main() {
         sha256: prepared.sha256,
         size: prepared.canonical.length,
         fetchedAt: '2026-10-17T12:00:00.000Z',
-        source: 'sync',
+        source: 'crawl',
       ),
     );
     final path = '${files.path}/backup_raw.db';
@@ -219,7 +219,7 @@ void main() {
     expect(row['raw_sha256'], prepared.sha256);
     expect(row['raw_size'], prepared.canonical.length);
     expect(row['fetched_at'], '2026-10-17T12:00:00.000Z');
-    expect(row['source'], 'sync');
+    expect(row['source'], 'crawl');
   });
 
   test('복수 법규 원본과 사용자 수정값을 백업 복원한다', () async {

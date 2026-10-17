@@ -108,7 +108,7 @@ void main() {
       _report('r-1'),
       'traffic',
       '자동차·교통위반-신호위반',
-      rawDetail: _upsertOf(envelope, 'sync'),
+      rawDetail: _upsertOf(envelope, 'crawl'),
     );
     final db = await LocalDbService.db;
     final row =
@@ -118,7 +118,7 @@ void main() {
           whereArgs: ['r-1'],
         )).single;
     expect(row['raw_sha256'], prepareRawDetail(envelope).sha256);
-    expect(row['source'], 'sync');
+    expect(row['source'], 'crawl');
     expect(
       decompressAndVerifyRawDetail(
         row['raw_zlib'] as Uint8List,
@@ -174,7 +174,7 @@ void main() {
       item: const {},
       detail: detail,
       envelope: envelope,
-      rawSource: 'sync',
+      rawSource: 'crawl',
       rawFileDir: rawDir,
       trigger: 'realtime',
       tracker: CaptureTracker(),
@@ -187,7 +187,7 @@ void main() {
 
     // 원본 표: 같은 ID, sha 일치, BLOB 해제 대조 통과.
     final row = (await LocalDbService.getDetailRaw(cNo))!;
-    expect(row['source'], 'sync');
+    expect(row['source'], 'crawl');
     expect(row['raw_sha256'], prepareRawDetail(envelope).sha256);
     expect(
       (row['fetched_at'] as String),
@@ -218,13 +218,13 @@ void main() {
       _report('keep'),
       'traffic',
       '자동차·교통위반-신호위반',
-      rawDetail: _upsertOf(envelope, 'sync'),
+      rawDetail: _upsertOf(envelope, 'crawl'),
     );
     await LocalDbService.upsertReport(
       _report('stale'),
       'traffic',
       '자동차·교통위반-신호위반',
-      rawDetail: _upsertOf(envelope, 'sync'),
+      rawDetail: _upsertOf(envelope, 'crawl'),
     );
     expect(await LocalDbService.removeReportsNotIn({'keep'}), 1);
     final db = await LocalDbService.db;

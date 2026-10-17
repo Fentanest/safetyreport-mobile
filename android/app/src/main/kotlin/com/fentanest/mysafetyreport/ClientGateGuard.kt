@@ -9,11 +9,25 @@ object ClientGateGuard {
         JSONObject(prefs.getString("flutter.community_gate_cache_v1", "") ?: "")
             .let { cache ->
                 val age = System.currentTimeMillis() - cache.optLong("verified_at", -1L)
-                cache.optString("state") == "ok" && age >= 0 && age <= 600_000
+                cache.optString("state") == "ok" && age >= 0 && age <= VALID_MS
             }
     } catch (_: Exception) {
         false
     }
+
+    /** 인증 확인 결과가 유효한 시간(10분). 늘리지 않는다 — 대신 만료 전에 갱신한다([needsRenewal]). */
+    const val VALID_MS = 600_000L
+
+    /** 이 나이를 넘으면 연결을 유지한 채 화면 없이 미리 다시 확인한다(만료 3분 전). */
+    const val RENEW_AFTER_MS = 420_000L
+
+    /** 열려 있지만 곧 만료된다 — 연결 중인 WsService 가 끊기기 전에 갱신을 요청한다. */
+    fun needsRenewal(prefs: SharedPreferences): Boolean = try {
+        JSONObject(prefs.getString("flutter.community_gate_cache_v1", "") ?: "").let { cache ->
+            val age = System.currentTimeMillis() - cache.optLong("verified_at", -1L)
+            cache.optString("state") == "ok" && cache.optString("owner").isNotBlank() && age >= RENEW_AFTER_MS
+        }
+    } catch (_: Exception) { false }
 
     fun canRenew(prefs: SharedPreferences): Boolean = try {
         val cache = JSONObject(prefs.getString("flutter.community_gate_cache_v1", "") ?: "")

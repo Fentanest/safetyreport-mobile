@@ -46,6 +46,17 @@ class NotificationWork(context: Context, params: WorkerParameters) : ListenableW
             }, scheduler)
         }
 
+        /**
+         * Client 인증 확인 갱신(WsService, 2026-10-17). [schedule] 의 KEEP 은 앞선 실패의 지수 대기(최대 5시간) 중인 작업에
+         * 묶여 그동안 WebSocket 이 '인증 확인 후 서버에 다시 연결합니다' 에서 멈춘다. [scheduleFresh] 와 같은 규칙으로 바로 예약한다.
+         * 호출 빈도는 WsService 가 제한한다.
+         */
+        fun scheduleGateRenewal(context: Context) {
+            context.getSharedPreferences("NotificationWork", Context.MODE_PRIVATE)
+                .edit().putBoolean("renew_gate", true).commit()
+            scheduleFresh(context)
+        }
+
         private fun oneTime(): OneTimeWorkRequest.Builder {
             val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
             val request = OneTimeWorkRequest.Builder(NotificationWork::class.java)

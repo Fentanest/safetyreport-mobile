@@ -48,6 +48,15 @@ class WsService : Service() {
 
         // 재연결 지연: 3초 → 6초 → 12초 → … 최대 60초
         private val BACKOFF_MS = longArrayOf(3_000, 6_000, 12_000, 24_000, 60_000)
+
+        // 인증 확인 갱신 요청 간격(실패가 이어질 때 화면 없는 엔진을 계속 띄우지 않게). 만료된 채 갱신이 안 되면
+        // 2분 → 4분 → … 30분으로 늘리고, 캐시가 다시 열리면 되돌린다.
+        private const val RENEW_REQUEST_MIN_INTERVAL_MS = 120_000L
+        private const val RENEW_REQUEST_MAX_INTERVAL_MS = 30 * 60_000L
+        // 만료된 인증 확인이 갱신되기를 기다리며 로컬 캐시만 다시 보는 간격(네트워크 없음).
+        private const val GATE_WAIT_POLL_MS = 5_000L
+        // 연결 중 인증 확인 나이를 보는 간격.
+        private const val RENEW_CHECK_INTERVAL_S = 30L
     }
 
     private val running   = AtomicBoolean(false)
@@ -56,6 +65,8 @@ class WsService : Service() {
     private var okClient: OkHttpClient? = null
     private var activeWs: WebSocket? = null
     private var reconnectThread: Thread? = null
+    @Volatile private var lastRenewRequestAt = 0L
+    @Volatile private var renewRequestInterval = RENEW_REQUEST_MIN_INTERVAL_MS
 
     // ─────────────────────────────────────────────────────────────────────────
     // Service 생명주기
@@ -91,6 +102,7 @@ class WsService : Service() {
     override fun onDestroy() {
         running.set(false)
         closeActiveConnections()
+        cancelForegroundNotif()
         super.onDestroy()
     }
 
@@ -112,13 +124,15 @@ class WsService : Service() {
                 if (!ClientGateGuard.isOpen(prefs)) {
                     // 만료는 철회가 아니다. WorkManager가 화면 없이 재검증하고,
                     // 성공 전까지 메시지를 처리하지 않은 채 재연결을 기다린다.
+                    // 연결 중에는 만료 전에 미리 갱신하므로([maybeRenewGate]) 여기는 갱신이 실패·지연됐을 때만 온다.
                     if (!ClientGateGuard.canRenew(prefs)) {
                         shutdownService("Client gate requires user action")
                         break
                     }
-                    runCatching { NotificationWork.schedule(this, renewGate = true) }
-                    updateForegroundNotif("인증 확인 후 서버에 다시 연결합니다")
-                    try { Thread.sleep(30_000) } catch (_: InterruptedException) { break }
+                    requestGateRenewal(expired = true)
+                    attempt = 0
+                    updateForegroundNotif("로그인 확인 중입니다. 확인되면 서버에 다시 연결합니다")
+                    try { Thread.sleep(GATE_WAIT_POLL_MS) } catch (_: InterruptedException) { break }
                     continue
                 }
 
@@ -147,7 +161,8 @@ class WsService : Service() {
                 }.build().toString()
 
                 Log.i(TAG, "WS 연결 시도 #$attempt")
-                updateForegroundNotif("서버 연결 중... (#$attempt)")
+                updateForegroundNotif(if (attempt == 0) "서버 연결 중..." else "서버 연결 재시도 중... (${attempt}회째)")
+                maybeRenewGate(prefs)
 
                 if (stamp != ClientGateGuard.configStamp(prefs) || !ClientGateGuard.isOpen(prefs)) continue
                 val connected = connectAndBlock(wsUrl, stamp)
@@ -216,13 +231,16 @@ class WsService : Service() {
                 } else if (current() && (response?.code == 401 || response?.code == 403)) {
                     shutdownService("서버 API 키를 확인하세요.")
                 }
-                Log.w(TAG, "WS transport failure: ${t.javaClass.simpleName}")
+                Log.w(TAG, "WS transport failure: ${t.javaClass.simpleName} http=${response?.code ?: "-"}")
                 latch.countDown()
             }
         })
         activeWs = ws
 
-        try { latch.await() } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
+        // 연결을 유지하는 동안 인증 확인이 만료되기 전에 미리 갱신한다(만료되면 다음 메시지에서 끊는다 — onMessage).
+        try {
+            while (!latch.await(RENEW_CHECK_INTERVAL_S, TimeUnit.SECONDS)) maybeRenewGate(prefs)
+        } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
         client.dispatcher.executorService.shutdown()
         return connected
     }
@@ -630,8 +648,32 @@ class WsService : Service() {
     }
 
     private fun updateForegroundNotif(text: String) {
+        // 서비스가 멈춘 뒤 루프 스레드(진행 중인 HTTP 확인 등)가 늦게 부르면 같은 ID 로 서비스 없는 알림이 남는다.
+        if (!running.get()) return
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(FOREGROUND_NOTIF_ID, buildForegroundNotif(text))
+    }
+
+    private fun cancelForegroundNotif() {
+        runCatching {
+            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(FOREGROUND_NOTIF_ID)
+        }
+    }
+
+    /** 인증 확인이 곧 만료되면(7분 이상) 연결을 유지한 채 화면 없이 미리 다시 확인한다. */
+    private fun maybeRenewGate(prefs: android.content.SharedPreferences) {
+        if (running.get() && ClientGateGuard.needsRenewal(prefs)) requestGateRenewal()
+    }
+
+    private fun requestGateRenewal(expired: Boolean = false) {
+        val now = System.currentTimeMillis()
+        // 캐시가 열려 있으면(만료 전 갱신) 간격을 되돌린다 — 늘어난 간격이 미리 갱신을 막으면 다시 만료된다.
+        if (!expired) renewRequestInterval = RENEW_REQUEST_MIN_INTERVAL_MS
+        if (now - lastRenewRequestAt < renewRequestInterval) return
+        lastRenewRequestAt = now
+        if (expired) renewRequestInterval = (renewRequestInterval * 2).coerceAtMost(RENEW_REQUEST_MAX_INTERVAL_MS)
+        Log.i(TAG, "Client gate renewal requested")
+        runCatching { NotificationWork.scheduleGateRenewal(this) }
     }
 
     private fun shutdownService(reason: String) {
@@ -639,6 +681,7 @@ class WsService : Service() {
         running.set(false)
         closeActiveConnections()
         stopForegroundCompat()
+        cancelForegroundNotif()
         stopSelf()
     }
 

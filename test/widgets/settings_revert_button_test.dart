@@ -36,6 +36,14 @@ class _Provider extends ReportProvider {
 
   @override
   Future<void> refreshAll() async => refreshes++;
+
+  // Sol R3: 기본 reevaluateDbOptimize 는 Client 분기에서 새 DB 기준으로 표시를
+  // 다시 맞추려고 DB 를 연다. 위젯 시험의 FakeAsync 영역에서는 실제 DB I/O 가
+  // 끝나지 않아 되돌리기 흐름이 멈추므로(실앱 실제 영역에서는 정상 동작), 이
+  // 화면 시험에서는 재판단을 하지 않는다. 표시 재동기화는 VM 시험
+  // (db_optimize_sol_r3_test.dart R3-1a·R3-1b)에서 다룬다.
+  @override
+  void reevaluateDbOptimize() {}
 }
 
 Future<void> _makeServerDb(String path, String name) async {

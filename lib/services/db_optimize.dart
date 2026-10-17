@@ -2,8 +2,9 @@
 //
 // 파서 버전이 오르면 Standalone 앱 실행 때 한 번, 신고 ID 순으로 훑는다. 원본 표에 행이 있고
 // sha 가 맞으면 네트워크 없이 저장된 원본의 `result` 로 다시 파싱하고, 없으면 상세 API 로 다시 받아
-// 원본 표·파일에 저장(`source='backfill'`)한 뒤 파싱한다. 저장은 `LocalDbService.reparseReport`
-// (파서가 만드는 열만 갱신, 목록 열·사용자 override 유지, 바뀐 신고만 공유 `completed_observation`)이다.
+// 원본 표·파일에 저장(`source='backfill'`)한 뒤 파싱한다. 저장은 `LocalDbService.reparseReportWithCapture`
+// (파서가 만드는 열만 갱신, 목록 열·사용자 override 유지, 바뀐 신고만 공유 `completed_observation` —
+// 공유 캡처 입력의 목록 값·진행 상태·사진 촬영 값은 쓰기 잠금 안 기존 행으로 채움)이다.
 //
 // 취소 수단 없음. 앱 종료 뒤에는 메타 커서부터 이어서 한다. 크롤(수동 동기화·알림 동기화)과는
 // `isRunning` 으로 순서를 맞춘다(최적화가 도는 동안 시작 요청은 대기열 뒤에 붙는다).
@@ -462,6 +463,11 @@ class DbOptimize {
   /// 호출자가 사유를 집계한다). 일시 실패(저장소 없음·캡처·저장 예외)는 [SaveTransient] 로
   /// 던진다(시도 횟수 누적·재시도). [CaptureStoreUnavailable] 은 그대로 던진다
   /// (작업 전체를 멈춘다, 서버와 같음). 반환: 바뀐 신고면 true.
+  ///
+  /// 공유 캡처 입력의 목록 값(상태·신고번호·신고명·신고일·만족도조사여부·별점·별점사유 —
+  /// 일반 동기화가 목록·만족도에서 채우는 열 전부)과 진행 상태·사진 촬영 값은
+  /// [LocalDbService.reparseReportWithCapture] 의 쓰기 트랜잭션 안에서 읽은 기존 행으로
+  /// 채운다(서버 REPARSE_CAPTURE_TITLE_COLUMNS 와 같은 규칙). DB 목록 열은 갱신하지 않는다.
   static Future<bool> saveReparsed(
     Report report,
     String entryValue,
@@ -495,36 +501,9 @@ class DbOptimize {
       }
     }
     CaptureResult? cap;
-    try {
-      final storedPhoto = await LocalDbService.getStoredPhotoCapture(report.id);
-      final adapterInput = buildReportAdapterInput(
-        report,
-        entryValue,
-        category: category,
-        photoFirstCapture: storedPhoto.first,
-        photoLastCapture: storedPhoto.last,
-      );
-      if (capture != null) {
-        cap = await capture(adapterInput, report.id);
-      } else {
-        final ns =
-            projectNamespace ?? namespaceForTest ?? _projectNamespace();
-        cap = await captureReal(
-          adapterInput,
-          report.id,
-          store: store,
-          projectNamespace: ns,
-        );
-      }
-    } on CaptureStoreUnavailable {
-      rethrow;
-    } catch (e) {
-      DbOptimizeState.appendLog('${report.id} 저장 실패(${e.runtimeType})');
-      throw SaveTransient('${e.runtimeType}: $e');
-    }
     var changed = false;
     try {
-      changed = await LocalDbService.reparseReport(
+      final saved = await LocalDbService.reparseReportWithCapture(
         report,
         category,
         entryValue,
@@ -532,10 +511,34 @@ class DbOptimize {
         ssnpcCd: report.ssnpcCd,
         ssnpcType: report.ssnpcType,
         rawDetail: rawDetail,
+        capture: (captureReport, photoFirst, photoLast) async {
+          final adapterInput = buildReportAdapterInput(
+            captureReport,
+            entryValue,
+            category: category,
+            photoFirstCapture: photoFirst,
+            photoLastCapture: photoLast,
+          );
+          if (capture != null) {
+            return capture(adapterInput, report.id);
+          }
+          final ns =
+              projectNamespace ?? namespaceForTest ?? _projectNamespace();
+          return captureReal(
+            adapterInput,
+            report.id,
+            store: store,
+            projectNamespace: ns,
+          );
+        },
       );
+      changed = saved.changed;
+      cap = saved.cap;
     } on ReparseSkipped catch (e) {
       final reason = e.reason.isEmpty ? 'skipped' : e.reason;
       DbOptimizeState.appendLog('${report.id} 건너뜀($reason)');
+      rethrow;
+    } on CaptureStoreUnavailable {
       rethrow;
     } catch (e) {
       DbOptimizeState.appendLog('${report.id} 저장 실패(${e.runtimeType})');

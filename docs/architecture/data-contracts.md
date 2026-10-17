@@ -538,6 +538,9 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
   화면용 보기(`reports_effective`)가 수정값(`report_override`)을 그대로 다시 얹으므로 override는 유지된다.
   기존 공유 캡처(`capture`, trigger `'reparse'`)를 그대로 타서 공유 payload가 바뀐 신고만 새
   `completed_observation`(source_revision 증가)으로 나간다. 바뀌지 않으면 이벤트 없음.
+  공유 입력의 목록 값(상태·신고번호·신고명·신고일·만족도조사여부·별점·별점사유)과 진행 상태·사진 촬영 값은
+  쓰기 잠금 안에서 읽은 기존 행으로 채워 일반 동기화와 같은 adapter 입력이 되게 한다
+  (DB 목록 열 자체는 갱신하지 않음 — 서버 `REPARSE_CAPTURE_TITLE_COLUMNS`와 같은 규칙).
   사용자가 지운 공유 관측(`deleted_by_user`)은 되살리지 않는다(보충 경로와 같은 검사를
   발급 트랜잭션 안에서 — 서버와 같음).
   `fine_estimate_resend`는 그대로 둔다(확정 판정은 원본 재파싱이 정답 — 기존 "journal amount 보존" 결정은 이 작업에 적용하지 않음).

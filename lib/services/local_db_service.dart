@@ -19,6 +19,7 @@ import 'package:safetyreport/services/fine_estimate.dart' as fine_estimate;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../community/capture/community_capture.dart' show CaptureResult;
 import '../community/community_store.dart';
 import '../models/report.dart';
 import 'agency_registry.dart';
@@ -2035,17 +2036,27 @@ class LocalDbService {
     return Map<String, Object?>.from(rows.first);
   }
 
-  /// DB 최적화 재파싱 저장(2026-10-17 명세 3-2, 서버 reports_repo.reparse_one 과 같은 열 규칙).
+  /// DB 최적화 재파싱 저장 + 공유 캡처를 하나의 쓰기 잠금 안에서 수행한다
+  /// (2026-10-17 명세 3-2, 서버 reports_repo.reparse_one·REPARSE_CAPTURE_TITLE_COLUMNS 와 같은 열 규칙).
   ///
-  /// 파서가 만드는 열만 바꾼다. 목록 크롤이 채우는 열(상태·신고번호·신고명·신고일·만족도조사여부·별점·별점사유·감시목록)은
-  /// 손대지 않는다. 좌표 열(주소정규화·행정구역·위도·경도·지오코딩상태)은 파서가 만드는 값이라
-  /// 일반 상세 저장([upsertReport])과 같은 함수([officialGeoPayload])·같은 규칙으로 파싱 결과에서
-  /// 계산해 쓰기 잠금(트랜잭션) 안에서 쓴다. 사진 촬영 시각 열은 읽지도 덮지도 않는다(다른 작업이 채움).
+  /// 공유 캡처 입력에 쓰는 목록 값(상태·신고번호·신고명·신고일·만족도조사여부·별점·별점사유 —
+  /// 일반 동기화가 목록·만족도 조회로 채우는 열 전부)과 진행 상태(`상태`)는 같은 트랜잭션 안에서
+  /// 읽은 기존 행 값으로 채워 일반 동기화와 같은 adapter 입력이 되게 한다. 파서 출력에는
+  /// 만족도 조회 값(별점·별점사유 등)이 없어 그대로 쓰면 같은 원본도 payload 가 달라져 새
+  /// `completed_observation` 이 나가고 공유 최신값(특히 별점)을 덮는다.
+  /// 사진 촬영 값도 같은 트랜잭션 안에서 읽는다(잠금 밖에서 읽고 쓰지 않게).
+  /// DB 목록 열 자체는 갱신하지 않는다(아래 UPDATE 에 없음 — 파서가 만드는 열만 갱신,
+  /// 목록 열·사용자 override 유지, 바뀐 신고만 공유 `completed_observation`).
+  ///
+  /// 좌표 열(주소정규화·행정구역·위도·경도·지오코딩상태)은 파서가 만드는 값이라 일반 상세 저장
+  /// ([upsertReport])과 같은 함수([officialGeoPayload])·같은 규칙으로 파싱 결과에서 계산해
+  /// 쓰기 잠금(트랜잭션) 안에서 쓴다. 사진 촬영 시각 열은 읽지도 덮지도 않는다(다른 작업이 채움).
   /// 변경 판정도 [upsertReport]와 같게 좌표는 세지 않는다(쓰기는 하되 synced_at·공유 이벤트 판정 제외).
   /// 화면용 보기(reports_effective)가 수정값(report_override)을 그대로 다시 얹으므로 override 는 유지된다.
   /// [rawDetail] 이 있으면(원본 표에 없던 신고를 다시 받아온 경우) 같은 트랜잭션에서 원본 표에 upsert 한다.
-  /// 반환: 바뀐 신고면 true(서버 change dict 와 같은 뜻), 그대로면 false. 신고 행이 없으면 [ReparseSkipped].
-  static Future<bool> reparseReport(
+  /// 반환: 바뀐 신고인지 + 공유 캡처 결과(서버 change dict·capture_result 와 같은 뜻).
+  /// 신고 행이 없으면 [ReparseSkipped].
+  static Future<({bool changed, CaptureResult? cap})> reparseReportWithCapture(
     Report r,
     String category,
     String entryValue, {
@@ -2054,11 +2065,18 @@ class LocalDbService {
     String? ssnpcCd,
     String? ssnpcType,
     RawDetailUpsert? rawDetail,
+    required Future<CaptureResult?> Function(
+      Report captureReport,
+      String? photoFirst,
+      String? photoLast,
+    )
+    capture,
   }) async {
     final d = await db;
     final now = DateTime.now().millisecondsSinceEpoch;
     final code = report_category.normalizeCode(ssnpcCd, ssnpcType);
     var changedResult = false;
+    CaptureResult? capResult;
     await d.transaction((txn) async {
       final existingRows = await txn.query(
         'reports',
@@ -2068,6 +2086,14 @@ class LocalDbService {
       );
       if (existingRows.isEmpty) throw ReparseSkipped('no_report');
       final existing = Map<String, Object?>.from(existingRows.first);
+      // 공유 캡처 입력의 목록 값·사진 촬영 값은 쓰기 잠금 안에서 읽은 기존 행으로 채운다 —
+      // 잠금 전에 읽은 옛값·파서 기본값으로 payload 가 달라지지 않게(서버와 같음).
+      final captureReport = _captureReportWithExistingTitles(r, existing);
+      capResult = await capture(
+        captureReport,
+        existing['사진_첫촬영'] as String?,
+        existing['사진_끝촬영'] as String?,
+      );
       // 목록 열은 일부러 읽지도 쓰지도 않는다 — 목록 크롤이 채운 값을 유지한다(서버와 같음).
       final cd = code.ssnpcCd ?? existing['ssnpc_cd']?.toString();
       final type = code.ssnpcCd != null
@@ -2171,7 +2197,37 @@ class LocalDbService {
       }
     });
     if (changedResult) _invalidateProjectRowsCache();
-    return changedResult;
+    return (changed: changedResult, cap: capResult);
+  }
+
+  /// 재파싱 공유 캡처 입력용 Report: 파서 열은 그대로, 목록 열 7종은 비어 있지 않은 기존 행
+  /// 값으로 채운다(서버 REPARSE_CAPTURE_TITLE_COLUMNS 와 같은 집합 — 상태·신고번호·신고명·
+  /// 신고일·만족도조사여부·별점·별점사유, 진행 상태는 `상태`).
+  static Report _captureReportWithExistingTitles(
+    Report r,
+    Map<String, Object?> existing,
+  ) {
+    String kept(String column, String parsed) {
+      final v = existing[column]?.toString() ?? '';
+      return v.isNotEmpty ? v : parsed;
+    }
+
+    int? keptRating() {
+      final v = existing['별점'];
+      if (v == null) return r.rating;
+      if (v.toString().trim().isEmpty) return r.rating;
+      return int.tryParse(v.toString().trim()) ?? r.rating;
+    }
+
+    return r.copyWith(
+      result: kept('상태', r.result),
+      reportNumber: kept('신고번호', r.reportNumber),
+      name: kept('신고명', r.name),
+      date: kept('신고일', r.date),
+      pollStatus: kept('만족도조사여부', r.pollStatus),
+      rating: keptRating(),
+      ratingCause: kept('별점사유', r.ratingCause),
+    );
   }
 
   static Future<Set<String>> _readWatchlist(DatabaseExecutor db) async {

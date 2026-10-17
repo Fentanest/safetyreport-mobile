@@ -1,141 +1,27 @@
 # Changelog
 
-## 2026-10-17 — 원본 응답 보기 (명세 4절 모바일, 미배포)
+## 2026-10-17 — 상세 원본 저장·DB 최적화(재파싱)·원본 보기·검색 필터 초기화 (미배포)
 
-- 신고 상세 시트('안전신문고 앱에서 보기' 근처)에 "원본 응답" 동작 → 전체 화면 JSON 보기
-  (고정폭·들여쓰기 2칸, 검색 일치 강조·다음/이전·건수, 전체 복사·공유 `<ID>.json`,
-  가로 스크롤 없이 줄바꿈, 360px·라이트/다크·시맨틱 레이블).
-  Standalone 은 로컬 `report_detail_raw` 읽기(zlib 해제·sha 검증), Client 는
-  서버 `GET /api/v1/reports/{id}/raw-detail`(경로 상수 `ServerContract.rawDetailPath`,
-  읽기 전용 참고 — 서버 `api_route.py::get_report_raw_detail`·`raw_detail_service.py`).
-  없음 → "아직 원본이 없습니다(DB 최적화가 채웁니다)", 손상 → 손상 안내,
-  구서버(capability `raw_detail_v1` 없음) → 동작 숨김, 네트워크 오류 → 재시도.
-  `lib/services/db_optimize*.dart` 는 건드리지 않았다.
-- Standalone 원본 보기 화면에 "파일로 다시 쓰기"(DB 원본으로
-  `Documents/mysafetyreport/raw_details/<ID>.json` 재생성, ID 검증 규칙 유지).
-- 설정 '데이터 관리'에 "원본 응답 폴더"(Standalone만, Client 는 서버 웹의 파일 탐색기) →
-  기존 파일 탐색기를 `raw_details` 에서 연다(보기·공유만, 삭제는 기존 규칙,
-  원본 폴더 자체 삭제는 금지 — 서버와 같은 규칙).
-- 서버와 다르게 한 점: 모바일 Client 에는 다시 쓰기·원본 폴더 항목이 없고 서버 웹을
-  쓰게 한다. 폴더 삭제 금지는 양쪽이 같다.
-- Sol 검수 P4 5건 수정(미배포): source 미주입 실제 진입 경로(Provider 해결 뒤 불러오기,
-  `didUpdateWidget` 포함)로 오류 화면 수정 · 상세 시트 '원본 응답'을 capability 구독
-  별도 위젯으로 분리해 설정 응답 뒤 열린 시트 갱신 · 수천 줄 JSON 화면 밖 일치를 실측
-  평균 높이 점프+화면 단위 보정으로 이동 · 공유 뒤 임시 `<ID>.json` 삭제(성공·취소·실패,
-  화면 종료 시 잔여 포함) · '원본 응답 폴더'를 원본 쓰기와 같은 `subDir` 결정으로
-  Download 대체 경로 대응.
-- 검증: 신규 `test/services/raw_detail_api_test.dart` 7개,
-  `test/widgets/raw_detail_view_test.dart` 22개 통과.
-  전체 `flutter test`·`flutter analyze` 는 아래 기준선/최종 기록 참조.
+사용자 결정(2026-10-17)에 따른 작업. 명세는 `docs/plans/2026-10-17-raw-detail-reparse.md`, 구현 Muse·검수 Sol(gpt-6-sol)·최종 감사 Opus.
+PC 서버(safetyreport)와 같은 규칙·같은 시점(호출 지점 1:1)으로 함께 바꿨다. 푸시·배포·버전 변경은 하지 않았다.
 
-## 2026-10-17 — DB 최적화 Sol 재검수 R2 5건 수정 (명세 3절, 서버와 같은 규칙, 미배포)
-
-- 시작 화면: `runApp` 을 DB 열기(17→18 업그레이드) 전에 먼저 호출한다(`StartupLoadingApp`).
-  DB 를 여는 동안 시작 화면(`StartupLoadingScreen`)이 그려지고, 업그레이드 단계 로그가
-  `DbOptimizeState` 변경마다 다시 그려진다. 게이트·알림 초기화·백그라운드 작업 등록 순서
-  (2단계 `runApp` 뒤 단계)는 그대로라 첫 화면 지연이 늘지 않는다. 시험은 실제 시작 경로와
-  같은 순서의 `StartupBootstrap`(DB 열기를 지연시키는 가짜 오프너)으로 '업그레이드 중 시작
-  화면과 단계 문구가 보인다'를 검증한다.
-- DB 교체(백업 복원·서버 DB 가져오기·되돌리기) 완료 지점(성공·실패 공통 종료)에서
-  Standalone 이면 최적화 재판단(`ReportProvider.reevaluateDbOptimize` → `DbOptimize.maybeStart`,
-  새 DB 의 메타부터 다시 판단). 서비스층은 `LocalDbService.onDatabaseReplaced` 훅으로 알리고
-  (`DbOptimize` 직접 import 없이 콜백 — 순환 방지), 설정 화면 되돌리기/복원 버튼에서도
-  재판단한다(Client·데모·미설정은 no-op).
-  모드 전환 3종(`setConfig`·`setStandaloneConfig`·`resetConfig`)에서는 직접 부르지 않는다 —
-  전환마다 게이트가 리셋돼 뒤따르는 `onGatePassed()` 가 같은 재판단을 수행한다. 전환 직후
-  바로 시작하면 백그라운드 독점을 잡아 뒤따르는 백업·복원이 거부되는 회귀가 있어
-  두지 않는다(`official_account_binding_test` 2건 실패로 확인 후 수정).
-- 모든 동기화 종료 경로(`SyncEngine.start`·알림 drain 끝)에서 영속 보류 요청이 남아 있으면
-  시작한다(`DbOptimize.notifySyncFinished`, 최적화 진행 중이면 계속 보류, 재진입 방지).
-  `runDeferredManual` 은 실제로 시작됐을 때만 보류를 지우고, busy·거절(게이트 미확인·초기화
-  대기·공유 저장소 확인 실패)·취소면 유지한다. `_afterFinish`·`_afterError` 직접 호출과
-  종료 훅의 중첩 호출이 같은 보류를 두 번 시작하지 않게 `runDeferredStarters` 에도
-  재진입 가드를 둔다.
-- 이중 시작 방지(Opus 변경 규칙, 서버와 동일): started 표시를 쓰지 않는다. 보류 동기화는
-  실제로 시작이 성공한 뒤에 보류 기록을 지우고, 지우기 실패는 진단 기록만 남긴다(드물게
-  다음 훅·실행에서 한 번 더 시작될 수 있음 — 요청 유실보다 낫다). 시작 실패·busy·거절
-  (게이트 미확인·초기화 대기·공유 저장소 확인 실패)·취소·앱 종료면 보류는 남아 다음 훅·실행에서
-  시작한다.
-- 표시줄: `error` 상태로 처음 마운트돼도 '오류'와 로그를 보이고, 다음 상태 변화 전까지
-  유지한다(6초 자동 숨김은 완료만). 마지막 최적화 오류를 `sync_meta` 에 영속해
-  (`DbOptimize.lastErrorKey`) 앱을 새로 열어도 표시줄에 보이고(`restorePersistedError` —
-  `ReportProvider.init` 의 실제 DB 열기 뒤에 복원; 위젯 initState 에서는 DB 를 열지
-  않음), 재시도 시작·완료 때 해제한다.
-- 검증: 신규 `test/services/db_optimize_sol_r2_test.dart` 16개 통과(각 항목 수정 전 실패 확인),
-  기존 `db_optimize_test`·`db_optimize_review7_test` 통과.
-  전체 `flutter test`·`flutter analyze` 는 아래 기준선/최종 기록 참조.
-
-## 2026-10-17 — DB 최적화 Opus 판정 7건 수정 (명세 3절, 서버와 같은 규칙, 미배포)
-
-- DB 교체(백업 복원·서버 DB 가져오기·모드 전환) 중에는 현재 신고를 끝내고 멈추고, 교체 뒤에는
-  새 DB 의 메타부터 다시 판단한다. 매 신고 처리 때 DB 정체(개인 DB 경로·커뮤니티 데이터셋)를
-  확인하고, 옛 ID 목록·커서·done 을 새 DB 에 쓰지 않는다. `closeDb` 로 멈춰도 상태를 정리해
-  `isRunning` 이 남지 않게 한다(동기화 무한 보류 해소).
-- `target` 이 현재 파서 버전과 다르면 커서·통계·시도 횟수를 버리고 처음부터 훑는다.
-  복원된 DB 에 옛 커서가 가리키는 ID 가 없어도 처음부터 판단한다.
-- 영구 실패(없음·삭제)·파싱 불가만 건너뛴다. 일시 실패(네트워크·저장 실패·토큰 갱신 중 예외)는
-  메타 `attempts` 에 신고별 누적해 이번 회차 끝·다음 실행에 재시도하고, 3회면 `retry_exceeded` 로
-  건너뛴다. `done=true` 는 전부 처리·영구·초과일 때만 기록한다.
-- 재파싱 공유 캡처는 `deleted_by_user` 관측을 되살리지 않는다(보충 경로와 같은 검사를 발급
-  트랜잭션 안에서 — 서버와 같음).
-- 보류한 수동 동기화 요청은 하나로 합쳐 `sync_meta.detail_raw_optimize_deferred` 에 영속한다
-  (앱 종료 뒤에도 유지, 실제로 시작된 뒤에만 지움). 알림 drain 보류는 별도 표시로 남기고 알림
-  대기열은 기존 영속 큐를 유지한다. 끝나면 정확히 한 번 시작한다(소유권 경쟁이면 보류 유지 —
-  유실 없음). `done` 뒤 재시작해도 기동 경로에서 영속 보류를 꺼내 시작한다.
-- 재파싱의 좌표 열(주소정규화·행정구역·위도·경도·지오코딩상태)은 일반 상세 저장(`upsertReport`)과
-  같은 함수(`officialGeoPayload`)·같은 규칙으로 파싱 결과에서 계산해 쓰기 잠금 안에서 쓴다
-  (변경 판정·synced_at·공유 이벤트는 일반 저장과 같게 좌표를 세지 않음). 사진 촬영 열은 읽지도
-  덮지도 않는다.
-- 작업 예외(`error`)면 동기화 보류를 풀어 대기 요청을 실행하고, 최적화는 다음 기회에 다시
-  시도한다. 표시줄은 `error` 를 '작업 완료'가 아닌 '오류'와 로그로 보인다.
-- 시작 화면 업그레이드 표시는 `ReportProvider.init` 의 실제 DB 열기(17→18 변환 지점)와 연결돼
-  있고, 상태 변경(`DbOptimizeState.revision`) 때마다 다시 그린다.
-- 서버와 다르게 한 점: 보류 키가 1건의 수동 요청 JSON + drain 표시 1건이다(서버의 보류 목록과 같은
-  뜻, 1인 순차 동기화라 목록이 필요 없음). DB 정체는 서버의 복원 장벽 세대 대신 개인 DB 경로 +
-  커뮤니티 데이터셋으로 본다(모바일에 장벽 세대가 없음). 병합 규칙은 첫 요청 유지가 아니라
-  전체동기화 OR·후속 조건 합침이다(수동 전체/증분이 섞여도 전체 1건이 남게).
-- 검증: 신규 `test/services/db_optimize_review7_test.dart` 16개 통과(서버
-  `tests/test_db_optimize_review7.py` 대응 — 각 항목 수정 전 실패 확인),
-  기존 `test/services/db_optimize_test.dart` 는 새 규칙에 맞게 갱신해 통과.
-  전체 `flutter test`·`flutter analyze` 는 아래 기준선/최종 기록 참조.
-
-## 2026-10-17 — DB 최적화 작업·크롤 순서·하단 표시 (명세 3절, 미배포)
-
-- 파서 버전을 `mobile-parser-13`(서버 `pc-parser-13`과 같은 시점)으로 올려 첫 실행에 한 번 돈다.
-  Standalone 앱 실행(게이트 통과 뒤) 때 `sync_meta.detail_raw_optimize`(서버와 같은 키·같은 모양)가
-  현재 버전이 아니거나 `done`이 아니면 `DbOptimize`가 신고 ID 순으로 이어서 훑는다. Client 모드는 하지 않는다(서버가 함).
-- 원본 표 행이 있고 sha가 맞으면 네트워크 없이 저장된 원본의 `result`로 다시 파싱하고,
-  없거나 손상이면 상세 API로 다시 받아 `source='backfill'`로 원본 표·파일에 저장한 뒤 파싱한다
-  (크롤과 같은 요청 간격 300ms·재시도, 로그인 필요면 `login_required` 표시·주기 재시도, 404·삭제 등은 사유 남기고 건너뜀).
-- 저장은 `LocalDbService.reparseReport`(서버 `reparse_one`과 같은 열 규칙: 파서 열만 갱신, 목록 열·override 유지,
-  화면용 보기는 그대로, 공유 캡처 trigger `'reparse'`로 바뀐 신고만 새 `completed_observation`).
-  `fine_estimate_resend`는 그대로 둔다. 원본 파일이 없으면 만든다. 끝나면 `done=true`, 커서부터 이어서 한다.
-- 최적화가 도는 동안 수동 동기화·알림 동기화는 바로 시작하지 않고 대기열 뒤에 붙는다.
-  크롤 화면 로그에 서버와 같은 문구 "DB 최적화 중입니다. 최적화가 끝난 뒤 크롤링을 시작합니다." 한 줄을 남기고
-  끝나면 자동 시작한다. 크롤링 상태 UI에 넣지 않고 취소 수단도 없다.
-- 하단 표시줄에 작업 `db_optimize`(라벨 "DB 최적화 중입니다…", done/total, stage, 최근 50줄 로그)를 보이고
-  탭하면 로그 시트. Standalone은 로컬 작업, Client는 서버 상태 API의 추가 필드를 읽는다(없으면 예전처럼).
-  앱 시작 DB 업그레이드 중에는 시작 화면 하단에 같은 문구와 단계 로그(백업·표 생성·버전)를 보여 준다.
-- 서버와 다르게 한 점: 대기열을 1건의 수동 동기화 + 1건의 알림 drain으로 합침(1인 순차 동기화라 동시 크롤이 없음).
-  바이트 단위 압축 동일성은 맞추지 않고 저장된 BLOB을 그대로 옮긴다(명세 1-1과 같은 규칙).
-- 검증: 신규 `test/services/db_optimize_test.dart` 15개 통과(서버 `tests/test_db_optimize.py` 대응),
-  파서 버전 기대 시험 4곳 갱신. 전체 `flutter test`·`flutter analyze`는 아래 기준선/최종 기록 참조.
-
-## 2026-10-17 — 상세 원본 저장·스키마 18 (명세 1·2절, 미배포)
-
-- 상세 API 응답 envelope 을 정규 직렬화(신고자 키 5개 제거·`jsonEncode`·sha256·zlib 레벨 6, 서버와 같은 규칙 `lib/services/raw_detail.dart`)해
-  신고 행과 같은 트랜잭션에서 `report_detail_raw` 에 저장한다(증분/전체 `sync`·rebuild·알림 단건 `notification` 출처 구분).
-  파서 입력은 지금처럼 `result` 이다. 원본 파일은 `Documents/mysafetyreport/raw_details/<ID>.json`(들여쓰기 2칸, 임시→rename, 실패해도 DB 저장 유지).
-- 앱 DB 18·서버 스키마 7. `_open` 체인 16→17→18(업그레이드 전 `before_v18` 백업, 실패하면 무변경), 17 미만 규칙 유지.
-  가져오기·백업 복원은 지원 범위(서버 6~7·모바일 17~18)면 올려서 받고 벗어나면 거절한다. 원본 표는 BLOB 바이트 그대로 양방향 교환한다.
-- 계약 `contracts/raw-detail-vectors.json` 대조(Dart 바이트·sha가 서버 Python 과 동일), 업그레이드·예전 DB 가져오기·교환 왕복·저장 경로 시험 추가.
-  검증: 관련 시험 통과(신규 20개 내외), 왕복 검사는 서버 `scripts/dev/db_roundtrip_check.py` 로 확인한다.
-
-## 2026-10-17 — 모바일 검색 필터·별점 탭 로딩 결함 수정 (명세 5절, 미배포)
-
-- 신고내역·별점·데이터 수정이 쓰는 공용 검색 조건을 다른 하단 탭이나 신고관리의 다른 하위 탭으로 떠나면 비운다. 드릴다운 화면의 자체 조건은 그대로다.
-- 별점 전체 스캔(`LocalPagedReportList`): 스캔 중 자료 세대가 바뀌어 결과를 버릴 때도 로딩 표시를 풀고, 보이지 않는 동안 바뀐 조건의 스캔은 미뤘다가 보일 때 한 번 실행한다.
-- 검증: 신규 위젯 시험 8개 통과(탭 이동 시 조건 초기화·복귀 후 유지·드릴다운 유지·스캔 로딩·숨은 탭 미룸). 관련 기존 시험(드릴다운·내비게이션·데이터 개정 새로고침) 통과.
+- 검색 필터: 신고내역·별점·데이터 수정 탭(하단 탭·신고관리 하위 탭)을 떠나면 공용 검색 조건을 비운다(탭 이동 시작 시점). 드릴다운 화면은 영향 없음.
+  별점 탭이 계속 로딩되던 결함(스캔 버림 때 로딩 미해제, 숨은 탭의 반복 전체 스캔)을 고쳤다.
+- 상세 원본 저장: 상세 응답 envelope 를 신고자 키 5개만 빼고 `report_detail_raw` 에 저장(정규 직렬화·sha256·zlib, PC 와 같은 계약 벡터),
+  `Documents/mysafetyreport/raw_details/<ID>.json` 사본(ID 검증, 쓰기 실패는 저장을 막지 않음). 증분·전체·초기화·알림 단건 모든 경로, 신고 저장과 같은 트랜잭션.
+- 스키마 17→18: 이전 DB 비우기 대신 추가만 하는 제자리 업그레이드(업그레이드 전 백업, 단계별 원자적). 16 미만만 기존처럼 비운다.
+  예전 백업(서버 6·모바일 17)은 올려서 받는다. 서버 DB 가져오기·백업 복원·내보내기·모드 전환에서 원본 BLOB 를 바이트 그대로 옮긴다.
+  DB 를 여는 동안(업그레이드 중) 시작 화면 하단에 "DB 최적화 중입니다…"와 단계 로그를 보인다(runApp 을 DB 열기 전에 호출).
+- DB 최적화(Standalone): 파서 버전(`mobile-parser-13`)이 바뀌면 백그라운드로 한 번 전 신고를 훑는다. 원본이 있으면 네트워크 없이 재파싱, 없으면 상세를 다시 받아 채운다.
+  파서가 만드는 열만 갱신(목록·사진·사용자 수정값 유지, 좌표는 일반 저장과 같은 규칙), 공유 payload 가 바뀐 신고만 재전송(지운 공유 자료 미발급,
+  공유 입력의 목록 값은 PC 와 열별로 같은 기존 행 규칙). 커서 이어하기·일시 실패 3회 재시도·로그인 필요 대기·취소 불가·DB 교체 뒤 재판단.
+  최적화 중 수동·알림 동기화는 크롤 화면에 "DB 최적화 중입니다. 최적화가 끝난 뒤 크롤링을 시작합니다." 를 남기고 대기(영속, 끝나면 자동 시작).
+  하단 표시줄에 진행률·단계 로그, 오류는 다음 상태 변화까지(앱을 다시 열어도) 표시. Client 모드는 PC 서버 상태 API 의 추가 필드를 읽는다.
+- 원본 보기: 신고 상세 시트 "원본 응답" → 전체 화면 JSON(검색 이동·복사·공유, Standalone 은 "파일로 다시 쓰기"), 설정 '데이터 관리' "원본 응답 폴더"(Standalone).
+  Client 는 PC 서버 `GET /api/v1/reports/{id}/raw-detail`(capability `raw_detail_v1` 이 있을 때만 표시). 미출시 노트(`docs/releases/unreleased.md`)에 반영.
+- 검수: Sol 단계별 검수·재검수 수정 반복. Opus 최종 감사에서 재파싱이 만족도로 확정된 별점을 공유 입력에서 잃어 전 신고를 재전송하던 결함(PC 와 같음)을 고쳤다.
+- 검증(Opus): 전체 `flutter test` 2,273개 통과(건너뜀 19), `flutter analyze` 문제 없음, 서버↔모바일 실제 변환 왕복(원본 표 포함) 차이 0.
+  실기기·실제 재수집·Play 빌드는 확인하지 않았다(not-run).
 
 ## 2026-10-16~17 — 10-13~15 변경 검토 결함 수정 (미배포)
 

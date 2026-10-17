@@ -401,7 +401,7 @@ void main() {
     expect(meta['attempts'] ?? {}, isEmpty);
   });
 
-  test('3b. 3회 초과 일시 실패는 보류 목록에 남기고 done 아님·partial', () async {
+  test('3b. 3번째 일시 실패는 보류 목록에 남기고 done 아님·partial', () async {
     final ids = ['90000001', '90000002'];
     await seedReports(ids);
     final target = ids.first;
@@ -431,7 +431,7 @@ void main() {
     expect(DbOptimizeState.state, 'partial');
     final meta = await DbOptimize.readMeta();
     expect(meta!['done'], isNot(true));
-    expect((meta['pending'] as List), contains(target));
+    expect((meta['holds'] as List), contains(target));
     expect(await LocalDbService.getDetailRaw(target), isNull);
     // 다음 실행에 보류만 다시 시도해 끝낸다.
     Future<({Map<String, dynamic> result, Map<String, dynamic> envelope})>

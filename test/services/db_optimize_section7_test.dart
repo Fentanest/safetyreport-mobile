@@ -322,14 +322,14 @@ void main() {
       );
     }
     final result = await runAll(fetchFn: fetch);
-    // 3회 초과 시도가 같은 회차에서 일어나 보류로 넘어간다.
+    // 3번째 실패에서 보류로 넘어간다(같은 회차, 서버와 같음).
     expect(calls, greaterThan(3));
     expect(result.finished, isFalse);
     expect(result.rest, 'partial');
     expect(DbOptimizeState.state, 'partial');
     final meta = await DbOptimize.readMeta();
     expect(meta!['done'], isNot(true));
-    expect((meta['pending'] as List), contains(id));
+    expect((meta['holds'] as List), contains(id));
     // 원본 없이 완료하지 않는다.
     expect(await LocalDbService.getDetailRaw(id), isNull);
     // 재실행하면 보류만 다시 시도해 끝낸다(새 활동 없는 응답).
@@ -371,8 +371,10 @@ void main() {
     final meta = await DbOptimize.readMeta();
     expect(meta!['done'], isNot(true));
     // 신고별 시도 횟수는 늘리지 않는다(롤백) — 보류에는 시도 횟수 없이 남는다.
+    // 쉬면 남은 꼬리까지 보류에 넣어(서버 _park_partial 과 같은 자리) 다음 회차는
+    // 보류(손댄 5건 + 아직 안 본 1건)만 다시 시도한다.
     expect(meta['attempts'] ?? {}, isEmpty);
-    expect((meta['pending'] as List).length, 5);
+    expect((meta['holds'] as List).length, 6);
     // 다음 회차는 처음부터 다시 시도한다(성공 응답이면 끝까지 간다).
     Future<({Map<String, dynamic> result, Map<String, dynamic> envelope})>
     fetchOk(String rid) async {
@@ -461,7 +463,7 @@ void main() {
     expect(await readQueue(), contains(number));
     final meta = await DbOptimize.readMeta();
     expect(meta!['done'], isTrue);
-    expect((meta['pending'] as List? ?? const []), isEmpty);
+    expect((meta['holds'] as List? ?? const []), isEmpty);
     final logText = (DbOptimizeState.jobForStatus()!['log'] as List).join('\n');
     expect(logText, contains('새 답변 — 일반 크롤로 넘김'));
   });
@@ -514,7 +516,7 @@ void main() {
       expect(result.finished, isFalse);
       final meta = await DbOptimize.readMeta();
       expect(meta!['done'], isNot(true));
-      expect((meta['pending'] as List), contains(id));
+      expect((meta['holds'] as List), contains(id));
       final d = await LocalDbService.db;
       final row =
           (await d.query('reports', where: 'ID = ?', whereArgs: [id])).single;
@@ -571,7 +573,7 @@ void main() {
       // 시도 횟수는 늘지 않고 보류에만 남는다.
       final meta = await DbOptimize.readMeta();
       expect(meta!['done'], isNot(true));
-      expect((meta['pending'] as List), contains(id));
+      expect((meta['holds'] as List), contains(id));
       expect(meta['attempts'] ?? {}, isEmpty);
       // 최신 답변을 덮지 않았다.
       final d = await LocalDbService.db;

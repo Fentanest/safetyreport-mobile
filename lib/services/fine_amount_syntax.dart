@@ -17,21 +17,23 @@ final _limit = RegExp(
   // Future conditions ("다시 적발될 시", "적발되면", "~할 시", "~하면").
   '|(?:될|할|적발|위반)$_s*시(?:에는?|에도)?$_end|(?:하|되|않으)면$_end',
 );
-// A refusal/non-imposition decision from the amount's clause to the end of its sentence ("부과할
-// 예정이었으나, ... 부과하지 않습니다") withdraws that amount. One in another sentence or an earlier
-// clause is about another violation or charge ("가산금은 부과하지 않습니다") and does not.
+// A refusal from the amount's clause to the end of its sentence ("부과할 예정이었으나, ... 부과하지
+// 않습니다") withdraws that amount. A refusal of another charge ("가산금은 부과하지 않습니다"), a reason
+// noun ("부과 불가 사유") or one in another sentence does not.
 final _refusal = RegExp(
-  '부과하지|부과할$_s*수$_s*없|미부과(?:하|합|함|처리|결정|로)|부과(?:가|는)?$_s*(?:불가(?!피)|어렵|곤란)',
+  '(?:부과하지|부과할$_s*수$_s*없|부과(?:가|는)?$_s*(?:불가(?!피)|어렵|곤란))'
+  '(?!는?$_s*사유)',
 );
-// A decision sentence ends at a sentence-final ending, not at a line break inside it ("예정이었으나,\n...").
-final _decisionEnd = RegExp(
-  r'。|(?<=[다요])[.!?]|(?<=[다요.!?])[\t\r \xa0\u3000]*\n',
-);
+final _subject = RegExp('([가-힣]+)(?:을|를|은|는|이|가)$_s*\$');
+// A decision sentence ends at a sentence-final mark or a line break, except a line ending with a comma
+// ("예정이었으나,\n...").
+final _decisionEnd = RegExp(r'。|(?<=[다요])[.!?]|\n');
+final _commaTail = RegExp(r'[,，][\t\r \xa0\u3000]*$');
 // Another amount in a reduction clause ("경우 과태료 80,000원으로 감경") is a second stated amount
 // even when its clause is conditional.
 final _reduction = RegExp('감경|경감|감면');
 // A limit amount ("20만원 이하", "최대 200만원", "감경액의 상한은 2만원") is guidance, not a second stated amount.
-final _limitBefore = RegExp('최대|상한|한도');
+final _limitBefore = RegExp('최대|상한|(?<!기)한도');
 final _previousLimit = RegExp(
   '(?:최대|상한|(?:미이행|불이행|불응)$_s*시|않을$_s*경우)$_s*[:：]?$_s*\$',
 );
@@ -50,6 +52,19 @@ String? _number(String token, String? unit) {
   return null;
 }
 
+bool _refuses(String text, int start, int end) {
+  final scope = text.substring(start, end);
+  for (final refusal in _refusal.allMatches(scope)) {
+    final subject = _subject.firstMatch(scope.substring(0, refusal.start));
+    if (subject != null &&
+        !(subject[1]!.endsWith('과태료') || subject[1] == '원')) {
+      continue; // Another charge ("가산금은 부과하지 않습니다").
+    }
+    return true;
+  }
+  return false;
+}
+
 String? _identity(String? n) => n?.replaceAll(RegExp(r'[,.]'), '');
 
 String? explicitFineNumber(String source) {
@@ -63,7 +78,9 @@ String? explicitFineNumber(String source) {
   if (matches.isEmpty) return null;
   final decisionEnds = <int>{
     text.length,
-    for (final m in _decisionEnd.allMatches(text)) m.end,
+    for (final m in _decisionEnd.allMatches(text))
+      if (m[0] != '\n' || !_commaTail.hasMatch(text.substring(0, m.start)))
+        m.end,
   }.toList()..sort();
   final cuts = <int>{
     0,
@@ -84,7 +101,7 @@ String? explicitFineNumber(String source) {
     var before = text.substring(0, a);
     if (before.endsWith('\n')) before = before.substring(0, before.length - 1);
     final previous = a == 0 ? '' : before.split('\n').last;
-    if (_refusal.hasMatch(text.substring(a, sentenceEnd)) ||
+    if (_refuses(text, a, sentenceEnd) ||
         _limit.hasMatch(text.substring(a, b)) ||
         _previousLimit.hasMatch(previous) ||
         _followingLimit.matchAsPrefix(text, match.end) != null) {

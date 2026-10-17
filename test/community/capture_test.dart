@@ -281,7 +281,7 @@ void main() {
       );
       expect(journals.length, equals(1));
       expect(journals.first['personal_save_state'], equals('pending'));
-      expect(journals.first['parser_version'], equals('mobile-parser-12'));
+      expect(journals.first['parser_version'], equals('mobile-parser-13'));
       final outbox = await store.db.rawQuery(
         'SELECT * FROM outbox WHERE event_id=?',
         [r.eventId],

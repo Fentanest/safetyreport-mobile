@@ -5,6 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../community/capture/capture_retry_store.dart';
 import '../community/capture/community_capture.dart';
 import 'app_prefs_keys.dart';
+import 'db_optimize.dart';
+import 'db_optimize_state.dart';
 import 'duplicate_projection_service.dart';
 import 'local_db_service.dart';
 import 'maintenance_service.dart';
@@ -63,6 +65,17 @@ class StandaloneAutoSyncService {
     bool backgroundWorker = false,
     Future<void> Function()? validateScope,
   }) async {
+    // DB 최적화가 도는 동안 알림 동기화는 바로 시작하지 않고 대기열 뒤에 붙는다(명세 3-3).
+    // 소유권을 잡기 전에 판단해 큐를 막지 않는다.
+    if (DbOptimize.isRunning) {
+      SyncEngine.emitLog(DbOptimizeState.deferLogLine);
+      DbOptimize.addAfterFinishHook(() async {
+        await StandaloneAutoSyncService.drainIfPending(
+          backgroundWorker: backgroundWorker,
+        );
+      });
+      return;
+    }
     try {
       await SyncOperationAdmission.run(
         () => LocalDbService.runBackgroundWork(
@@ -80,6 +93,16 @@ class StandaloneAutoSyncService {
   static Future<void> _drainIfPending({bool backgroundWorker = false}) async {
     final deadline = DateTime.now().add(const Duration(minutes: 6));
     if (_running || SyncEngine.isRunning) return;
+    // (소유권을 잡기 전 drainIfPending() 에서 이미 판단했다. 여기서 한 번 더 막아 경합에 대비한다.)
+    if (DbOptimize.isRunning) {
+      SyncEngine.emitLog(DbOptimizeState.deferLogLine);
+      DbOptimize.addAfterFinishHook(() async {
+        await StandaloneAutoSyncService.drainIfPending(
+          backgroundWorker: backgroundWorker,
+        );
+      });
+      return;
+    }
     if (SyncEngine.localAccessAllowed != null &&
         !await SyncEngine.localAccessAllowed!()) {
       return;

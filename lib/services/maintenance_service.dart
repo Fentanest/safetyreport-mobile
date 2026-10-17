@@ -9,6 +9,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../community/capture/fine_estimate_resend.dart';
+import 'db_optimize_state.dart';
 import 'local_db_service.dart';
 import 'photo_capture_time.dart';
 import 'attachment_policy.dart';
@@ -24,6 +25,9 @@ class MaintenanceJob {
     this.done = 0,
     this.current = '',
     this.message = '',
+    this.stage = '',
+    this.log = const [],
+    this.finishedAt = '',
   });
 
   final String key;
@@ -36,6 +40,13 @@ class MaintenanceJob {
   final String current;
   final String message;
 
+  /// DB 최적화 단계(running|waiting_crawl|waiting_rebuild|login_required|done|error, 서버와 같음).
+  final String stage;
+
+  /// 단계 로그(최근 최대 50줄, 시각+문구, 서버와 같음). 탭하면 로그 시트로 보인다.
+  final List<String> log;
+  final String finishedAt;
+
   bool get active => state == 'running' || state == 'paused';
 
   factory MaintenanceJob.fromJson(Map<String, dynamic> j) => MaintenanceJob(
@@ -46,9 +57,15 @@ class MaintenanceJob {
     done: int.tryParse('${j['done'] ?? 0}') ?? 0,
     current: '${j['current'] ?? ''}',
     message: '${j['message'] ?? ''}',
+    stage: '${j['stage'] ?? ''}',
+    log: [
+      for (final line in (j['log'] as List? ?? const [])) '$line',
+    ],
+    finishedAt: '${j['finished_at'] ?? ''}',
   );
 
   /// 표시줄 한 줄: `주정차 사진 촬영 시각 읽기 · 132/480 · SPP-… · 메시지`
+  /// DB 최적화는 `DB 최적화 중입니다… · 7/24 · 메시지` 처럼 라벨·진행·메시지를 보인다.
   String get line => [
     label,
     if (total > 0) '$done/$total',
@@ -293,6 +310,25 @@ class MaintenanceService {
     final jobs = <MaintenanceJob>[];
     final photo = photoJob.value;
     if (photo != null) jobs.add(photo);
+    final optimize = DbOptimizeState.jobForStatus();
+    if (optimize != null) {
+      jobs.add(
+        MaintenanceJob(
+          key: '${optimize['key']}',
+          label: '${optimize['label']}',
+          state: '${optimize['state']}',
+          total: (optimize['total'] as num?)?.toInt() ?? 0,
+          done: (optimize['done'] as num?)?.toInt() ?? 0,
+          message: '${optimize['message'] ?? ''}',
+          stage: '${optimize['stage'] ?? ''}',
+          log: [
+            for (final line in (optimize['log'] as List? ?? const []))
+              '$line',
+          ],
+          finishedAt: '${optimize['finished_at'] ?? ''}',
+        ),
+      );
+    }
     return jobs;
   }
 

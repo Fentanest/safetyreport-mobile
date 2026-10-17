@@ -18,6 +18,8 @@ import '../community/capture/report_adapter.dart';
 import '../community/community_store.dart';
 import '../models/report.dart';
 import 'app_prefs_keys.dart';
+import 'db_optimize.dart';
+import 'db_optimize_state.dart';
 import 'performance_trace.dart';
 import 'community_auth_config.dart';
 import 'duplicate_projection_service.dart';
@@ -253,6 +255,28 @@ class SyncEngine {
     bool backgroundWorker = false,
     String? rebuildRunId,
   }) async {
+    // DB 최적화가 도는 동안 수동 동기화는 바로 시작하지 않고 대기열 뒤에 붙는다(명세 3-3).
+    // 초기화 run 은 막지 않는다(초기화 우선). 소유권을 잡기 전에 판단해 큐를 막지 않는다.
+    if (rebuildRunId == null && DbOptimize.isRunning) {
+      _log(DbOptimizeState.deferLogLine);
+      DbOptimize.addAfterFinishHook(() async {
+        unawaited(
+          SyncEngine.start(
+            fullSync: fullSync,
+            preserveDataset: preserveDataset,
+            catchupKey: catchupKey,
+            backgroundWorker: backgroundWorker,
+          ),
+        );
+      });
+      return const SyncRunResult(
+        done: 0,
+        errors: 0,
+        failed: true,
+        busy: true,
+        errorMessage: 'db_optimize_running',
+      );
+    }
     try {
       return await SyncOperationAdmission.run(
         () => _startOwned(
@@ -304,6 +328,29 @@ class SyncEngine {
         failed: true,
         busy: true,
         errorMessage: 'sync_busy',
+      );
+    }
+    // DB 최적화가 도는 동안 수동 동기화는 바로 시작하지 않고 대기열 뒤에 붙는다(명세 3-3, 서버와 같음).
+    // 초기화 run 은 막지 않는다(초기화 우선 — 최적화가 끝나길 기다리는 쪽이다).
+    // (소유권을 잡기 전 start() 에서 이미 판단했다. 여기서 한 번 더 막아 경합에 대비한다.)
+    if (rebuildRunId == null && DbOptimize.isRunning) {
+      _log(DbOptimizeState.deferLogLine);
+      DbOptimize.addAfterFinishHook(() async {
+        unawaited(
+          SyncEngine.start(
+            fullSync: fullSync,
+            preserveDataset: preserveDataset,
+            catchupKey: catchupKey,
+            backgroundWorker: backgroundWorker,
+          ),
+        );
+      });
+      return const SyncRunResult(
+        done: 0,
+        errors: 0,
+        failed: true,
+        busy: true,
+        errorMessage: 'db_optimize_running',
       );
     }
     _stopRequested = false;

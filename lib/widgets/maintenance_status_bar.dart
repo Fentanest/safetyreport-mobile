@@ -5,6 +5,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../services/db_optimize_state.dart';
 import '../services/maintenance_service.dart';
 import '../theme/sr_colors.dart';
 import '../theme/sr_tokens.dart';
@@ -36,6 +37,7 @@ class _MaintenanceStatusBarState extends State<MaintenanceStatusBar>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     MaintenanceService.photoJob.addListener(_refreshLocal);
+    DbOptimizeState.revision.addListener(_refreshLocal);
     _foreground = !_isBackground(WidgetsBinding.instance.lifecycleState);
     if (_foreground) _tick();
   }
@@ -44,6 +46,7 @@ class _MaintenanceStatusBarState extends State<MaintenanceStatusBar>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     MaintenanceService.photoJob.removeListener(_refreshLocal);
+    DbOptimizeState.revision.removeListener(_refreshLocal);
     _timer?.cancel();
     _hideTimer?.cancel();
     super.dispose();
@@ -112,7 +115,12 @@ class _MaintenanceStatusBarState extends State<MaintenanceStatusBar>
           x.total != y.total ||
           x.done != y.done ||
           x.current != y.current ||
-          x.message != y.message) {
+          x.message != y.message ||
+          x.stage != y.stage ||
+          x.log.length != y.log.length ||
+          (x.log.isNotEmpty &&
+              y.log.isNotEmpty &&
+              x.log.last != y.log.last)) {
         return false;
       }
     }
@@ -161,48 +169,106 @@ class _MaintenanceStatusBarState extends State<MaintenanceStatusBar>
     final sr = context.sr;
     final paused = _jobs.isNotEmpty && _jobs.every((j) => j.state == 'paused');
     final text = _doneText ?? _jobs.map((j) => j.line).join('   |   ');
+    final logLines = [
+      for (final j in _jobs)
+        ...j.log,
+    ];
     return Semantics(
       liveRegion: true,
       label: text,
-      child: Container(
-        key: const Key('maintenance-status-bar'),
-        margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-        padding: const EdgeInsets.fromLTRB(10, 7, 14, 7),
-        decoration: BoxDecoration(
-          color: sr.surface,
-          borderRadius: BorderRadius.circular(SrRadius.pill),
-          border: Border.all(color: sr.border),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.08),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            _doneText != null
-                ? Icon(
-                    Icons.check_circle,
-                    size: 18,
-                    color: Theme.of(context).colorScheme.primary,
-                  )
-                : BusyRing(size: 18, color: sr.brand, slow: paused),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                text,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12.5,
-                  color: paused ? sr.textSecondary : sr.textPrimary,
-                  fontFeatures: const [FontFeature.tabularFigures()],
+      child: GestureDetector(
+        onTap: logLines.isEmpty
+            ? null
+            : () => _showLogSheet(context, text, logLines),
+        child: Container(
+          key: const Key('maintenance-status-bar'),
+          margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+          padding: const EdgeInsets.fromLTRB(10, 7, 14, 7),
+          decoration: BoxDecoration(
+            color: sr.surface,
+            borderRadius: BorderRadius.circular(SrRadius.pill),
+            border: Border.all(color: sr.border),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.08),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              _doneText != null
+                  ? Icon(
+                      Icons.check_circle,
+                      size: 18,
+                      color: Theme.of(context).colorScheme.primary,
+                    )
+                  : BusyRing(size: 18, color: sr.brand, slow: paused),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  text,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    color: paused ? sr.textSecondary : sr.textPrimary,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
                 ),
               ),
-            ),
-          ],
+              if (logLines.isNotEmpty)
+                Icon(
+                  Icons.expand_less,
+                  size: 18,
+                  color: sr.textSecondary,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 단계 로그 시트(명세 3-4). 표시줄을 탭하면 열린다.
+  void _showLogSheet(
+    BuildContext context,
+    String title,
+    List<String> logLines,
+  ) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Flexible(
+                child: ListView.builder(
+                  key: const Key('maintenance-log-sheet'),
+                  shrinkWrap: true,
+                  itemCount: logLines.length,
+                  itemBuilder: (_, i) => Text(
+                    logLines[i],
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

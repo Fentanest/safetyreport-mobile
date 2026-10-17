@@ -37,6 +37,7 @@ import 'services/agency_registry.dart';
 import 'services/community_auth_link_channel.dart';
 import 'services/community_auth_service.dart';
 import 'services/local_db_service.dart';
+import 'services/db_optimize_state.dart';
 import 'services/permission_service.dart';
 import 'services/server_connection_service.dart';
 import 'community/community_store.dart';
@@ -387,7 +388,7 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
     // 최초 설정: 모드 선택 → 카카오 동의 → 공통 권한 → 해당 모드 설정.
     // 데모는 합성 자료만 쓰므로 인증·권한·서비스를 시작하지 않는다.
     if (!provider.isInitialized) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const _StartupLoadingScreen();
     }
     if (provider.isConfigured) _initialModeChoice = null;
     if (provider.isStandaloneDemo) return const MainNavigationScreen();
@@ -501,6 +502,50 @@ class _ServerVersionBlockedScreen extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// 앱 시작 로딩 화면. DB 업그레이드(17→18 등) 중에는 하단에 "DB 최적화 중입니다…"와
+/// 단계 로그(백업·표 생성·버전)를 보여 앱이 멈춘 것처럼 보이지 않게 한다(명세 3-4).
+class _StartupLoadingScreen extends StatelessWidget {
+  const _StartupLoadingScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    final upgrading = LocalDbService.upgradeRunning;
+    final logs = LocalDbService.upgradeLog;
+    final optimize = DbOptimizeState.jobForStatus();
+    final showOptimize =
+        upgrading ||
+        logs.isNotEmpty ||
+        (optimize != null &&
+            (optimize['state'] == 'running' ||
+                optimize['state'] == 'paused'));
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(),
+              if (showOptimize) ...[
+                const SizedBox(height: 16),
+                const Text('DB 최적화 중입니다…'),
+                if (logs.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+                    child: Text(
+                      logs.take(3).join('\n'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// 게이트 통과 뒤 신규 설치 흐름: 모드 무관 권한(common) → 기존 SetupScreen.

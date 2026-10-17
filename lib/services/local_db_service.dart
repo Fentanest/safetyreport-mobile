@@ -33,6 +33,7 @@ import 'plate_group_sql.dart';
 
 import 'standalone_parser.dart';
 import 'raw_detail.dart';
+import 'db_optimize_state.dart';
 import 'report_category.dart' as report_category;
 import 'report_policy.dart';
 
@@ -104,6 +105,15 @@ class LegacyDatabaseException implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// DB 최적화 재파싱에서 그 신고를 건너뛰라는 신호(사유 문자열을 담는다, 서버 _ReparseSkipped 와 같음).
+class ReparseSkipped implements Exception {
+  ReparseSkipped([this.reason = 'skipped']);
+  final String reason;
+
+  @override
+  String toString() => reason;
 }
 
 class LocalDbService {
@@ -287,12 +297,17 @@ class LocalDbService {
     await LocalDatabaseExchange.recover(path);
     // 이전 버전 DB 는 제자리 변환 체인으로 올린다(2026-10-17 명세 2절): 16→17→18.
     // 16 미만은 [resetLegacyDatabase] 가 백업 뒤 비운다(2026-09-26 초기화 크롤링 릴리스 규칙 유지).
-    // await backupBeforeUpgrade(path);
-    // 데모 DB(심사용 합성 데이터)는 실제 계정의 커뮤니티 데이터셋과 무관하다 — 선회전하지 않는다(Sol 재검증 2).
-    // 버전 16 DB 는 제자리 변환(백업 → 열 추가·분류 다시 정하기 → 행 수 대조 → 커밋)으로 신고·수정값·판단을 그대로 둔다.
-    await migrateInPlace(path);
-    // 버전 17 DB 는 상세 원본 표만 추가한다(백업 → 표 생성 → 버전 → 커밋, 실패하면 무변경).
-    await migrate17To18(path);
+    // 업그레이드 단계는 시작 화면 하단·최적화 작업 로그에 남긴다(명세 3-4, 서버 record_migration_event 와 같은 자리).
+    upgradeRunning = true;
+    try {
+      // 데모 DB(심사용 합성 데이터)는 실제 계정의 커뮤니티 데이터셋과 무관하다 — 선회전하지 않는다(Sol 재검증 2).
+      // 버전 16 DB 는 제자리 변환(백업 → 열 추가·분류 다시 정하기 → 행 수 대조 → 커밋)으로 신고·수정값·판단을 그대로 둔다.
+      await migrateInPlace(path);
+      // 버전 17 DB 는 상세 원본 표만 추가한다(백업 → 표 생성 → 버전 → 커밋, 실패하면 무변경).
+      await migrate17To18(path);
+    } finally {
+      upgradeRunning = false;
+    }
     await resetLegacyDatabase(
       path,
       beforeReset: basename(path) == demoDbFileName ? () async {} : null,
@@ -349,6 +364,17 @@ class LocalDbService {
   }
 
   static const legacyResetMetaKey = 'legacy_reset';
+
+  /// DB 업그레이드(17→18 등)가 지금 도는가. 시작 화면 하단 "DB 최적화 중입니다…" 표시에 쓴다(명세 3-4).
+  static bool upgradeRunning = false;
+
+  /// 이번 실행의 스키마 업그레이드 단계 로그(백업·표 생성·버전). 최적화 작업 로그에도 이어 남긴다.
+  static final List<String> upgradeLog = [];
+
+  static void _noteUpgrade(String message) {
+    upgradeLog.add(message);
+    DbOptimizeState.recordMigrationEvent(message);
+  }
 
   // ── 신고 자료의 주인 = 로그인한 카카오 계정 (2026-09-27 사용자 결정, PC services/account_data.py 와 같은 규칙) ──
   /// 이 DB 의 주인 카카오 회원번호(카카오가 준 숫자 ID 원문). 서버 DB `mysafety_sync_meta` 와 같은 키 — 교환 때 그대로 옮겨진다.
@@ -706,6 +732,11 @@ class LocalDbService {
         await txn.execute('PRAGMA user_version = 18');
         info = {'from_version': version, 'backup': backup};
       });
+      if (info != null) {
+        _noteUpgrade('업그레이드 전 백업 완료(${info!['backup']})');
+        _noteUpgrade('새 표 생성(스키마 18)');
+        _noteUpgrade('버전 기록(17→18)');
+      }
       return info;
     } finally {
       await db.close();
@@ -2000,6 +2031,128 @@ class LocalDbService {
     );
     if (rows.isEmpty) return null;
     return Map<String, Object?>.from(rows.first);
+  }
+
+  /// DB 최적화 재파싱 저장(2026-10-17 명세 3-2, 서버 reports_repo.reparse_one 과 같은 열 규칙).
+  ///
+  /// 파서가 만드는 열만 바꾼다. 목록 크롤이 채우는 열(상태·신고번호·신고명·신고일·만족도조사여부·별점·별점사유·감시목록)과
+  /// 공식 좌표·사진 촬영 시각·synced_at(바뀔 때만 갱신)은 손대지 않는다.
+  /// 화면용 보기(reports_effective)가 수정값(report_override)을 그대로 다시 얹으므로 override 는 유지된다.
+  /// [rawDetail] 이 있으면(원본 표에 없던 신고를 다시 받아온 경우) 같은 트랜잭션에서 원본 표에 upsert 한다.
+  /// 반환: 바뀐 신고면 true(서버 change dict 와 같은 뜻), 그대로면 false. 신고 행이 없으면 [ReparseSkipped].
+  static Future<bool> reparseReport(
+    Report r,
+    String category,
+    String entryValue, {
+    String rawContent = '',
+    String rawType = 'report_body',
+    String? ssnpcCd,
+    String? ssnpcType,
+    RawDetailUpsert? rawDetail,
+  }) async {
+    final d = await db;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final code = report_category.normalizeCode(ssnpcCd, ssnpcType);
+    var changedResult = false;
+    await d.transaction((txn) async {
+      final existingRows = await txn.query(
+        'reports',
+        where: 'ID = ?',
+        whereArgs: [r.id],
+        limit: 1,
+      );
+      if (existingRows.isEmpty) throw ReparseSkipped('no_report');
+      final existing = Map<String, Object?>.from(existingRows.first);
+      // 목록 열은 일부러 읽지도 쓰지도 않는다 — 목록 크롤이 채운 값을 유지한다(서버와 같음).
+      final cd = code.ssnpcCd ?? existing['ssnpc_cd']?.toString();
+      final type = code.ssnpcCd != null
+          ? code.ssnpcType
+          : existing['ssnpc_type']?.toString();
+      final resolvedCategory = cd != null || entryValue.trim().isNotEmpty
+          ? report_category.categoryOf(cd, type, entryValue)
+          : category;
+      final siteRow = <String, Object?>{
+        '처리상태': r.status,
+        '차량번호': r.carNumber,
+        '위반법규': r.law,
+        '범칙금_과태료': r.fineInfo,
+        '벌점': r.penaltyPoints,
+        '처리기관': r.agency,
+        '처리기관코드': r.agencyCode,
+        '담당자': r.manager,
+        '답변일': r.responseDate,
+        '발생일자': r.occurrenceDate,
+        '발생시각': r.occurrenceTime,
+        '위반장소': r.location,
+        '종결여부': r.processingFinish,
+        '신고내용': r.reportContent,
+        '처리내용': r.processContent,
+        '지도': r.mapImage,
+        '첨부사진': r.attachedPhotos,
+        '첨부파일': r.attachedFiles,
+        'category': resolvedCategory,
+        'entry_value': entryValue,
+        'ssnpc_cd': cd,
+        'ssnpc_type': type,
+        '보완횟수': r.supplementCount,
+        '보완_미응답': r.supplementOpen ? 'Y' : 'N',
+        '보완_요청자': r.supplementRequester,
+        '보완_요청일시': r.supplementRequestedAt,
+        '보완_완료일시': r.supplementCompletedAt,
+        '보완_요청_내용': r.supplementRequest,
+        '보완_신고자_의견': r.supplementOpinion,
+      };
+      final existingRaw = await _getRawPayload(txn, r.id);
+      final rawChanged =
+          rawContent.trim().isNotEmpty &&
+          existingRaw != null &&
+          (_stringify(existingRaw['raw_content']) != rawContent ||
+              _stringify(existingRaw['raw_type']) != rawType);
+      bool cellChanged(String key) =>
+          _stringify(existing[key]) != _stringify(siteRow[key]);
+      // 처음 채워지는 코드는 변경 아님(서버 _classification_changed 와 같음).
+      final classificationChanged =
+          existing['category'] != resolvedCategory ||
+          (_stringify(existing['entry_value']).isNotEmpty &&
+              existing['entry_value'] != entryValue) ||
+          (existing['ssnpc_cd'] != null && existing['ssnpc_cd'] != cd) ||
+          (existing['ssnpc_type'] != null && existing['ssnpc_type'] != type);
+      final changed =
+          classificationChanged ||
+          siteRow.keys.any(cellChanged) ||
+          rawChanged;
+      changedResult = changed;
+      await txn.update(
+        'reports',
+        {...siteRow, 'synced_at': changed ? now : existing['synced_at']},
+        where: 'ID = ?',
+        whereArgs: [r.id],
+      );
+      if (rawContent.trim().isNotEmpty) {
+        final previousSavedAt = _toEpochMillis(existingRaw?['saved_at']);
+        await _replaceRawPayload(
+          txn,
+          r.id,
+          rawContent: rawContent,
+          rawType: rawType,
+          savedAt: existingRaw == null || rawChanged || previousSavedAt == null
+              ? now
+              : previousSavedAt,
+        );
+      }
+      if (rawDetail != null) {
+        await txn.insert('report_detail_raw', {
+          'ID': r.id,
+          'raw_zlib': rawDetail.zlib,
+          'raw_sha256': rawDetail.sha256,
+          'raw_size': rawDetail.size,
+          'fetched_at': rawDetail.fetchedAt,
+          'source': rawDetail.source,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    });
+    if (changedResult) _invalidateProjectRowsCache();
+    return changedResult;
   }
 
   static Future<Set<String>> _readWatchlist(DatabaseExecutor db) async {

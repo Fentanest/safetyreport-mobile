@@ -19,6 +19,7 @@ import '../community/rebuild/community_rebuild.dart' show CommunityRebuildGuard;
 import '../services/api_service.dart';
 import '../services/app_prefs_keys.dart';
 import '../services/community_auth_service.dart';
+import '../services/db_optimize.dart';
 import '../services/local_db_service.dart';
 import '../services/maintenance_service.dart';
 import '../services/permission_service.dart';
@@ -1040,6 +1041,9 @@ class ReportProvider with ChangeNotifier {
           }
           if (!_isStandaloneDemo) {
             await _drainAndRefresh();
+            // DB 최적화(상세 원본 기반 재파싱, 명세 3절): Standalone 만. done 이면 아무 것도 안 함.
+            // fine_estimate 재전송(resendFineEstimateNow)과 별개로 돈다.
+            _startDbOptimizeIfNeeded();
           }
         } else {
           try {
@@ -1115,6 +1119,24 @@ class ReportProvider with ChangeNotifier {
     }
     await StandaloneAutoSyncService.drainIfPending();
     if (_appMode == AppMode.standalone) await refreshAll();
+  }
+
+  /// DB 최적화 시작/이어서(Standalone 만, Client 는 서버가 함 — 명세 3-1).
+  /// SyncEngine 이 돌고 있으면 끝난 뒤, 초기화(rebuild) 필요 상태면 초기화 우선(서버 wait_for_turn 과 같음).
+  void _startDbOptimizeIfNeeded() {
+    if (_appMode != AppMode.standalone || _isStandaloneDemo) return;
+    DbOptimize.addAfterFinishHook(() async {
+      await refreshAll();
+    });
+    unawaited(
+      DbOptimize.maybeStart(
+        isSyncing: () =>
+            SyncEngine.isRunning || StandaloneAutoSyncService.isRunning,
+        rebuildPending: () async => SyncEngine.rebuildBlocks != null
+            ? await SyncEngine.rebuildBlocks!()
+            : false,
+      ),
+    );
   }
 
   Future<void> setConfig(String url, String key) async {

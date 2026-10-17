@@ -17,9 +17,8 @@ export 'canonical_json.dart' show canonicalJson;
 export 'observation_rules.dart' show buildPayload;
 
 /// 공유 payload 버전을 올리지 않고 파서만 구분한다.
-// 2026-10-16 파서 결함 수정(가지번호·항 경계, 명시 금액 절 범위, 미래 조건·경고 제외,
-// 서버·모바일 문자 규칙 통일). 기존 journal amount는 자동 재파싱하지 않음.
-const String mobileParserVersion = 'mobile-parser-12';
+// 2026-10-17 상세 원본 기반 DB 최적화 대상(명세 3-1, 서버 pc-parser-13 과 같은 시점).
+const String mobileParserVersion = 'mobile-parser-13';
 
 /// 공식 상세 응답에서 읽은 좌표. null이면 좌표 없는 관측으로 보낸다.
 class GeocodeHit {

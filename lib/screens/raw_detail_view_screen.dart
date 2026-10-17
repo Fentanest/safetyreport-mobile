@@ -25,9 +25,19 @@ String prettyRawJson(Map<String, dynamic> json) =>
     const JsonEncoder.withIndent('  ').convert(json);
 
 /// 원본 보기 줄 한 개의 대략 높이(고정폭 12pt·줄간격 1.5 → 18 + 여유).
-/// 화면 밖 일치로 이동할 때 줄 번호 × 이 값으로 먼저 점프한다(지연 생성 목록 대응).
+/// 검색 이동의 첫 점프 씨앗에만 쓰고(줄 번호 비율), 반복 어림에는 쓰지 않는다 —
+/// 줄 높이가 크게 다르면 평균 반복이 수렴하지 않는다. 시험 호환용으로 남긴다.
 @visibleForTesting
 const estimatedRawLineHeight = 20.0;
+
+/// 검색 일치로 좁혀 가는 최대 시도(화소 구간 이분 탐색 한 사이클씩 센다).
+@visibleForTesting
+const maxRawRevealAttempts = 40;
+
+/// 한 사이클에 전체 높이가 이 배율을 넘겨 뛰면 지연 목록의 어림 깨짐으로 보고
+/// 구간에 들이지 않는다(긴 줄 하나가 처음 배치되면 실제 증가분과 무관하게
+/// 수십~수백 배까지 뛴다).
+const _maxSaneGrowthRatio = 4.0;
 
 /// 검색 일치 위치(줄 번호·줄 안 시작·끝, 대소문자 무시).
 @visibleForTesting
@@ -196,15 +206,27 @@ class ClientRawDetailSource implements RawDetailSource {
       sharePrettyRawJson(reportId, pretty);
 }
 
+/// 진행 중인 공유가 쓰는 임시 하위 폴더 경로들. 화면 종료 정리 때 건드리지 않는다.
+final Set<String> _activeRawShareDirs = <String>{};
+int _rawShareSeq = 0;
+
 /// 공유용 `<ID>.json` 임시 파일을 만들어 다른 앱으로 공유한다.
 /// ID 검증 규칙([isSafeReportId])을 유지한다 — 어기면 쓰지 않고 던진다.
-/// 공유가 끝나면(성공·취소·실패 모두) 임시 파일을 지운다.
+/// 공유마다 고유 하위 폴더를 두어 같은 화면에서 공유를 겹쳐 시작해도 서로 파일을
+/// 덮거나 지우지 않게 한다. 공유되는 파일 이름 자체는 `<ID>.json` 그대로(받는 쪽
+/// 표시) — 하위 폴더별로 분리한다. 공유가 끝나면(성공·취소·실패 모두) 자기 파일·
+/// 폴더만 지운다.
 Future<void> sharePrettyRawJson(String reportId, String pretty) async {
   if (!isSafeReportId(reportId)) {
     throw StateError('공유할 수 없는 신고 ID입니다: $reportId');
   }
   final dir = await _shareTempDir();
-  final file = File('${dir.path}/$reportId.json');
+  final shareDir = Directory(
+    '${dir.path}/raw_share_${reportId}_${DateTime.now().microsecondsSinceEpoch}_${_rawShareSeq++}',
+  );
+  await shareDir.create(recursive: true);
+  _activeRawShareDirs.add(shareDir.path);
+  final file = File('${shareDir.path}/$reportId.json');
   await file.writeAsString(pretty, encoding: utf8);
   try {
     final params = ShareParams(
@@ -218,21 +240,48 @@ Future<void> sharePrettyRawJson(String reportId, String pretty) async {
       await SharePlus.instance.share(params);
     }
   } finally {
+    _activeRawShareDirs.remove(shareDir.path);
     try {
       if (await file.exists()) await file.delete();
+    } catch (_) {}
+    try {
+      if (await shareDir.exists() && await shareDir.list().isEmpty) {
+        await shareDir.delete();
+      }
     } catch (_) {}
   }
 }
 
 /// 공유 뒤 임시 디렉터리에 남은 `<ID>.json` 을 지운다(공유 취소·실패 뒤 잔여분,
-/// 화면을 떠날 때 남은 파일 정리용). 없으면 아무 것도 안 한다.
+/// 화면을 떠날 때 남은 파일 정리용). 진행 중인 공유의 하위 폴더는 건드리지 않고,
+/// 예전 평면 경로(바로 아래 `<ID>.json` — 새 공유는 만들지 않음)의 잔여분도 지운다.
+/// 없으면 아무 것도 안 한다.
 @visibleForTesting
 Future<void> cleanupRawShareTempFile(String reportId) async {
   if (!isSafeReportId(reportId)) return;
   try {
     final dir = await _shareTempDir();
-    final file = File('${dir.path}/$reportId.json');
-    if (await file.exists()) await file.delete();
+    if (!await dir.exists()) return;
+    final flat = File('${dir.path}/$reportId.json');
+    if (await flat.exists()) {
+      try {
+        await flat.delete();
+      } catch (_) {}
+    }
+    final prefix = '${dir.path}/raw_share_${reportId}_';
+    await for (final e in dir.list()) {
+      if (e is! Directory || !e.path.startsWith(prefix)) continue;
+      if (_activeRawShareDirs.contains(e.path)) continue;
+      final f = File('${e.path}/$reportId.json');
+      try {
+        if (await f.exists()) await f.delete();
+      } catch (_) {}
+      try {
+        if (await e.exists() && await e.list().isEmpty) {
+          await e.delete();
+        }
+      } catch (_) {}
+    }
   } catch (_) {}
 }
 
@@ -273,6 +322,9 @@ class _RawDetailViewScreenState extends State<RawDetailViewScreen> {
   final _searchController = TextEditingController();
   final _scrollController = ScrollController();
   final _currentKey = GlobalKey();
+
+  /// 붙은 줄 번호 범위를 읽는 목록 키(검색 이동 이분 탐색의 방향 피드백용).
+  final _listKey = GlobalKey();
 
   RawDetailSource? _source;
 
@@ -382,22 +434,74 @@ class _RawDetailViewScreenState extends State<RawDetailViewScreen> {
     });
   }
 
+  /// 검색 이동 체인 세대. 다음·이전·검색 변경 때 올려 이전 체인이 멈추게 한다.
+  int _revealGen = 0;
+
   void _step(int delta) {
     if (_matches.isEmpty) return;
     setState(() {
       _current = (_current + delta) % _matches.length;
       if (_current < 0) _current += _matches.length;
     });
-    _revealCurrent(attempt: 0);
+    _revealGen++;
+    _revealCycle(
+      gen: _revealGen,
+      loPx: 0,
+      hiPx: null,
+      pendingMid: null,
+      prevMax: null,
+      backtrackPx: null,
+      attempt: 0,
+    );
+  }
+
+  /// 지금 붙어 있는(지연 생성 목록이 만든) 줄 번호 범위. 화면 근처만 붙으므로
+  /// 대상 줄이 이 범위보다 위인지 아래인지 방향만 정한다(이분 탐색 피드백).
+  /// 목록이 아직 안 붙었으면 null.
+  (int, int)? _builtLineRange() {
+    final ctx = _listKey.currentContext;
+    if (ctx == null) return null;
+    int? lo;
+    int? hi;
+    void visit(Element e) {
+      final key = e.widget.key;
+      if (key is ValueKey<int>) {
+        lo = lo == null || key.value < lo! ? key.value : lo;
+        hi = hi == null || key.value > hi! ? key.value : hi;
+      }
+      e.visitChildren(visit);
+    }
+    (ctx as Element).visitChildren(visit);
+    if (lo == null || hi == null) return null;
+    return (lo!, hi!);
   }
 
   /// 현재 일치를 화면에 보이게 한다. 수천 줄 JSON 에서는 대상 줄이 지연 생성
-  /// 목록 밖에 있어 키가 없을 수 있다 — 그때는 실측 평균 줄 높이로 어림한
-  /// 위치로 먼저 점프해 줄을 만든 뒤 맞춘다. 어림이 빗나가면 화면 크기만큼씩
-  /// 다가가며 바로잡는다(최대 10번).
-  void _revealCurrent({required int attempt}) {
+  /// 목록 밖에 있어 키가 없을 수 있다 — 그때는 화소 구간 이분 탐색으로 좁힌다.
+  /// 줄마다 실제 높이가 크게 달라도(앞쪽 매우 긴 줄 등) 화소→줄 대응은 단조라
+  /// 붙은 줄 범위로 정한 방향이 정확하고, 구간이 화면보다 작아지면 반드시 닿는다.
+  /// 처음 한 번은 대상 줄 번호 비율로 씨앗을 잡고 이후는 순수 이분 탐색이라
+  /// 평균 높이 반복처럼 같은 위치에 머물지 않는다. 최대 [maxRawRevealAttempts]번.
+  ///
+  /// 한 사이클은 프레임 하나다: 이전 점프가 이 프레임에 배치됐으므로 지금 붙은
+  /// 줄 범위는 새것이다. 관찰→구간 좁히기→다음 점프→다음 프레임 예약을 한 번에
+  /// 한다(관찰과 점프를 같은 post-frame 에 두면 점프 전 범위를 본다).
+  void _revealCycle({
+    required int gen,
+    required double loPx,
+    required double? hiPx,
+    required double? pendingMid,
+    required double? prevMax,
+    required double? backtrackPx,
+    required int attempt,
+  }) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _matches.isEmpty || !_scrollController.hasClients) return;
+      if (gen != _revealGen ||
+          !mounted ||
+          _matches.isEmpty ||
+          !_scrollController.hasClients) {
+        return;
+      }
       final ctx = _currentKey.currentContext;
       if (ctx != null) {
         unawaited(
@@ -409,30 +513,70 @@ class _RawDetailViewScreenState extends State<RawDetailViewScreen> {
         );
         return;
       }
-      if (attempt >= 10) return;
+      if (attempt >= maxRawRevealAttempts) return;
       final pos = _scrollController.position;
-      final totalLines = _data?.pretty.split('\n').length ?? 0;
-      var perLine = estimatedRawLineHeight;
-      if (totalLines > 1 &&
-          pos.maxScrollExtent > 0 &&
-          pos.viewportDimension > 0) {
-        perLine = (pos.maxScrollExtent + pos.viewportDimension) / totalLines;
+      final curMax = pos.maxScrollExtent;
+      var hi = (hiPx ?? curMax).clamp(0.0, curMax).toDouble();
+      var lo = loPx.clamp(0.0, hi).toDouble();
+      final targetLine = _matches[_current].line;
+      // 전체 높이가 한 번에 몇 배로 뛰면 지연 목록의 어림이 깨진 것으로 보고
+      // 구간에 들이지 않는다(실제로 긴 줄 하나가 처음 배치되면 수백 배까지 뛴다).
+      // 그 외의 증가(긴 줄 배치로 끝이 늘어남)는 상한에 따라간다.
+      final grew =
+          prevMax != null && curMax > prevMax + 1.0 && prevMax > 0;
+      final garbageSpike =
+          grew && curMax > prevMax * _maxSaneGrowthRatio;
+      if (grew && !garbageSpike && curMax > hi) {
+        hi = curMax;
       }
-      final target = (_matches[_current].line * perLine)
-          .clamp(0.0, pos.maxScrollExtent)
-          .toDouble();
+      double? nextBacktrack = backtrackPx;
+      var backtrackJump = false;
+      // 직전 점프 결과를 지금 붙은 범위로만 좁힌다(첫 사이클은 점프 전이라 건너뜀).
+      final mid = pendingMid;
+      if (attempt > 0 && mid != null) {
+        final range = _builtLineRange();
+        if (range != null) {
+          if (targetLine < range.$1) {
+            hi = mid.clamp(0.0, hi).toDouble();
+          } else if (targetLine > range.$2) {
+            if (pos.pixels >= curMax - 1.0 && lo > 0) {
+              // 끝에 닿았는데 대상이 붙은 범위 아래다: 끝 어림이 낡았고(중간에
+              // 안 읽은 긴 줄) 위로는 더 못 간다. 구간을 좁히지 않고 중간을
+              // 밟아 배치를 늘린다 — 매번 절반씩 아래로(같은 곳 반복 금지).
+              nextBacktrack = (backtrackPx ?? lo) / 2;
+              backtrackJump = true;
+            } else {
+              lo = mid.clamp(lo, hi).toDouble();
+            }
+          }
+          // 범위 안에 있는데 키가 없으면(붙는 중) 구간을 유지하고 다시 본다.
+        }
+      }
       final double next;
-      if (attempt == 0) {
-        // 첫 시도는 어림 위치로 직접 — 화면 단위 이동만으로는 수천 줄을 못 간다.
-        next = target;
+      if (backtrackJump) {
+        next = nextBacktrack!;
+      } else if (attempt == 0) {
+        final total = _data?.pretty.split('\n').length ?? 0;
+        next = total > 1
+            ? (curMax * targetLine / (total - 1))
+                  .clamp(0.0, curMax)
+                  .toDouble()
+            : 0.0;
       } else {
-        final gap = target - pos.pixels;
-        next = gap.abs() <= pos.viewportDimension
-            ? target
-            : pos.pixels + pos.viewportDimension * 0.9 * gap.sign;
+        next = (lo + hi) / 2;
       }
-      _scrollController.jumpTo(next.clamp(0.0, pos.maxScrollExtent).toDouble());
-      _revealCurrent(attempt: attempt + 1);
+      _scrollController.jumpTo(next.clamp(0.0, curMax).toDouble());
+      // 점프값이 같아 프레임이 안 잡혀도 다음 사이클이 돌게 예약한다(시도 상한이라 끝난다).
+      WidgetsBinding.instance.scheduleFrame();
+      _revealCycle(
+        gen: gen,
+        loPx: lo,
+        hiPx: hi,
+        pendingMid: next,
+        prevMax: curMax,
+        backtrackPx: nextBacktrack,
+        attempt: attempt + 1,
+      );
     });
   }
 
@@ -653,6 +797,7 @@ class _RawDetailViewScreenState extends State<RawDetailViewScreen> {
         const SizedBox(height: 4),
         Expanded(
           child: ListView.builder(
+            key: _listKey,
             controller: _scrollController,
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
             itemCount: lines.length,
@@ -661,6 +806,7 @@ class _RawDetailViewScreenState extends State<RawDetailViewScreen> {
               final isCurrentLine =
                   _current >= 0 && _matches[_current].line == i;
               return Row(
+                key: ValueKey(i),
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   SizedBox(

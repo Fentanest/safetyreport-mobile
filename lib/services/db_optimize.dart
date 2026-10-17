@@ -502,6 +502,9 @@ class DbOptimize {
     }
     CaptureResult? cap;
     var changed = false;
+    // 공유는 확정됐는데 개인 DB 쓰기가 아직인 이벤트. 뒤 UPDATE·원본 저장이 실패해
+    // 롤백되면 이 이벤트의 personal_save_state 를 failed 로 표시한다(서버·일반 동기화와 같음).
+    CaptureResult? capturedBeforePersonalSave;
     try {
       final saved = await LocalDbService.reparseReportWithCapture(
         report,
@@ -519,17 +522,21 @@ class DbOptimize {
             photoFirstCapture: photoFirst,
             photoLastCapture: photoLast,
           );
+          CaptureResult? inner;
           if (capture != null) {
-            return capture(adapterInput, report.id);
+            inner = await capture(adapterInput, report.id);
+          } else {
+            final ns =
+                projectNamespace ?? namespaceForTest ?? _projectNamespace();
+            inner = await captureReal(
+              adapterInput,
+              report.id,
+              store: store,
+              projectNamespace: ns,
+            );
           }
-          final ns =
-              projectNamespace ?? namespaceForTest ?? _projectNamespace();
-          return captureReal(
-            adapterInput,
-            report.id,
-            store: store,
-            projectNamespace: ns,
-          );
+          capturedBeforePersonalSave = inner;
+          return inner;
         },
       );
       changed = saved.changed;
@@ -542,6 +549,13 @@ class DbOptimize {
       rethrow;
     } catch (e) {
       DbOptimizeState.appendLog('${report.id} 저장 실패(${e.runtimeType})');
+      try {
+        await markPersonalSave(
+          capturedBeforePersonalSave?.eventId,
+          false,
+          store: store,
+        );
+      } catch (_) {}
       throw SaveTransient('${e.runtimeType}: $e');
     }
     try {

@@ -2200,33 +2200,46 @@ class LocalDbService {
     return (changed: changedResult, cap: capResult);
   }
 
-  /// 재파싱 공유 캡처 입력용 Report: 파서 열은 그대로, 목록 열 7종은 비어 있지 않은 기존 행
-  /// 값으로 채운다(서버 REPARSE_CAPTURE_TITLE_COLUMNS 와 같은 집합 — 상태·신고번호·신고명·
-  /// 신고일·만족도조사여부·별점·별점사유, 진행 상태는 `상태`).
+  /// 재파싱 공유 캡처 입력용 Report: 목록 열 7종은 기존 행의 비어 있지 않은 값만으로
+  /// 채운다(서버 reports_repo.reparse_one·REPARSE_CAPTURE_TITLE_COLUMNS 와 같은 집합 —
+  /// 상태·신고번호·신고명·신고일·만족도조사여부·별점·별점사유, 파서 title_fields 는 버림).
+  /// 열별 규칙도 서버 community_capture.build_adapter_input 과 같게 한다:
+  /// 별점은 기존 행에서만 읽어 비면 NULL(파서 점수로 메우지 않음), 신고일·신고번호는
+  /// 기존이 비면 상세 값(재파싱 파서는 목록 없이 상세만으로 만드니 r.date·r.reportNumber 가
+  /// 곧 상세 값), 신고명은 기존 행만(비면 빈 값), 진행 상태(`상태`)는 기존이 없으면 파서 값.
+  /// 만족도조사여부·별점사유는 어댑터 입력에 쓰이지 않지만(서버도 읽지 않음) 같은 집합이라
+  /// 기존 값만 둔다.
   static Report _captureReportWithExistingTitles(
     Report r,
     Map<String, Object?> existing,
   ) {
-    String kept(String column, String parsed) {
+    String keptDetail(String column, String parsed) {
       final v = existing[column]?.toString() ?? '';
       return v.isNotEmpty ? v : parsed;
     }
 
-    int? keptRating() {
-      final v = existing['별점'];
-      if (v == null) return r.rating;
-      if (v.toString().trim().isEmpty) return r.rating;
-      return int.tryParse(v.toString().trim()) ?? r.rating;
+    String keptExistingOnly(String column) {
+      final v = existing[column]?.toString() ?? '';
+      return v.isNotEmpty ? v : '';
     }
 
+    int? keptRatingOnly() {
+      final v = existing['별점'];
+      if (v == null) return null;
+      if (v.toString().trim().isEmpty) return null;
+      return int.tryParse(v.toString().trim());
+    }
+
+    final rating = keptRatingOnly();
     return r.copyWith(
-      result: kept('상태', r.result),
-      reportNumber: kept('신고번호', r.reportNumber),
-      name: kept('신고명', r.name),
-      date: kept('신고일', r.date),
-      pollStatus: kept('만족도조사여부', r.pollStatus),
-      rating: keptRating(),
-      ratingCause: kept('별점사유', r.ratingCause),
+      result: keptDetail('상태', r.result),
+      reportNumber: keptDetail('신고번호', r.reportNumber),
+      name: keptExistingOnly('신고명'),
+      date: keptDetail('신고일', r.date),
+      pollStatus: keptExistingOnly('만족도조사여부'),
+      rating: rating,
+      clearRating: rating == null,
+      ratingCause: keptExistingOnly('별점사유'),
     );
   }
 

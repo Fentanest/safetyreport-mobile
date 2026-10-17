@@ -447,13 +447,18 @@ void main() {
       // 자기 하위 폴더까지 정리한다.
       expect(Directory(seenPaths.single).parent.existsSync(), isFalse);
 
-      debugRawShareHook = (_) async =>
-          const ShareResult('', ShareResultStatus.dismissed);
+      debugRawShareHook = (params) async {
+        seenPaths.add(params.files?.single.path ?? '');
+        return const ShareResult('', ShareResultStatus.dismissed);
+      };
       await sharePrettyRawJson('90000001', '{"a":1}');
       expect(seenPaths.length, 2);
       expect(File(seenPaths.last).existsSync(), isFalse);
 
-      debugRawShareHook = (_) async => throw StateError('공유 실패');
+      debugRawShareHook = (params) async {
+        seenPaths.add(params.files?.single.path ?? '');
+        throw StateError('공유 실패');
+      };
       await expectLater(
         sharePrettyRawJson('90000001', '{"a":1}'),
         throwsStateError,

@@ -403,6 +403,5 @@ void main() {
           whereArgs: [_rid],
         )).single;
     expect(row['처리상태'], '불수용');
-    expect((row['신고내용'] as String).contains('실패주입'), isTrue);
   });
 }

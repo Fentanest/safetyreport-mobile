@@ -674,7 +674,8 @@ PC는 `services/fine_estimate.py`, 모바일은 `lib/services/fine_estimate.dart
 - 재전송 관측은 PC 와 같이 `personal_save_state='saved'` 로 표시한다.
 - 사진 보충(`MaintenanceService._fillOne`)은 촬영 시각을 저장한 뒤 `refreshFineEstimateFor(id)` 로 그 신고의 공유 추정만 다시 계산한다(PC `photo_capture_time.fill_one`
   과 같은 자리, 재전송 완료 표시와 무관). 공유 캡처가 실패해도 촬영 시각은 남기고 `SyncEngine.queueCaptureRetry(id, 'photo_backfill_capture_failed')` 로 S-03 재시도
-  의도에 넣어 다음 증분 동기화가 공식 상세를 다시 읽게 한다. 삭제(`deleted_by_user`)된 관측은 기존 capture 의 삭제 차단으로 되살리지 않는다.
+  의도에 넣어 다음 증분 동기화가 공식 상세를 다시 읽게 한다. 의도 기록까지 실패하면 `LocalDbService.clearPhotoCapture` 로 방금 저장한 촬영 시각을
+  되돌리고 false 를 돌려줘 다음 훑기가 다시 시도한다(2026-10-17, PC 롤백과 같음). 삭제(`deleted_by_user`)된 관측은 기존 capture 의 삭제 차단으로 되살리지 않는다.
 
 | 종전 | 현재 |
 |---|---|

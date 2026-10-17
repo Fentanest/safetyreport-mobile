@@ -200,14 +200,18 @@ class MaintenanceService {
   /// 저장한 뒤 그 신고의 공유 추정(fine_estimate)만 다시 계산한다(서버와 같은 자리, 재전송 완료 표시와 무관).
   /// 촬영 시각 저장은 공유 캡처 성공과 묶지 않는다: 캡처가 실패해도 촬영 시각은 남기고(같은 사진을 다시 받지
   /// 않음) 재시도 의도(S-03)에 넣어 다음 증분 동기화가 공식 상세를 다시 읽어 전체 캡처하게 한다.
+  /// 재시도 의도까지 못 남기면 촬영 시각을 되돌리고 false — 재전송 완료 표시가 있는 종결 신고는 달리 공유 추정을
+  /// 고칠 경로가 없으므로 다음 훑기에서 사진부터 다시 시도한다(PC `fill_one` 의 롤백과 같음).
   static Future<bool> _fillOne(
     String id,
     String photos,
     Future<String?> Function(String url)? fetch,
   ) async {
+    final PhotoCapture capture;
     try {
-      final capture = await collectPhotoCapture(photos, fetch: fetch);
-      if (capture == null) return false;
+      final read = await collectPhotoCapture(photos, fetch: fetch);
+      if (read == null) return false;
+      capture = read;
       if (!await LocalDbService.setPhotoCapture(
         id,
         capture,
@@ -218,11 +222,19 @@ class MaintenanceService {
     } catch (_) {
       return false;
     }
-    await _refreshSharedEstimate(id);
-    return true;
+    if (await _refreshSharedEstimate(id)) return true;
+    try {
+      await LocalDbService.clearPhotoCapture(
+        id,
+        capture,
+        attachedPhotos: photos,
+      );
+    } catch (_) {}
+    return false;
   }
 
-  static Future<void> _refreshSharedEstimate(String id) async {
+  /// 공유 추정을 갱신했거나 재시도 의도를 남겼으면 true, 둘 다 실패하면 false.
+  static Future<bool> _refreshSharedEstimate(String id) async {
     try {
       final refresh = refreshSharedEstimateForTest;
       if (refresh != null) {
@@ -230,13 +242,17 @@ class MaintenanceService {
       } else {
         await refreshFineEstimateFor(id);
       }
+      return true;
     } catch (_) {
       try {
         await (queueRetryForTest ?? SyncEngine.queueCaptureRetry)(
           id,
           photoBackfillRetryReason,
         );
-      } catch (_) {}
+        return true;
+      } catch (_) {
+        return false;
+      }
     }
   }
 

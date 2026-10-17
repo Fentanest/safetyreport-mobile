@@ -1106,6 +1106,31 @@ class LocalDbService {
     return n > 0;
   }
 
+  /// [setPhotoCapture] 로 방금 저장한 촬영 시각을 되돌린다(사진 보충 뒤 공유 갱신·재시도 의도가 모두 실패했을 때,
+  /// PC `fill_one` 의 롤백과 같음). 그 사이 값·첨부가 바뀌었으면 건드리지 않는다.
+  static Future<bool> clearPhotoCapture(
+    String id,
+    PhotoCapture capture, {
+    required String attachedPhotos,
+  }) async {
+    final d = await db;
+    final n = await d.update(
+      'reports',
+      {'사진_첫촬영': null, '사진_끝촬영': null, '사진_촬영수': null},
+      where:
+          'ID = ? AND 사진_첫촬영 IS ? AND 사진_끝촬영 IS ? AND 사진_촬영수 IS ? AND 첨부사진 = ?',
+      whereArgs: [
+        id,
+        capture.first,
+        capture.last,
+        capture.count,
+        attachedPhotos,
+      ],
+    );
+    if (n > 0) invalidateCaches();
+    return n > 0;
+  }
+
   static const preUpgradeBackupKeep = 3;
 
   /// 앱 업데이트 뒤 처음 DB 를 열 때, 스키마를 올리기 전에 DB 파일을 복사해 둔다.

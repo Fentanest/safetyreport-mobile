@@ -458,15 +458,32 @@ void main() {
       );
     });
 
-    test('재시도 의도 기록까지 실패해도 촬영 시각은 남는다', () async {
-      await seed();
-      MaintenanceService.refreshSharedEstimateForTest = (_) async =>
-          throw StateError('journal unavailable');
-      MaintenanceService.queueRetryForTest = (_, _) async =>
-          throw const FileSystemException('disk full');
-      expect(await MaintenanceService.backfillMissing(fetch: fetchTimes), 2);
-      expect((await _row('2'))['사진_촬영수'], 1);
-    });
+    test(
+      '재시도 의도 기록까지 실패하면 촬영 시각을 되돌려 다음 훑기가 다시 시도한다(PC fill_one 롤백과 같음)',
+      () async {
+        await seed();
+        MaintenanceService.refreshSharedEstimateForTest = (_) async =>
+            throw StateError('journal unavailable');
+        MaintenanceService.queueRetryForTest = (_, _) async =>
+            throw const FileSystemException('disk full');
+        expect(await MaintenanceService.backfillMissing(fetch: fetchTimes), 0);
+        for (final id in ['1', '2']) {
+          final row = await _row(id);
+          expect(
+            [row['사진_촬영수'], row['사진_첫촬영'], row['사진_끝촬영']],
+            [null, null, null],
+          );
+        }
+        expect(await LocalDbService.pendingPhotoRows(), hasLength(2));
+        // 장애가 풀리면 다음 훑기가 촬영 시각과 공유 추정을 함께 고친다.
+        final refreshed = <String>[];
+        MaintenanceService.refreshSharedEstimateForTest = (id) async =>
+            refreshed.add(id);
+        expect(await MaintenanceService.backfillMissing(fetch: fetchTimes), 2);
+        expect(refreshed, ['2', '1']);
+        expect((await _row('2'))['사진_촬영수'], 1);
+      },
+    );
   });
 }
 

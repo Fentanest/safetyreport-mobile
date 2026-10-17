@@ -20,7 +20,7 @@
 | 인증·동의 캐시 10분 만료 | 기존 `ClientGateGuard.isOpen`은 600초 뒤 false. 기존 NotificationService는 저장 전 return, WsService는 만료 후 메시지 수신·재접속 때 종료했다. 권한과 독립된 차단 조건이다. 현재 알림을 먼저 저장하고 `refreshGateHeadless(clientMode: true)`가 폰의 세션·동의를 재검증한다. 캐시 유효 기간을 늘리거나 인증을 생략하지 않는다. |
 | 화면 꺼짐·Doze·앱 대기 버킷 | 기존 HTTP executor는 OS 작업 수명·wake lock·재시도가 없어 지연/실패 가능. 기기 로그 없이 실제 발생 원인은 확정할 수 없다. 현재 WorkManager 네트워크 제약 + Android 12 이상 expedited 요청, 할당량 소진 시 일반 작업으로 전환한다. 즉시 실행 시간은 보장하지 않는다. |
 | FGS 시작 제한·Android 14 유형 | 기존 Client enqueue는 FGS를 시작하지 않아 FGS 시작 예외가 그 POST의 직접 원인은 아니다. WsService `specialUse`, SyncForegroundService `dataSync`와 해당 권한은 Manifest에 있다. 새 Worker는 별도 FGS를 시작하지 않는다(12 미만은 일반 작업). Standalone worker는 `backgroundWorker: true`로 Activity의 `startSyncFgs` 호출을 생략한다. |
-| WS 단절/재연결 | 원래 POST와 WS는 독립이므로 WS 단절만으로 POST가 막히지는 않는다. 양쪽이 같은 만료 캐시에 막힐 수 있었다. 기존 WS가 살아 있으면 만료 시 Worker 갱신을 기다렸다 재연결한다. Worker가 Activity나 WS를 새로 띄워야 접수할 수 있는 구조는 아니다. 결과 WS를 못 받아도 요청 접수/재시도 알림과 서버 현황으로 확인한다. |
+| WS 단절/재연결 | 원래 POST와 WS는 독립이므로 WS 단절만으로 POST가 막히지는 않는다. 양쪽이 같은 만료 캐시에 막힐 수 있었다. 기존 WS가 살아 있으면 만료 시 Worker 갱신을 기다렸다 재연결한다(2026-10-17부터 연결 중 만료 3분 전에 미리 갱신 — 아래 '코드 대조 정정: Client 인증 확인 만료와 WebSocket 알림'). Worker가 Activity나 WS를 새로 띄워야 접수할 수 있는 구조는 아니다. 결과 WS를 못 받아도 요청 접수/재시도 알림과 서버 현황으로 확인한다. |
 | 프로세스 종료·리스너만 재기동 | `NotificationService → ProcessingInboxStore → NotificationWork → 별도 FlutterEngine → main.notificationBackgroundMain`으로 연결한다. MainActivity 없는 엔진에 inbox·scope·캐시 저장·결과 알림 채널을 제공한다. WorkManager가 재시도 수명을 소유한다. `onStopped`/8분 watchdog에서 엔진을 종료한 후 claim을 반환하고 미완료 이벤트는 ACK하지 않는다. |
 | Standalone 큐 | 기존에는 알림 수신 시 저장/탭 안내만 했다. 현재 Worker가 기존 계정/소유권·동의·초기화 게이트와 `personal_sync` lease를 거쳐 drain한다. 개별 fetch/증분 fallback을 재사용하며 성공 뒤에만 ACK한다. 6분 작업 경계와 OS 중단 시 남은 큐를 다음 작업이 처리한다. |
 | 패키지·문구·그룹/업데이트 | 허용 패키지는 기존 `kr.go.safepeople`, `com.kakao.talk`만. title/text 외 bigText/textLines도 읽고 SPP 번호를 추출한다. 문구 자체에는 의존하지 않는다. 그룹과 자식이 가리키는 아직 claim하지 않은 동일 신고는 합친다. 실제 공식 앱의 패키지/번호 형식 변경 여부는 알림 원본·기기 관찰 없이는 미확인이다. 번호 없는 알림은 전체 수집으로 확대하지 않는다. |
@@ -445,9 +445,25 @@ CI `build-dev-apk.yml`(2026-09-27): `dev` push(문서만 바뀐 push 제외)·�
 
 ### 코드 대조 정정: Client 인증 확인 만료와 WebSocket 알림
 
-`WsService` 재연결 시 인증·동의 캐시가 닫혔거나 만료됐으면 서비스를 종료하고 지속 알림을 제거한다.
-10초마다 인증·동의 확인 알림을 다시 발행하지 않는다. `MainActivity.startWsService`도 닫힌 캐시로
-시작을 거부한다. Flutter는 캐시 저장 완료 뒤 서비스를 시작하며, 메인 화면 복귀 때 다시 검증하고
+(2026-10-17 다시 정정 — 아래 첫 문단은 4e4e41eb 이전 동작이었다.) 인증·동의 캐시(`community_gate_cache_v1`)는 10분(`ClientGateGuard.VALID_MS`) 동안만 열려 있고,
+화면의 게이트는 앱이 앞에 있을 때만 5분마다 다시 확인한다. 그래서 앱을 백그라운드에 두면 10분 뒤 캐시가 만료되고, 연결된 WebSocket 은 다음 서버 메시지(30초 ping)에서
+스스로 끊긴다(`onMessage` 의 `current()`). 만료는 철회가 아니므로(`canRenew`: state ok + owner) 서비스는 멈추지 않고 화면 없는 갱신(`NotificationWork` → `refreshGateHeadless(clientMode: true)`)을 기다렸다 다시 연결한다.
+철회(state ≠ ok)·owner 없음이면 서비스를 종료하고 지속 알림을 지운다.
+
+2026-10-17 사용자 제보("서버 연결 중 #0 #1 #2" 뒤 "인증 확인 후 서버에 다시 연결합니다", 서버는 항상 켜져 있음)로 고친 것:
+- **만료 전 갱신**: 연결 중(그리고 연결 직전) 30초마다 캐시 나이를 보고 7분(`RENEW_AFTER_MS`)을 넘으면 갱신을 요청한다. 유효 시간은 늘리지 않는다.
+  갱신이 제때 끝나면 연결이 끊기지 않는다. 요청 간격은 2분, 만료된 채 갱신이 안 되면 30분까지 두 배씩 늘린다(실패가 이어질 때 화면 없는 엔진을 계속 띄우지 않게). 캐시가 다시 열리면 되돌린다.
+- **KEEP 대기 회피**: 갱신은 `NotificationWork.scheduleGateRenewal`(`scheduleFresh` 규칙: 대기 중이면 REPLACE, 실행 중이면 APPEND_OR_REPLACE)로 예약한다.
+  예전 `schedule(renewGate=true)` 는 KEEP 이라 앞선 실패의 지수 대기(최대 5시간) 뒤에 묶여 그동안 '인증 확인 후…' 에서 멈췄다.
+- 만료 대기 중에는 네트워크 없이 로컬 캐시만 5초마다 다시 보고, 화면 문구는 "로그인 확인 중입니다. 확인되면 서버에 다시 연결합니다", 재시도 번호를 0으로 되돌린다.
+  연결 문구는 첫 시도 "서버 연결 중...", 실패 뒤 "서버 연결 재시도 중... (N회째)", 성공 "서버 연결됨 ✓". 실패 로그에 HTTP 상태를 남긴다.
+- `MainActivity.onResume` 은 만료만 된 캐시(`canRenew`)로 서비스를 멈추지 않는다(예전에는 앱을 열 때마다 멈췄다 Flutter 확인 뒤 처음부터 다시 연결했다).
+  `startWsService`(Flutter 호출)는 여전히 열린 캐시만 받는다.
+- 서비스가 멈춘 뒤 루프 스레드가 늦게 지속 알림을 다시 올려 서비스 없는 알림이 남던 경로를 막았다(`updateForegroundNotif` 가 `running` 확인, 종료·`onDestroy` 에서 알림 취소).
+- 남은 한계: 화면 없는 갱신이 실패하면(카카오 세션·네트워크·서버 5xx) 그동안은 연결하지 않는다. 실패 원인은 기기 로그로 확인해야 한다.
+  `ServerContract.wsEventsUrl` 은 baseUrl 의 하위 경로를 버린다(역방향 프록시 하위 경로를 쓰면 WS 만 404) — 계약 파일이라 이번에 바꾸지 않았다.
+
+`MainActivity.startWsService`는 닫힌 캐시로 시작을 거부한다. Flutter는 캐시 저장 완료 뒤 서비스를 시작하며, 메인 화면 복귀 때 다시 검증하고
 Client 연결을 재개한다. 지속 알림 갱신은 `setOnlyAlertOnce(true)`로 반복 알림음을 막는다.
 
 ### DB 완료 알림의 파일 앱 fallback

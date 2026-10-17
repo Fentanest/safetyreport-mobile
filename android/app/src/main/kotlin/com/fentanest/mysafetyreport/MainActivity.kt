@@ -698,7 +698,10 @@ class MainActivity : FlutterFragmentActivity() {
     private fun autoStartWsServiceIfConfigured() {
         val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
         val appMode = prefs.getString("flutter.appMode", "server") ?: "server"
-        if (appMode != "server" || !ClientGateGuard.isOpen(prefs)) {
+        // 인증 확인이 만료만 됐으면(철회 아님) 서비스를 멈추지 않는다 — 서비스는 갱신을 기다렸다 다시 연결하고(메시지는
+        // 처리하지 않음), 화면의 게이트 확인(_resumeClientConnection)도 곧 새 결과를 쓴다. 멈추면 앱을 열 때마다 연결을 처음부터 다시 맺는다.
+        val gateUsable = ClientGateGuard.isOpen(prefs) || ClientGateGuard.canRenew(prefs)
+        if (appMode != "server" || !gateUsable) {
             try {
                 val intent = Intent(this, WsService::class.java).apply {
                     action = WsService.ACTION_STOP

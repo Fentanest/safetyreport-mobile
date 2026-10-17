@@ -7,11 +7,16 @@
 // 공유 캡처 입력의 목록 값·진행 상태·사진 촬영 값은 lease 안에서 읽은 기존 행 스냅샷으로 채움)이다.
 //
 // 실패 처리(7-1): 영구는 없음·삭제(404·410)만. 401·403·토큰 만료·로그인 화면은 auth 로 본다.
-// 신고 하나가 일시 실패하면 시도 횟수를 쌓고 3번을 넘기면 보류 목록(`sync_meta` pending)에 남긴다.
+// 신고 하나가 일시 실패하면 시도 횟수를 쌓고 3번째 실패에서 보류 목록(`sync_meta` holds)에 남긴다.
 // `done=true` 는 보류가 비었을 때만. 보류만 남으면 `partial`(실행 중 아님)이고 다음 기동·동기화 성공 뒤
 // 보류만 다시 시도한다(회차마다 시도 초기화, 회차 사이 지수 백오프 최대 1시간).
-// 연속 5건 일시 실패·로그인 문제는 신고별 횟수 없이 작업 전체를 쉰다(`outage`/`login_required`).
+// 연속 5건 일시 실패·로그인 문제는 신고별 횟수 없이 작업 전체를 쉰다(`outage`/`login_required`,
+// 지수 백오프 밑값 60초·최대 1시간, 크롤/동기화 성공 직후 깨움).
 // 새 답변이 온 신고(7-2)는 저장하지 않고 일반 크롤 대기 큐(영속)에 넣어 "새 답변 — 일반 크롤로 넘김" 을 남긴다.
+// 신고번호가 없는 행의 새 활동은 대기열에도 넣지 않고 "새 답변 — 다음 일반 크롤에서 처리(신고번호 없음)" 뒤
+// 처리 완료로 센다. 저장 직전 재확인에 걸리면(답변일·처리내용·상태 변경) 처리 완료로 세지 않고
+// 시도 횟수 증가 없이 보류로 넘긴다. 어떤 경로로 끝나거나 쉬든(완료·partial·outage·login_required·오류)
+// 보류한 수동·단건 넘김 큐 요청을 배출한다.
 // 쉬는 동안(7-3)은 동기화를 막지 않는다 — 게이트(`blocksSync`)는 실제 처리 중에만 닫힌다.
 // 엔진 간 배제(7-4): 처리 중 표시는 `sync_meta` 영속(갱신 시각·만료), 신고 1건 처리는 일반 동기화와
 // 같은 영속 lease(`personal_sync`)를 잡고, 저장 직전 트랜잭션 안에서 답변일·처리내용·상태를 재확인한다.
@@ -83,12 +88,12 @@ class DbOptimize {
   static int fetchRetryAttempts = 3;
 
   /// 일시 실패(네트워크·저장 실패·토큰 갱신 중 예외)를 보류 목록으로 넘기기 전 신고별 시도 횟수
-  /// (회차마다 초기화, 서버 MAX_RETRY_ATTEMPTS 와 같음). 3번을 넘기면(4번째 실패)
+  /// (회차마다 초기화, 서버 MAX_RETRY_ATTEMPTS 와 같음). 3번째 실패에서
   /// 그 신고를 보류 목록에 남기고 이번 회차는 건너뛴다(명세 7-1).
   static const int maxRetryAttempts = 3;
 
-  /// 옛 건너뜀 사유(7-1 전). 지금은 일시 실패를 보류 목록에 남기므로 더 쓰지 않는다.
-  /// 계약·시험 참조용으로만 둔다.
+  /// 보류 사유(통계 skipped 키, 서버 RETRY_EXCEEDED_REASON 과 같음).
+  /// 영구 건너뜀이 아니라 다음 회차 재시도 대상이다.
   static const String retryExceededReason = 'retry_exceeded';
 
   /// 전역 장애로 쉬기 전 연속 일시 실패 건수(명세 7-1). 이 횟수만큼 연속으로
@@ -417,12 +422,50 @@ class DbOptimize {
       );
 
   /// `target != 현재 파서 버전` 이거나 `done` 이 아니면 시작/이어서 한다(서버와 같음).
+  /// target 비교는 [sameTarget] 세대 비교다 — 서버(`pc-parser-13`) 메타를 가져와도
+  /// 같은 세대면 처음부터 훑지 않고 보류만 이어서 처리한다.
   static Future<bool> needsRun() async {
     final meta = await readMeta();
     if (meta == null) return true;
-    if (meta['target'] != mobileParserVersion) return true;
+    if (!sameTarget(meta['target'], mobileParserVersion)) return true;
     return meta['done'] != true;
   }
+
+  /// target 세대 정규화. 서버·모바일 접두사(`pc-`·`mobile-`)만 떼고 비교한다 —
+  /// 한쪽에서 만든 partial 메타를 다른 쪽이 가져오면 holds 만 이어서 처리한다
+  /// (같은 target 세대일 때, 서버와 같은 규칙).
+  static String canonicalTarget(Object? target) =>
+      '$target'.replaceFirst(RegExp(r'^(pc|mobile)-'), '');
+
+  /// 같은 target 세대면 true.
+  static bool sameTarget(Object? a, Object? b) =>
+      canonicalTarget(a) == canonicalTarget(b);
+
+  /// `next_retry_at` 읽기 — UTC ISO8601 문자열(정본, 서버와 같은 형식).
+  /// 고치기 전 서버가 쓰던 epoch 초 숫자(문자열 숫자 포함)도 다음 재시도 시각으로
+  /// 받아 하위호환한다. 없거나 0 이하면 null.
+  static DateTime? parseNextRetryAt(Object? value) {
+    if (value == null) return null;
+    if (value is num) {
+      final seconds = value.toDouble();
+      if (seconds <= 0) return null;
+      final ms = seconds < 1e12 ? (seconds * 1000).round() : seconds.round();
+      return DateTime.fromMillisecondsSinceEpoch(ms, isUtc: true);
+    }
+    final text = '$value'.trim();
+    if (text.isEmpty) return null;
+    final asNumber = double.tryParse(text);
+    if (asNumber != null) return parseNextRetryAt(asNumber);
+    try {
+      return DateTime.parse(text).toUtc();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// `next_retry_at` 쓰기 — UTC ISO8601 문자열(서버와 같은 형식). 없으면 키를 생략한다.
+  static String formatNextRetryAt(DateTime moment) =>
+      moment.toUtc().toIso8601String();
 
   // ── 대기 사유 확인 ─────────────────────────────────────────────────────────
 
@@ -780,9 +823,11 @@ class DbOptimize {
 
   /// 신고 ID 순으로 전부 처리한다(동기 — 시험·백그라운드 작업이 함께 쓴다, 서버와 같음).
   ///
-  /// 서버 process_all 과 같은 규칙: target 이 바뀌면 커서·통계·시도 횟수를 버리고 처음부터,
-  /// 영구 실패(없음·삭제)·파싱 불가만 건너뛰고 일시 실패는 신고별 attempts 에 누적해 이번 회차 끝·
-  /// 다음 실행에 재시도(3회면 retry_exceeded), done=true 는 전부 처리·영구·초과일 때만.
+  /// 서버 process_all 과 같은 규칙: target 세대가 바뀌면 커서·통계·시도 횟수를 버리고 처음부터,
+  /// 영구 실패(없음·삭제)·파싱 불가만 건너뛰고 일시 실패는 신고별 attempts 에 누적해 3번째 실패에서
+  /// 보류(`holds`)로 넘기며, done=true 는 보류가 비었을 때만 기록한다. 보류만 남고 한 바퀴를
+  /// 끝내면 `partial`(실행 중 아님, round+1·다음 재시도 시각 기록)로 쉬고, 다음 실행에는
+  /// 보류만 다시 시도한다(서버와 같은 키·같은 모양).
   /// 매 신고 처리 때 DB 정체를 확인해 복원·교체가 끼면 현재 신고를 끝내고 멈춘다
   /// (옛 ID 목록·커서·done 을 새 DB 에 쓰지 않음). closeDb 로 멈춰도 상태를 정리한다.
   static Future<OptimizeRunResult> processAll({
@@ -801,31 +846,50 @@ class DbOptimize {
     final ids = [for (final r in idRows) '${r['ID']}'];
     final total = ids.length;
     final meta = await readMeta() ?? {};
-    // target 이 현재 파서 버전과 다르면 커서·통계·보류를 버리고 처음부터.
-    final bool targetChanged = meta['target'] != mobileParserVersion;
+    // target 세대(서버·모바일 접두사 무시)가 다르면 커서·통계·보류를 버리고 처음부터.
+    final bool targetChanged = !sameTarget(meta['target'], mobileParserVersion);
     final String cursor = targetChanged ? '' : '${meta['cursor'] ?? ''}';
-    // 보류 목록(다음 회차에 다시 시도할 신고, 명세 7-1). 복원된 DB 에 없는 ID 는 버린다.
-    final pending = <String>{};
+    // 보류 목록(다음 회차에 다시 시도할 신고, 명세 7-1, 서버와 같은 키 `holds`).
+    // 고치기 전 모바일이 쓰던 `pending` 키도 읽는다. 복원된 DB 에 없는 ID 는 버린다.
+    final holds = <String>{};
     if (!targetChanged) {
-      final rawPending = meta['pending'];
-      if (rawPending is List) {
-        for (final e in rawPending) {
-          final id = '$e';
-          if (ids.contains(id)) pending.add(id);
+      for (final raw in [meta['holds'], meta['pending']]) {
+        if (raw is List) {
+          for (final e in raw) {
+            final id = '$e';
+            if (ids.contains(id)) holds.add(id);
+          }
         }
       }
     }
     final Map<String, dynamic> stats;
+    // round 는 0에서 시작해 보류로 한 바퀴를 끝낼 때마다 +1(서버와 같음).
     final int round;
     if (targetChanged) {
       stats = {};
-      round = 1;
+      round = 0;
     } else {
       stats = Map<String, dynamic>.from(meta['stats'] as Map? ?? {});
-      round = (meta['round'] as int? ?? 0) + 1;
+      final rawRound = meta['round'];
+      round = rawRound is int
+          ? rawRound
+          : int.tryParse('$rawRound') ?? 0;
     }
-    // 시도 횟수는 회차마다 초기화한다(명세 7-1).
+    // 시도 횟수는 회차마다 초기화한다(명세 7-1). 커서가 남은 채 중단된 같은 회차를
+    // 이어서 할 때만 메타의 시도 횟수를 살린다(보류만 남은 partial 다음 회차는 초기화).
     final attempts = <String, int>{};
+    // 보류만 남은 채 끝난 회차 다음에는 보류 목록만 다시 시도한다(서버와 같음).
+    final bool holdsOnly =
+        !targetChanged && cursor.isEmpty && holds.isNotEmpty;
+    if (!targetChanged && cursor.isNotEmpty) {
+      final rawAttempts = meta['attempts'];
+      if (rawAttempts is Map) {
+        for (final entry in rawAttempts.entries) {
+          final count = int.tryParse('${entry.value}') ?? 0;
+          if (count > 0) attempts['${entry.key}'] = count;
+        }
+      }
+    }
     // 이번 회차에 새로 보류로 넘긴 신고(전역 장애 롤백 때만 뺀다).
     final newlyPending = <String>{};
     stats['reused'] ??= 0;
@@ -872,10 +936,13 @@ class DbOptimize {
     void recordTransient(String reportId, String note) {
       final count = (attempts[reportId] ?? 0) + 1;
       attempts[reportId] = count;
-      if (count > maxRetryAttempts) {
-        // 3번을 넘기면 보류 목록에 남기고 이번 회차는 건너뛴다(명세 7-1).
+      if (count >= maxRetryAttempts) {
+        // 3번째 실패에서 보류 목록에 남기고 이번 회차는 건너뛴다(명세 7-1, 서버와 같음).
         // 이미 보류 목록에 있으면(이전 회차분) 그대로 둔다.
-        if (pending.add(reportId)) newlyPending.add(reportId);
+        if (holds.add(reportId)) {
+          newlyPending.add(reportId);
+          tally(skipped: retryExceededReason);
+        }
         DbOptimizeState.appendLog(
           '$reportId 보류(일시 실패 계속, 다음 회차에 다시 시도합니다'
           '${note.isEmpty ? '' : ': $note'})',
@@ -889,13 +956,14 @@ class DbOptimize {
 
     void recordResolved(String reportId) {
       attempts.remove(reportId);
-      pending.remove(reportId);
+      holds.remove(reportId);
       newlyPending.remove(reportId);
     }
 
     /// 다른 엔진이 그사이 저장해 덮지 않고 다음 회차로 넘긴다(시도 횟수 증가 없음, 명세 7-4).
+    /// 처리 완료로 세지 않는다 — 보류에 남겨 다음 회차에 다시 시도한다.
     void carryNext(String reportId, String note) {
-      pending.add(reportId);
+      holds.add(reportId);
       DbOptimizeState.appendLog(
         '$reportId 다음 회차에 다시 시도합니다($note)',
       );
@@ -908,7 +976,7 @@ class DbOptimize {
       'total': total,
       'stats': stats,
       'attempts': attempts,
-      'pending': pending.toList(),
+      'holds': holds.toList()..sort(),
       'round': round,
     });
 
@@ -1055,10 +1123,16 @@ class DbOptimize {
         parsedAnswerDate: report.responseDate,
       )) {
         final number = '${base['신고번호'] ?? ''}';
+        if (number.isEmpty) {
+          // 신고번호 없는 행의 새 활동은 저장하지 않고(원본·파서 열·파일)
+          // 대기열에도 넣지 않는다. 다음 일반 크롤에서 처리하도록 두고
+          // 처리 완료로 센다(명세 P5).
+          DbOptimizeState.appendLog('$reportId 새 답변 — 다음 일반 크롤에서 처리(신고번호 없음)');
+          recordResolved(reportId);
+          return 'resolved';
+        }
         try {
-          await StandalonePendingQueueStore.append([
-            number.isNotEmpty ? number : reportId,
-          ]);
+          await StandalonePendingQueueStore.append([number]);
         } catch (e) {
           recordTransient(reportId, '대기 큐 등록 실패($e)');
           return 'deferred';
@@ -1123,8 +1197,8 @@ class DbOptimize {
       return 'resolved';
     }
 
-    // 작업 목록: 커서 꼬리 + 보류 합집합(ID 순). 보류만 남았으면 보류만 다시
-    // 시도하고(명세 7-1), 쉼으로 중간에 끊겼으면 커서 꼬리도 이어서 한다.
+    // 작업 목록: 보류만 남은 회차 다음에는 보류만 다시 시도하고(명세 7-1),
+    // 쉼으로 중간에 끊겼으면 커서 꼬리와 보류 합집합을 이어서 한다(ID 순).
     final order = {for (var i = 0; i < ids.length; i++) ids[i]: i};
     var startIndex = 0;
     if (cursor.isNotEmpty) {
@@ -1133,15 +1207,20 @@ class DbOptimize {
     }
     final List<String> sweep;
     {
-      final tail = ids.sublist(startIndex);
-      final workSet = <String>{...tail};
-      for (final id in pending) {
-        if (order.containsKey(id)) workSet.add(id);
+      if (holdsOnly) {
+        sweep = holds.where(order.containsKey).toList()
+          ..sort((a, b) => order[a]!.compareTo(order[b]!));
+      } else {
+        final tail = ids.sublist(startIndex);
+        final workSet = <String>{...tail};
+        for (final id in holds) {
+          if (order.containsKey(id)) workSet.add(id);
+        }
+        sweep = workSet.toList()
+          ..sort((a, b) => order[a]!.compareTo(order[b]!));
       }
-      sweep = workSet.toList()
-        ..sort((a, b) => order[a]!.compareTo(order[b]!));
     }
-    var doneCount = pending.isNotEmpty ? 0 : startIndex;
+    var doneCount = holdsOnly ? 0 : startIndex;
     var lastCursor = cursor;
     DbOptimizeState.update(
       total: total,
@@ -1151,10 +1230,10 @@ class DbOptimize {
       message: '',
     );
 
-    // 같은 회차 재시도분(시도 1~3회). 보류로 넘어간 신고·다음 회차분은 제외한다.
+    // 같은 회차 재시도분(시도 1~2회). 보류로 넘어간 신고·다음 회차분은 제외한다.
     bool retryable(String id) {
       final c = attempts[id] ?? 0;
-      return c >= 1 && c <= maxRetryAttempts;
+      return c >= 1 && c < maxRetryAttempts;
     }
 
     final pendingRetry = <String>[];
@@ -1182,36 +1261,84 @@ class DbOptimize {
         } else {
           attempts[id] = c;
         }
-        if (newlyPending.remove(id)) pending.remove(id);
+        if (newlyPending.remove(id)) holds.remove(id);
       }
       return true;
     }
 
-    /// 쉼으로 끝낸다. 훑다 만 신고(재시도분·시도분)는 보류에 넣어 다음 회차에
-    /// 다시 시도한다. 전역 장애로 롤백된 연속 실패분도 시도 횟수 없이 보류에 넣어
-    /// 빠뜨리지 않는다. 메타·표시를 남기고 `rest` 로 돌아간다.
+    /// 쉼으로 끝낸다. 훑다 만 신고(재시도분·시도분)에 `tail`(아직 손대지 않은
+    /// 꼬리 — 호출자가 넘긴다)을 더해 모두 보류에 넣고 다음 회차에 다시 시도한다.
+    /// 전역 장애로 롤백된 연속 실패분도 시도 횟수 없이 보류에 넣어 빠뜨리지 않는다.
+    /// 메타·표시를 남기고 `rest` 로 돌아간다.
+    ///
+    /// `partial`(한 바퀴 끝·보류만 남음)이든 `outage`·`login_required`(같은 회차를
+    /// 이어서 함)든 메타 모양은 같다(서버 `_park_partial` 과 같은 자리): 커서를
+    /// 비우고 시도 횟수를 버린 뒤 round+1·다음 재시도 시각(UTC ISO8601)을 기록해
+    /// 다음 실행이 보류만 다시 시도한다. 상태·백오프 밑값만 rest 종류대로 둔다.
+    /// 어떤 경로로 쉬든 보류한 수동·단건 넘김 큐 요청을 배출한다(명세 P4) —
+    /// 상태를 먼저 바꿔 게이트를 연 뒤 배출한다.
+    String retryText(DateTime retryAt) {
+      final local = retryAt.toLocal();
+      String two(int v) => v.toString().padLeft(2, '0');
+      return '${local.year}-${two(local.month)}-${two(local.day)} '
+          '${two(local.hour)}:${two(local.minute)}';
+    }
+
     Future<OptimizeRunResult> abortRest(
       String rest,
       String stage,
       String message,
       String log, {
       String? currentId,
+      Iterable<String> tail = const [],
     }) async {
       _restArmed = true;
-      pending.addAll(pendingRetry);
-      pending.addAll(attempts.keys);
-      if (currentId != null) pending.add(currentId);
-      if (rest == 'outage') pending.addAll(streak);
+      holds.addAll(pendingRetry);
+      holds.addAll(attempts.keys);
+      if (currentId != null) holds.add(currentId);
+      if (rest == 'outage') holds.addAll(streak);
+      holds.addAll(tail);
       streak.clear();
       consecutiveTransient = 0;
-      await writeProgress(lastCursor);
+      final sortedHolds = holds.toList()..sort();
+      final newRound = round + 1;
+      // 다음 재시도 시각 힌트: partial 은 새 바퀴 번호로, outage·login 은 첫 백오프로.
+      final delay = rest == 'partial'
+          ? restBackoff('partial', newRound)
+          : restBackoff(rest, 1);
+      final retryAt = DateTime.now().toUtc().add(delay);
+      await writeMeta({
+        'target': mobileParserVersion,
+        'cursor': '',
+        'done': false,
+        'total': total,
+        'stats': stats,
+        'attempts': <String, int>{},
+        'holds': sortedHolds,
+        'round': newRound,
+        'next_retry_at': formatNextRetryAt(retryAt),
+      });
       await clearProcessingMarker();
-      DbOptimizeState.update(
-        state: rest == 'partial' ? 'partial' : 'paused',
-        stage: stage,
-        message: message,
-      );
-      DbOptimizeState.appendLog(log);
+      if (rest == 'partial') {
+        // 보류만 남음(실행 중 아님) — 표시줄은 보류 건수와 다음 재시도 시각만 조용히 보인다.
+        final text = retryText(retryAt);
+        DbOptimizeState.update(
+          state: 'partial',
+          stage: stage,
+          message: '보류 ${sortedHolds.length}건, 다음 재시도 $text',
+        );
+        DbOptimizeState.appendLog(
+          '보류 ${sortedHolds.length}건 남음 — 다음 실행·동기화 성공 뒤 보류만 다시 시도합니다(다음 재시도 $text)',
+        );
+      } else {
+        DbOptimizeState.update(
+          state: 'paused',
+          stage: stage,
+          message: message,
+        );
+        DbOptimizeState.appendLog(log);
+      }
+      await runDeferredStarters();
       return OptimizeRunResult(
         total: total,
         done: doneCount,
@@ -1263,6 +1390,7 @@ class DbOptimize {
             '로그인 뒤 이어서 합니다',
             '로그인 필요 — 쉽니다(신고별 시도 없이 다음 회차·동기화 성공 뒤 이어서 시도합니다)',
             currentId: reportId,
+            tail: sweep.sublist(index + 1),
           );
         }
         if (outcome == 'deferred') {
@@ -1273,6 +1401,7 @@ class DbOptimize {
               'outage',
               '일시 장애 — 잠시 뒤 다시 시도합니다',
               '일시 장애가 계속돼 쉽니다(신고별 시도 횟수 없이 다음 회차·동기화 성공 뒤 다시 시도합니다)',
+              tail: sweep.sublist(index),
             );
           }
           if (retryable(reportId) && !pendingRetry.contains(reportId)) {
@@ -1294,7 +1423,7 @@ class DbOptimize {
         }
       }
 
-      // 이번 회차 끝 재시도: 일시 실패분 중 아직 3회 이하인 것만 같은 회차에서 다시 시도한다.
+      // 이번 회차 끝 재시도: 일시 실패분 중 아직 3회 미만인 것만 같은 회차에서 다시 시도한다.
       while (stoppedReason == null && restAbort == null && pendingRetry.isNotEmpty) {
         final current = [
           for (final id in pendingRetry)
@@ -1340,6 +1469,7 @@ class DbOptimize {
               '로그인 뒤 이어서 합니다',
               '로그인 필요 — 쉽니다(신고별 시도 없이 다음 회차·동기화 성공 뒤 이어서 시도합니다)',
               currentId: reportId,
+              tail: current.sublist(i + 1),
             );
           }
           if (outcome == 'deferred') {
@@ -1351,6 +1481,7 @@ class DbOptimize {
                 'outage',
                 '일시 장애 — 잠시 뒤 다시 시도합니다',
                 '일시 장애가 계속돼 쉽니다(신고별 시도 횟수 없이 다음 회차·동기화 성공 뒤 다시 시도합니다)',
+                tail: current.sublist(i + 1),
               );
             }
             if (retryable(reportId) && !pendingRetry.contains(reportId)) {
@@ -1388,8 +1519,8 @@ class DbOptimize {
       if (stoppedReason == 'stop') {
         // closeDb 로 멈춰도 상태를 정리한다 — blocksSync 이 남으면 동기화가 무한 보류된다.
         // 훑다 만 신고는 보류에 넣어(쓸 수 있으면) 다음에 이어서 한다.
-        pending.addAll(pendingRetry);
-        pending.addAll(attempts.keys);
+        holds.addAll(pendingRetry);
+        holds.addAll(attempts.keys);
         try {
           await writeProgress(lastCursor);
         } catch (_) {}
@@ -1402,7 +1533,7 @@ class DbOptimize {
           stats: run,
         );
       }
-      if (pending.isEmpty) {
+      if (holds.isEmpty) {
         await writeMeta({
           'target': mobileParserVersion,
           'cursor': ids.isEmpty ? '' : ids.last,
@@ -1410,8 +1541,8 @@ class DbOptimize {
           'total': total,
           'stats': stats,
           'attempts': <String, int>{},
-          'pending': <String>[],
-          'round': round,
+          'holds': <String>[],
+          'round': 0,
         });
         await clearLastError();
         _restArmed = false;
@@ -1454,12 +1585,7 @@ class DbOptimize {
         );
       }
       // 보류 목록만 남으면 partial(실행 중 아님) — 다음 기동·동기화 성공 뒤 보류만 다시 시도한다.
-      return await abortRest(
-        'partial',
-        'partial',
-        '보류 ${pending.length}건 — 다음에 다시 시도합니다',
-        '보류 ${pending.length}건 남음 — 다음 실행·동기화 성공 뒤 보류만 다시 시도합니다',
-      );
+      return await abortRest('partial', 'partial', '', '');
     } finally {
       await clearProcessingMarker();
     }
@@ -1679,7 +1805,7 @@ class DbOptimize {
     try {
       final done =
           meta != null &&
-          meta['target'] == mobileParserVersion &&
+          sameTarget(meta['target'], mobileParserVersion) &&
           meta['done'] == true;
       if (done) {
         // done DB 에 낡은 오류 기록이 남아 있으면 지운다 — 다음 시작 때
@@ -1790,7 +1916,7 @@ class DbOptimize {
       DbOptimizeState.appendLog(
         'DB 최적화 시작(대상 ${countRows.length}건, 파서 $mobileParserVersion)'
         '${(meta['cursor'] as String?)?.isNotEmpty == true ? ', 커서 ${meta['cursor']}부터 이어서' : ''}'
-        '${(meta['pending'] as List?)?.isNotEmpty == true ? ', 보류 ${(meta['pending'] as List).length}건부터 다시 시도' : ''}',
+        '${((meta['holds'] ?? meta['pending']) as List?)?.isNotEmpty == true ? ', 보류 ${((meta['holds'] ?? meta['pending']) as List).length}건부터 다시 시도' : ''}',
       );
       // 시작 때 DB 정체를 잡는다(쉼 중 교체 감지용).
       final driverIdentity = await _captureIdentity();

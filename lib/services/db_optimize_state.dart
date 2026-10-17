@@ -10,8 +10,13 @@ class DbOptimizeState {
   DbOptimizeState._();
 
   /// DB 메타(`sync_meta`) 키. 값은
-  /// {"target","cursor","done","total","stats":{reused,refetched,changed,events,skipped}}
+  /// `{"target","cursor","done","total",
+  /// "stats":{reused,refetched,changed,events,forwarded,skipped:{사유:건수}},
+  /// "attempts":{신고ID:이번 회차 시도횟수},"holds":[보류 신고ID],
+  /// "round":0시작·보류로 한 바퀴를 끝낼 때마다+1·완료 때 0,
+  /// "next_retry_at":UTC ISO8601(없으면 생략)}`.
   /// 서버 `mysafety_sync_meta.detail_raw_optimize` 와 같은 키·같은 모양이다.
+  /// target 은 서버·모바일 접두사(`pc-`·`mobile-`)를 뗀 세대가 같으면 같은 것으로 본다.
   static const metaKey = 'detail_raw_optimize';
 
   /// 최적화 때문에 크롤 시작을 뒤로 미뤘을 때 크롤 창 로그에 남기는 한 줄(명세 3-3 고정 문구, 서버와 같은 문구).
@@ -39,7 +44,10 @@ class DbOptimizeState {
   /// UI 갱신용. 값이 바뀔 때마다 +1. MaintenanceStatusBar 가 구독한다.
   static final ValueNotifier<int> revision = ValueNotifier(0);
 
-  static bool get isRunning => _state == 'running' || _state == 'paused';
+  /// 실제로 신고를 처리 중일 때만 true(서버 `is_running()` 과 같음).
+  /// `partial`(보류만 남음, 실행 중 아님)・`paused`(쉼·대기)・`idle`・`completed`・`error`는
+  /// 실행 중 작업이 아니다. 쉬는 동안 동기화를 막지 않는 게이트([DbOptimize.blocksSync])와 같다.
+  static bool get isRunning => _state == 'running' && _stage == 'running';
 
   static String get state => _state;
   static String get stage => _stage;

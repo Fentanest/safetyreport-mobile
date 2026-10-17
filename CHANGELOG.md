@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-10-16~17 — 10-13~15 변경 검토 결함 수정 (미배포)
+
+서버·모바일·커뮤니티 지도의 10-13~15 변경을 검토해 찾은 결함을 PC와 같은 의미로 고쳤다. 영역별 worktree(`fix1016/{infra,capture,lawsearch,parser}`)를 `fix1016/integrate`로 합친 뒤 `dev`에 병합했다. 푸시·배포는 하지 않았다.
+
+- 계약 벡터 실패(`violation_law_cleaned_and_truncated`): 대표 법규 고르기(`primaryLaw`)를 `buildPayload` 안에서 `buildAdapterInput`으로 옮겨 PC와 호출 지점을 맞췄다.
+- 법규 인식·저장: `제32조의2 1항`이 `제32조의21`로 저장되던 결함, Python·Dart 숫자·공백·entity 규칙 차이를 PC와 같게 고쳤다. 법규 키 인식은 앵커 정규식 전체 일치로 바꿔 Python `fullmatch`·JS와 같다(예전 `matchAsPrefix`로 Client/Standalone 결과가 갈리던 차이 해소).
+- 명시 과태료 금액·미확인 과태료 보완: PC와 같은 수정(절 범위 조건, 미래 조건·이미 한 경고/계도 제외). 10-17 독립 검수 지적으로 금액 절 이후의 미부과 결정, 상한 표현이 아닌 다른 금액(감경 후 금액), `경고장을 발부하지 않았습니다` 부정문 처리를 PC와 함께 고쳤다.
+- 통계 법규 막대·드릴다운: `matchesLawKeys`로 Standalone 통계 법규 선택·드릴다운·상세 법규 링크가 막대 집계와 같은 판정을 쓴다. 서버가 `law_search_v2`를 알릴 때만 정규화한 키와 `lawExact`를 보내고, 구서버(v3.3.0 이하)에는 예전처럼 저장 원문 값을 쓴다(새 앱+구서버 법규 검색 0건 해소).
+- 공유 캡처: `amount.kind`를 계약대로 앞머리 기준으로 판정해 예약값 `combined`를 더 만들지 않는다(예전 journal은 보충이 불일치로 보지 않음). 재전송·사진 보충 추정 판정을 일반 캡처와 같게 맞추고, 사진 보충 뒤 그 신고의 공유 추정을 다시 계산한다(PC `fill_one`과 같은 자리). 촬영 시각 저장은 첨부가 그사이 바뀌지 않았을 때만 한다. 공유 갱신과 재시도 의도가 모두 실패하면 `clearPhotoCapture`로 촬영 시각을 되돌려 다음 훑기가 다시 시도한다(10-17, PC 롤백과 같음).
+- CI: Play versionCode 경합을 막도록 `build-apk.yml`·`production.yml`의 concurrency group을 브랜치와 무관한 고정값으로 바꿨다(실행하지 않음). 2.2.0 이후 미출시 노트(`docs/releases/unreleased.md`)를 작성했다. 이륜 번호판 모호 예시 문서를 정정했다. 파서 버전 mobile-parser-12.
+- 검증: 모바일 전체 `flutter test` 2,116개 통과(건너뜀 19), 변경 파일 `dart analyze` 문제 없음. 제공 백업 15,804행에서 Dart와 Python 결과(법규·명시 금액·보완·전체 파서) 차이 0행, 10-16 결과 대비 변경 0행. 공통 벡터(`explicit-fine-vectors.json`·`case-fine-supplement-vectors.json`·`community_backfill_vectors.json`·`law-search-vectors.json`)는 PC와 바이트 동일.
+
 ## 2026-10-15 — 복수 법규 저장·개별 검색 통합 (미배포)
 
 - 최종 파서에서 같은 근거 순위의 채택 조문을 기존 위반법규 TEXT에 LF로 저장하도록 연결했다. 기존 단일값, 사용자 수정값, 대표 조문의 금액 보정·최소 추정 정책을 유지한다. DB 구조·스키마 버전 변경 없음. 추가 조문으로 추정액을 올리거나 금액을 중복 합산하지 않는다.

@@ -17,9 +17,13 @@ final _limit = RegExp(
   // Future conditions ("다시 적발될 시", "적발되면", "~할 시", "~하면").
   '|(?:될|할|적발|위반)$_s*시(?:에는?|에도)?$_end|(?:하|되|않으)면$_end',
 );
-// A refusal/non-imposition decision from the amount's clause onwards ("부과할 예정이었으나, ... 부과하지
-// 않습니다") overrides the amount; one before it is about another violation and does not.
-final _refusal = RegExp('부과하지|부과할$_s*수$_s*없|미부과');
+// A refusal/non-imposition decision from the amount's clause to the end of its sentence ("부과할
+// 예정이었으나, ... 부과하지 않습니다") withdraws that amount. One in another sentence or an earlier
+// clause is about another violation or charge ("가산금은 부과하지 않습니다") and does not.
+final _refusal = RegExp('부과하지|부과할$_s*수$_s*없|미부과|부과(?:가|는)?$_s*(?:불가|어렵|곤란)');
+// Another amount in a reduction clause ("경우 과태료 80,000원으로 감경") is a second stated amount
+// even when its clause is conditional.
+final _reduction = RegExp('감경|경감|감면');
 // A limit amount ("20만원 이하", "최대 200만원") is guidance, not a second stated amount.
 final _limitBefore = RegExp('(?:최대|상한)$_s*(?:과태료)?$_s*:?$_s*\$');
 final _previousLimit = RegExp(
@@ -51,10 +55,13 @@ String? explicitFineNumber(String source) {
   }
   final matches = _fine.allMatches(text).toList();
   if (matches.isEmpty) return null;
-  final cuts = <int>{
-    0,
+  final sentenceEnds = <int>{
     text.length,
     for (final m in _sentence.allMatches(text)) m.end,
+  }.toList()..sort();
+  final cuts = <int>{
+    0,
+    ...sentenceEnds,
     for (final m in _clause.allMatches(text)) m.end,
   }.toList()..sort();
   (int, int) clause(int start, int end) =>
@@ -66,11 +73,12 @@ String? explicitFineNumber(String source) {
       return null;
     }
     final (a, b) = clause(match.start, match.end);
-    if (_refusal.hasMatch(text.substring(a))) return null;
+    final sentenceEnd = sentenceEnds.firstWhere((e) => e >= match.end);
     var before = text.substring(0, a);
     if (before.endsWith('\n')) before = before.substring(0, before.length - 1);
     final previous = a == 0 ? '' : before.split('\n').last;
-    if (_limit.hasMatch(text.substring(a, b)) ||
+    if (_refusal.hasMatch(text.substring(a, sentenceEnd)) ||
+        _limit.hasMatch(text.substring(a, b)) ||
         _previousLimit.hasMatch(previous) ||
         _followingLimit.matchAsPrefix(text, match.end) != null) {
       skipped.add((match.start, match.end));
@@ -87,8 +95,9 @@ String? explicitFineNumber(String source) {
     if (_identity(_number(m[1]!, m[2])) == _identity(candidates.first)) {
       continue;
     }
+    final (a, b) = clause(m.start, m.end);
+    if (_reduction.hasMatch(text.substring(a, b))) return null;
     if (skipped.any((x) => x.$1 <= m.start && m.start < x.$2)) continue;
-    final (a, _) = clause(m.start, m.end);
     if (_followingLimit.matchAsPrefix(text, m.end) != null ||
         _limitBefore.hasMatch(text.substring(a, m.start))) {
       continue;

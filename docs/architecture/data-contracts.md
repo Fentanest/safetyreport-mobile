@@ -497,12 +497,19 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
 - **메타 키** `sync_meta.detail_raw_optimize` =
   `{"target": "mobile-parser-13", "cursor": "<마지막 처리 ID>", "done": bool, "total": int,
   "stats": {"reused", "refetched", "changed", "events", "forwarded", "skipped": {사유: 건수}},
-  "attempts": {신고ID: 이번 회차 시도횟수}, "pending": [<다음 회차 재시도 ID>], "round": 회차}`.
+  "attempts": {신고ID: 이번 회차 시도횟수}, "holds": [<다음 회차 재시도 ID>],
+  "round": 0에서 시작·보류로 한 바퀴를 끝낼 때마다 +1·완료 때 0,
+  "next_retry_at": "<UTC ISO8601>"(없으면 생략)}.
   서버 `mysafety_sync_meta.detail_raw_optimize` 와 같은 키·같은 모양이다.
-  `target`이 현재 파서 버전과 다르거나 `done`이 아니면 시작/이어서 한다.
-  `target`이 바뀌었으면 커서·통계·보류를 버리고 처음부터 훑는다. 복원된 DB에 옛 커서가
+  `target`은 서버·모바일 접두사(`pc-`·`mobile-`)를 뗀 세대가 같으면 같은 것으로 본다 —
+  한쪽의 partial 메타를 다른 쪽이 가져오면(`target` 세대 같을 때) 보류만 이어서 처리한다.
+  고치기 전 모바일이 쓰던 `pending` 키·서버가 쓰던 epoch 초 숫자는 읽기만 한다.
+  `target` 세대가 다르거나 `done`이 아니면 시작/이어서 한다.
+  `target` 세대가 바뀌었으면 커서·통계·보류를 버리고 처음부터 훑는다. 복원된 DB에 옛 커서가
   가리키는 ID가 없으면 처음부터 판단한다(옛 ID 목록·커서·done 을 새 DB 에 쓰지 않음).
-  시도 횟수는 회차마다 초기화한다(명세 7-1).
+  시도 횟수는 회차마다 초기화한다(명세 7-1). 보류만 남은 채 끝난 회차 다음에는 커서를 비우고
+  보류만 다시 시도한다. 쉬면(부분·장애·로그인) 남은 꼬리까지 보류에 넣어 새 바퀴로 넘긴다
+  (서버 `_park_partial` 과 같은 자리).
 - **시작**: Standalone 앱 실행 때 `DbOptimize.maybeStart` — 할 일 없으면 아무 것도 안 함.
   Client 모드는 부르지 않는다(서버가 함).
   첫 호출은 게이트 통과 뒤 `ReportProvider._startDbOptimizeIfNeeded`에서, 이후 DB 교체
@@ -526,15 +533,19 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
   - **실패 처리(명세 7-1)**: 영구 실패는 그 신고가 없음·삭제됨이 분명한 응답(404·410, `not_found`)만이다.
     401·403·419·토큰 만료·로그인 화면 응답은 로그인 문제(auth)로 본다.
     신고 하나의 일시 실패(네트워크·5xx·타임아웃·저장 실패·lease 대기 초과)는 시도 횟수를 쌓고,
-    3번을 넘기면(4번째 실패) 그 신고를 **보류 목록**(메타 `pending`)에 남기고 이번 회차는 건너뛴다.
-    `done=true` 는 보류 목록이 비었을 때만 기록한다. 보류 목록만 남은 채 한 바퀴를 끝내면
-    상태는 `partial`(실행 중 아님)이고, 다음 기동·동기화 성공 뒤 보류만 다시 시도한다
+    3번째 실패에서 그 신고를 **보류 목록**(메타 `holds`, 서버와 같은 키)에 남기고 이번 회차는 건너뛴다
+    (보류될 때 통계 `skipped.retry_exceeded` +1, 서버와 같음).
+    `done=true` 는 보류 목록이 비었을 때만 기록한다(`round` 0). 보류 목록만 남은 채 한 바퀴를 끝내면
+    상태는 `partial`(실행 중 아님, `round` +1·`next_retry_at` UTC ISO8601 기록)이고,
+    다음 기동·동기화 성공 뒤 보류만 다시 시도한다
     (회차마다 시도 횟수 초기화, 회차 사이 간격은 지수 백오프·최대 1시간).
   - **전역 장애(명세 7-1)**: 연속 5건이 일시 실패하거나 로그인 문제가 나면 신고별 시도 횟수를
     늘리지 않고(늘린 분은 롤백) 작업 전체를 쉰다(`outage`/`login_required`, paused 표시).
-    신고당 긴 대기는 두지 않는다. 쉬는 동안 다시 시도는 지수 백오프(밑값 60초·최대 1시간)와
+    신고당 긴 대기는 두지 않는다. 쉬는 동안 다시 시도는 지수 백오프(밑값 60초·최대 1시간,
+    로그인 쉼도 지수 — 서버와 같음)와
     "동기화 성공 직후" 두 경로로 한다(`DbOptimize.notifySyncSucceeded` — 메모리 wake +
     `sync_meta.detail_raw_optimize_wake` 영속 표시, 별도 엔진의 성공도 읽는다).
+    쉬면 남은 꼬리까지 보류에 넣어 새 바퀴로 넘긴다(서버와 같음).
     파싱 불가(`parse_failed`·`result_not_object`)·신고 행 없음(`no_report`)만 사유를 남기고 건너뛴다.
   - **새 답변이 온 신고(명세 7-2)**: 네트워크로 다시 받은 상세가 저장된 행보다 새 활동을 담으면 —
     상세의 진행 단계(`C_NOW` 를 파서 진행 단계 표(`standalone_parser.mapCNowStatus`,
@@ -543,7 +554,9 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
     (원본 표·파서 열·파일 모두). 대신 일반 크롤 대기 큐(알림·단건 영속 대기열,
     `StandalonePendingQueueStore`)에 넣고 로그에 "새 답변 — 일반 크롤로 넘김" 을 남긴다.
     일반 크롤이 원본 저장·변경 목록·알림·목록 열 갱신을 맡는다. 이 신고는 보류가 아니라
-    처리 완료로 센다(`stats.forwarded`). 저장된 원본 재파싱 경로(네트워크 없음)는 해당하지 않는다.
+    처리 완료로 센다(`stats.forwarded`). 신고번호가 없는 행의 새 활동은 대기열에도 넣지 않고
+    "새 답변 — 다음 일반 크롤에서 처리(신고번호 없음)" 로그 뒤 처리 완료로 센다(저장 없음 —
+    원본 표·파서 열·파일 모두). 저장된 원본 재파싱 경로(네트워크 없음)는 해당하지 않는다.
     판정 함수는 서버·모바일 같게, 계약 벡터 `contracts/reparse-new-activity-vectors.json`
     (수정 금지, 서버와 바이트 동일)으로 고정한다.
     (`test/services/db_optimize_section7_test.dart` "7-2 계약 벡터")
@@ -554,8 +567,9 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
     60초까지 기다렸다가 일시 실패로 넘긴다. 캡처(커뮤니티 쓰기)는 개인 DB 트랜잭션 밖에서
     먼저 하고 개인 DB 쓰기는 뒤 트랜잭션에서 한다 — 일반 저장과 같은 잠금 순서다.
     저장 직전 트랜잭션 안에서 그 행의 답변일·처리내용·상태가 lease 안에서 읽은 스냅샷과
-    같은지 재확인하고(`ReparseConflict`), 다르면 저장하지 않고 다음 회차로 넘긴다
-    (시도 횟수 증가 없음, 서버도 같은 재확인).
+    같은지 재확인하고(`ReparseConflict`), 다르면 저장하지 않고 처리 완료로 세지 않은 채
+    시도 횟수 증가 없이 보류(`holds`)로 넘겨 다음 회차에 다시 시도한다
+    (서버도 같은 재확인·같은 넘김).
 - **저장**(`LocalDbService.reparseReport`, 서버 `reports_repo.reparse_one`과 같은 열 규칙):
   파서가 만드는 열만 갱신하고 목록 크롤이 채우는 열
   (상태·신고번호·신고명·신고일·만족도조사여부·별점·별점사유·감시목록)은 손대지 않는다.
@@ -585,7 +599,8 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
   (실제로 시작될 때까지 남기므로 앱 종료 뒤에도 유지, 시작 성공 뒤에 지움).
   알림 drain 보류는 `sync_meta.detail_raw_optimize_deferred_drain` 표시만 남기고, 알림 대기열
   자체는 기존 영속 큐가 맡는다(별도 엔진은 영속 처리 중 표시로 판단한다).
-  작업이 끝나면 보류를 정확히 한 번 시작한다.
+  작업이 어떤 경로로 끝나거나 쉬든(완료·`partial`·`outage`·`login_required`·`error`)
+  보류한 수동·단건 넘김 큐 요청을 배출한다(서버도 전체 크롤 보류를 같은 경로에서 배출).
   모든 동기화 종료 경로(`SyncEngine.start`·알림 drain 끝)에서도 영속 보류가 남아 있으면
   시작한다(`DbOptimize.notifySyncFinished` — 실제 처리 중이면 계속 보류, 재진입 방지).
   동기화가 성공으로 끝나면 쉬는 최적화를 깨워 재판단한다(`notifySyncSucceeded`).
@@ -601,7 +616,8 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
 - **표시**: `MaintenanceService.localJobs()`에 작업 `db_optimize`를 추가한다
   (`label` "DB 최적화 중입니다…", `done`/`total`, `stage`, `log` 최근 50줄 — 서버 `status()`와 같은 필드).
   `stage` 는 `running`·`waiting_crawl`·`waiting_rebuild`·`login_required`·`outage`·`partial`·`done`·`error`.
-  `partial`(보류만 남음, 실행 중 아님)도 표시줄에 대기로 보인다(자동 숨김 없음 — 다음 회차·완료·중단 때 바뀜).
+  `partial`(보류만 남음, 실행 중 아님 — 정비 `active=false`)은 표시줄에 "보류 N건, 다음 재시도 시각"
+  정도로 조용히 보인다(자동 숨김 없음 — 다음 회차·완료·중단 때 바뀜, 무기한 실행 중처럼 보이지 않음).
   `MaintenanceJob`에 `stage`·`log`·`finishedAt`을 추가했다(기존 필드·의미 불변, 추가만).
   `widgets/maintenance_status_bar.dart`에 같은 작업·로그를 보이고 탭하면 로그 시트.
   작업 예외(`error`)는 '작업 완료'가 아닌 '오류'와 로그로 보인다(서버 표시줄과 같음).
@@ -632,6 +648,10 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
   `test/services/db_optimize_section7_test.dart` — 배포 전 검토 7절 재현(계약 벡터·실패 분류·
   503→partial·연속 실패→outage·토큰 만료→login_required 쉼·게이트·동기화 성공 뒤 재개·
   새 답변 넘김·lease 경합·저장 직전 재확인·백오프 상한·partial 표시 — 수정 전 실패 확인).
+  `test/services/db_optimize_sol_r7_test.dart` — Sol R7 대조 검수 재현 9건
+  (partial·완료 메타 모양, 서버 형식 partial 메타 holds 이어 처리, 옛 pending·숫자 시각 하위호환,
+  3번째 실패 보류, partial·outage 쉼 경로 배출, 신고번호 없는 새 활동, 지수 백오프 밑값·상한 —
+  수정 전 실패 확인).
 
 ## 2026-10-17 원본 보기 — 모바일 화면·Client API 사용 (명세 4절)
 

@@ -279,6 +279,10 @@ fire-and-forget 으로 시작한다. 사용자는 즉시 선택 모드에서 빠
 - `만족도 조사 여부`는 `참여 완료`, `참여 가능` 단일선택 드롭다운으로 노출한다. 서버 `data_table.html` 상세 검색에도 동일하게 추가되어 있다.
 - `statistics_screen.dart`의 통계 행 탭은 별도 `FilteredListScreen`이 아니라 `ReportFilter`를 세팅한 뒤 `ReportListScreen(initialTabIndex: ...)`로 이동한다.
   - 기관/담당자/연도/위반법규 필터를 함께 넘기며, 통계의 `법규 없음`도 같은 sentinel 으로 전달한다.
+- 신고내역·별점·데이터 수정이 쓰는 공용 조건(`ReportProvider.filter`)은 그 화면에서 다른 하단 탭이나
+  신고관리의 다른 하위 탭으로 떠나면 비운다(2026-10-17 명세 5절, `main.dart` 하단 탭 전환·
+  `report_management_screen.dart` 하위 탭 전환). 드릴다운(`pushReportDrillDown`, 화면 자체 `_localFilter`)은
+  공용 조건을 건드리지 않으므로 영향 없다.
 
 ## 신고현황 / 파일 브라우저
 

@@ -58,7 +58,11 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
   String? _datasetSettings;
 
   /// 숨은 탭(TickerMode 꺼짐)에서 자료가 바뀌면 표시만 해 두고, 다시 보일 때 한 번 읽는다(SQ-P02).
+  /// 필터 변경으로 숨은 동안 미룬 전체 스캔도 같은 표시로 둔다(2026-10-17 명세 5절).
   bool _stale = false;
+
+  /// 보이지 않는 동안 바뀐 검색 조건으로 미룬 다시 읽기. 보일 때 한 번 실행한다.
+  bool _pendingFilter = false;
   List<Report> _reports = [];
   bool _loading = true;
   String? _error;
@@ -97,6 +101,7 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
   /// build 에서 부른다(context.select 는 build 안에서만 쓸 수 있다).
   /// 이 목록이 쓰는 값만 구독한다(SQ-P07). 자료 변경은 dataRevision 으로만 본다 — 통계 탭 진입 신호는 보지 않는다(SQ-P02).
   /// 숨은 탭이면 표시만 해 두고, 다시 보일 때(TickerMode 켜짐) 한 번 읽는다.
+  /// 미룬 필터 스캔(_pendingFilter)도 여기서 보일 때 한 번 실행한다(2026-10-17 명세 5절).
   void _watchDataset(BuildContext context) {
     final visible = TickerMode.valuesOf(context).enabled;
     final next = context.select<ReportProvider, String>(
@@ -109,10 +114,19 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
       _reports = [];
       _page = 0;
       _stale = true;
+      if (!visible && _loading) {
+        // 숨은 동안 스캔 중이던 표시는 끈다. 버려진 스캔이 _loading 을 남기지 않게 하고,
+        // 보일 때 새로 읽는다(2026-10-17 명세 5절).
+        _loading = false;
+      }
     }
     _datasetSettings = next;
-    if (_stale && visible) {
+    if ((_stale || _pendingFilter) && visible) {
       _stale = false;
+      _pendingFilter = false;
+      _invalidate();
+      _page = 0;
+      _selected.clear();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _load();
       });
@@ -132,6 +146,15 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
       _invalidate();
       _page = 0;
       _selected.clear();
+      final visible = TickerMode.valuesOf(context).enabled;
+      if (!visible) {
+        // 보이지 않는 동안은 전체 스캔을 시작하지 않고 미룬다. 보일 때 _watchDataset 이 한 번 실행한다.
+        _pendingFilter = true;
+        if (_loading) {
+          setState(() => _loading = false);
+        }
+        return;
+      }
       _load();
     }
   }
@@ -149,7 +172,14 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
       final result = _pages[_page] ?? await _readPage(_page);
       _candidateCount =
           p.appMode == AppMode.standalone && widget.predicate != null;
-      if (!mounted || seq != _seq || epoch != p.datasetEpoch) return;
+      if (!mounted || seq != _seq) return;
+      if (epoch != p.datasetEpoch) {
+        // 스캔 중 자료 세대가 바뀌어 결과를 버릴 때도 표시는 정상으로 돌린다.
+        // 새 읽기가 이미 시작됐으면(seq 가 다르면 위에서 반환) 그 읽기가 표시를 맡는다.
+        setState(() => _loading = false);
+        _stale = true;
+        return;
+      }
       setState(() {
         _reports = widget.predicate == null || p.appMode == AppMode.server
             ? result.reports
@@ -165,7 +195,15 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
         );
       }
     } catch (e) {
-      if (!mounted || seq != _seq || epoch != p.datasetEpoch) return;
+      if (!mounted || seq != _seq) return;
+      if (epoch != p.datasetEpoch) {
+        // 버려진 스캔의 오류 표시는 남기지 않고 로딩만 푼다. 보일 때 다시 읽는다.
+        if (_loading) {
+          setState(() => _loading = false);
+        }
+        _stale = true;
+        return;
+      }
       setState(() {
         _loading = false;
         _reports = [];

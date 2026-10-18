@@ -86,6 +86,17 @@ void main() {
             }
           }
         }
+        final vector = jsonDecode(
+          File('contracts/stats-all-vectors.json').readAsStringSync(),
+        ) as Map<String, dynamic>;
+        final rows = (vector['rows'] as List).cast<Map<String, dynamic>>();
+        out['all-vector'] = LocalDbService.buildStatsCategory(rows, rows);
+        for (final entry in out.entries) {
+          if (entry.key.startsWith('stats|') || entry.key.startsWith('fstats|')) {
+            expect(entry.value, contains('all'));
+            expect(entry.value['all'], contains('by_law'));
+          }
+        }
         File(env['SR_LP_OUT']!).writeAsStringSync(jsonEncode(out));
       } finally {
         await LocalDbService.closeDb();

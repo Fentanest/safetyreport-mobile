@@ -376,6 +376,9 @@ void main() {
       await _pumpApp(tester, p, const StatisticsScreen());
       final card = find.textContaining(RegExp(r'^예시(경찰서|\s시청) \d+$'));
       await _waitFor(tester, find.text('상세 통계'));
+      // 기본은 전체다. 이 기존 시험은 분류별 ReportListScreen 드릴다운을 계속 확인한다.
+      await tester.tap(find.byKey(const ValueKey('stats-category-traffic')));
+      await tester.pump();
       final list = find
           .descendant(
             of: find.byKey(const PageStorageKey('stats-list')),

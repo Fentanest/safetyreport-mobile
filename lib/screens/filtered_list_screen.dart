@@ -18,6 +18,8 @@ class FilteredListScreen extends StatefulWidget {
   /// 'all', 'traffic', 'parking', 'safety', 'living', 'other' (2026-10-11 5분류)
   final String category;
   final bool Function(Report) filter;
+  /// 전체 통계 드릴다운의 연도·법규·기관 조건. 공용 목록 필터와 독립적이다.
+  final ReportFilter reportFilter;
 
   const FilteredListScreen({
     super.key,
@@ -25,6 +27,7 @@ class FilteredListScreen extends StatefulWidget {
     this.metric,
     required this.category,
     required this.filter,
+    this.reportFilter = const ReportFilter(),
   });
 
   @override
@@ -74,6 +77,7 @@ class _FilteredListScreenState extends State<FilteredListScreen> {
         appBar: AppBar(title: Text(widget.title)),
         body: LocalPagedReportList(
           category: widget.category,
+          filter: widget.reportFilter,
           metric: widget.metric,
           predicate:
               (provider.appMode == AppMode.server || widget.metric == null)

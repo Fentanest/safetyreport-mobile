@@ -20,6 +20,7 @@ double? _toDoubleOrNull(dynamic v) {
 
 class AgencyStatRow {
   final String agency;
+  final String? agencyKey;
   final String person;
   final int total;
   final double? avgResponseDays;
@@ -58,6 +59,7 @@ class AgencyStatRow {
 
   const AgencyStatRow({
     required this.agency,
+    this.agencyKey,
     required this.person,
     required this.total,
     this.avgResponseDays,
@@ -89,6 +91,7 @@ class AgencyStatRow {
   factory AgencyStatRow.fromJson(Map<String, dynamic> json) {
     return AgencyStatRow(
       agency: json['agency']?.toString() ?? '',
+      agencyKey: json['agency_key']?.toString(),
       person: json['person']?.toString() ?? '',
       total: _toIntOrNull(json['total']) ?? 0,
       avgResponseDays: _toDoubleOrNull(json['avg_days']),
@@ -171,6 +174,8 @@ class CategoryStats {
 }
 
 class AgencyStats {
+  /// 구서버는 전체 상세 통계를 보내지 않는다. 이때 화면은 전체 칩을 숨긴다.
+  final CategoryStats? all;
   final CategoryStats traffic;
   final CategoryStats parking;
 
@@ -182,6 +187,7 @@ class AgencyStats {
   final List<String> availableYears;
 
   const AgencyStats({
+    this.all,
     required this.traffic,
     required this.parking,
     this.safety,
@@ -195,6 +201,8 @@ class AgencyStats {
 
   CategoryStats forCategory(String category) {
     switch (category) {
+      case 'all':
+        return all ?? traffic;
       case 'traffic':
         return traffic;
       case 'parking':
@@ -216,6 +224,9 @@ class AgencyStats {
 
   factory AgencyStats.fromJson(Map<String, dynamic> json) {
     return AgencyStats(
+      all: json['all'] is Map
+          ? CategoryStats.fromJson(json['all'] as Map<String, dynamic>)
+          : null,
       traffic: CategoryStats.fromJson(
         (json['traffic'] as Map<String, dynamic>?) ?? {},
       ),

@@ -3223,7 +3223,7 @@ class LocalDbService {
       if (excludeWithdraw) clauses.add(ReportPolicy.sqlNotWithdrawn('처리상태'));
       final columns = _statsColumns.map((c) => '"$c"').join(',');
       final cats = {
-        for (final c in report_category.categories)
+        for (final c in ['all', ...report_category.categories])
           c: _StatsCategoryAccumulator(),
       };
       final overview = {
@@ -3256,12 +3256,14 @@ class LocalDbService {
               final cat = cats[row['category']];
               if (cat == null) continue;
               cat.addLaw(row);
+              cats['all']!.addLaw(row);
               final rowLaw = row['위반법규']?.toString() ?? '';
               // 통계 법규 선택 = 저장 키 소속 판정(법규 막대 건수·서버 _apply_stats_law_filter 와 같은 함수).
               if (law != null && !matchesLawKeys(rowLaw, law)) {
                 continue;
               }
               cat.add(row);
+              cats['all']!.add(row);
             }
           });
           PerformanceTrace.sync('stats.chart_data', () {
@@ -3272,7 +3274,7 @@ class LocalDbService {
                 })
                 .toList(growable: false);
             overview['all']!.add(selected);
-            for (final c in cats.keys) {
+            for (final c in report_category.categories) {
               overview[c]!.add(
                 selected
                     .where((r) => r['category'] == c)
@@ -4306,7 +4308,9 @@ class LocalDbService {
     int categoryTotalFine = 0;
     int categoryEstimatedFineAmount = 0;
     int categoryEstimatedFineCount = 0;
+    final lawTables = _StatsCategoryAccumulator();
     for (final r in rows) {
+      lawTables.add(r);
       final fine = r['범칙금_과태료'] as String? ?? '';
       final fineAmount = extractFineAmount(fine, r);
       categoryTotalFine += fineAmount;
@@ -4324,6 +4328,7 @@ class LocalDbService {
       'police_by_person': policePerson,
       'other_by_agency': nonPoliceAgency,
       'other_by_person': nonPolicePerson,
+      'by_law': lawTables.toJson()['by_law'],
       'available_laws': allLaws,
       'has_empty_law': hasEmptyLaw,
       'total_fine_amount': categoryTotalFine,

@@ -129,6 +129,10 @@ class _StatsCategoryAccumulator {
   final agencies = <String, _AgencyAgg>{};
   final persons = <String, _AgencyAgg>{};
   final laws = <String>{};
+  // 완료 행의 저장 키 범위(서버 _build_stats_tables 의 universe). 전체는 모든 분류 행이 한 범위다 —
+  // 전체 탭의 법규 필터·요약 법규 막대와 같은 소속 규칙(law_memberships).
+  final tableLaws = <String>{};
+  final lawAggs = <String, _AgencyAgg>{};
   bool emptyLaw = false;
   int fine = 0, estimated = 0, estimatedCount = 0;
 
@@ -157,6 +161,11 @@ class _StatsCategoryAccumulator {
       (r['처리상태']?.toString() ?? '').trim(),
     )) {
       return;
+    }
+    final keys = readLaws(r['위반법규']);
+    tableLaws.addAll(keys);
+    for (final law in keys.expand(ancestorLaws).toSet()) {
+      lawAggs.putIfAbsent(law, () => _AgencyAgg('', '')).add(r);
     }
     final keyed = registryKeyedAgency(r['처리기관코드'], r['처리기관']?.toString() ?? '');
     if (keyed.display.isEmpty) return;
@@ -191,6 +200,19 @@ class _StatsCategoryAccumulator {
           return c;
         });
     final byAgency = sorted(agencies.values), byPerson = sorted(persons.values);
+    final lawRows = [
+      for (final entry in lawAggs.entries)
+        if (tableLaws.contains(entry.key))
+        {
+          'law': entry.key,
+          for (final field in entry.value.toJson().entries)
+            if (!{'agency', 'agency_key', 'person'}.contains(field.key))
+              field.key: field.value,
+        },
+    ]..sort((a, b) {
+        final c = (b['total'] as int).compareTo(a['total'] as int);
+        return c != 0 ? c : (a['law'] as String).compareTo(b['law'] as String);
+      });
     bool police(Map<String, dynamic> r) =>
         (r['agency'] as String).contains('경찰');
     return {
@@ -200,6 +222,7 @@ class _StatsCategoryAccumulator {
       'police_by_person': byPerson.where(police).toList(),
       'other_by_agency': byAgency.where((r) => !police(r)).toList(),
       'other_by_person': byPerson.where((r) => !police(r)).toList(),
+      'by_law': lawRows,
       'available_laws': laws.toList()..sort(),
       'has_empty_law': emptyLaw,
       'total_fine_amount': fine,

@@ -27,6 +27,8 @@ void main() {
         'available_years': ['2026'],
       });
       expect(stats.hasFiveCategories, isFalse);
+      expect(stats.all, isNull);
+      expect(stats.forCategory('all'), same(stats.traffic));
       expect(stats.safety, isNull);
       expect(stats.living, isNull);
       expect(stats.other.totalFineAmount, 7);
@@ -35,6 +37,7 @@ void main() {
 
     test('신서버(5분류) 응답은 safety·living 섹션을 그대로 파싱', () {
       final stats = AgencyStats.fromJson({
+        'all': category(total: 9),
         'traffic': category(),
         'parking': category(),
         'safety': category(total: 3),
@@ -43,6 +46,8 @@ void main() {
         'available_years': ['2026'],
       });
       expect(stats.hasFiveCategories, isTrue);
+      expect(stats.all!.totalFineAmount, 9);
+      expect(stats.forCategory('all'), same(stats.all));
       expect(stats.safety!.totalFineAmount, 3);
       expect(stats.living!.totalFineAmount, 5);
       expect(stats.forCategory('safety').totalFineAmount, 3);

@@ -522,7 +522,10 @@ class _MonthlyTrendCard extends StatelessWidget {
           : '$mm월';
     }
 
+    // 분류·연도를 바꿔 막대 수가 달라지면 새 차트로 만든다. fl_chart 가 길이가 다른 막대 목록 사이를
+    // 애니메이션하는 동안 터치하면 옛 인덱스로 RangeError 를 낸다(전체 → 교통 전환 직후 드래그).
     return BarChart(
+      key: ValueKey('${months.first}|${months.last}|${months.length}'),
       BarChartData(
         maxY: chartMaxY,
         minY: 0,

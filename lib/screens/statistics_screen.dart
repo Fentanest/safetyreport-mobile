@@ -10,6 +10,8 @@ import '../services/api_service.dart';
 import '../services/local_db_service.dart';
 import 'report_map_screen.dart';
 import 'report_list_screen.dart';
+import 'filtered_list_screen.dart';
+import '../services/report_policy.dart';
 import '../widgets/sr_app_bar_actions.dart';
 import '../widgets/sr_page_padding.dart';
 import 'sunwi_screen.dart';
@@ -46,7 +48,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   bool _overviewLoading = false;
 
   String _year = 'all'; // 'all' | '2026' | '2025' | ...
-  String _cat = 'traffic'; // traffic | parking | safety | living | other
+  String _cat = 'all'; // all | traffic | parking | safety | living | other
   String _type =
       'agency'; // agency | person | police-agency | police-person | other-agency | other-person
   String? _law; // null = 전체, '__없음__' = 법규 없음, 그 외 = 특정 법규
@@ -190,6 +192,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
       if (!mounted || seq != _loadSeq || epoch != p.datasetEpoch) return;
       setState(() {
         _stats = stats;
+        if (_cat == 'all' && stats.all == null) _cat = 'traffic';
         if (localOverview != null) _overview = localOverview;
         _loading = false;
       });
@@ -259,6 +262,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   }
 
   static const _catLabels = {
+    'all': '전체',
     'traffic': '교통위반',
     'parking': '주정차위반',
     'safety': '안전신고',
@@ -590,6 +594,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           year: _year,
           yearOptions: _yearOptions,
           cat: _cat,
+          hasAll: _stats?.all != null,
           lawLabel: _lawLabel,
           lawActive: _law != null,
           onYearChanged: _setYear,
@@ -895,6 +900,7 @@ class _Conditions extends StatelessWidget {
   final String year;
   final List<String> yearOptions;
   final String cat;
+  final bool hasAll;
   final String lawLabel;
   final bool lawActive;
   final ValueChanged<String> onYearChanged;
@@ -905,6 +911,7 @@ class _Conditions extends StatelessWidget {
     required this.year,
     required this.yearOptions,
     required this.cat,
+    required this.hasAll,
     required this.lawLabel,
     required this.lawActive,
     required this.onYearChanged,
@@ -914,6 +921,7 @@ class _Conditions extends StatelessWidget {
 
   // 2026-10-11 사용자 지시로 '기타' 를 안전신고·생활불편·기타로 세분화(5분류).
   static const _cats = [
+    ('all', '전체'),
     ('traffic', '교통위반'),
     ('parking', '주정차위반'),
     ('safety', '안전신고'),
@@ -928,6 +936,7 @@ class _Conditions extends StatelessWidget {
   Widget build(BuildContext context) {
     final sr = context.sr;
     final scheme = Theme.of(context).colorScheme;
+    final cats = _cats.where((e) => e.$1 != 'all' || hasAll).toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -963,11 +972,12 @@ class _Conditions extends StatelessWidget {
                   1.5,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
-            itemCount: _cats.length,
+            itemCount: cats.length,
             separatorBuilder: (_, _) => const SizedBox(width: 6),
             itemBuilder: (_, i) {
-              final e = _cats[i];
+              final e = cats[i];
               return _CategoryChip(
+                key: ValueKey('stats-category-${e.$1}'),
                 label: e.$2,
                 color: _catColor(context, e.$1),
                 selected: cat == e.$1,
@@ -1133,6 +1143,7 @@ class _CategoryChip extends StatelessWidget {
   final VoidCallback onTap;
 
   const _CategoryChip({
+    super.key,
     required this.label,
     required this.color,
     required this.selected,
@@ -1210,6 +1221,30 @@ class _RowCard extends StatelessWidget {
     final responseDateEnd = year == 'all' ? '' : '$year-12-31';
     // SQ-U02: 공용 필터(하단 신고내역 탭)를 바꾸지 않고 이 화면만의 조건으로 연다.
     final condition = [agency, person].where((v) => v.isNotEmpty).join(' · ');
+    if (category == 'all') {
+      Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => FilteredListScreen(
+          title: condition.isEmpty ? '신고내역' : '$condition · 신고',
+          category: 'all',
+          reportFilter: ReportFilter(
+            agency: agency,
+            manager: person,
+            law: law ?? '',
+            lawExact: law != null,
+            responseDateStart: responseDateStart,
+            responseDateEnd: responseDateEnd,
+            statuses: ReportPolicy.completedStatuses.toList(),
+          ),
+          filter: (report) =>
+              ReportPolicy.isCompleted(report.status) &&
+              (row.agencyKey == null
+                  ? report.agency.trim() == agency
+                  : registryKeyedAgency(report.agencyCode, report.agency).key == row.agencyKey) &&
+              (!showPerson || report.manager.trim() == person),
+        ),
+      ));
+      return;
+    }
     pushReportDrillDown(
       Navigator.of(context),
       filter: ReportFilter(

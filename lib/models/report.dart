@@ -12,6 +12,11 @@ int? _toIntOrNull(dynamic v) {
   return null;
 }
 
+String? _nonEmptyText(dynamic value) {
+  final text = value?.toString().trim();
+  return (text == null || text.isEmpty) ? null : text;
+}
+
 double? _toCoordinateOrNull(dynamic value) {
   final parsed = value is num
       ? value.toDouble()
@@ -243,6 +248,8 @@ class Report {
             json['처리기관코드']?.toString(),
             json['처리기관']?.toString(),
           ) ??
+          // registry 로 못 풀면 PC 서버가 함께 보낸 현행 표시명(하위호환 추가 필드, 2026-10-18), 없으면 원문.
+          _nonEmptyText(json['agency_name_current']) ??
           json['처리기관']?.toString() ??
           '',
       // NULL 보존: DB NULL 을 '' 로 바꾸면 다시 저장할 때 '' 가 된다(REVIEW2 중간-3).

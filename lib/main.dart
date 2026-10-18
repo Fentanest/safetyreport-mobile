@@ -1613,7 +1613,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                     final reportNo = r['신고번호']?.toString() ?? '';
                     final name = r['신고명']?.toString() ?? '신고';
                     final status = r['처리상태']?.toString() ?? '';
-                    final agency = r['처리기관']?.toString() ?? '';
+                    final agency = changeMapAgencyDisplay(r);
                     final fine = r['범칙금_과태료']?.toString() ?? '';
 
                     final statusColor = serverStatusColor(status);

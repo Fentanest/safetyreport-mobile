@@ -6,6 +6,7 @@ import '../community/community_store.dart' show newUuidV4;
 import '../models/notification_item.dart';
 import '../models/rating_batch_result.dart';
 import '../services/app_prefs_keys.dart';
+import '../services/local_db_service.dart' show changeMapAgencyDisplay;
 import '../services/prefs_inbox.dart';
 import '../services/sync_engine.dart' show ChangeType;
 
@@ -503,7 +504,7 @@ class NotificationHistoryProvider with ChangeNotifier {
         final rnum = r['신고번호']?.toString() ?? '';
         final name = r['신고명']?.toString() ?? '신고';
         final status = r['처리상태']?.toString() ?? '';
-        final agency = r['처리기관']?.toString() ?? '';
+        final agency = changeMapAgencyDisplay(r);
         final fine = r['범칙금_과태료']?.toString() ?? '';
         final changeType = r['change_type']?.toString() ?? '';
         final lines = <String>[];

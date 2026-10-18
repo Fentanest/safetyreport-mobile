@@ -408,7 +408,8 @@ class WsService : Service() {
             val reportNo   = record.optString("신고번호", "")
             val name       = record.optString("신고명", "신고")
             val status     = record.optString("처리상태", "")
-            val agency     = record.optString("처리기관", "")
+            // 서버가 registry 로 푼 현행 기관명(2026-10-18 추가)을 먼저, 없으면(구버전 서버) 원문.
+            val agency     = record.optString("agency_name_current", "").ifEmpty { record.optString("처리기관", "") }
             val fine       = record.optString("범칙금_과태료", "")
 
             val titlePrefix = when {
@@ -477,7 +478,7 @@ class WsService : Service() {
                 val reportNo   = record.optString("신고번호", "")
                 val name       = record.optString("신고명", "신고")
                 val status     = record.optString("처리상태", "")
-                val agency     = record.optString("처리기관", "")
+                val agency     = record.optString("agency_name_current", "").ifEmpty { record.optString("처리기관", "") }
                 val fine       = record.optString("범칙금_과태료", "")
 
                 val title = if (changeType == "신규") "🆕 $name" else "🔄 $name"

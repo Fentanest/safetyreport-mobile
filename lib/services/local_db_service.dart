@@ -54,6 +54,18 @@ String registryDisplayAgency(Object? code, String raw) {
   return trimmed;
 }
 
+/// 변경 알림 Map(서버 `crawl_changes`·앱 `SyncEngine.reportToChangeMap`)의 표시용 기관명.
+/// 원문 `처리기관`+`처리기관코드`를 registry 로 풀고([registryDisplayAgency] — 목록·통계와 같은 규칙),
+/// 못 풀면 PC 서버가 함께 보낸 `agency_name_current`(2026-10-18 추가), 그것도 없으면 원문.
+/// Map 의 원문 값은 바꾸지 않는다(표시 전용).
+String changeMapAgencyDisplay(Map<dynamic, dynamic> r) {
+  final raw = (r['처리기관'] ?? '').toString().trim();
+  final shown = registryDisplayAgency(r['처리기관코드'], raw);
+  if (shown != raw) return shown;
+  final current = (r['agency_name_current'] ?? '').toString().trim();
+  return current.isNotEmpty ? current : shown;
+}
+
 /// registry 현행 표시 + 통계 키. 스냅샷 미로드면 (원문 표시, src 키)로
 /// 폴백한다 — PC `_apply_registry_agency_display` 와 같은 규칙(키 포함).
 /// 미확정도 항상 값을 낸다(호출자가 비어 제외 판단).

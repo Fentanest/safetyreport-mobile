@@ -759,6 +759,8 @@ PC 저장소 `scripts/debug/extractor.py`가 저장한 `testresults/*_api_raw.js
 
 Standalone은 저장된 `standaloneNormalizePolice`를 읽거나 적용하지 않는다. Client는 서버의 호환용 `normalize_police` 값을 무시한다. 기관코드 registry가 신고 표시와 통계의 현행명·통계 키를 항상 계산하며, 미확정 기관은 원문 이름을 유지한다. DB 원문 `처리기관`·`처리기관코드`는 바꾸지 않는다.
 
+2026-10-18: 변경 알림 Map(서버 `crawl_changes`·`/crawl/results`, 앱 `SyncEngine.reportToChangeMap`)에도 `처리기관코드`가 들어간다. 서버 payload에는 `agency_name_current`도 함께 온다. 알림 카드·알림 기록·로컬 푸시는 `changeMapAgencyDisplay()`(registry → `agency_name_current` → 원문)를 쓰고, Kotlin `WsService`는 `agency_name_current`를 먼저 쓴다. `Report.fromJson`은 registry로 풀지 못하면 `agency_name_current`를 쓴다. 모두 표시 전용이며 DB 저장·교환 값은 원문이다.
+
 ### 코드 대조 정정 — 대용량 가져오기/중복
 
 서버 title/detail 또는 legacy merge, raw/entry는 128행 native JOIN 페이지로 읽는다. 가져오기 전체 raw Map과 중복 inventory 전량 보관을 제거했다. 교환 컬럼/NULL/수정값은 그대로이며 파생 digest/revision 표는 원문을 보관하지 않는다. 중복 staging·원자적 교체·백업 수명은 [bounded reads](bounded-reads.md)를 따른다.

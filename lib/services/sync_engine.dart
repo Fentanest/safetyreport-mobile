@@ -1483,7 +1483,7 @@ class SyncEngine {
       final name = (r['신고명'] ?? '신고').toString();
       final reportNo = (r['신고번호'] ?? '').toString();
       final status = (r['처리상태'] ?? '').toString();
-      final agency = (r['처리기관'] ?? '').toString();
+      final agency = changeMapAgencyDisplay(r);
       final fine = (r['범칙금_과태료'] ?? '').toString();
 
       final lines = <String>[];
@@ -1590,6 +1590,8 @@ class SyncEngine {
       '신고일': r.date,
       '답변일': r.responseDate,
       '처리기관': r.agency,
+      // 알림·상세 시트가 registry 로 현행 기관명을 풀 수 있게 원문 코드도 싣는다(2026-10-18).
+      '처리기관코드': r.agencyCode,
       '담당자': r.manager,
       '처리상태': r.status,
       '범칙금_과태료': r.fineInfo,

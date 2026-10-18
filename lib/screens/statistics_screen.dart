@@ -1222,6 +1222,9 @@ class _RowCard extends StatelessWidget {
     // SQ-U02: 공용 필터(하단 신고내역 탭)를 바꾸지 않고 이 화면만의 조건으로 연다.
     final condition = [agency, person].where((v) => v.isNotEmpty).join(' · ');
     if (category == 'all') {
+      // 분류별 탭과 같은 조회 조건(기관·담당자·법규·답변일·답변 완료)으로 연다. 조회 뒤 Dart 로 거르면
+      // 페이지가 비거나(후보 LIMIT 뒤 제외) 서버 검색을 못 써 전체를 내려받는다(Astra 교차 확인 2026-10-18).
+      // 기관 키 정확 일치는 검색 계약에 키가 생길 때 분류별 탭과 함께 바꾼다.
       Navigator.of(context).push(MaterialPageRoute<void>(
         builder: (_) => FilteredListScreen(
           title: condition.isEmpty ? '신고내역' : '$condition · 신고',
@@ -1235,12 +1238,6 @@ class _RowCard extends StatelessWidget {
             responseDateEnd: responseDateEnd,
             statuses: ReportPolicy.completedStatuses.toList(),
           ),
-          filter: (report) =>
-              ReportPolicy.isCompleted(report.status) &&
-              (row.agencyKey == null
-                  ? report.agency.trim() == agency
-                  : registryKeyedAgency(report.agencyCode, report.agency).key == row.agencyKey) &&
-              (!showPerson || report.manager.trim() == person),
         ),
       ));
       return;

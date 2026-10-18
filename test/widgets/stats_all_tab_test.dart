@@ -89,14 +89,9 @@ void main() {
           expect(screen.category, 'all');
           expect(screen.reportFilter.agency, '합성 공통기관');
           expect(screen.reportFilter.statuses, contains('수용'));
-          for (final cat in ['traffic', 'parking']) {
-            expect(screen.filter(Report.fromJson({
-              'category': cat, '처리기관': '합성 공통기관', '처리상태': '수용',
-            })), isTrue);
-          }
-          expect(screen.filter(Report.fromJson({
-            'category': 'parking', '처리기관': '합성 공통기관', '처리상태': '처리중',
-          })), isFalse);
+          expect(screen.reportFilter.statuses, isNot(contains('처리중')));
+          // 조회 뒤 Dart 로 거르지 않는다: 페이지 나눔·건수·서버 검색이 조회 조건 그대로(Astra 교차 확인).
+          expect(screen.filter, isNull);
           expect(provider.filter, const ReportFilter());
         } else {
           expect(all, findsNothing);

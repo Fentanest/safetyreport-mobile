@@ -17,7 +17,9 @@ class FilteredListScreen extends StatefulWidget {
 
   /// 'all', 'traffic', 'parking', 'safety', 'living', 'other' (2026-10-11 5분류)
   final String category;
-  final bool Function(Report) filter;
+  /// 조회 뒤 거르는 Dart 조건(대시보드 지표). null 이면 [reportFilter] 만으로 조회한다 —
+  /// 페이지 나눔·건수·서버 검색이 조회 조건 그대로 맞는다(통계 전체 탭 drilldown).
+  final bool Function(Report)? filter;
   /// 전체 통계 드릴다운의 연도·법규·기관 조건. 공용 목록 필터와 독립적이다.
   final ReportFilter reportFilter;
 
@@ -26,7 +28,7 @@ class FilteredListScreen extends StatefulWidget {
     required this.title,
     this.metric,
     required this.category,
-    required this.filter,
+    this.filter,
     this.reportFilter = const ReportFilter(),
   });
 
@@ -65,7 +67,8 @@ class _FilteredListScreenState extends State<FilteredListScreen> {
         ...provider.otherReports,
       ];
     }
-    return base.where(widget.filter).toList();
+    final filter = widget.filter;
+    return filter == null ? base : base.where(filter).toList();
   }
 
   @override

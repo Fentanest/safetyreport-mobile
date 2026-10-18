@@ -98,8 +98,12 @@ class MainActivity : FlutterFragmentActivity() {
         configureSystemBarAppearance()
         createAppNotifChannel()
         updateAppShortcuts()
-        // 앱이 종료 상태에서 알림 탭으로 실행된 경우 처리
-        intent?.let { handleNavIntent(it) }
+        // 앱이 종료 상태에서 알림 탭으로 실행된 경우 처리. 최근 앱 목록 복원·프로세스 재생성은 예전 알림 탭을
+        // 다시 실행하지 않는다(2026-10-18: 엉뚱한 신고 상세가 다시 열리던 문제) — 커뮤니티 링크와 같은 규칙.
+        intent?.let {
+            val fromHistory = (it.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
+            if (savedInstanceState == null && !fromHistory) handleNavIntent(it) else dropNavExtras(it)
+        }
     }
 
     private fun configureSystemBarAppearance() {
@@ -203,6 +207,13 @@ class MainActivity : FlutterFragmentActivity() {
         communityAuthChannel?.invokeMethod("onCommunityAuthLink", null)
     }
 
+    private fun dropNavExtras(intent: Intent) {
+        listOf(
+            "db_export_uri", "db_export_downloads", "db_export_filename", "db_export_location",
+            "nav_tab", "nav_subtab", "nav_event_type", "nav_payload_json",
+        ).forEach { intent.removeExtra(it) }
+    }
+
     private fun handleNavIntent(intent: Intent) {
         intent.getStringExtra("db_export_uri")?.let { raw ->
             val uri = android.net.Uri.parse(raw)
@@ -232,8 +243,10 @@ class MainActivity : FlutterFragmentActivity() {
                 "event_type" to eventType,
                 "payload_json" to payloadJson
             )
-            // Dart 가 준비됐으면(dartReady) 그때 보낸다. 예전처럼 500ms 뒤에도 한 번 시도한다 —
-            // Dart 처리기가 아직 없으면 notImplemented 로 돌아와 요청을 지우지 않는다.
+            // 바로 보낸다(2026-10-18) — 예전에는 500ms 뒤에만 보내 앱 복귀 처리(변경 결과 시트·SnackBar)가 먼저 떠
+            // 누른 알림의 상세를 가렸다. Dart 처리기가 아직 없으면 notImplemented 로 돌아와 요청을 지우지 않고,
+            // dartReady 때 다시 보낸다. 500ms 뒤 한 번 더 시도하는 예전 경로도 남긴다(이미 보냈으면 아무 일 없음).
+            deliverPendingNav()
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                 deliverPendingNav()
             }, 500)
@@ -386,7 +399,10 @@ class MainActivity : FlutterFragmentActivity() {
             .setAutoCancel(true)
             .setContentIntent(pi)
             .build()
-        nm.notify("app", notifIdGen.getAndIncrement(), notif)
+        val changeTag = NativeNotifications.changeTag(payloadJson)
+        val requestCode = notifIdGen.getAndIncrement()
+        if (changeTag != null) nm.notify(changeTag, NativeNotifications.CHANGE_NOTIF_ID, notif)
+        else nm.notify("app", requestCode, notif)
     }
 
     /**
@@ -611,6 +627,14 @@ class MainActivity : FlutterFragmentActivity() {
                         val payloadJson = call.argument<String>("payload_json")
                         showLocalNotification(title, body, navTab, navSubTab, eventType, payloadJson)
                         result.success(null)
+                    }
+
+                    // 앱에서 읽은 신고·중복군의 시스템 알림을 지운다(all=true 면 결과·변경 알림 전부, 2026-10-18).
+                    "cancelChangeNotifications" -> {
+                        val reports = call.argument<List<String>>("report_numbers") ?: emptyList()
+                        val groups = call.argument<List<String>>("group_ids") ?: emptyList()
+                        val all = call.argument<Boolean>("all") ?: false
+                        result.success(NativeNotifications.cancelRead(this, reports, groups, all))
                     }
 
                     "refreshQuickActions" -> {

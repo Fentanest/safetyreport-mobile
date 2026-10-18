@@ -1138,6 +1138,21 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   /// 게이트 미충족이면 알림 탭 이동·payload 상세 열기를 무시한다.
   bool get _gateAllows => communityNavAllowed(context);
 
+  /// 푸시를 눌러 특정 신고(중복군) 상세를 연 시각(2026-10-18). 같은 복귀에서 변경 결과 시트·하단 알림이
+  /// 그 상세를 가리거나 다른 신고를 열지 않게 잠시 미룬다(예전: 누른 건 대신 마지막 변경 건이 열렸다).
+  DateTime? _payloadNavAt;
+  bool get _payloadNavRecent =>
+      _payloadNavAt != null &&
+      DateTime.now().difference(_payloadNavAt!) < const Duration(seconds: 5);
+
+  /// 지금 떠 있는 하단 알림(SnackBar)과 그것이 가리키는 변경. 그 변경을 어느 경로로든 읽으면 닫는다.
+  ScaffoldFeatureController<SnackBar, SnackBarClosedReason>? _noticeSnack;
+  Map<String, dynamic>? _noticeSnackPayload;
+  NotificationHistoryProvider? _historyListened;
+
+  /// 떠 있는 변경 결과 시트(푸시로 다른 신고를 열 때 닫는다).
+  BuildContext? _changesSheetContext;
+
   /// 하단 탭 수(D-06: 7 → 5). 동기화/크롤링·파일은 [AppRoutes] 로 연다.
   static const _tabCount = MainTabs.count;
 
@@ -1148,7 +1163,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     // Native 의 navigateToTab 은 앱 루트 처리기가 받아 이 화면이 붙을 때까지 보관한다(SQ-B05).
     NativeCallRouter.instance.attach(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<NotificationHistoryProvider>().load();
+      final history = context.read<NotificationHistoryProvider>();
+      _historyListened = history..addListener(_onHistoryChanged);
+      history.load();
       _checkPendingChanges();
     });
     unawaited(ReviewPromptService.recordAppOpen());
@@ -1156,6 +1173,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
 
   @override
   void dispose() {
+    _historyListened?.removeListener(_onHistoryChanged);
     NativeCallRouter.instance.detach(this);
     WidgetsBinding.instance.removeObserver(this);
     _tabs.dispose();
@@ -1185,14 +1203,23 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(ReviewPromptService.recordAppOpen());
-      _checkPendingChanges();
-      _checkForegroundEvent();
+      unawaited(_runResumeNotices());
       // standalone: Kotlin NotificationService 가 설정한 sync pending 플래그 확인
       if (mounted) {
         context.read<ReportProvider>().checkAutoSyncOnResume();
         unawaited(_resumeClientConnection());
       }
     }
+  }
+
+  /// 복귀 때 쌓인 변경(결과 시트)·하단 알림을 보인다. 알림을 눌러 돌아온 경우 Kotlin 이 탭 요청을 바로 보내므로
+  /// 잠깐 기다려 그 요청이 먼저 처리되게 한다(그 상세를 가리지 않게, 2026-10-18).
+  Future<void> _runResumeNotices() async {
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    if (!mounted) return;
+    final sheetShown = await _checkPendingChanges();
+    if (!mounted) return;
+    await _checkForegroundEvent(changesSheetShown: sheetShown);
   }
 
   Future<void> _resumeClientConnection() async {
@@ -1216,6 +1243,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     final subTab = request.subTab;
     final eventType = request.eventType;
     final payloadJson = request.payloadJson;
+    if (payloadJson.isNotEmpty) {
+      // 누른 알림의 상세가 우선이다: 같은 복귀의 결과 시트·하단 알림은 띄우지 않고, 이미 떠 있으면 닫는다.
+      _payloadNavAt = DateTime.now();
+      _closeNoticeSnack();
+      _closeChangesSheet();
+    }
     if (subTab != null) {
       context.read<NotificationHistoryProvider>().setPreferredTabIndex(
         subTab,
@@ -1285,15 +1318,27 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     }
   }
 
-  Future<void> _checkForegroundEvent() async {
+  /// 하단 알림(SnackBar): WsService 가 마지막으로 띄운 푸시 하나를 앱 안에서 다시 알린다.
+  /// - 같은 복귀에서 변경 결과 시트를 띄웠으면 변경 알림은 생략한다(시트에 이미 있다).
+  /// - 알림을 눌러 돌아왔으면 생략한다(그 상세가 열린다).
+  /// - 한 번에 하나만, 4초 뒤 자동으로 닫힌다(예전: 버튼이 있어 닫히지 않고 복귀마다 쌓였다).
+  /// - 가리키는 변경을 다른 경로로 읽으면 닫힌다([_onHistoryChanged]).
+  Future<void> _checkForegroundEvent({bool changesSheetShown = false}) async {
     final event = await ForegroundEventStore.readAndClear();
     if (event == null || !mounted || !_gateAllows) return;
+    if (_payloadNavRecent) return;
     final title = event['title']?.toString() ?? '';
     final body = event['body']?.toString() ?? '';
     final payloadJson = event['payload_json']?.toString() ?? '';
     if (title.isEmpty) return;
+    if (changesSheetShown &&
+        // Kotlin ServerContract.EVENT_CRAWL_CHANGES
+        event['type']?.toString() == 'crawl_changes') {
+      return;
+    }
+    Map<String, dynamic>? payload;
     if (payloadJson.isNotEmpty) {
-      final payload = _decodeNotificationPayload(payloadJson);
+      payload = _decodeNotificationPayload(payloadJson);
       if (payload != null) {
         final history = context.read<NotificationHistoryProvider>();
         await history.ensureLoaded();
@@ -1301,7 +1346,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
         if (history.isPayloadRead(payload)) return;
       }
     }
-    ScaffoldMessenger.of(context).showSnackBar(
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    _noticeSnackPayload = payload;
+    final controller = messenger.showSnackBar(
       SnackBar(
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1313,6 +1361,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
           ],
         ),
         duration: const Duration(seconds: 4),
+        // 버튼이 있어도 시간이 지나면 닫는다(Flutter 기본값은 버튼이 있으면 계속 남김).
+        persist: false,
         action: SnackBarAction(
           label: payloadJson.isNotEmpty ? '상세 보기' : '알림 보기',
           onPressed: () {
@@ -1325,6 +1375,44 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
         ),
       ),
     );
+    _noticeSnack = controller;
+    unawaited(
+      controller.closed.whenComplete(() {
+        if (!identical(_noticeSnack, controller)) return;
+        _noticeSnack = null;
+        _noticeSnackPayload = null;
+      }),
+    );
+  }
+
+  void _closeNoticeSnack() {
+    final snack = _noticeSnack;
+    _noticeSnack = null;
+    _noticeSnackPayload = null;
+    snack?.close();
+  }
+
+  void _closeChangesSheet() {
+    final sheet = _changesSheetContext;
+    _changesSheetContext = null;
+    if (sheet == null || !sheet.mounted) return;
+    final route = ModalRoute.of(sheet);
+    if (route != null && route.isActive) Navigator.of(sheet).removeRoute(route);
+  }
+
+  /// 알림 기록의 읽음이 바뀌었다 — 떠 있는 하단 알림이 가리키는 변경을 읽었으면 닫는다.
+  void _onHistoryChanged() {
+    final payload = _noticeSnackPayload;
+    final history = _historyListened;
+    if (_noticeSnack == null || payload == null || history == null) return;
+    final number = NotificationHistoryProvider.extractReportNumberFromPayload(
+      payload,
+    );
+    final isDuplicate = payload['notification_kind']?.toString() == 'duplicate';
+    final read =
+        history.isPayloadRead(payload) ||
+        (!isDuplicate && number.isNotEmpty && history.isReportRead(number));
+    if (read) _closeNoticeSnack();
   }
 
   Map<String, dynamic>? _decodeNotificationPayload(String payloadJson) {
@@ -1353,8 +1441,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   }
 
   bool _checkingPendingChanges = false;
-  Future<void> _checkPendingChanges() async {
-    if (_checkingPendingChanges || !mounted || !_gateAllows) return;
+
+  /// 쌓인 변경을 기록하고 읽지 않은 것이 있으면 변경 결과 시트를 띄운다. 반환: 시트를 띄웠는지.
+  Future<bool> _checkPendingChanges() async {
+    if (_checkingPendingChanges || !mounted || !_gateAllows) return false;
     _checkingPendingChanges = true;
     final epoch = context.read<ReportProvider>().datasetEpoch;
     bool current() =>
@@ -1364,7 +1454,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     try {
       final claim = await PendingChangesStore.readPending();
       final changes = claim.items;
-      if (changes.isEmpty || !current() || !mounted) return;
+      if (changes.isEmpty || !current() || !mounted) return false;
       // Client: 서버가 알린 변경은 이 기기가 쓰지 않은 실제 자료 변경이다 — 보이는 목록·통계가 다시 읽는다(SQ-P02).
       // Standalone 은 동기화 뒤 refreshAll 이 DB 쓰기 표시로 판정한다.
       final reports = context.read<ReportProvider>();
@@ -1376,10 +1466,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
         changes,
         preferredTabIndexIfUnread: 1,
       );
-      if (!current()) return;
-      if (unreadChanges.isEmpty) {
+      if (!current()) return false;
+      // 알림을 눌러 특정 신고를 연 복귀면 기록만 하고 시트는 띄우지 않는다(나머지는 알림 탭 기록에 남는다).
+      if (unreadChanges.isEmpty || _payloadNavRecent) {
         await PendingChangesStore.acknowledge(claim);
-        return;
+        return false;
       }
 
       // 알림 탭으로 이동
@@ -1388,18 +1479,25 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
 
       // 변경 신고건 카드 뷰 표시
       await Future.delayed(const Duration(milliseconds: 200));
-      if (!current()) return;
+      if (!current()) return false;
+      if (_payloadNavRecent) {
+        await PendingChangesStore.acknowledge(claim);
+        return false;
+      }
       _showChangesBottomSheet(unreadChanges);
       await PendingChangesStore.acknowledge(claim);
+      return true;
     } catch (_) {
       SyncEngine.emitLog('대기 변경을 전달하지 못했습니다. 자료를 보존해 다시 확인합니다.');
+      return false;
     } finally {
       _checkingPendingChanges = false;
     }
   }
 
   void _showChangesBottomSheet(List<Map<String, dynamic>> changes) {
-    showModalBottomSheet(
+    _closeNoticeSnack();
+    final sheet = showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       // 전체 높이까지 끌어올려도 상태 표시줄 아래에서 멈춘다(SQ-U07).
@@ -1409,7 +1507,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
         minChildSize: 0.35,
         maxChildSize: 0.92,
         expand: false,
-        builder: (_, controller) {
+        builder: (sheetContext, controller) {
+          _changesSheetContext = sheetContext;
           final newCount = changes
               .where(
                 (r) =>
@@ -1762,6 +1861,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
         },
       ),
     );
+    unawaited(sheet.whenComplete(() => _changesSheetContext = null));
   }
 
   Widget _changeBadge(String label, int count, Color color) {

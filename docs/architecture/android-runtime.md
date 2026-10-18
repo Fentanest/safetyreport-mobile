@@ -91,6 +91,12 @@ Kotlin NotificationService.onNotificationPosted(sbn)
 Flutter `NativeCallRouter`(앱 루트, `main()` 에서 시작) → 메인 화면(`MainNavigationScreen.handleNativeNavigation`)이 붙어 있으면 전달, 없으면 최신 요청 하나를 보관했다가 붙을 때 한 번 전달 → 동기화 탭 이동 + (Standalone) `checkAutoSyncOnResume()` → `_drainAndRefresh()`.
 - 2026-10-04(SQ-B05): Dart 가 루트 처리기를 건 뒤 `dartReady` 를 보내면 Kotlin 이 보관한 요청을 보낸다. 예전 500ms 지연 전송은 예비로 남았고, Dart 처리기가 없으면(`notImplemented`) 요청을 지우지 않는다. Dart 가 받았을 때(success/error)만 지운다.
 - `syncFgsStopped` 는 화면과 무관하게 `NativeCallRouter` → `SyncEngine.onNativeFgsStopped` 로 간다(초기 재구성 중에도 전달).
+- 2026-10-18 알림 탭·읽음 동기화:
+  - **탭 전달:** `handleNavIntent` 는 탭 요청을 바로 보낸다(예비 500ms 전송은 유지). `onCreate` 가 `savedInstanceState != null` 이거나 `FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY` 이면 nav·DB 내보내기 extras 를 실행하지 않고 지운다. 최근 앱 복원·재생성에서 예전 알림 탭이 다시 실행되지 않게 하려는 것이다.
+  - **복귀 처리:** Dart 는 payload 가 있는 탭 요청을 받으면 5초 동안 같은 복귀의 변경 결과 시트와 하단 알림(SnackBar)을 띄우지 않고, 이미 떠 있으면 닫는다. 대기 변경은 기록만 한다. 복귀 처리(`_runResumeNotices`)는 300ms 기다린 뒤 시트 → 하단 알림 순서로 돈다. 예전에는 누른 신고 대신 마지막 변경 건의 하단 알림이나 결과 시트가 상세를 가렸다.
+  - **알림 태그:** 변경 알림은 `NativeNotifications.changeTag` 로 신고(`sr-report:<신고번호 대문자>`)·중복군(`sr-dup:<group_id>`) 태그와 고정 ID(`CHANGE_NOTIF_ID`)로 띄운다. WsService·MainActivity `showNotification`·NotificationWork 공통이다. 같은 신고의 새 변경 알림은 앞 알림을 대신한다. PendingIntent requestCode 는 따로 고유하게 둔다.
+  - **읽음 → 시스템 알림 삭제:** `NotificationHistoryProvider` 의 읽음 처리(`markRead`·`markReportRead`·`markPayloadRead`·`markDuplicateGroupRead`·`markAllRead`·`clearAll`)는 MethodChannel `cancelChangeNotifications`(`report_numbers`·`group_ids`·`all`)로 해당 태그의 시스템 알림을 지운다. 기록을 모두 읽으면 `all` 이 되어 `ws-push`·`app`·`notification-result-*` 결과 알림도 지운다. 포그라운드 서비스 알림은 태그가 없어 지우지 않는다. 신고 상세 시트와 중복군 상세 시트를 열면 읽음 처리된다.
+  - **하단 알림(SnackBar):** 한 번에 하나만 띄우고(`clearSnackBars`), `persist: false` 로 4초 뒤 스스로 닫힌다(Flutter 기본값은 버튼이 있으면 남김). 가리키는 변경을 다른 경로로 읽으면 기록 변경을 듣고 닫힌다. 같은 복귀에서 변경 결과 시트를 띄웠으면 `crawl_changes` 하단 알림은 생략한다.
 단, `standaloneDemoMode=true` 이면 resume 시 refreshAll 만 수행하고 실제 drain/sync 는 생략.
 
 ### 3. Standalone drainIfPending (`StandaloneAutoSyncService`)

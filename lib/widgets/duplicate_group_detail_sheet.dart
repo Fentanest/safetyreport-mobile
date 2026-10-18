@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/app_mode.dart';
+import '../providers/notification_history_provider.dart';
 import '../providers/report_provider.dart';
 import '../services/repositories/duplicate_repository.dart';
 
@@ -12,6 +15,15 @@ import '../theme/sr_colors.dart';
 import '../theme/sr_tokens.dart';
 
 void showDuplicateGroupDetailSheet(BuildContext context, DuplicateGroup group) {
+  // 신고 상세와 같이: 이 중복군의 변경 기록을 읽음으로 하고 그 푸시·하단 알림을 지운다(2026-10-18).
+  try {
+    unawaited(
+      context.read<NotificationHistoryProvider>().markDuplicateGroupRead(
+        group.groupId,
+      ),
+    );
+  } catch (_) {}
+  ScaffoldMessenger.maybeOf(context)?.hideCurrentSnackBar();
   final provider = Provider.of<ReportProvider?>(context, listen: false);
   final epoch = provider?.datasetEpoch;
   final repository = provider?.appMode == AppMode.standalone

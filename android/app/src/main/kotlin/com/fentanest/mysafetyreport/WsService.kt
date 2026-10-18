@@ -539,7 +539,10 @@ class WsService : Service() {
             .setContentIntent(pi)
             .build()
 
-        nm.notify("ws-push", notifId, notif)
+        // 변경 알림은 신고·중복군별 태그로 띄워 앱에서 읽으면 지울 수 있게 한다(NativeNotifications.changeTag).
+        val changeTag = NativeNotifications.changeTag(payloadJson)
+        if (changeTag != null) nm.notify(changeTag, NativeNotifications.CHANGE_NOTIF_ID, notif)
+        else nm.notify("ws-push", notifId, notif)
 
         // 앱이 포그라운드일 때 in-app SnackBar 표시용 — SharedPreferences에 기록
         try {

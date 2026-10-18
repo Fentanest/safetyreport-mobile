@@ -9,6 +9,7 @@ import '../services/app_prefs_keys.dart';
 import '../services/local_db_service.dart' show changeMapAgencyDisplay;
 import '../services/prefs_inbox.dart';
 import '../services/sync_engine.dart' show ChangeType;
+import '../services/system_notifications.dart';
 
 /// Client 모드 서버 결과 확인 한 번의 결과.
 /// [ok] 가 false 면 조회·저장·완료 확인 가운데 하나가 실패했다(완료 신호는 저장 뒤에만 소비하므로 다시 시도할 수 있다).
@@ -137,6 +138,31 @@ class NotificationHistoryProvider with ChangeNotifier {
 
   static String _uniqueTag() => newUuidV4().substring(0, 8);
 
+  String _groupIdForItem(NotificationItem item) =>
+      item.kind == NotificationItemKind.duplicate
+      ? _text(item.extraData?['group_id'])
+      : '';
+
+  /// 읽음이 된 신고·중복군의 시스템 알림을 함께 지운다(2026-10-18). 어느 경로로 읽든(상세 시트·알림 기록·
+  /// 푸시 탭) 같은 신고의 푸시가 남지 않게 한다. [allIfDone] 이고 기록을 모두 읽었으면 결과·변경 알림 전부.
+  void _cancelSystemNotifications({
+    Iterable<String> reportNumbers = const [],
+    Iterable<String> groupIds = const [],
+    bool allIfDone = false,
+    bool all = false,
+  }) {
+    final everything =
+        all ||
+        (allIfDone && _items.isNotEmpty && _items.every((i) => i.isRead));
+    unawaited(
+      SystemNotifications.cancelRead(
+        reportNumbers: reportNumbers,
+        groupIds: groupIds,
+        all: everything,
+      ),
+    );
+  }
+
   // ── 읽기 ──────────────────────────────────────────────────────────────────
 
   Future<void> load({bool notify = true}) => _serialized(() async {
@@ -201,9 +227,6 @@ class NotificationHistoryProvider with ChangeNotifier {
 
   /// 이 변경 자체를 이미 읽었는지. 같은 신고의 다른(뒤에 온) 변경은 읽은 것으로 치지 않는다(SQ-B01).
   bool isPayloadRead(Map<String, dynamic>? payload) {
-    if ((payload?['notification_kind']?.toString() ?? '') == 'duplicate') {
-      return false;
-    }
     final key = changeKeyOf(payload);
     if (key == null) return false;
     var matched = false;
@@ -218,15 +241,23 @@ class NotificationHistoryProvider with ChangeNotifier {
   // ── 읽음 표시 (저장은 몰아서) ────────────────────────────────────────────
 
   Future<void> markRead(String id) async {
+    NotificationItem? read;
     final changed = await _serialized(() async {
       await _ensureLoadedLocked();
       final idx = _items.indexWhere((i) => i.id == id);
       if (idx < 0 || _items[idx].isRead) return false;
+      read = _items[idx];
       _items = List.of(_items)..[idx] = _items[idx].copyWith(isRead: true);
       _dirty = true;
       return true;
     });
     if (!changed) return;
+    final item = read!;
+    _cancelSystemNotifications(
+      reportNumbers: [_reportNumberForItem(item)],
+      groupIds: [_groupIdForItem(item)],
+      allIfDone: true,
+    );
     _notify();
     await _flush();
   }
@@ -248,6 +279,31 @@ class NotificationHistoryProvider with ChangeNotifier {
       if (changed) _dirty = true;
       return changed;
     });
+    // 기록에 없던 신고라도(기록 정리 뒤 등) 그 신고의 푸시는 지운다.
+    _cancelSystemNotifications(reportNumbers: [normalized], allIfDone: changed);
+    if (!changed) return;
+    _notify();
+    await _flush();
+  }
+
+  /// 중복군 상세를 열면 그 중복군의 변경 기록을 읽음으로 하고 푸시를 지운다(2026-10-18).
+  Future<void> markDuplicateGroupRead(String groupId) async {
+    final id = groupId.trim();
+    if (id.isEmpty) return;
+    final changed = await _serialized(() async {
+      await _ensureLoadedLocked();
+      var changed = false;
+      _items = _items.map((item) {
+        if (!item.isRead && _groupIdForItem(item) == id) {
+          changed = true;
+          return item.copyWith(isRead: true);
+        }
+        return item;
+      }).toList();
+      if (changed) _dirty = true;
+      return changed;
+    });
+    _cancelSystemNotifications(groupIds: [id], allIfDone: changed);
     if (!changed) return;
     _notify();
     await _flush();
@@ -255,6 +311,7 @@ class NotificationHistoryProvider with ChangeNotifier {
 
   Future<void> markPayloadRead(Map<String, dynamic>? payload) async {
     if ((payload?['notification_kind']?.toString() ?? '') == 'duplicate') {
+      await markDuplicateGroupRead(_text(payload?['group_id']));
       return;
     }
     final reportNumber = extractReportNumberFromPayload(payload);
@@ -270,6 +327,8 @@ class NotificationHistoryProvider with ChangeNotifier {
       _dirty = true;
       return true;
     });
+    // 모두 읽음: 남은 결과·변경 푸시도 모두 지운다(이미 다 읽은 상태에서 눌러도).
+    _cancelSystemNotifications(all: true);
     if (!changed) return;
     _notify();
     await _flush();
@@ -296,6 +355,7 @@ class NotificationHistoryProvider with ChangeNotifier {
       prefs,
       PrefsInbox.read(prefs, PrefsInbox.history).map((e) => e.key),
     );
+    _cancelSystemNotifications(all: true);
     _notify();
   });
 

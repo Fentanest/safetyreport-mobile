@@ -216,7 +216,9 @@ class NotificationWork(context: Context, params: WorkerParameters) : ListenableW
             .setSmallIcon(R.drawable.ic_stat_logo).setContentTitle(call.argument<String>("title") ?: "동기화")
             .setContentText(body).setStyle(android.app.Notification.BigTextStyle().bigText(body)).setAutoCancel(true)
         if (intent != null) builder.setContentIntent(PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-        nm.notify("notification-result-$eventId", 0, builder.build())
+        val changeTag = NativeNotifications.changeTag(call.argument<String>("payload_json"))
+        if (changeTag != null) nm.notify(changeTag, NativeNotifications.CHANGE_NOTIF_ID, builder.build())
+        else nm.notify("notification-result-$eventId", 0, builder.build())
     }
 
     private fun finish(success: Boolean) {

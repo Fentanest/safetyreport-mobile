@@ -392,12 +392,20 @@ void main() {
       await tester.ensureVisible(card.first);
       await tester.pump();
       final agency = tester.widget<Text>(card.first).data!;
+      // 카드의 '총 N건' = 답변 완료 신고 수. 목록도 같은 모집단이어야 한다(웹 status=완료와 같음).
+      final cardTotal = int.parse(RegExp(r'^총 (\d+)건$').firstMatch(tester
+          .widgetList<RichText>(find.descendant(
+              of: find.ancestor(of: card.first, matching: find.byType(Card)).first,
+              matching: find.byType(RichText)))
+          .map((t) => t.text.toPlainText())
+          .firstWhere((t) => RegExp(r'^총 \d+건$').hasMatch(t)))!.group(1)!);
       await tester.tap(card.first);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
       await _waitFor(tester, _loadedBody);
       expect(find.text('$agency · 신고'), findsOneWidget);
       expect(find.text('기관: $agency'), findsOneWidget);
+      expect(_bodyTotal(tester), cardTotal, reason: '처리중 등 미완료 신고가 목록에 섞이면 안 된다');
       expect(p.filter, const ReportFilter());
       await tester.pageBack();
       await tester.pump();

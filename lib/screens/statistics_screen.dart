@@ -1255,6 +1255,8 @@ class _RowCard extends StatelessWidget {
         lawExact: law != null,
         responseDateStart: responseDateStart,
         responseDateEnd: responseDateEnd,
+        // 카드 건수는 답변 완료 신고만 센다 — 목록도 같은 모집단(웹 drilldown status=완료와 같음).
+        statuses: ReportPolicy.completedStatuses.toList(),
       ),
       title: condition.isEmpty ? '신고내역' : '$condition · 신고',
       initialTabIndex: switch (category) {

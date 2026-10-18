@@ -172,7 +172,7 @@ class _StatsCategoryAccumulator {
     agencies
         .putIfAbsent(keyed.key, () => _AgencyAgg(keyed.display, '', keyed.key))
         .add(r);
-    final person = (r['담당자']?.toString() ?? '').trim();
+    final person = ReportPolicy.norm(r['담당자']);
     if (LocalDbService._unassignedPersonValues.contains(person)) return;
     persons
         .putIfAbsent(

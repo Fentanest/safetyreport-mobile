@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/models/agency_stats.dart';
 import 'package:safetyreport/services/local_db_service.dart';
+import 'package:safetyreport/services/report_filter_spec.dart';
 
 /// 서버 `tests/test_report_stats_service.py::test_stats_tables_include_only_answered_rows`
 /// 와 같은 입력·기대값(2026-09-28: 표는 답변 완료 신고만 — S-10 대체). 서버는 법규별 표도 만들지만 모바일에는 없어 기관/담당자만 비교한다.
@@ -72,6 +73,20 @@ const _rows = <Map<String, dynamic>>[
 ];
 
 void main() {
+  test('Unicode 담당자 공백은 통계와 정확 검색에서 같은 한 행이다', () {
+    final rows = <Map<String, dynamic>>[
+      for (final person in ['Lee', '\uFEFFLee', 'LEE', '\uFEFF미지정', '\uFEFF'])
+        {'처리기관': 'A구청', '담당자': person, '처리상태': '수용'},
+    ];
+    final result = LocalDbService.buildStatsCategory(rows, rows);
+    final people = (result['by_person'] as List).cast<Map<String, dynamic>>();
+    expect({for (final r in people) r['person']: r['total']}, {'Lee': 2, 'LEE': 1});
+    for (final person in people) {
+      expect(rows.where((r) => ReportFilterSpec.matchesExactText(
+        r['담당자'], person['person'] as String)).length, person['total']);
+    }
+    expect(rows[1]['담당자'], '\uFEFFLee');
+  });
   test('카테고리 과태료 합계는 기관 미지정 신고도 포함하고 추정액은 분리한다', () {
     final rows = <Map<String, dynamic>>[
       {'처리기관': 'A구청', '담당자': '김', '처리상태': '수용', '범칙금_과태료': '과태료: 40,000원'},

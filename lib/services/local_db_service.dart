@@ -4281,7 +4281,7 @@ class LocalDbService {
     final personAgg = <String, _AgencyAgg>{};
     for (final r in answered) {
       final keyed = agencyKeyed(r['처리기관코드'], (r['처리기관'] as String? ?? ''));
-      final manager = (r['담당자'] as String? ?? '').trim();
+      final manager = ReportPolicy.norm(r['담당자']);
       if (keyed.display.isEmpty || _unassignedPersonValues.contains(manager)) {
         continue;
       }

@@ -86,6 +86,40 @@ void main() {
     expect(old.reports.single.id, 'old');
   });
 
+  test('streamed Unicode person row equals exact SQLite page in both modes', () async {
+    final db = await LocalDbService.db;
+    final original = await db.query('reports',
+        columns: ['ID', '처리기관', '처리기관코드', '담당자'],
+        where: 'ID IN (?, ?)', whereArgs: ['target', 'other-1']);
+    expect(original.length, 2);
+    try {
+      for (final pair in [('target', 'Lee'), ('other-1', '\uFEFFLee')]) {
+        await db.update('reports', {'처리기관': '합성기관', '처리기관코드': '9999991', '담당자': pair.$2},
+            where: 'ID = ?', whereArgs: [pair.$1]);
+      }
+      for (final representative in [false, true]) {
+        final stats = await LocalDbService.computeStats(useRepresentativeRecords: representative);
+        for (final category in ['all', 'traffic']) {
+          final people = (stats[category]['by_person'] as List)
+              .cast<Map<String, dynamic>>().where((r) => r['person'] == 'Lee').toList();
+          expect(people.length, 1);
+          expect(people.single['total'], 2);
+          final page = await LocalDbService.getReportPage(category: category,
+              useRepresentativeRecords: representative,
+              filter: ReportFilter(agencyKey: people.single['agency_key'] as String,
+                  manager: 'Lee', managerExact: true));
+          expect(page.total, people.single['total']);
+          expect(page.reports.map((r) => r.id).toSet(), {'target', 'other-1'});
+        }
+      }
+    } finally {
+      for (final row in original) {
+        final values = Map<String, Object?>.from(row)..remove('ID');
+        await db.update('reports', values, where: 'ID = ?', whereArgs: [row['ID']]);
+      }
+    }
+  });
+
   // 통계 표가 담당자를 앞뒤 공백만 지우고 대소문자를 살려 묶으므로 정확 일치도 대소문자를 구분한다(Opus 검수 결정, 서버와 같음).
   test('exact manager keeps comma and ampersand, trim, and is case-sensitive', () async {
     final db = await LocalDbService.db;

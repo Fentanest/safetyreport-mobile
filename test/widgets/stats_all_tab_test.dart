@@ -88,6 +88,8 @@ void main() {
           final screen = tester.widget<FilteredListScreen>(find.byType(FilteredListScreen));
           expect(screen.category, 'all');
           expect(screen.reportFilter.agency, '합성 공통기관');
+          // 서버 기능 확인(/app/config) 전에 눌러도 정확 조건을 잃지 않는다 — 구서버 fallback 은 보내는 단계에서만(Astra 재감사).
+          expect(screen.reportFilter.agencyKey, 'src:-:합성 공통기관');
           expect(screen.reportFilter.statuses, contains('수용'));
           expect(screen.reportFilter.statuses, isNot(contains('처리중')));
           // 조회 뒤 Dart 로 거르지 않는다: 페이지 나눔·건수·서버 검색이 조회 조건 그대로(Astra 교차 확인).

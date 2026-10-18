@@ -1216,7 +1216,6 @@ class _RowCard extends StatelessWidget {
   void _openList(BuildContext context) {
     final agency = row.agency;
     final person = showPerson ? row.person : '';
-    final identity = context.read<ReportProvider>().reportSearchIdentitySupported;
     // S-08: 통계 연도는 답변일 기준이므로 drilldown 도 답변일 범위로 좁힌다.
     final responseDateStart = year == 'all' ? '' : '$year-01-01';
     final responseDateEnd = year == 'all' ? '' : '$year-12-31';
@@ -1225,15 +1224,17 @@ class _RowCard extends StatelessWidget {
     if (category == 'all') {
       // 분류별 탭과 같은 조회 조건(기관·담당자·법규·답변일·답변 완료)으로 연다. 조회 뒤 Dart 로 거르면
       // 페이지가 비거나(후보 LIMIT 뒤 제외) 서버 검색을 못 써 전체를 내려받는다(Astra 교차 확인 2026-10-18).
+      // 기관 키·담당자 정확 조건은 항상 담는다. 서버가 지원을 알리기 전이거나 구서버면 보내는 단계
+      // (ReportProvider 검색 요청)에서만 이름 조건으로 내린다 — 카드를 누른 시점의 미확인으로 잃지 않게(Astra 재감사).
       Navigator.of(context).push(MaterialPageRoute<void>(
         builder: (_) => FilteredListScreen(
           title: condition.isEmpty ? '신고내역' : '$condition · 신고',
           category: 'all',
           reportFilter: ReportFilter(
             agency: agency,
-            agencyKey: identity ? (row.agencyKey ?? '') : '',
+            agencyKey: row.agencyKey ?? '',
             manager: person,
-            managerExact: identity && showPerson,
+            managerExact: showPerson,
             law: law ?? '',
             lawExact: law != null,
             responseDateStart: responseDateStart,
@@ -1248,9 +1249,9 @@ class _RowCard extends StatelessWidget {
       Navigator.of(context),
       filter: ReportFilter(
         agency: agency,
-        agencyKey: identity ? (row.agencyKey ?? '') : '',
+        agencyKey: row.agencyKey ?? '',
         manager: person,
-        managerExact: identity && showPerson,
+        managerExact: showPerson,
         law: law ?? '',
         // 통계 법규 선택과 같은 저장 키 소속 판정(서버 /stats·로컬 통계의 법규 필터와 같은 함수).
         lawExact: law != null,

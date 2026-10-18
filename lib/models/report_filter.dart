@@ -9,7 +9,9 @@ class ReportFilter {
   final List<String> ratings;
   final String ratingCause;
   final String agency;
+  final String agencyKey;
   final String manager;
+  final bool managerExact;
   final String carNumber;
   final String law;
 
@@ -42,7 +44,9 @@ class ReportFilter {
     this.ratings = const [],
     this.ratingCause = '',
     this.agency = '',
+    this.agencyKey = '',
     this.manager = '',
+    this.managerExact = false,
     this.carNumber = '',
     this.law = '',
     this.lawExact = false,
@@ -72,8 +76,10 @@ class ReportFilter {
     'id': id,
     'ratings': ratings,
     'ratingCause': ratingCause,
-    'agency': agency,
+    if (agencyKey.isEmpty) 'agency': agency,
+    if (agencyKey.isNotEmpty) 'agencyKey': agencyKey,
     'manager': manager,
+    if (managerExact) 'managerExact': true,
     'carNumber': carNumber,
     'law': law,
     // 2026-10-16 하위호환 추가: false 일 때는 보내지 않아 예전 v1 요청과 바이트가 같다.
@@ -103,7 +109,9 @@ class ReportFilter {
     id,
     ratingCause,
     agency,
+    agencyKey,
     manager,
+    managerExact,
     carNumber,
     law,
     location,
@@ -144,7 +152,9 @@ class ReportFilter {
     List<String>? ratings,
     String? ratingCause,
     String? agency,
+    String? agencyKey,
     String? manager,
+    bool? managerExact,
     String? carNumber,
     String? law,
     bool? lawExact,
@@ -173,7 +183,9 @@ class ReportFilter {
       ratings: ratings ?? this.ratings,
       ratingCause: ratingCause ?? this.ratingCause,
       agency: agency ?? this.agency,
+      agencyKey: agencyKey ?? this.agencyKey,
       manager: manager ?? this.manager,
+      managerExact: managerExact ?? this.managerExact,
       carNumber: carNumber ?? this.carNumber,
       law: law ?? this.law,
       lawExact: lawExact ?? this.lawExact,
@@ -208,6 +220,8 @@ class ReportFilter {
       ratings.isEmpty &&
       ratingCause.isEmpty &&
       agency.isEmpty &&
+      agencyKey.isEmpty &&
+      !managerExact &&
       manager.isEmpty &&
       carNumber.isEmpty &&
       law.isEmpty &&
@@ -308,8 +322,8 @@ class ReportFilter {
     ReportFilterField.id => copyWith(id: ''),
     ReportFilterField.ratings => copyWith(ratings: const []),
     ReportFilterField.ratingCause => copyWith(ratingCause: ''),
-    ReportFilterField.agency => copyWith(agency: ''),
-    ReportFilterField.manager => copyWith(manager: ''),
+    ReportFilterField.agency => copyWith(agency: '', agencyKey: ''),
+    ReportFilterField.manager => copyWith(manager: '', managerExact: false),
     ReportFilterField.carNumber => copyWith(carNumber: ''),
     ReportFilterField.law => copyWith(law: '', lawExact: false),
     ReportFilterField.location => copyWith(location: ''),

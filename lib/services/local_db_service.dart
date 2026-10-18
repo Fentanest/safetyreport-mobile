@@ -2,6 +2,7 @@ import 'law_values.dart';
 import 'sqlite_connection.dart';
 import '../models/report_filter.dart';
 import 'report_query.dart';
+import 'report_filter_spec.dart';
 import 'performance_trace.dart';
 import 'app_prefs_keys.dart';
 import 'database_snapshot.dart';
@@ -2360,7 +2361,7 @@ class LocalDbService {
           '${identityHashCode(connection)}:${await _readRevision(d)}:${identityHashCode(AgencyRegistry.cacheVersion)}';
       if (_agencyLookupKey == key) return;
       await d.execute(
-        'CREATE TEMP TABLE IF NOT EXISTS sr_agencies(code TEXT, raw TEXT, display TEXT, PRIMARY KEY(code,raw))',
+        'CREATE TEMP TABLE IF NOT EXISTS sr_agencies(code TEXT, raw TEXT, display TEXT, stats_key TEXT, PRIMARY KEY(code,raw))',
       );
       await d.delete('sr_agencies');
       final rows = await d.rawQuery(
@@ -2372,6 +2373,7 @@ class LocalDbService {
           'code': row['code'],
           'raw': row['raw'],
           'display': registryDisplayAgency(row['code'], row['raw'] as String),
+          'stats_key': registryKeyedAgency(row['code'], row['raw'] as String).key,
         });
       }
       await batch.commit(noResult: true);
@@ -2431,7 +2433,8 @@ class LocalDbService {
     return connection.transaction((d) async {
       if (isCancelled?.call() == true) throw const QueryCancelled();
       var agencyExpression = "trim(IFNULL(처리기관,''))";
-      if (filter.agency.isNotEmpty ||
+      if (filter.agencyKey.isNotEmpty ||
+          filter.agency.isNotEmpty ||
           filter.onlyPolice ||
           filter.excludePolice) {
         await _ensureAgencyLookup(connection, executor: d);
@@ -2454,10 +2457,23 @@ class LocalDbService {
             )
             .toList();
       }
+      List<String>? managerValues;
+      if (filter.managerExact) {
+        final distinct = await d.rawQuery(
+          'SELECT DISTINCT CAST(담당자 AS BLOB) AS value FROM $effectiveReportsView',
+        );
+        managerValues = distinct
+            .map((r) => lawSqlRawValue(r['value']))
+            .where(
+              (value) => ReportFilterSpec.matchesExactText(value, filter.manager),
+            )
+            .toList();
+      }
       final q = ReportQuery(
         filter,
         agencyExpression: agencyExpression,
         lawValues: lawValues,
+        managerValues: managerValues,
       );
       if (answerYear != null && answerYear != 'all') {
         q.clauses.add('r.답변일 LIKE ?');

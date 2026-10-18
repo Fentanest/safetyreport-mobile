@@ -75,6 +75,8 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   late bool _excludePolice;
   late bool _onlyPolice;
   late String _selectedLaw;
+  // 드릴다운 기관·담당자 조건은 해당 이름을 바꾸지 않고 적용하면 유지한다.
+  late ReportFilter _initialFilter;
   // 드릴다운(통계 막대·상세 링크)에서 받은 저장 키 소속 판정. 법규를 바꾸지 않고 적용하면 그대로 유지한다.
   late String _initialLaw;
   late bool _initialLawExact;
@@ -121,6 +123,7 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
   void initState() {
     super.initState();
     final f = widget.initialFilter ?? widget.provider.filter;
+    _initialFilter = f;
     _nameCtrl = TextEditingController(text: f.name);
     _numCtrl = TextEditingController(text: f.reportNumber);
     _idCtrl = TextEditingController(text: f.id);
@@ -253,7 +256,12 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
             ? ''
             : _ratingCauseCtrl.text.trim(),
         agency: _agencyCtrl.text.trim(),
+        agencyKey: _agencyCtrl.text.trim() == _initialFilter.agency.trim()
+            ? _initialFilter.agencyKey
+            : '',
         manager: _managerCtrl.text.trim(),
+        managerExact: _initialFilter.managerExact &&
+            _managerCtrl.text.trim() == _initialFilter.manager.trim(),
         carNumber: _carCtrl.text.trim(),
         law: _selectedLaw,
         lawExact: _initialLawExact && _selectedLaw == _initialLaw,

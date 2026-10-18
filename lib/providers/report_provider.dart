@@ -115,12 +115,15 @@ class ReportProvider with ChangeNotifier {
     _serverCapabilities = const [];
     _serverCapabilitiesKnown = false;
     _serverLawSearchSupported = null;
+    _serverIdentitySearchSupported = null;
     _serverRawDetailSupported = null;
     _appConfigLoadFuture = null;
   }
 
   /// 서버가 법규 검색 v2(`law_search_v2`)를 알렸는가. null = 아직 모름.
   bool? _serverLawSearchSupported;
+  /// 통계 기관 키·담당자 정확값 검색 지원. null = 아직 모름.
+  bool? _serverIdentitySearchSupported;
 
   /// 서버가 원본 응답 보기(`raw_detail_v1`)를 알렸는가. null = 아직 모름.
   bool? _serverRawDetailSupported;
@@ -135,6 +138,10 @@ class ReportProvider with ChangeNotifier {
   /// 저장 원문 값을 선택지·상세 링크·검색 값으로 쓴다(구서버는 저장값 완전 일치만 본다).
   bool get lawKeySearchSupported =>
       _appMode == AppMode.standalone || (_serverLawSearchSupported ?? false);
+
+  bool get reportSearchIdentitySupported =>
+      _appMode == AppMode.standalone ||
+      (_serverIdentitySearchSupported ?? false);
 
   /// 별점 공통 사유를 보낼 수 있는가 — Standalone 은 항상, Client 는 서버가 rating_cause 를 알릴 때만.
   bool get ratingCauseSupported =>
@@ -750,8 +757,18 @@ class ReportProvider with ChangeNotifier {
         if (!f.ratings.contains(ratingToken)) return false;
       }
       if (!_contains(r.ratingCause, f.ratingCause)) return false;
-      if (!_contains(r.agency, f.agency)) return false;
-      if (!_contains(r.manager, f.manager)) return false;
+      if (f.agencyKey.isNotEmpty) {
+        if (registryKeyedAgency(r.agencyCode, r.agency).key != f.agencyKey) {
+          return false;
+        }
+      } else if (!_contains(r.agency, f.agency)) {
+        return false;
+      }
+      if (f.managerExact) {
+        if (!ReportFilterSpec.matchesExactText(r.manager, f.manager)) return false;
+      } else if (!_contains(r.manager, f.manager)) {
+        return false;
+      }
       if (!_contains(r.carNumber, f.carNumber)) return false;
       if (!ReportFilterSpec.matchesLaw(
         r.law,
@@ -868,10 +885,15 @@ class ReportProvider with ChangeNotifier {
       final lawSearch = ServerContract.supportsLawSearch(cfg);
       final lawSearchChanged = lawSearch != _serverLawSearchSupported;
       _serverLawSearchSupported = lawSearch;
+      final identitySearch = ServerContract.supportsReportSearchIdentity(cfg);
+      final identitySearchChanged =
+          identitySearch != _serverIdentitySearchSupported;
+      _serverIdentitySearchSupported = identitySearch;
       final rawDetail = ServerContract.supportsRawDetail(cfg);
       final rawDetailChanged = rawDetail != _serverRawDetailSupported;
       _serverRawDetailSupported = rawDetail;
       if (!lawSearchChanged &&
+          !identitySearchChanged &&
           !rawDetailChanged &&
           exclude == _excludeWithdraw &&
           representative == _useRepresentativeRecords &&
@@ -986,6 +1008,8 @@ class ReportProvider with ChangeNotifier {
       throw const QueryCancelled();
     }
     _serverLawSearchSupported = ServerContract.supportsLawSearch(cfg);
+    _serverIdentitySearchSupported =
+        ServerContract.supportsReportSearchIdentity(cfg);
     _serverRawDetailSupported = ServerContract.supportsRawDetail(cfg);
     return _serverSearchSupported =
         (cfg['capabilities'] as List? ?? const []).contains(
@@ -997,6 +1021,7 @@ class ReportProvider with ChangeNotifier {
   void _resetDatasetView() {
     _serverSearchSupported = null;
     _serverLawSearchSupported = null;
+    _serverIdentitySearchSupported = null;
     _serverRawDetailSupported = null;
     _serverPageInFlight.clear();
     _stats = null;
@@ -1538,9 +1563,11 @@ class ReportProvider with ChangeNotifier {
     offset: offset,
     limit: limit,
     // law_search_v2 를 모르는 서버는 lawExact 를 400 으로 거절한다 — 그 서버의 법규는 원래 저장값 완전 일치다.
-    searchFilter: lawKeySearchSupported
-        ? filter
-        : filter.copyWith(lawExact: false),
+    searchFilter: filter.copyWith(
+      lawExact: lawKeySearchSupported && filter.lawExact,
+      agencyKey: reportSearchIdentitySupported ? filter.agencyKey : '',
+      managerExact: reportSearchIdentitySupported && filter.managerExact,
+    ),
     isCancelled: isCancelled,
   );
 

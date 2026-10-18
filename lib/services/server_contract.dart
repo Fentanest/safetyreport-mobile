@@ -17,6 +17,7 @@ class ServerContract {
 
   static const reportSearchCapability = 'report_search_v1';
   static const reportSearchVersion = 1;
+  static const reportSearchIdentityCapability = 'report_search_identity_v1';
 
   /// 법규 검색 v2(2026-10-16, 서버가 하위호환으로 추가): 서버가 저장 법규를 개별 키로 정규화해 검색하고
   /// 검색 필터 `lawExact` 를 받는다. 이 신호가 없는 서버(v3.3.0 이하)는 법규를 저장값 완전 일치로만 보므로
@@ -29,6 +30,11 @@ class ServerContract {
   /// 알리는 신호. 이 신호가 없는 구서버에는 Client 모드에서 원본 보기 동작을 보이지 않는다.
   static const rawDetailCapability = 'raw_detail_v1';
   static const rawDetailVersion = 1;
+
+  static bool supportsReportSearchIdentity(Map<dynamic, dynamic> appConfig) =>
+      (appConfig['capabilities'] as List? ?? const []).contains(
+        reportSearchIdentityCapability,
+      );
 
   static bool supportsLawSearch(Map<dynamic, dynamic> appConfig) =>
       (appConfig['capabilities'] as List? ?? const []).contains(

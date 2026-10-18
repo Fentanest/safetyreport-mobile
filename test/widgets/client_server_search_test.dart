@@ -438,4 +438,51 @@ void main() {
       },
     );
   }
+  for (final identity in [true, false]) {
+    testWidgets('identity keys require advertised capability ($identity)', (tester) async {
+      final p = ReportProvider();
+      await p.init();
+      addTearDown(p.dispose);
+      expect(p.reportSearchIdentitySupported, isFalse);
+      final requests = <Uri>[];
+      await http.runWithClient(() async {
+        await tester.pumpWidget(ChangeNotifierProvider.value(
+          value: p,
+          child: const MaterialApp(home: Scaffold(body: LocalPagedReportList(
+            category: 'all',
+            filter: ReportFilter(agency: '합성기관', agencyKey: 'src:9999991:합성기관',
+                manager: '김민수', managerExact: true),
+          ))),
+        ));
+        await tester.pumpAndSettle();
+        expect(p.reportSearchIdentitySupported, identity);
+        final searches = requests.where((u) => u.path.endsWith('/search')).toList();
+        expect(searches, hasLength(1));
+        expect(searches.single.path, '/api/v1/reports/all/search');
+        expect(requests.where((u) => u.path.endsWith('/page')), isEmpty);
+        final f = jsonDecode(searches.single.queryParameters['filter']!) as Map;
+        expect(f.containsKey('agencyKey'), identity);
+        expect(f.containsKey('managerExact'), identity);
+        expect(f['manager'], '김민수');
+        if (identity) {
+          expect(f['agencyKey'], 'src:9999991:합성기관');
+          expect(f['managerExact'], isTrue);
+          expect(f.containsKey('agency'), isFalse);
+        } else {
+          expect(f['agency'], '합성기관');
+        }
+        await tester.pumpWidget(const SizedBox.shrink());
+      }, () => selfhostMockClient((r) async {
+        requests.add(r.url);
+        if (r.url.path == ServerContract.appConfigPath) {
+          return http.Response(jsonEncode({'data': {
+            'capabilities': ['report_search_v1', if (identity) ServerContract.reportSearchIdentityCapability],
+            'report_search_version': 1,
+          }}), 200, headers: {'content-type': 'application/json; charset=utf-8'});
+        }
+        return searchPage(r, total: 1);
+      }));
+    });
+  }
+
 }

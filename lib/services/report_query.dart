@@ -15,6 +15,7 @@ class ReportQuery {
     ReportFilter f, {
     required String agencyExpression,
     List<String>? lawValues,
+    List<String>? managerValues,
   }) {
     void text(String column, String query) {
       final clause = ReportFilterSpec.sqlText(column, query, args);
@@ -26,8 +27,8 @@ class ReportQuery {
       ('신고번호', f.reportNumber),
       ('ID', f.id),
       ('별점사유', f.ratingCause),
-      (agencyExpression, f.agency),
-      ('담당자', f.manager),
+      (agencyExpression, f.agencyKey.isEmpty ? f.agency : ''),
+      ('담당자', f.managerExact ? '' : f.manager),
       ('차량번호', f.carNumber),
       ('위반장소', f.location),
       ('범칙금_과태료', f.fine),
@@ -36,6 +37,17 @@ class ReportQuery {
       ('처리내용', f.processContent),
     ]) {
       text(pair.$1, pair.$2);
+    }
+    if (f.agencyKey.isNotEmpty) {
+      clauses.add(
+        "(SELECT stats_key FROM temp.sr_agencies a WHERE a.code = IFNULL(r.처리기관코드,'') AND a.raw = IFNULL(r.처리기관,'')) = ?",
+      );
+      args.add(f.agencyKey);
+    }
+    if (f.managerExact) {
+      // LocalDbService resolves Unicode normalization before COUNT/LIMIT.
+      if (managerValues == null) throw ArgumentError('managerValues required');
+      clauses.add(lawSqlValues('담당자', managerValues));
     }
     if (f.ratings.isNotEmpty) {
       clauses.add(

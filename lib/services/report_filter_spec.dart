@@ -34,6 +34,11 @@ class ReportFilterSpec {
   static bool matchesText(Object? value, String query) =>
       matchesGroups(value, parseGroups(query));
 
+  /// 통계 카드 → 목록의 담당자 정확 일치. 통계 표가 담당자를 앞뒤 공백만 지우고 대소문자를 살려 묶으므로
+  /// 여기도 대소문자를 구분한다(`Lee`·`LEE` 카드가 각자 자기 건수만 연다). 서버 client_report_search 와 같다.
+  static bool matchesExactText(Object? value, String query) =>
+      ReportPolicy.norm(value) == ReportPolicy.norm(query);
+
   static bool _validDate(int year, int month, int day) {
     if (month < 1 || month > 12 || day < 1) return false;
     final leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);

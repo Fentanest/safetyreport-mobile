@@ -706,6 +706,14 @@ canonical, 결과 15,000건. 같은 DB/추가 인덱스 조건에서 기존 전�
 - 검증: 고정 Flutter 3.47.5의 소켓 없는 실제 시험 엔진에서 관련 7개 파일 45건 통과(새 Client 재전송/게이트와 Standalone Activity 없는 drain·scope 변경 포함). 전체 `flutter analyze --no-pub`는 기존 unnecessary_cast 경고 9건, 변경 파일 분석 새 지적 0건. Kotlin 전체 소스 직접 컴파일 성공, JUnit 18건 중 15 통과·기존 HTTP fixture 3건은 소켓 권한 오류.
 - 표준 `flutter test --no-pub`는 읽기 전용 SDK를 임시 경로에서 실행한 뒤에도 SQLite native asset 다운로드 제한으로 시작하지 못했다. 직접 시험은 패키지 기대 SHA-256과 일치하는 기존 로컬 SQLite로 실행했다. Gradle은 네트워크 인터페이스/소켓 제한, ADB는 localhost 리스너 생성 제한으로 차단되어 Android Worker 실제 수명·Doze는 미검증이다. 로그/직접 실행기는 `.agent-runs/astra-bg-crawl/`에 보존했다. `git diff --check` 통과. 커밋·push·릴리스·버전 변경·pubspec.lock 변경은 하지 않았다.
 
+## 2026-10-12 — 공식 앱 3.2.8 딥링크 문서 최신화
+
+- `safepeople.md`의 상세 명세를 `docs/architecture/official-app-links.md`로 옮기고 루트 파일은 안내 링크로 정리했다. 아키텍처 색인에 연결했다.
+- `openpage=true`가 빠진 예제, 수신 Activity, chatbot 대체 경로, 인증·직접 API 접근 설명을 코드와 대조해 정정했다. 현재 앱의 URI 생성·실행 코드는 변경하지 않았다.
+- 검증: 실제 Dart URI 생성 함수를 추출 실행해 예상 문자열과 일치함을 확인했다. 제공된 공식 JS의 라우팅 부분을 추출해 최초 실행·복귀의 상세 ID 전달, `openpage` 누락 시 복귀 이동 실패, chatbot 복귀의 `cNo` 누락을 확인했다. 이는 브릿지를 대체한 코드 실행이며 전체 앱 UI 시험은 아니다.
+- 연결된 에뮬레이터 2대의 설치 버전 3.2.8 / 165를 확인하고, 동일 형식 URI의 Android `resolve-activity` 결과가 공식 `SchemeHandlerActivity`임을 확인했다. 실제 계정의 신고 상세 열람은 NOT_RUN이다.
+- 기존 URI 회귀 테스트 실행은 생성 hook 캐시의 SDK 버전 충돌로 실패했다. 캐시를 `/tmp/deeplink-hook-cache-*`에 보존 후 재생성했으나 고정 Flutter SDK와 package_config가 참조하는 Flutter SDK 혼용으로 `FlutterView.displayCornerRadii` 컴파일 오류가 남았다. 해당 Flutter 테스트는 실제 시험 실행 전 로딩 실패이며 통과로 계산하지 않는다.
+
 ## 2026-10-12 — 2.1.3 (빌드 41) Standalone 다시 불러오기 중단 복구
 
 - 공유 목록 확인 실패·업로드 충돌·확인 예외는 1·2·5·10·30분 간격으로 최대 5회 자동 재시도한다. 수집 시작 전에도 카드·상세 화면·알림에 실제 예약 시각과 횟수를 표시한다. 소진 뒤에는 자동 대기 표시를 끝내고 수동 재시도를 안내한다.

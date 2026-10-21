@@ -1,3 +1,4 @@
+import 'widgets/client_notice_host.dart';
 import 'services/bundled_sqlite.dart';
 import 'services/cache_hygiene.dart';
 import 'services/db_failure.dart';
@@ -41,6 +42,7 @@ import 'services/agency_registry.dart';
 import 'services/community_auth_link_channel.dart';
 import 'services/community_auth_service.dart';
 import 'services/local_db_service.dart';
+import 'services/pending_standalone_credentials.dart';
 import 'services/db_optimize_state.dart';
 import 'services/permission_service.dart';
 import 'services/server_connection_service.dart';
@@ -204,14 +206,26 @@ class SafetyReportApp extends StatefulWidget {
   State<SafetyReportApp> createState() => _SafetyReportAppState();
 }
 
-class _SafetyReportAppState extends State<SafetyReportApp> {
+class _SafetyReportAppState extends State<SafetyReportApp>
+    with WidgetsBindingObserver {
   late final CommunityGate _gate;
+
+  /// 첫 Standalone 로그인 입력값(메모리 전용). 게이트·권한 뒤 자동 로그인에 한 번 쓰고 비운다.
+  final PendingStandaloneCredentials _pendingCredentials =
+      PendingStandaloneCredentials();
+  Timer? _credentialsExpiry;
   bool _gateWasOpen = false;
   bool _gateWasBrowsable = false;
   AppMode? _initialModeChoice;
   Future<ServerConnectionResult>? _serverVersionFuture;
   String? _checkedBaseUrl;
   String? _checkedApiKey;
+
+  /// The PC passed the version check at least once for this address and key. Only then is a later
+  /// unreachable PC "waiting" instead of a blocking screen (first launch still needs the PC).
+  bool _serverEverOk = false;
+  String? _okBaseUrl;
+  String? _okApiKey;
 
   Future<ServerConnectionResult> _checkServer(ReportProvider provider) {
     if (_serverVersionFuture != null &&
@@ -237,6 +251,11 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
           normalizedUrl: url,
           message: 'PC 서버 버전을 확인할 수 없습니다. 다시 확인해 주세요.',
         );
+      }
+      if (result.isOk) {
+        _serverEverOk = true;
+        _okBaseUrl = url;
+        _okApiKey = key;
       }
       if (!result.isOk &&
           provider.appMode == AppMode.server &&
@@ -264,6 +283,13 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
     });
   }
 
+  /// An unreachable PC after the app already worked with it never locks (mobile-review 4).
+  bool _keepsWorking(ReportProvider provider, ServerConnectionResult result) =>
+      _serverEverOk &&
+      result.isTransient &&
+      _okBaseUrl == provider.baseUrl &&
+      _okApiKey == provider.apiKey;
+
   void _onCompatibilityFailure() {
     // 화면이 닫힌 뒤 온 알림이면 context 를 쓰지 않는다(SQ-B09).
     if (!mounted) return;
@@ -275,10 +301,17 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
             ServerContract.normalizeBaseUrl(provider.baseUrl)) {
       return;
     }
+    if (_keepsWorking(provider, failure)) {
+      // The PC is only unreachable: no lock, no screen swap. Show the waiting note instead.
+      _gate.markClientServerUnreachable();
+      return;
+    }
     provider.onGateBlocked();
     unawaited(PermissionService.stopWsService());
     _returnToRoot();
-    setState(() => _serverVersionFuture = Future.value(failure));
+    setState(() {
+      _serverVersionFuture = Future.value(failure);
+    });
   }
 
   void _onGateChanged() {
@@ -312,6 +345,7 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
         ),
       );
     }
+    if (wasBrowsable && !_gate.canBrowse) _pendingCredentials.clear();
     if (wasBrowsable && !_gate.canBrowse && !provider.isStandaloneDemo) {
       provider.onGateBlocked();
       _returnToRoot();
@@ -325,6 +359,7 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
     _gateWasOpen = _gate.canEnter;
     _gateWasBrowsable = _gate.canBrowse;
     _gate.addListener(_onGateChanged);
+    WidgetsBinding.instance.addObserver(this);
     ClientCompatibility.failure.addListener(_onCompatibilityFailure);
     _gate.startPolling();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -333,7 +368,26 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // 자격은 메모리에만 있다. 오래 백그라운드에 있거나 종료되면 비운다(이후엔 로그인 화면을 한 번 보게 된다).
+    _credentialsExpiry?.cancel();
+    _credentialsExpiry = null;
+    if (state == AppLifecycleState.detached) {
+      _pendingCredentials.clear();
+    } else if (state == AppLifecycleState.paused &&
+        !_pendingCredentials.isEmpty) {
+      _credentialsExpiry = Timer(
+        const Duration(minutes: 5),
+        _pendingCredentials.clear,
+      );
+    }
+  }
+
+  @override
   void dispose() {
+    _credentialsExpiry?.cancel();
+    _pendingCredentials.clear();
+    WidgetsBinding.instance.removeObserver(this);
     _gate.removeListener(_onGateChanged);
     ClientCompatibility.failure.removeListener(_onCompatibilityFailure);
     super.dispose();
@@ -356,7 +410,11 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
       builder: (context, child) =>
           context.select<ReportProvider, bool>((p) => p.isStandaloneDemo)
           ? (child ?? const SizedBox.shrink())
-          : CommunityAuthPrompt(child: child ?? const SizedBox.shrink()),
+          : ClientNoticeHost(
+              child: CommunityAuthPrompt(
+                child: child ?? const SizedBox.shrink(),
+              ),
+            ),
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
       themeMode: themeMode,
@@ -404,9 +462,14 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
       return const StartupLoadingScreen();
     }
     if (provider.isConfigured) _initialModeChoice = null;
+    // 모드 선택으로 돌아갔거나 설정이 끝났으면 메모리 자격을 남기지 않는다.
+    if (provider.isConfigured || _initialModeChoice != AppMode.standalone) {
+      _pendingCredentials.clear();
+    }
     if (provider.isStandaloneDemo) return const MainNavigationScreen();
     if (!provider.isConfigured && _initialModeChoice == null) {
       return SetupScreen(
+        credentials: _pendingCredentials,
         onModeSelected: (mode) => setState(() => _initialModeChoice = mode),
       );
     }
@@ -448,13 +511,16 @@ class _SafetyReportAppState extends State<SafetyReportApp> {
       );
     }
     if (!provider.isConfigured) {
-      return _SetupFlow(initialMode: _initialModeChoice);
+      return _SetupFlow(
+        initialMode: _initialModeChoice,
+        credentials: _pendingCredentials,
+      );
     }
     if (provider.appMode == AppMode.server) {
       if (serverVersion == null) {
         return const Scaffold(body: Center(child: CircularProgressIndicator()));
       }
-      if (!serverVersion.isOk) {
+      if (!serverVersion.isOk && !_keepsWorking(provider, serverVersion)) {
         return _ServerVersionBlockedScreen(
           message: serverVersion.message ?? 'PC 서버 버전을 확인할 수 없습니다.',
           onRetry: _retryServerVersion,
@@ -623,9 +689,10 @@ class StartupLoadingScreen extends StatelessWidget {
 
 /// 게이트 통과 뒤 신규 설치 흐름: 모드 무관 권한(common) → 기존 SetupScreen.
 class _SetupFlow extends StatefulWidget {
-  const _SetupFlow({this.initialMode});
+  const _SetupFlow({this.initialMode, this.credentials});
 
   final AppMode? initialMode;
+  final PendingStandaloneCredentials? credentials;
 
   @override
   State<_SetupFlow> createState() => _SetupFlowState();
@@ -643,7 +710,10 @@ class _SetupFlowState extends State<_SetupFlow> {
         onDone: () => setState(() => _commonDone = true),
       );
     }
-    return SetupScreen(initialMode: widget.initialMode);
+    return SetupScreen(
+      initialMode: widget.initialMode,
+      credentials: widget.credentials,
+    );
   }
 }
 
@@ -1916,6 +1986,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
         children: [
           if (!p.isStandaloneDemo)
             CloudDelayBanner(gate: context.read<CommunityGate>()),
+          if (p.appMode == AppMode.server && !p.isStandaloneDemo)
+            ClientServerWaitingBanner(gate: context.read<CommunityGate>()),
           Expanded(
             child: IndexedStack(
               index: _selectedIndex,

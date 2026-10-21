@@ -451,7 +451,7 @@ void main() {
   );
   for (final denied in ['none', 'revoked']) {
     test(
-      'emergency policy $denied then 503 permits SAME-owner local use, not upload',
+      'consent $denied then 503 stays locked',
       () async {
         final auth = StubAuthService()
           ..setPhase(CommunityAccountPhase.connected);
@@ -479,10 +479,10 @@ void main() {
         );
         addTearDown(gate.dispose);
         expect((await gate.refreshNow()).canEnter, isFalse);
-        expect(gate.canBrowse, isTrue);
+        expect(gate.canBrowse, isFalse);
         fail = true;
         await gate.refreshNow();
-        expect(gate.canBrowse, isTrue);
+        expect(gate.canBrowse, isFalse);
         expect(gate.canEnter, isFalse);
       },
     );

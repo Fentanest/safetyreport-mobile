@@ -142,9 +142,14 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
   bool get _kakaoOk =>
       _auth.state.value.phase == CommunityAccountPhase.connected;
 
-  bool get _canGoNext => _kakaoOk && _consentDone;
+  bool get _revokePending => widget.gate?.state.state == 'revoke_pending';
+
+  bool get _canGoNext => _kakaoOk && _consentDone && !_revokePending;
 
   String? get _blockedReason {
+    if (_revokePending) {
+      return '철회 처리가 끝나면 카카오 로그인부터 다시 시작할 수 있습니다.';
+    }
     if (!_kakaoOk && !_consentDone) {
       return '카카오 인증과 신고내용 공유 동의를 모두 완료하면 다음 단계로 이동할 수 있습니다.';
     }
@@ -388,6 +393,34 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
               gate?.state.state == 'suspended')
             _recoveryBox(context, gate!),
           if (gateState == 'db_owner_mismatch') _ownerMismatchBox(context),
+          if (gateState == 'server_consent_required')
+            const Card(
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Text(
+                  '서버 동의 필요: 연결된 PC 서버에서 카카오 로그인과 공유 동의를 마쳐 주세요. 서버 자료는 삭제되지 않았습니다.',
+                ),
+              ),
+            ),
+          if (gateState == 'revoke_pending')
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    const Text(
+                      '철회 처리 중입니다. 서버 확인까지 앱을 잠그고 자동으로 다시 시도합니다. 카카오 로그인이 끊겼다면 아래에서 같은 계정으로 다시 로그인하면 철회를 마칩니다.',
+                    ),
+                    TextButton(
+                      onPressed: () => gate?.retryRevocation(),
+                      child: const Text('철회 다시 시도'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          // The login card stays available while a withdrawal is pending: a lost Kakao session must be
+          // renewable, and a successful login finishes the withdrawal.
           _kakaoCard(context),
           if (gate != null && widget.clientServer != null && _kakaoOk)
             ClientAccountMismatchNotice(
@@ -396,7 +429,7 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
               apiKey: widget.clientServer!.apiKey,
             ),
           const SizedBox(height: 12),
-          _consentCard(context),
+          if (gateState != 'revoke_pending') _consentCard(context),
           const SizedBox(height: 12),
           if (gate?.writerConflict != null) _writerConflictBox(context),
           if (gate?.manifestError != null)
@@ -519,7 +552,7 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
                 style: const TextStyle(fontSize: 13),
               ),
               CommunityAccountPhase.awaitingBrowser => const Text(
-                '브라우저에서 카카오 로그인을 진행 중입니다.',
+                '브라우저에서 카카오 로그인을 진행 중입니다. 앱으로 돌아오지 않으면 아래 버튼으로 다시 열어 주세요.',
                 style: TextStyle(fontSize: 13),
               ),
               CommunityAccountPhase.exchanging => const Row(
@@ -571,9 +604,11 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
                     label: Text(
                       done
                           ? '계정 변경'
-                          : st.phase == CommunityAccountPhase.awaitingBrowser ||
-                                st.phase == CommunityAccountPhase.exchanging
+                          : st.phase == CommunityAccountPhase.exchanging
                           ? '처리 중...'
+                          // 브라우저가 닫혀도 다시 열 수 있다(버튼은 눌린다 — '처리 중'으로 보이면 아무도 누르지 않는다).
+                          : st.phase == CommunityAccountPhase.awaitingBrowser
+                          ? '카카오 로그인 다시 열기'
                           : '카카오 계정으로 연결',
                     ),
                     onPressed: st.phase == CommunityAccountPhase.exchanging

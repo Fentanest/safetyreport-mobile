@@ -312,17 +312,16 @@ void main() {
     var captures = 0;
     DbOptimize.captureForTest = (input, id) async {
       captures++;
+      if (captures == 1) {
+        // 실제 닫기 경로: 백그라운드 구역 밖(루트 zone 타이머)에서 닫기를 요청한다. 닫기는 백그라운드 작업이
+        // 끝날 때까지 기다리고, 작업은 다음 신고 경계에서 멈춘다. 첫 신고 처리 중에 요청해 시작 시간(커뮤니티
+        // DB 를 여는 시간)에 따라 결과가 갈리지 않게 한다(예전엔 시작 20ms 뒤 고정 타이머).
+        Zone.root.run(() => unawaited(LocalDbService.closeDb()));
+      }
       // 처리 시간을 벌 closed 요청이 실행 중에 끼어들게 한다.
       await Future<void>.delayed(const Duration(milliseconds: 50));
       return base(input, id);
     };
-    // 실제 닫기 경로: 백그라운드 구역 밖(루트 zone 타이머)에서 닫기를 요청한다.
-    // 닫기는 백그라운드 작업이 끝날 때까지 기다리고, 작업은 다음 신고 경계에서 멈춘다.
-    unawaited(
-      Future.delayed(const Duration(milliseconds: 20), () {
-        return LocalDbService.closeDb();
-      }),
-    );
     final result = await LocalDbService.runBackgroundWork(runAll);
     // DB 닫기 요청으로 중단돼도 finished=false + 상태 정리.
     expect(captures, 1);

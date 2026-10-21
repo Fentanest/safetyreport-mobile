@@ -8,7 +8,7 @@ import 'package:safetyreport/community/gate/gate_state.dart';
 void main() {
   test('gate vectors: all cases pass in contract order', () {
     final vectors = jsonDecode(
-      File('contracts/community-ingest/vectors/gate.json').readAsStringSync(),
+      File('contracts/community-ingest-v2/legacy-gate-vectors.json').readAsStringSync(),
     ) as Map<String, dynamic>;
     final cases = vectors['cases'] as List;
     expect(cases, isNotEmpty);

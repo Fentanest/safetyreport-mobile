@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'raw_ingest.dart';
+import 'raw_capture_source.dart';
 // reshare 후보 (observation.md 4절).
 //
 // reshare: 재동의·writer 전환 뒤 사용자가 지도 탭에서 명시적으로 요청할 때만.
@@ -52,6 +55,11 @@ Future<String?> issueReshare(
   if (await deletionCleanupPending(store: s)) {
     return null; // 삭제 뒤 정리가 끝나기 전에는 다시 공유하지 않는다(H-03)
   }
+  final status = await s.meta('ingest_status');
+  final rawMode =
+      status != null &&
+      rawV2Ready((jsonDecode(status) as Map).cast<String, Object?>());
+  final raw = rawMode ? await storedRawSnapshot(sourceReportId) : null;
   return s.transaction((tx) async {
     final contextRows = await tx.rawQuery('SELECT * FROM context WHERE id=1');
     if (contextRows.isEmpty || contextRows.first['state'] != 'active') {
@@ -90,6 +98,16 @@ Future<String?> issueReshare(
       'rebuild_run_id': null,
       'schema_version': 1,
       'parser_version': mobileParserVersion,
+      'raw_event_json': raw == null
+          ? null
+          : jsonEncode(
+              rawWithObservation(
+                raw,
+                (jsonDecode(journal['payload_json'] as String) as Map)
+                    .cast<String, Object?>(),
+              ),
+            ),
+      'blocked_reason': rawMode && raw == null ? 'raw_required' : null,
       'payload_json': journal['payload_json'],
       'payload_sha256': journal['payload_sha256'],
       'eligible': 1,
@@ -101,7 +119,8 @@ Future<String?> issueReshare(
     });
     await tx.insert('outbox', {
       'event_id': eventId,
-      'state': 'pending',
+      'state': rawMode && raw == null ? 'blocked' : 'pending',
+      'last_error_code': rawMode && raw == null ? 'raw_required' : null,
       'attempt_count': 0,
       'enqueued_trigger': 'reshare',
       'enqueued_at': isoUtc(now ?? DateTime.now()),

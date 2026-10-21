@@ -1,4 +1,7 @@
 import 'consent_catchup.dart';
+import 'raw_backfill_runtime.dart';
+import 'soft_reset.dart';
+import '../services/maintenance_service.dart';
 // T5(게이트·초기화) ↔ T6(capture·업로드) 연결 (통합, `contracts/community-ingest/interfaces.md`).
 //
 // main.dart 가 게이트를 만든 직후 한 번 호출한다. 병렬 작업 중 비어 있던 자리를 실제 구현으로 채우고,
@@ -59,17 +62,31 @@ class CommunityWiring {
     required CommunityStore store,
   }) {
     gate = communityGate;
+    unawaited(
+      CommunityReset.pending(store).then((pending) {
+        if (pending != null) {
+          CommunityReset.resumePending(store);
+          unawaited(CommunityReset.attempt(store));
+        }
+      }),
+    );
     CommunityUploadHooks.refreshServerCompleted = () => refreshManifest(store);
     SyncEngine.ensureManifestFresh = () => refreshManifest(store);
     // Standalone writer(데모 제외)로 게이트를 통과했을 때만 불린다(ReportProvider.onGatePassed).
     CommunityUploadHooks.registerBackgroundJobs = () async {
+      MaintenanceService.resumeForAccount();
       await schedule.registerBackgroundJobs();
+      await RawBackfillRuntime.start(
+        store,
+        () async => (await communityGate.requireFresh()).canEnter,
+      );
       // 업로더의 배치별 진행 문구는 동기화 로그에 싣지 않는다 — 동기화가 10건 단위로 'N/M건 전송'을 따로 적는다.
       CommunityUploadController.instance.start(
         () => buildDefaultUploader(gate: gateCheck()),
       );
     };
     CommunityUploadHooks.cancelBackgroundJobs = () async {
+      RawBackfillRuntime.stop();
       CommunityUploadController.instance.stop();
       await schedule.cancelBackgroundJobs();
     };
@@ -100,6 +117,10 @@ class CommunityWiring {
           );
           return !result.failed && !result.busy && !result.cancelled;
         },
+      );
+      await RawBackfillRuntime.run(
+        store: store,
+        verify: () async => (await communityGate.requireFresh()).canEnter,
       );
       CommunityUploadController.instance.wake('recovery');
     };

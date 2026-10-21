@@ -1,3 +1,4 @@
+import '../community/capture/raw_capture_source.dart' show rawSnapshotIfReady;
 import '../models/rating_lookup.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -1256,39 +1257,9 @@ class SyncEngine {
         ? (first: photo.first, last: photo.last)
         : await LocalDbService.getStoredPhotoCapture(report.id);
 
-    CaptureResult? cap;
-    {
-      final adapterInput = buildReportAdapterInput(
-        report,
-        ev,
-        category: cat,
-        photoFirstCapture: photoForEstimate.first,
-        photoLastCapture: photoForEstimate.last,
-      );
-      // capture 전에 의도를 기록한다. 기록 실패 → 즉시 중단.
-      await recordCaptureIntent(retryFile, cNo);
-      checkCancel();
-      try {
-        cap = await capture(
-          adapterInput,
-          sourceReportId: cNo,
-          trigger: trigger,
-          rebuildRunId: rebuildRunId,
-          store: communityStore,
-          projectNamespace: projectNamespace,
-          beforeWrite: (tx) =>
-              SyncOperationAdmission.checkOwnership(executor: tx),
-        );
-      } catch (_) {
-        if (tracker.recordFailure()) {
-          throw CaptureStoreUnavailable(
-            'community_store_unavailable: $cNo (연속 ${tracker.consecutiveFailures}회 실패)',
-          );
-        }
-        throw DetailFailed('community_capture_failed: $cNo');
-      }
-    }
-
+    // 공유 DTO(v1 payload)는 사유 보강 이전의 report 로 만든다 — 기준 버전과 같은 입력. 보강한 값은 개인 저장과
+    // v2 보조 필드(rawFields)에만 쓴다.
+    final dtoReport = report;
     // 별점이 있는 신고 한정으로 사유 추가 fetch (인증 불필요 별도 API)
     final augmented = await _augmentRatingCause(report);
     checkCancel();
@@ -1317,6 +1288,76 @@ class SyncEngine {
         rawSanitized = null;
       }
     }
+
+    final existingRawFields =
+        await LocalDbService.readReparseBase(report.id) ?? <String, Object?>{};
+    final rawFields = <String, Object?>{...existingRawFields};
+    for (final entry in <String, Object?>{
+      '신고명': report.name,
+      '신고일': report.date,
+      '상태': report.result,
+      'entry_value': ev,
+      'ssnpc_cd': report.ssnpcCd,
+      'ssnpc_type': report.ssnpcType,
+    }.entries) {
+      if (entry.value != null && entry.value != '') {
+        rawFields[entry.key] = entry.value;
+      }
+    }
+    if (augmented.lookup == RatingLookup.found ||
+        augmented.lookup == RatingLookup.confirmedNone) {
+      rawFields.addAll({
+        '별점': report.rating,
+        '별점사유': report.ratingCause,
+        '만족도조사여부': report.pollStatus,
+      });
+    } else {
+      if (report.rating != null) rawFields['별점'] = report.rating;
+      if (report.pollStatus == '참여 완료' || rawFields['만족도조사여부'] != '참여 완료') {
+        rawFields['만족도조사여부'] = report.pollStatus;
+      }
+    }
+    rawFields['사진_첫촬영'] = photoForEstimate.first;
+    rawFields['사진_끝촬영'] = photoForEstimate.last;
+    if (photo != null) rawFields['사진_촬영수'] = photo.count;
+    CaptureResult? cap;
+    {
+      final adapterInput = buildReportAdapterInput(
+        dtoReport,
+        ev,
+        category: cat,
+        photoFirstCapture: photoForEstimate.first,
+        photoLastCapture: photoForEstimate.last,
+      );
+      // capture 전에 의도를 기록한다. 기록 실패 → 즉시 중단.
+      await recordCaptureIntent(retryFile, cNo);
+      checkCancel();
+      try {
+        cap = await capture(
+          adapterInput,
+          sourceReportId: cNo,
+          trigger: trigger,
+          rebuildRunId: rebuildRunId,
+          store: communityStore,
+          projectNamespace: projectNamespace,
+          rawDetailSnapshot: await rawSnapshotIfReady(
+            communityStore,
+            rawDetail,
+            rawFields,
+          ),
+          beforeWrite: (tx) =>
+              SyncOperationAdmission.checkOwnership(executor: tx),
+        );
+      } catch (_) {
+        if (tracker.recordFailure()) {
+          throw CaptureStoreUnavailable(
+            'community_store_unavailable: $cNo (연속 ${tracker.consecutiveFailures}회 실패)',
+          );
+        }
+        throw DetailFailed('community_capture_failed: $cNo');
+      }
+    }
+
     try {
       saved = await SyncOperationAdmission.protectWrite(
         () => LocalDbService.upsertReport(

@@ -1,5 +1,8 @@
 import '../cloud_availability.dart';
 import '../consent_history.dart';
+import '../soft_reset.dart';
+import '../client_notice.dart';
+import '../client_server_consent.dart';
 import '../consent_catchup.dart';
 import '../../services/local_db_service.dart';
 // 백그라운드 isolate 용 업로드 조립 (background_login_check.dart 에서 호출).
@@ -8,16 +11,22 @@ import '../../services/local_db_service.dart';
 // 오래됐으면 [refreshGateHeadless] 로 중앙 상태를 제한적으로 다시 확인한다(설정·보안 저장소 세션·토큰 갱신·status 1회).
 // 연결 등록·rebind·takeover 같은 쓰기는 하지 않는다 — 그런 조치가 필요하면 앱이 열릴 때 포그라운드 게이트가 한다.
 import 'dart:convert';
+import 'package:sqflite/sqflite.dart';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/app_mode.dart';
+import '../../services/app_prefs_keys.dart';
 import '../../services/community_auth_config.dart';
+import '../../services/community_server_link_service.dart';
 import '../../services/community_auth_service.dart';
+import '../ingest_status.dart';
 import '../community_store.dart';
 import '../gate/community_account_client.dart';
+import '../client_server_policy.dart';
+import '../gate/gate_policy.dart';
 import '../gate/gate_state.dart';
 import 'community_schedule.dart';
 import 'community_uploader.dart';
@@ -106,20 +115,58 @@ Future<HeadlessGate> refreshGateHeadless(
   SharedPreferences? prefs,
   DateTime Function()? now,
   bool clientMode = false,
+  Future<CommunityGateLinkResult> Function()? serverGate,
   String? expectedOwner,
   Future<void> Function()? validateScope,
   Future<void> Function(String cache)? persistVerifiedCache,
+  Future<String?> Function()? sessionMember,
 }) async {
+  final workGeneration = await store.meta('work_generation') ?? '0';
+  final localDataset = await store.localDatasetId();
+  Future<void> guardTx(DatabaseExecutor tx) async {
+    if ((await store.meta('work_generation', tx) ?? '0') != workGeneration ||
+        await store.meta('revoke_pending', tx) != null ||
+        await store.meta('local_dataset_id', tx) != localDataset) {
+      throw StateError('headless_scope_changed');
+    }
+  }
+
+  Future<void> guard() async {
+    await validateScope?.call();
+    await guardTx(store.db);
+  }
+
+  if (await CommunityReset.pending(store) != null) return HeadlessGate.blocked;
   final cfg = config ?? CommunityAuthConfig.fromEnvironment;
   final clock = now ?? DateTime.now;
   final p = prefs ?? await SharedPreferences.getInstance();
   Future<void> verified(String value) async {
-    await validateScope?.call();
-    if (persistVerifiedCache != null) {
-      await persistVerifiedCache(value);
-    } else {
-      await p.setString('community_gate_cache_v1', value);
-    }
+    await guard();
+    await store.transaction((tx) async {
+      await guardTx(tx);
+      if (persistVerifiedCache != null) {
+        await persistVerifiedCache(value);
+      } else {
+        await p.setString('community_gate_cache_v1', value);
+      }
+    });
+  }
+
+  Future<HeadlessGate> block(
+    String state, {
+    bool record = true,
+    String? owner,
+  }) async {
+    await guard();
+    return _block(
+      store,
+      p,
+      state,
+      clock(),
+      record: record,
+      expectedWorkGeneration: workGeneration,
+      owner: owner,
+    );
   }
 
   if (!cfg.isConfigured) return HeadlessGate.needsForeground;
@@ -147,17 +194,20 @@ Future<HeadlessGate> refreshGateHeadless(
     case CommunityTokenStatus.notConfigured:
       return HeadlessGate.needsForeground;
     case CommunityTokenStatus.notConnected:
-      await validateScope?.call();
-      return _block(store, p, 'kakao_required', clock());
+      await guard();
+      return block('kakao_required');
     case CommunityTokenStatus.reauthRequired:
-      await validateScope?.call();
-      return _block(store, p, 'kakao_reauth_required', clock());
+      await guard();
+      return block('kakao_reauth_required');
   }
   Map<String, Object?>? stored;
   try {
-    final raw = await (secureStorage ?? const FlutterSecureStorage(aOptions: AndroidOptions(resetOnError: false))).read(
-      key: 'community_connection_v1',
-    );
+    final raw =
+        await (secureStorage ??
+                const FlutterSecureStorage(
+                  aOptions: AndroidOptions(resetOnError: false),
+                ))
+            .read(key: 'community_connection_v1');
     final decoded = raw == null || raw.isEmpty ? null : jsonDecode(raw);
     stored = decoded is Map ? decoded.cast<String, Object?>() : null;
   } catch (_) {
@@ -186,23 +236,18 @@ Future<HeadlessGate> refreshGateHeadless(
       return HeadlessGate.transient;
     }
     if (e.isAuth) {
-      await validateScope?.call();
-      return _block(store, p, 'kakao_reauth_required', clock());
+      await guard();
+      return block('kakao_reauth_required');
     }
     if (e.httpStatus == 403) {
-      await validateScope?.call();
-      return _block(
-        store,
-        p,
-        e.code == 'contributor_suspended' ? 'suspended' : e.code,
-        clock(),
-      );
+      await guard();
+      return block(e.code == 'contributor_suspended' ? 'suspended' : e.code);
     }
     return HeadlessGate.transient;
   } catch (_) {
     return HeadlessGate.transient;
   }
-  await validateScope?.call();
+  await guard();
   final next = evaluateGate(
     config: 'ok',
     session: 'valid',
@@ -213,6 +258,34 @@ Future<HeadlessGate> refreshGateHeadless(
   if (account == null || (expectedOwner != null && account != expectedOwner)) {
     return HeadlessGate.needsForeground;
   }
+  await store.transaction((tx) async {
+    await guardTx(tx);
+    await saveIngestStatus(store, status.raw, tx);
+  });
+  await guard();
+  await ClientNotice.save(store, status.raw['client_notice']);
+  final previous = await ConsentHistory(store).latest(account);
+  final member = sessionMember != null
+      ? await sessionMember()
+      : (tokens == null
+            ? await CommunityAuthService.instance.sessionKakaoId()
+            : null);
+  final last = previous?['last_g1'];
+  final had = last is Map && member != null && last['member'] == member;
+  // Same decision table as the foreground gate: suspension first, and a reset only
+  // for a G1 this device saw (a reset consumes that evidence, so a later revoked/none
+  // answer is a plain consent request).
+  if (gatePolicy(gateVector(status.raw, had)) == 'soft_reset') {
+    if (!clientMode && tokens == null) await CommunityReset.complete(store);
+    return _block(
+      store,
+      p,
+      clientMode ? 'server_consent_required' : 'kakao_required',
+      clock(),
+      record: false,
+      owner: clientMode ? account : null,
+    );
+  }
   await ConsentHistory(store).event(
     account,
     next.state,
@@ -221,16 +294,21 @@ Future<HeadlessGate> refreshGateHeadless(
     grant: status.consentGrantId,
   );
   if (!next.canEnter) {
-    await validateScope?.call();
-    return _block(store, p, next.state, clock(), record: false);
+    await guard();
+    return block(next.state, record: false);
   }
   if (await ConsentHistory(
     store,
   ).uploadBlocked(account, status.consentGrantId)) {
-    await validateScope?.call();
-    return _block(store, p, 'consent_required', clock());
+    await guard();
+    return block('consent_required');
   }
   if (clientMode) {
+    // Only an explicit PC refusal blocks. An unreachable PC keeps the previous behaviour.
+    if (await ClientServerConsent.verify(p, fetch: serverGate) ==
+        ServerConsentVerdict.refused) {
+      return block('server_consent_required', owner: account);
+    }
     // Client is a reader: never require/register a Standalone writer or personal DB.
     // The phone's own session/consent is still checked; the PC gates its crawl separately.
     if (status.hasOfficialAccount && !status.officialAccountValid) {
@@ -240,7 +318,7 @@ Future<HeadlessGate> refreshGateHeadless(
         await CommunityAuthService.instance.sessionFingerprint() != account) {
       return HeadlessGate.needsForeground;
     }
-    await validateScope?.call();
+    await guard();
     await verified(
       jsonEncode({
         'state': 'ok',
@@ -260,8 +338,8 @@ Future<HeadlessGate> refreshGateHeadless(
     if (await auth.sessionFingerprint() != account ||
         member == null ||
         await LocalDbService.dbOwner() != member) {
-      await validateScope?.call();
-      return _block(store, p, 'db_owner_mismatch', clock());
+      await guard();
+      return block('db_owner_mismatch');
     }
   }
   final usable =
@@ -274,19 +352,42 @@ Future<HeadlessGate> refreshGateHeadless(
       (!status.hasOfficialAccount ||
           status.officialDatasetKey == ctx['dataset_key']);
   if (!usable) return HeadlessGate.needsForeground;
-  await store.setContext({
-    for (final key in contextFields) key: ctx[key],
-    'consent_grant_id': status.consentGrantId,
-    'policy_version': status.consentPolicyVersion,
-    'consent_text_sha256': status.grantConsentTextSha256,
+  await guard();
+  await store.transaction((tx) async {
+    await guardTx(tx);
+    final rows = await tx.query('context', where: 'id=1');
+    if (rows.isEmpty ||
+        contextFields.any((key) => rows.first[key] != ctx[key])) {
+      throw StateError('headless_context_changed');
+    }
+    await store.setContext({
+      for (final key in contextFields) key: ctx[key],
+      'consent_grant_id': status.consentGrantId,
+      'policy_version': status.consentPolicyVersion,
+      'consent_text_sha256': status.grantConsentTextSha256,
+    }, executor: tx);
   });
+  if (member != null) {
+    // Same dataset value as the foreground gate: derived from the LOCAL official id,
+    // never the server's binding (and never null over a known value).
+    final localId = (p.getString(AppPrefsKeys.standaloneUsername) ?? '').trim();
+    await ConsentHistory(store).markG1(
+      account,
+      member,
+      localId.isNotEmpty
+          ? datasetKeyForOfficialId(localId)
+          : ctx['dataset_key'] as String?,
+      expectedWorkGeneration: workGeneration,
+    );
+  }
+  await guard();
   await ConsentHistory(store).clearCapture();
   if (await ConsentHistory(
     store,
   ).needsCatchup(account, status.consentGrantId!)) {
     await ConsentCatchup(store).schedule((await store.activeContext())!);
   }
-  await validateScope?.call();
+  await guard();
   await verified(
     jsonEncode({
       'state': 'ok',
@@ -303,11 +404,18 @@ Future<HeadlessGate> _block(
   String state,
   DateTime at, {
   bool record = true,
+  String? expectedWorkGeneration,
+  String? owner,
 }) async {
-  await prefs.setString(
-    'community_gate_cache_v1',
-    jsonEncode({'state': state, 'verified_at': at.millisecondsSinceEpoch}),
-  );
+  Future<void> check(DatabaseExecutor tx) async {
+    if (expectedWorkGeneration != null &&
+        (await store.meta('work_generation', tx) ?? '0') !=
+            expectedWorkGeneration) {
+      throw StateError('headless_scope_changed');
+    }
+  }
+
+  await check(store.db);
   final ctx = await store.context();
   final account = ctx?['contributor_fingerprint'] as String?;
   if (record && account != null) {
@@ -327,6 +435,18 @@ Future<HeadlessGate> _block(
   } else {
     await ConsentHistory(store).clearCapture();
   }
-  await store.deactivateContext('gate:$state');
+  await store.transaction((tx) async {
+    await check(tx);
+    await prefs.setString(
+      'community_gate_cache_v1',
+      // A Client lock keeps the owner so the notification worker can resume once the PC allows it.
+      jsonEncode({
+        'state': state,
+        'owner': ?owner,
+        'verified_at': at.millisecondsSinceEpoch,
+      }),
+    );
+    await store.deactivateContext('gate:$state', executor: tx);
+  });
   return HeadlessGate.blocked;
 }

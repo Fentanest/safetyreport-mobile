@@ -3,6 +3,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'fake_account.dart' show pcGateOk;
+import 'package:safetyreport/services/sync_operation_admission.dart';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,6 +14,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:safetyreport/community/community_store.dart';
+import 'package:safetyreport/community/consent_history.dart';
+import 'package:safetyreport/community/gate/gate_state.dart'
+    show datasetKeyForOfficialId;
 import 'package:safetyreport/community/cloud_availability.dart';
 import 'package:safetyreport/community/gate/community_account_client.dart';
 import 'package:safetyreport/community/upload/community_schedule.dart';
@@ -89,7 +94,10 @@ void main() {
   late Directory dir;
 
   setUp(() async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      AppPrefsKeys.baseUrl: 'https://pc.invalid',
+      AppPrefsKeys.apiKey: 'synthetic',
+    });
     FlutterSecureStorage.setMockInitialValues({
       'community_connection_v1': jsonEncode({
         'connection_id': connectionId,
@@ -138,6 +146,35 @@ void main() {
   }
 
   group('headless gate refresh (stale cache in the background)', () {
+    test('late status after reset cannot restore writer or ok cache', () async {
+      final reply = Completer<http.Response>();
+      final called = Completer<void>();
+      final accountClient = CommunityAccountClient(
+        supabaseUrl: config.supabaseUrl,
+        publishableKey: config.publishableKey,
+        client: MockClient((_) {
+          called.complete();
+          return reply.future;
+        }),
+      );
+      final result = refreshGateHeadless(
+        store,
+        config: config,
+        tokens: Tokens(
+          const CommunityTokenResult(CommunityTokenStatus.ok, 'synthetic'),
+        ),
+        client: accountClient,
+      );
+      await called.future;
+      await SyncOperationAdmission.cancelAll(store);
+      await store.deactivateContext('reset');
+      reply.complete(
+        http.Response.bytes(utf8.encode(jsonEncode(status())), 200),
+      );
+      await expectLater(result, throwsStateError);
+      expect(await store.activeContext(), isNull);
+      expect(await cache(), isNull);
+    });
     test('Client refreshes stale gate without a Standalone writer', () async {
       await store.deactivateContext('client_mode');
       final prefs = await SharedPreferences.getInstance();
@@ -153,6 +190,7 @@ void main() {
         ),
         client: client(() => (200, status(bound: false))),
         clientMode: true,
+        serverGate: pcGateOk,
         expectedOwner: 'fp1',
       );
       expect(result, HeadlessGate.ok);
@@ -173,6 +211,7 @@ void main() {
             tokens: tokens,
             client: client(() => (200, status())),
             clientMode: true,
+            serverGate: pcGateOk,
             expectedOwner: 'another-owner',
           ),
           HeadlessGate.needsForeground,
@@ -185,6 +224,7 @@ void main() {
             tokens: tokens,
             client: client(() => (200, status())),
             clientMode: true,
+            serverGate: pcGateOk,
             validateScope: () async => throw StateError('scope changed'),
           ),
           throwsStateError,
@@ -203,12 +243,87 @@ void main() {
           ),
           client: client(() => (200, status(consent: 'revoked'))),
           clientMode: true,
+          serverGate: pcGateOk,
           expectedOwner: 'fp1',
         ),
         HeadlessGate.blocked,
       );
       expect((await cache())!['state'], isNot('ok'));
     });
+
+    test(
+      'markG1 stores the dataset of the LOCAL official id and a missing id never erases it',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          AppPrefsKeys.baseUrl: 'https://pc.invalid',
+          AppPrefsKeys.apiKey: 'synthetic',
+          AppPrefsKeys.standaloneUsername: 'User@Example.com',
+        });
+        Future<HeadlessGate> run() => refreshGateHeadless(
+          store,
+          config: config,
+          tokens: Tokens(
+            const CommunityTokenResult(CommunityTokenStatus.ok, 'acc'),
+          ),
+          client: client(() => (200, status())),
+          sessionMember: () async => '910001',
+        );
+        expect(await run(), HeadlessGate.ok);
+        final expected = datasetKeyForOfficialId('User@Example.com');
+        var history = await ConsentHistory(store).latest('fp1');
+        expect((history!['last_g1'] as Map)['dataset'], expected);
+        expect((history['last_g1'] as Map)['member'], '910001');
+        // The id is gone (e.g. prefs cleared): the known dataset is kept, never overwritten with null.
+        SharedPreferences.setMockInitialValues({
+          AppPrefsKeys.baseUrl: 'https://pc.invalid',
+          AppPrefsKeys.apiKey: 'synthetic',
+        });
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.reload();
+        expect(await run(), HeadlessGate.ok);
+        history = await ConsentHistory(store).latest('fp1');
+        expect((history!['last_g1'] as Map)['dataset'], isNotNull);
+      },
+    );
+
+    test(
+      'suspension is judged before a reset, and a reset needs prior G1 evidence',
+      () async {
+        Map<String, Object?> revokedAndSuspended() => {
+          ...status(consent: 'revoked'),
+          'contributor': {'status': 'suspended'},
+        };
+        // No G1 evidence on this device: revoked is the consent screen (G4), never a reset.
+        final first = await refreshGateHeadless(
+          store,
+          config: config,
+          tokens: Tokens(
+            const CommunityTokenResult(CommunityTokenStatus.ok, 'acc'),
+          ),
+          client: client(() => (200, status(consent: 'revoked'))),
+          sessionMember: () async => '910001',
+        );
+        expect(first, HeadlessGate.blocked);
+        expect((await cache())!['state'], 'consent_required');
+        // With evidence and suspension together, suspension wins (no reset: the context stays recorded).
+        await ConsentHistory(store).markG1('fp1', '910001', 'ds1');
+        final second = await refreshGateHeadless(
+          store,
+          config: config,
+          tokens: Tokens(
+            const CommunityTokenResult(CommunityTokenStatus.ok, 'acc'),
+          ),
+          client: client(() => (200, revokedAndSuspended())),
+          sessionMember: () async => '910001',
+        );
+        expect(second, HeadlessGate.blocked);
+        expect((await cache())!['state'], isNot('kakao_required'));
+        expect(
+          (await ConsentHistory(store).latest('fp1'))!['last_g1'],
+          isNotNull,
+        );
+      },
+    );
 
     test(
       'ok: same judgement as the app gate + bound active connection matching the context → cache refreshed',

@@ -75,6 +75,17 @@ class MaintenanceJob {
 }
 
 class MaintenanceService {
+  static bool _accountStopped = false;
+  static int _accountGeneration = 0;
+  static void stopForAccount() {
+    _accountStopped = true;
+    _accountGeneration++;
+  }
+
+  static void resumeForAccount() {
+    _accountStopped = false;
+  }
+
   MaintenanceService._();
 
   static const photoJobKey = 'photo_capture_time';
@@ -98,6 +109,7 @@ class MaintenanceService {
     bool Function()? syncing,
     bool wait = false,
   }) async {
+    if (_accountStopped) return;
     if (_running != null) {
       if (wait) await _running;
       return;
@@ -146,6 +158,7 @@ class MaintenanceService {
     Duration syncWait,
     bool Function() syncing,
   ) async {
+    final generation = _accountGeneration;
     var filled = 0;
     var failed = 0;
     var done = 0;
@@ -158,11 +171,14 @@ class MaintenanceService {
       );
       if (rows.isEmpty) break;
       for (final row in rows) {
-        if (LocalDbService.closeRequested) {
+        if (LocalDbService.closeRequested ||
+            generation != _accountGeneration ||
+            _accountStopped) {
           photoJob.value = null; // 백업·복원이 DB 를 닫는다 — 다음에 열 때 남은 것부터
           return;
         }
         while (syncing() && !LocalDbService.closeRequested) {
+          if (generation != _accountGeneration || _accountStopped) return;
           photoJob.value = MaintenanceJob(
             key: photoJobKey,
             label: photoJobLabel,
@@ -224,10 +240,14 @@ class MaintenanceService {
     String photos,
     Future<String?> Function(String url)? fetch,
   ) async {
+    final generation = _accountGeneration;
+    if (_accountStopped) return false;
     final PhotoCapture capture;
     try {
       final read = await collectPhotoCapture(photos, fetch: fetch);
-      if (read == null) return false;
+      if (read == null || generation != _accountGeneration || _accountStopped) {
+        return false;
+      }
       capture = read;
       if (!await LocalDbService.setPhotoCapture(
         id,

@@ -1,3 +1,5 @@
+import 'dart:async';
+import '../community/raw_backfill_runtime.dart';
 // 지도 탭 공유 업로드 패널 (plan-final §8.4).
 //
 // PC 와 같은 문구·상태. 필터 바 아래 접이식 카드로 두고 지도 컨트롤·FAB 과
@@ -30,6 +32,7 @@ abstract class CommunityServerUploadClient {
 class CommunityPanelData {
   const CommunityPanelData({
     required this.clientMode,
+    this.rawBackfill,
     this.pending = 0,
     this.blocked = 0,
     this.blockedReasons = const {},
@@ -54,6 +57,7 @@ class CommunityPanelData {
   });
 
   final bool clientMode;
+  final Map<String, dynamic>? rawBackfill;
   final int pending;
   final int blocked;
   final Map<String, int> blockedReasons;
@@ -96,10 +100,13 @@ Future<CommunityPanelData> loadCommunityPanelData({
       }
       return CommunityPanelData(clientMode: true, serverState: serverState);
     }
-    final uploader = await buildDefaultUploader(gate: CommunityWiring.gateCheck());
+    final uploader = await buildDefaultUploader(
+      gate: CommunityWiring.gateCheck(),
+    );
     final status = await uploader.uploadStatus();
     return CommunityPanelData(
       clientMode: false,
+      rawBackfill: await RawBackfillRuntime.status(),
       pending: status.pending,
       blocked: status.blocked,
       blockedReasons: status.blockedReasons,
@@ -127,19 +134,27 @@ Future<CommunityPanelData> loadCommunityPanelData({
 
 /// 수동 업로드 → 사용자 문구(PC 지도 패널과 같은 문구).
 Future<String> runCommunityUploadNow() async {
-  final uploader = await buildDefaultUploader(gate: CommunityWiring.gateCheck());
+  final uploader = await buildDefaultUploader(
+    gate: CommunityWiring.gateCheck(),
+  );
   return uploadRunMessage(await uploader.requestCommunityUpload('manual'));
 }
 
 Future<String> runCommunityReshareNow() async {
-  final uploader = await buildDefaultUploader(gate: CommunityWiring.gateCheck());
+  final uploader = await buildDefaultUploader(
+    gate: CommunityWiring.gateCheck(),
+  );
   return uploadRunMessage(await uploader.requestReshare());
 }
 
 String uploadRunMessage(UploadRunResult result) {
   var text = runMessage(result.result);
-  if (result.result == 'cooldown' && result.nextAttemptAt != null) text += ' (${kstLabel(result.nextAttemptAt)}까지)';
-  if (result.errorCode != null && result.result != 'sent' && result.result != 'no_pending') {
+  if (result.result == 'cooldown' && result.nextAttemptAt != null) {
+    text += ' (${kstLabel(result.nextAttemptAt)}까지)';
+  }
+  if (result.errorCode != null &&
+      result.result != 'sent' &&
+      result.result != 'no_pending') {
     text += ' · ${uploadErrorText(result.errorCode)}';
   }
   return text;
@@ -168,7 +183,8 @@ String uploadErrorText(String? code) {
     'ack_missing': '일부 응답 누락',
     'auth_unavailable': '인증 서버 연결 실패',
     'blocked:cross_account_mismatch': '다른 계정의 같은 신고와 처리상태 외 내용이 달라 이전할 수 없음',
-    'blocked:report_identity_mismatch': '같은 링크 ID의 신고번호가 다르거나 이전 계정에 신고번호가 없어 이전할 수 없음',
+    'blocked:report_identity_mismatch':
+        '같은 링크 ID의 신고번호가 다르거나 이전 계정에 신고번호가 없어 이전할 수 없음',
     'blocked:ambiguous_existing_owners': '기존 소유 계정이 여럿이라 자동 이전할 수 없음',
   };
   final hit = known[code];
@@ -187,8 +203,10 @@ class CommunityUploadPanelHost extends StatefulWidget {
   });
 
   final CommunityServerUploadClient? serverClient;
-  final Future<CommunityPanelData> Function(
-      {CommunityServerUploadClient? serverClient}) loader;
+  final Future<CommunityPanelData> Function({
+    CommunityServerUploadClient? serverClient,
+  })
+  loader;
 
   @override
   State<CommunityUploadPanelHost> createState() =>
@@ -199,18 +217,44 @@ class _CommunityUploadPanelHostState extends State<CommunityUploadPanelHost> {
   CommunityPanelData? _data;
   var _running = false;
   String? _notice;
+  Timer? _refresh;
 
   @override
   void initState() {
     super.initState();
+    RawBackfillRuntime.changed.addListener(_onBackfillChanged);
     _reload();
   }
 
+  @override
+  void dispose() {
+    RawBackfillRuntime.changed.removeListener(_onBackfillChanged);
+    _refresh?.cancel();
+    super.dispose();
+  }
+
+  /// A marker change reloads the card (event based); there is no fixed-rate polling.
+  void _onBackfillChanged() {
+    if (_refresh?.isActive ?? false) return;
+    _refresh = Timer(const Duration(seconds: 1), () => unawaited(_reload()));
+  }
+
+  /// Only while something is in progress does the card re-read by itself, every 10 seconds
+  /// (the Client card asks the PC, so it never polls).
+  bool _inProgress(CommunityPanelData data) {
+    if (data.clientMode || data.error != null) return false;
+    const active = {'listing', 'filling', 'uploading', 'waiting_optimize'};
+    return _running || active.contains(data.rawBackfill?['state']);
+  }
+
   Future<void> _reload() async {
-    final data =
-        await widget.loader(serverClient: widget.serverClient);
+    final data = await widget.loader(serverClient: widget.serverClient);
     if (!mounted) return;
     setState(() => _data = data);
+    _refresh?.cancel();
+    _refresh = _inProgress(data)
+        ? Timer(const Duration(seconds: 10), () => unawaited(_reload()))
+        : null;
   }
 
   Future<void> _uploadNow() async {
@@ -243,7 +287,8 @@ class _CommunityUploadPanelHostState extends State<CommunityUploadPanelHost> {
       builder: (context) => AlertDialog(
         title: const Text('이전 수집 사본 다시 공유'),
         content: Text(
-            '재동의·기기 전환 뒤 이전에 수집한 사본 ${_data?.reshareCandidates ?? 0}건을 다시 공유합니다. 계속하시겠습니까?'),
+          '재동의·기기 전환 뒤 이전에 수집한 사본 ${_data?.reshareCandidates ?? 0}건을 다시 공유합니다. 계속하시겠습니까?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -284,6 +329,10 @@ class _CommunityUploadPanelHostState extends State<CommunityUploadPanelHost> {
       notice: _notice,
       onUploadNow: _uploadNow,
       onReshare: _reshare,
+      onRetryRaw: () async {
+        await RawBackfillRuntime.retry();
+        await _reload();
+      },
     );
   }
 }
@@ -337,6 +386,7 @@ class CommunityUploadPanel extends StatelessWidget {
     this.notice,
     this.onUploadNow,
     this.onReshare,
+    this.onRetryRaw,
   });
 
   final CommunityPanelData data;
@@ -344,6 +394,7 @@ class CommunityUploadPanel extends StatelessWidget {
   final String? notice;
   final VoidCallback? onUploadNow;
   final VoidCallback? onReshare;
+  final VoidCallback? onRetryRaw;
 
   @override
   Widget build(BuildContext context) {
@@ -355,9 +406,17 @@ class CommunityUploadPanel extends StatelessWidget {
         color: cs.surfaceContainerLow,
         child: ExpansionTile(
           leading: const Icon(Icons.cloud_upload_outlined),
-          title: Text(_summaryTitle(),
-              semanticsLabel: '공유 업로드, ${_summaryTitle()}'),
-          subtitle: data.clientMode ? null : Text(_summarySubtitle()),
+          title: Text(
+            _summaryTitle(),
+            semanticsLabel: '공유 업로드, ${_summaryTitle()}',
+          ),
+          subtitle: data.clientMode
+              ? null
+              : Text(
+                  data.rawBackfill == null
+                      ? _summarySubtitle()
+                      : '${rawBackfillProgress(data.rawBackfill!)}\n${_summarySubtitle()}',
+                ),
           children: [
             Semantics(
               liveRegion: true,
@@ -367,38 +426,51 @@ class CommunityUploadPanel extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    ..._detailLines().map((line) => Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
-                          child: Text(line,
-                              style: Theme.of(context).textTheme.bodySmall),
-                        )),
+                    ..._detailLines().map(
+                      (line) => Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Text(
+                          line,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                    ),
                     if (notice != null)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 4),
-                        child: Text(notice!,
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodySmall
-                                ?.copyWith(color: cs.primary)),
+                        child: Text(
+                          notice!,
+                          style: Theme.of(
+                            context,
+                          ).textTheme.bodySmall?.copyWith(color: cs.primary),
+                        ),
+                      ),
+                    if (data.rawBackfill != null &&
+                        data.rawBackfill!['state'] != 'done')
+                      TextButton(
+                        onPressed: running ? null : onRetryRaw,
+                        child: const Text('원본 전송 다시 시도'),
                       ),
                     Row(
                       children: [
                         if (!data.clientMode || onUploadNow != null)
                           FilledButton.tonal(
-                            onPressed:
-                                running ? null : () => onUploadNow?.call(),
-                            child: Text(running
-                                ? '전송 중…'
-                                : (data.clientMode ? '서버에서 업로드' : '지금 업로드')),
+                            onPressed: running
+                                ? null
+                                : () => onUploadNow?.call(),
+                            child: Text(
+                              running
+                                  ? '전송 중…'
+                                  : (data.clientMode ? '서버에서 업로드' : '지금 업로드'),
+                            ),
                           ),
-                        if (!data.clientMode &&
-                            data.reshareCandidates > 0) ...[
+                        if (!data.clientMode && data.reshareCandidates > 0) ...[
                           const SizedBox(width: 8),
                           OutlinedButton(
-                            onPressed:
-                                running ? null : () => onReshare?.call(),
+                            onPressed: running ? null : () => onReshare?.call(),
                             child: Text(
-                                '이전 수집 사본 다시 공유(${data.reshareCandidates}건)'),
+                              '이전 수집 사본 다시 공유(${data.reshareCandidates}건)',
+                            ),
                           ),
                         ],
                       ],
@@ -443,11 +515,13 @@ class CommunityUploadPanel extends StatelessWidget {
     }
     final lines = <String>[
       '전송 대기 ${data.pending}건',
-      if (data.authRequired > 0) '인증 필요 ${data.authRequired}건 — 다시 연결하면 대기 중인 자료를 그대로 보냅니다',
+      if (data.authRequired > 0)
+        '인증 필요 ${data.authRequired}건 — 다시 연결하면 대기 중인 자료를 그대로 보냅니다',
       if (data.controlState == 'cooling_down')
         '서버 대기: ${kstLabel(data.controlUntil)}까지'
             '${data.controlReason == null ? '' : ' · ${uploadErrorText(data.controlReason)}'}',
-      if (data.oldestUnsentAt != null) '가장 오래된 미전송: ${kstLabel(data.oldestUnsentAt)}',
+      if (data.oldestUnsentAt != null)
+        '가장 오래된 미전송: ${kstLabel(data.oldestUnsentAt)}',
       if (data.nextRetryAt != null) '다음 재시도: ${kstLabel(data.nextRetryAt)}',
       data.lastCentralAckAt != null
           ? '마지막 중앙 저장 확인: ${kstLabel(data.lastCentralAckAt)}'
@@ -468,4 +542,14 @@ class CommunityUploadPanel extends StatelessWidget {
     ];
     return lines;
   }
+}
+
+String rawBackfillProgress(Map<String, dynamic> marker) {
+  final stats = marker['stats'] as Map? ?? {};
+  final suffix = marker['state'] == 'done'
+      ? ' · 완료'
+      : (marker['state'] == 'waiting_optimize'
+            ? ' · DB 최적화 대기'
+            : (marker['state'] == 'paused' ? ' · 재시도 대기' : ''));
+  return '원본 전송 ${stats['sent'] ?? 0} / ${stats['available'] ?? 0} · 원본 없음 ${stats['raw_unavailable'] ?? 0}건 · 채움 ${stats['filled'] ?? 0}건 · 못 채움 ${stats['unfilled'] ?? 0}건 · 보류 ${stats['holds'] ?? 0}건$suffix';
 }

@@ -37,6 +37,7 @@ import '../models/report.dart';
 import 'app_storage_paths.dart';
 import 'community_auth_config.dart';
 import 'db_optimize_state.dart';
+import '../community/capture/raw_capture_source.dart';
 import 'duplicate_projection_service.dart';
 import 'local_db_service.dart';
 import 'raw_detail.dart';
@@ -303,9 +304,13 @@ class DbOptimize {
         final store = openStoreForTest != null
             ? await openStoreForTest!()
             : await CommunityStore.open();
-        dataset = await store?.localDatasetId() ?? '';
+        // The work generation is part of the identity: a withdrawal/reset bumps it and stops the run.
+        dataset =
+            '${await store?.localDatasetId() ?? ''}|${await store?.meta('work_generation') ?? '0'}';
       }
-    } catch (_) {}
+    } catch (_) {
+      // An unreadable identity is isolated here (an empty part); it never aborts the start of a run.
+    }
     return (path, dataset);
   }
 
@@ -545,7 +550,6 @@ class DbOptimize {
   /// `HTTP ` 접두사 없이 숫자 코드를 본다. 401·403·419·토큰 만료·로그인 화면 응답은
   /// 로그인 문제(auth)다(명세 7-1). 영구는 그 신고가 없음·삭제됨이 분명한 응답
   /// (404·410)만이다. 나머지는 일시 실패다.
-  @visibleForTesting
   static String classifyFetchError(Object error) {
     if (error is TokenExpiredException) return 'auth';
     final text = error.toString();
@@ -725,6 +729,8 @@ class DbOptimize {
                     report.id,
                     store: leaseStore,
                     projectNamespace: ns,
+                    rawDetail: rawDetail,
+                    rawFields: now,
                   );
                 }
                 capturedBeforePersonalSave = inner;
@@ -791,10 +797,13 @@ class DbOptimize {
     String id, {
     required CommunityStore? store,
     required String projectNamespace,
-  }) => capture(
+    RawDetailUpsert? rawDetail,
+    Map<String, Object?> rawFields = const {},
+  }) async => capture(
     adapterInput,
     sourceReportId: id,
     trigger: DbOptimizeState.reparseTrigger,
+    rawDetailSnapshot: await rawSnapshotIfReady(store, rawDetail, rawFields),
     store: store,
     projectNamespace: projectNamespace,
   );

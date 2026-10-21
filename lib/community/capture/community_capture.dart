@@ -11,6 +11,8 @@ import 'package:sqflite/sqflite.dart';
 import '../../services/law_values.dart';
 import '../community_store.dart';
 import 'canonical_json.dart';
+import 'raw_ingest.dart';
+import 'raw_capture_source.dart';
 import 'observation_rules.dart';
 
 export 'canonical_json.dart' show canonicalJson;
@@ -162,9 +164,11 @@ Future<CaptureResult> capture(
   required String sourceReportId,
   required String trigger,
   String? rebuildRunId,
+  Map<String, Object?>? rawDetailSnapshot,
   CommunityStore? store,
   String? projectNamespace,
   DateTime? now,
+  bool force = false,
   Future<void> Function(DatabaseExecutor)? beforeWrite,
 }) async {
   final s = store ?? await CommunityStore.open();
@@ -189,6 +193,21 @@ Future<CaptureResult> capture(
   final progressStatus = adapterInput['progress_status']?.toString() ?? '';
   final at = isoUtc(now ?? DateTime.now());
 
+  final statusText = await s.meta('ingest_status');
+  final statusBefore = statusText == null
+      ? <String, Object?>{}
+      : (jsonDecode(statusText) as Map).cast<String, Object?>();
+  // v2 is chosen from the CURRENT status only (ingest.contracts contains 2). When the operator turns v2
+  // off the next status check puts the app back on v1: there is no sticky "once v2, always v2".
+  final rawBefore = rawV2Ready(statusBefore);
+  // Computing the raw snapshot must never block the personal save: a failure means "no raw" (v1 DTO path).
+  if (rawDetailSnapshot == null && rawBefore) {
+    try {
+      rawDetailSnapshot = await rawForAdapter(sourceReportId, adapterInput);
+    } catch (_) {
+      rawDetailSnapshot = null;
+    }
+  }
   return s.transaction((tx) async {
     await beforeWrite?.call(tx);
     final localDatasetId = await s.meta('local_dataset_id', tx) ?? '';
@@ -268,7 +287,7 @@ Future<CaptureResult> capture(
       canonical = canonicalJson(payload);
       sha = sha256.convert(utf8.encode(canonical)).toString();
       eligible = payloadEligible(payload);
-      if (canonical == canonicalJson(original)) {
+      if (canonical == canonicalJson(original) && !rawBefore) {
         return CaptureResult(
           eventId: null,
           eventType: null,
@@ -346,6 +365,55 @@ Future<CaptureResult> capture(
       payloadSha: sha,
     );
 
+    Map<String, Object?>? rawEvent;
+    final storedStatus = await s.meta('ingest_status', tx);
+    final rawStatus = storedStatus == null
+        ? <String, Object?>{}
+        : (jsonDecode(storedStatus) as Map).cast<String, Object?>();
+    final consent = rawStatus['consent'];
+    final ready =
+        rawV2Ready(rawStatus) &&
+        contextActive &&
+        consent is Map &&
+        consent['grant_id'] == contextRow?['consent_grant_id'];
+    final rawMode = contextRow != null && ready;
+    if (eligible && rawDetailSnapshot != null && rawMode) {
+      rawEvent = rawWithObservation(rawDetailSnapshot, payload);
+      final previous = await tx.rawQuery(
+        'SELECT raw_event_json FROM source_journal WHERE local_dataset_id=? AND source_report_id=? AND dataset_key IS ? AND contributor_fingerprint IS ? ORDER BY source_revision DESC LIMIT 1',
+        [
+          localDatasetId,
+          sourceReportId,
+          contextDatasetKey,
+          contextRow['contributor_fingerprint'],
+        ],
+      );
+      final prior =
+          previous.isNotEmpty && previous.first['raw_event_json'] != null
+          ? jsonDecode(previous.first['raw_event_json'] as String) as Map
+          : <String, Object?>{};
+      if (jsonEncode(rawContentKey(prior)) !=
+          jsonEncode(rawContentKey(rawEvent))) {
+        eventType = 'completed_observation';
+      }
+    }
+
+    final rawMissing = rawMode && rawEvent == null;
+    if (eligible &&
+        (force || (rawMissing && prev?['blocked_reason'] != 'raw_required'))) {
+      eventType = 'completed_observation';
+    }
+    // v2 -> v1 fallback: the newest journal row of this report is a v2 event that was never acknowledged
+    // (it waits for v2). Issue a v1 event once so the report is not stuck; the v2 row stays parked.
+    if (eventType == null &&
+        eligible &&
+        !rawMode &&
+        prev?['raw_event_json'] != null &&
+        prev?['ack_status'] == null &&
+        prev?['blocked_reason'] == null) {
+      eventType = 'completed_observation';
+    }
+
     // REVIEW4 낮음: 길이 초과 원문 코드는 payload가 직전과 같아도 명시적
     // 거절 이벤트를 만든다(PC와 1:1). 이미 같은 sha·같은 blocked 사유로
     // 기록됐으면 quiet 유지.
@@ -414,6 +482,7 @@ Future<CaptureResult> capture(
       'rebuild_run_id': rebuildRunId,
       'schema_version': 1,
       'parser_version': mobileParserVersion,
+      'raw_event_json': rawEvent == null ? null : jsonEncode(rawEvent),
       'payload_json': canonical,
       'payload_sha256': sha,
       'eligible': eligible ? 1 : 0,
@@ -426,19 +495,21 @@ Future<CaptureResult> capture(
           ? contextRow!['consent_grant_id']
           : null,
       'personal_save_state': 'pending',
-      'blocked_reason': codeBlocked
+      'blocked_reason': rawMissing
+          ? 'raw_required'
+          : codeBlocked
           ? 'blocked:$agencyCodeTooLong'
           : (contextActive ? offlineBlocked : 'no_active_context'),
     });
     if (contextActive && offlineBlocked == null) {
-      if (codeBlocked) {
+      if (codeBlocked || rawMissing) {
         await tx.insert('outbox', {
           'event_id': eventId,
           'state': 'blocked',
           'attempt_count': 0,
           'enqueued_trigger': trigger,
           'enqueued_at': at,
-          'last_error_code': agencyCodeTooLong,
+          'last_error_code': rawMissing ? 'raw_required' : agencyCodeTooLong,
         });
       } else {
         await tx.insert('outbox', {
@@ -490,7 +561,8 @@ Future<Map<String, Object?>?> _latestJournal(
   String? fingerprint,
 }) async {
   final journals = await tx.rawQuery(
-    'SELECT payload_sha256, eligible, report_number, blocked_reason FROM source_journal '
+    'SELECT payload_sha256, eligible, report_number, blocked_reason, ack_status, '
+    '(CASE WHEN raw_event_json IS NULL THEN NULL ELSE 1 END) AS raw_event_json FROM source_journal '
     'WHERE local_dataset_id=? AND source_report_id=? AND dataset_key IS ? '
     'AND contributor_fingerprint IS ? ORDER BY source_revision DESC LIMIT 1',
     [localDatasetId, sourceReportId, datasetKey, fingerprint],

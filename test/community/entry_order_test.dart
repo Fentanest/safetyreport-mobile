@@ -13,7 +13,9 @@ import 'package:safetyreport/screens/permission_screen.dart';
 import 'package:safetyreport/screens/setup_screen.dart';
 import 'package:safetyreport/screens/cloud_unavailable_screen.dart';
 import 'package:safetyreport/services/app_prefs_keys.dart';
+import 'package:safetyreport/services/client_compatibility.dart';
 import 'package:safetyreport/services/server_connection_service.dart';
+import 'package:safetyreport/services/server_contract.dart';
 import 'package:safetyreport/services/standalone_auth_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -164,6 +166,10 @@ void main() {
       expect(find.widgetWithText(TextField, '아이디'), findsOneWidget);
       await tester.enterText(find.widgetWithText(TextField, '아이디'), 'user');
       await tester.enterText(find.widgetWithText(TextField, '비밀번호'), 'pw');
+      await tester.enterText(
+        find.widgetWithText(TextField, '휴대폰번호'),
+        '010-1234-5678',
+      );
       await tester.tap(find.text('로그인'));
       await tester.pumpAndSettle();
       expect(find.byType(CommunityOnboardingScreen), findsOneWidget);
@@ -356,6 +362,71 @@ void main() {
     expect(find.textContaining('v3 이상'), findsOneWidget);
     expect(find.byType(MainNavigationScreen), findsNothing);
     expect(permCalls, isNot(contains('startWsService')));
+  });
+
+  Future<ReportProvider> clientProvider() => _providerWith({
+    AppPrefsKeys.appMode: 'server',
+    AppPrefsKeys.baseUrl: 'http://pc-server',
+    AppPrefsKeys.apiKey: 'k',
+  });
+
+  testWidgets('PC unreachable after it worked does not replace the app with the blocking screen', (
+    tester,
+  ) async {
+    final provider = await clientProvider();
+    final gate = StubGate(enter: true);
+    addTearDown(gate.dispose);
+    addTearDown(ClientCompatibility.invalidate);
+    await tester.pumpWidget(
+      _app(
+        provider,
+        gate,
+        serverVersionCheck: (_, _) async =>
+            ServerConnectionResult.ok(normalizedUrl: 'http://pc-server'),
+      ),
+    );
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(permCalls, contains('startWsService'));
+    expect(find.text('PC 서버 연결 확인'), findsNothing);
+    ClientCompatibility.failure.value = ServerConnectionResult.networkError(
+      normalizedUrl: ServerContract.normalizeBaseUrl('http://pc-server'),
+      message: 'timeout',
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('PC 서버 연결 확인'), findsNothing);
+    expect(find.text('다시 확인'), findsNothing);
+    // An explicit refusal still blocks.
+    ClientCompatibility.failure.value = ServerConnectionResult.unauthorized(
+      normalizedUrl: ServerContract.normalizeBaseUrl('http://pc-server'),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('다시 확인'), findsOneWidget);
+  });
+
+  testWidgets('first launch with an unreachable PC still needs the PC (blocking screen)', (
+    tester,
+  ) async {
+    final provider = await clientProvider();
+    final gate = StubGate(enter: true);
+    addTearDown(gate.dispose);
+    await tester.pumpWidget(
+      _app(
+        provider,
+        gate,
+        serverVersionCheck: (_, _) async => ServerConnectionResult.networkError(
+          normalizedUrl: 'http://pc-server',
+          message: 'down',
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('다시 확인'), findsOneWidget);
+    expect(find.byType(MainNavigationScreen), findsNothing);
   });
 
   testWidgets('retry enters Client flow after the PC server is updated', (

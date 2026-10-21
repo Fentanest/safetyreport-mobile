@@ -28,7 +28,7 @@ Map<String, Object?> buildReportAdapterInput(
       lat <= 39.5 &&
       lng >= 124 &&
       lng <= 132;
-  return buildAdapterInput(
+  final adapter = buildAdapterInput(
     status: report.status,
     reportNumber: report.reportNumber,
     fineInfo: report.fineInfo,
@@ -53,4 +53,17 @@ Map<String, Object?> buildReportAdapterInput(
     photoFirstCapture: photoFirstCapture ?? report.photoFirstCapture,
     photoLastCapture: photoLastCapture ?? report.photoLastCapture,
   );
+  adapter['_raw_fields'] = {
+    '신고번호': report.reportNumber,
+    '신고명': report.name,
+    '신고일': report.date,
+    '상태': report.result,
+    '만족도조사여부': report.pollStatus,
+    '별점': report.rating,
+    '별점사유': report.ratingCause,
+    'entry_value': entryValue,
+    'ssnpc_cd': report.ssnpcCd,
+    'ssnpc_type': report.ssnpcType,
+  };
+  return adapter;
 }

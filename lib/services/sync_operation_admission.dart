@@ -5,6 +5,8 @@ import 'package:sqflite/sqflite.dart';
 class _SyncOwner {
   final leaseId = newUuidV4();
   bool lost = false;
+  String generation = '0';
+  Map<String, Object?>? context;
   CommunityStore? store;
   bool Function()? stopRequested;
   Future<void> Function()? validateScope;
@@ -30,6 +32,28 @@ class SyncOperationAdmission {
     if (owner == null) return;
     if (cancelled) throw StateError('sync_cancelled');
     if (executor == null) await owner.validateScope?.call();
+    if (owner.context != null) {
+      final ctx = await (executor ?? owner.store!.db).query(
+        'context',
+        where: "id=1 AND state='active'",
+      );
+      if (ctx.isEmpty ||
+          ![
+            'contributor_fingerprint',
+            'connection_id',
+            'writer_epoch',
+            'consent_grant_id',
+            'dataset_key',
+          ].every((k) => ctx.first[k] == owner.context![k])) {
+        owner.lost = true;
+        throw StateError('sync_context_changed');
+      }
+    }
+    final gen = await owner.store!.meta('work_generation', executor);
+    if ((gen ?? '0') != owner.generation) {
+      owner.lost = true;
+      throw StateError('sync_generation_changed');
+    }
     final rows = await (executor ?? owner.store!.db).query(
       'leases',
       where: 'name=? AND owner=? AND until>?',
@@ -50,6 +74,15 @@ class SyncOperationAdmission {
     return owner.store!.transaction((tx) async {
       await checkOwnership(executor: tx);
       return body();
+    });
+  }
+
+  static Future<void> cancelAll(CommunityStore store) async {
+    _owner?.lost = true;
+    await store.transaction((tx) async {
+      final gen =
+          int.tryParse(await store.meta('work_generation', tx) ?? '0') ?? 0;
+      await store.setMeta('work_generation', '${gen + 1}', tx);
     });
   }
 
@@ -75,6 +108,8 @@ class SyncOperationAdmission {
     try {
       store = await (openStore?.call() ?? CommunityStore.open());
       owner.store = store;
+      owner.generation = await store.meta('work_generation') ?? '0';
+      owner.context = await store.activeContext();
       if (!await store.acquireLease(
         'personal_sync',
         owner.leaseId,

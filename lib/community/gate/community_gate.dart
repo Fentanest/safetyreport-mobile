@@ -2,6 +2,14 @@ import '../upload/community_schedule.dart' as schedule;
 import '../consent_catchup.dart';
 import '../cloud_availability.dart';
 import '../consent_history.dart';
+import '../soft_reset.dart';
+import '../client_notice.dart';
+import '../client_server_consent.dart';
+import '../client_server_policy.dart';
+import '../ingest_status.dart';
+import 'gate_policy.dart';
+import '../../services/app_prefs_keys.dart';
+import '../../services/community_server_link_service.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
@@ -65,10 +73,15 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     String Function()? platformName,
     String Function()? projectNamespace,
     Future<String> Function(String? kakaoId)? checkDataOwner,
+    Future<CommunityGateLinkResult> Function()? serverGate,
   }) : _config = config ?? CommunityAuthConfig.fromEnvironment,
        _authOverride = auth,
        _store = store,
-       _secureStorage = secureStorage ?? const FlutterSecureStorage(aOptions: AndroidOptions(resetOnError: false)),
+       _secureStorage =
+           secureStorage ??
+           const FlutterSecureStorage(
+             aOptions: AndroidOptions(resetOnError: false),
+           ),
        _httpClient = httpClient,
        _accountClientOverride = accountClient,
        _configStatusOverride = configStatus,
@@ -79,13 +92,80 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
        _deviceLabelOverride = deviceLabel,
        _platformNameOverride = platformName,
        _projectNamespaceOverride = projectNamespace,
-       _checkDataOwnerOverride = checkDataOwner {
+       _checkDataOwnerOverride = checkDataOwner,
+       _serverGateOverride = serverGate {
     _observedDatasetGeneration = _datasetGeneration?.call();
     _observedAppMode = this.appMode;
     WidgetsBinding.instance.addObserver(this);
     _authPhase = _auth.state.value.phase;
     _auth.state.addListener(_onAuthChanged);
     CloudAvailability.shared?.addListener(_cloudChanged);
+    ClientServerConsent.changed.addListener(_clientRefused);
+  }
+
+  final Future<CommunityGateLinkResult> Function()? _serverGateOverride;
+  int _lastServerLock = 0;
+  bool _clientWaiting = false;
+  Future<void> _clientRefused() async {
+    if (_disposed || appMode != 'server') return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      if (ClientServerConsent.matches(
+        prefs.getString(AppPrefsKeys.baseUrl) ?? '',
+        prefs.getString(AppPrefsKeys.apiKey) ?? '',
+      )) {
+        _lockClient();
+      }
+    } catch (_) {}
+  }
+
+  /// Client: the PHONE's own consent was revoked or the account removed (not the PC's state).
+  /// A Client has no local login to reset; it consumes the G1 evidence and asks for consent again.
+  Future<void> _clientOwnReset(String? account) async {
+    _localAllowed = false;
+    if (_store != null && account != null) {
+      await ConsentHistory(_store).event(
+        account,
+        'consent_required',
+        'remote-reset',
+        grant: _lastStatus?.consentGrantId,
+        localRevoke: true,
+      );
+      await ConsentHistory(_store).clearG1(account);
+    }
+    _notice =
+        '이 카카오 계정의 공유 동의가 철회되었거나 계정이 정리되었습니다. 카카오 로그인과 공유 동의를 다시 진행해 주세요.';
+    _apply(const GateState(state: 'consent_required', canEnter: false));
+    await _deactivate('gate:consent_required');
+    _checked = true;
+    _notifyIfChanged();
+  }
+
+  void _lockClient() {
+    if (_disposed || appMode != 'server') return;
+    _authGen++;
+    _localAllowed = false;
+    _invalidated = true;
+    _notice = '서버 동의 필요: 연결된 PC 서버에서 카카오 로그인과 공유 동의를 확인해 주세요.';
+    _apply(const GateState(state: 'server_consent_required', canEnter: false));
+    unawaited(_deactivate('server_consent_required'));
+    _notifyIfChanged();
+  }
+
+  /// The native WebSocket (4403) leaves a lock stamp. Read only when something already wakes the gate
+  /// (poll tick, foreground return, refresh) — never on a timer of its own.
+  Future<void> _readServerLock() async {
+    if (_disposed || appMode != 'server') return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      final stamp = prefs.getInt('community_server_consent_lock') ?? 0;
+      if (stamp > _lastServerLock) {
+        _lastServerLock = stamp;
+        _lockClient();
+      }
+    } catch (_) {}
   }
 
   void _cloudChanged() {
@@ -93,6 +173,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<bool> requireLocalAccess() async {
+    if (canEnter) return true;
     if (!canBrowse) return false;
     try {
       return await _prepareLocalUse(
@@ -188,6 +269,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
       else
         null,
       _authGen,
+      _clientWaiting,
       status(),
     ]);
   }
@@ -215,6 +297,23 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     _hardLocalBlock = null;
     _authGen++;
     invalidate(phase == CommunityAccountPhase.connected ? 'login' : 'logout');
+    // A login while a withdrawal is pending finishes it (the session may have been lost meanwhile).
+    if (phase == CommunityAccountPhase.connected && _store != null) {
+      final store = _store;
+      unawaited(() async {
+        try {
+          if (await CommunityReset.pending(store) != null) {
+            await CommunityReset.attempt(
+              store,
+              auth: _auth,
+              client: accountClient,
+              force: true,
+            );
+            if (!_disposed) unawaited(refreshNow(silent: true));
+          }
+        } catch (_) {}
+      }());
+    }
     // 진행 중인 확인이 있으면(이전 세션) 그것이 끝난 뒤 새 세션으로 다시 확인한다 — refreshNow 는 진행 중이면 같은 결과를 돌려준다.
     final pending = _inFlight;
     if (pending != null) {
@@ -258,7 +357,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   /// 확인하지 않았으므로 다시 확인할 때까지 들어가지 않는다([onAppModeChanged]).
   bool get canEnter => _state.canEnter && _passedMode == appMode;
 
-  // Emergency policy: consent is still enforced for upload, not local use.
+  // Local use during outages is limited to the last verified owner and 72 hours.
   bool _localAllowed = false;
   String? _hardLocalBlock;
   bool get canBrowse => canEnter || _localAllowed;
@@ -274,6 +373,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<bool> _prepareLocalUse({bool consentDenied = false}) async {
     _localAllowed = false;
+    if (consentDenied || appMode == 'server') return false;
     if (sessionStatus() != 'valid' || _hardLocalBlock != null) return false;
     final member = await _auth.sessionKakaoId();
     final account = await _auth.sessionFingerprint();
@@ -323,6 +423,22 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         ).pauseCapture(account, dataset, consentDenied: consentDenied);
       }
     }
+    // Upgrade seed: histories written before `last_g1` existed keep their last verified time (the
+    // owner/dataset were just checked above), so an offline first start after the update is not G3.
+    var graceHistory = history;
+    if (_store != null && isWriter && history?['last_g1'] == null) {
+      graceHistory =
+          await ConsentHistory(_store).seedLastG1(account, member, dataset) ??
+          history;
+    }
+    if (!ConsentHistory.graceValid(
+      graceHistory,
+      member,
+      dataset,
+      DateTime.now(),
+    )) {
+      return false;
+    }
     _localAllowed = true;
     return true;
   }
@@ -334,22 +450,63 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Future<void> recordLocalRevocation() async {
+  Future<void> recordLocalRevocation({CommunityAccountClient? client}) async {
     final account = await _auth.sessionFingerprint();
     if (_store == null || account == null) {
       throw StateError('동의 철회 상태를 저장할 수 없습니다.');
     }
-    await ConsentHistory(_store).event(
-      account,
-      'consent_required',
-      'local-revoke',
-      grant: _lastStatus?.consentGrantId,
-      localRevoke: true,
+    await CommunityReset.begin(
+      _store,
+      _lastStatus?.consentGrantId,
+      auth: _auth,
+      client: client ?? accountClient,
     );
     invalidate('consent_revoked');
     await _prepareLocalUse(consentDenied: true);
-    _apply(const GateState(state: 'consent_required', canEnter: false));
+    _apply(const GateState(state: 'revoke_pending', canEnter: false));
+    _notice = '철회 처리 중입니다. 서버 확인 후 카카오 로그인부터 다시 시작합니다.';
     await _deactivate('consent_revoked');
+    _notifyIfChanged();
+  }
+
+  Future<void> retryRevocation({CommunityAccountClient? client}) async {
+    if (_store == null) return;
+    await CommunityReset.attempt(
+      _store,
+      auth: _auth,
+      client: client ?? accountClient,
+      force: true,
+    );
+    await refreshNow();
+  }
+
+  /// Server-confirmed withdrawal/account removal. Personal reports and owner stay locked in place.
+  Future<void> softReset(String reason) async {
+    _authGen++;
+    _localAllowed = false;
+    if (_store != null) {
+      final account = await _auth.sessionFingerprint();
+      if (account != null) {
+        await ConsentHistory(_store).event(
+          account,
+          'consent_required',
+          'remote-reset',
+          grant: _lastStatus?.consentGrantId,
+          localRevoke: true,
+        );
+      }
+      await CommunityReset.complete(
+        _store,
+        auth: _auth,
+        storage: _secureStorage,
+      );
+    } else {
+      await _auth.disconnect();
+    }
+    _lastStatus = null;
+    _verifiedAt = null;
+    _invalidated = true;
+    _apply(const GateState(state: 'kakao_required', canEnter: false));
     _notifyIfChanged();
   }
 
@@ -434,6 +591,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     if (appMode == 'demo') return;
     _pollTimer ??= Timer.periodic(const Duration(minutes: 5), (_) {
       if (WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+        unawaited(_readServerLock());
         unawaited(refreshNow(silent: true));
       }
     });
@@ -449,6 +607,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      unawaited(_readServerLock());
       unawaited(refreshNow(silent: true));
     }
   }
@@ -746,6 +905,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
           ? sessionStatus(savedPhase: await _auth.savedSessionPhase())
           : sessionStatus();
       _assertCurrent(authGen, checkedMode);
+      if (session != 'valid' && await _holdRevokePending()) return _state;
       if (config != 'ok' || session != 'valid') {
         final next = evaluateGate(config: config, session: session);
         _apply(next);
@@ -760,6 +920,9 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
       }
       final token = await _auth.getAccessToken();
       if (token == null || token.isEmpty) {
+        // A withdrawal in progress outranks a lost session/token: the onboarding screen must keep
+        // saying "철회 처리 중" (with the Kakao login that finishes it), not the generic expiry.
+        if (await _holdRevokePending()) return _state;
         if (sessionStatus() == 'valid') {
           await _cloudUnavailable(authGen, checkedMode);
           return _state;
@@ -843,7 +1006,34 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         return _state;
       }
       _retryTimer?.cancel();
+      if (_store != null && await CommunityReset.pending(_store) != null) {
+        _localAllowed = false;
+        _apply(const GateState(state: 'revoke_pending', canEnter: false));
+        _notice = '철회 처리 중입니다. 자동으로 다시 시도합니다.';
+        CommunityReset.resumePending(
+          _store,
+          auth: _auth,
+          client: accountClient,
+        );
+        await _deactivate('consent_revoked');
+        _checked = true;
+        _notifyIfChanged();
+        return _state;
+      }
+      // A 200 whose identity block is missing or not a boolean is "cannot verify" (G3), never a
+      // reason to reset or to open.
+      final rawGate = status.raw['gate'];
+      if (rawGate is! Map || rawGate['kakao'] is! bool) {
+        await _cloudUnavailable(authGen, checkedMode);
+        return _state;
+      }
       _lastStatus = status;
+      if (_store != null) {
+        await saveIngestStatus(_store, status.raw);
+        _assertCurrent(authGen, checkedMode);
+        // The status is the authority: a missing key is the same as null (notice and 426 mark cleared).
+        await ClientNotice.save(_store, status.raw['client_notice']);
+      }
       _verifiedAt = DateTime.now();
       _invalidated = false;
       _notice = null;
@@ -855,6 +1045,24 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
       );
       if (next.canEnter) _hardLocalBlock = null;
       final account = await _auth.sessionFingerprint();
+      final member = await _auth.sessionKakaoId();
+      final prior = _store != null && account != null
+          ? await ConsentHistory(_store).latest(account)
+          : null;
+      final verified = prior?['last_g1'];
+      final hadG1 =
+          verified is Map && member != null && verified['member'] == member;
+      // Decision table (gate_policy.dart / gate-vectors): suspension (G9) is judged before any reset,
+      // and a reset only follows a G1 this device saw. The reset consumes that evidence, so a later
+      // revoked/none answer for the same account is the consent screen (G4), not another reset.
+      if (gatePolicy(gateVector(status.raw, hadG1)) == 'soft_reset') {
+        if (appMode == 'server') {
+          await _clientOwnReset(account);
+          return _state;
+        }
+        await softReset('account_removed');
+        return _state;
+      }
       if (_store != null && account != null) {
         await ConsentHistory(_store).event(
           account,
@@ -975,6 +1183,19 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         }
       } else {
         // Client: 폰은 writer 가 아니다(업로드·자정 없음). 서버가 자기 게이트로 올린다. 데모도 writer 가 아니다.
+        _clientWaiting = false;
+        if (appMode == 'server') {
+          // Only an explicit PC refusal locks. An unreachable PC (network, timeout, 5xx, no answer)
+          // keeps the previous Client behaviour and shows "server check pending" only.
+          final verdict = await _clientServerVerdict();
+          _assertCurrent(authGen, checkedMode);
+          if (verdict == ServerConsentVerdict.refused) {
+            _lockClient();
+            _checked = true;
+            return _state;
+          }
+          _clientWaiting = verdict == ServerConsentVerdict.unknown;
+        }
         await _deactivate(appMode == 'demo' ? 'demo_mode' : 'client_mode');
       }
       _assertCurrent(authGen, checkedMode);
@@ -983,6 +1204,14 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         return _state;
       }
       _localAllowed = false;
+      if (_store != null && account != null && member != null) {
+        final official = isWriter ? await _officialAccountId?.call() : null;
+        await ConsentHistory(_store).markG1(
+          account,
+          member,
+          official == null ? null : datasetKeyForOfficialId(official),
+        );
+      }
       if (_store != null) await ConsentHistory(_store).clearCapture();
       _apply(next);
       _passedMode = checkedMode;
@@ -1010,6 +1239,50 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         _notifyIfChanged();
       }
     }
+  }
+
+  /// While a withdrawal is pending the gate stays `revoke_pending` whatever the session looks like.
+  Future<bool> _holdRevokePending() async {
+    final store = _store;
+    if (store == null || await CommunityReset.pending(store) == null) {
+      return false;
+    }
+    _localAllowed = false;
+    _apply(const GateState(state: 'revoke_pending', canEnter: false));
+    _notice = '철회 처리 중입니다. 자동으로 다시 시도합니다.';
+    CommunityReset.resumePending(store, auth: _auth, client: accountClient);
+    await _deactivate('consent_revoked');
+    _checked = true;
+    _notifyIfChanged();
+    return true;
+  }
+
+  Future<ServerConsentVerdict> _clientServerVerdict() async {
+    final override = _serverGateOverride;
+    if (override != null) {
+      try {
+        return ClientServerConsent.verdict(await override());
+      } catch (_) {
+        return ServerConsentVerdict.unknown;
+      }
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return await ClientServerConsent.verify(prefs);
+    } catch (_) {
+      return ServerConsentVerdict.unknown;
+    }
+  }
+
+  /// Client only: the connected PC could not be asked (shown as "server check pending", never a lock).
+  bool get clientServerCheckPending => _clientWaiting;
+
+  /// Client only: a later PC probe (version recheck) failed to reach the PC. Shows the same
+  /// non-blocking "waiting" note; the next gate refresh re-asks and clears it.
+  void markClientServerUnreachable() {
+    if (_disposed || appMode != 'server' || _clientWaiting) return;
+    _clientWaiting = true;
+    _notifyIfChanged();
   }
 
   String? _ownerError;
@@ -1439,6 +1712,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     stopPolling();
     _auth.state.removeListener(_onAuthChanged);
     CloudAvailability.shared?.removeListener(_cloudChanged);
+    ClientServerConsent.changed.removeListener(_clientRefused);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

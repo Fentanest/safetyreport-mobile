@@ -20,6 +20,9 @@ class ClientCompatibility {
   static Future<ServerConnectionResult>? _pending;
   static ServerConnectionResult? _result;
   static DateTime? _checkedAt;
+
+  /// An unreachable PC is asked again after this long (explicit refusals stay until retry).
+  static const transientRetryAfter = Duration(seconds: 15);
   static final failure = ValueNotifier<ServerConnectionResult?>(null);
 
   static void invalidate() {
@@ -45,7 +48,9 @@ class ClientCompatibility {
     if (result == null ||
         (result.isOk &&
             DateTime.now().difference(_checkedAt!) >
-                const Duration(minutes: 1))) {
+                const Duration(minutes: 1)) ||
+        (result.isTransient &&
+            DateTime.now().difference(_checkedAt!) > transientRetryAfter)) {
       final generation = _generation;
       final probe = _pending ??= ServerConnectionService.checkVersion(
         baseUrl: url,

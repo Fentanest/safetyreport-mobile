@@ -15,10 +15,27 @@ const double backoffBaseSeconds = 5;
 const double backoffCapSeconds = 300;
 const int serverHintCapSeconds = 24 * 3600;
 
-const Set<String> durableStatuses = {'accepted', 'transferred', 'duplicate', 'no_change', 'stale_ignored', 'quarantined'};
+const Set<String> durableStatuses = {
+  'stored',
+  'accepted',
+  'transferred',
+  'duplicate',
+  'no_change',
+  'stale_ignored',
+  'quarantined',
+};
 const Set<String> nonDurableStatuses = {'rejected', 'conflict'};
-const Set<String> projections = {'published', 'removed', 'held', 'not_public', 'not_applicable'};
-final RegExp _uuid = RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$');
+const Set<String> projections = {
+  'parse_pending',
+  'published',
+  'removed',
+  'held',
+  'not_public',
+  'not_applicable',
+};
+final RegExp _uuid = RegExp(
+  r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+);
 
 /// 영수증이 UUID 형식인가(ACK 판정·옛 완료 재확인이 같은 규칙을 쓴다).
 bool isReceiptUuid(Object? value) => value is String && _uuid.hasMatch(value);
@@ -31,20 +48,49 @@ const Map<String, String> retryableClasses = {
   'rate_limited': 'account',
   'request_rejected': 'service',
 };
-const Set<String> authCodes = {'auth_required', 'kakao_required', 'session_revoked'};
-const Set<String> consentCodes = {'consent_missing', 'consent_revoked', 'consent_outdated', 'consent_grant_unknown'};
-const Set<String> connectionCodes = {
-  'connection_unknown', 'connection_revoked', 'connection_suspended', 'connection_session_mismatch',
-  'connection_mode_mismatch', 'writer_superseded', 'contributor_suspended',
+const Set<String> authCodes = {
+  'auth_required',
+  'kakao_required',
+  'session_revoked',
 };
-const Set<String> eventPayloadCodes = {'payload_hash_mismatch', 'event_type_mismatch'};
+const Set<String> consentCodes = {
+  'consent_missing',
+  'consent_revoked',
+  'consent_outdated',
+  'consent_grant_unknown',
+};
+const Set<String> connectionCodes = {
+  'connection_unknown',
+  'connection_revoked',
+  'connection_suspended',
+  'connection_session_mismatch',
+  'connection_mode_mismatch',
+  'writer_superseded',
+  'contributor_suspended',
+};
+const Set<String> eventPayloadCodes = {
+  'payload_hash_mismatch',
+  'event_type_mismatch',
+  'raw_hash_mismatch',
+  'raw_invalid',
+  'raw_reporter_keys_present',
+  'supplement_invalid',
+  'supplement_hash_mismatch',
+  'client_observation_hash_mismatch',
+};
 const Set<String> ambiguousPayloadCodes = {'invalid_request', 'schema_invalid'};
-const Set<String> requestCodes = {'method_not_allowed', 'unsupported_media_type'};
+const Set<String> requestCodes = {
+  'method_not_allowed',
+  'unsupported_media_type',
+};
 
 /// n 번째 연속 실패(1부터)의 로컬 대기(초). u∈[0,1) 난수(테스트에서 주입). 지터 뒤에도 상한 300초.
 double backoffSeconds(int n, double u) {
   final k = n < 1 ? 1 : n;
-  final base = math.min(backoffCapSeconds, backoffBaseSeconds * math.pow(2, math.min(k - 1, 30)));
+  final base = math.min(
+    backoffCapSeconds,
+    backoffBaseSeconds * math.pow(2, math.min(k - 1, 30)),
+  );
   final uu = u < 0 ? 0.0 : (u > 1 ? 1.0 : u);
   return base * (0.5 + 0.5 * uu);
 }
@@ -85,7 +131,8 @@ int? parseRetryAfter(Map<String, String>? headers, Object? body, DateTime now) {
       final when = _httpDate(text);
       if (when != null) {
         final serverDate = _header(headers, 'Date');
-        final base = (serverDate == null ? null : _httpDate(serverDate)) ?? now.toUtc();
+        final base =
+            (serverDate == null ? null : _httpDate(serverDate)) ?? now.toUtc();
         final seconds = when.difference(base).inSeconds;
         if (seconds > 0) hints.add(seconds);
       }
@@ -107,6 +154,7 @@ class EventOutcome {
     this.receiptId,
     this.projectionStatus,
     this.errorCode,
+    this.originalStatus,
   });
 
   final String eventId;
@@ -115,6 +163,7 @@ class EventOutcome {
   final String? receiptId;
   final String? projectionStatus;
   final String? errorCode;
+  final String? originalStatus;
 }
 
 class Interpretation {
@@ -141,15 +190,21 @@ class Interpretation {
   final int? hint;
 }
 
-Interpretation errorOf(String cls, int? status, {String? code, int? hint, String? requestId}) => Interpretation(
-      kind: 'error',
-      httpStatus: status,
-      errorClass: cls,
-      code: code ?? cls,
-      scope: retryableClasses[cls],
-      hint: hint,
-      requestId: requestId,
-    );
+Interpretation errorOf(
+  String cls,
+  int? status, {
+  String? code,
+  int? hint,
+  String? requestId,
+}) => Interpretation(
+  kind: 'error',
+  httpStatus: status,
+  errorClass: cls,
+  code: code ?? cls,
+  scope: retryableClasses[cls],
+  hint: hint,
+  requestId: requestId,
+);
 
 Object? _decode(List<int>? body) {
   if (body == null) return null;
@@ -181,15 +236,27 @@ bool _validResult(Object? item) {
   if (projection != null && !projections.contains(projection)) return false;
   if (durable) {
     final receipt = item['receipt_id'];
-    return durableStatuses.contains(status) && receipt is String && _uuid.hasMatch(receipt);
+    return durableStatuses.contains(status) &&
+        receipt is String &&
+        _uuid.hasMatch(receipt);
   }
   final err = item['error'];
-  return nonDurableStatuses.contains(status) && err is Map && err['code'] is String && err['retryable'] is bool;
+  return nonDurableStatuses.contains(status) &&
+      err is Map &&
+      err['code'] is String &&
+      err['retryable'] is bool;
 }
 
 /// HTTP 200 본문(이미 JSON 해석) 판정. 형식이 하나라도 틀리면 invalid_ack(보낸 행 전부 재시도).
-Interpretation interpretAck(List<String> sentIds, Object? obj) {
-  if (obj is! Map || obj['protocol'] != 1 || obj['request_id'] is! String || obj['results'] is! List) {
+Interpretation interpretAck(
+  List<String> sentIds,
+  Object? obj, {
+  int protocol = 1,
+}) {
+  if (obj is! Map ||
+      obj['protocol'] != protocol ||
+      obj['request_id'] is! String ||
+      obj['results'] is! List) {
     return errorOf('invalid_ack', 200);
   }
   final requestId = obj['request_id'] as String;
@@ -197,7 +264,15 @@ Interpretation interpretAck(List<String> sentIds, Object? obj) {
   final seen = <String>{};
   final events = <String, EventOutcome>{};
   for (final item in obj['results'] as List) {
-    if (!_validResult(item)) return errorOf('invalid_ack', 200, requestId: requestId);
+    if (protocol == 1 &&
+        item is Map &&
+        (item['status'] == 'stored' ||
+            item['projection_status'] == 'parse_pending')) {
+      return errorOf('invalid_ack', 200);
+    }
+    if (!_validResult(item)) {
+      return errorOf('invalid_ack', 200, requestId: requestId);
+    }
     final m = item as Map;
     final eventId = m['event_id'] as String;
     if (!sent.contains(eventId) || seen.contains(eventId)) {
@@ -205,7 +280,9 @@ Interpretation interpretAck(List<String> sentIds, Object? obj) {
     }
     seen.add(eventId);
     final status = m['status'] as String;
-    final outcome = m['durable'] == true ? 'done' : (status == 'conflict' ? 'dead' : 'blocked');
+    final outcome = m['durable'] == true
+        ? 'done'
+        : (status == 'conflict' ? 'dead' : 'blocked');
     final err = m['error'] is Map ? m['error'] as Map : null;
     events[eventId] = EventOutcome(
       eventId: eventId,
@@ -214,6 +291,9 @@ Interpretation interpretAck(List<String> sentIds, Object? obj) {
       receiptId: m['receipt_id'] as String?,
       projectionStatus: m['projection_status'] as String?,
       errorCode: err?['code'] as String?,
+      originalStatus: m['original_status'] is String
+          ? m['original_status'] as String
+          : null,
     );
   }
   return Interpretation(
@@ -221,7 +301,10 @@ Interpretation interpretAck(List<String> sentIds, Object? obj) {
     httpStatus: 200,
     requestId: requestId,
     events: events,
-    missing: [for (final id in sentIds) if (!seen.contains(id)) id],
+    missing: [
+      for (final id in sentIds)
+        if (!seen.contains(id)) id,
+    ],
   );
 }
 
@@ -231,32 +314,125 @@ Interpretation interpretResponse(
   int? status,
   Map<String, String>? headers,
   List<int>? body,
-  DateTime now,
-) {
+  DateTime now, {
+  int protocol = 1,
+}) {
   if (status == null) return errorOf('offline', null);
   final obj = _decode(body);
-  if (status == 200) return interpretAck(sentIds, obj);
+  if (status == 200) return interpretAck(sentIds, obj, protocol: protocol);
   final hint = parseRetryAfter(headers, obj, now);
   final (code, requestId) = _errorEnvelope(obj);
   if (status == 429) {
-    return errorOf('rate_limited', status, code: code ?? 'rate_limited', hint: hint, requestId: requestId);
+    return errorOf(
+      'rate_limited',
+      status,
+      code: code ?? 'rate_limited',
+      hint: hint,
+      requestId: requestId,
+    );
   }
   if ((status == 405 || status == 415) && code == null) {
-    return errorOf('request_rejected', status, code: status == 405 ? 'method_not_allowed' : 'unsupported_media_type');
+    return errorOf(
+      'request_rejected',
+      status,
+      code: status == 405 ? 'method_not_allowed' : 'unsupported_media_type',
+    );
   }
-  if (status == 413) return errorOf('request_too_large', status, code: code ?? 'payload_too_large', requestId: requestId);
-  if (status == 401) return errorOf('auth_required', status, code: code ?? 'auth_required', requestId: requestId);
+  if (status == 426) {
+    return errorOf(
+      'connection_rejected',
+      status,
+      code: 'client_upgrade_required',
+      requestId: requestId,
+    );
+  }
+  if (status == 413) {
+    return errorOf(
+      'request_too_large',
+      status,
+      code: code ?? 'payload_too_large',
+      requestId: requestId,
+    );
+  }
+  if (status == 401) {
+    return errorOf(
+      'auth_required',
+      status,
+      code: code ?? 'auth_required',
+      requestId: requestId,
+    );
+  }
   if (code != null) {
-    if (authCodes.contains(code)) return errorOf('auth_required', status, code: code, requestId: requestId);
-    if (consentCodes.contains(code)) return errorOf('consent_rejected', status, code: code, requestId: requestId);
-    if (connectionCodes.contains(code)) return errorOf('connection_rejected', status, code: code, requestId: requestId);
-    if (code == 'payload_too_large') return errorOf('request_too_large', status, code: code, requestId: requestId);
-    if ((eventPayloadCodes.contains(code) || ambiguousPayloadCodes.contains(code)) && status >= 400 && status < 500) {
-      return errorOf('payload_invalid', status, code: code, requestId: requestId);
+    if (code == 'client_upgrade_required') {
+      return errorOf(
+        'connection_rejected',
+        status,
+        code: code,
+        requestId: requestId,
+      );
     }
-    if (requestCodes.contains(code)) return errorOf('request_rejected', status, code: code, requestId: requestId);
-    if (code == 'rate_limited') return errorOf('rate_limited', status, code: code, hint: hint, requestId: requestId);
+    if (authCodes.contains(code)) {
+      return errorOf('auth_required', status, code: code, requestId: requestId);
+    }
+    if (consentCodes.contains(code)) {
+      return errorOf(
+        'consent_rejected',
+        status,
+        code: code,
+        requestId: requestId,
+      );
+    }
+    if (connectionCodes.contains(code)) {
+      return errorOf(
+        'connection_rejected',
+        status,
+        code: code,
+        requestId: requestId,
+      );
+    }
+    if (code == 'payload_too_large') {
+      return errorOf(
+        'request_too_large',
+        status,
+        code: code,
+        requestId: requestId,
+      );
+    }
+    if ((eventPayloadCodes.contains(code) ||
+            ambiguousPayloadCodes.contains(code)) &&
+        status >= 400 &&
+        status < 500) {
+      return errorOf(
+        'payload_invalid',
+        status,
+        code: code,
+        requestId: requestId,
+      );
+    }
+    if (requestCodes.contains(code)) {
+      return errorOf(
+        'request_rejected',
+        status,
+        code: code,
+        requestId: requestId,
+      );
+    }
+    if (code == 'rate_limited') {
+      return errorOf(
+        'rate_limited',
+        status,
+        code: code,
+        hint: hint,
+        requestId: requestId,
+      );
+    }
   }
   // 5xx, 오류 envelope 없는 4xx(HTML 404 등), 모르는 코드: 서버 이상 → 서비스 단위 재시도
-  return errorOf('server_busy', status, code: code ?? 'http_$status', hint: hint, requestId: requestId);
+  return errorOf(
+    'server_busy',
+    status,
+    code: code ?? 'http_$status',
+    hint: hint,
+    requestId: requestId,
+  );
 }

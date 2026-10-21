@@ -6,7 +6,10 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:safetyreport/community/community_store.dart';
 import 'package:safetyreport/community/gate/community_gate.dart';
+import 'package:safetyreport/community/soft_reset.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:safetyreport/screens/community_onboarding_screen.dart';
 import 'package:safetyreport/services/community_auth_link_channel.dart';
 import 'package:safetyreport/services/community_auth_service.dart';
@@ -46,6 +49,7 @@ void main() {
   setUp(() {
     setUpSecureStorage();
   });
+  revokePendingOnboardingTests();
 
   testWidgets('F02: consent checkbox defaults to unchecked; [필수] tags present', (tester) async {
     final auth = StubAuthService();
@@ -361,5 +365,121 @@ void main() {
     final src = File('lib/screens/community_onboarding_screen.dart').readAsStringSync();
     expect(src, isNot(contains('건너뛰기')));
     expect(src, isNot(contains('나중에 설정')));
+  });
+}
+
+void revokePendingOnboardingTests() {
+  testWidgets('revoke pending without a session: 철회 처리 중, no consent card, 다음 disabled', (
+    tester,
+  ) async {
+    final auth = StubAuthService()..setPhase(CommunityAccountPhase.reauthRequired);
+    final server = FakeAccountServer();
+    late Directory tmp;
+    late String dbPath;
+    late CommunityStore store;
+    await tester.runAsync(() async {
+      sqfliteFfiInit();
+      tmp = await Directory.systemTemp.createTemp('onb_revoke');
+      dbPath = '${tmp.path}/community.db';
+      store = await CommunityStore.open(path: dbPath, factory: databaseFactoryFfi);
+    });
+    final gate = CommunityGate(
+      checkDataOwner: ownerOk,
+      config: testAuthConfig(),
+      auth: auth,
+      store: store,
+      accountClient: server.accountClient(),
+      configStatus: () => 'ok',
+      appMode: () => 'standalone',
+      officialAccountId: () async => null,
+    );
+    addTearDown(() async {
+      CommunityReset.pauseForegroundRetry();
+      gate.dispose();
+      await tester.runAsync(() async {
+        await CommunityStore.closeForTest(dbPath);
+        await tmp.delete(recursive: true);
+      });
+    });
+    await tester.runAsync(() async {
+      auth.setPhase(CommunityAccountPhase.connected);
+      await CommunityReset.begin(store, 'g', auth: auth, client: server.accountClient());
+      auth.setPhase(CommunityAccountPhase.reauthRequired);
+      for (var i = 0; i < 3; i++) {
+        await gate.refreshNow();
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      }
+    });
+    expect(gate.state.state, 'revoke_pending');
+    await tester.pumpWidget(
+      _wrap(
+        gate: gate,
+        child: CommunityOnboardingScreen(
+          gate: gate,
+          auth: auth,
+          accountClient: server.accountClient(),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.textContaining('철회 처리 중입니다'), findsWidgets);
+    expect(find.text('[필수]'), findsOneWidget, reason: '동의 카드는 숨기고 카카오 카드만');
+    expect(find.byType(CheckboxListTile), findsNothing);
+    final next = tester.widget<FilledButton>(find.widgetWithText(FilledButton, '다음'));
+    expect(next.enabled, isFalse);
+  });
+  testWidgets('revoke pending with a live session and active consent: 다음 stays disabled', (
+    tester,
+  ) async {
+    final auth = StubAuthService()..setPhase(CommunityAccountPhase.connected);
+    final server = FakeAccountServer();
+    late Directory tmp;
+    late String dbPath;
+    late CommunityStore store;
+    await tester.runAsync(() async {
+      sqfliteFfiInit();
+      tmp = await Directory.systemTemp.createTemp('onb_revoke');
+      dbPath = '${tmp.path}/community.db';
+      store = await CommunityStore.open(path: dbPath, factory: databaseFactoryFfi);
+    });
+    final gate = CommunityGate(
+      checkDataOwner: ownerOk,
+      config: testAuthConfig(),
+      auth: auth,
+      store: store,
+      accountClient: server.accountClient(),
+      configStatus: () => 'ok',
+      appMode: () => 'standalone',
+      officialAccountId: () async => null,
+    );
+    addTearDown(() async {
+      CommunityReset.pauseForegroundRetry();
+      gate.dispose();
+      await tester.runAsync(() async {
+        await CommunityStore.closeForTest(dbPath);
+        await tmp.delete(recursive: true);
+      });
+    });
+    await tester.runAsync(() async {
+      await gate.refreshNow();
+      await gate.recordLocalRevocation(client: server.accountClient());
+    });
+    expect(gate.state.state, 'revoke_pending');
+    await tester.pumpWidget(
+      _wrap(
+        gate: gate,
+        child: CommunityOnboardingScreen(
+          gate: gate,
+          auth: auth,
+          accountClient: server.accountClient(),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.textContaining('철회 처리 중입니다'), findsWidgets);
+    expect(find.text('[필수]'), findsOneWidget, reason: '동의 카드는 숨기고 카카오 카드만');
+    expect(find.byType(CheckboxListTile), findsNothing);
+    final next = tester.widget<FilledButton>(find.widgetWithText(FilledButton, '다음'));
+    expect(next.enabled, isFalse);
   });
 }

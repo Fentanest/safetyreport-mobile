@@ -213,6 +213,21 @@ class WsService : Service() {
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 Log.i(TAG, "WS 종료 중: $code")
+                if (current() && code == 4403) {
+                    val lockedAt = System.currentTimeMillis()
+                    // Keep the previous owner: a later notification worker needs it to re-check the PC.
+                    val previousOwner = runCatching {
+                        org.json.JSONObject(prefs.getString("flutter.community_gate_cache_v1", "{}") ?: "{}")
+                            .optString("owner", "")
+                    }.getOrDefault("")
+                    val lockedCache = org.json.JSONObject()
+                        .put("state", "server_consent_required").put("verified_at", lockedAt)
+                    if (previousOwner.isNotEmpty() && previousOwner != "null") lockedCache.put("owner", previousOwner)
+                    prefs.edit().putLong("flutter.community_server_consent_lock", lockedAt)
+                        .putString("flutter.community_gate_cache_v1", lockedCache.toString()).commit()
+                    runCatching { NotificationWork.scheduleGateRenewal(this@WsService) }
+                    shutdownService("서버 동의 필요")
+                }
                 if (current() && code == 4406) {
                     shutdownService(ServerVersionCompatibility.upgradeMessage(reason))
                 }

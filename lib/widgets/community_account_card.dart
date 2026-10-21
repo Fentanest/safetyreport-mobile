@@ -43,7 +43,6 @@ class _CommunityAccountCardState extends State<CommunityAccountCard> {
   CommunityAuthService get _svc =>
       widget.service ?? CommunityAuthService.instance;
   bool _busy = false;
-
   @override
   void initState() {
     super.initState();
@@ -453,7 +452,6 @@ class _CommunityShareSection extends StatefulWidget {
 class _CommunityShareSectionState extends State<_CommunityShareSection> {
   String? _message;
   String? _deviceName;
-  bool _revokedShown = false;
 
   CommunityGate get _gate => widget.gate;
 
@@ -479,8 +477,6 @@ class _CommunityShareSectionState extends State<_CommunityShareSection> {
     if (mounted) setState(() {});
   }
 
-  Future<String?> _token() => widget.auth.getAccessToken();
-
   Future<void> _revoke() async {
     final grantId = _gate.lastStatus?.consentGrantId;
     if (grantId == null || grantId.isEmpty) {
@@ -492,8 +488,7 @@ class _CommunityShareSectionState extends State<_CommunityShareSection> {
       builder: (ctx) => AlertDialog(
         title: const Text('신고내용 공유 동의 철회'),
         content: const Text(
-          '공유 동의를 철회하면 즉시 필수 설정 화면으로 돌아가고, '
-          '이 동의로 보낸 자료는 공개 지도에서 빠집니다.',
+          '철회하면 지도 서비스에 보낸 원본이 삭제되고, 앱은 카카오 로그인부터 다시 시작합니다. 이 기기의 신고 자료는 남아 있으며 같은 카카오 계정으로 다시 동의하면 이어서 쓸 수 있습니다.',
         ),
         actions: [
           TextButton(
@@ -509,59 +504,8 @@ class _CommunityShareSectionState extends State<_CommunityShareSection> {
     );
     if (ok != true) return;
     await widget.run(() async {
-      await _gate.recordLocalRevocation();
-      final token = await _token();
-      if (!mounted) return; // 토큰을 읽는 동안 화면이 닫혔으면 상태를 바꾸지 않는다(SQ-B09).
-      if (token == null || token.isEmpty) {
-        setState(() => _message = '로그인이 필요합니다.');
-        return;
-      }
-      try {
-        final res = await widget.client.revokeConsent(
-          accessToken: token,
-          grantId: grantId,
-        );
-        if (!mounted) return;
-        if (res.lineageActive == false) {
-          setState(() {
-            _message = '공유 동의가 철회되었습니다.';
-            _revokedShown = true;
-          });
-          await _gate.recordLocalRevocation();
-        } else {
-          setState(() => _message = '철회가 확인되지 않았습니다. 다시 시도해 주세요.');
-        }
-      } on CommunityAccountError catch (e) {
-        if (e.code == 'stale_grant') {
-          await _gate.refreshNow();
-          if (!mounted) return;
-          final current = _gate.lastStatus?.consentGrantId;
-          if (current == null || current.isEmpty) {
-            setState(() => _message = '동의 상태가 바뀌었습니다. 다시 확인해 주세요.');
-            return;
-          }
-          try {
-            final retry = await widget.client.revokeConsent(
-              accessToken: token,
-              grantId: current,
-            );
-            if (!mounted) return;
-            if (retry.lineageActive == false) {
-              setState(() {
-                _message = '공유 동의가 철회되었습니다.';
-                _revokedShown = true;
-              });
-              await _gate.recordLocalRevocation();
-            } else {
-              setState(() => _message = '철회가 확인되지 않았습니다. 다시 시도해 주세요.');
-            }
-          } on CommunityAccountError catch (e2) {
-            if (mounted) setState(() => _message = e2.message);
-          }
-        } else if (mounted) {
-          setState(() => _message = e.message);
-        }
-      }
+      await _gate.recordLocalRevocation(client: widget.client);
+      await _gate.retryRevocation(client: widget.client);
     });
   }
 
@@ -655,10 +599,7 @@ class _CommunityShareSectionState extends State<_CommunityShareSection> {
               title: '신고내용 공유',
             ),
             const SizedBox(height: 10),
-            CommunityInfoRow(
-              label: '동의 상태',
-              value: _revokedShown ? '철회됨' : consentState,
-            ),
+            CommunityInfoRow(label: '동의 상태', value: consentState),
             CommunityInfoRow(label: '정책 버전', value: policyVersion),
             if (connection != null)
               CommunityInfoRow(
@@ -684,6 +625,15 @@ class _CommunityShareSectionState extends State<_CommunityShareSection> {
                       : () => widget.run(() => _gate.requestTakeover()),
                   child: const Text('이 기기로 업로드 전환'),
                 ),
+              ),
+            ],
+            if (_gate.clientServerCheckPending) ...[
+              const SizedBox(height: 8),
+              const CommunityNoticeBox(
+                icon: Icons.sync_problem,
+                tone: CommunityTone.neutral,
+                text:
+                    '서버 연결 대기: 연결된 PC 서버의 동의 상태를 확인하지 못했습니다. 닿으면 자동으로 다시 확인합니다.',
               ),
             ],
             if (_message != null) ...[

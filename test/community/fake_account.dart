@@ -1,3 +1,4 @@
+import 'package:safetyreport/services/community_server_link_service.dart';
 // 게이트·온보딩 테스트 공용 가짜: 카카오 세션, community-account HTTP, secure storage.
 import 'dart:convert';
 
@@ -25,9 +26,17 @@ class StubAuthService extends CommunityAuthService {
         );
 
   @override
-  Future<String?> sessionFingerprint() async => 'fp-32hex';
+  Future<String?> sessionFingerprint() async =>
+      state.value.phase == CommunityAccountPhase.disconnected ? null : 'fp-32hex';
 
   String? tokenResult = 'test-access-token';
+
+  /// 시험용 세션 확정 시각(새 로그인은 값을 바꾼다).
+  String? connectedAt = '2026-10-21T01:00:00.000Z';
+
+  @override
+  Future<String?> sessionConnectedAt() async =>
+      state.value.phase == CommunityAccountPhase.disconnected ? null : connectedAt;
 
   void setPhase(CommunityAccountPhase phase, {String name = '테스터'}) {
     state.value = CommunityAuthState(
@@ -37,6 +46,12 @@ class StubAuthService extends CommunityAuthService {
           ? null
           : CommunityAccountInfo(displayName: name),
     );
+  }
+
+  @override
+  Future<CommunityDisconnectResult> disconnect() async {
+    setPhase(CommunityAccountPhase.disconnected);
+    return const CommunityDisconnectResult(hadSession: true, serverLogoutConfirmed: true);
   }
 
   @override
@@ -255,3 +270,5 @@ void setUpSecureStorage() {
     FlutterSecureStorage.setMockInitialValues({});
   });
 }
+
+Future<CommunityGateLinkResult> pcGateOk() async => CommunityGateLinkResult.success({'can_local':true,'can_enter':true});

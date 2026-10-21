@@ -152,7 +152,7 @@ void main() {
           throwsA(anything), reason: 'v1 은 새 결과 코드를 받지 않는다(재생성이 필요한 이유)');
       await raw.close();
       store = await CommunityStore.open(path: path, factory: databaseFactoryFfi);
-      expect(await store.meta('schema_version'), '3');
+      expect(await store.meta('schema_version'), '4');
       expect(await store.localDatasetId(), 'ds-1');
       final row = (await store.db.rawQuery('SELECT * FROM outbox')).single;
       expect((row['state'], row['attempt_count'], row['next_retry_at']), ('retry_wait', 3, '2026-09-26T01:00:00.000Z'));

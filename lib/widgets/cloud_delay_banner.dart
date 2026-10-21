@@ -69,3 +69,38 @@ class _CloudDelayBannerState extends State<CloudDelayBanner> {
     );
   }
 }
+
+/// Client mode only: a small, non-blocking note while the connected PC could not be asked about
+/// its consent state (or its version). It never locks anything; the gate re-asks by itself.
+class ClientServerWaitingBanner extends StatelessWidget {
+  const ClientServerWaitingBanner({super.key, required this.gate});
+  final CommunityGate gate;
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: gate,
+    builder: (context, _) {
+      if (!gate.clientServerCheckPending) return const SizedBox.shrink();
+      return SafeArea(
+        bottom: false,
+        child: Material(
+          color: Theme.of(context).colorScheme.secondaryContainer,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                const Icon(Icons.sync_problem, size: 16),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'PC 서버 연결 대기 · 닿으면 자동으로 다시 확인합니다',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}

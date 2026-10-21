@@ -17,6 +17,7 @@ void main() {
     final server = FakeAccountServer(status: () => statusJson(fingerprint: phoneFingerprint));
     final gate = CommunityGate(
       checkDataOwner: ownerOk,
+      serverGate: pcGateOk,
       config: testAuthConfig(),
       auth: auth,
       accountClient: server.accountClient(),

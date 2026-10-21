@@ -327,6 +327,12 @@ class ServerConnectionResult {
   );
 
   bool get isOk => status == ServerConnectionStatus.ok;
+
+  /// The PC could not be reached or answered with a server error: no verdict on the version.
+  /// Unlike 401 / incompatible (explicit refusals) this must never lock a working Client.
+  bool get isTransient =>
+      status == ServerConnectionStatus.networkError ||
+      (status == ServerConnectionStatus.httpError && (statusCode ?? 0) >= 500);
 }
 
 class ServerVersionInfo {

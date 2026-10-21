@@ -1,3 +1,4 @@
+import '../community/client_server_consent.dart';
 import 'client_compatibility.dart';
 import 'performance_trace.dart';
 import 'server_connection_service.dart';
@@ -149,6 +150,16 @@ class ApiService {
         ]).timeout(timeout);
         checkCancelled();
         PerformanceTrace.record('client.http_request_and_buffer', networkTimer);
+        if (response.statusCode == 403) {
+          try {
+            final body = jsonDecode(response.body);
+            if (body is Map &&
+                (body['code'] == 'COMMUNITY_ONBOARDING_REQUIRED' ||
+                    body['detail'] == 'COMMUNITY_ONBOARDING_REQUIRED')) {
+              ClientServerConsent.rejected(baseUrl, apiKey);
+            }
+          } catch (_) {}
+        }
         if (response.statusCode == 409) {
           final message = ServerConnectionService.upgradeMessage(response.body);
           if (message != null) {

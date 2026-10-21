@@ -2,13 +2,18 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'community_store.dart';
+import 'gate/gate_policy.dart';
 
 /// Account-scoped status transitions in app secure storage, outside report DB
 /// exports/backups. This is local history, never server authorization or a claim
 /// of tamper-proof storage on a compromised device.
 class ConsentHistory {
   ConsentHistory(this.store, {FlutterSecureStorage? storage})
-    : storage = storage ?? const FlutterSecureStorage(aOptions: AndroidOptions(resetOnError: false));
+    : storage =
+          storage ??
+          const FlutterSecureStorage(
+            aOptions: AndroidOptions(resetOnError: false),
+          );
   final CommunityStore store;
   final FlutterSecureStorage storage;
   static String key(String account) => 'community_consent_history_v1:$account';
@@ -129,6 +134,106 @@ class ConsentHistory {
     previous['accepted_explicitly'] = true;
     await storage.write(key: key(account), value: jsonEncode(previous));
   });
+
+  Future<void> markG1(
+    String account,
+    String member,
+    String? dataset, {
+    String? expectedWorkGeneration,
+  }) => _write(account, () async {
+    await store.transaction((tx) async {
+      if (expectedWorkGeneration != null &&
+          ((await store.meta('work_generation', tx) ?? '0') !=
+                  expectedWorkGeneration ||
+              await store.meta('revoke_pending', tx) != null)) {
+        return;
+      }
+      final previous = await latest(account) ?? <String, Object?>{};
+      if (previous['local_revoke'] == true) return;
+      final before = previous['last_g1'];
+      // A missing dataset never erases a known one for the same member.
+      final kept = before is Map && before['member'] == member
+          ? before['dataset']
+          : null;
+      previous['last_g1'] = {
+        'at': DateTime.now().toUtc().millisecondsSinceEpoch,
+        'member': member,
+        'dataset': dataset ?? kept,
+      };
+      await storage.write(key: key(account), value: jsonEncode(previous));
+    });
+  });
+
+  /// A reset consumed the G1 evidence: later revoked/none answers are a plain
+  /// consent request (G4), never another reset.
+  Future<void> clearG1(String account) => _write(account, () async {
+    final previous = await latest(account);
+    if (previous == null) return;
+    previous.remove('last_g1');
+    previous['reset_completed_at'] = DateTime.now().toUtc().toIso8601String();
+    await storage.write(key: key(account), value: jsonEncode(previous));
+  });
+
+  /// Upgrade seed (once): a history written before `last_g1` existed, whose newest result is
+  /// active for the same member/DB owner/dataset (the caller verified those), gets `last_g1 = now`
+  /// (the first run of this version — never the old time the history turned active), so an old user
+  /// who is offline right after the update is not locked. Never after a reset, a refusal or a suspension.
+  Future<Map<String, Object?>?> seedLastG1(
+    String account,
+    String member,
+    String? dataset,
+  ) async {
+    Map<String, Object?>? seeded;
+    await _write(account, () async {
+      final previous = await latest(account);
+      if (previous == null ||
+          previous['last_g1'] != null ||
+          previous['g1_seeded'] == true ||
+          previous['reset_completed_at'] != null ||
+          previous['result'] != 'ok' ||
+          previous['consent_state'] != 'active' ||
+          previous['local_revoke'] == true ||
+          previous['suspended'] == true) {
+        return;
+      }
+      previous['last_g1'] = {
+        'at': DateTime.now().toUtc().millisecondsSinceEpoch,
+        'member': member,
+        'dataset': dataset,
+        'seeded': true,
+      };
+      previous['g1_seeded'] = true;
+      seeded = previous;
+      await storage.write(key: key(account), value: jsonEncode(previous));
+    });
+    return seeded;
+  }
+
+  static bool graceValid(
+    Map<String, Object?>? history,
+    String member,
+    String? dataset,
+    DateTime now,
+  ) {
+    final verified = history?['last_g1'];
+    if (verified is! Map ||
+        history?['local_revoke'] == true ||
+        history?['consent_state'] != 'active' ||
+        history?['suspended'] == true) {
+      return false;
+    }
+    final at = verified['at'];
+    if (at is! num ||
+        verified['member'] != member ||
+        verified['dataset'] != dataset) {
+      return false;
+    }
+    return offlineGrace(
+      at / 1000,
+      now.toUtc().millisecondsSinceEpoch / 1000,
+      true,
+    );
+  }
 
   Future<bool> needsCatchup(String account, String grant) async =>
       (await latest(account))?['catchup_grant'] == grant;

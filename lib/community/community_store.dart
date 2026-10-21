@@ -1,3 +1,4 @@
+import 'backfill_store.dart' show backfillSchema;
 // 커뮤니티 공유용 로컬 저장소 `community.db` (contracts/community-ingest/local-store.md).
 //
 // 개인 DB(mysafetyreport.db)와 별도 파일이다. DB 백업·복원·서버 DB 가져오기·clearAll 은 이 파일을 건드리지 않는다.
@@ -11,7 +12,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
 import '../services/sqlite_connection.dart';
 
-const int communityStoreSchemaVersion = 3;
+const int communityStoreSchemaVersion = 4;
 const String communityStoreFileName = 'community.db';
 
 const List<String> _schema = [
@@ -87,6 +88,7 @@ const String _uploadRunResults =
     "'offline','failed','deferred','sent','no_pending','not_due','cooldown','busy_other_run',"
     "'needs_auth','needs_consent','blocked_gate','more_pending'";
 const Map<int, List<String>> _migrations = {
+  4: ['ALTER TABLE source_journal ADD COLUMN raw_event_json TEXT'],
   3: ['ALTER TABLE source_journal ADD COLUMN report_number TEXT'],
   // v2 (2026-09-27 업로드 장애 대응 UC-1): 영속 전송 제어 표, upload_runs 결과 코드 확장(표 재생성·행 보존)
   2: [
@@ -197,7 +199,7 @@ class CommunityStore {
 
   /// v1 표를 만든 뒤 번호 붙은 단계로 올린다(각 단계 한 트랜잭션, 기존 행 보존).
   Future<void> _migrate() async {
-    for (final sql in _schema) {
+    for (final sql in [..._schema, ...backfillSchema]) {
       await db.execute(sql);
     }
     final version = await db.transaction((tx) async {
@@ -232,6 +234,14 @@ class CommunityStore {
         final now = int.parse(await meta('schema_version', tx) ?? '1');
         if (now >= step) return;
         for (final sql in _migrations[step]!) {
+          if (sql.startsWith(
+            'ALTER TABLE source_journal ADD COLUMN raw_event_json',
+          )) {
+            final columns = await tx.rawQuery(
+              'PRAGMA table_info(source_journal)',
+            );
+            if (columns.any((r) => r['name'] == 'raw_event_json')) continue;
+          }
           await tx.execute(sql);
         }
         await setMeta('schema_version', '$step', tx);

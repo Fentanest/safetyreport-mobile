@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/community/community_store.dart';
 import 'package:safetyreport/community/gate/community_gate.dart';
 import 'package:safetyreport/services/community_auth_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'fake_account.dart';
@@ -21,6 +22,7 @@ void main() {
   late FakeAccountServer server;
 
   setUp(() async {
+    SharedPreferences.setMockInitialValues({});
     setUpSecureStorage();
     tmp = await Directory.systemTemp.createTemp('gate_state_test');
     dbPath = '${tmp.path}/community.db';
@@ -42,6 +44,7 @@ void main() {
   }) {
     final gate = CommunityGate(
       checkDataOwner: ownerOk,
+      serverGate: pcGateOk,
       config: testAuthConfig(),
       auth: auth,
       store: store,
@@ -83,7 +86,7 @@ void main() {
     },
   );
 
-  test('F14: revoke and policy change re-evaluate to consent_required', () async {
+  test('F14: revoke resets login; policy change preserves login and locks consent', () async {
     final gate = makeGate();
     expect((await gate.refreshNow()).canEnter, isTrue);
 
@@ -92,6 +95,7 @@ void main() {
     );
     final gate2 = CommunityGate(
       checkDataOwner: ownerOk,
+      serverGate: pcGateOk,
       config: testAuthConfig(),
       auth: auth,
       store: store,
@@ -101,14 +105,16 @@ void main() {
     );
     addTearDown(gate2.dispose);
     final revoked = await gate2.refreshNow();
-    expect(revoked.state, 'consent_required');
+    expect(revoked.state, 'kakao_required');
     expect((await store.context())?['state'], 'inactive');
 
+    auth.setPhase(CommunityAccountPhase.connected);
     final server3 = FakeAccountServer(
       status: () => statusJson(consentState: 'outdated', consentPolicy: '2026-01-01.1'),
     );
     final gate3 = CommunityGate(
       checkDataOwner: ownerOk,
+      serverGate: pcGateOk,
       config: testAuthConfig(),
       auth: auth,
       store: store,
@@ -118,6 +124,8 @@ void main() {
     );
     addTearDown(gate3.dispose);
     expect((await gate3.refreshNow()).state, 'consent_required');
+    // Background checks started by the login change must finish before the store is closed.
+    await Future<void>.delayed(const Duration(milliseconds: 300));
   });
 
   // 2026-09-27 사용자 결정: 이 기기의 신고 자료가 다른 카카오 계정 것이면 들어가지 않는다(PC services/community_gate.py 와 같음).
@@ -209,7 +217,9 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     expect(server.statusCalls, before, reason: '브라우저 로그인 중에는 건드리지 않는다');
     auth.setPhase(CommunityAccountPhase.connected);
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    for (var i = 0; i < 40 && server.statusCalls < before + 1; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
     expect(server.statusCalls, before + 1);
     expect(gate.canEnter, isTrue, reason: '이미 동의한 계정은 바로 통과');
   });
@@ -242,6 +252,7 @@ void main() {
     );
     final gate2 = CommunityGate(
       checkDataOwner: ownerOk,
+      serverGate: pcGateOk,
       config: testAuthConfig(),
       auth: auth,
       store: store,

@@ -45,6 +45,7 @@ void main() {
       officialAccountId: () async => localId,
       datasetGeneration: () => epoch,
       checkDataOwner: ownerOk,
+      serverGate: pcGateOk,
       deviceLabel: () => 'Test device',
       platformName: () => 'android',
     );
@@ -138,19 +139,19 @@ void main() {
       server.statusFailures = 1;
       expect((await g.refreshNow(silent: true)).state, 'cloud_unavailable');
       expect(g.canEnter, isFalse);
-      expect(g.canBrowse, isTrue, reason: '장애 시 화면 차단만 임시 해제');
+      expect(g.canBrowse, isFalse, reason: '보안 저장소의 G1 증거가 없는 설치는 장애로 열지 않는다');
       expect((await g.retryCloud()).canEnter, isTrue);
       expect(server.accountClient().timeout, const Duration(seconds: 30));
     },
   );
 
   test(
-    'cold-start outage allows browsing but persists a closed worker gate',
+    'cold-start outage without persisted G1 stays locked',
     () async {
       final g = gate();
       server.statusFailures = 5;
       await g.refreshNow();
-      expect(g.canBrowse, isTrue);
+      expect(g.canBrowse, isFalse);
       expect((await g.requireFresh()).canEnter, isFalse);
       await g.persistForBackground();
       final prefs = await SharedPreferences.getInstance();

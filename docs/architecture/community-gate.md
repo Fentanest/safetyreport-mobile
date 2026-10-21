@@ -163,7 +163,7 @@ grant 로 재요청), `공유한 자료 삭제 요청`(확인 문구 입력 → 
   HTTP 제한 약 30초, 프로젝트 공통 영속 `next_attempt_at` 이전에는 재요청하지 않는다.
   실패 시 context·공유 게이트 캐시는 비활성화하고 로컬 동기화 권한은 별도로 판정한다.
   **코드 대조 정정 — 임시 장애 화면 차단 해제:** `canBrowse`는 클라우드 장애 중에도
-  일반 화면과 탭 이동을 허용한다. 설정된 앱은 재시도 전용 화면 대신 메인 화면을 연다.
+  같은 회원·DB의 마지막 G1 뒤 72시간 이내에만 일반 화면과 탭 이동을 허용한다. G1 기록이 없거나 만료·시계 되돌림이면 잠근다.
   `canEnter`/`requireFresh`는 계속 닫혀 있어 작업·업로드 권한으로 사용하지 않는다.
   로컬 DB 주인 불일치, 계정 변경 미완료, 이미 확인한 원격 계정 불일치는 우회하지 않는다.
   정상 응답을 받으면 기존 설정·초기화·작업 흐름으로 복구한다.
@@ -182,7 +182,7 @@ grant 로 재요청), `공유한 자료 삭제 요청`(확인 문구 입력 → 
 
 ## 코드 대조 정정 — 2.0.5 긴급 장애 정책
 
-`canEnter`는 서버가 확인한 현재 공유 권한이고 `canBrowse`/`requireLocalAccess`는 로컬 이용 권한이다. 기존 로그인과 같은 자료 주인을 확인한 사용자는 동의 none/revoked/unknown이어도 로컬 조회·수집을 계속한다. 신규 인증이 없거나 DB 주인·공식 계정이 다르거나 이용정지가 확인되면 우회하지 않는다. 로컬에서는 누락된 DB 주인을 임의로 찍지 않는다. 동의가 필요하면 설정의 공유 동의 확인 화면에서 처리한다.
+`canEnter`는 서버가 확인한 현재 공유 권한이고 `canBrowse`/`requireLocalAccess`는 로컬 이용 권한이다. 2026-10-21 원본 전환 정책으로 긴급 예외를 폐기했다. none/revoked/outdated는 로컬 이용을 잠그며 unknown은 같은 회원·DB의 마지막 G1 뒤 72시간 이내에서만 허용한다. 신규 인증이 없거나 DB 주인·공식 계정이 다르거나 이용정지가 확인되면 우회하지 않는다. 로컬에서는 누락된 DB 주인을 임의로 찍지 않는다. 동의가 필요하면 설정의 공유 동의 확인 화면에서 처리한다.
 
 `CloudAvailability`는 community.db meta의 프로젝트별 deadline과 probe lease로 auth, status, writer, manifest, ingest 요청을 함께 제한한다. **2026-10-11 공용 원칙(cloud-retry-brief, PC `services/community_cloud.py`와 같은 식):** 연속 실패 n(성공하면 0, community.db meta에 영속해 foreground isolate와 WorkManager isolate가 같은 값을 본다)에 대해 기준 쿨다운 = `300 · 2^(n-1)`초, 상한 1800초(30분)에 ±20% 균등 지터를 적용한다. 429/408/5xx와 연결/본문 timeout, Retry-After(초·HTTP-date), error.retryAfterSeconds/error.retry_after_seconds 중 이 지터 적용값보다 더 긴 값이 있으면 그 값을 따른다(절대 줄이지 않는다) — 더 짧으면 지터 적용 기준값이 이긴다. 기존에 저장된 더 긴 deadline도 줄이지 않는다. foreground timer와 WorkManager가 같은 deadline을 읽으며 카운트다운은 화면만 갱신한다. 정상 OAuth 시작은 장애가 관측되지 않았다면 지연시키지 않는다. Supabase `/auth/v1/authorize?provider=kakao`는 정상 중간 경로다.
 
@@ -195,3 +195,38 @@ grant 로 재요청), `공유한 자료 삭제 요청`(확인 문구 입력 → 
 실제 동의 전환/명시적 동의 완료는 계정·grant·dataset별 durable catch-up 한 건을 예약한다. 단순 초기 active 조회와 반복 poll은 새 전체수집을 만들지 않는다. manifest를 한 번 완전히 읽고 같은 계정의 재공유 가능한 원본을 기존 reshare 이벤트로 전송하며, 전체수집은 상세 완료 표식을 남겨 중단 뒤 이어간다. 공개 완료 manifest는 전체 ingest receipt 목록이 아니다. manifest에서 안 보인다는 이유만으로 기존 ACK를 무시해 새 이벤트를 만들지 않으며 명시적인 삭제 tombstone을 우회하지 않는다. 서버 수동 초기화/receipt 소실의 완전 복원은 별도 서버 조치가 필요하다.
 
 백그라운드는 inactive context도 복구를 시도하되 현재 세션·DB 주인·bound writer를 검증한다. 복구 one-off는 deadline 이후 네트워크 조건을 만족할 때 실행하며 Android Doze/배터리 정책 때문에 정확한 5분 실행은 보장하지 않는다. 전체수집 worker는 약 5분 작업 예산 후 미완료 job을 남긴다.
+
+
+## 원본 JSON 전환 후보 (미출시, 2026-10-21)
+
+계획: `../plans/raw-json-ingest-20261021.md`, 계약: `contracts/community-ingest-v2`.
+동의 active + 새 원본 정책 일치 + status.ingest.contracts의 2를 모두 확인한 capture만 원본 스냅숏을 journal에 고정한다.
+community.db 스키마 4는 source_journal.raw_event_json을 추가한다. 개인 신고 DB·원본 표와 PC↔모바일 교환 형식은 바꾸지 않는다.
+업로더는 v1·v2를 섞지 않고 20건·압축 전 1MiB·gzip 전송 512KiB를 적용한다. stored와 parse_pending을 구분한다.
+확인 불가 상태의 로컬 사용은 같은 계정·DB의 마지막 G1 뒤 72시간뿐이며, 시계 되돌림·동의 없음·outdated는 잠근다.
+확인된 철회·기존 계정의 카카오 연결/기여자 삭제는 신고 DB와 주인을 보존한 소프트 리셋을 한다.
+전송 거부를 먼저 기록하고 writer/context를 해제하며 outbox를 blocked로 만들고 raw_backfill 표시를 지운다.
+철회 요청 실패 시 토큰과 `revoke_pending`을 남겨 잠근 채 재시도한다. 원본 일괄 전송과 보충 호출 지점은 아래 후속 구현 규칙을 따른다.
+실제 브라우저·AVD·소켓 기반 검수는 릴리스 전에 별도로 통과해야 한다.
+
+
+## 코드 대조 정정 — 철회 대기와 작업 세대
+
+위 긴급 장애 정책의 동의 없음·철회 허용 예외는 폐기했다. 확인 불가 유예만 마지막 G1·같은 회원·같은 DB·72시간으로 제한한다.
+`revoke_pending`은 업로드와 로컬 이용을 함께 잠그며 토큰 삭제는 서버 철회 확인 이후다.
+개인 DB를 지우지 않으며 DB 주인 불일치는 기존 복구 흐름을 따른다.
+모바일은 personal_sync와 work_generation을 공유해 foreground/WorkManager의 늦은 저장·ACK·문맥 복원을 차단한다.
+철회 재시도는 foreground 30초 timer와 전용 WorkManager 작업이 맡으며 모든 연결망을 허용한다.
+Client는 PC gate를 직접 확인하고 API 403/WS 4403 신호로 서버 동의 필요 상태로 잠긴다. 폰 카카오 로그인은 유지한다.
+알림·headless gate도 작업 세대와 데이터셋을 확인한 뒤 writer/게이트 캐시를 저장한다.
+
+
+## 검수 결함 수정 (2026-10-21, 미출시)
+
+- 소프트 리셋은 "이 기기에서 G1 이 있던 같은 회원"에게 한 번만 한다. 리셋은 `last_g1` 을 지우고 `reset_completed_at` 을 남기므로 같은 계정의 재로그인은 동의 화면(G4)에 닿는다. 판정 표는 `gate_policy.dart`(G9 정지가 리셋보다 먼저, G7 은 `gate.kakao==false` + reasons 에 `kakao_missing` 일 때만, gate 형식 이상은 확인 불가).
+- `last_g1` 은 기여자 active 로 통과한 뒤에만 기록한다. 업그레이드 시드: last_g1·리셋·거부·정지 기록이 없고 이력의 최신 결과가 active 이며 같은 회원·DB 주인일 때 새 버전 첫 실행 시각을 1회 시드한다(`g1_seeded`).
+- Client: PC 가 `can_*=false` 또는 온보딩 필요로 명시 거절할 때만 잠근다. 네트워크 실패·시간 초과·5xx·형식 이상은 잠금이 아니며 "서버 연결 대기"만 보인다. 헤드리스 잠금 캐시와 `WsService` 4403 은 owner 를 보존한다. 폰 자신의 동의 철회는 별도 문구(`consent_required`).
+- 철회 대기 중에도 카카오 로그인 카드를 보이고 로그인 성공 시 철회를 다시 시도한다. 백그라운드 재시도는 영속 백오프(60초 배, 최대 30분)를 따르고 worker 안에서 자기 작업을 REPLACE 하지 않는다.
+- 철회 대기 중 새로 로그인한 세션으로 철회가 끝나면(2026-10-21 검수 결정) 그 세션을 끊지 않고 바로 동의 화면(G4)으로 둔다 — 로그인은 한 번뿐이다. `CommunityReset.begin` 이 `revoke_pending.session_connected_at`(`sessionConnectedAt()`)을 적고, 완료 때 현재 값이 다르면 `complete(keepSession: true)` 이 writer 연결·활성 문맥·게이트 캐시(`consent_required`)·G1 근거·`raw_backfill`·outbox 는 예전처럼 정리하되 `disconnect()` 만 건너뛴다. 요청 때의 원래 세션으로 끝나면 예전처럼 로그아웃 → 카카오 로그인 단계. 기록 없는 옛 `revoke_pending` 은 원래 세션으로 본다. PC 와 같다.
+- 게이트 poll 은 5분, 서버 잠금 신호는 poll·복귀 때만 읽는다. `community.db` schema 4 는 v3 로 되돌릴 수 없다: 구버전 앱으로 되돌리면 community.db 를 새로 만든다(개인 신고 DB 는 그대로).
+- 업데이트 안내: 앱 버전 < `min_version.mobile` 일 때만(null 이면 숨김). info/warning 배너, required 는 내용 해시별 하루 1회 대화상자. status 의 `client_notice` 가 null/키 없음이면 안내와 426 표시를 해제한다. 426 행은 blocked 가 아니라 1시간 `retry_wait`.

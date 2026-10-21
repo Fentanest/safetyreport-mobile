@@ -21,6 +21,7 @@ void main() {
   CommunityGate gate({String mode = 'server'}) {
     final g = CommunityGate(
       checkDataOwner: ownerOk,
+      serverGate: pcGateOk,
       config: testAuthConfig(),
       auth: auth,
       accountClient: server.accountClient(),
@@ -35,6 +36,7 @@ void main() {
     var generation = 0;
     final g = CommunityGate(
       checkDataOwner: ownerOk,
+      serverGate: pcGateOk,
       config: testAuthConfig(), auth: auth,
       accountClient: server.accountClient(), configStatus: () => 'ok',
       appMode: () => 'server', datasetGeneration: () => generation,

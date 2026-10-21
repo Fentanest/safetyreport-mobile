@@ -524,6 +524,10 @@ class CommunityAuthService {
 
   Future<String?> sessionUserId() async => (await _readSession())?.userId;
 
+  /// 이 세션을 만든(로그인 확정) 시각. 철회 요청 뒤 새로 로그인한 세션을 구별하는 데 쓴다(PC `connected_at` 과 같은 뜻). 없으면 null.
+  Future<String?> sessionConnectedAt() async =>
+      (await _readSession())?.connectedAt?.toUtc().toIso8601String();
+
   Future<String?> sessionKakaoId() async => (await _readSession())?.kakaoId;
 
   /// 지금 로그인한 카카오 회원번호. 이 기능 전에 연결한 세션은 /auth/v1/user 를 한 번 받아 채워 둔다.

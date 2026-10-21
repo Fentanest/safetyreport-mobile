@@ -10,6 +10,7 @@ import '../services/app_prefs_keys.dart';
 import '../services/local_db_service.dart';
 import '../widgets/official_account_reset_dialog.dart';
 import '../services/pending_db_import_action.dart';
+import '../services/pending_standalone_credentials.dart';
 import '../services/server_connection_service.dart';
 import '../services/standalone_auth_service.dart';
 import '../theme/sr_colors.dart';
@@ -25,7 +26,12 @@ class SetupScreen extends StatefulWidget {
     this.onModeSelected,
     this.initialNotice,
     this.accountRecovery = false,
+    this.credentials,
   });
+
+  /// 첫 화면(모드 선택, [onModeSelected] 있음)에서는 입력한 Standalone 자격을 여기에 메모리로만 남긴다.
+  /// 게이트·권한 뒤 [initialMode] 가 standalone 으로 다시 열릴 때 값이 있으면 같은 로그인 경로를 자동 실행한다.
+  final PendingStandaloneCredentials? credentials;
 
   final String? initialNotice;
   final bool accountRecovery;
@@ -53,6 +59,26 @@ class _SetupScreenState extends State<SetupScreen> {
       AppMode.standalone => _Step.standaloneConfig,
       null => _Step.selectMode,
     };
+    final carried = widget.credentials;
+    if (widget.onModeSelected == null &&
+        widget.initialMode == AppMode.standalone &&
+        carried != null &&
+        !carried.isEmpty) {
+      // 게이트·권한을 지난 뒤: 처음 입력한 값으로 로그인을 한 번만 자동 실행한다. 실패하면 값이 채워진 채 화면에 남는다.
+      _usernameController.text = carried.username;
+      _passwordController.text = carried.password;
+      _phoneController.text = carried.phone;
+      _loading = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (!mounted) return;
+        try {
+          await _loginStandalone();
+        } finally {
+          carried.clear();
+          if (mounted && _loading) setState(() => _loading = false);
+        }
+      });
+    }
   }
 
   @override
@@ -190,12 +216,18 @@ class _SetupScreenState extends State<SetupScreen> {
     }
     // 새 설치에서도 심사용 demo/demo 입력은 카카오 없이 판별한다.
     // 실제 로그인·DB 가져오기는 기존 게이트와 권한 안내를 통과한 뒤 실행한다.
-    if (widget.onModeSelected != null) {
-      widget.onModeSelected!(AppMode.standalone);
-      return;
-    }
     if (username.isEmpty || password.isEmpty || phoneNumber.isEmpty) {
       setState(() => _errorMessage = '아이디, 비밀번호, 휴대폰번호를 모두 입력해주세요.');
+      return;
+    }
+    if (widget.onModeSelected != null) {
+      // 입력값은 메모리에만 남겨 게이트 뒤 자동 로그인에 쓴다(디스크 저장 없음).
+      widget.credentials?.set(
+        username: username,
+        password: password,
+        phone: rawPhone,
+      );
+      widget.onModeSelected!(AppMode.standalone);
       return;
     }
     setState(() {

@@ -1,4 +1,6 @@
 import 'bundled_sqlite.dart';
+import '../community/raw_backfill_runtime.dart';
+import '../community/soft_reset.dart';
 import '../community/cloud_availability.dart';
 import '../community/consent_catchup.dart';
 import '../community/community_wiring.dart';
@@ -27,6 +29,14 @@ void backgroundTaskDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     DartPluginRegistrant.ensureInitialized();
     await BundledSqlite.initialize();
+    if (task == CommunityReset.retryTask) {
+      if (!await SecureStorageMigration.isDone()) return false;
+      final store = await CommunityStore.open();
+      // Honour the persisted backoff; success or "nothing pending" ends the work, a failed attempt has
+      // already queued the next run (appended, never replacing this running work).
+      await CommunityReset.attempt(store, fromWorker: true);
+      return true;
+    }
     if (task == communityPeriodicTaskName ||
         task == communityMidnightTaskName ||
         task == communityRecoveryTaskName) {
@@ -96,6 +106,13 @@ Future<bool> runCommunityUploadTask(
     final Future<UploadRunResult> Function(String) run =
         upload ?? ((String trigger) => uploadFromBackground(store, trigger));
     await catchUp('os', store: store, runUpload: run, now: now);
+    // The gate was verified a moment ago at the top of this task; the runtime itself looks at the
+    // local state first (v2 ready? already done?) and never asks the server again just to find out.
+    await RawBackfillRuntime.run(
+      store: store,
+      verify: () async => true,
+      background: true,
+    );
     await ConsentCatchup(store).run(
       verify: () async =>
           await refreshGateHeadless(store, prefs: prefs) == HeadlessGate.ok,

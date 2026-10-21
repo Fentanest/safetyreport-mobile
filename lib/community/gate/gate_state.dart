@@ -35,11 +35,16 @@ const Duration communityGateFreshMaxAge = Duration(seconds: 60);
 /// 공식 로그인 ID → `dataset_key` (`account-api.md`: 클라이언트 주장값).
 String datasetKeyForOfficialId(String officialId) {
   final normalized = officialId.trim().toLowerCase();
-  return sha256.convert(utf8.encode('safetyreport-dataset|v1|$normalized')).toString();
+  return sha256
+      .convert(utf8.encode('safetyreport-dataset|v1|$normalized'))
+      .toString();
 }
 
 /// Client 모드: 폰 계정 fingerprint 와 서버 연결 계정 fingerprint 비교.
-bool serverAccountMismatch(String? phoneFingerprint, String? serverFingerprint) {
+bool serverAccountMismatch(
+  String? phoneFingerprint,
+  String? serverFingerprint,
+) {
   if (phoneFingerprint == null ||
       phoneFingerprint.isEmpty ||
       serverFingerprint == null ||
@@ -76,10 +81,7 @@ GateState evaluateGate({
       invalidated ||
       ageSeconds == null ||
       ageSeconds > ttlSeconds) {
-    return const GateState(
-      state: 'verification_required',
-      canEnter: false,
-    );
+    return const GateState(state: 'verification_required', canEnter: false);
   }
   final gate = status['gate'];
   final kakao = gate is Map ? gate['kakao'] : null;
@@ -111,10 +113,9 @@ GateState evaluateGate({
       consentHash != requiredHash) {
     return const GateState(state: 'consent_required', canEnter: false);
   }
+  if (contributorStatus != 'active') {
+    return const GateState(state: 'verification_required', canEnter: false);
+  }
   // 7. 통과.
-  return GateState(
-    state: 'ok',
-    canEnter: true,
-    verifiedAgeSeconds: ageSeconds,
-  );
+  return GateState(state: 'ok', canEnter: true, verifiedAgeSeconds: ageSeconds);
 }

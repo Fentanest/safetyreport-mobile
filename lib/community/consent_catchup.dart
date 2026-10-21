@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+import 'capture/raw_ingest.dart';
+import 'capture/raw_capture_source.dart';
 import 'package:sqflite/sqflite.dart';
 import 'community_store.dart';
 import 'capture/community_capture.dart' show sourceReportKeyPrefix;
@@ -46,6 +48,21 @@ class ConsentCatchup {
     final key = jobKey(ctx);
     final raw = await store.meta(key);
     if (raw == null || (jsonDecode(raw) as Map)['phase'] == 'completed') {
+      return false;
+    }
+    final status = await store.meta('ingest_status');
+    if (status != null &&
+        rawV2Ready((jsonDecode(status) as Map).cast<String, Object?>())) {
+      // v2: the dedicated raw_backfill resends every answered report, so this v1 job is handed over
+      // (completed) instead of staying scheduled forever.
+      await store.setMeta(
+        key,
+        jsonEncode({
+          'phase': 'completed',
+          'completed_at': isoUtc(DateTime.now()),
+          'handoff': 'raw_backfill',
+        }),
+      );
       return false;
     }
     final owner = newUuidV4();
@@ -145,6 +162,20 @@ SELECT j.* FROM source_journal j JOIN (
           );
           continue;
         }
+        final status = await store.meta('ingest_status');
+        final rawMode =
+            status != null &&
+            rawV2Ready((jsonDecode(status) as Map).cast<String, Object?>());
+        final rawSnapshot = rawMode ? await storedRawSnapshot(after) : null;
+        final rawJson = rawSnapshot == null
+            ? null
+            : jsonEncode(
+                rawWithObservation(
+                  rawSnapshot,
+                  (jsonDecode(row['payload_json'] as String) as Map)
+                      .cast<String, Object?>(),
+                ),
+              );
         final marker = '${jobKey(ctx)}:reshare:$after:${row['payload_sha256']}';
         await store.transaction((tx) async {
           final current = await tx.query(
@@ -186,10 +217,17 @@ SELECT j.* FROM source_journal j JOIN (
               ])
                 k: null,
             });
+          cloned['raw_event_json'] = rawJson;
+          if (rawMode && rawJson == null) {
+            cloned['blocked_reason'] = 'raw_required';
+          }
           await tx.insert('source_journal', cloned);
           await tx.insert('outbox', {
             'event_id': id,
-            'state': 'pending',
+            'state': rawMode && rawJson == null ? 'blocked' : 'pending',
+            'last_error_code': rawMode && rawJson == null
+                ? 'raw_required'
+                : null,
             'attempt_count': 0,
             'enqueued_trigger': 'consent_catchup',
             'enqueued_at': isoUtc(DateTime.now()),

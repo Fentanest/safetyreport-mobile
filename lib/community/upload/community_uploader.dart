@@ -1,4 +1,6 @@
 import '../cloud_availability.dart';
+import '../client_notice.dart';
+import '../capture/raw_ingest.dart';
 // 커뮤니티 업로더 — 공통 업로드 제어 UC-1(contracts/upload-control, PC `services/community_uploader.py` 와 같은 규칙·같은 순서).
 //
 // requestCommunityUpload(trigger) 하나가 realtime/manual/midnight/recovery/rebuild/reshare 를 모두 처리한다.
@@ -16,6 +18,7 @@ import '../cloud_availability.dart';
 // Client 모드·데모 모드에서는 어떤 업로드·등록도 하지 않는다.
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
@@ -763,14 +766,17 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
         );
         if (rows.isEmpty) break;
         final single = probing || run.singleNext;
+        final parked = <String>[];
         final (built, oversize) = await _buildBatch(
           store,
           rows,
           ctx,
           trigger,
           single ? 1 : maxEventsPerRequest,
+          parked: parked,
         );
         batch = built;
+        tried.addAll(parked);
         if (oversize.isNotEmpty) {
           for (final row in oversize) {
             await _deadLetter(store, [row], row.reason!);
@@ -780,7 +786,8 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
           hadProblem = true;
         }
         if (batch.isEmpty) {
-          if (oversize.isNotEmpty) continue;
+          // Parked v2 rows (waiting for v2) do not end the run: the next front row may be a v1 row.
+          if (oversize.isNotEmpty || parked.isNotEmpty) continue;
           break;
         }
       }
@@ -852,11 +859,15 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
           interp = policy.errorOf('auth_required', 401, code: 'auth_required');
         }
       }
+      if (!await _sameScope(store, ctx)) {
+        state.errorCode = 'context_changed';
+        return finish('blocked_gate');
+      }
       for (final row in batch) {
         tried.add(row.eventId);
       }
       if (interp.kind == 'ack') {
-        await _applyAck(store, batch, interp, counts);
+        await _applyAck(store, batch, interp, counts, ctx);
         _progress(
           '진행: 전송 ${counts['sent']}건, 확인 ${counts['acked']}건, 재시도 ${counts['retry']}건',
         );
@@ -970,11 +981,14 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
       }
       token = t.accessToken!;
     }
+    if (batch.any((r) => r.data['enqueued_trigger'] == 'raw_backfill')) {
+      trigger = 'raw_backfill';
+    }
     final envelope = _envelope(ctx, trigger, [
       for (final row in batch) row.event!,
     ]);
     final body = utf8.encode(jsonEncode(envelope));
-    if (body.length > bodyLimit) {
+    if (body.length > (envelope['protocol'] == 2 ? 1024 * 1024 : bodyLimit)) {
       return (
         const _Sent(notSent: true),
         policy.errorOf('request_too_large', null, code: 'payload_too_large'),
@@ -989,14 +1003,38 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
     }
     counts['requests'] = counts['requests']! + 1;
     counts['sent'] = counts['sent']! + batch.length;
-    final transport = await client.postEnvelopeBytes(token, body);
+    final transport = await client.postEnvelopeBytes(
+      token,
+      body,
+      compressed: envelope['protocol'] == 2,
+    );
     final interp = policy.interpretResponse(
       [for (final row in batch) row.eventId],
       transport.status,
       transport.headers,
       transport.body,
       _now(),
+      protocol: envelope['protocol'] as int,
     );
+    if (await _sameScope(store, ctx)) {
+      if (interp.kind == 'ack') {
+        // A stored ACK means the server accepts this app version: lift the 426 flag
+        // whether or not the response carries a notice.
+        try {
+          final data = jsonDecode(utf8.decode(transport.body!));
+          final has = data is Map && data.containsKey('client_notice');
+          await ClientNotice.save(
+            store,
+            has ? data['client_notice'] : null,
+            authoritative: has,
+            clearUpgrade: true,
+          );
+        } catch (_) {}
+      } else if (transport.status == 426 ||
+          interp.code == 'client_upgrade_required') {
+        await ClientNotice.markUpgradeRequired(store);
+      }
+    }
     if (interp.requestId != null && interp.requestId!.isNotEmpty) {
       requestIds.add(interp.requestId!);
     }
@@ -1051,6 +1089,15 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
       );
       counts['dead'] = counts['dead']! + batch.length;
       return 'continue';
+    }
+    if (code == 'client_upgrade_required') {
+      // A refused app version is not a row defect: keep the rows (retry_wait, long backoff)
+      // and let the updated app, a status without the notice, or a stored ACK release them.
+      await store.transaction(
+        (tx) => _retryRows(tx, batch, code, 3600, interp.requestId),
+      );
+      counts['retry'] = counts['retry']! + batch.length;
+      return 'failed';
     }
     final scopeKind = policy.retryableClasses[cls];
     if (scopeKind != null) {
@@ -1333,11 +1380,20 @@ OR j.connection_id IS NOT ? OR j.consent_grant_id IS NOT ?)
     int limit,
     Set<String> exclude,
   ) async {
+    // While the server does not accept v2, a v2 row parked for it must not hold back the newer v1 row of the
+    // same report (the v2 -> v1 fallback issues that v1 event); once v2 is back the parked row is the front again.
+    final statusText = await store.meta('ingest_status');
+    final v2Ready =
+        statusText != null &&
+        rawV2Ready((jsonDecode(statusText) as Map).cast<String, Object?>());
+    final skipParked = v2Ready
+        ? ''
+        : " AND COALESCE(o2.last_error_code,'')<>'v2_unavailable'";
     final rows = await store.db.rawQuery(
-      'SELECT o.event_id, o.attempt_count, o.state, j.source_report_id, j.source_revision, j.event_type, j.captured_at,'
+      'SELECT o.event_id, o.attempt_count, o.state, o.enqueued_trigger, j.source_report_id, j.source_revision, j.event_type, j.captured_at,'
       ' j.payload_sha256, j.eligible, j.writer_epoch, j.report_number FROM source_journal j JOIN outbox o ON o.event_id=j.event_id'
       ' JOIN (SELECT j2.source_report_id AS rid, MIN(j2.source_revision) AS rev FROM source_journal j2'
-      " JOIN outbox o2 ON o2.event_id=j2.event_id WHERE o2.state IN ('pending','retry_wait','in_flight','auth_required')"
+      " JOIN outbox o2 ON o2.event_id=j2.event_id WHERE o2.state IN ('pending','retry_wait','in_flight','auth_required')$skipParked"
       '${_ctxFilter.replaceAll('j.', 'j2.')} GROUP BY j2.source_report_id) f'
       ' ON f.rid=j.source_report_id AND f.rev=j.source_revision'
       " WHERE o.state IN ('pending','retry_wait','auth_required') AND (o.next_retry_at IS NULL OR o.next_retry_at <= ?)"
@@ -1374,8 +1430,13 @@ OR j.connection_id IS NOT ? OR j.consent_grant_id IS NOT ?)
     'source_revision': row.data['source_revision'],
     'writer_epoch': row.data['writer_epoch'],
     'captured_at': row.data['captured_at'],
-    'payload': jsonDecode(payloadJson),
-    'payload_sha256': row.data['payload_sha256'],
+    if (row.data['_raw_event'] != null)
+      ...(jsonDecode(row.data['_raw_event'] as String) as Map)
+          .cast<String, Object?>()
+    else ...{
+      'payload': jsonDecode(payloadJson),
+      'payload_sha256': row.data['payload_sha256'],
+    },
   };
 
   Map<String, Object?> _envelope(
@@ -1383,8 +1444,10 @@ OR j.connection_id IS NOT ? OR j.consent_grant_id IS NOT ?)
     String trigger,
     List<Map<String, Object?>> events,
   ) => {
-    'protocol': 1,
-    'contract': 'community-ingest-v1',
+    'protocol': events.isNotEmpty && events.first.containsKey('raw') ? 2 : 1,
+    'contract': events.isNotEmpty && events.first.containsKey('raw')
+        ? 'community-ingest-v2'
+        : 'community-ingest-v1',
     'source_app': 'safetyreport-mobile',
     'source_mode': 'standalone',
     'connection_id': ctx['connection_id'],
@@ -1401,6 +1464,7 @@ OR j.connection_id IS NOT ? OR j.consent_grant_id IS NOT ?)
             'recovery',
             'rebuild',
             'reshare',
+            'raw_backfill',
           }.contains(trigger)
         ? trigger
         : 'manual',
@@ -1413,8 +1477,9 @@ OR j.connection_id IS NOT ? OR j.consent_grant_id IS NOT ?)
     List<_Row> rows,
     Map<String, Object?> ctx,
     String trigger,
-    int maxEvents,
-  ) async {
+    int maxEvents, {
+    List<String>? parked,
+  }) async {
     final base = utf8
         .encode(jsonEncode(_envelope(ctx, trigger, const [])))
         .length;
@@ -1422,14 +1487,41 @@ OR j.connection_id IS NOT ? OR j.consent_grant_id IS NOT ?)
     final oversize = <_Row>[];
     var total = base;
     final reports = <String>{};
+    final statusText = await store.meta('ingest_status');
+    final v2Ready =
+        statusText != null &&
+        rawV2Ready((jsonDecode(statusText) as Map).cast<String, Object?>());
     for (final row in rows) {
       if (batch.length >= maxEvents) break;
       if (reports.contains(row.reportId)) continue;
       final found = await store.db.rawQuery(
-        'SELECT payload_json FROM source_journal WHERE event_id=?',
+        'SELECT payload_json,raw_event_json FROM source_journal WHERE event_id=?',
         [row.eventId],
       );
       if (found.isEmpty) continue;
+      row.data['_raw_event'] = found.first['raw_event_json'];
+      // v2 rows wait while the server does not accept v2 (status ingest.contracts lacks 2 / 503);
+      // the app is back on v1 from the next status check. v1 rows (no raw) are always sendable as v1,
+      // including rows queued before the switch to v2 — they are never blocked for lacking raw.
+      if (row.data['_raw_event'] != null && !v2Ready) {
+        await store.db.update(
+          'outbox',
+          {
+            'state': 'retry_wait',
+            'next_retry_at': isoUtc(_now().add(const Duration(minutes: 1))),
+            'last_error_code': 'v2_unavailable',
+          },
+          where: 'event_id=?',
+          whereArgs: [row.eventId],
+        );
+        parked?.add(row.eventId);
+        continue;
+      }
+      if (batch.isNotEmpty &&
+          (batch.first.data['_raw_event'] != null) !=
+              (row.data['_raw_event'] != null)) {
+        continue;
+      }
       final epoch = row.data['writer_epoch'];
       if (epoch is! int || epoch < 1) {
         oversize.add(
@@ -1445,12 +1537,30 @@ OR j.connection_id IS NOT ? OR j.consent_grant_id IS NOT ?)
         continue;
       }
       final size = utf8.encode(jsonEncode(event)).length;
-      if (base + size > bodyLimit) {
+      final limit = event.containsKey('raw') ? 1024 * 1024 : bodyLimit;
+      if (base + size > limit) {
         oversize.add(row..reason = 'payload_too_large');
         continue;
       }
       final extra = size + (batch.isEmpty ? 0 : 1);
-      if (total + extra > bodyLimit) continue;
+      if (total + extra > limit) continue;
+      if (event.containsKey('raw') &&
+          gzip
+                  .encode(
+                    utf8.encode(
+                      jsonEncode(
+                        _envelope(ctx, trigger, [
+                          ...batch.map((r) => r.event!),
+                          event,
+                        ]),
+                      ),
+                    ),
+                  )
+                  .length >
+              512 * 1024) {
+        if (batch.isEmpty) oversize.add(row..reason = 'payload_too_large');
+        continue;
+      }
       row.event = event;
       batch.add(row);
       reports.add(row.reportId);
@@ -1610,10 +1720,20 @@ OR j.connection_id IS NOT ? OR j.consent_grant_id IS NOT ?)
     List<_Row> batch,
     policy.Interpretation interp,
     Map<String, int> counts,
+    Map<String, Object?> expected,
   ) async {
     final now = isoUtc(_now());
     final byId = {for (final row in batch) row.eventId: row};
     await store.transaction((tx) async {
+      final current = await tx.query(
+        'context',
+        where: "id=1 AND state='active'",
+      );
+      if (current.isEmpty ||
+          !_scopeFields.every((k) => current.first[k] == expected[k]) ||
+          !_sameGeneration(expected)) {
+        return;
+      }
       for (final entry in interp.events.entries) {
         final eventId = entry.key;
         final ev = entry.value;
@@ -1623,6 +1743,25 @@ OR j.connection_id IS NOT ? OR j.consent_grant_id IS NOT ?)
             'UPDATE source_journal SET ack_status=?, receipt_id=?, acked_at=?, projection_status=? WHERE event_id=?',
             [ev.status, ev.receiptId, now, ev.projectionStatus, eventId],
           );
+          if (byId[eventId]?.data['_raw_event'] != null &&
+              (ev.status == 'stored' ||
+                  ev.status == 'no_change' ||
+                  (ev.status == 'duplicate' &&
+                      ['stored', 'no_change'].contains(ev.originalStatus)))) {
+            await store.setMeta('raw_receipt:$eventId', 'stored', tx);
+          }
+          // The server holds the stored raw now; keep only its content keys (change detection) in the
+          // journal so community.db does not grow by the full body of every acknowledged event.
+          final rawText = byId[eventId]?.data['_raw_event'];
+          if (rawText is String) {
+            final compact = compactRawEvent(rawText);
+            if (compact != null) {
+              await tx.rawUpdate(
+                'UPDATE source_journal SET raw_event_json=? WHERE event_id=?',
+                [compact, eventId],
+              );
+            }
+          }
           final key = ev.status == 'quarantined' ? 'quarantined' : 'acked';
           counts[key] = counts[key]! + 1;
         } else if (ev.outcome == 'dead') {
@@ -1716,6 +1855,7 @@ String projectionMessage(String? projection) {
       return '지도 반영됨';
     case 'removed':
       return '지도에서 빠짐(정정)';
+    case 'parse_pending':
     case 'held':
       return '중앙 저장 완료·지도 반영 대기';
     case 'not_public':

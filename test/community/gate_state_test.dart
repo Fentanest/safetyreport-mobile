@@ -217,7 +217,8 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     expect(server.statusCalls, before, reason: '브라우저 로그인 중에는 건드리지 않는다');
     auth.setPhase(CommunityAccountPhase.connected);
-    for (var i = 0; i < 40 && server.statusCalls < before + 1; i++) {
+    // The status call is counted when it is sent; wait for its answer to be applied too.
+    for (var i = 0; i < 40 && (server.statusCalls < before + 1 || !gate.canEnter); i++) {
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
     expect(server.statusCalls, before + 1);

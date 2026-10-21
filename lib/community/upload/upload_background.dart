@@ -276,13 +276,28 @@ Future<HeadlessGate> refreshGateHeadless(
   // for a G1 this device saw (a reset consumes that evidence, so a later revoked/none
   // answer is a plain consent request).
   if (gatePolicy(gateVector(status.raw, had)) == 'soft_reset') {
+    // Same as the foreground gate: a login newer than the one that confirmed G1 is kept
+    // (the unlink webhook already ended the old session), so the next screen is consent (G4).
+    var keepSession = false;
     if (!clientMode && tokens == null) {
-      await headlessSoftReset(store, account, status.consentGrantId);
+      final g1Session = last is Map ? last['session'] : null;
+      final nowSession = await CommunityAuthService.instance
+          .sessionConnectedAt();
+      keepSession =
+          g1Session is String && nowSession != null && g1Session != nowSession;
+      await headlessSoftReset(
+        store,
+        account,
+        status.consentGrantId,
+        keepSession: keepSession,
+      );
     }
     return _block(
       store,
       p,
-      clientMode ? 'server_consent_required' : 'kakao_required',
+      clientMode
+          ? 'server_consent_required'
+          : (keepSession ? 'consent_required' : 'kakao_required'),
       clock(),
       record: false,
       owner: clientMode ? account : null,
@@ -380,6 +395,9 @@ Future<HeadlessGate> refreshGateHeadless(
           ? datasetKeyForOfficialId(localId)
           : ctx['dataset_key'] as String?,
       expectedWorkGeneration: workGeneration,
+      session: tokens == null
+          ? await CommunityAuthService.instance.sessionConnectedAt()
+          : null,
     );
   }
   await guard();
@@ -407,6 +425,7 @@ Future<void> headlessSoftReset(
   String account,
   String? grant, {
   CommunityAuthService? auth,
+  bool keepSession = false,
 }) async {
   await ConsentHistory(store).event(
     account,
@@ -415,7 +434,7 @@ Future<void> headlessSoftReset(
     grant: grant,
     localRevoke: true,
   );
-  await CommunityReset.complete(store, auth: auth);
+  await CommunityReset.complete(store, auth: auth, keepSession: keepSession);
 }
 
 Future<HeadlessGate> _block(

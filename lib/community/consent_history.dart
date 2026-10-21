@@ -149,6 +149,7 @@ class ConsentHistory {
     String member,
     String? dataset, {
     String? expectedWorkGeneration,
+    String? session,
   }) => _write(account, () async {
     await store.transaction((tx) async {
       if (expectedWorkGeneration != null &&
@@ -168,6 +169,13 @@ class ConsentHistory {
         'at': DateTime.now().toUtc().millisecondsSinceEpoch,
         'member': member,
         'dataset': dataset ?? kept,
+        // Session (connected_at) that confirmed this G1. A caller that cannot read it keeps the
+        // same member's earlier value (never erased) so a later reset can tell a new login apart.
+        'session':
+            session ??
+            (before is Map && before['member'] == member
+                ? before['session']
+                : null),
       };
       await storage.write(key: key(account), value: jsonEncode(previous));
     });

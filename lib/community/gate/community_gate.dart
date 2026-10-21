@@ -489,7 +489,9 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   /// Server-confirmed withdrawal/account removal. Personal reports and owner stay locked in place.
-  Future<void> softReset(String reason) async {
+  /// [keepSession]: the session is a new login made after the last G1 was confirmed (the
+  /// disconnect webhook already removed the old one). Keep it and go straight to the consent screen (G4).
+  Future<void> softReset(String reason, {bool keepSession = false}) async {
     _authGen++;
     _localAllowed = false;
     if (_store != null) {
@@ -507,14 +509,20 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         _store,
         auth: _auth,
         storage: _secureStorage,
+        keepSession: keepSession,
       );
-    } else {
+    } else if (!keepSession) {
       await _auth.disconnect();
     }
     _lastStatus = null;
     _verifiedAt = null;
     _invalidated = true;
-    _apply(const GateState(state: 'kakao_required', canEnter: false));
+    _apply(
+      GateState(
+        state: keepSession ? 'consent_required' : 'kakao_required',
+        canEnter: false,
+      ),
+    );
     _notifyIfChanged();
   }
 
@@ -1078,7 +1086,16 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
           await _clientOwnReset(account);
           return _state;
         }
-        await softReset('account_removed');
+        // Read before the reset clears last_g1: a login newer than the one that confirmed G1 stays.
+        final g1Session = verified is Map ? verified['session'] : null;
+        final nowSession = await _auth.sessionConnectedAt();
+        await softReset(
+          'account_removed',
+          keepSession:
+              g1Session is String &&
+              nowSession != null &&
+              g1Session != nowSession,
+        );
         return _state;
       }
       if (_store != null && account != null) {
@@ -1228,6 +1245,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
           account,
           member,
           official == null ? null : datasetKeyForOfficialId(official),
+          session: await _auth.sessionConnectedAt(),
         );
       }
       if (_store != null) await ConsentHistory(_store).clearCapture();

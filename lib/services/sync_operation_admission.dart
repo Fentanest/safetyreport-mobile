@@ -37,7 +37,9 @@ class SyncOperationAdmission {
         'context',
         where: "id=1 AND state='active'",
       );
-      if (ctx.isEmpty ||
+      // 게이트의 일시 비활성화(poll 의 503·쿨다운)는 동기화를 끊지 않는다 — 그 처리는 capture 의 offline 경로에 맡긴다.
+      // 식별 필드가 다를 때와 work_generation 변경만 실패로 본다.
+      if (ctx.isNotEmpty &&
           ![
             'contributor_fingerprint',
             'connection_id',

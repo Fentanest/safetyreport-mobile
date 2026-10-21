@@ -48,6 +48,19 @@ class StubAuthService extends CommunityAuthService {
     );
   }
 
+  /// 다른 프로세스(헤드리스 소프트 리셋)가 저장소의 세션을 바꾼 상황: 값이 있으면 저장소는 그 상태다.
+  CommunityAccountPhase? storedPhase;
+
+  @override
+  Future<CommunityAccountPhase> savedSessionPhase() async =>
+      storedPhase ?? state.value.phase;
+
+  @override
+  Future<void> load() async {
+    final stored = storedPhase;
+    if (stored != null) setPhase(stored);
+  }
+
   @override
   Future<CommunityDisconnectResult> disconnect() async {
     setPhase(CommunityAccountPhase.disconnected);

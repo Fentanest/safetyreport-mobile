@@ -411,6 +411,18 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
                     const Text(
                       '철회 처리 중입니다. 서버 확인까지 앱을 잠그고 자동으로 다시 시도합니다. 카카오 로그인이 끊겼다면 아래에서 같은 계정으로 다시 로그인하면 철회를 마칩니다.',
                     ),
+                    if (gate?.revokeAccountMismatch == true)
+                      Padding(
+                        key: const Key('revokeAccountMismatch'),
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          '철회 중인 계정${gate?.revokeAccountName == null || gate!.revokeAccountName!.isEmpty ? '' : '(${gate.revokeAccountName})'}으로 로그인해야 철회를 마칠 수 있습니다. '
+                          '지금 연결된 카카오 계정은 다른 계정입니다. 아래에서 로그아웃한 뒤 철회 중인 계정으로 다시 로그인해 주세요.',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      ),
                     TextButton(
                       onPressed: () => gate?.retryRevocation(),
                       child: const Text('철회 다시 시도'),

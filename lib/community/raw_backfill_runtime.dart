@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
@@ -10,7 +11,10 @@ import '../services/attachment_policy.dart';
 import '../services/db_optimize.dart';
 import '../services/local_db_service.dart';
 import '../services/photo_capture_time.dart';
+import '../services/maintenance_service.dart';
 import '../services/standalone_api_service.dart';
+import '../services/standalone_auth_service.dart';
+import '../services/standalone_auto_sync_service.dart';
 import '../services/standalone_parser.dart';
 import '../services/sync_engine.dart';
 import '../services/sync_inventory.dart';
@@ -26,6 +30,8 @@ import 'raw_backfill.dart';
 import 'upload_hooks.dart';
 
 const _answered = ['수용', '일부수용', '불수용', '답변완료', '기타'];
+const _manualLoginKey = 'raw_login_manual';
+const _loginPausesKey = 'raw_login_pauses';
 const _scopeKeys = [
   'contributor_fingerprint',
   'dataset_key',
@@ -127,6 +133,9 @@ class RawBackfillRuntime {
         return s['unfinished']! > s['holds']!
             ? const Duration(seconds: 15)
             : null;
+      case 'uploading':
+        // 업로드 단계는 업로더가 영수증을 받기를 기다릴 뿐이다 — 15초마다 대기 항목을 훑지 않는다.
+        return yielded ? const Duration(seconds: 3) : const Duration(seconds: 60);
       default:
         return yielded
             ? const Duration(seconds: 3)
@@ -179,6 +188,27 @@ class RawBackfillRuntime {
     if (!await _v2Ready(store)) return null;
     final before = await status(store);
     if (await _alreadyDone(store, before)) return before;
+    if (before != null &&
+        before['state'] == 'paused' &&
+        before['reason'] == 'official_login_required' &&
+        await store.meta(_manualLoginKey) != null) {
+      // 공식 로그인이 거부되어 멈춘 상태: 수동 로그인으로 결과가 바뀔 때까지 공식 API 를 부르지 않는다.
+      ReloginStatus? login;
+      try {
+        login = await StandaloneAuthService.lastReloginStatus();
+      } catch (_) {}
+      if (login?.needsManualLogin == true) {
+        if (!background) await _plan(store, before);
+        return null;
+      }
+      await store.db.delete(
+        'meta',
+        where: 'key IN (?,?)',
+        whereArgs: [_manualLoginKey, _loginPausesKey],
+      );
+      before['next_attempt_at'] = 0;
+      await store.setMeta('raw_backfill', jsonEncode(before));
+    }
     final prefs = await SharedPreferences.getInstance();
     await prefs.reload();
     if (AppModeX.fromString(prefs.getString(AppPrefsKeys.appMode)) !=
@@ -218,6 +248,7 @@ class RawBackfillRuntime {
         store,
         () => generation == _generation && !leaseLost,
         slice: background ? backgroundSlice : foregroundSlice,
+        background: background,
       );
       final retry = await store.meta('raw_backfill_retry') == 'true';
       await store.db.delete(
@@ -237,6 +268,13 @@ class RawBackfillRuntime {
         shouldYield: backend.yieldRequested,
       ).run(budget: 1000, retryHolds: retry);
       yielded = backend.yieldRequested();
+      if (outcome != null && outcome['reason'] != 'official_login_required') {
+        await store.db.delete(
+          'meta',
+          where: 'key IN (?,?)',
+          whereArgs: [_manualLoginKey, _loginPausesKey],
+        );
+      }
     } on BackfillCancelled {
       /* The persisted cursor resumes under the next valid scope. */
     } catch (_) {
@@ -260,7 +298,8 @@ class _Slot<T> {
 
 /// Production adapter of [RawBackfill] (official site, personal DB, community store).
 @visibleForTesting
-class RawBackfillRuntimeBackend implements RawBackfillBackend {
+class RawBackfillRuntimeBackend
+    implements RawBackfillBackend, BatchedReceipts {
   /// Replaced in tests: the satisfaction lookup (official site).
   static Future<({int? score, String cause, bool confirmed, bool exists})>
   Function(String reportNumber)?
@@ -269,13 +308,21 @@ class RawBackfillRuntimeBackend implements RawBackfillBackend {
   /// Replaced in tests: the first list request (total count).
   static Future<int> Function()? totalCountForTest;
 
-  RawBackfillRuntimeBackend(this.store, this.allowed, {required Duration slice})
-    : sliceEnd = DateTime.now().add(slice),
-      hardDeadline = DateTime.now().add(slice * 3);
+  RawBackfillRuntimeBackend(
+    this.store,
+    this.allowed, {
+    required Duration slice,
+    this.background = false,
+  }) : sliceEnd = DateTime.now().add(slice);
   final CommunityStore store;
   final bool Function() allowed;
+
+  /// 슬라이스가 끝나면 항목 사이에서 양보한다([yieldRequested]). 항목·목록 요청 도중에는 끊지 않는다 —
+  /// 중간에 끊으면 같은 목록·같은 항목을 처음부터 반복하며 공식 API 를 계속 부른다.
   final DateTime sliceEnd;
-  final DateTime hardDeadline;
+
+  /// 백그라운드 isolate 는 DB 최적화를 시작하지 않는다(기다리기만).
+  final bool background;
   Map<String, dynamic>? activeScope;
   final _listItems = <String, Map<String, Object?>>{};
 
@@ -334,9 +381,7 @@ class RawBackfillRuntimeBackend implements RawBackfillBackend {
 
   @override
   Future<bool> current(Map<String, dynamic> scope) async {
-    if (!allowed() ||
-        DateTime.now().isAfter(hardDeadline) ||
-        LocalDbService.closeRequested) {
+    if (!allowed() || LocalDbService.closeRequested) {
       return false;
     }
     final ctx = await store.activeContext();
@@ -345,14 +390,58 @@ class RawBackfillRuntimeBackend implements RawBackfillBackend {
         _scopeKeys.every((k) => ctx[k] == scope[k]);
   }
 
+  /// 일반 크롤·자동 동기화·사진 작업이 도는가. 시험에서 바꾼다.
+  @visibleForTesting
+  static bool Function() generalWorkRunning = () =>
+      SyncEngine.isRunning ||
+      StandaloneAutoSyncService.isRunning ||
+      MaintenanceService.isRunning;
+
+  /// 포그라운드에서 DB 최적화를 시작한다 — ReportProvider._startDbOptimizeIfNeeded 와 같은 인자(provider 의
+  /// `_lastIsSyncing`/`_lastRebuildPending` 을 null 로 덮지 않는다). 시험에서 바꾼다.
+  @visibleForTesting
+  static void Function() optimizeStarter = () {
+    unawaited(
+      DbOptimize.maybeStart(
+        isSyncing: () =>
+            SyncEngine.isRunning || StandaloneAutoSyncService.isRunning,
+        rebuildPending: () async => SyncEngine.rebuildBlocks != null
+            ? await SyncEngine.rebuildBlocks!()
+            : false,
+      ),
+    );
+  };
+
   @override
   Future<bool> optimizationReady() async {
-    if (await DbOptimize.needsRun()) {
-      // Start it here (outside any sync lease) and wait: the optimizer finishes before the backfill.
-      DbOptimize.maybeStart();
+    // 일반 크롤·자동 동기화·사진 작업과 동시에 돌지 않는다(PC·계획 7-2).
+    if (generalWorkRunning()) return false;
+    if (DbOptimize.isRunning || DbOptimize.blocksSync) return false;
+    // 보류만 남은 최적화(재시도 시각 대기)는 준비 완료로 본다.
+    final holdsOnly = DbOptimize.holdsOnly(await DbOptimize.readMeta());
+    if (!holdsOnly && await DbOptimize.needsRun()) {
+      // 백그라운드 isolate 에서는 시작하지 않는다(포그라운드와 동시에 전체 최적화가 돌 수 있다).
+      if (!background) optimizeStarter();
       return false;
     }
-    return !DbOptimize.blocksSync;
+    return true;
+  }
+
+  /// 공식 로그인 거부(수동 로그인 필요)면 수동 로그인까지 멈추고, 그 외에는 5분부터 두 배씩(최대 1시간) 물러난다.
+  Future<BackfillPaused> _loginPause() async {
+    ReloginStatus? login;
+    try {
+      login = await StandaloneAuthService.lastReloginStatus();
+    } catch (_) {}
+    if (login?.needsManualLogin == true) {
+      await store.setMeta(_manualLoginKey, '1');
+      return BackfillPaused('official_login_required', retrySeconds: 3600);
+    }
+    final count =
+        (int.tryParse(await store.meta(_loginPausesKey) ?? '0') ?? 0) + 1;
+    await store.setMeta(_loginPausesKey, '$count');
+    final seconds = math.min(3600, 300 * (1 << math.min(count - 1, 6)));
+    return BackfillPaused('official_login_required', retrySeconds: seconds);
   }
 
   // ── A: list inventory ─────────────────────────────────────────────────────
@@ -409,7 +498,7 @@ class RawBackfillRuntimeBackend implements RawBackfillBackend {
       // The first request (total count) is inside this guard too: a failure is retried with the
       // pause back-off, and a login problem pauses as "official login required".
       if (DbOptimize.classifyFetchError(e) == 'auth') {
-        throw BackfillPaused('official_login_required');
+        throw await _loginPause();
       }
       return {'list_ok': false, 'ids': <String>[], 'eligible_ids': <String>[]};
     }
@@ -549,7 +638,7 @@ class RawBackfillRuntimeBackend implements RawBackfillBackend {
       } catch (e) {
         if (e is BackfillCancelled || e is BackfillPaused) rethrow;
         final kind = DbOptimize.classifyFetchError(e);
-        if (kind == 'auth') throw BackfillPaused('official_login_required');
+        if (kind == 'auth') throw await _loginPause();
         if (kind == 'permanent') {
           return {'raw_unavailable': true, 'filled': 0, 'unfilled': 1};
         }
@@ -755,9 +844,74 @@ class RawBackfillRuntimeBackend implements RawBackfillBackend {
     return result.eventId;
   }
 
+  /// event_id -> 영수증 판정. [prefetchReceipts] 가 채우고 [receipt] 가 한 번 쓰고 비운다.
+  final _receipts = <String, String>{};
+
+  /// 업로드 단계의 대기 항목 영수증을 쿼리 3개(메타·저널·outbox)로 한꺼번에 읽는다 — 항목마다 3~4개를 돌리지 않는다.
+  @override
+  Future<void> prefetchReceipts(Iterable<String> events) async {
+    _receipts.clear();
+    final ids = events.toSet().toList();
+    for (var i = 0; i < ids.length; i += 400) {
+      await check();
+      final part = ids.sublist(i, math.min(ids.length, i + 400));
+      final marks = List.filled(part.length, '?').join(',');
+      final stored = {
+        for (final r in await store.db.query(
+          'meta',
+          columns: ['key'],
+          where:
+              'key IN (${List.filled(part.length, '?').join(',')}) AND value=?',
+          whereArgs: [for (final e in part) 'raw_receipt:$e', 'stored'],
+        ))
+          (r['key'] as String).substring('raw_receipt:'.length),
+      };
+      final journal = {
+        for (final r in await store.db.query(
+          'source_journal',
+          columns: ['event_id', 'ack_status'],
+          where: 'event_id IN ($marks)',
+          whereArgs: part,
+        ))
+          r['event_id'] as String: r['ack_status'] as String?,
+      };
+      final box = {
+        for (final r in await store.db.query(
+          'outbox',
+          columns: ['event_id', 'state'],
+          where: 'event_id IN ($marks)',
+          whereArgs: part,
+        ))
+          r['event_id'] as String: r['state'] as String?,
+      };
+      for (final e in part) {
+        _receipts[e] = _judgeReceipt(
+          stored.contains(e),
+          journal.containsKey(e),
+          journal[e],
+          box[e],
+        );
+      }
+    }
+  }
+
+  static String _judgeReceipt(
+    bool metaStored,
+    bool inJournal,
+    String? ack,
+    String? boxState,
+  ) {
+    if (metaStored || (inJournal && ack == 'stored')) return 'stored';
+    if (boxState == 'blocked' || boxState == 'dead_letter') return 'blocked';
+    if (!inJournal || ack != null) return 'retry';
+    return 'pending';
+  }
+
   @override
   Future<String> receipt(String id, String event) async {
     await check();
+    final prefetched = _receipts.remove(event);
+    if (prefetched != null) return prefetched;
     if (await store.meta('raw_receipt:$event') == 'stored') return 'stored';
     final rows = await store.db.query(
       'source_journal',

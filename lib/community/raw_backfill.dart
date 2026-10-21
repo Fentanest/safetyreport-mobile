@@ -27,6 +27,11 @@ abstract class RawBackfillBackend {
   Future<void> wakeUpload();
 }
 
+/// 업로드 단계의 영수증 조회를 한 번에 묶을 수 있는 backend(선택). 없으면 항목마다 [RawBackfillBackend.receipt].
+abstract class BatchedReceipts {
+  Future<void> prefetchReceipts(Iterable<String> events);
+}
+
 abstract class BackfillItems {
   Future<void> reset(String run, Map<String, Map<String, dynamic>> items);
   Future<void> loadLegacy(String run, Map<String, dynamic> items);
@@ -357,7 +362,14 @@ class RawBackfill {
         }
       }
       if (marker['phase'] == 'uploading') {
-        for (final (id, item) in await repo.queued(run, budget)) {
+        final queued = await repo.queued(run, budget);
+        if (b is BatchedReceipts) {
+          await (b as BatchedReceipts).prefetchReceipts([
+            for (final (_, item) in queued)
+              if (item['event_id'] is String) item['event_id'] as String,
+          ]);
+        }
+        for (final (id, item) in queued) {
           if (shouldYield?.call() == true) {
             break;
           }

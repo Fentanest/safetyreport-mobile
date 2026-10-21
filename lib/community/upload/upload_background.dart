@@ -276,7 +276,9 @@ Future<HeadlessGate> refreshGateHeadless(
   // for a G1 this device saw (a reset consumes that evidence, so a later revoked/none
   // answer is a plain consent request).
   if (gatePolicy(gateVector(status.raw, had)) == 'soft_reset') {
-    if (!clientMode && tokens == null) await CommunityReset.complete(store);
+    if (!clientMode && tokens == null) {
+      await headlessSoftReset(store, account, status.consentGrantId);
+    }
     return _block(
       store,
       p,
@@ -396,6 +398,24 @@ Future<HeadlessGate> refreshGateHeadless(
     }),
   );
   return HeadlessGate.ok;
+}
+
+/// 헤드리스 소프트 리셋: 포그라운드 softReset 과 같게 원격 철회 이력(remote-reset, localRevoke)을 남긴 뒤 리셋을 마친다.
+/// 이력이 있어야 같은 계정으로 다시 로그인했을 때 G1 로 또 리셋되지 않고 동의 화면(G4)으로 간다.
+Future<void> headlessSoftReset(
+  CommunityStore store,
+  String account,
+  String? grant, {
+  CommunityAuthService? auth,
+}) async {
+  await ConsentHistory(store).event(
+    account,
+    'consent_required',
+    'remote-reset',
+    grant: grant,
+    localRevoke: true,
+  );
+  await CommunityReset.complete(store, auth: auth);
 }
 
 Future<HeadlessGate> _block(

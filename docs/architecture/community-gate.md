@@ -227,6 +227,12 @@ Client는 PC gate를 직접 확인하고 API 403/WS 4403 신호로 서버 동의
 - `last_g1` 은 기여자 active 로 통과한 뒤에만 기록한다. 업그레이드 시드: last_g1·리셋·거부·정지 기록이 없고 이력의 최신 결과가 active 이며 같은 회원·DB 주인일 때 새 버전 첫 실행 시각을 1회 시드한다(`g1_seeded`).
 - Client: PC 가 `can_*=false` 또는 온보딩 필요로 명시 거절할 때만 잠근다. 네트워크 실패·시간 초과·5xx·형식 이상은 잠금이 아니며 "서버 연결 대기"만 보인다. 헤드리스 잠금 캐시와 `WsService` 4403 은 owner 를 보존한다. 폰 자신의 동의 철회는 별도 문구(`consent_required`).
 - 철회 대기 중에도 카카오 로그인 카드를 보이고 로그인 성공 시 철회를 다시 시도한다. 백그라운드 재시도는 영속 백오프(60초 배, 최대 30분)를 따르고 worker 안에서 자기 작업을 REPLACE 하지 않는다.
+- 최종 검토 정정(2026-10-21):
+  - Client 도 확인 불가(서버 503·쿨다운) 때 같은 회원의 마지막 G1 뒤 72시간 유예를 받는다(`_prepareLocalUse`; dataset 은 기록된 값과 비교하고 Client 는 null 일 수 있다. 업그레이드 시드도 Client 포함). PC 가 명시적으로 거절할 때만 잠근다 — base 는 Client 에 로컬 사용을 항상 열었다.
+  - `SyncOperationAdmission.checkOwnership` 은 활성 문맥이 **비어 있을 때**(게이트의 일시 비활성화) 실패하지 않는다. 식별 필드가 다르거나 `work_generation` 이 바뀔 때만 `sync_context_changed`/`sync_generation_changed`.
+  - 계보가 바뀐 재동의(알던 동의 상태가 active 가 아니었다가 active)는 `ConsentHistory.catchup_lineage_changed` → `ConsentCatchup` job `lineage_changed` 로 이어져 v2 인계 때 `raw_backfill`·`raw_backfill_retry` 표시를 지우고 새 run 으로 전체를 다시 보낸다. 같은 계보의 동의문 갱신(active→active, grant 만 변경)은 표시를 유지한다. PC `lineage_changed` 와 같음.
+  - 헤드리스 소프트 리셋(`headlessSoftReset`)도 포그라운드 `softReset` 처럼 `remote-reset`(localRevoke) 이력을 남긴다. 포그라운드 게이트는 확인마다 메모리 세션이 `connected` 인데 저장소 세션이 아니면 `auth.load()` 로 저장소 기준으로 다시 맞춘다.
+  - 철회 대기 중 철회하던 계정이 아닌 다른 카카오 계정으로 로그인하면 `CommunityGate.revokeAccountMismatch`/`revokeAccountName`(`revoke_pending.display_name`, `begin` 이 기록)이 켜져 온보딩이 "철회 중인 계정(표시 이름)으로 로그인해야 철회를 마칠 수 있습니다…" 안내와 로그아웃을 보인다. PC 와 같은 문구.
 - 철회 대기 중 새로 로그인한 세션으로 철회가 끝나면(2026-10-21 검수 결정) 그 세션을 끊지 않고 바로 동의 화면(G4)으로 둔다 — 로그인은 한 번뿐이다. `CommunityReset.begin` 이 `revoke_pending.session_connected_at`(`sessionConnectedAt()`)을 적고, 완료 때 현재 값이 다르면 `complete(keepSession: true)` 이 writer 연결·활성 문맥·게이트 캐시(`consent_required`)·G1 근거·`raw_backfill`·outbox 는 예전처럼 정리하되 `disconnect()` 만 건너뛴다. 요청 때의 원래 세션으로 끝나면 예전처럼 로그아웃 → 카카오 로그인 단계. 기록 없는 옛 `revoke_pending` 은 원래 세션으로 본다. PC 와 같다.
 - 게이트 poll 은 5분, 서버 잠금 신호는 poll·복귀 때만 읽는다. `community.db` schema 4 는 v3 로 되돌릴 수 없다: 구버전 앱으로 되돌리면 community.db 를 새로 만든다(개인 신고 DB 는 그대로).
 - 업데이트 안내: 앱 버전 < `min_version.mobile` 일 때만(null 이면 숨김). info/warning 배너, required 는 내용 해시별 하루 1회 대화상자. status 의 `client_notice` 가 null/키 없음이면 안내와 426 표시를 해제한다. 426 행은 blocked 가 아니라 1시간 `retry_wait`.

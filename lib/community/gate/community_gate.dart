@@ -270,6 +270,8 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         null,
       _authGen,
       _clientWaiting,
+      _revokeAccountMismatch,
+      _revokeAccountName,
       status(),
     ]);
   }
@@ -373,7 +375,8 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<bool> _prepareLocalUse({bool consentDenied = false}) async {
     _localAllowed = false;
-    if (consentDenied || appMode == 'server') return false;
+    // Client 도 같은 회원의 마지막 확인 후 72시간 유예를 받는다(PC 가 명시적으로 거절할 때만 잠금).
+    if (consentDenied) return false;
     if (sessionStatus() != 'valid' || _hardLocalBlock != null) return false;
     final member = await _auth.sessionKakaoId();
     final account = await _auth.sessionFingerprint();
@@ -426,7 +429,12 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     // Upgrade seed: histories written before `last_g1` existed keep their last verified time (the
     // owner/dataset were just checked above), so an offline first start after the update is not G3.
     var graceHistory = history;
-    if (_store != null && isWriter && history?['last_g1'] == null) {
+    if (!isWriter) {
+      // Client: 데이터셋 키가 없다. 기록된 마지막 확인의 데이터셋(없으면 null)과 비교한다.
+      final last = history?['last_g1'];
+      dataset = last is Map ? last['dataset'] as String? : null;
+    }
+    if (_store != null && history?['last_g1'] == null) {
       graceHistory =
           await ConsentHistory(_store).seedLastG1(account, member, dataset) ??
           history;
@@ -901,6 +909,15 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
           phase == CommunityAccountPhase.confirmRequired;
       // 최초 로그인 후보는 아직 저장 세션이 아니다. 계정 변경 중이면 기존
       // 저장 세션으로 평소와 똑같이 신원·동의·정지 여부를 확인한다.
+      if (!loginInProgress && phase == CommunityAccountPhase.connected) {
+        // 다른 프로세스(헤드리스 소프트 리셋·로그아웃)가 저장소의 세션을 지웠을 수 있다 — 메모리 상태를 저장소에 맞춘다.
+        try {
+          if (await _auth.savedSessionPhase() !=
+              CommunityAccountPhase.connected) {
+            await _auth.load();
+          }
+        } catch (_) {}
+      }
       final session = loginInProgress
           ? sessionStatus(savedPhase: await _auth.savedSessionPhase())
           : sessionStatus();
@@ -1008,6 +1025,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
       _retryTimer?.cancel();
       if (_store != null && await CommunityReset.pending(_store) != null) {
         _localAllowed = false;
+        await _refreshRevokeAccount();
         _apply(const GateState(state: 'revoke_pending', canEnter: false));
         _notice = '철회 처리 중입니다. 자동으로 다시 시도합니다.';
         CommunityReset.resumePending(
@@ -1241,6 +1259,30 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  bool _revokeAccountMismatch = false;
+  String? _revokeAccountName;
+
+  /// 철회 대기 중 철회하던 계정이 아닌 다른 카카오 계정으로 로그인했는가(그 계정으로는 철회를 마칠 수 없다 —
+  /// 조용히 잠기지 않도록 화면이 안내와 로그아웃을 보인다. PC 와 같음).
+  bool get revokeAccountMismatch => _revokeAccountMismatch;
+
+  /// 철회 중인 계정의 표시 이름(철회를 시작할 때 적어 둔 값, 없으면 null).
+  String? get revokeAccountName => _revokeAccountName;
+
+  Future<void> _refreshRevokeAccount() async {
+    _revokeAccountMismatch = false;
+    _revokeAccountName = null;
+    try {
+      final item = _store == null ? null : await CommunityReset.pending(_store);
+      if (item == null || sessionStatus() != 'valid') return;
+      final account = await _auth.sessionFingerprint();
+      if (account != null && account != item['account']) {
+        _revokeAccountMismatch = true;
+        _revokeAccountName = item['display_name'] as String?;
+      }
+    } catch (_) {}
+  }
+
   /// While a withdrawal is pending the gate stays `revoke_pending` whatever the session looks like.
   Future<bool> _holdRevokePending() async {
     final store = _store;
@@ -1248,6 +1290,7 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
       return false;
     }
     _localAllowed = false;
+    await _refreshRevokeAccount();
     _apply(const GateState(state: 'revoke_pending', canEnter: false));
     _notice = '철회 처리 중입니다. 자동으로 다시 시도합니다.';
     CommunityReset.resumePending(store, auth: _auth, client: accountClient);
@@ -1434,7 +1477,12 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
           await ConsentHistory(
             store,
           ).needsCatchup(status.fingerprint!, status.consentGrantId!)) {
-        await ConsentCatchup(store).schedule(active);
+        await ConsentCatchup(store).schedule(
+          active,
+          lineageChanged: await ConsentHistory(
+            store,
+          ).catchupLineageChanged(status.fingerprint!, status.consentGrantId!),
+        );
       }
     } on _GateScopeChanged {
       rethrow;

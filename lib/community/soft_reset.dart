@@ -65,6 +65,7 @@ class CommunityReset {
           'grant_id': grant,
           'account': account,
           'session_connected_at': await service.sessionConnectedAt(),
+          'display_name': service.state.value.account?.displayName,
           'attempts': 0,
           'next_attempt_at': 0,
         }),
@@ -268,7 +269,7 @@ class CommunityReset {
       await tx.delete(
         'meta',
         where:
-            "key IN ('raw_backfill','raw_backfill_retry','offline_capture','ingest_status','revoke_pending','raw_contract_scope') OR key LIKE 'raw_receipt:%'",
+            "key IN ('raw_backfill','raw_backfill_retry','raw_login_manual','raw_login_pauses','offline_capture','ingest_status','revoke_pending','raw_contract_scope') OR key LIKE 'raw_receipt:%'",
       );
     });
     await (storage ??

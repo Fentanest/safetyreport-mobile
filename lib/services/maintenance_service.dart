@@ -98,6 +98,9 @@ class MaintenanceService {
   static Future<void>? _running;
   static bool _starting = false;
 
+  /// 사진 작업이 돌고 있거나 시작 중인가(원본 전송이 동시에 돌지 않게 보는 값).
+  static bool get isRunning => _running != null || _starting;
+
   static bool get _syncing =>
       SyncEngine.isRunning || StandaloneAutoSyncService.isRunning;
 

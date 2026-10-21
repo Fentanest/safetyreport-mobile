@@ -229,3 +229,8 @@ ACK의 client_notice는 영속 저장하고 어느 화면에서나 표시한다.
 
 - v2 는 현재 status(`ingest.contracts` 에 2)로만 고른다(고정 없음). 2 가 빠지면 v2 행은 `v2_unavailable` 로 보류하고 v1 이벤트를 다시 만든다. raw 없는 기존 행은 v2 모드에서도 v1 로 보낸다. 503 `service_unavailable` 은 재시도이며 2 를 잃으면 그 쿨다운을 푼다.
 - 원본 일괄 전송: run identity 는 `local_dataset_id` 하나. 건별 상태는 `raw_backfill_items`, 보충 시도는 `raw_backfill_supplements`, meta 에는 요약만. 보충 실패는 marker 만 남기고 원본은 보낸다. 삭제·보낼 수 없는 신고는 `not_eligible`. B 경로는 이벤트 하나(상세 저장이 만든 이벤트를 enqueue 가 채택). ACK 된 journal 의 원본은 해시만 남기고 축약. `personal_sync` 는 로컬 쓰기 구간에만 잡고 slice(20초/4분)마다 양보, 끝나면 타이머 정지.
+- 원본 일괄 전송 최종 검토 정정(2026-10-21):
+  - 목록 단계와 항목 처리는 포그라운드 hard deadline 으로 끊지 않는다(예전: slice×3=60초에 처음부터 반복해 공식 API 를 계속 부름). slice 는 항목 사이 양보(`shouldYield`)에만 쓴다.
+  - 공식 로그인 거부: `StandaloneAuthService.lastReloginStatus().needsManualLogin` 이면 `official_login_required` 로 멈추고(`raw_login_manual`) 수동 로그인으로 상태가 바뀔 때까지 공식 API·게이트 확인을 하지 않는다. 그 외(일시 오류)는 5분부터 두 배씩 최대 1시간(`raw_login_pauses`). 소프트 리셋이 두 키를 지운다.
+  - 준비 조건(`optimizationReady`): `SyncEngine`·`StandaloneAutoSyncService`·`MaintenanceService` 가 돌면 대기, DB 최적화가 돌면 대기, 보류만 남은 최적화(`DbOptimize.holdsOnly`)는 준비 완료. 최적화를 시작해야 하면 포그라운드만 provider 와 같은 인자(`isSyncing`·`rebuildPending`)로 시작하고 백그라운드 isolate 는 시작하지 않고 대기만 한다.
+  - uploading 단계 타이머는 60초, 영수증은 `prefetchReceipts` 가 메타·저널·outbox 를 쿼리 3개로 묶어 읽는다(`BatchedReceipts`).

@@ -94,12 +94,20 @@ class ConsentHistory {
       final catchupGrant = isConsentTransition
           ? grant
           : previous['catchup_grant'];
+      // 계보가 바뀐 재동의: 이전에 알던 동의 상태가 active 가 아니었다가 active 로 돌아온 경우(철회를 거쳤다).
+      // 같은 계보의 동의문 갱신(active -> active, grant 만 바뀜)은 포함하지 않는다.
+      final lineageChanged = isConsentTransition
+          ? previous['consent_state'] != null &&
+                previous['consent_state'] != 'active' &&
+                consentState == 'active'
+          : previous['catchup_lineage_changed'] == true;
       if (previous['result'] == effective &&
           previous['grant_id'] == grant &&
           previous['local_revoke'] == sticky &&
           previous['consent_state'] == consentState &&
           previous['suspended'] == suspended &&
-          previous['catchup_grant'] == catchupGrant) {
+          previous['catchup_grant'] == catchupGrant &&
+          (previous['catchup_lineage_changed'] == true) == lineageChanged) {
         return;
       }
       final records = (previous['transitions'] as List? ?? []).cast<Object?>();
@@ -120,6 +128,7 @@ class ConsentHistory {
           'local_revoke': sticky,
           'suspended': suspended,
           'catchup_grant': catchupGrant,
+          'catchup_lineage_changed': lineageChanged,
           if (isConsentTransition) 'accepted_explicitly': false,
           'transitions': records,
           'status': ?status,
@@ -233,6 +242,12 @@ class ConsentHistory {
       now.toUtc().millisecondsSinceEpoch / 1000,
       true,
     );
+  }
+
+  Future<bool> catchupLineageChanged(String account, String grant) async {
+    final state = await latest(account);
+    return state?['catchup_grant'] == grant &&
+        state?['catchup_lineage_changed'] == true;
   }
 
   Future<bool> needsCatchup(String account, String grant) async =>

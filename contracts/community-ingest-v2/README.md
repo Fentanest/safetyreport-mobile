@@ -24,8 +24,13 @@ sha256와 size는 이 바이트를 대상으로 한다. 숫자 1.0과 1, 키 순
   v1은 차단일이 없는 것처럼 계속 처리한다.
 
 원본 문자열 규칙: `raw.body`는 어느 객체에서든 키가 중복되면 안 되며(신고자 키 검사 우회 방지), 짝 없는 UTF-16 surrogate
-(문자 또는 `\ud800` 같은 이스케이프)와 U+0000을 담을 수 없다. 어기면 422 `raw_invalid`다. 보조 필드는 `supplement_invalid`,
-비교 DTO·client_version·parser_version은 `schema_invalid`로 같은 surrogate 규칙을 적용한다.
+(문자 또는 `\ud800` 같은 이스케이프)와 U+0000(문자 그대로뿐 아니라 `\u0000` 이스케이프, 키 포함)을 담을 수 없다. 어기면 422 `raw_invalid`다.
+보조 필드는 `supplement_invalid`, 비교 DTO·client_version·parser_version은 `schema_invalid`로 같은 surrogate 규칙을 적용하며
+비교 DTO의 U+0000도 `schema_invalid`다.
+선택 필드 `client_observation`의 **구조·surrogate·U+0000·해시 쌍** 위반은 위와 같이 거절하지만, 구조가 맞는데 **값** 검증(달력 날짜,
+좌표 범위·정규형, 금액, 제어문자 등)만 실패하면 원본 보존이 우선이므로 이벤트를 거절하지 않고 서버가 그 비교 DTO(와 해시 쌍)를 버린 채
+원본만 저장한다(비교 진단만 빠진다). 해시 쌍은 둘 다 있거나 둘 다 없어야 하며, 해시가 틀리면 값이 잘못돼 있어도
+`client_observation_hash_mismatch`로 거절한다.
 v2의 `status_correction` 이벤트는 event.schema.json enum 밖이므로 422 `schema_invalid`, reshare와 trigger 불일치는 `event_type_mismatch`다.
 
 서버는 인증·동의·writer·fence·해시를 검사한 뒤 원본과 대기열만 저장한다.

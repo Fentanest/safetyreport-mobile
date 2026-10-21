@@ -439,6 +439,17 @@ class DbOptimize {
     return meta['done'] != true;
   }
 
+  /// 보류(`holds`)만 남아 다음 재시도 시각을 기다리는 상태인가(현재 파서 세대, 순회는 끝남).
+  /// 이 상태는 "준비 완료"로 본다 — 보류가 풀리기를 기다리며 원본 전송을 영원히 막지 않는다.
+  static bool holdsOnly(Map<String, dynamic>? meta) {
+    if (meta == null || meta['done'] == true) return false;
+    if (!sameTarget(meta['target'], mobileParserVersion)) return false;
+    final cursor = meta['cursor'];
+    if (cursor is String && cursor.isNotEmpty) return false;
+    final holds = meta['holds'] ?? meta['pending'];
+    return holds is List && holds.isNotEmpty;
+  }
+
   /// target 세대 정규화. 서버·모바일 접두사(`pc-`·`mobile-`)만 떼고 비교한다 —
   /// 한쪽에서 만든 partial 메타를 다른 쪽이 가져오면 holds 만 이어서 처리한다
   /// (같은 target 세대일 때, 서버와 같은 규칙).

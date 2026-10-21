@@ -142,4 +142,12 @@ status의 최상위 `ingest`는 `{contracts:[1],raw_policy_version:"2026-10-21.1
 level=info/warning/required. deadline은 ISO 시각 또는 null이다. 메시지는 일반 텍스트로 표시하며 HTML로 해석하지 않는다.
 URL은 HTTPS만 연다. v2 ACK도 같은 client_notice를 포함한다. HTTP 426 client_upgrade_required는 재전송 반복 대신 업데이트를 안내한다.
 설정의 단일 정본은 private.community_ingest_config이며 두 Edge가 같은 내부 RPC를 읽는다.
-지도 웹 CORS는 명시적으로 허용한 origin만 응답하며 토큰과 세션 검사를 그대로 유지한다.
+
+실패 허용: `internal_community_ingest_capabilities`·`internal_account_ingest_state` RPC가 실패하거나 아직 없으면
+(지도 migration 보다 auth 를 먼저 배포한 경우 등) status 는 500 이 아니라 200 으로 `ingest:{contracts:[1],raw_policy_version:null}`·`client_notice:null`
+(v1 전용)을 돌려주고 경고 로그(`level:"warn"`, `outcome: ingest_capabilities_unavailable | ingest_state_unavailable`)만 남긴다.
+한쪽만 실패하면 성공한 쪽 값은 그대로 싣는다. capabilities 의 `contracts` 가 양의 정수 배열이 아니면 실패로 본다.
+
+브라우저 경계: community-account 는 어떤 action 에도 CORS 허용 헤더를 내지 않는다(이전과 같음). 지도 웹은 이 API 를
+부르지 않는다(지도 레포 PROJECT_RULES 7 — 지도 로그인과 동의·writer·업로드 정책을 섞지 않음). 지도 웹의 업데이트 안내는
+지도 레포 `my-analytics/client-status`(지도 세션 토큰, 지도 origin 허용 목록, 지도 rate limit)가 같은 설정을 읽어 보여 준다.

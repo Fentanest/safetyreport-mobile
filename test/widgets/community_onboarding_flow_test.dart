@@ -482,4 +482,63 @@ void revokePendingOnboardingTests() {
     final next = tester.widget<FilledButton>(find.widgetWithText(FilledButton, '다음'));
     expect(next.enabled, isFalse);
   });
+  testWidgets('revoke pending while logged in as another Kakao account: names the pending account and offers logout', (
+    tester,
+  ) async {
+    final auth = StubAuthService()..setPhase(CommunityAccountPhase.connected);
+    final server = FakeAccountServer();
+    late Directory tmp;
+    late String dbPath;
+    late CommunityStore store;
+    await tester.runAsync(() async {
+      sqfliteFfiInit();
+      tmp = await Directory.systemTemp.createTemp('onb_revoke_other');
+      dbPath = '${tmp.path}/community.db';
+      store = await CommunityStore.open(path: dbPath, factory: databaseFactoryFfi);
+    });
+    final gate = CommunityGate(
+      checkDataOwner: ownerOk,
+      config: testAuthConfig(),
+      auth: auth,
+      store: store,
+      accountClient: server.accountClient(),
+      configStatus: () => 'ok',
+      appMode: () => 'standalone',
+      officialAccountId: () async => null,
+    );
+    addTearDown(() async {
+      CommunityReset.pauseForegroundRetry();
+      gate.dispose();
+      await tester.runAsync(() async {
+        await CommunityStore.closeForTest(dbPath);
+        await tmp.delete(recursive: true);
+      });
+    });
+    await tester.runAsync(() async {
+      await gate.refreshNow();
+      await gate.recordLocalRevocation(client: server.accountClient());
+      final item = (await CommunityReset.pending(store))!;
+      item['account'] = 'another-fp';
+      item['display_name'] = '철회계정';
+      item['next_attempt_at'] = DateTime.now().millisecondsSinceEpoch / 1000 + 3600;
+      await store.setMeta('revoke_pending', jsonEncode(item));
+      gate.invalidate('poll');
+      await gate.refreshNow();
+    });
+    expect(gate.revokeAccountMismatch, isTrue);
+    await tester.pumpWidget(
+      _wrap(
+        gate: gate,
+        child: CommunityOnboardingScreen(
+          gate: gate,
+          auth: auth,
+          accountClient: server.accountClient(),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.byKey(const Key('revokeAccountMismatch')), findsOneWidget);
+    expect(find.textContaining('철회 중인 계정(철회계정)으로 로그인해야 철회를 마칠 수 있습니다'), findsOneWidget);
+    expect(find.text('로그아웃'), findsWidgets);
+  });
 }

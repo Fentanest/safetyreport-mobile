@@ -4,6 +4,7 @@ import 'capture/raw_ingest.dart';
 import 'capture/raw_capture_source.dart';
 import 'package:sqflite/sqflite.dart';
 import 'community_store.dart';
+import 'raw_backfill_runtime.dart' show RawBackfillRuntime;
 import 'capture/community_capture.dart' show sourceReportKeyPrefix;
 
 /// One durable full-collection job per confirmed account/grant/dataset. Retries
@@ -14,7 +15,10 @@ class ConsentCatchup {
   static String jobKey(Map<String, Object?> ctx) =>
       'consent_catchup:${ctx['contributor_fingerprint']}:${ctx['consent_grant_id']}:${ctx['dataset_key']}';
 
-  Future<void> schedule(Map<String, Object?> ctx) async {
+  Future<void> schedule(
+    Map<String, Object?> ctx, {
+    bool lineageChanged = false,
+  }) async {
     if (ctx['consent_grant_id'] == null ||
         ctx['dataset_key'] == null ||
         ctx['contributor_fingerprint'] == null) {
@@ -28,6 +32,7 @@ class ConsentCatchup {
           jsonEncode({
             'phase': 'pending',
             'scheduled_at': isoUtc(DateTime.now()),
+            if (lineageChanged) 'lineage_changed': true,
           }),
           tx,
         );
@@ -55,6 +60,15 @@ class ConsentCatchup {
         rawV2Ready((jsonDecode(status) as Map).cast<String, Object?>())) {
       // v2: the dedicated raw_backfill resends every answered report, so this v1 job is handed over
       // (completed) instead of staying scheduled forever.
+      // 계보가 바뀐 재동의(철회를 보지 못한 채 새 계보로 동의)는 서버 원본이 이미 지워졌으므로 옛 완료 표시를 지워
+      // 새 run 으로 전체를 다시 보낸다(PC 와 같음). 같은 계보의 동의문 갱신은 표시를 유지한다.
+      if ((jsonDecode(raw) as Map)['lineage_changed'] == true) {
+        await store.db.delete(
+          'meta',
+          where: "key IN ('raw_backfill','raw_backfill_retry')",
+        );
+        RawBackfillRuntime.changed.value++;
+      }
       await store.setMeta(
         key,
         jsonEncode({

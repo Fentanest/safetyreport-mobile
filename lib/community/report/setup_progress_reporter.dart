@@ -16,6 +16,11 @@ class SetupProgressReporter {
 
   static const prefsLast = 'setup_progress.last';
   static const prefsDone = 'setup_progress.done';
+
+  /// 400·404(서버가 그 경로·action 을 모름 = 옛 서버)로 끝난 마지막 내용 `{sig, at(epoch ms)}`.
+  /// 같은 내용은 24시간 동안 다시 보내지 않는다(D6).
+  static const prefsRejected = 'setup_progress.rejected';
+  static const rejectedQuiet = Duration(hours: 24);
   static const maxBodyBytes = 2048;
   static const timeout = Duration(seconds: 15);
 
@@ -53,6 +58,19 @@ class SetupProgressReporter {
     try {
       await _run(stage, reason, mode, client);
     } catch (_) {}
+  }
+
+  static bool _rejectedRecently(SharedPreferences prefs, String signature) {
+    try {
+      final raw = prefs.getString(prefsRejected);
+      if (raw == null) return false;
+      final d = jsonDecode(raw);
+      if (d is! Map || d['sig'] != signature || d['at'] is! int) return false;
+      final age = ReportEnv.now().millisecondsSinceEpoch - (d['at'] as int);
+      return age >= 0 && age < rejectedQuiet.inMilliseconds;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// 본문을 만든다. 형식이 틀리면 null. (시험용으로 공개)
@@ -147,6 +165,7 @@ class SetupProgressReporter {
       body['client'],
     ]);
     if (prefs.getString(prefsLast) == signature) return;
+    if (_rejectedRecently(prefs, signature)) return;
 
     final token = await ReportEnv.accessToken();
     if (token == null || token.isEmpty) return;
@@ -170,11 +189,21 @@ class SetupProgressReporter {
       lastStatus = res.statusCode;
       if (res.statusCode == 200) {
         await prefs.setString(prefsLast, signature);
+        await prefs.remove(prefsRejected);
         if (stage == 'connection_registered') {
           await prefs.setBool(prefsDone, true);
         }
+      } else if (res.statusCode == 400 || res.statusCode == 404) {
+        // D6: 서버가 이 경로·내용을 모른다(옛 서버) — 보낸 것으로 치고 24시간 동안 같은 내용을 다시 보내지 않는다.
+        await prefs.setString(
+          prefsRejected,
+          jsonEncode({
+            'sig': signature,
+            'at': ReportEnv.now().millisecondsSinceEpoch,
+          }),
+        );
       }
-      // 429 등은 기록하지 않는다 — 그 단계는 다음 변화(또는 다음 호출) 때 다시 보낸다.
+      // 429·5xx·네트워크는 기록하지 않는다 — 그 단계는 다음 변화(또는 다음 호출) 때 다시 보낸다.
     } on TimeoutException {
       lastStatus = null;
     } on http.ClientException {

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -39,11 +40,35 @@ http.Response okJson(String body) =>
     http.Response.bytes(utf8.encode(body), 200);
 
 void main() {
+  group('계약 사본 contracts/app-announcements', () {
+    test('사본이 MANIFEST.sha256 과 같다(지도 정본과 어긋나면 실패)', () {
+      const dir = 'contracts/app-announcements';
+      final listed = <String>{};
+      for (final line in File('$dir/MANIFEST.sha256').readAsLinesSync()) {
+        if (line.trim().isEmpty) continue;
+        final m = RegExp(r'^([0-9a-f]{64})  (.+)$').firstMatch(line)!;
+        listed.add(m.group(2)!);
+        expect(
+          sha256.convert(File('$dir/${m.group(2)}').readAsBytesSync()).toString(),
+          m.group(1),
+          reason: m.group(2),
+        );
+      }
+      final present = Directory(dir)
+          .listSync(recursive: true)
+          .whereType<File>()
+          .map((f) => f.path.substring(dir.length + 1))
+          .where((p) => p != 'MANIFEST.sha256')
+          .toSet();
+      expect(present, listed, reason: 'MANIFEST 에 없는 파일이나 빠진 파일');
+    });
+  });
+
   group('허용 링크 (links.json 벡터)', () {
     final vectors =
         jsonDecode(
               File(
-                'test/fixtures/backfill-resume/announcement_links.json',
+                'contracts/app-announcements/vectors/links.json',
               ).readAsStringSync(),
             )
             as Map;

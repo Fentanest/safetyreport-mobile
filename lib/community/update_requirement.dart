@@ -105,17 +105,30 @@ class UpdateRequirement {
   int get hashCode => Object.hash(locked, minVersion, url, message);
 
   /// 저장된 판정을 읽는다(다른 isolate 가 쓴 값을 보려고 reload). 읽지 못하면 마지막 메모리 값을 둔다.
+  ///
+  /// 읽을 때마다 저장된 `min_version` 과 **지금** 앱 버전을 다시 비교한다(D3): `cmp(지금, min) >= 0` 이면
+  /// (업데이트를 마쳤으면) 잠금이 아니고 저장값도 지운다. 버전을 모르거나 해석할 수 없으면 저장된 판정 그대로.
   static Future<UpdateRequirement> load([SharedPreferences? prefs]) async {
     try {
       final p = prefs ?? await SharedPreferences.getInstance();
       await p.reload();
       final text = p.getString(prefsKey);
-      final value = text == null ? unlocked : fromJson(jsonDecode(text));
+      var value = text == null ? unlocked : fromJson(jsonDecode(text));
+      if (value.locked && !await _stillBelow(value)) {
+        await p.remove(prefsKey);
+        value = unlocked;
+      }
       if (current.value != value) current.value = value;
       return value;
     } catch (_) {
       return current.value;
     }
+  }
+
+  /// 저장된 잠금이 지금 버전에도 해당하는가. 비교할 수 없으면 true(마지막 판정 유지).
+  static Future<bool> _stillBelow(UpdateRequirement value) async {
+    final cmp = compareAppVersions(await appVersion(), value.minVersion);
+    return cmp == null || cmp < 0;
   }
 
   /// 정상 status(200, 형식 맞음)를 받은 뒤 새 판정. null = 마지막 판정 유지(6-2 표).

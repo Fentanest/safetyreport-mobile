@@ -179,28 +179,24 @@ class AnnouncementParser {
     return DateTime.tryParse(v) != null;
   }
 
-  /// `contracts/app-announcements/vectors/links.json` 규칙. https 만, 세 형태만. 서버와 같은 결과여야 한다.
+  /// `contracts/app-announcements/vectors/links.json` 규칙. 서버(SQL `private.app_announcement_url_allowed`,
+  /// Edge `announcementUrlAllowed`)와 **같은 정규식**을 쓴다 — 벡터 밖 경우(쿼리·조각·특수문자·한글 경로·대문자 호스트)도
+  /// 같은 결과가 나오게. 세 형태 모두 ASCII 문자만 허용하므로 공백·제어문자·`<>"\`·한글은 저절로 거부된다.
   static bool linkAllowed(String url) {
-    if (url.isEmpty || url.length > 500) return false;
-    if (RegExp(r'[\u0000- \u007f-￿<>"\\]').hasMatch(url)) return false;
-    const prefix = 'https://';
-    if (!url.startsWith(prefix)) return false;
-    final rest = url.substring(prefix.length);
-    final cut = rest.indexOf(RegExp(r'[/?#]'));
-    final authority = cut < 0 ? rest : rest.substring(0, cut);
-    final tail = cut < 0 ? '' : rest.substring(cut);
-    // 사용자 정보(@)·포트(:) 거부.
-    if (authority.isEmpty ||
-        authority.contains('@') ||
-        authority.contains(':')) {
-      return false;
-    }
-    final host = authority.toLowerCase();
-    if (host == 'play.google.com') {
-      const base = '/store/apps/details?id=com.fentanest.mysafetyreport';
-      return tail == base || tail.startsWith('$base&');
-    }
-    if (host == 'github.com') return tail.startsWith('/Fentanest/');
-    return RegExp(r'^([a-z0-9-]+\.)*worklazy\.net$').hasMatch(host);
+    if (url.isEmpty || url.runes.length > 500) return false;
+    if (RegExp(r'[\s\u0000-\u001f\u007f<>"\\]').hasMatch(url)) return false;
+    return _playLink.hasMatch(url) ||
+        _githubLink.hasMatch(url) ||
+        _worklazyLink.hasMatch(url);
   }
+
+  static final _playLink = RegExp(
+    r'^https://play\.google\.com/store/apps/details\?id=com\.fentanest\.mysafetyreport(&[A-Za-z0-9._~=%-]+)*$',
+  );
+  static final _githubLink = RegExp(
+    r'^https://github\.com/Fentanest/[A-Za-z0-9._~/%?=&#+-]*$',
+  );
+  static final _worklazyLink = RegExp(
+    r'^https://([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*worklazy\.net(/[A-Za-z0-9._~/%?=&#+-]*)?$',
+  );
 }

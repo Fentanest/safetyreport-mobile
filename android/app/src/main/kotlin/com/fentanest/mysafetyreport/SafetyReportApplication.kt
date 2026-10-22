@@ -22,8 +22,11 @@ class SafetyReportApplication : Application() {
         private const val PREFS_NAME = "FlutterSharedPreferences"
         /** Dart `AppPrefsKeys.standaloneAuthAlert` 와 같은 키(`flutter.` prefix). */
         const val PREF_AUTH_ALERT = "flutter.standalone_auth_alert"
+        /** Dart `UserActionNotifier.prefsAlert`(사용자 조치 알림, WorkManager 엔진에서 쓴다)와 같은 키. */
+        const val PREF_USER_ACTION_ALERT = "flutter.user_action_alert"
         private const val CHANNEL_ID = "app_push_v2" // MainActivity NOTIF_CHANNEL_APP 과 같은 채널
         private const val NOTIF_ID = 7301
+        private const val USER_ACTION_NOTIF_BASE = 7400
     }
 
     // SharedPreferences 는 리스너를 약한 참조로 들고 있으므로 필드로 붙잡아 둔다.
@@ -37,6 +40,15 @@ class SafetyReportApplication : Application() {
             showReloginNotification(message)
         }
 
+    // 사용자 조치 알림(CLIENT-RULES 8절). WorkManager 백그라운드 엔진에는 MainActivity 의 showNotification 채널이 없어서
+    // Dart 가 이 키에 `{"title","body","nav_tab","event_type","at"}` 를 쓰면 여기서 앱 알림과 같은 모양으로 띄운다.
+    private val userActionListener =
+        SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
+            if (key != PREF_USER_ACTION_ALERT) return@OnSharedPreferenceChangeListener
+            val raw = prefs.getString(key, null) ?: return@OnSharedPreferenceChangeListener
+            runCatching { showUserActionNotification(org.json.JSONObject(raw)) }
+        }
+
     override fun onCreate() {
         super.onCreate()
         runCatching { NotificationWork.schedule(this) }
@@ -46,6 +58,51 @@ class SafetyReportApplication : Application() {
         ServerContract.productVersion = "${info.versionName}+$code"
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .registerOnSharedPreferenceChangeListener(authAlertListener)
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .registerOnSharedPreferenceChangeListener(userActionListener)
+    }
+
+    private fun ensureAppChannel(nm: NotificationManager) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && nm.getNotificationChannel(CHANNEL_ID) == null) {
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "앱 알림", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "크롤링 완료 등 앱 이벤트 알림"
+                    enableVibration(true)
+                }
+            )
+        }
+    }
+
+    private fun showUserActionNotification(alert: org.json.JSONObject) {
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        // Android 13+ 알림 권한이 없거나 사용자가 알림을 껐으면 띄우지 않는다(앱 안 안내만).
+        if (!nm.areNotificationsEnabled()) return
+        val body = alert.optString("body", "")
+        if (body.isBlank()) return
+        val title = alert.optString("title", "").ifBlank { "나만의 안전신문고" }
+        val eventType = alert.optString("event_type", "")
+        val navTab = alert.optInt("nav_tab", 0)
+        ensureAppChannel(nm)
+        val openIntent = (packageManager.getLaunchIntentForPackage(packageName) ?: Intent()).apply {
+            data = android.net.Uri.parse("mysafetyreport://notification/app/${java.util.UUID.randomUUID()}")
+            putExtra("nav_tab", navTab)
+            if (eventType.isNotEmpty()) putExtra("nav_event_type", eventType)
+        }
+        // 사유마다 알림 하나(같은 사유의 새 알림은 앞 알림을 대신한다).
+        val id = USER_ACTION_NOTIF_BASE + (eventType.hashCode() and 0xff)
+        val pi = PendingIntent.getActivity(
+            this, id, openIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val notif = NativeNotifications.builder(this, CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(Notification.BigTextStyle().bigText(body))
+            .setSmallIcon(R.drawable.ic_stat_logo)
+            .setAutoCancel(true)
+            .setContentIntent(pi)
+            .build()
+        nm.notify("user_action", id, notif)
     }
 
     private fun showReloginNotification(message: String) {

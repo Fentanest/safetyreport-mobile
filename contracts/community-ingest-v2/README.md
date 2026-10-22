@@ -57,8 +57,10 @@ v1 복귀: 한 번 v2 로 전환한 뒤에도 status.ingest.contracts 에 2 가 
 - `progress.schema.json` — `POST /community-ingest/progress`. 인증은 ingest 와 같고(사용자 세션 + connection_id + 세션 일치),
   동의 outdated 도 받는다. 저장만 한다(연결 표 `last_progress`·진행 기록 30일/연결당 200건). 4KiB, 연결당 60초 1회. 벡터: `vectors/progress.json`.
 - 업로드 일시 중지: 공유 설정(`community_ingest_config.uploads_paused`·`pause_resume_at`)이 중지면 v1·v2·manifest·progress 가
-  **DB 쓰기 전에** 503 `maintenance`(+`resume_at`, `Retry-After`=남은 초, 재개 시각 없으면 600). 재개 시각이 지나면 서버가 조작 없이 받는다.
+  **DB 쓰기 전에** 503 `maintenance`(+`resume_at`, `Retry-After`=남은 초·최대 1800, 재개 시각 없으면 600). 재개 시각이 지나면 서버가 조작 없이 받는다.
   account status 의 `ingest.paused`·`pause_message`·`resume_at` 이 같은 판정이다.
+  예외·한계: 운영 콘솔용 거절 카운터 한 줄은 응답을 보낸 뒤 기다리지 않고 쓴다. 서버가 공유 설정을 읽지 못하면 v2 만 503 `service_unavailable` 이고
+  v1·manifest·progress 는 그대로 받는다 — **점검 스위치는 설정을 읽을 수 있을 때만 동작한다**.
 - 필수 버전: `client-requirement.schema.json`. 적용 중인 요구보다 envelope `client_version` 이 낮은 v1·v2 는 426 `client_upgrade_required`.
   버전 규칙은 `version-vectors.json`(해석 못 하면 막지 않음). progress·setup-progress 는 426 없이 받는다.
   `v1_sunset` 과 같은 일을 하므로 둘 중 하나만 쓴다: 요구 버전을 PC 3.6.0 / 모바일 2.5.0 이상으로 두면 v1 은 전부 막히니 `v1_sunset` 은 null 로 둔다.

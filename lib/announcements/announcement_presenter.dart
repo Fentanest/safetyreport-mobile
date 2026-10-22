@@ -45,10 +45,15 @@ class AnnouncementPresenter {
   /// 메인 화면 진입 때 부른다. 아무것도 던지지 않는다. 이미 표시 중이면 바로 돌아온다.
   ///
   /// [openModeSwitch] 는 설정의 모드 변경 흐름(`_confirmModeReset`)을 여는 콜백(B 가 연결).
+  ///
+  /// [stillAllowed]·[watch]: 팝업이 떠 있는 동안 [watch] 가 바뀌고 [stillAllowed] 가 false 가 되면(게이트가 막힘·필수 버전
+  /// 잠금) 팝업을 닫고 멈춘다. 그 공지는 "닫기"로 치지 않는다(다음에 다시 보인다).
   static Future<void> maybeShow(
     BuildContext context, {
     required String mode,
     required Future<void> Function() openModeSwitch,
+    bool Function()? stillAllowed,
+    Listenable? watch,
   }) async {
     if (_busy || !modes.contains(mode)) return;
     _busy = true;
@@ -59,11 +64,32 @@ class AnnouncementPresenter {
         if (_dismissed.contains(a.id)) continue;
         if (await _snoozed(a.id)) continue;
         if (!context.mounted) return;
-        final choice = await showDialog<AnnouncementChoice>(
-          context: context,
-          barrierDismissible: false,
-          builder: (_) => AnnouncementPopup(announcement: a),
-        );
+        if (stillAllowed != null && !stillAllowed()) return;
+        BuildContext? dialogContext;
+        var forced = false;
+        void onChange() {
+          final open = dialogContext;
+          if (forced || stillAllowed == null || stillAllowed()) return;
+          if (open == null || !open.mounted) return;
+          forced = true;
+          Navigator.of(open).pop();
+        }
+
+        watch?.addListener(onChange);
+        final AnnouncementChoice? choice;
+        try {
+          choice = await showDialog<AnnouncementChoice>(
+            context: context,
+            barrierDismissible: false,
+            builder: (c) {
+              dialogContext = c;
+              return AnnouncementPopup(announcement: a);
+            },
+          );
+        } finally {
+          watch?.removeListener(onChange);
+        }
+        if (forced) return; // 게이트가 막혔다: 이번에는 여기서 멈춘다.
         switch (choice) {
           case AnnouncementChoice.snooze:
             await _snooze(a);

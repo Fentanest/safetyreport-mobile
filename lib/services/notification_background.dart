@@ -24,8 +24,9 @@ const _legacyUncertainPrefix = 'crawl_legacy_enqueue_uncertain.';
 
 /// A separate FlutterEngine owns this entry point; there is no Activity/Provider.
 Future<void> runNotificationBackground() async {
-  await AppVersion.load(); // 필수 버전 판정·버전 헤더(CLIENT-RULES 6절)
+  // 바인딩을 먼저: PackageInfo 의 플랫폼 채널은 바인딩 전에는 실패해 버전이 null 이 된다(R1-8).
   WidgetsFlutterBinding.ensureInitialized();
+  await AppVersion.load(); // 필수 버전 판정·버전 헤더(CLIENT-RULES 6절)
   var success = false;
   try {
     final prefs = await SharedPreferences.getInstance();

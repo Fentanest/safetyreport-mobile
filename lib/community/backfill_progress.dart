@@ -238,18 +238,9 @@ class BackfillProgress {
       if (trigger == null || lock.locked) return;
       if (await UploadPause.isPaused(store)) return;
       if (await store.activeContext() == null) return;
-      if (trigger == 'start') _startCalled = true;
       final today = kstDay(clock());
       final pace = await _pace(store, today);
-      await store.setMeta(
-        lastCallKey,
-        jsonEncode({
-          'key': stateKey,
-          'at': clock().toUtc().millisecondsSinceEpoch ~/ 1000,
-          'day': today,
-        }),
-      );
-      await ProgressReporter.maybeSend(
+      final sent = await ProgressReporter.maybeSend(
         store: store,
         trigger: trigger,
         backfill: backfill,
@@ -260,12 +251,25 @@ class BackfillProgress {
           'background_runs_today': pace['bg'],
         },
       );
+      // D5: 보낸 경우에만 "마지막 보낸 상태 키"를 바꾼다. 60초 간격 등으로 건너뛴 상태 변화는 다음 tick 에 나간다.
+      if (sent) {
+        if (trigger == 'start') _startCalled = true;
+        await store.setMeta(
+          lastCallKey,
+          jsonEncode({
+            'key': stateKey,
+            'at': clock().toUtc().millisecondsSinceEpoch ~/ 1000,
+            'day': today,
+          }),
+        );
+      }
       // 진행 보고가 503 maintenance 를 받았으면 5절 중지 처리로 넘긴다(D 가 meta 에 남긴 기록).
       final maintenance = await ProgressReporter.lastMaintenance(store);
       if (maintenance != null) {
         await UploadPause.applyMaintenance(store, {
           'resume_at': maintenance['resume_at'],
-          'pause_message': null,
+          // 503 쪽 문구가 없으면 applyMaintenance 가 저장된 문구를 그대로 둔다(R1-10).
+          'pause_message': maintenance['pause_message'],
         });
         await ProgressReporter.clearMaintenance(store);
       }

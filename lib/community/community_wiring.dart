@@ -97,6 +97,10 @@ class CommunityWiring {
       await schedule.cancelBackgroundJobs();
     };
     CommunityUploadHooks.wakeUpload = CommunityUploadController.instance.wake;
+    // 재개 시각이 지났는데 중지로 남았을 때 업로더가 한 번 부르는 status 확인(D4) = 조용한 게이트 갱신.
+    UploadPause.statusProbe = () async {
+      await communityGate.refreshNow(silent: true);
+    };
     // 점검이 끝났거나(업로드 일시 중지 해제) 필수 버전 잠금이 풀리면 업로더·1회 전송을 곧바로 깨운다.
     _pauseListener ??= () {
       final paused = UploadPause.current.value != null;

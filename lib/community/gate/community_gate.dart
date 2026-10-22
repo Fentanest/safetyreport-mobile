@@ -665,6 +665,9 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   void onAppModeChanged() {
     final modeChanged = _observedAppMode != appMode;
     _observedAppMode = appMode;
+    // Client 계정 잠금은 그 모드·서버 범위의 판정이다: 모드가 바뀌면 버리고, 서버 주소·키가 바뀌었으면 버린다(R1-5).
+    if (modeChanged) _forgetClientAccountLock();
+    unawaited(_revalidateClientAccountLock());
     if (modeChanged && appMode != 'demo') startPolling();
     final generation = _datasetGeneration?.call();
     final changed = generation != _observedDatasetGeneration;
@@ -1396,12 +1399,35 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   /// Client 계정 불일치 잠금(7절). 잠금은 PC 주소·키 범위로 저장해 재시작해도 유지한다(해제는 같은 계정 확인 또는
   /// 서버 계정 정보가 사라졌을 때만). 값이 있으면 잠금 중이며, 서버 표시 이름(없으면 빈 문자열)을 담는다.
   String? _clientAccountLock;
+
+  /// 메모리 잠금이 판정된 범위(PC 주소·키 지문, 휴대폰 카카오 계정 지문). 범위가 바뀌면 다시 읽는다(R1-5).
+  String? _clientAccountLockServer;
+  String? _clientAccountLockPhone;
   bool _clientServerUnconfigured = false;
   bool _clientServerNeedsOnboarding = false;
   static const clientAccountLockKey = 'community_client_account_lock_v1';
 
-  /// Client: 휴대폰과 서버의 카카오 계정이 다르다고 확인되어 잠겼는가.
-  bool get clientAccountLocked => _clientAccountLock != null;
+  /// Client: 휴대폰과 서버의 카카오 계정이 다르다고 확인되어 잠겼는가. Client 모드에서만 의미가 있다.
+  bool get clientAccountLocked =>
+      appMode == 'server' && _clientAccountLock != null;
+
+  /// 모드·서버 주소·계정이 바뀌면 메모리 잠금을 버린다(다음 판정이 그 범위의 저장값을 다시 읽는다, R1-5).
+  void _forgetClientAccountLock() {
+    _clientAccountLock = null;
+    _clientAccountLockServer = null;
+    _clientAccountLockPhone = null;
+  }
+
+  /// 저장된 PC 주소·키가 메모리 잠금의 범위와 다르면 잠금을 버린다(설정에서 서버를 바꾼 뒤 새 서버에 닿지 못해도
+  /// 비교한 적 없는 서버에 잠금이 남지 않게).
+  Future<void> _revalidateClientAccountLock() async {
+    if (_clientAccountLock == null) return;
+    final scope = await _clientLockScope();
+    if (_disposed || _clientAccountLock == null) return;
+    if (appMode == 'server' && scope == _clientAccountLockServer) return;
+    _forgetClientAccountLock();
+    notifyListeners();
+  }
 
   /// 잠금 화면에 보일 서버 쪽 카카오 표시 이름(모르면 null).
   String? get clientAccountServerName =>
@@ -1425,15 +1451,21 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Future<String?> _readClientAccountLock() async {
+  Future<String?> _readClientAccountLock(
+    String? scope,
+    String? phoneFingerprint,
+  ) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.reload();
       final raw = prefs.getString(clientAccountLockKey);
       final value = raw == null ? null : jsonDecode(raw);
-      if (value is! Map || value['scope'] != await _clientLockScope()) {
+      if (value is! Map || value['scope'] != scope) {
         return null;
       }
+      // 다른 휴대폰 카카오 계정으로 잠근 기록은 이 계정의 잠금이 아니다(그 계정은 다시 비교한다).
+      final phone = value['phone'];
+      if (phone is String && phone != phoneFingerprint) return null;
       final name = value['server_name'];
       return name is String ? name : '';
     } catch (_) {
@@ -1451,7 +1483,17 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         !result.isOk &&
         (code == 'community_disabled' || code == 'community_unconfigured');
     _clientServerNeedsOnboarding = result?.needsOnboarding ?? false;
-    _clientAccountLock ??= await _readClientAccountLock();
+    final scope = await _clientLockScope();
+    if (_clientAccountLock == null ||
+        _clientAccountLockServer != scope ||
+        _clientAccountLockPhone != phoneFingerprint) {
+      _clientAccountLock = await _readClientAccountLock(
+        scope,
+        phoneFingerprint,
+      );
+      _clientAccountLockServer = scope;
+      _clientAccountLockPhone = phoneFingerprint;
+    }
     final data = result?.isOk == true ? result!.data : null;
     final decision = clientAccountVerdict(
       data?.cast<String, Object?>(),
@@ -1471,7 +1513,8 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
       await prefs.setString(
         clientAccountLockKey,
         jsonEncode({
-          'scope': await _clientLockScope(),
+          'scope': scope,
+          'phone': phoneFingerprint,
           'server_name': _clientAccountLock,
         }),
       );

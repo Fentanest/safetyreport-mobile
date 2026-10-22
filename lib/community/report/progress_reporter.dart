@@ -39,10 +39,13 @@ class ProgressReporter {
 
   /// 보낼 때가 되면 보낸다. 아무것도 던지지 않는다.
   ///
+  /// 반환: 이번에 실제로 요청을 보냈으면(결과와 무관) 또는 서버가 이미 같은 상태를 받았으면 true.
+  /// 60초 간격·토큰 없음 등으로 보내지 않았으면 false — 호출자는 그때 "마지막 보낸 상태"를 바꾸지 않는다(D5).
+  ///
   /// [trigger]: `start`(앱 시작·게이트 통과 뒤 1회) / `state_change`(상태 키가 바뀐 때만) /
   /// `periodic`(진행 중이면 마지막 시도 뒤 10분) / `daily`(done·none 이면 하루 1번).
   /// [backfill]·[optimize]·[pace] 는 progress.schema.json 의 같은 이름 객체.
-  static Future<void> maybeSend({
+  static Future<bool> maybeSend({
     required CommunityStore store,
     required String trigger,
     required Map<String, Object?> backfill,
@@ -51,9 +54,10 @@ class ProgressReporter {
     Map<String, Object?>? pace,
   }) async {
     try {
-      await _run(store, trigger, backfill, optimize, officialLogin, pace);
+      return await _run(store, trigger, backfill, optimize, officialLogin, pace);
     } catch (_) {
       // 진행 보고는 다른 기능에 영향을 주지 않는다.
+      return false;
     }
   }
 
@@ -90,7 +94,7 @@ class ProgressReporter {
     optimize['holds_only'],
   ].join('|');
 
-  static Future<void> _run(
+  static Future<bool> _run(
     CommunityStore store,
     String trigger,
     Map<String, Object?> backfill,
@@ -98,14 +102,14 @@ class ProgressReporter {
     String officialLogin,
     Map<String, Object?>? pace,
   ) async {
-    if (!triggers.contains(trigger)) return;
+    if (!triggers.contains(trigger)) return false;
     final state = backfill['state'];
-    if (state is! String || !_allStates.contains(state)) return;
+    if (state is! String || !_allStates.contains(state)) return false;
 
     final ctx = await store.activeContext();
     final connectionId = ctx?['connection_id'];
     if (connectionId is! String || connectionId.isEmpty) {
-      return await _result(store, 'skipped', 'no_connection');
+      return _skip(store, 'no_connection');
     }
     final now = ReportEnv.now();
     final last = await _readLast(store);
@@ -116,7 +120,7 @@ class ProgressReporter {
     if (attemptAt != null) {
       final gap = now.difference(attemptAt);
       if (!gap.isNegative && gap < minGap) {
-        return await _result(store, 'skipped', 'rate_60s');
+        return _skip(store, 'rate_60s');
       }
     }
     final key = stateKey(backfill, optimize, officialLogin);
@@ -125,30 +129,32 @@ class ProgressReporter {
         break;
       case 'state_change':
         if (last['key'] == key) {
-          return await _result(store, 'skipped', 'same_state');
+          // 서버가 이미 이 상태를 받았다 — 보낸 것과 같다.
+          await _result(store, 'skipped', 'same_state');
+          return true;
         }
       case 'periodic':
         if (!_activeStates.contains(state)) {
-          return await _result(store, 'skipped', 'not_active');
+          return _skip(store, 'not_active');
         }
         if (attemptAt != null && now.difference(attemptAt) < periodicGap) {
-          return await _result(store, 'skipped', 'periodic_10m');
+          return _skip(store, 'periodic_10m');
         }
       case 'daily':
         if (_activeStates.contains(state)) {
-          return await _result(store, 'skipped', 'active_uses_periodic');
+          return _skip(store, 'active_uses_periodic');
         }
         if (last['day'] == ReportEnv.kstDate(now)) {
-          return await _result(store, 'skipped', 'daily_done');
+          return _skip(store, 'daily_done');
         }
     }
 
     final cfg = ReportEnv.config;
     if (!cfg.isConfigured) {
-      return await _result(store, 'skipped', 'unconfigured');
+      return _skip(store, 'unconfigured');
     }
     final version = await ReportEnv.appVersion();
-    if (version == null) return await _result(store, 'skipped', 'no_version');
+    if (version == null) return _skip(store, 'no_version');
     final body = buildBody(
       connectionId: connectionId,
       platform: ReportEnv.platform(),
@@ -158,14 +164,14 @@ class ProgressReporter {
       officialLogin: officialLogin,
       pace: pace,
     );
-    if (body == null) return await _result(store, 'skipped', 'schema_invalid');
+    if (body == null) return _skip(store, 'schema_invalid');
     final bytes = utf8.encode(jsonEncode(body));
     if (bytes.length > maxBodyBytes) {
-      return await _result(store, 'skipped', 'too_large');
+      return _skip(store, 'too_large');
     }
     final token = await ReportEnv.accessToken();
     if (token == null || token.isEmpty) {
-      return await _result(store, 'skipped', 'no_token');
+      return _skip(store, 'no_token');
     }
 
     // 시도 시각을 먼저 남긴다 — 실패해도 60초·10분 간격은 지킨다(재시도 없음).
@@ -196,17 +202,23 @@ class ProgressReporter {
           'day': ReportEnv.kstDate(now),
           'state': state,
         });
-        return await _result(store, 'sent', '200');
+        await _result(store, 'sent', '200');
+        return true;
       }
       if (res.statusCode == 503 && _isMaintenance(res)) {
         await _recordMaintenance(store, res, now);
-        return await _result(store, 'maintenance', '503');
+        await _result(store, 'maintenance', '503');
+        return true;
       }
-      return await _result(store, 'failed', '${res.statusCode}');
+      // 보냈지만 실패: 재시도하지 않는다(다음 주기에 보냄).
+      await _result(store, 'failed', '${res.statusCode}');
+      return true;
     } on TimeoutException {
-      return await _result(store, 'failed', 'timeout');
+      await _result(store, 'failed', 'timeout');
+      return true;
     } catch (_) {
-      return await _result(store, 'failed', 'network');
+      await _result(store, 'failed', 'network');
+      return true;
     } finally {
       client.close();
     }
@@ -229,16 +241,19 @@ class ProgressReporter {
     DateTime now,
   ) async {
     String? resumeAt;
+    String? message;
     try {
       final d = jsonDecode(utf8.decode(res.bodyBytes, allowMalformed: true));
-      final v = (d as Map)['error'] is Map
-          ? ((d['error'] as Map)['resume_at'])
-          : null;
+      final error = (d as Map)['error'] is Map ? d['error'] as Map : null;
+      final v = error?['resume_at'];
       if (v is String &&
           RegExp(r'^\d{4}-\d{2}-\d{2}T[0-9:.]+Z$').hasMatch(v) &&
           v.length <= 40) {
         resumeAt = v;
       }
+      // 운영자 문구(평문, 화면에서 HTML 로 해석하지 않는다). 너무 길면 버린다.
+      final m = error?['pause_message'];
+      if (m is String && m.trim().isNotEmpty && m.length <= 500) message = m;
     } catch (_) {}
     final retry = int.tryParse(res.headers['retry-after'] ?? '');
     await store.setMeta(
@@ -246,11 +261,17 @@ class ProgressReporter {
       jsonEncode({
         'at': isoUtc(now),
         'resume_at': resumeAt,
+        'pause_message': message,
         'retry_after_s': (retry != null && retry >= 0 && retry <= 86400)
             ? retry
             : null,
       }),
     );
+  }
+
+  static Future<bool> _skip(CommunityStore store, String detail) async {
+    await _result(store, 'skipped', detail);
+    return false;
   }
 
   static Future<Map<String, Object?>> _readLast(CommunityStore store) async {

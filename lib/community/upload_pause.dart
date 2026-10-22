@@ -130,7 +130,9 @@ class UploadPause {
     if (paused is! bool) return 'unchanged';
     final before = await read(store);
     if (!paused) {
-      if (before == null) return 'unchanged';
+      // 운영자가 재개했다(예정보다 일찍이어도): 503 maintenance 로 미뤄 둔 행을 곧바로 다시 올릴 수 있게 한다(D4).
+      final released = await releaseMaintenanceRows(store, now: now);
+      if (before == null) return released > 0 ? 'resumed' : 'unchanged';
       await clear(store);
       return 'resumed';
     }
@@ -146,6 +148,7 @@ class UploadPause {
   }
 
   /// 업로드·manifest·진행 보고가 받은 503 `maintenance`. [error] 는 응답 본문의 `error` 객체.
+  /// 503 쪽 문구가 없으면 저장된 운영자 문구(status 로 받은 것)를 지우지 않는다(R1-10).
   static Future<UploadPause> applyMaintenance(
     CommunityStore store,
     Map<String, Object?>? error, {
@@ -156,10 +159,58 @@ class UploadPause {
       store,
       before,
       resumeAt: _epoch(error?['resume_at']),
-      message: _text(error?['pause_message']),
+      message: _text(error?['pause_message']) ?? before?.message,
       source: '503',
       now: now,
     );
+  }
+
+  /// 503 maintenance 로 `retry_wait` 에 둔 행의 다음 시도 시각을 지금으로 되돌린다(재개 확인 뒤, D4).
+  /// 바꾼 행 수를 돌려준다. 실패해도 던지지 않는다(행은 원래 시각에 다시 올라간다).
+  static Future<int> releaseMaintenanceRows(
+    CommunityStore store, {
+    DateTime? now,
+  }) async {
+    try {
+      final at = isoUtc((now ?? DateTime.now()).toUtc());
+      return await store.db.rawUpdate(
+        "UPDATE outbox SET next_retry_at=? WHERE state='retry_wait'"
+        " AND last_error_code='maintenance' AND (next_retry_at IS NULL OR next_retry_at>?)",
+        [at, at],
+      );
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// 재개 확인 status 를 한 번 부르는 곳(포그라운드는 게이트 갱신). 백그라운드 isolate 에서는 null.
+  static Future<void> Function()? statusProbe;
+
+  /// 재개 확인을 다시 부르기 전 최소 간격(D4: 지연 0 반복 금지).
+  static const probeGap = Duration(seconds: 60);
+
+  static int? _lastProbeAt;
+
+  @visibleForTesting
+  static void resetProbeForTest() => _lastProbeAt = null;
+
+  /// 재개 시각(+지터)이 지났는데 아직 중지로 남아 있으면 status 를 한 번 불러 본다(60초에 한 번까지, D4).
+  /// 풀렸으면 true. 부르지 않았거나(간격·확인할 곳 없음) 실패했거나 아직 중지면 false — 그때 호출자는
+  /// 다음 시도를 지금 + [probeGap] 이상으로 둔다.
+  static Future<bool> probeResume(CommunityStore store, {DateTime? now}) async {
+    final t = (now ?? DateTime.now()).toUtc().millisecondsSinceEpoch ~/ 1000;
+    final probe = statusProbe;
+    final last = _lastProbeAt;
+    if (probe == null || (last != null && t - last < probeGap.inSeconds)) {
+      return false;
+    }
+    _lastProbeAt = t;
+    try {
+      await probe();
+    } catch (_) {
+      return false;
+    }
+    return await read(store) == null;
   }
 
   /// 응답 본문(바이트·문자열·디코드된 값)에서 503 maintenance 의 `error` 객체를 꺼낸다. 아니면 null.

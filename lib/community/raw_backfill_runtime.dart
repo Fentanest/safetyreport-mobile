@@ -157,6 +157,9 @@ class RawBackfillRuntime {
     }
   }
 
+  /// 보류와 업로드 확인 대기만 남은 run 을 다시 깨우는 가장 긴 간격(R1-3).
+  static const holdsWaitingWake = Duration(minutes: 10);
+
   /// Delay until the next slice, or null when nothing needs to run by itself.
   @visibleForTesting
   static Future<Duration?> nextDelay(
@@ -179,17 +182,21 @@ class RawBackfillRuntime {
       case 'waiting_optimize':
         return const Duration(seconds: 30);
       case 'holds':
-        // Other work left: keep going. Only holds: wake at the earliest hold time (15 s floor, 24 h cap).
+        // 보류만 남음: 가장 이른 보류 시각에 깨운다(15초 하한, 24시간 상한).
+        // 보류 + 업로드 확인 대기(queued)만 남음(진행할 채우기 없음): 확인 결과는 업로더가 받아 오므로
+        // 다음 깨움 = min(가장 이른 보류 시각, 10분) — 15초마다 WorkManager·status 를 돌리지 않는다(R1-3).
         final run = marker['run_id'] as String?;
         if (run == null) return null;
         final items = SqliteBackfillItems(store, () async {});
         final s = await items.summary(run);
-        if (s['unfinished']! > s['holds']!) return const Duration(seconds: 15);
         final at = await items.nextHoldAt(run);
-        if (at == null) return null;
+        final waiting = s['unfinished']! > s['holds']!;
+        if (s['pending']! > 0) return const Duration(seconds: 15);
+        if (at == null) return waiting ? holdsWaitingWake : null;
         final left =
             at - (now ?? DateTime.now()).millisecondsSinceEpoch ~/ 1000;
-        return Duration(seconds: left.clamp(15, 24 * 3600));
+        final hold = Duration(seconds: left.clamp(15, 24 * 3600));
+        return waiting && hold > holdsWaitingWake ? holdsWaitingWake : hold;
       case 'uploading':
         // 업로드 단계는 업로더가 영수증을 받기를 기다릴 뿐이다 — 15초마다 대기 항목을 훑지 않는다.
         return yielded ? const Duration(seconds: 3) : const Duration(seconds: 60);
@@ -691,7 +698,18 @@ class RawBackfillRuntimeBackend
       // B: the report (or its raw body) is missing/damaged. One normal detail save creates the
       // single raw event of this report; enqueue() adopts it instead of issuing a second one.
       try {
-        final fetched = await StandaloneApiService.fetchReportDetail(id);
+        final ({
+          Map<String, dynamic> result,
+          Map<String, dynamic> envelope,
+        }) fetched;
+        try {
+          fetched = await StandaloneApiService.fetchReportDetail(id);
+        } on FormatException {
+          // 응답이 JSON 이 아님(점검 화면 등) — 공식 사이트의 일시 문제(D1, 신고별 연속 5번이면 보류).
+          throw BackfillTransient('no_result');
+        } on TypeError {
+          throw BackfillTransient('no_result');
+        }
         if (fetched.envelope['result'] is! Map) {
           // 상세 응답에 result 가 없다 — 공식 사이트의 일시 문제로 본다(신고 횟수에 넣지 않는다).
           throw BackfillTransient('no_result');

@@ -203,6 +203,35 @@ void resetHold(Map<String, dynamic> item) {
   });
   item.remove('next_attempt_at');
   item.remove('first_held_at');
+  item.remove(transientAttemptsKey);
+}
+
+/// 신고 하나의 연속 일시적 오류 횟수(D1). 성공·보류 때 0(키를 지운다).
+const transientAttemptsKey = 'transient_attempts';
+
+/// 같은 신고가 연속 이만큼 일시적 오류를 내면 그 신고만 보류하고 커서를 넘긴다(D1).
+const transientHoldThreshold = 5;
+
+/// 신고 탓이 아닌 일시적 사유 — 신고별 횟수에 넣지 않는다(D1).
+const notReportTransientReasons = {
+  'sync_busy',
+  'db_locked',
+  'maintenance',
+  'official_login_required',
+  'official_login_retry',
+};
+
+/// 그 신고가 서버에 저장됐다(stored): 보류 이력(hold_count·first_held_at 등)을 이때만 지운다(D2).
+void clearHoldHistory(Map<String, dynamic> item) {
+  for (final k in [
+    'hold_count',
+    'first_held_at',
+    'next_attempt_at',
+    'stale',
+    transientAttemptsKey,
+  ]) {
+    item.remove(k);
+  }
 }
 
 /// 때가 된 보류를 pending·attempts 2 로. 때가 아니면 30일 표시만 갱신한다. 되돌렸으면 true.
@@ -425,6 +454,8 @@ class RawBackfill {
               item['state'] = 'queued';
               newQueued++;
             }
+            // 진행했다: run 의 연속 횟수와 이 신고의 연속 일시적 횟수를 0 으로(보류 이력은 stored 때만 지운다, D2).
+            item.remove(transientAttemptsKey);
             marker['failures'] = 0;
             marker['transient_failures'] = 0;
             marker['cursor'] = index + 1;
@@ -443,7 +474,25 @@ class RawBackfill {
           } catch (e) {
             final transient = transientBackfillReason(e);
             if (transient != null) {
-              // Transient: the report keeps its attempts and the cursor stays on it; the run pauses.
+              if (notReportTransientReasons.contains(transient)) {
+                // 신고 탓이 아님(다른 작업의 잠금·DB 잠김·점검·로그인): 신고별 횟수에 넣지 않는다.
+                marker['cursor'] = index;
+                throw BackfillPaused(transient);
+              }
+              // D1: 같은 신고가 연속 5번 일시적 오류면 그 신고만 고정적 오류처럼 보류하고 커서를 넘긴다
+              // (한 신고가 run 전체를 막지 않게). 그 전에는 attempts 를 올리지 않고 커서도 그대로, run 은 쉰다.
+              final count =
+                  ((item[transientAttemptsKey] as num?)?.toInt() ?? 0) + 1;
+              if (count >= transientHoldThreshold) {
+                item.remove(transientAttemptsKey);
+                item['error'] = 'transient_$transient';
+                holdItem(item, _whole);
+                marker['cursor'] = index + 1;
+                await repo.put(run, id, item);
+                continue;
+              }
+              item[transientAttemptsKey] = count;
+              await repo.put(run, id, item);
               marker['cursor'] = index;
               throw BackfillPaused(transient);
             }
@@ -451,6 +500,7 @@ class RawBackfill {
             marker['failures'] = (marker['failures'] as int) + 1;
             item['error'] = e.runtimeType.toString();
             if (item['attempts'] >= 3) {
+              item.remove(transientAttemptsKey);
               holdItem(item, _whole);
               marker['cursor'] = index + 1;
             } else {
@@ -490,6 +540,7 @@ class RawBackfill {
           final result = await b.receipt(id, item['event_id'] as String);
           if (result == 'stored') {
             item['state'] = 'stored';
+            clearHoldHistory(item);
           } else if (result == 'blocked') {
             item.addAll({
               'state': 'not_eligible',

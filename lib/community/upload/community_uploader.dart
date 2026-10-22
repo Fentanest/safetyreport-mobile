@@ -647,14 +647,26 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
     // 업로드 일시 중지(5절): 중지 동안 업로드 시도 0회. 재개 확인은 status(주기·재개 시각 1회)가 한다.
     final pause = await UploadPause.read(store);
     if (pause != null) {
-      state.errorCode = 'maintenance';
+      final now = _now();
       final wake = pause.wakeAt;
-      state.nextAttemptAt = wake == null
-          ? null
-          : isoUtc(
-              DateTime.fromMillisecondsSinceEpoch(wake * 1000, isUtc: true),
-            );
-      return finish('cooldown');
+      final nowSeconds = now.toUtc().millisecondsSinceEpoch ~/ 1000;
+      // D4: 재개 시각(+지터)이 지났는데 아직 중지로 남아 있으면 status 를 한 번 불러 본다. 풀렸으면 그대로 이어서 올린다.
+      final overdue = wake != null && wake <= nowSeconds;
+      if (!overdue || !await UploadPause.probeResume(store, now: now)) {
+        state.errorCode = 'maintenance';
+        // 지난 시각은 돌려주지 않는다 — 확인을 못 했으면 다음 시도는 지금 + 60초 이상(지연 0 반복 금지).
+        state.nextAttemptAt = wake == null
+            ? null
+            : isoUtc(
+                overdue
+                    ? now.toUtc().add(UploadPause.probeGap)
+                    : DateTime.fromMillisecondsSinceEpoch(
+                        wake * 1000,
+                        isUtc: true,
+                      ),
+              );
+        return finish('cooldown');
+      }
     }
     if (await CloudAvailability.shared?.coolingDown() ?? false) {
       state.errorCode = 'cloud_cooldown';

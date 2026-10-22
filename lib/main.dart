@@ -1307,10 +1307,16 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
         : p.appMode == AppMode.server
         ? 'client'
         : 'standalone';
+    final gate = context.read<CommunityGate>();
+    final demo = p.isStandaloneDemo;
     await AnnouncementPresenter.maybeShow(
       context,
       mode: mode,
       openModeSwitch: _openModeSwitch,
+      // 팝업이 떠 있는 동안 게이트가 막히거나(온보딩 화면으로 바뀜) 필수 버전 잠금이 걸리면 팝업을 닫는다.
+      stillAllowed: () =>
+          demo || (!UpdateRequirement.isLocked && gate.canBrowse),
+      watch: Listenable.merge([gate, UpdateRequirement.current]),
     );
   }
 

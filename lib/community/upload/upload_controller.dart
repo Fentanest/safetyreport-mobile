@@ -33,6 +33,9 @@ class CommunityUploadController {
 
   bool get isStarted => _build != null;
 
+  /// 쿨다운 결과가 이미 지난 시각을 줄 때의 지연.
+  static const minCooldownDelay = Duration(seconds: 60);
+
   /// 테스트·상태 표시용: 예약된 다음 실행 시각.
   DateTime? scheduledAt;
 
@@ -106,6 +109,9 @@ class CommunityUploadController {
       due = null;
     } else if (outcome == 'cooldown' && result?.nextAttemptAt != null) {
       due = DateTime.tryParse(result!.nextAttemptAt!);
+      // 쿨다운이 이미 지난 시각을 주면 곧바로 다시 돌지 않는다(지연 0 반복 금지, D4).
+      final now = _now();
+      if (due != null && !due.isAfter(now)) due = now.add(minCooldownDelay);
     } else if (outcome == 'busy_other_run') {
       due = _now().add(const Duration(seconds: 5));
     } else if (outcome == 'more_pending') {

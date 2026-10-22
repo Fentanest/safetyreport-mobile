@@ -6,15 +6,21 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../community/update_requirement.dart';
+import '../services/community_auth_service.dart';
 
 /// 필수 버전 잠금 화면(CLIENT-RULES 6절·11절 문구). 로컬 자료는 지우지 않는다.
 ///
 /// 업데이트 버튼: Play 설치본이면 Play In-App Updates **즉시 업데이트**를 먼저 시도하고, 안 되면 서버가 준
 /// `url.mobile`(없으면 Play 스토어). GitHub APK 설치본은 GitHub 릴리스 주소를 연다.
+///
+/// 카카오 로그인이 끊겼으면 잠금을 풀 확인(status)을 받을 수 없으므로, 이 화면에서도 카카오 로그인·재로그인을 연다(D3).
 class UpdateRequiredScreen extends StatefulWidget {
-  const UpdateRequiredScreen({super.key, required this.requirement});
+  const UpdateRequiredScreen({super.key, required this.requirement, this.auth});
 
   final UpdateRequirement requirement;
+
+  /// 카카오 로그인(없으면 앱 공용 인스턴스).
+  final CommunityAuthService? auth;
 
   /// 시험용 주입: 설치 출처(`com.android.vending` 이면 Play).
   @visibleForTesting
@@ -74,6 +80,68 @@ class _UpdateRequiredScreenState extends State<UpdateRequiredScreen> {
     } catch (_) {
       return false;
     }
+  }
+
+  bool _loginBusy = false;
+
+  CommunityAuthService get _auth =>
+      widget.auth ?? CommunityAuthService.instance;
+
+  Future<void> _login() async {
+    if (_loginBusy) return;
+    setState(() {
+      _loginBusy = true;
+      _error = null;
+    });
+    try {
+      final outcome = await _auth.startLogin();
+      if (outcome != CommunityStartOutcome.launched && mounted) {
+        setState(() => _error = '카카오 로그인 화면을 열지 못했습니다. 잠시 뒤 다시 눌러 주세요.');
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = '카카오 로그인 화면을 열지 못했습니다. 잠시 뒤 다시 눌러 주세요.');
+      }
+    } finally {
+      if (mounted) setState(() => _loginBusy = false);
+    }
+  }
+
+  /// 로그인 버튼 문구(로그인이 필요 없으면 null).
+  static String? _loginLabel(CommunityAccountPhase phase) => switch (phase) {
+    CommunityAccountPhase.disconnected => '카카오 로그인',
+    CommunityAccountPhase.reauthRequired => '카카오 다시 로그인',
+    CommunityAccountPhase.awaitingBrowser => '카카오 로그인 다시 열기',
+    _ => null,
+  };
+
+  Widget _loginSection(BuildContext context) {
+    final theme = Theme.of(context);
+    return ValueListenableBuilder<CommunityAuthState>(
+      valueListenable: _auth.state,
+      builder: (context, auth, _) {
+        final label = _loginLabel(auth.phase);
+        if (label == null) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: 16),
+            Text(
+              '업데이트를 마쳤다면 카카오 로그인을 해 주세요. 로그인하면 바로 다시 확인합니다.',
+              key: const Key('updateRequiredLoginHint'),
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton(
+              key: const Key('updateRequiredKakaoLogin'),
+              onPressed: _loginBusy ? null : _login,
+              child: Text(label),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _update() async {
@@ -172,6 +240,7 @@ class _UpdateRequiredScreenState extends State<UpdateRequiredScreen> {
                           )
                         : const Text('업데이트'),
                   ),
+                  _loginSection(context),
                   if (_error != null) ...[
                     const SizedBox(height: 8),
                     Text(

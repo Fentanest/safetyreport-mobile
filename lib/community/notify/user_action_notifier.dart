@@ -2,6 +2,7 @@
 //
 // - 알림: 앱에 이미 있는 채널(`com.fentanest.mysafetyreport/permissions` 의 `showNotification`)과 알림 권한 확인
 //   (`PermissionService.isNotificationPermissionGranted`)을 그대로 쓴다. 새 채널·권한 요청을 만들지 않는다.
+//   WorkManager 백그라운드 엔진에는 그 채널이 없으므로 [UserActionNotifier.prefsAlert] 키로 Kotlin 에 넘긴다.
 // - 권한이 없으면 알림은 보내지 않고, 앱 안 안내(UserActionBanner)가 읽을 상태만 남긴다.
 // - 사유별 마지막 알림 날짜(기기 KST)와 현재 안내 목록은 SharedPreferences 에 둔다(백그라운드 isolate 와 공유).
 // - 점검(maintenance)은 사용자가 할 일이 없으므로 여기 오지 않는다(배너만, B).
@@ -72,8 +73,32 @@ class UserActionNotifier {
   static const MethodChannel _channel = MethodChannel(
     'com.fentanest.mysafetyreport/permissions',
   );
-  static Future<void> _show(Map<String, Object?> args) =>
-      _channel.invokeMethod<Object?>('showNotification', args);
+
+  /// WorkManager 백그라운드 엔진에는 위 채널이 없다(MainActivity·알림 엔진에만 등록). 그때는 이 키에 알림 내용을 쓰고,
+  /// Kotlin `SafetyReportApplication` 이 키 변경을 듣고 같은 채널(`app_push_v2`)로 띄운다(R1-6). 이름을 바꾸면 Kotlin 도 같이.
+  static const prefsAlert = 'user_action_alert';
+
+  static Future<void> _show(Map<String, Object?> args) async {
+    try {
+      await _channel.invokeMethod<Object?>('showNotification', args);
+    } on MissingPluginException {
+      await _showViaPrefs(args);
+    }
+  }
+
+  /// 백그라운드 엔진의 알림: 내용과 시각을 저장해 같은 프로세스의 Kotlin 리스너가 띄우게 한다(값이 바뀌어야 리스너가 불린다).
+  @visibleForTesting
+  static Future<void> showViaPrefsForTest(Map<String, Object?> args) =>
+      _showViaPrefs(args);
+
+  static Future<void> _showViaPrefs(Map<String, Object?> args) async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = await prefs.setString(
+      prefsAlert,
+      jsonEncode({...args, 'at': ReportEnv.now().millisecondsSinceEpoch}),
+    );
+    if (!saved) throw StateError('user_action_alert_not_saved');
+  }
 
   static String notificationText(String reason, {int? count}) =>
       switch (reason) {

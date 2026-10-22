@@ -2021,6 +2021,18 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     return ok;
   }
 
+  /// 시험용: 진행 중인 확인이 끝날 때까지 기다린다(dispose 뒤 DB 를 닫기 전에 부른다).
+  @visibleForTesting
+  Future<void> idleForTest() async {
+    while (true) {
+      final pending = _inFlight;
+      if (pending == null) return;
+      try {
+        await pending;
+      } catch (_) {}
+    }
+  }
+
   @override
   void dispose() {
     _disposed = true;

@@ -61,7 +61,11 @@ void main() {
       appMode: () => mode,
       officialAccountId: () async => 'User@Example.com',
     );
-    addTearDown(gate.dispose);
+    // 소프트 리셋이 부른 확인이 시험 뒤에 DB 를 읽지 않게: 게이트를 닫고 진행 중인 확인을 기다린 뒤 store 를 닫는다.
+    addTearDown(() async {
+      gate.dispose();
+      await gate.idleForTest();
+    });
     return gate;
   }
 

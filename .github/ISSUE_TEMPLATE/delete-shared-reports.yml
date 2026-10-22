@@ -1,0 +1,21 @@
+name: 공유한 신고 자료 삭제 요청
+description: 커뮤니티 신고 지도에 보낸 내 자료를 지워 달라고 요청합니다
+title: "[삭제 요청]"
+labels: ["deletion-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **이 게시판은 누구나 볼 수 있습니다.** 카카오 계정(이메일·닉네임), 차량번호, 안전신문고 신고번호, 주소 같은 개인정보는 적지 마세요.
+
+        삭제를 원한다는 것만 남겨 주시면, 본인 확인 방법은 운영자가 댓글로 따로 안내합니다.
+
+        참고: 동의만 철회하면(앱 설정) 그 동의로 보낸 자료는 공개 지도에서 바로 빠집니다. 삭제는 그와 별개로 중앙 보관 자료까지 지우는 요청이며, 삭제 전에 수집한 사본은 다시 올릴 수 없습니다.
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 요청
+      options:
+        - label: 공유한 자료 전체 삭제를 원합니다.
+          required: true

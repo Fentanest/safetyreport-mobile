@@ -23,6 +23,8 @@ import '../../services/community_auth_config.dart';
 import '../../services/community_server_link_service.dart';
 import '../../services/community_auth_service.dart';
 import '../ingest_status.dart';
+import '../update_requirement.dart';
+import '../upload_pause.dart';
 import '../community_store.dart';
 import '../gate/community_account_client.dart';
 import '../client_server_policy.dart';
@@ -264,6 +266,9 @@ Future<HeadlessGate> refreshGateHeadless(
   });
   await guard();
   await ClientNotice.save(store, status.raw['client_notice']);
+  // 정상 status: 업로드 일시 중지(5절)와 필수 버전 판정(6절)을 반영한다(키가 없으면 저장값 유지).
+  await UploadPause.applyStatus(store, status.raw, now: clock());
+  await UpdateRequirement.applyStatus(status.raw, prefs: p, now: clock());
   final previous = await ConsentHistory(store).latest(account);
   final member = sessionMember != null
       ? await sessionMember()

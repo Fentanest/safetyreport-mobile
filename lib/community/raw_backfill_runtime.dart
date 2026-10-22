@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:workmanager/workmanager.dart';
 import '../models/app_mode.dart';
 import '../models/report.dart';
 import '../services/app_prefs_keys.dart';
@@ -19,6 +20,8 @@ import '../services/standalone_parser.dart';
 import '../services/sync_engine.dart';
 import '../services/sync_inventory.dart';
 import '../services/sync_operation_admission.dart';
+import 'backfill_errors.dart';
+import 'backfill_progress.dart';
 import 'backfill_store.dart';
 import 'capture/capture_retry_store.dart';
 import 'capture/community_capture.dart';
@@ -27,10 +30,17 @@ import 'capture/raw_ingest.dart';
 import 'capture/report_adapter.dart';
 import 'community_store.dart';
 import 'raw_backfill.dart';
+import 'raw_backfill_unstick.dart';
+import 'update_requirement.dart';
 import 'upload_hooks.dart';
+import 'upload_pause.dart';
 
 const _answered = ['수용', '일부수용', '불수용', '답변완료', '기타'];
-const _manualLoginKey = 'raw_login_manual';
+const _manualLoginKey = rawLoginManualKey;
+
+/// 보류만 남은 run 을 다음 보류 시각에 깨우는 1회 작업(WorkManager). 디스패처가 업로드 작업과 같은 경로로 처리한다.
+const String rawBackfillWakeTaskName = 'community-raw-backfill-wake';
+const String rawBackfillWakeUniqueName = 'community-raw-backfill-wake-v1';
 const _loginPausesKey = 'raw_login_pauses';
 const _scopeKeys = [
   'contributor_fingerprint',
@@ -43,8 +53,10 @@ const _scopeKeys = [
 /// Runs [RawBackfill] in short, resumable slices.
 ///
 /// - The per-report state lives in `raw_backfill_items`; `meta.raw_backfill` only holds a summary.
-/// - Nothing is scheduled once the run is `done` (or while only holds wait for the user): the timer
-///   is re-planned after every slice from the marker, never left ticking.
+/// - Nothing is scheduled once the run is `done`. A run with only holds wakes itself at the earliest
+///   hold time (timer in the app, a one-off WorkManager job in the background); the timer is
+///   re-planned after every slice from the marker, never left ticking.
+/// - Upload pause (server maintenance) and the required-version lock stop the run entirely.
 /// - `personal_sync` is taken only around the local personal-DB writes (see [RawBackfillRuntimeBackend.local]),
 ///   never across the official-site requests, so a user's sync is not told `sync_busy` for minutes.
 class RawBackfillRuntime {
@@ -69,6 +81,7 @@ class RawBackfillRuntime {
   ) async {
     _store = store;
     _verify = verify;
+    await _unstick(store);
     if (!await _v2Ready(store)) {
       _cancelTimer();
       return;
@@ -84,6 +97,43 @@ class RawBackfillRuntime {
   static void _cancelTimer() {
     _timer?.cancel();
     _timer = null;
+  }
+
+  /// 2-3: 새 버전 첫 실행에 한 번 멈춘 run 을 푼다(완료 표시가 있으면 아무것도 하지 않는다).
+  static Future<void> _unstick(CommunityStore store) async {
+    try {
+      if (await unstickRawBackfill(store) != null) changed.value++;
+    } catch (_) {}
+  }
+
+  /// 시험에서 WorkManager 대신 쓴다(보류 깨우기 1회 작업의 지연).
+  @visibleForTesting
+  static Future<void> Function(Duration delay)? scheduleWakeForTest;
+
+  /// 보류만 남은 run 을 다음 보류 시각에 깨운다(앱이 닫혀 있어도). 같은 이름이면 새 시각으로 바꾼다.
+  static Future<void> _scheduleHoldWake(Duration delay) async {
+    final hook = scheduleWakeForTest;
+    if (hook != null) {
+      await hook(delay);
+      return;
+    }
+    try {
+      await Workmanager().registerOneOffTask(
+        rawBackfillWakeUniqueName,
+        rawBackfillWakeTaskName,
+        initialDelay: delay,
+        constraints: Constraints(networkType: NetworkType.connected),
+        existingWorkPolicy: ExistingWorkPolicy.replace,
+      );
+    } catch (_) {}
+  }
+
+  /// 중지가 풀렸거나(점검 끝) 잠금이 풀렸을 때 포그라운드 run 을 바로 깨운다.
+  static void wake() {
+    final store = _store, verify = _verify;
+    if (store == null || verify == null) return;
+    _cancelTimer();
+    unawaited(run(store: store, verify: verify).catchError((_) => null));
   }
 
   static Future<bool> _v2Ready(CommunityStore store) async {
@@ -120,19 +170,26 @@ class RawBackfillRuntime {
       case 'done':
         return null;
       case 'paused':
+        // Maintenance waits for the status that says "resumed" (the gate refresh wakes the run); the
+        // resume-time check is the WorkManager job of UploadPause. No timer of its own here.
+        if (marker['reason'] == 'maintenance') return null;
         final at = (marker['next_attempt_at'] as num? ?? 0).toDouble();
         final left = at - (now ?? DateTime.now()).millisecondsSinceEpoch / 1000;
         return Duration(seconds: left.ceil().clamp(5, 3600));
       case 'waiting_optimize':
         return const Duration(seconds: 30);
       case 'holds':
-        // Only the user's "retry" moves held reports; wait for it unless other work remains.
+        // Other work left: keep going. Only holds: wake at the earliest hold time (15 s floor, 24 h cap).
         final run = marker['run_id'] as String?;
         if (run == null) return null;
-        final s = await SqliteBackfillItems(store, () async {}).summary(run);
-        return s['unfinished']! > s['holds']!
-            ? const Duration(seconds: 15)
-            : null;
+        final items = SqliteBackfillItems(store, () async {});
+        final s = await items.summary(run);
+        if (s['unfinished']! > s['holds']!) return const Duration(seconds: 15);
+        final at = await items.nextHoldAt(run);
+        if (at == null) return null;
+        final left =
+            at - (now ?? DateTime.now()).millisecondsSinceEpoch ~/ 1000;
+        return Duration(seconds: left.clamp(15, 24 * 3600));
       case 'uploading':
         // 업로드 단계는 업로더가 영수증을 받기를 기다릴 뿐이다 — 15초마다 대기 항목을 훑지 않는다.
         return yielded ? const Duration(seconds: 3) : const Duration(seconds: 60);
@@ -184,10 +241,14 @@ class RawBackfillRuntime {
     bool background = false,
   }) async {
     if (_running) return null;
+    await _unstick(store);
     // Cheap local checks first: no network, no lease, no fresh gate when there is nothing to do.
     if (!await _v2Ready(store)) return null;
     final before = await status(store);
-    if (await _alreadyDone(store, before)) return before;
+    if (await _alreadyDone(store, before)) {
+      await BackfillProgress.report(store, background: background);
+      return before;
+    }
     if (before != null &&
         before['state'] == 'paused' &&
         before['reason'] == 'official_login_required' &&
@@ -214,6 +275,11 @@ class RawBackfillRuntime {
     if (AppModeX.fromString(prefs.getString(AppPrefsKeys.appMode)) !=
             AppMode.standalone ||
         (prefs.getBool(AppPrefsKeys.standaloneDemoMode) ?? false)) {
+      return null;
+    }
+    // 필수 버전 잠금(6절): 1회 전송을 하지 않는다(marker 는 그대로 — 업데이트 뒤 이어 간다).
+    if ((await UpdateRequirement.load(prefs)).locked) {
+      await BackfillProgress.report(store, background: background);
       return null;
     }
     if (_running || !await verify() || _running) return null;
@@ -250,6 +316,7 @@ class RawBackfillRuntime {
         slice: background ? backgroundSlice : foregroundSlice,
         background: background,
       );
+      await BackfillProgress.countRun(store, background: background);
       final retry = await store.meta('raw_backfill_retry') == 'true';
       await store.db.delete(
         'meta',
@@ -266,6 +333,10 @@ class RawBackfillRuntime {
         backend: backend,
         items: SqliteBackfillItems(store, backend.check),
         shouldYield: backend.yieldRequested,
+        maintenance: () async {
+          final pause = await UploadPause.read(store);
+          return pause == null ? null : {'wake_at': pause.wakeAt};
+        },
       ).run(budget: 1000, retryHolds: retry);
       yielded = backend.yieldRequested();
       if (outcome != null && outcome['reason'] != 'official_login_required') {
@@ -284,9 +355,17 @@ class RawBackfillRuntime {
       await store.releaseLease('raw_backfill', owner);
       _running = false;
     }
+    final latest = outcome ?? await status(store);
     if (generation == _generation && !background) {
-      await _plan(store, outcome ?? await status(store), yielded: yielded);
+      await _plan(store, latest, yielded: yielded);
     }
+    if (latest?['state'] == 'holds') {
+      try {
+        final delay = await nextDelay(store, latest);
+        if (delay != null) await _scheduleHoldWake(delay);
+      } catch (_) {}
+    }
+    await BackfillProgress.report(store, background: background);
     return outcome;
   }
 }
@@ -613,6 +692,10 @@ class RawBackfillRuntimeBackend
       // single raw event of this report; enqueue() adopts it instead of issuing a second one.
       try {
         final fetched = await StandaloneApiService.fetchReportDetail(id);
+        if (fetched.envelope['result'] is! Map) {
+          // 상세 응답에 result 가 없다 — 공식 사이트의 일시 문제로 본다(신고 횟수에 넣지 않는다).
+          throw BackfillTransient('no_result');
+        }
         await pause();
         final session = await SyncEngine.openCommunitySession();
         final listItem = await _listItem(id, row);
@@ -938,6 +1021,8 @@ class RawBackfillRuntimeBackend
 
   @override
   Future<void> wakeUpload() async {
+    // 중지(점검)·필수 버전 잠금 중에는 깨우지 않는다(CLIENT-RULES 3절).
+    if (UpdateRequirement.isLocked || await UploadPause.isPaused(store)) return;
     CommunityUploadHooks.wakeUploadNow('raw_backfill');
   }
 }

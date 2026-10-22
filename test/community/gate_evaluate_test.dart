@@ -45,8 +45,11 @@ void main() {
   });
 
   test('serverAccountMismatch', () {
-    expect(serverAccountMismatch('aa', 'aa'), isFalse);
-    expect(serverAccountMismatch('aa', 'bb'), isTrue);
+    // 2026-10-22(CLIENT-RULES 7절): 둘 다 32자리 16진이고 다를 때만 불일치(형식 틀림은 모름 → 잠그지 않음).
+    const a = '0123456789abcdef0123456789abcdef', b = 'fedcba9876543210fedcba9876543210';
+    expect(serverAccountMismatch(a, a), isFalse);
+    expect(serverAccountMismatch(a, b), isTrue);
+    expect(serverAccountMismatch('aa', 'bb'), isFalse);
     expect(serverAccountMismatch(null, 'bb'), isFalse);
     expect(serverAccountMismatch('', ''), isFalse);
   });

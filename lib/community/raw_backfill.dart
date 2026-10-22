@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'backfill_errors.dart';
+
 class BackfillPaused implements Exception {
   BackfillPaused(this.reason, {this.retrySeconds = 300});
   final String reason;
@@ -35,7 +37,13 @@ abstract class BatchedReceipts {
 abstract class BackfillItems {
   Future<void> reset(String run, Map<String, Map<String, dynamic>> items);
   Future<void> loadLegacy(String run, Map<String, dynamic> items);
+
+  /// '다시 시도' 버튼: 시각과 관계없이 모든 보류를 pending·attempts 0·hold_count 0·stale false 로.
   Future<void> retry(String run);
+
+  /// 자동 재시도: `next_attempt_at <= now` 인 보류를 pending·attempts 2 로(한 번 더 실패하면 다시 보류).
+  /// 아직 때가 아닌 보류는 30일 표시(stale)만 갱신한다. 되돌린 수를 돌려준다.
+  Future<int> releaseDueHolds(String run, int now);
   Future<List<(int, String, Map<String, dynamic>)>> page(
     String run,
     int cursor,
@@ -68,10 +76,18 @@ class MemoryBackfillItems implements BackfillItems {
   @override
   Future<void> retry(String run) async {
     for (final item in items.values) {
-      if (item['state'] == 'hold') {
-        item.addAll({'state': 'pending', 'attempts': 0, 'event_id': null});
-      }
+      if (item['state'] == 'hold') resetHold(item);
     }
+  }
+
+  @override
+  Future<int> releaseDueHolds(String run, int now) async {
+    var released = 0;
+    for (final item in items.values) {
+      if (item['state'] != 'hold') continue;
+      if (releaseHold(item, now)) released++;
+    }
+    return released;
   }
 
   @override
@@ -128,6 +144,8 @@ Map<String, int> summarizeBackfill(Iterable<Map<String, dynamic>> items) {
       'missing_reports',
       'holds',
       'unfinished',
+      'pending',
+      'queued',
     ])
       k: 0,
   };
@@ -151,6 +169,8 @@ Map<String, int> summarizeBackfill(Iterable<Map<String, dynamic>> items) {
     if (i['state'] == 'hold') {
       s['holds'] = s['holds']! + 1;
     }
+    if (i['state'] == 'pending') s['pending'] = s['pending']! + 1;
+    if (i['state'] == 'queued') s['queued'] = s['queued']! + 1;
     if (!['stored', 'raw_unavailable', 'not_eligible'].contains(i['state'])) {
       s['unfinished'] = s['unfinished']! + 1;
     }
@@ -159,7 +179,49 @@ Map<String, int> summarizeBackfill(Iterable<Map<String, dynamic>> items) {
   return s;
 }
 
+/// 고정적 오류 3회(또는 업로드 확인 3회 retry) → 보류. 보류 횟수에 따라 다음 자동 재시도 시각을 둔다(CLIENT-RULES 1절).
+void holdItem(Map<String, dynamic> item, int now) {
+  final count = ((item['hold_count'] as num?)?.toInt() ?? 0) + 1;
+  final first = (item['first_held_at'] as num?)?.toInt() ?? now;
+  item.addAll({
+    'state': 'hold',
+    'hold_count': count,
+    'next_attempt_at': now + holdBackoffSeconds(count),
+    'first_held_at': first,
+    'stale': now - first > holdStaleSeconds,
+  });
+}
+
+/// '다시 시도' 버튼과 2-3 초기화의 되돌림: 처음부터 다시(보류 이력도 지운다).
+void resetHold(Map<String, dynamic> item) {
+  item.addAll({
+    'state': 'pending',
+    'attempts': 0,
+    'event_id': null,
+    'hold_count': 0,
+    'stale': false,
+  });
+  item.remove('next_attempt_at');
+  item.remove('first_held_at');
+}
+
+/// 때가 된 보류를 pending·attempts 2 로. 때가 아니면 30일 표시만 갱신한다. 되돌렸으면 true.
+/// `next_attempt_at` 이 없는 예전 보류는 바로 되돌린다.
+bool releaseHold(Map<String, dynamic> item, int now) {
+  final first = (item['first_held_at'] as num?)?.toInt();
+  if (first != null) item['stale'] = now - first > holdStaleSeconds;
+  final due = (item['next_attempt_at'] as num?)?.toInt() ?? 0;
+  if (due > now) return false;
+  item.addAll({'state': 'pending', 'attempts': 2, 'event_id': null});
+  return true;
+}
+
 /// The same bounded phases, completion and retry rules as PC RawBackfill.
+///
+/// Error rules (CLIENT-RULES 1, 2026-10-22): a transient error (network, timeout, official 5xx/429, no
+/// `result`, another job's lock, a locked local DB, community maintenance) pauses the run with a growing
+/// interval (60 → 300 → 900 → 3600 s) and never counts against the report. A fixed error counts; three of
+/// them hold the report, and a hold retries by itself (15 min → 1 h → 6 h → 24 h).
 class RawBackfill {
   RawBackfill({
     required this.load,
@@ -167,6 +229,7 @@ class RawBackfill {
     required this.backend,
     this.items,
     this.shouldYield,
+    this.maintenance,
     DateTime Function()? now,
   }) : now = now ?? DateTime.now;
   final Future<Map<String, dynamic>?> Function() load;
@@ -174,8 +237,13 @@ class RawBackfill {
   final RawBackfillBackend backend;
   final BackfillItems? items;
   final bool Function()? shouldYield;
+
+  /// Upload pause (server maintenance, CLIENT-RULES 5). null = not paused; otherwise `{'wake_at': epoch
+  /// seconds or null}` — the run waits as `paused`/`maintenance` and does no work at all.
+  final Future<Map<String, Object?>?> Function()? maintenance;
   final DateTime Function() now;
   double get seconds => now().millisecondsSinceEpoch / 1000;
+  int get _whole => seconds.floor();
   Future<Map<String, dynamic>?> run({
     int budget = 1000,
     bool retryHolds = false,
@@ -192,6 +260,7 @@ class RawBackfill {
         ...scope,
         'run_id':
             '${now().microsecondsSinceEpoch}-${Random.secure().nextInt(0x100000000)}',
+        'run_started_at': _whole,
         'state': 'waiting_optimize',
         'phase': 'listing',
         'listing_complete': false,
@@ -199,6 +268,7 @@ class RawBackfill {
         'stats': <String, dynamic>{},
         'holds': <String, dynamic>{},
         'failures': 0,
+        'transient_failures': 0,
         'next_attempt_at': 0,
       };
       await repo.reset(m['run_id'] as String, {});
@@ -213,7 +283,11 @@ class RawBackfill {
     marker.addAll(scope);
     if (retryHolds) {
       await repo.retry(run);
-      marker.addAll({'failures': 0, 'next_attempt_at': 0});
+      marker.addAll({
+        'failures': 0,
+        'transient_failures': 0,
+        'next_attempt_at': 0,
+      });
       if (marker['phase'] != 'listing' && marker['listing_complete'] == true) {
         marker.addAll({'phase': 'filling', 'cursor': 0});
       }
@@ -234,13 +308,36 @@ class RawBackfill {
         marker['holds'] = stats['holds'];
         marker.remove('items');
       }
+      marker['updated_at'] = _whole;
       await save(_copy(marker), scope);
     }
 
     if (marker['state'] == 'done' && !retryHolds) {
       return marker;
     }
+    // Reports newly queued by this slice: the uploader is woken once when the filling slice ends.
+    var newQueued = 0;
     try {
+      final pause = await maintenance?.call();
+      if (pause != null) {
+        final wake = (pause['wake_at'] as num?)?.toInt() ?? 0;
+        if (marker['state'] != 'paused' ||
+            marker['reason'] != 'maintenance' ||
+            marker['next_attempt_at'] != wake) {
+          marker.addAll({
+            'state': 'paused',
+            'reason': 'maintenance',
+            // No resume time: no timer — the next status that says "resumed" wakes the run.
+            'next_attempt_at': wake,
+          });
+          await publish();
+        }
+        return marker;
+      }
+      if (marker['reason'] == 'maintenance') {
+        // Resumed (possibly earlier than announced): the maintenance time no longer applies.
+        marker['next_attempt_at'] = 0;
+      }
       if (seconds < (marker['next_attempt_at'] as num? ?? 0)) {
         return marker;
       }
@@ -284,6 +381,9 @@ class RawBackfill {
           'listing_complete': true,
         });
         await publish();
+      } else if (await repo.releaseDueHolds(run, _whole) > 0) {
+        // Holds whose time has come go back to work at the start of this slice.
+        marker.addAll({'phase': 'filling', 'cursor': 0});
       }
       if (marker['phase'] == 'filling') {
         marker['state'] = 'filling';
@@ -323,8 +423,10 @@ class RawBackfill {
                 throw StateError('raw_event_not_created');
               }
               item['state'] = 'queued';
+              newQueued++;
             }
             marker['failures'] = 0;
+            marker['transient_failures'] = 0;
             marker['cursor'] = index + 1;
           } on BackfillBlocked catch (e) {
             item.addAll({
@@ -334,15 +436,22 @@ class RawBackfill {
             });
             marker['cursor'] = index + 1;
           } on BackfillPaused {
+            marker['cursor'] = index;
             rethrow;
           } on BackfillCancelled {
             rethrow;
           } catch (e) {
+            final transient = transientBackfillReason(e);
+            if (transient != null) {
+              // Transient: the report keeps its attempts and the cursor stays on it; the run pauses.
+              marker['cursor'] = index;
+              throw BackfillPaused(transient);
+            }
             item['attempts'] = (item['attempts'] as int) + 1;
             marker['failures'] = (marker['failures'] as int) + 1;
             item['error'] = e.runtimeType.toString();
             if (item['attempts'] >= 3) {
-              item['state'] = 'hold';
+              holdItem(item, _whole);
               marker['cursor'] = index + 1;
             } else {
               marker['cursor'] = index;
@@ -359,6 +468,11 @@ class RawBackfill {
         }
         if (marker['cursor'] >= await repo.size(run)) {
           marker.addAll({'phase': 'uploading', 'state': 'uploading'});
+        } else if (newQueued > 0) {
+          // The filling slice ends with new queued reports: wake the uploader once (CLIENT-RULES 3).
+          // When the slice moves on to the receipt stage, that stage's wake below covers it.
+          await b.wakeUpload();
+          newQueued = 0;
         }
       }
       if (marker['phase'] == 'uploading') {
@@ -382,20 +496,17 @@ class RawBackfill {
               'eligible': false,
               'error': 'upload_rejected',
             });
-          } else if (result == 'retry' || result == 'rebind') {
-            item.addAll({
-              'state': 'pending',
-              'attempts': result == 'rebind'
-                  ? 0
-                  : (item['attempts'] as int) + 1,
-            });
+          } else if (result == 'rebind') {
+            item.addAll({'state': 'pending', 'attempts': 0});
+            marker.addAll({'phase': 'filling', 'cursor': 0});
+          } else if (result == 'retry') {
+            item['attempts'] = (item['attempts'] as int) + 1;
             if (item['attempts'] >= 3) {
-              item.addAll({
-                'state': 'not_eligible',
-                'eligible': false,
-                'error': 'upload_rejected',
-              });
+              // Three upload retries are a hold (automatic retry), not a permanent exclusion.
+              item['error'] = 'upload_retry';
+              holdItem(item, _whole);
             } else {
+              item['state'] = 'pending';
               marker.addAll({'phase': 'filling', 'cursor': 0});
             }
           }
@@ -404,8 +515,17 @@ class RawBackfill {
         final stats = await repo.summary(run),
             complete =
                 marker['listing_complete'] == true && stats['unfinished'] == 0;
+        if (!complete &&
+            marker['listing_complete'] == true &&
+            (stats['pending'] ?? 0) > 0) {
+          // Pending reports (rebind, retry, a hold released, the one-time unstick) are only picked up by
+          // the filling phase — never leave them behind an "uploading" run.
+          marker.addAll({'phase': 'filling', 'cursor': 0});
+        }
         marker['state'] = complete
             ? 'done'
+            : marker['phase'] == 'filling'
+            ? 'filling'
             : stats['holds']! > 0
             ? 'holds'
             : marker['phase'];
@@ -416,11 +536,21 @@ class RawBackfill {
       await publish();
       return marker;
     } on BackfillPaused catch (e) {
+      int retry;
+      if (officialLoginReasons.contains(e.reason)) {
+        retry = e.retrySeconds;
+      } else {
+        final count =
+            ((marker['transient_failures'] as num?)?.toInt() ?? 0) + 1;
+        marker['transient_failures'] = count;
+        retry = transientBackoffSeconds(count);
+      }
       marker.addAll({
         'state': 'paused',
         'reason': e.reason,
-        'next_attempt_at': seconds + e.retrySeconds,
+        'next_attempt_at': seconds + retry,
       });
+      if (newQueued > 0) await b.wakeUpload();
       await publish();
       return marker;
     } on BackfillCancelled {

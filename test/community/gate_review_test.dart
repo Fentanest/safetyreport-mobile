@@ -111,7 +111,12 @@ void main() {
 
         // Same account logs in again; the server still says revoked.
         auth.setPhase(CommunityAccountPhase.connected);
-        await Future<void>.delayed(const Duration(milliseconds: 100));
+        // 로그인 알림이 시작한 확인이 끝날 때까지(고정 100ms 는 부하가 큰 전체 실행에서 모자랐다 — 2026-10-22).
+        for (var i = 0; i < 100 && gate.state.state != 'consent_required'; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+        // 그 확인의 남은 정리(context 끄기)까지 끝난 뒤 본다(진행 중이면 합류, 아니면 같은 결과로 한 번 더).
+        await gate.refreshNow();
         expect(gate.state.state, 'consent_required', reason: '동의 화면(G4)');
         expect(
           auth.state.value.phase,

@@ -22,6 +22,8 @@
 `CommunityAuthService.clearForModeChange()` 로 Standalone 세션·대기 로그인·소비 표시를 지우고(서버 로그아웃은 best effort, 기다리지 않음),
 서버의 커뮤니티 계정은 건드리지 않는다. `setConfig`/`setStandaloneConfig` 는 토큰을 어디로도 복사하지 않는다.
 Client 에서 서버에 닿지 못하면 오류만 보이고 Standalone 로그인으로 바꾸지 않는다(M07).
+**Client 는 서버와 같은 카카오 계정만**(2026-10-22, 아래 코드 대조 정정 표). 계정이 같으면 동의가 하나라 철회·지도·업로드가 같은 계정 기준이다.
+community-account 의 모든 요청에는 `X-Client-Version`(앱 버전)·`X-Client-App`(`mobile/android`)을 붙인다(서버 기록용, `CommunityAccountClient.versionHeaders`).
 
 ## 2. Standalone 흐름
 
@@ -232,4 +234,5 @@ Client의 다시 불러오기 조회·시작·재개가 `server_login_required`�
 
 | 기존 설명 | 코드 기준 정정 |
 |---|---|
+| "계정이 다르면 이 앱의 계정으로 따로 동의"(2026-09-27 안내 카드) | 2026-10-22 정정: **Client 는 서버와 같은 카카오 계정만** 쓴다. 휴대폰 status 의 `account.fingerprint` 와 PC 게이트의 `account.fingerprint` 가 둘 다 32자리 16진이고 다르면 게이트 `client_account_mismatch` 잠금(동의·철회 불가, "로그아웃 후 다시 로그인" — 휴대폰 세션만 지움). 닿지 못함·형식 이상·지문 없음은 잠그지 않고, 같은 계정 확인 또는 서버 계정 정보가 사라지면 푼다. 판정 `serverAccountMismatch`·`clientAccountVerdict`(gate_state.dart), 잠금은 PC 주소·키 범위로 prefs `community_client_account_lock_v1` 에 둔다. |
 | Client 폰에 세션이 없고 서버 API만 호출 | 위 모드 표는 서버 계정 연결용 세션만 설명한다. 현재 Client에서도 앱 필수 게이트용 휴대폰 세션은 별도로 저장하며, 민감한 서버 작업에는 그 사용자 토큰을 전달해 서버 계정과 일치하는지 확인한다. 서버 계정 세션은 계속 PC에만 저장한다. |

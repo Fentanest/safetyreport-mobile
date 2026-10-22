@@ -1,11 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../community/gate/community_account_client.dart';
 import '../community/gate/community_gate.dart';
-import '../community/client_account_notice.dart';
 import '../community/kakao_logout.dart';
+import '../community/report/setup_progress_reporter.dart';
+import '../widgets/community_server_account_card.dart';
 import '../services/community_auth_service.dart';
 import '../widgets/consent_markdown.dart';
 import '../theme/sr_colors.dart';
@@ -39,7 +42,7 @@ class CommunityOnboardingScreen extends StatefulWidget {
   /// 카카오 로그아웃·"지우고 이 계정으로 시작"으로 신고 자료를 지운 뒤(화면 목록 갱신용).
   final Future<void> Function()? onReportsWiped;
 
-  /// Client 모드면 서버 주소·API 키 — 이 앱과 서버의 카카오 계정이 다르면 알린다([ClientAccountMismatchNotice]).
+  /// Client 모드면 서버 주소·API 키 — 서버 로그인 전 잠금에서 "서버의 커뮤니티 계정" 카드를 연다.
   final ({String baseUrl, String apiKey})? clientServer;
   final VoidCallback? onBackToModeSelection;
 
@@ -182,6 +185,13 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
           transient: unavailable,
         );
       }
+      if (gate.appMode == 'unselected' || gate.clientAccountLocked) {
+        // 모드를 고르기 전이거나 서버와 다른 카카오 계정이면 동의를 저장하지 않는다(엉뚱한 표시·계정 방지).
+        throw const CommunityAccountError(
+          code: 'consent_blocked',
+          message: '지금은 동의를 저장할 수 없습니다. 안내에 따라 먼저 계정을 맞춰 주세요.',
+        );
+      }
       final policy = _policy;
       if (policy == null) {
         throw const CommunityAccountError(
@@ -196,6 +206,12 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
         consentTextSha256: policy.consentTextSha256,
         via: gate.isStandalone ? 'mobile_standalone' : 'mobile_client',
       );
+      // 설정 단계 보고(4-2): 동의 성공. Client 는 consent_ok 대신 서버 판정(client_server_checked)을 보낸다.
+      if (gate.isWriter) {
+        unawaited(
+          SetupProgressReporter.report(stage: 'consent_ok', mode: gate.setupMode),
+        );
+      }
       // 이 기기에서 동의했다 — 업로드 연결이 다른 기기에 있으면 이 기기로 가져온다(2026-09-28).
       await gate.recordConsentAccepted();
       gate.claimForThisDevice();
@@ -251,6 +267,87 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
   }
 
   bool _ownerBusy = false;
+  bool _relogBusy = false;
+
+  /// Client 서버 로그인 전 잠금: 설정의 "서버의 커뮤니티 계정" 카드(기존 start/confirm)를 바로 연다.
+  /// 관리 권한 없는 키면 카드가 기존 권한 안내를 보인다.
+  Future<void> _openServerAccountCard() async {
+    final server = widget.clientServer;
+    if (server == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: const Text('서버의 커뮤니티 계정')),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: CommunityServerAccountCard(
+              baseUrl: server.baseUrl,
+              apiKey: server.apiKey,
+            ),
+          ),
+        ),
+      ),
+    );
+    await widget.gate?.refreshNow();
+  }
+
+  /// Client 계정 불일치(7절): 휴대폰의 카카오 세션만 지우고 곧바로 카카오 로그인을 다시 연다
+  /// (서버·동의·신고 자료는 건드리지 않는다).
+  Future<void> _logoutAndRelogin() async {
+    if (_relogBusy) return;
+    setState(() => _relogBusy = true);
+    try {
+      final error = await KakaoLogout.run(
+        gate: widget.gate,
+        auth: _auth,
+        wipes: false,
+      );
+      if (error != null) {
+        if (mounted) showSrSnack(context, error, kind: SrSnackKind.error);
+        return;
+      }
+      await _auth.startLogin();
+    } catch (_) {
+      if (mounted) {
+        showSrSnack(context, '로그아웃하지 못했습니다. 다시 시도해 주세요.', kind: SrSnackKind.error);
+      }
+    } finally {
+      if (mounted) setState(() => _relogBusy = false);
+    }
+  }
+
+  Widget _clientAccountLockBox(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final name = widget.gate?.clientAccountServerName;
+    return Card(
+      key: const Key('clientAccountMismatch'),
+      color: cs.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              name == null
+                  ? '서버에 연결된 카카오 계정으로 다시 로그인해 주세요.'
+                  : '서버에 연결된 카카오 계정($name)으로 다시 로그인해 주세요.',
+              style: TextStyle(
+                fontSize: 13.5,
+                fontWeight: FontWeight.bold,
+                color: cs.onErrorContainer,
+              ),
+            ),
+            const SizedBox(height: 12),
+            FilledButton(
+              key: const Key('clientAccountRelogin'),
+              onPressed: _relogBusy ? null : _logoutAndRelogin,
+              child: const Text('로그아웃 후 다시 로그인'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Future<void> _logout() async {
     final done = await KakaoLogout.confirmAndRun(
@@ -394,14 +491,30 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
             _recoveryBox(context, gate!),
           if (gateState == 'db_owner_mismatch') _ownerMismatchBox(context),
           if (gateState == 'server_consent_required')
-            const Card(
+            Card(
+              key: const Key('serverConsentRequired'),
               child: Padding(
-                padding: EdgeInsets.all(16),
-                child: Text(
-                  '서버 동의 필요: 연결된 PC 서버에서 카카오 로그인과 공유 동의를 마쳐 주세요. 서버 자료는 삭제되지 않았습니다.',
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '서버 동의 필요: 연결된 PC 서버에서 카카오 로그인과 공유 동의를 마쳐 주세요. 서버 자료는 삭제되지 않았습니다.',
+                    ),
+                    if (widget.clientServer != null) ...[
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        key: const Key('openServerAccountCard'),
+                        icon: const Icon(Icons.manage_accounts_outlined, size: 16),
+                        label: const Text('서버의 커뮤니티 계정 열기'),
+                        onPressed: _openServerAccountCard,
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ),
+          if (gateState == 'client_account_mismatch') _clientAccountLockBox(context),
           if (gateState == 'revoke_pending')
             Card(
               child: Padding(
@@ -434,14 +547,11 @@ class _CommunityOnboardingScreenState extends State<CommunityOnboardingScreen> {
           // The login card stays available while a withdrawal is pending: a lost Kakao session must be
           // renewable, and a successful login finishes the withdrawal.
           _kakaoCard(context),
-          if (gate != null && widget.clientServer != null && _kakaoOk)
-            ClientAccountMismatchNotice(
-              gate: gate,
-              baseUrl: widget.clientServer!.baseUrl,
-              apiKey: widget.clientServer!.apiKey,
-            ),
           const SizedBox(height: 12),
-          if (gateState != 'revoke_pending') _consentCard(context),
+          // 계정 불일치 잠금 중에는 동의 카드를 보이지 않는다(엉뚱한 계정의 동의를 바꾸지 않게).
+          if (gateState != 'revoke_pending' &&
+              gateState != 'client_account_mismatch')
+            _consentCard(context),
           const SizedBox(height: 12),
           if (gate?.writerConflict != null) _writerConflictBox(context),
           if (gate?.manifestError != null)

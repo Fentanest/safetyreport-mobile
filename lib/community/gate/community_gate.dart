@@ -7,6 +7,9 @@ import '../client_notice.dart';
 import '../client_server_consent.dart';
 import '../client_server_policy.dart';
 import '../ingest_status.dart';
+import '../report/setup_progress_reporter.dart';
+import '../update_requirement.dart';
+import '../upload_pause.dart';
 import 'gate_policy.dart';
 import '../../services/app_prefs_keys.dart';
 import '../../services/community_server_link_service.dart';
@@ -294,6 +297,10 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
             was == CommunityAccountPhase.exchanging ||
             was == CommunityAccountPhase.confirmRequired)) {
       _claimRequested = true;
+      // 설정 단계 보고(4-2): 카카오 로그인 끝.
+      unawaited(
+        SetupProgressReporter.report(stage: 'kakao_ok', mode: setupMode),
+      );
     }
     _changingOfficialAccount = false;
     _hardLocalBlock = null;
@@ -557,8 +564,17 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
   /// 게이트가 ok 로 처음 바뀔 때 1회 실행 (`ReportProvider.onGatePassed` 연결).
   void addOnFirstPassed(FutureOr<void> Function() cb) => _onFirstPassed.add(cb);
 
-  /// 'standalone' | 'server'(Client) | 'demo'(Standalone 데모 — 화면은 Standalone 이지만 writer 가 아니다).
+  /// 'standalone' | 'server'(Client) | 'demo'(Standalone 데모 — 화면은 Standalone 이지만 writer 가 아니다)
+  /// | 'unselected'(첫 실행에서 아직 모드를 고르지 않음 — 동의 단계로 가지 않는다, CLIENT-RULES 7절).
   String get appMode => _appModeOverride?.call() ?? 'standalone';
+
+  /// 설정 단계 보고(4-2)의 `mode` 값.
+  String get setupMode => switch (appMode) {
+    'server' => 'client',
+    'demo' => 'demo',
+    'unselected' => 'unselected',
+    _ => 'standalone',
+  };
   bool get isStandalone => appMode != 'server';
 
   /// 이 기기가 공유 writer 인가. 데모·Client 는 연결 등록·업로드를 하지 않는다.
@@ -903,6 +919,17 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
       _notifyIfChanged();
       return _state;
     }
+    // 첫 실행에서 모드를 아직 고르지 않았다: 어느 모드의 동의인지 모르므로 동의·연결 확인을 하지 않는다.
+    if (checkedMode == 'unselected') {
+      _passedMode = null;
+      _invalidated = true;
+      _notice = null;
+      _apply(const GateState(state: 'mode_unselected', canEnter: false));
+      await _deactivate('mode_unselected');
+      _checked = true;
+      _notifyIfChanged();
+      return _state;
+    }
     if (_changingOfficialAccount) return _state;
     if (!silent) {
       _checking = true;
@@ -1059,7 +1086,12 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         _assertCurrent(authGen, checkedMode);
         // The status is the authority: a missing key is the same as null (notice and 426 mark cleared).
         await ClientNotice.save(_store, status.raw['client_notice']);
+        // 업로드 일시 중지(5절): `ingest.paused` 가 있으면 그 값이 정본(없으면 저장값 유지).
+        await UploadPause.applyStatus(_store, status.raw);
       }
+      // 필수 버전(6절): 정상 응답에서만 잠그고 푼다(키 없음·해석 불가는 마지막 판정 유지).
+      await UpdateRequirement.applyStatus(status.raw);
+      _assertCurrent(authGen, checkedMode);
       _verifiedAt = DateTime.now();
       _invalidated = false;
       _notice = null;
@@ -1097,6 +1129,28 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
               g1Session != nowSession,
         );
         return _state;
+      }
+      // Client(7절): PC 서버의 게이트를 한 번 묻고, 계정이 다르다고 확인되면 동의 단계보다 먼저 잠근다
+      // (엉뚱한 계정의 동의를 바꾸지 않게). 닿지 못함·형식 이상·지문 없음은 새로 잠그지 않는다.
+      var clientVerdict = ServerConsentVerdict.unknown;
+      if (appMode == 'server') {
+        final check = await _clientServerCheck();
+        _assertCurrent(authGen, checkedMode);
+        clientVerdict = check.verdict;
+        await _applyClientAccount(check.result, status.fingerprint);
+        _assertCurrent(authGen, checkedMode);
+        unawaited(_reportClientCheck(check.result, status));
+        if (_clientAccountLock != null) {
+          _localAllowed = false;
+          _clientWaiting = false;
+          _apply(
+            const GateState(state: 'client_account_mismatch', canEnter: false),
+          );
+          await _deactivate('client_account_mismatch');
+          _checked = true;
+          _notifyIfChanged();
+          return _state;
+        }
       }
       if (_store != null && account != null) {
         await ConsentHistory(_store).event(
@@ -1221,15 +1275,16 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         _clientWaiting = false;
         if (appMode == 'server') {
           // Only an explicit PC refusal locks. An unreachable PC (network, timeout, 5xx, no answer)
-          // keeps the previous Client behaviour and shows "server check pending" only.
-          final verdict = await _clientServerVerdict();
-          _assertCurrent(authGen, checkedMode);
-          if (verdict == ServerConsentVerdict.refused) {
+          // keeps the previous Client behaviour and shows "server check pending" only. A PC whose
+          // community setup is missing (503) is not a lock either: only the notice is shown.
+          if (clientVerdict == ServerConsentVerdict.refused) {
             _lockClient();
             _checked = true;
             return _state;
           }
-          _clientWaiting = verdict == ServerConsentVerdict.unknown;
+          _clientWaiting =
+              clientVerdict == ServerConsentVerdict.unknown &&
+              !_clientServerUnconfigured;
         }
         await _deactivate(appMode == 'demo' ? 'demo_mode' : 'client_mode');
       }
@@ -1318,21 +1373,162 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
     return true;
   }
 
-  Future<ServerConsentVerdict> _clientServerVerdict() async {
+  Future<({ServerConsentVerdict verdict, CommunityGateLinkResult? result})>
+  _clientServerCheck() async {
+    const unknown = (verdict: ServerConsentVerdict.unknown, result: null);
     final override = _serverGateOverride;
     if (override != null) {
       try {
-        return ClientServerConsent.verdict(await override());
+        final result = await override();
+        return (verdict: ClientServerConsent.verdict(result), result: result);
       } catch (_) {
-        return ServerConsentVerdict.unknown;
+        return unknown;
       }
     }
     try {
       final prefs = await SharedPreferences.getInstance();
-      return await ClientServerConsent.verify(prefs);
+      return await ClientServerConsent.check(prefs);
     } catch (_) {
-      return ServerConsentVerdict.unknown;
+      return unknown;
     }
+  }
+
+  /// Client 계정 불일치 잠금(7절). 잠금은 PC 주소·키 범위로 저장해 재시작해도 유지한다(해제는 같은 계정 확인 또는
+  /// 서버 계정 정보가 사라졌을 때만). 값이 있으면 잠금 중이며, 서버 표시 이름(없으면 빈 문자열)을 담는다.
+  String? _clientAccountLock;
+  bool _clientServerUnconfigured = false;
+  bool _clientServerNeedsOnboarding = false;
+  static const clientAccountLockKey = 'community_client_account_lock_v1';
+
+  /// Client: 휴대폰과 서버의 카카오 계정이 다르다고 확인되어 잠겼는가.
+  bool get clientAccountLocked => _clientAccountLock != null;
+
+  /// 잠금 화면에 보일 서버 쪽 카카오 표시 이름(모르면 null).
+  String? get clientAccountServerName =>
+      (_clientAccountLock?.isEmpty ?? true) ? null : _clientAccountLock;
+
+  /// Client: 서버가 커뮤니티 설정을 마치지 않았다(503 community_disabled·community_unconfigured). 잠그지 않고 안내만.
+  bool get clientServerUnconfigured => _clientServerUnconfigured;
+
+  /// Client: 서버가 카카오 로그인 전이라 "온보딩 필요"로 거절했다(잠금 화면에서 서버 계정 카드로 보낸다).
+  bool get clientServerNeedsOnboarding => _clientServerNeedsOnboarding;
+
+  Future<String?> _clientLockScope() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return ClientServerConsent.fingerprint(
+        prefs.getString(AppPrefsKeys.baseUrl) ?? '',
+        prefs.getString(AppPrefsKeys.apiKey) ?? '',
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<String?> _readClientAccountLock() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      final raw = prefs.getString(clientAccountLockKey);
+      final value = raw == null ? null : jsonDecode(raw);
+      if (value is! Map || value['scope'] != await _clientLockScope()) {
+        return null;
+      }
+      final name = value['server_name'];
+      return name is String ? name : '';
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _applyClientAccount(
+    CommunityGateLinkResult? result,
+    String? phoneFingerprint,
+  ) async {
+    final code = result?.code;
+    _clientServerUnconfigured =
+        result != null &&
+        !result.isOk &&
+        (code == 'community_disabled' || code == 'community_unconfigured');
+    _clientServerNeedsOnboarding = result?.needsOnboarding ?? false;
+    _clientAccountLock ??= await _readClientAccountLock();
+    final data = result?.isOk == true ? result!.data : null;
+    final decision = clientAccountVerdict(
+      data?.cast<String, Object?>(),
+      phoneFingerprint,
+    );
+    if (decision == 'keep') return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (decision == 'unlock') {
+        _clientAccountLock = null;
+        await prefs.remove(clientAccountLockKey);
+        return;
+      }
+      final account = data!['account'] as Map;
+      final name = account['display_name'];
+      _clientAccountLock = name is String ? name : '';
+      await prefs.setString(
+        clientAccountLockKey,
+        jsonEncode({
+          'scope': await _clientLockScope(),
+          'server_name': _clientAccountLock,
+        }),
+      );
+    } catch (_) {}
+  }
+
+  /// 설정 단계 보고(4-2) `client_server_checked`: 정확히 6키, 지문·이름은 보내지 않는다.
+  Future<void> _reportClientCheck(
+    CommunityGateLinkResult? result,
+    CommunityAccountStatus phone,
+  ) async {
+    try {
+      // 응답을 받았는가(HTTP 상태가 있는 답). 연결 실패·시간 초과·호환성 확인 실패는 false 이고 나머지는 null.
+      final reachable =
+          result != null &&
+          (result.isOk || (!result.offline && result.httpStatus != null));
+      Map<String, Object?> client;
+      if (!reachable) {
+        client = {
+          'server_reachable': false,
+          'server_version': null,
+          'server_community_supported': null,
+          'server_logged_in': null,
+          'server_consent_active': null,
+          'account_match': null,
+        };
+      } else {
+        final data = result.data;
+        final consent = data?['consent'];
+        final account = data?['account'];
+        final serverFp = account is Map ? account['fingerprint'] : null;
+        client = {
+          'server_reachable': true,
+          // PC 게이트 응답에는 버전이 없다 — 버전을 따로 묻지 않는다(추가 요청 없음).
+          'server_version': null,
+          'server_community_supported': !_clientServerUnconfigured,
+          'server_logged_in': result.needsOnboarding
+              ? false
+              : data?['kakao'] is bool
+              ? data!['kakao'] as bool
+              : null,
+          'server_consent_active': consent is Map && consent['state'] is String
+              ? consent['state'] == 'active'
+              : null,
+          'account_match':
+              isAccountFingerprint(serverFp) &&
+                  isAccountFingerprint(phone.fingerprint)
+              ? serverFp == phone.fingerprint
+              : null,
+        };
+      }
+      await SetupProgressReporter.report(
+        stage: 'client_server_checked',
+        mode: setupMode,
+        client: client,
+      );
+    } catch (_) {}
   }
 
   /// Client only: the connected PC could not be asked (shown as "server check pending", never a lock).
@@ -1583,7 +1779,10 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
       } catch (_) {}
     }
     _assertCurrent(generation, mode);
-    final manifestOk = await CommunityUploadHooks.refreshServerCompletedNow();
+    // 업로드 일시 중지(서버 점검) 중에는 manifest 도 503 이다 — 묻지 않고, 오류 안내도 띄우지 않는다.
+    final paused = _store != null && await UploadPause.isPaused(_store);
+    final manifestOk =
+        paused || await CommunityUploadHooks.refreshServerCompletedNow();
     _assertCurrent(generation, mode);
     if (!manifestOk) {
       // 수집 시작 전 scope 검사(SyncEngine.ensureManifestFresh)가 다시 시도하고, 실패하면 수집하지 않는다.
@@ -1624,6 +1823,13 @@ class CommunityGate extends ChangeNotifier with WidgetsBindingObserver {
         writerEpoch: result.writerEpoch,
         generation: generation,
         mode: mode,
+      );
+      // 설정 단계 보고(4-2): 연결 등록 — 이 뒤로는 진행 보고(4-1)가 이어받는다.
+      unawaited(
+        SetupProgressReporter.report(
+          stage: 'connection_registered',
+          mode: setupMode,
+        ),
       );
       return result;
     } on CommunityAccountError catch (e) {

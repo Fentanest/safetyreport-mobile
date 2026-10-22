@@ -17,8 +17,12 @@ import '../community/rebuild/community_rebuild.dart';
 import '../community/upload/community_schedule.dart';
 import '../community/upload/community_uploader.dart' show UploadRunResult;
 import '../community/upload/upload_background.dart';
+import '../community/backfill_progress.dart';
+import '../community/update_requirement.dart';
+import '../community/upload_pause.dart';
 import '../models/app_mode.dart';
 import 'app_prefs_keys.dart';
+import 'app_version.dart';
 import 'local_db_service.dart';
 import 'secure_storage_migration.dart';
 import 'standalone_auth_service.dart';
@@ -29,6 +33,7 @@ void backgroundTaskDispatcher() {
   Workmanager().executeTask((task, inputData) async {
     DartPluginRegistrant.ensureInitialized();
     await BundledSqlite.initialize();
+    await AppVersion.load(); // 필수 버전 판정·버전 헤더(CLIENT-RULES 6절)
     if (task == CommunityReset.retryTask) {
       if (!await SecureStorageMigration.isDone()) return false;
       final store = await CommunityStore.open();
@@ -39,7 +44,9 @@ void backgroundTaskDispatcher() {
     }
     if (task == communityPeriodicTaskName ||
         task == communityMidnightTaskName ||
-        task == communityRecoveryTaskName) {
+        task == communityRecoveryTaskName ||
+        task == uploadResumeTaskName ||
+        task == rawBackfillWakeTaskName) {
       // 상태를 저장했으면 true, 저장 전 예기치 못한 예외면 false(OS 가 백오프로 다시 실행).
       return runCommunityUploadTask(task);
     }
@@ -100,6 +107,22 @@ Future<bool> runCommunityUploadTask(
       }
       return true;
     }
+    // 필수 버전 잠금(6절): 업로드·1회 전송·진행 보고를 하지 않는다. status 는 위 게이트 확인에서 이미 다시 봤다.
+    if ((await UpdateRequirement.load(prefs)).locked) {
+      await BackfillProgress.report(store, background: true);
+      return true;
+    }
+    // 업로드 일시 중지(5절): 업로드 시도 0회. 재개 시각이 있으면 그 시각(+지터)에 한 번만 다시 깨운다.
+    final pause = await UploadPause.read(store);
+    if (pause != null) {
+      await UploadPause.scheduleResumeWake(pause, now: now);
+      await RawBackfillRuntime.run(
+        store: store,
+        verify: () async => true,
+        background: true,
+      );
+      return true;
+    }
     // 백그라운드 isolate 에는 main.dart 의 SyncEngine.rebuildBlocks 가 없다 — 다시 불러오기가 필요하거나 진행·일시정지 중이면
     // 동의 후 전체 수집(SyncEngine.start)이 그보다 먼저 돌지 않게 같은 판정을 여기서 건다(포그라운드와 같은 규칙).
     SyncEngine.rebuildBlocks ??= () => headlessRebuildRequired(store, prefs);
@@ -132,7 +155,8 @@ Future<bool> runCommunityUploadTask(
     );
     // 복구는 자정 결과와 별개다(자정 key 가 다른 실행에 잡혀 deferred 여도 재시도 시각이 된 행은 보낸다)
     if ((task == communityPeriodicTaskName ||
-            task == communityRecoveryTaskName) &&
+            task == communityRecoveryTaskName ||
+            task == uploadResumeTaskName) &&
         await (recoveryCheck ?? recoveryDue)(store, now: now)) {
       await run('recovery');
     }

@@ -75,13 +75,111 @@ class SqliteBackfillItems implements BackfillItems {
     }
   }
 
+  /// 보류 행만 읽어 [change] 를 적용하고 바뀐 행을 한 트랜잭션에 쓴다(보류 수는 많지 않다).
+  Future<int> _rewriteHolds(
+    String run,
+    bool Function(Map<String, dynamic> item) change,
+  ) async {
+    await check();
+    final rows = await store.db.query(
+      'raw_backfill_items',
+      where: "run_id=? AND state='hold'",
+      whereArgs: [run],
+    );
+    if (rows.isEmpty) return 0;
+    var changed = 0;
+    await store.transaction((tx) async {
+      for (final r in rows) {
+        final before = item(r);
+        final after = Map<String, dynamic>.of(before);
+        final moved = change(after);
+        if (moved) changed++;
+        if (jsonEncode(values(after)) == jsonEncode(values(before))) continue;
+        await tx.update(
+          'raw_backfill_items',
+          values(after),
+          where: 'run_id=? AND report_id=?',
+          whereArgs: [run, r['report_id']],
+        );
+      }
+    });
+    return changed;
+  }
+
   @override
   Future<void> retry(String run) async {
-    await check();
-    await store.db.rawUpdate(
-      "UPDATE raw_backfill_items SET state='pending',attempts=0,event_id=NULL WHERE run_id=? AND state='hold'",
-      [run],
+    await _rewriteHolds(run, (item) {
+      resetHold(item);
+      return true;
+    });
+  }
+
+  @override
+  Future<int> releaseDueHolds(String run, int now) =>
+      _rewriteHolds(run, (item) => releaseHold(item, now));
+
+  /// 보류 항목 중 가장 이른 자동 재시도 시각(epoch 초). 보류가 없으면 null, 시각이 없는 예전 보류는 0.
+  Future<int?> nextHoldAt(String run) async {
+    final rows = await store.db.query(
+      'raw_backfill_items',
+      columns: ['detail_json'],
+      where: "run_id=? AND state='hold'",
+      whereArgs: [run],
     );
+    int? earliest;
+    for (final r in rows) {
+      int at = 0;
+      try {
+        final d = jsonDecode(r['detail_json'] as String);
+        if (d is Map && d['next_attempt_at'] is num) {
+          at = (d['next_attempt_at'] as num).toInt();
+        }
+      } catch (_) {}
+      if (earliest == null || at < earliest) earliest = at;
+    }
+    return earliest;
+  }
+
+  /// 진행 보고용 항목 수(상태별 + 30일 넘은 보류). 개수만 — 신고 ID 는 돌려주지 않는다.
+  Future<Map<String, int>> stateCounts(String run) async {
+    final counts = <String, int>{
+      for (final k in [
+        'total',
+        'stored',
+        'queued',
+        'pending',
+        'holds',
+        'stale_holds',
+        'raw_unavailable',
+        'not_eligible',
+      ])
+        k: 0,
+    };
+    for (final r in await store.db.rawQuery(
+      'SELECT state, COUNT(*) n FROM raw_backfill_items WHERE run_id=? GROUP BY state',
+      [run],
+    )) {
+      final n = (r['n'] as num).toInt();
+      counts['total'] = counts['total']! + n;
+      final key = r['state'] == 'hold' ? 'holds' : r['state'] as String;
+      if (counts.containsKey(key)) counts[key] = counts[key]! + n;
+    }
+    if (counts['holds']! > 0) {
+      for (final r in await store.db.query(
+        'raw_backfill_items',
+        columns: ['detail_json'],
+        where: "run_id=? AND state='hold'",
+        whereArgs: [run],
+      )) {
+        try {
+          final d = jsonDecode(r['detail_json'] as String);
+          if (d is Map && d['stale'] == true) {
+            counts['stale_holds'] = counts['stale_holds']! + 1;
+          }
+        } catch (_) {}
+      }
+    }
+    return counts;
   }
 
   @override
@@ -139,7 +237,9 @@ class SqliteBackfillItems implements BackfillItems {
       COUNT(CASE WHEN eligible=1 AND state='stored' THEN 1 END) sent,
       COALESCE(SUM(filled),0) filled,COALESCE(SUM(unfilled),0) unfilled,COALESCE(SUM(was_missing),0) missing_reports,
       COUNT(CASE WHEN state='hold' THEN 1 END) holds,
-      COUNT(CASE WHEN state NOT IN ('stored','raw_unavailable','not_eligible') THEN 1 END) unfinished
+      COUNT(CASE WHEN state NOT IN ('stored','raw_unavailable','not_eligible') THEN 1 END) unfinished,
+      COUNT(CASE WHEN state='pending' THEN 1 END) pending,
+      COUNT(CASE WHEN state='queued' THEN 1 END) queued
       FROM raw_backfill_items WHERE run_id=?""",
       [run],
     )).first;

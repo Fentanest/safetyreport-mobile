@@ -192,7 +192,7 @@ void main() {
         ServerConnectionService.upgradeMessage(
           '{"code":"SERVER_UPGRADE_REQUIRED"}',
         ),
-        contains('PC 서버'),
+        contains('서버 프로그램 업데이트'),
       );
     },
   );

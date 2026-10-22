@@ -3,8 +3,11 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, visibleForTesting;
 import 'package:http/http.dart' as http;
 
+import '../../services/app_version.dart';
 import 'community_client_rules.dart';
 
 /// `community-account` 함수 REST 클라이언트 (`contracts/community-ingest/account-api.md`).
@@ -24,6 +27,29 @@ class CommunityAccountClient {
   final String publishableKey;
   final http.Client? _client;
   final Duration timeout;
+
+  /// 버전 헤더 값 형식(account-api.md·CLIENT-RULES 6-3). 맞지 않으면 헤더를 붙이지 않는다.
+  static final _versionHeaderPattern = RegExp(r'^[0-9][0-9A-Za-z.+_-]{0,39}$');
+
+  /// 시험에서 내 버전을 바꾼다(null 이면 진입점이 읽어 둔 [AppVersion.value]).
+  @visibleForTesting
+  static String? versionForTest;
+
+  static Future<String?> _appVersion() async =>
+      versionForTest ?? AppVersion.value;
+
+  /// `X-Client-App`: `mobile/android` · `mobile/ios`.
+  static String get clientApp =>
+      defaultTargetPlatform == TargetPlatform.iOS ? 'mobile/ios' : 'mobile/android';
+
+  /// community-account 의 **모든 요청**에 붙이는 버전 헤더(서버 기록용, 6-3). 버전을 모르면 빈 맵.
+  static Future<Map<String, String>> versionHeaders() async {
+    final version = await _appVersion();
+    if (version == null || !_versionHeaderPattern.hasMatch(version)) {
+      return const {};
+    }
+    return {'X-Client-Version': version, 'X-Client-App': clientApp};
+  }
 
   Future<CommunityAccountStatus> status({
     required String accessToken,
@@ -148,6 +174,7 @@ class CommunityAccountClient {
       '${supabaseUrl.replaceFirst(RegExp(r'/+$'), '')}/functions/v1/community-account/$action',
     );
     final owned = CloudHttpClient(_client ?? http.Client());
+    final version = await versionHeaders();
     try {
       final res = await owned
           .post(
@@ -156,6 +183,7 @@ class CommunityAccountClient {
               'apikey': publishableKey,
               'Authorization': 'Bearer $accessToken',
               'Content-Type': 'application/json',
+              ...version,
             },
             body: jsonEncode({'protocol': 1, ...body}),
           )

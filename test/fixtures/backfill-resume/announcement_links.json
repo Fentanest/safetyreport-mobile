@@ -1,0 +1,86 @@
+{
+  "rule": "https 만, 아래 세 가지 형태만 연다. 사용자 정보·포트·공백·제어문자·<>\"\\ 가 있으면 거부. 서버(SQL private.app_announcement_url_allowed, Edge announcementUrlAllowed)와 앱이 같은 결과를 내야 한다.",
+  "allowed_patterns": [
+    "https://play.google.com/store/apps/details?id=com.fentanest.mysafetyreport[&...]",
+    "https://github.com/Fentanest/...",
+    "https://worklazy.net/... 또는 https://<하위 도메인>.worklazy.net/..."
+  ],
+  "cases": [
+    {
+      "url": "https://play.google.com/store/apps/details?id=com.fentanest.mysafetyreport",
+      "allowed": true
+    },
+    {
+      "url": "https://play.google.com/store/apps/details?id=com.fentanest.mysafetyreport&hl=ko",
+      "allowed": true
+    },
+    {
+      "url": "https://github.com/Fentanest/safetyreport/releases/latest",
+      "allowed": true
+    },
+    {
+      "url": "https://github.com/Fentanest/safetyreport-mobile/issues",
+      "allowed": true
+    },
+    {
+      "url": "https://safemap.worklazy.net/",
+      "allowed": true
+    },
+    {
+      "url": "https://worklazy.net/notice",
+      "allowed": true
+    },
+    {
+      "url": "https://safeauth.worklazy.net/help.html#faq",
+      "allowed": true
+    },
+    {
+      "url": "http://safemap.worklazy.net/",
+      "allowed": false
+    },
+    {
+      "url": "https://play.google.com/store/apps/details?id=com.other.app",
+      "allowed": false
+    },
+    {
+      "url": "https://play.google.com/store/apps/details?id=com.fentanest.mysafetyreport.evil",
+      "allowed": false
+    },
+    {
+      "url": "https://github.com/fentanest/safetyreport",
+      "allowed": false
+    },
+    {
+      "url": "https://github.com/Other/repo",
+      "allowed": false
+    },
+    {
+      "url": "https://worklazy.net.evil.example/",
+      "allowed": false
+    },
+    {
+      "url": "https://evilworklazy.net/",
+      "allowed": false
+    },
+    {
+      "url": "https://user@safemap.worklazy.net/",
+      "allowed": false
+    },
+    {
+      "url": "https://safemap.worklazy.net:8443/",
+      "allowed": false
+    },
+    {
+      "url": "javascript:alert(1)",
+      "allowed": false
+    },
+    {
+      "url": "https://safemap.worklazy.net/a b",
+      "allowed": false
+    },
+    {
+      "url": "https://github.com/Fentanest/<script>",
+      "allowed": false
+    }
+  ]
+}

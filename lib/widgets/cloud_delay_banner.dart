@@ -79,7 +79,10 @@ class ClientServerWaitingBanner extends StatelessWidget {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: gate,
     builder: (context, _) {
-      if (!gate.clientServerCheckPending) return const SizedBox.shrink();
+      final unconfigured = gate.clientServerUnconfigured;
+      if (!gate.clientServerCheckPending && !unconfigured) {
+        return const SizedBox.shrink();
+      }
       return SafeArea(
         bottom: false,
         child: Material(
@@ -88,11 +91,18 @@ class ClientServerWaitingBanner extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
               children: [
-                const Icon(Icons.sync_problem, size: 16),
+                Icon(
+                  unconfigured ? Icons.info_outline : Icons.sync_problem,
+                  size: 16,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    'PC 서버 연결 대기 · 닿으면 자동으로 다시 확인합니다',
+                    unconfigured
+                        // 서버가 커뮤니티 설정을 마치지 않았다(503) — 잠그지 않고 안내만(CLIENT-RULES 7절).
+                        ? '서버 관리자가 커뮤니티 설정을 마쳐야 공유됩니다.'
+                        : 'PC 서버 연결 대기 · 닿으면 자동으로 다시 확인합니다',
+                    key: const Key('clientServerNote'),
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),

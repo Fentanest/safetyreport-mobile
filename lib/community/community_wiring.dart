@@ -21,6 +21,10 @@ import 'upload/community_uploader.dart';
 import 'upload/upload_controller.dart';
 import 'upload/upload_defaults.dart';
 import 'upload_hooks.dart';
+import 'upload_pause.dart';
+import 'update_requirement.dart';
+import 'backfill_progress.dart';
+import 'package:flutter/foundation.dart' show VoidCallback;
 
 /// 포그라운드 uploader 용 게이트 어댑터: 새 작업은 60초 이내 재검증(plan §6.1).
 class LiveGateCheck
@@ -80,6 +84,8 @@ class CommunityWiring {
         store,
         () async => (await communityGate.requireFresh()).canEnter,
       );
+      // 진행 보고(4-1) ① 앱 시작·게이트 통과 뒤 1회 + 사용자 조치 알림 판단(8절).
+      unawaited(BackfillProgress.report(store, start: true));
       // 업로더의 배치별 진행 문구는 동기화 로그에 싣지 않는다 — 동기화가 10건 단위로 'N/M건 전송'을 따로 적는다.
       CommunityUploadController.instance.start(
         () => buildDefaultUploader(gate: gateCheck()),
@@ -91,6 +97,21 @@ class CommunityWiring {
       await schedule.cancelBackgroundJobs();
     };
     CommunityUploadHooks.wakeUpload = CommunityUploadController.instance.wake;
+    // 점검이 끝났거나(업로드 일시 중지 해제) 필수 버전 잠금이 풀리면 업로더·1회 전송을 곧바로 깨운다.
+    _pauseListener ??= () {
+      final paused = UploadPause.current.value != null;
+      if (_wasPaused && !paused) _resume('maintenance_over');
+      _wasPaused = paused;
+    };
+    _lockListener ??= () {
+      final locked = UpdateRequirement.current.value.locked;
+      if (_wasLocked && !locked) _resume('update_lock_released');
+      _wasLocked = locked;
+    };
+    _wasPaused = UploadPause.current.value != null;
+    _wasLocked = UpdateRequirement.current.value.locked;
+    UploadPause.current.addListener(_pauseListener!);
+    UpdateRequirement.current.addListener(_lockListener!);
     CommunityUploadHooks.uploadBeforeSync = () async {
       final uploader = await buildDefaultUploader(gate: gateCheck());
       final run = await uploader.requestCommunityUpload('recovery');
@@ -136,6 +157,18 @@ class CommunityWiring {
         completed.confirmDeletion(store: store);
   }
 
+  static VoidCallback? _pauseListener;
+  static VoidCallback? _lockListener;
+  static bool _wasPaused = false;
+  static bool _wasLocked = false;
+
+  static void _resume(String reason) {
+    final g = gate;
+    if (g == null || !g.isWriter) return;
+    CommunityUploadController.instance.wake('recovery');
+    RawBackfillRuntime.wake();
+  }
+
   /// manifest 전 페이지 → server_completed 교체. 받는 동안 upload lease 를 잡아 자기 업로드로 세대가 바뀌지 않게 한다.
   /// context·토큰·lease 가 없거나 형식이 틀리면 false(수집·초기화 시작 금지).
   static Future<bool> refreshManifest(
@@ -150,6 +183,8 @@ class CommunityWiring {
     if (datasetKey == null || connectionId == null || epoch == null) {
       return false;
     }
+    // 업로드 일시 중지(서버 점검) 중에는 manifest 도 요청하지 않는다(서버가 503 으로 끝낸다).
+    if (await UploadPause.isPaused(store)) return false;
     final access =
         await (token ?? CommunityAuthService.instance.getAccessToken)();
     if (access == null || access.isEmpty) return false;
@@ -211,6 +246,7 @@ class CommunityWiring {
             connectionId,
             after: after,
             limit: limit,
+            onMaintenance: (error) => UploadPause.applyMaintenance(store, error),
           );
           return page == null ? null : completed.ManifestPage.fromJson(page);
         },

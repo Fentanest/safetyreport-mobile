@@ -206,7 +206,7 @@ class ServerConnectionService {
           ? (json['code'] ?? (detail is Map ? detail['code'] : detail))
           : null;
       if (code == 'SERVER_UPGRADE_REQUIRED') {
-        return 'PC 서버를 v3 이상으로 업데이트하세요.';
+        return '서버 프로그램 업데이트가 필요합니다. 서버 관리자에게 업데이트를 요청해 주세요.';
       }
       if (code == 'CLIENT_UPGRADE_REQUIRED') {
         return '모바일 앱을 최신 버전으로 업데이트하세요.';

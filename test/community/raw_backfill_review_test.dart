@@ -417,7 +417,7 @@ void main() {
 
   group('runtime scheduling', () {
     test(
-      'nothing is scheduled once the run is done or only holds wait for the user',
+      'nothing is scheduled once the run is done; holds-only wakes at the hold time',
       () async {
         expect(
           await RawBackfillRuntime.nextDelay(store, {'state': 'done'}),
@@ -428,12 +428,13 @@ void main() {
         await items.reset('run-h', {
           'X': {'state': 'hold', 'attempts': 3, 'eligible': true},
         });
+        // 2026-10-22(CLIENT-RULES 1절): 보류만 남아도 다음 보류 시각에 스스로 깬다 — 시각 없는 예전 보류는 15초.
         expect(
           await RawBackfillRuntime.nextDelay(store, {
             'state': 'holds',
             'run_id': 'run-h',
           }),
-          isNull,
+          const Duration(seconds: 15),
         );
         await items.reset('run-h', {
           'X': {'state': 'hold', 'attempts': 3, 'eligible': true},

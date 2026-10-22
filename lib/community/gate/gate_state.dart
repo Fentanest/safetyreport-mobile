@@ -40,18 +40,45 @@ String datasetKeyForOfficialId(String officialId) {
       .toString();
 }
 
-/// Client 모드: 폰 계정 fingerprint 와 서버 연결 계정 fingerprint 비교.
+final _accountFingerprint = RegExp(r'^[0-9a-f]{32}$');
+
+/// 계정 지문(`sha256("sr-community-account|v1|" + user_id)` 앞 32 hex)으로 읽을 수 있는 값인가.
+bool isAccountFingerprint(Object? value) =>
+    value is String && _accountFingerprint.hasMatch(value);
+
+/// Client 모드: 폰 계정 fingerprint 와 서버 연결 계정 fingerprint 가 **다르다고 확인되는가**(CLIENT-RULES 7절).
+/// 둘 다 32자리 16진이고 다를 때만 true — 빈 값·형식 틀림·모름은 false(새로 잠그지 않는다, 먹통 방지).
 bool serverAccountMismatch(
   String? phoneFingerprint,
   String? serverFingerprint,
 ) {
-  if (phoneFingerprint == null ||
-      phoneFingerprint.isEmpty ||
-      serverFingerprint == null ||
-      serverFingerprint.isEmpty) {
+  if (!isAccountFingerprint(phoneFingerprint) ||
+      !isAccountFingerprint(serverFingerprint)) {
     return false;
   }
   return phoneFingerprint != serverFingerprint;
+}
+
+/// Client 계정 일치 판정(7절 표). [serverGate] 는 PC `GET /api/v1/community/gate` 의 `data`(정상 응답일 때만,
+/// 닿지 못함·시간 초과·5xx·형식 이상·온보딩 거절·503 미설정이면 null).
+/// 반환: 'lock'(다른 계정 확인) | 'unlock'(같은 계정 확인 또는 서버 계정 정보가 사라짐) | 'keep'(판단 근거 없음 — 지금 상태 유지).
+String clientAccountVerdict(
+  Map<String, Object?>? serverGate,
+  String? phoneFingerprint,
+) {
+  if (serverGate == null || !serverGate.containsKey('account')) return 'keep';
+  final account = serverGate['account'];
+  if (account == null) return 'unlock';
+  if (account is! Map) return 'keep';
+  final server = account['fingerprint'];
+  if (server is! String) return 'keep';
+  if (serverAccountMismatch(phoneFingerprint, server)) return 'lock';
+  if (isAccountFingerprint(phoneFingerprint) &&
+      isAccountFingerprint(server) &&
+      phoneFingerprint == server) {
+    return 'unlock';
+  }
+  return 'keep';
 }
 
 GateState evaluateGate({

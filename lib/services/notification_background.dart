@@ -3,6 +3,8 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../community/update_requirement.dart';
+import 'app_version.dart';
 import '../community/community_store.dart';
 import '../community/upload/upload_background.dart';
 import 'app_prefs_keys.dart';
@@ -22,6 +24,7 @@ const _legacyUncertainPrefix = 'crawl_legacy_enqueue_uncertain.';
 
 /// A separate FlutterEngine owns this entry point; there is no Activity/Provider.
 Future<void> runNotificationBackground() async {
+  await AppVersion.load(); // 필수 버전 판정·버전 헤더(CLIENT-RULES 6절)
   WidgetsFlutterBinding.ensureInitialized();
   var success = false;
   try {
@@ -64,6 +67,8 @@ Future<void> runNotificationBackground() async {
       ),
     );
     if (gate != HeadlessGate.ok) return;
+    // 필수 버전 잠금(CLIENT-RULES 6절): 크롤·동기화를 하지 않는다(게이트가 막힌 때와 같게 끝낸다).
+    if ((await UpdateRequirement.load(prefs)).locked) return;
     await checkScope();
     if (standalone) {
       SyncEngine.rebuildBlocks = () => headlessRebuildRequired(store, prefs);

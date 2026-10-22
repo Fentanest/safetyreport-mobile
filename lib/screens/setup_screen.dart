@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../community/report/setup_progress_reporter.dart';
 import '../providers/report_provider.dart';
 import '../models/app_mode.dart';
 import '../services/app_prefs_keys.dart';
@@ -236,11 +237,35 @@ class _SetupScreenState extends State<SetupScreen> {
     });
     try {
       final loginOverride = SetupScreen.standaloneLoginOverride;
-      if (loginOverride != null) {
-        await loginOverride(username, password);
-      } else {
-        await StandaloneAuthService.login(username, password);
+      // 설정 단계 보고(4-2): 공식 로그인 시작·실패(사유 코드)·성공. 아이디·비밀번호는 넣지 않는다.
+      unawaited(
+        SetupProgressReporter.report(
+          stage: 'official_login_started',
+          mode: 'standalone',
+        ),
+      );
+      try {
+        if (loginOverride != null) {
+          await loginOverride(username, password);
+        } else {
+          await StandaloneAuthService.login(username, password);
+        }
+      } catch (e) {
+        unawaited(
+          SetupProgressReporter.report(
+            stage: 'official_login_failed',
+            reason: officialLoginFailureReason(e),
+            mode: 'standalone',
+          ),
+        );
+        rethrow;
       }
+      unawaited(
+        SetupProgressReporter.report(
+          stage: 'official_login_ok',
+          mode: 'standalone',
+        ),
+      );
       if (!mounted) return;
       final provider = context.read<ReportProvider>();
       final messenger = ScaffoldMessenger.of(context);
@@ -808,4 +833,12 @@ class _ModeCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 공식 로그인 실패 → 설정 단계 보고 `reason`(`^[a-z0-9_]{1,40}$`, 앱이 이미 나누는 예외 종류).
+String officialLoginFailureReason(Object error) {
+  if (error is LoginRejectedException) return 'invalid_credentials';
+  if (error is AuthTemporarilyUnavailableException) return 'network';
+  if (error is TokenExpiredException) return 'invalid_credentials';
+  return 'server_response_invalid';
 }

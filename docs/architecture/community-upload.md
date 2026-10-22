@@ -234,3 +234,17 @@ ACK의 client_notice는 영속 저장하고 어느 화면에서나 표시한다.
   - 공식 로그인 거부: `StandaloneAuthService.lastReloginStatus().needsManualLogin` 이면 `official_login_required` 로 멈추고(`raw_login_manual`) 수동 로그인으로 상태가 바뀔 때까지 공식 API·게이트 확인을 하지 않는다. 그 외(일시 오류)는 5분부터 두 배씩 최대 1시간(`raw_login_pauses`). 소프트 리셋이 두 키를 지운다.
   - 준비 조건(`optimizationReady`): `SyncEngine`·`StandaloneAutoSyncService`·`MaintenanceService` 가 돌면 대기, DB 최적화가 돌면 대기, 보류만 남은 최적화(`DbOptimize.holdsOnly`)는 준비 완료. 최적화를 시작해야 하면 포그라운드만 provider 와 같은 인자(`isSyncing`·`rebuildPending`)로 시작하고 백그라운드 isolate 는 시작하지 않고 대기만 한다.
   - uploading 단계 타이머는 60초, 영수증은 `prefetchReceipts` 가 메타·저널·outbox 를 쿼리 3개로 묶어 읽는다(`BatchedReceipts`).
+
+## 1회 전송 재개 규칙 (2026-10-22, 미출시)
+정본 `CLIENT-RULES.md` 1~3절(지도 레포). PC `community_raw_backfill.py` 와 같은 규칙.
+- 오류 분류 `classifyBackfillError`(`lib/community/backfill_errors.dart`): 일시적이면 신고 `attempts`·커서를 그대로 두고 run `paused`
+  (`transient_failures` 1→60초, 2→300초, 3→900초, 4 이상→3600초, 진행하면 0). 고정적·분류 못 한 예외는 3회면 보류.
+- 보류 항목(`detail_json`): `hold_count`, `next_attempt_at`(15분→1시간→6시간→24시간), `first_held_at`, `stale`(30일 초과).
+  채우기 slice 시작 때 때가 된 보류를 `pending`·`attempts=2` 로 되돌린다. '다시 시도' 버튼은 모두 즉시 0 부터.
+- 업로드 확인 `retry` 3회 → 보류(`error=upload_retry`), `blocked` 만 영구 제외. 업로드 단계에서 `pending` 이 남으면 채우기로 돌아간다.
+- 보류만 남은 run: `nextDelay` = max(15초, 가장 이른 보류 시각 − 지금)(상한 24시간), WorkManager 1회 작업 `community-raw-backfill-wake`.
+- 첫 실행 1회 초기화 `unstickRawBackfill`(`meta.raw_backfill_unstick = 2026-10-22.1`).
+- 채우기 slice 가 새 `queued` 를 만들고 끝나면 업로더를 한 번 깨운다(중지·잠금 중에는 안 깨움).
+- 점검 중(업로드 일시 중지)에는 run 이 `paused`/`maintenance` 로 아무 일도 하지 않는다. 업로더는 요청 0회, 503 maintenance 를 받은 행은
+  `retry_wait`(다음 시도 = 재개 시각+지터, 시도 횟수 되돌림).
+- 진행 보고·사용자 조치 알림 호출 시점은 `lib/community/backfill_progress.dart`(전송은 `report/progress_reporter.dart`).

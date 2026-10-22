@@ -49,6 +49,19 @@ import 'services/server_connection_service.dart';
 import 'community/community_store.dart';
 import 'community/community_wiring.dart';
 import 'community/gate/community_gate.dart';
+import 'community/gate/first_run_mode.dart';
+import 'community/update_requirement.dart';
+import 'services/app_version.dart';
+import 'community/upload_pause.dart';
+import 'community/raw_backfill_runtime.dart';
+import 'community/backfill_progress.dart';
+import 'community/notify/user_action_notifier.dart';
+import 'announcements/announcement_presenter.dart';
+import 'screens/update_required_screen.dart';
+import 'screens/community_upload_screen.dart';
+import 'screens/settings_screen.dart';
+import 'widgets/upload_pause_banner.dart';
+import 'widgets/user_action_banner.dart';
 import 'community/rebuild/community_rebuild.dart';
 import 'community/rebuild/standalone_rebuild_runner.dart';
 import 'services/pending_changes_store.dart';
@@ -152,15 +165,25 @@ Future<void> main() async {
         ? null
         : reportProvider.standaloneUsername,
     // 데모는 Standalone 화면이지만 writer 가 아니다(연결 등록·업로드 없음).
-    appMode: () =>
-        reportProvider.isStandaloneDemo ? 'demo' : reportProvider.appMode.name,
+    // 설정 전(첫 실행)에는 화면에서 고른 모드를 쓴다 — 고르기 전에는 동의 단계로 가지 않는다(2-5).
+    appMode: () => FirstRunMode.gateMode(
+      demo: reportProvider.isStandaloneDemo,
+      configured: reportProvider.isConfigured,
+      savedMode: reportProvider.appMode,
+    ),
   );
+  FirstRunMode.choice.addListener(gate.onAppModeChanged);
+  await AppVersion.load();
+  // 필수 버전 판정(6절)은 저장값으로 시작한다 — 재시작해도 잠금이 유지되고, 정상 status 에서만 풀린다.
+  await UpdateRequirement.load();
+  if (communityStore != null) await UploadPause.read(communityStore);
   reportProvider.officialAccountNeedsReset = gate.officialAccountNeedsReset;
   reportProvider.releaseOfficialAccount = gate.releaseOfficialAccount;
   // 초기화 크롤링이 필요하거나 진행 중이면 일반 동기화(수동·공유 대기열 처리)를 시작하지 않는다(PC 크롤 시작 409 와 같음).
   // 초기화 화면보다 먼저 도는 게이트 통과 직후 처리도 여기서 막힌다.
   SyncEngine.localAccessAllowed = () async =>
-      reportProvider.isStandaloneDemo || await gate.requireLocalAccess();
+      reportProvider.isStandaloneDemo ||
+      (!UpdateRequirement.isLocked && await gate.requireLocalAccess());
   SyncEngine.rebuildBlocks = () async {
     if (!rebuildAppliesOnDevice(reportProvider)) return false;
     final store = communityStore ?? await CommunityStore.open();
@@ -180,6 +203,8 @@ Future<void> main() async {
   LocalDbService.onDatabaseReplaced = reportProvider.reevaluateDbOptimize;
   if (communityStore != null) {
     CommunityWiring.wire(communityGate: gate, store: communityStore);
+    // 앱 시작: 사용자 조치 알림 판단(8절)과 진행 보고 start(4-1, 연결이 있고 중지·잠금이 아닐 때만 보낸다).
+    unawaited(BackfillProgress.report(communityStore, start: true));
   }
   runApp(
     MultiProvider(
@@ -216,7 +241,9 @@ class _SafetyReportAppState extends State<SafetyReportApp>
   Timer? _credentialsExpiry;
   bool _gateWasOpen = false;
   bool _gateWasBrowsable = false;
-  AppMode? _initialModeChoice;
+  /// 첫 실행에서 고른 모드. 게이트도 같은 값을 읽는다([FirstRunMode], 2-5).
+  AppMode? get _initialModeChoice => FirstRunMode.choice.value;
+  set _initialModeChoice(AppMode? value) => FirstRunMode.choice.value = value;
   Future<ServerConnectionResult>? _serverVersionFuture;
   String? _checkedBaseUrl;
   String? _checkedApiKey;
@@ -356,15 +383,28 @@ class _SafetyReportAppState extends State<SafetyReportApp>
   void initState() {
     super.initState();
     _gate = context.read<CommunityGate>();
+    // 새 앱 루트는 아직 모드를 고르지 않은 상태로 시작한다(예전의 State 필드 초기값과 같다).
+    FirstRunMode.choice.value = null;
     _gateWasOpen = _gate.canEnter;
     _gateWasBrowsable = _gate.canBrowse;
     _gate.addListener(_onGateChanged);
     WidgetsBinding.instance.addObserver(this);
     ClientCompatibility.failure.addListener(_onCompatibilityFailure);
     _gate.startPolling();
+    UpdateRequirement.current.addListener(_onUpdateRequirementChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_gate.refreshNow());
     });
+  }
+
+  /// 필수 버전 잠금(6절)이 걸리면 위에 쌓인 화면을 닫고 진행 중 동기화를 멈춘다(로컬 자료는 지우지 않는다).
+  void _onUpdateRequirementChanged() {
+    if (!mounted) return;
+    if (UpdateRequirement.isLocked) {
+      SyncEngine.stop();
+      _returnToRoot();
+    }
+    setState(() {});
   }
 
   @override
@@ -389,6 +429,7 @@ class _SafetyReportAppState extends State<SafetyReportApp>
     _pendingCredentials.clear();
     WidgetsBinding.instance.removeObserver(this);
     _gate.removeListener(_onGateChanged);
+    UpdateRequirement.current.removeListener(_onUpdateRequirementChanged);
     ClientCompatibility.failure.removeListener(_onCompatibilityFailure);
     super.dispose();
   }
@@ -461,7 +502,19 @@ class _SafetyReportAppState extends State<SafetyReportApp>
     if (!provider.isInitialized) {
       return const StartupLoadingScreen();
     }
-    if (provider.isConfigured) _initialModeChoice = null;
+    // 필수 버전 잠금(6절): 전체 화면 잠금. 데모는 서버를 묻지 않으므로 잠그지 않는다.
+    final requirement = UpdateRequirement.current.value;
+    if (requirement.locked && !provider.isStandaloneDemo) {
+      return UpdateRequiredScreen(requirement: requirement);
+    }
+    if (provider.isConfigured && _initialModeChoice != null) {
+      // 빌드 중에 게이트 알림이 나가지 않게 다음 프레임에 비운다(게이트 모드는 이미 저장된 모드를 읽는다).
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (context.read<ReportProvider>().isConfigured) {
+          _initialModeChoice = null;
+        }
+      });
+    }
     // 모드 선택으로 돌아갔거나 설정이 끝났으면 메모리 자격을 남기지 않는다.
     if (provider.isConfigured || _initialModeChoice != AppMode.standalone) {
       _pendingCredentials.clear();
@@ -1237,8 +1290,64 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
       _historyListened = history..addListener(_onHistoryChanged);
       history.load();
       _checkPendingChanges();
+      unawaited(_maybeShowAnnouncements());
     });
     unawaited(ReviewPromptService.recordAppOpen());
+  }
+
+  /// 앱 공지(9절): 메인 화면 진입·복귀 때. 게이트를 못 지났거나(둘러보기만 가능) 잠금 중이면 부르지 않는다.
+  /// 6시간 간격·실패 처리·한 번에 하나는 [AnnouncementPresenter] 가 맡는다.
+  Future<void> _maybeShowAnnouncements() async {
+    if (!mounted) return;
+    final p = context.read<ReportProvider>();
+    if (UpdateRequirement.isLocked && !p.isStandaloneDemo) return;
+    if (!p.isStandaloneDemo && !context.read<CommunityGate>().canEnter) return;
+    final mode = p.isStandaloneDemo
+        ? 'demo'
+        : p.appMode == AppMode.server
+        ? 'client'
+        : 'standalone';
+    await AnnouncementPresenter.maybeShow(
+      context,
+      mode: mode,
+      openModeSwitch: _openModeSwitch,
+    );
+  }
+
+  /// 공지의 `open_mode_switch`: 설정 화면을 열고 곧바로 모드 변경 흐름(`_confirmModeReset`)을 띄운다.
+  Future<void> _openModeSwitch() async {
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const SettingsScreen(openModeSwitchOnStart: true),
+      ),
+    );
+  }
+
+  /// 공식(안전신문고) 로그인 화면 — 설정의 재로그인 창을 바로 연다.
+  void _openOfficialLogin() {
+    if (!mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const SettingsScreen(openReloginOnStart: true),
+      ),
+    );
+  }
+
+  /// 신고 공유(업로드) 화면.
+  void _openUploadScreen() {
+    if (!mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const CommunityUploadScreen()),
+    );
+  }
+
+  /// 올리지 못한 신고 다시 시도(1회 전송 '다시 시도'와 같다) 뒤 상단 안내를 새로 판단한다.
+  Future<void> _retryHeldReports() async {
+    try {
+      await RawBackfillRuntime.retry();
+      await UserActionNotifier.clear();
+    } catch (_) {}
   }
 
   @override
@@ -1274,6 +1383,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     if (state == AppLifecycleState.resumed) {
       unawaited(ReviewPromptService.recordAppOpen());
       unawaited(_runResumeNotices());
+      unawaited(_maybeShowAnnouncements());
       // standalone: Kotlin NotificationService 가 설정한 sync pending 플래그 확인
       if (mounted) {
         context.read<ReportProvider>().checkAutoSyncOnResume();
@@ -1355,6 +1465,18 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
       case 'quick_sync':
       case 'quick_crawl':
         await AppRoutes.runQuickAction(context, eventType);
+        return;
+      // 사용자 조치 알림(8절): 탭 0 으로 이동한 뒤 해당 화면을 연다.
+      case 'user_action_official_login_required':
+        _openOfficialLogin();
+        return;
+      case 'user_action_optimize_blocked_background':
+      case 'user_action_stale_holds':
+        _openUploadScreen();
+        return;
+      case 'user_action_update_required':
+        // 잠금 화면은 루트가 그린다 — 쌓인 화면만 닫는다(잠금이 이미 풀렸으면 메인 화면 그대로).
+        Navigator.of(context).popUntil((route) => route.isFirst);
         return;
     }
   }
@@ -1986,6 +2108,15 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
         children: [
           if (!p.isStandaloneDemo)
             CloudDelayBanner(gate: context.read<CommunityGate>()),
+          // 서버 점검(업로드 일시 중지) 안내 — 이 기기가 직접 올리는 Standalone 만.
+          if (p.appMode == AppMode.standalone && !p.isStandaloneDemo)
+            const UploadPauseBanner(),
+          // 사용자 조치 안내(8절): 공식 로그인 필요·앱을 열어 달라는 안내·올리지 못한 신고(없으면 높이 0).
+          if (p.appMode == AppMode.standalone && !p.isStandaloneDemo)
+            UserActionBanner(
+              onLogin: _openOfficialLogin,
+              onRetry: () => unawaited(_retryHeldReports()),
+            ),
           if (p.appMode == AppMode.server && !p.isStandaloneDemo)
             ClientServerWaitingBanner(gate: context.read<CommunityGate>()),
           Expanded(

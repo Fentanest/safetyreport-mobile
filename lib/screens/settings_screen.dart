@@ -27,7 +27,6 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:file_picker/file_picker.dart';
 import '../navigation/app_routes.dart';
 import '../widgets/auth_status_notice.dart';
-import '../community/client_account_notice.dart';
 import '../community/gate/community_gate.dart';
 import '../community/rebuild/standalone_rebuild_runner.dart';
 import '../widgets/community_account_card.dart';
@@ -47,7 +46,14 @@ class SettingsScreen extends StatefulWidget {
   /// 대시보드 '재로그인 필요' 경고에서 열 때 true — 화면이 뜨면 바로 재로그인 창을 연다(Standalone).
   final bool openReloginOnStart;
 
-  const SettingsScreen({super.key, this.openReloginOnStart = false});
+  /// 공지의 "지금 바꾸기"(`open_mode_switch`)로 열 때 true — 화면이 뜨면 바로 모드 변경 흐름을 연다.
+  final bool openModeSwitchOnStart;
+
+  const SettingsScreen({
+    super.key,
+    this.openReloginOnStart = false,
+    this.openModeSwitchOnStart = false,
+  });
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -84,6 +90,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // 앱 버전
   String _appVersion = '';
   String _appBuildNumber = '';
+  String _deviceModel = '';
+  String _androidRelease = '';
 
   // 서버 버전
   String? _serverVersion;
@@ -112,9 +120,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
         });
       }
     });
+    _loadDeviceModel();
     if (widget.openReloginOnStart && provider.appMode == AppMode.standalone) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _showReloginDialog();
+      });
+    }
+    if (widget.openModeSwitchOnStart) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_confirmModeReset());
       });
     }
   }
@@ -1095,8 +1109,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   String get _osLabel => Platform.isAndroid
-      ? 'Android ${Platform.operatingSystemVersion}'
+      ? (_androidRelease.isEmpty
+            ? 'Android ${Platform.operatingSystemVersion}'
+            : 'Android $_androidRelease')
       : Platform.operatingSystem;
+
+  /// 버그 제보 양식의 기기 모델명·OS 버전. 사용자가 붙인 기기 이름은 쓰지 않는다(공개 게시판).
+  Future<void> _loadDeviceModel() async {
+    if (!Platform.isAndroid) return;
+    try {
+      final info = await const MethodChannel(
+        'com.fentanest.mysafetyreport/permissions',
+      ).invokeMapMethod<String, Object?>('getDeviceModel');
+      if (!mounted || info == null) return;
+      setState(() {
+        _deviceModel = (info['model'] as String? ?? '').trim();
+        _androidRelease = (info['release'] as String? ?? '').trim();
+      });
+    } catch (_) {}
+  }
 
   /// 도움·문의 카드 링크(버그 제보·기능 요청·사용 가이드). 양쪽 모드 공통.
   Future<void> _openSupportLink(Uri url) async {
@@ -1225,6 +1256,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   buildNumber: _appBuildNumber,
                   modeLabel: _modeLabel,
                   osLabel: _osLabel,
+                  deviceModel: _deviceModel,
                 ),
               ),
               onFeatureRequest: () => _openSupportLink(
@@ -1537,24 +1569,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
               // ── 서버의 커뮤니티 계정(서버가 세션 주인, 폰은 토큰을 받지 않음) ──
               if (provider.communityAccountSupported) ...[
+                // 휴대폰과 서버의 카카오 계정이 다르면 게이트가 앱을 잠근다(CLIENT-RULES 7절 — 예전 안내 카드를 대신함).
                 CommunityServerAccountCard(
                   baseUrl: provider.baseUrl,
                   apiKey: provider.apiKey,
-                ),
-                // 이 앱과 서버의 카카오 계정이 다르면 알린다(동의·공유는 계정마다 따로).
-                Builder(
-                  builder: (context) {
-                    CommunityGate? gate;
-                    try {
-                      gate = Provider.of<CommunityGate>(context, listen: false);
-                    } catch (_) {}
-                    if (gate == null) return const SizedBox.shrink();
-                    return ClientAccountMismatchNotice(
-                      gate: gate,
-                      baseUrl: provider.baseUrl,
-                      apiKey: provider.apiKey,
-                    );
-                  },
                 ),
               ],
             ], // if (!isStandalone) 서버 연결

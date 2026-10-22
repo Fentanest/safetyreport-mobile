@@ -542,6 +542,11 @@ class MainActivity : FlutterFragmentActivity() {
                         result.success(configured?.takeIf { it.isNotBlank() } ?: Build.MODEL)
                     }
 
+                    // 버그 제보 양식용: 제조사 모델명과 OS 버전만. 사용자가 붙인 기기 이름(getDeviceName)은 공개 게시판에 넣지 않는다.
+                    "getDeviceModel" -> {
+                        result.success(mapOf("model" to Build.MODEL, "release" to Build.VERSION.RELEASE))
+                    }
+
                     // ── 알림 리스너 권한 ────────────────────────────────────
                     "isNotificationListenerEnabled" -> {
                         val flat = Settings.Secure.getString(

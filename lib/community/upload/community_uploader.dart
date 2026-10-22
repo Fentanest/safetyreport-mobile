@@ -32,6 +32,8 @@ import '../capture/community_capture.dart';
 import '../capture/reshare.dart';
 import '../capture/server_completed.dart' show deletionCleanupPending;
 import '../community_store.dart';
+import '../update_requirement.dart';
+import '../upload_pause.dart';
 import 'community_ingest_client.dart';
 import 'upload_policy.dart' as policy;
 
@@ -637,6 +639,23 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
       state.errorCode = 'deletion_cleanup_pending';
       return finish('blocked_gate');
     }
+    // 필수 버전 잠금(CLIENT-RULES 6절): 업데이트 전에는 보내지 않는다(행은 그대로 남는다).
+    if ((await UpdateRequirement.load()).locked) {
+      state.errorCode = 'update_required';
+      return finish('blocked_gate');
+    }
+    // 업로드 일시 중지(5절): 중지 동안 업로드 시도 0회. 재개 확인은 status(주기·재개 시각 1회)가 한다.
+    final pause = await UploadPause.read(store);
+    if (pause != null) {
+      state.errorCode = 'maintenance';
+      final wake = pause.wakeAt;
+      state.nextAttemptAt = wake == null
+          ? null
+          : isoUtc(
+              DateTime.fromMillisecondsSinceEpoch(wake * 1000, isUtc: true),
+            );
+      return finish('cooldown');
+    }
     if (await CloudAvailability.shared?.coolingDown() ?? false) {
       state.errorCode = 'cloud_cooldown';
       state.nextAttemptAt = CloudAvailability.shared!.nextAttemptAt
@@ -1016,6 +1035,15 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
       _now(),
       protocol: envelope['protocol'] as int,
     );
+    if (interp.code == 'maintenance' && transport.status == 503) {
+      // 서버 점검(업로드 일시 중지): 중지 판정·재개 시각을 저장한다(백그라운드 isolate 도 같은 값을 본다).
+      try {
+        await UploadPause.applyMaintenance(
+          store,
+          UploadPause.maintenanceError(transport.body),
+        );
+      } catch (_) {}
+    }
     if (await _sameScope(store, ctx)) {
       if (interp.kind == 'ack') {
         // A stored ACK means the server accepts this app version: lift the 426 flag
@@ -1089,6 +1117,35 @@ WHERE j.eligible = 1 AND j.blocked_reason IS NULL
       );
       counts['dead'] = counts['dead']! + batch.length;
       return 'continue';
+    }
+    if (code == 'maintenance') {
+      // 503 maintenance 는 일시적이다: 행은 retry_wait, 다음 시도 = 재개 시각(+지터, 없으면 Retry-After),
+      // 시도 횟수는 올리지 않는다(in_flight 로 올린 1회를 되돌린다). 남은 배치는 보내지 않는다.
+      final pause = await UploadPause.read(store);
+      final wake = pause?.wakeAt;
+      final at = wake != null
+          ? DateTime.fromMillisecondsSinceEpoch(wake * 1000, isUtc: true)
+          : _now().add(
+              Duration(
+                seconds: max(
+                  interp.hint ?? 0,
+                  uploadPauseDefaultRetrySeconds,
+                ),
+              ),
+            );
+      await store.transaction((tx) async {
+        for (final row in batch) {
+          await tx.rawUpdate(
+            "UPDATE outbox SET state='retry_wait', next_retry_at=?, last_error_code=?,"
+            ' attempt_count=MAX(attempt_count-1,0), last_request_id=COALESCE(?, last_request_id),'
+            ' lease_owner=NULL, lease_until=NULL WHERE event_id=?',
+            [isoUtc(at), code, interp.requestId, row.eventId],
+          );
+        }
+      });
+      counts['retry'] = counts['retry']! + batch.length;
+      state.nextAttemptAt = isoUtc(at);
+      return 'cooldown';
     }
     if (code == 'client_upgrade_required') {
       // A refused app version is not a row defect: keep the rows (retry_wait, long backoff)

@@ -236,3 +236,16 @@ Client는 PC gate를 직접 확인하고 API 403/WS 4403 신호로 서버 동의
 - 철회 대기 중 새로 로그인한 세션으로 철회가 끝나면(2026-10-21 검수 결정) 그 세션을 끊지 않고 바로 동의 화면(G4)으로 둔다 — 로그인은 한 번뿐이다. `CommunityReset.begin` 이 `revoke_pending.session_connected_at`(`sessionConnectedAt()`)을 적고, 완료 때 현재 값이 다르면 `complete(keepSession: true)` 이 writer 연결·활성 문맥·게이트 캐시(`consent_required`)·G1 근거·`raw_backfill`·outbox 는 예전처럼 정리하되 `disconnect()` 만 건너뛴다. 요청 때의 원래 세션으로 끝나면 예전처럼 로그아웃 → 카카오 로그인 단계. 기록 없는 옛 `revoke_pending` 은 원래 세션으로 본다. PC 와 같다.
 - 게이트 poll 은 5분, 서버 잠금 신호는 poll·복귀 때만 읽는다. `community.db` schema 4 는 v3 로 되돌릴 수 없다: 구버전 앱으로 되돌리면 community.db 를 새로 만든다(개인 신고 DB 는 그대로).
 - 업데이트 안내: 앱 버전 < `min_version.mobile` 일 때만(null 이면 숨김). info/warning 배너, required 는 내용 해시별 하루 1회 대화상자. status 의 `client_notice` 가 null/키 없음이면 안내와 426 표시를 해제한다. 426 행은 blocked 가 아니라 1시간 `retry_wait`.
+
+## 1회 전송 재개·점검·필수 버전·Client 계정 (2026-10-22, 미출시)
+정본은 지도 레포 `docs/implementation/backfill-resume-20261022/CLIENT-RULES.md`.
+- **첫 실행 모드**: 설정 전(`ReportProvider.isConfigured` false)에는 게이트 모드를 화면에서 고른 모드(`FirstRunMode.choice`)로 정한다.
+  고르기 전이면 `unselected` → 게이트 상태 `mode_unselected`(status 를 묻지 않고 동의 단계로 가지 않는다). 동의 `via` 는 그 모드를 따른다.
+- **Client 계정 일치**: PC 게이트 응답을 한 번 받아 서버 동의 판정·계정 비교·미설정 안내에 함께 쓴다(`ClientServerConsent.check`).
+  계정이 다르다고 확인되면 동의 판정보다 먼저 `client_account_mismatch` 로 잠근다. 서버 "온보딩 필요"는 지금처럼 `server_consent_required` +
+  "서버의 커뮤니티 계정 열기" 버튼, 503 `community_disabled`·`community_unconfigured` 는 잠그지 않고 상단 안내만.
+- **업로드 일시 중지**: status 의 `ingest.paused`(키가 있을 때만)와 업로드·manifest·진행 보고의 503 `maintenance` 를 `meta.upload_pause` 에 저장한다
+  (`lib/community/upload_pause.dart`). 중지 동안 업로더·manifest·1회 전송·진행 보고는 요청하지 않는다. 재개 시각이 있으면 +0~120초에 WorkManager
+  1회 작업(`community-upload-resume`)이 status 를 한 번 확인한다. 풀리면 `CommunityWiring` 이 업로더·1회 전송을 깨운다.
+- **필수 버전**: 정상 status 의 `client_requirement` 로만 잠그고 푼다(`lib/community/update_requirement.dart`, prefs `community_update_requirement_v1`).
+  잠금 중에는 루트가 `UpdateRequiredScreen` 만 그리고, 업로드·동기화·1회 전송·진행 보고를 하지 않는다. status 확인은 평소 주기대로 계속.

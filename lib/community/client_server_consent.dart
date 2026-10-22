@@ -32,13 +32,22 @@ class ClientServerConsent {
   static Future<ServerConsentVerdict> verify(
     SharedPreferences prefs, {
     Future<CommunityGateLinkResult> Function()? fetch,
+  }) async => (await check(prefs, fetch: fetch)).verdict;
+
+  /// [verify] plus the PC's own answer (null when it could not be asked or the answer is stale), so the
+  /// gate can also compare accounts and see an unconfigured server from the same single request.
+  static Future<
+    ({ServerConsentVerdict verdict, CommunityGateLinkResult? result})
+  >
+  check(
+    SharedPreferences prefs, {
+    Future<CommunityGateLinkResult> Function()? fetch,
   }) async {
+    const unknown = (verdict: ServerConsentVerdict.unknown, result: null);
     try {
       final base = prefs.getString(AppPrefsKeys.baseUrl) ?? '',
           key = prefs.getString(AppPrefsKeys.apiKey) ?? '';
-      if (fetch == null && (base.isEmpty || key.isEmpty)) {
-        return ServerConsentVerdict.unknown;
-      }
+      if (fetch == null && (base.isEmpty || key.isEmpty)) return unknown;
       final stamp = prefs.getInt('community_server_consent_lock') ?? 0;
       final result =
           await (fetch?.call() ??
@@ -50,15 +59,15 @@ class ClientServerConsent {
       if ((prefs.getString(AppPrefsKeys.baseUrl) ?? '') != base ||
           (prefs.getString(AppPrefsKeys.apiKey) ?? '') != key ||
           (prefs.getInt('community_server_consent_lock') ?? 0) != stamp) {
-        return ServerConsentVerdict.unknown;
+        return unknown;
       }
       final v = verdict(result);
       if (v == ServerConsentVerdict.permitted) {
         await prefs.remove('community_server_consent_lock');
       }
-      return v;
+      return (verdict: v, result: result);
     } catch (_) {
-      return ServerConsentVerdict.unknown;
+      return unknown;
     }
   }
 }

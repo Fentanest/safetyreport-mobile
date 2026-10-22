@@ -114,6 +114,7 @@ class CommunityIngestClient {
     String connectionId, {
     String? after,
     int limit = 5000,
+    Future<void> Function(Map<String, Object?> error)? onMaintenance,
   }) async {
     final uri = Uri.parse(
       '$supabaseUrl/functions/v1/community-ingest/manifest',
@@ -128,6 +129,16 @@ class CommunityIngestClient {
       final res = await _http
           .post(uri, headers: _headers(accessToken), body: body)
           .timeout(const Duration(seconds: 30));
+      if (res.statusCode == 503 && onMaintenance != null) {
+        // 서버 점검(업로드 일시 중지): 로컬 자료는 그대로 두고 중지 판정만 알린다.
+        try {
+          final body = jsonDecode(utf8.decode(res.bodyBytes));
+          final error = body is Map ? body['error'] : null;
+          if (error is Map && error['code'] == 'maintenance') {
+            await onMaintenance(error.cast<String, Object?>());
+          }
+        } catch (_) {}
+      }
       if (res.statusCode != 200) return null;
       final decoded = jsonDecode(utf8.decode(res.bodyBytes));
       if (decoded is! Map) return null;

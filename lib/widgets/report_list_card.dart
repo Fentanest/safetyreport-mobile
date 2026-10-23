@@ -5,6 +5,7 @@ import '../server_palette.dart';
 import '../services/fine_estimate.dart' as fine_estimate;
 import '../theme/sr_colors.dart';
 import '../utils/format.dart';
+import '../utils/report_duration.dart';
 import 'status_badge.dart';
 import '../theme/sr_tokens.dart';
 
@@ -28,11 +29,15 @@ class ReportCardMetaItem {
   /// 스크린리더용 전체 라벨. 없으면 [text] + [secondaryText] 를 이어 읽는다.
   final String? semanticsLabel;
 
+  /// 날짜처럼 생략하면 의미가 사라지는 정보는 좁은 칸에서도 줄바꿈한다.
+  final bool wrapText;
+
   const ReportCardMetaItem({
     required this.icon,
     required this.text,
     this.secondaryText,
     this.semanticsLabel,
+    this.wrapText = false,
   });
 
   /// 과태료/범칙금 메타 항목. 금액 없이 "과태료"만 있는 행에 법정 최저 기준 추정을 보조 표기로 더한다.
@@ -72,6 +77,10 @@ class ReportListCard extends StatelessWidget {
   final List<ReportCardMetaItem> metaItems;
   final Widget? headerSuffix;
 
+  /// 렌더 검증에서 경과일을 고정한다. 실제 화면은 현재 날짜를 사용한다.
+  @visibleForTesting
+  final DateTime? durationToday;
+
   const ReportListCard({
     super.key,
     required this.report,
@@ -81,6 +90,7 @@ class ReportListCard extends StatelessWidget {
     required this.onLongPress,
     required this.metaItems,
     this.headerSuffix,
+    this.durationToday,
   });
 
   @override
@@ -88,6 +98,7 @@ class ReportListCard extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final sr = context.sr;
+    final durationLabel = reportDurationLabel(report, today: durationToday);
     final supplementRequester = report.supplementRequester.trim();
     final supplementTone = StatusTone.of(
       serverSupplementColor,
@@ -152,7 +163,27 @@ class ReportListCard extends StatelessWidget {
                         const SizedBox(width: 8),
                         ConstrainedBox(
                           constraints: const BoxConstraints(maxWidth: 110),
-                          child: StatusBadge.status(report.status),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              StatusBadge.status(report.status),
+                              if (durationLabel != null) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  durationLabel,
+                                  textAlign: TextAlign.end,
+                                  semanticsLabel: durationLabel.startsWith('소요')
+                                      ? '답변 $durationLabel'
+                                      : '신고 후 $durationLabel',
+                                  style: TextStyle(
+                                    fontSize: SrFontSize.caption,
+                                    color: sr.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
                         ),
                         if (headerSuffix != null) ...[
                           const SizedBox(width: 6),
@@ -257,6 +288,7 @@ class _MetaAndCarNumber extends StatelessWidget {
             text: metaItems[i].text,
             secondaryText: metaItems[i].secondaryText,
             semanticsLabel: metaItems[i].semanticsLabel,
+            wrapText: metaItems[i].wrapText,
           ),
         ],
       ],
@@ -295,12 +327,14 @@ class _MetaRow extends StatelessWidget {
   final String text;
   final String? secondaryText;
   final String? semanticsLabel;
+  final bool wrapText;
 
   const _MetaRow({
     required this.icon,
     required this.text,
     this.secondaryText,
     this.semanticsLabel,
+    this.wrapText = false,
   });
 
   @override
@@ -320,9 +354,13 @@ class _MetaRow extends StatelessWidget {
               ],
             ),
             style: baseStyle,
-            overflow: TextOverflow.ellipsis,
+            overflow: wrapText ? TextOverflow.visible : TextOverflow.ellipsis,
           )
-        : Text(text, style: baseStyle, overflow: TextOverflow.ellipsis);
+        : Text(
+            text,
+            style: baseStyle,
+            overflow: wrapText ? TextOverflow.visible : TextOverflow.ellipsis,
+          );
 
     final row = Row(
       children: [

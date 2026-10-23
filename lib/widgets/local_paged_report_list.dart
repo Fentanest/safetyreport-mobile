@@ -493,7 +493,15 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
                         metaItems: [
                           ReportCardMetaItem(
                             icon: Icons.calendar_today,
-                            text: r.date,
+                            text: r.date.isNotEmpty ? '신고: ${r.date}' : '',
+                            wrapText: true,
+                          ),
+                          ReportCardMetaItem(
+                            icon: Icons.event_available,
+                            text: r.responseDate.isNotEmpty
+                                ? '답변: ${r.responseDate}'
+                                : '',
+                            wrapText: true,
                           ),
                           ReportCardMetaItem(
                             icon: Icons.business,

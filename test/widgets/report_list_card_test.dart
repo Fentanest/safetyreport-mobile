@@ -3,6 +3,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/models/report.dart';
 import 'package:safetyreport/widgets/report_list_card.dart';
+import 'package:safetyreport/widgets/status_badge.dart';
 
 import '../support/ui_harness.dart';
 
@@ -28,6 +29,60 @@ Widget _card(
 }
 
 void main() {
+  for (final brightness in Brightness.values) {
+    for (final scale in uiTextScales) {
+      testWidgets('소요일은 상태 배지 아래에 보인다 (${brightness.name}, x$scale)', (
+        tester,
+      ) async {
+        final report = longFieldReport(
+          status: '수용',
+        ).copyWith(date: '2026-10-01', responseDate: '2026-10-16');
+        final errors = await pumpThemed(
+          tester,
+          _card(report, selectionMode: true, suffix: const Text('12/15회')),
+          brightness: brightness,
+          textScale: scale,
+        );
+        expect(errors, isEmpty, reason: describeErrors(errors));
+        final badge = find.widgetWithText(StatusBadge, '수용');
+        final duration = find.text('소요 15일');
+        expect(duration, findsOneWidget);
+        expect(
+          tester.getRect(duration).top,
+          greaterThan(tester.getRect(badge).bottom),
+        );
+        expect(
+          tester
+              .renderObject<RenderParagraph>(
+                find.descendant(of: duration, matching: find.byType(RichText)),
+              )
+              .didExceedMaxLines,
+          isFalse,
+        );
+      });
+    }
+  }
+
+  testWidgets('처리중은 경과일, 날짜 누락·취하는 기간 없이 표시한다', (tester) async {
+    final today = DateTime.now();
+    final date =
+        '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+    await pumpThemed(
+      tester,
+      Column(
+        children: [
+          _card(longFieldReport().copyWith(date: date)),
+          _card(longFieldReport(status: '수용')),
+          _card(longFieldReport(status: '취하')),
+        ],
+      ),
+      brightness: Brightness.light,
+    );
+    expect(find.text('경과 0일'), findsOneWidget);
+    expect(find.textContaining('소요'), findsNothing);
+    expect(find.textContaining('경과'), findsOneWidget);
+  });
+
   for (final brightness in Brightness.values) {
     for (final scale in uiTextScales) {
       testWidgets('긴 필드 카드: overflow 없음 (${brightness.name}, x$scale)', (

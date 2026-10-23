@@ -30,6 +30,7 @@ void main() {
             children: [
               ReportListCard(
                 report: longFieldReport(),
+                durationToday: DateTime(2026, 10, 23),
                 selectionMode: false,
                 isSelected: false,
                 onTap: () {},
@@ -51,6 +52,7 @@ void main() {
               ),
               ReportListCard(
                 report: longFieldReport(status: '수용'),
+                durationToday: DateTime(2026, 10, 23),
                 selectionMode: true,
                 isSelected: true,
                 onTap: () {},

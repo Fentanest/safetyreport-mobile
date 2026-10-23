@@ -90,6 +90,13 @@ class ReportMapScreen extends StatefulWidget {
   @visibleForTesting
   final TileProvider? tileProvider;
 
+  /// 테스트 전용: 공유 카드의 긴 상태·펼침을 운영 업로드 없이 검증한다.
+  @visibleForTesting
+  final Future<CommunityPanelData> Function({
+    CommunityServerUploadClient? serverClient,
+  })?
+  communityPanelLoader;
+
   const ReportMapScreen({
     super.key,
     this.initialYear = 'all',
@@ -98,6 +105,7 @@ class ReportMapScreen extends StatefulWidget {
     this.locationGateway = const ReportMapLocationGateway(),
     this.payloadLoader,
     this.tileProvider,
+    this.communityPanelLoader,
   });
 
   @override
@@ -107,6 +115,7 @@ class ReportMapScreen extends StatefulWidget {
 class _ReportMapScreenState extends State<ReportMapScreen>
     with WidgetsBindingObserver {
   final MapController _mapController = MapController();
+  final ScrollController _pageScrollController = ScrollController();
   ReportMapPayload? _payload;
   int _loadSeq = 0;
   Timer? _viewportTimer;
@@ -186,6 +195,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     _viewportTimer?.cancel();
     _loadSeq++;
     _mapController.dispose();
+    _pageScrollController.dispose();
     super.dispose();
   }
 
@@ -472,38 +482,71 @@ class _ReportMapScreenState extends State<ReportMapScreen>
           ),
         ],
       ),
-      body: _loading && payload == null
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                _buildFilterBar(cs),
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                    child: _buildErrorCard(_error!),
-                  ),
-                if (payload != null)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                    child: _buildMetaSummary(payload.meta),
-                  ),
-                // 커뮤니티 공유 업로드 (접이식 카드 — 지도와 겹치지 않게 필터 바 아래).
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
-                  child: CommunityUploadPanelHost(),
-                ),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child:
-                        markerCache.validPoints.isEmpty &&
-                            _currentLocation == null
-                        ? _buildEmptyState()
-                        : _buildMap(markerCache),
-                  ),
-                ),
-              ],
-            ),
+      body: SafeArea(
+        top: false,
+        child: _loading && payload == null
+            ? const Center(child: CircularProgressIndicator())
+            : LayoutBuilder(
+                builder: (context, constraints) {
+                  // 세로 화면은 가로:세로 3:4. 가로/짧은 화면에서는 가용 높이에
+                  // 맞춰 지도 하단 컨트롤까지 한 번에 볼 수 있게 한다.
+                  final mapHeight = math.min(
+                    (constraints.maxWidth - 32) * 4 / 3,
+                    math.max(240.0, constraints.maxHeight - 32),
+                  );
+                  return Scrollbar(
+                    controller: _pageScrollController,
+                    child: SingleChildScrollView(
+                      controller: _pageScrollController,
+                      child: Column(
+                        children: [
+                          _buildFilterBar(cs),
+                          if (_error != null)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                              child: _buildErrorCard(_error!),
+                            ),
+                          if (payload != null)
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                              child: _buildMetaSummary(payload.meta),
+                            ),
+                          // 지도 밖에서 스크롤할 수 있고 펼쳐도 지도를 줄이지 않는다.
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                            child: CommunityUploadPanelHost(
+                              loader:
+                                  widget.communityPanelLoader ??
+                                  loadCommunityPanelData,
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: SizedBox(
+                              height: mapHeight,
+                              child:
+                                  markerCache.validPoints.isEmpty &&
+                                      _currentLocation == null
+                                  ? _buildEmptyState()
+                                  : _buildMap(
+                                      markerCache,
+                                      compactCommunityButton:
+                                          constraints.maxWidth - 32 <
+                                          360 *
+                                              MediaQuery.textScalerOf(
+                                                context,
+                                              ).scale(13) /
+                                              13,
+                                    ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+      ),
     );
   }
 
@@ -519,15 +562,22 @@ class _ReportMapScreenState extends State<ReportMapScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          OverflowBar(
+            alignment: MainAxisAlignment.spaceBetween,
+            overflowAlignment: OverflowBarAlignment.end,
+            spacing: 8,
             children: [
-              const Icon(Icons.filter_alt_outlined, size: 18),
-              const SizedBox(width: 6),
-              const Text(
-                '지도 필터',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+              const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.filter_alt_outlined, size: 18),
+                  SizedBox(width: 6),
+                  Text(
+                    '지도 필터',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                  ),
+                ],
               ),
-              const Spacer(),
               DropdownButton<String>(
                 value: _availableYears.contains(_selectedYear)
                     ? _selectedYear
@@ -985,7 +1035,10 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     return next;
   }
 
-  Widget _buildMap(_MapMarkerCache cache) {
+  Widget _buildMap(
+    _MapMarkerCache cache, {
+    required bool compactCommunityButton,
+  }) {
     final currentLocation = _currentLocation;
     final center = currentLocation ?? cache.center;
     final zoom = currentLocation != null ? 15.0 : cache.zoom;
@@ -1086,15 +1139,23 @@ class _ReportMapScreenState extends State<ReportMapScreen>
                 ),
             ],
           ),
-          // SQ-U24: 마커 색(과태료율) 범례.
-          const Positioned(left: 8, top: 8, child: MapFineRateLegend()),
-          // 커뮤니티 지도 바로가기(오른쪽 위). 좁은 화면은 범례와 겹치지 않게 아이콘만.
+          // SQ-U24: 범례를 펼치거나 글꼴이 커져도 커뮤니티 버튼과 겹치지 않는다.
           Positioned(
+            left: 8,
             right: 8,
             top: 8,
-            child: MapCommunityMapButton(
-              compact: MediaQuery.sizeOf(context).width < 360,
-              onPressed: _openCommunityMap,
+            child: OverflowBar(
+              alignment: MainAxisAlignment.spaceBetween,
+              overflowAlignment: OverflowBarAlignment.end,
+              spacing: 8,
+              overflowSpacing: 8,
+              children: [
+                const MapFineRateLegend(),
+                MapCommunityMapButton(
+                  compact: compactCommunityButton,
+                  onPressed: _openCommunityMap,
+                ),
+              ],
             ),
           ),
           // SQ-U10: OSM 타일 사용 조건(ODbL·OSMF 타일 정책)인 출처 표기.

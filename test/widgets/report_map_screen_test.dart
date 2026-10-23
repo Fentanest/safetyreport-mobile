@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -8,13 +10,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import 'package:safetyreport/models/report.dart';
+import 'package:safetyreport/models/app_mode.dart';
 import 'package:safetyreport/models/report_map.dart';
 import 'package:safetyreport/providers/report_provider.dart';
 import 'package:safetyreport/screens/report_map_screen.dart';
 import 'package:safetyreport/theme/app_theme.dart';
 import 'package:safetyreport/theme/sr_colors.dart';
 import 'package:safetyreport/widgets/report_map_overlays.dart';
+import 'package:safetyreport/widgets/community_upload_panel.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../support/ui_harness.dart' show loadGoldenFonts;
 
 /// 지도 화면(WP5: SQ-U03·U10·U11·P05·U24) 회귀 테스트. 네트워크·위치 플러그인 없이 주입한 가짜로 돈다.
 
@@ -77,6 +83,13 @@ class _FakeLocation extends ReportMapLocationGateway {
 }
 
 class _ScopeProvider extends ReportProvider {
+  _ScopeProvider(this.mode);
+
+  final AppMode mode;
+
+  @override
+  AppMode get appMode => mode;
+
   int epoch = 0;
 
   @override
@@ -159,22 +172,49 @@ ReportMapPayload _payload({String pinBasis = 'coords'}) => ReportMapPayload(
 );
 
 class _Harness {
-  _Harness({_FakeLocation? location, this.serverKnowsPinBasis = true})
-    : location = location ?? _FakeLocation();
+  _Harness({
+    _FakeLocation? location,
+    this.serverKnowsPinBasis = true,
+    AppMode mode = AppMode.server,
+  }) : location = location ?? _FakeLocation(),
+       provider = _ScopeProvider(mode);
 
   /// false 면 구 서버처럼 pin_basis 를 무시하고 위도·경도 기준으로 답한다.
   final bool serverKnowsPinBasis;
 
   final _FakeLocation location;
-  final provider = _ScopeProvider();
+  final _ScopeProvider provider;
+  final boundaryKey = GlobalKey();
   final brightness = ValueNotifier<Brightness>(Brightness.light);
   int loads = 0;
   String lastPinBasis = 'coords';
 
-  Future<void> pump(WidgetTester tester) async {
+  ThemeData _theme(Brightness value) {
+    final theme = AppTheme.build(value);
+    if (Platform.environment['SR_MAP_CAPTURE_DIR'] == null) return theme;
+    // AppBar의 독립 TextStyle에도 캡처용 한글 폰트를 지정한다.
+    return theme.copyWith(
+      appBarTheme: theme.appBarTheme.copyWith(
+        titleTextStyle: theme.appBarTheme.titleTextStyle!.copyWith(
+          fontFamily: 'Roboto',
+        ),
+      ),
+    );
+  }
+
+  Future<void> pump(
+    WidgetTester tester, {
+    Size size = const Size(420, 900),
+    double textScale = 1,
+    double bottomInset = 0,
+    bool empty = false,
+    bool fail = false,
+  }) async {
     SharedPreferences.setMockInitialValues({});
-    tester.view.physicalSize = const Size(420, 900);
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
+    tester.view.padding = FakeViewPadding(top: 24, bottom: bottomInset);
+    tester.view.viewPadding = FakeViewPadding(top: 24, bottom: bottomInset);
     addTearDown(tester.view.reset);
     addTearDown(provider.dispose);
     addTearDown(brightness.dispose);
@@ -184,10 +224,28 @@ class _Harness {
         child: ValueListenableBuilder<Brightness>(
           valueListenable: brightness,
           builder: (context, value, _) => MaterialApp(
-            theme: AppTheme.build(value),
+            debugShowCheckedModeBanner: false,
+            theme: _theme(value),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: TextScaler.linear(textScale)),
+              child: RepaintBoundary(key: boundaryKey, child: child!),
+            ),
             home: ReportMapScreen(
               locationGateway: location,
               tileProvider: _BlankTileProvider(),
+              communityPanelLoader: ({serverClient}) async =>
+                  CommunityPanelData(
+                    clientMode: provider.appMode == AppMode.server,
+                    rawBackfill: const {
+                      'state': 'done',
+                      'done': 2632,
+                      'missing': 268,
+                      'total': 2900,
+                    },
+                    lastProjection: 'published',
+                  ),
               payloadLoader:
                   ({
                     bounds,
@@ -198,9 +256,13 @@ class _Harness {
                   }) async {
                     loads++;
                     lastPinBasis = pinBasis;
-                    return _payload(
+                    if (fail) throw StateError('지도 조회 테스트 오류');
+                    final payload = _payload(
                       pinBasis: serverKnowsPinBasis ? pinBasis : 'coords',
                     );
+                    return empty
+                        ? ReportMapPayload(points: const [], meta: payload.meta)
+                        : payload;
                   },
             ),
           ),
@@ -215,6 +277,30 @@ class _Harness {
       await tester.pump(const Duration(milliseconds: 50));
     }
   }
+
+  Future<void> tapCurrentLocation(WidgetTester tester) async {
+    await tester.ensureVisible(find.byTooltip('현재 위치'));
+    await settle(tester);
+    await tester.tap(find.byTooltip('현재 위치'));
+  }
+
+  Future<void> capture(WidgetTester tester, String name) async {
+    final directory = Platform.environment['SR_MAP_CAPTURE_DIR'];
+    if (directory == null) return;
+    await tester.pump();
+    final boundary = tester.renderObject<RenderRepaintBoundary>(
+      find.byKey(boundaryKey),
+    );
+    await tester.runAsync(() async {
+      final image = await boundary.toImage(pixelRatio: 1.5);
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+      await Directory(directory).create(recursive: true);
+      await File(
+        '$directory/$name.png',
+      ).writeAsBytes(bytes!.buffer.asUint8List());
+      image.dispose();
+    });
+  }
 }
 
 List<Marker> _clusterMarkers(WidgetTester tester) => tester
@@ -223,6 +309,154 @@ List<Marker> _clusterMarkers(WidgetTester tester) => tester
     .markers;
 
 void main() {
+  setUpAll(() async {
+    if (Platform.environment['SR_MAP_CAPTURE_DIR'] != null) {
+      expect(await loadGoldenFonts(), isNull);
+    }
+  });
+
+  group('지도 크기·화면 스크롤·시스템 내비게이션 여백', () {
+    for (final mode in AppMode.values) {
+      for (final brightness in Brightness.values) {
+        for (final width in [360.0, 412.0]) {
+          for (final scale in [1.0, 1.3, 2.0]) {
+            final name =
+                '${mode.name}-${brightness.name}-${width.toInt()}-$scale';
+            testWidgets('큰 글꼴과 공유 카드 펼침에서도 지도를 줄이지 않는다 $name', (tester) async {
+              final h = _Harness(mode: mode);
+              h.brightness.value = brightness;
+              const height = 800.0;
+              const bottomInset = 48.0;
+              await h.pump(
+                tester,
+                size: Size(width, height),
+                textScale: scale,
+                bottomInset: bottomInset,
+              );
+              expect(tester.takeException(), isNull);
+              final map = find.byType(FlutterMap);
+              final initialSize = tester.getSize(map);
+              expect(initialSize.height, greaterThan(initialSize.width * 1.25));
+
+              final page = tester
+                  .state<ScrollableState>(
+                    find.descendant(
+                      of: find.byType(Scrollbar),
+                      matching: find.byType(Scrollable),
+                    ),
+                  )
+                  .position;
+              await tester.drag(find.text('지도 필터'), const Offset(0, -200));
+              await h.settle(tester);
+              expect(page.pixels, greaterThan(0));
+
+              await tester.ensureVisible(find.byType(ExpansionTile));
+              await h.settle(tester);
+              await tester.tap(find.byType(ExpansionTile));
+              await tester.pumpAndSettle();
+              expect(tester.takeException(), isNull);
+              expect(tester.getSize(map), initialSize);
+              await tester.ensureVisible(find.byTooltip('현재 위치'));
+              await h.settle(tester);
+              final viewportBottom = height - bottomInset;
+              expect(
+                tester.getRect(map).bottom,
+                lessThanOrEqualTo(viewportBottom),
+              );
+              expect(
+                tester.getRect(find.byTooltip('현재 위치')).bottom,
+                lessThanOrEqualTo(viewportBottom),
+              );
+              expect(
+                tester.getRect(find.byType(MapOsmAttribution)).bottom,
+                lessThanOrEqualTo(viewportBottom),
+              );
+              void expectSeparateControls() => expect(
+                tester
+                    .getRect(find.byType(MapFineRateLegend))
+                    .overlaps(
+                      tester.getRect(find.byType(MapCommunityMapButton)),
+                    ),
+                isFalse,
+              );
+              expectSeparateControls();
+              await h.capture(tester, 'map-$name');
+              await tester.tap(find.text('과태료율'));
+              await h.settle(tester);
+              expectSeparateControls();
+              expect(tester.takeException(), isNull);
+              await tester.tap(find.text('마커 색 범례'));
+              await h.settle(tester);
+
+              // 지도 위 드래그는 지도 이동이고, 바깥 여백 드래그는 화면 스크롤이다.
+              final mapWidget = tester.widget<FlutterMap>(map);
+              final center = mapWidget.mapController!.camera.center;
+              final pageOffset = page.pixels;
+              await tester.drag(map, const Offset(0, -60));
+              await h.settle(tester);
+              expect(mapWidget.mapController!.camera.center, isNot(center));
+              expect(page.pixels, pageOffset);
+              await tester.dragFrom(
+                Offset(8, height / 2),
+                const Offset(0, 180),
+              );
+              await h.settle(tester);
+              expect(page.pixels, lessThan(pageOffset));
+              expect(tester.takeException(), isNull);
+            });
+          }
+        }
+      }
+    }
+
+    testWidgets('가로 회전·제스처 내비게이션에서도 지도와 하단 버튼에 접근한다', (tester) async {
+      final h = _Harness();
+      await h.pump(tester, bottomInset: 24);
+      tester.view.physicalSize = const Size(800, 400);
+      tester.view.padding = const FakeViewPadding(
+        left: 24,
+        right: 24,
+        bottom: 24,
+      );
+      tester.view.viewPadding = const FakeViewPadding(
+        left: 24,
+        right: 24,
+        bottom: 24,
+      );
+      await h.settle(tester);
+      await tester.ensureVisible(find.byTooltip('현재 위치'));
+      await h.settle(tester);
+      expect(tester.takeException(), isNull);
+      final mapRect = tester.getRect(find.byType(FlutterMap));
+      expect(mapRect.left, greaterThanOrEqualTo(24));
+      expect(mapRect.right, lessThanOrEqualTo(776));
+      expect(mapRect.bottom, lessThanOrEqualTo(376));
+      expect(mapRect.top, greaterThanOrEqualTo(56));
+    });
+
+    for (final fail in [false, true]) {
+      testWidgets('빈 지도·오류 안내도 큰 글꼴에서 스크롤할 수 있다: error=$fail', (tester) async {
+        final h = _Harness(mode: AppMode.standalone);
+        await h.pump(
+          tester,
+          size: const Size(360, 640),
+          textScale: 2,
+          bottomInset: 48,
+          empty: true,
+          fail: fail,
+        );
+        final emptyMessage = find.text(
+          '표시할 공식 좌표가 없습니다.\n신고를 동기화한 뒤 다시 확인해 주세요.',
+        );
+        await tester.ensureVisible(emptyMessage);
+        await h.settle(tester);
+        expect(emptyMessage.hitTestable(), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        if (fail) expect(find.textContaining('지도 조회 테스트 오류'), findsOneWidget);
+      });
+    }
+  });
+
   group('SQ-U11 위치 권한은 버튼을 누르고 설명을 본 뒤에만 요청', () {
     testWidgets('화면 진입만으로는 권한을 요청하지 않는다', (tester) async {
       final h = _Harness();
@@ -239,7 +473,7 @@ void main() {
       );
       await h.pump(tester);
 
-      await tester.tap(find.byTooltip('현재 위치'));
+      await h.tapCurrentLocation(tester);
       await h.settle(tester);
       expect(find.text('지도에서 내 위치로 이동하려면 위치 권한이 필요합니다.'), findsOneWidget);
       await tester.tap(find.text('취소'));
@@ -247,7 +481,7 @@ void main() {
       expect(h.location.requests, 0);
       expect(find.byType(AlertDialog), findsNothing);
 
-      await tester.tap(find.byTooltip('현재 위치'));
+      await h.tapCurrentLocation(tester);
       await h.settle(tester);
       await tester.tap(find.text('허용'));
       await h.settle(tester);
@@ -260,7 +494,7 @@ void main() {
         location: _FakeLocation(result: LocationPermission.deniedForever),
       );
       await h.pump(tester);
-      await tester.tap(find.byTooltip('현재 위치'));
+      await h.tapCurrentLocation(tester);
       await h.settle(tester);
       await tester.tap(find.text('허용'));
       await h.settle(tester);
@@ -274,7 +508,7 @@ void main() {
       await h.pump(tester);
       expect(h.location.requests, 0);
       expect(h.location.positions, 1);
-      await tester.tap(find.byTooltip('현재 위치'));
+      await h.tapCurrentLocation(tester);
       await h.settle(tester);
       expect(find.byType(AlertDialog), findsNothing);
       expect(h.location.requests, 0);
@@ -364,9 +598,7 @@ void main() {
       expect(h.lastPinBasis, 'coords');
       expect(find.text('핀 기준'), findsOneWidget);
       expect(
-        find.text(
-          '같은 주소의 신고를 한 핀으로 묶고, 그 주소에서 가장 많이 신고된 공식 좌표에 표시합니다.',
-        ),
+        find.text('같은 주소의 신고를 한 핀으로 묶고, 그 주소에서 가장 많이 신고된 공식 좌표에 표시합니다.'),
         findsNothing,
       );
 
@@ -375,9 +607,7 @@ void main() {
       expect(h.loads, 2);
       expect(h.lastPinBasis, 'address');
       expect(
-        find.text(
-          '같은 주소의 신고를 한 핀으로 묶고, 그 주소에서 가장 많이 신고된 공식 좌표에 표시합니다.',
-        ),
+        find.text('같은 주소의 신고를 한 핀으로 묶고, 그 주소에서 가장 많이 신고된 공식 좌표에 표시합니다.'),
         findsOneWidget,
       );
 
@@ -386,9 +616,7 @@ void main() {
       expect(h.loads, 3);
       expect(h.lastPinBasis, 'coords');
       expect(
-        find.text(
-          '같은 주소의 신고를 한 핀으로 묶고, 그 주소에서 가장 많이 신고된 공식 좌표에 표시합니다.',
-        ),
+        find.text('같은 주소의 신고를 한 핀으로 묶고, 그 주소에서 가장 많이 신고된 공식 좌표에 표시합니다.'),
         findsNothing,
       );
     });
@@ -407,9 +635,7 @@ void main() {
       expect(chip('주소').selected, isFalse);
       expect(find.text('서버를 업데이트해야 주소 기준을 쓸 수 있습니다.'), findsOneWidget);
       expect(
-        find.text(
-          '같은 주소의 신고를 한 핀으로 묶고, 그 주소에서 가장 많이 신고된 공식 좌표에 표시합니다.',
-        ),
+        find.text('같은 주소의 신고를 한 핀으로 묶고, 그 주소에서 가장 많이 신고된 공식 좌표에 표시합니다.'),
         findsNothing,
       );
       // 다시 주소를 누르면 서버에 다시 묻는다(서버가 업데이트됐을 수 있다).
@@ -421,7 +647,8 @@ void main() {
     });
   });
 
-  testWidgets('SQ-U10 지도에 OpenStreetMap 출처를 보인다', (tester) async {    final h = _Harness();
+  testWidgets('SQ-U10 지도에 OpenStreetMap 출처를 보인다', (tester) async {
+    final h = _Harness();
     await h.pump(tester);
     expect(find.text('© OpenStreetMap contributors'), findsOneWidget);
     expect(find.bySemanticsLabel('OpenStreetMap 저작권 안내 열기'), findsOneWidget);

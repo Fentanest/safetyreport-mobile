@@ -1,4 +1,5 @@
 import '../services/law_values.dart';
+import '../utils/report_display_text.dart';
 import '../services/attachment_policy.dart';
 import '../services/attachment_cache.dart';
 import 'dart:async';
@@ -284,7 +285,7 @@ class ReportDetailSheet extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    report.name,
+                    reportDisplayText(report.name),
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -694,7 +695,7 @@ class ReportDetailSheet extends StatelessWidget {
             border: Border.all(color: context.sr.border),
           ),
           child: SelectableText(
-            value,
+            reportDisplayText(value),
             style: TextStyle(
               fontSize: 13,
               height: 1.6,
@@ -762,12 +763,12 @@ class ReportDetailSheet extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            value,
+            reportDisplayText(value),
             style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
           ),
           if (original != null)
             Text(
-              '원문: $original',
+              '원문: ${reportDisplayText(original)}',
               style: TextStyle(
                 fontSize: 12,
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -867,7 +868,7 @@ class ReportDetailSheet extends StatelessWidget {
         label: label,
         labelWidth: labelWidth,
         value: Text(
-          value,
+          reportDisplayText(value),
           style: TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w500,
@@ -1349,7 +1350,9 @@ class _RetryableImageState extends State<_RetryableImage> {
       _authRetried = true;
       setState(() => _retrying = true);
       try {
-        final response = await StandaloneApiService.fetchOfficialAttachment(Uri.parse(widget.url));
+        final response = await StandaloneApiService.fetchOfficialAttachment(
+          Uri.parse(widget.url),
+        );
         if (!mounted) return;
         if (response.statusCode == 200) {
           setState(() {
@@ -1456,7 +1459,9 @@ class _RetryableImageState extends State<_RetryableImage> {
       borderRadius: BorderRadius.circular(SrRadius.md),
       child: Image(
         image: ResizeImage(
-          _officialBytes != null ? MemoryImage(_officialBytes!) : NetworkImage(widget.url, headers: _headers),
+          _officialBytes != null
+              ? MemoryImage(_officialBytes!)
+              : NetworkImage(widget.url, headers: _headers),
           width: decodeWidth,
           height: decodeMaxHeight,
           policy: ResizeImagePolicy.fit,
@@ -1900,8 +1905,8 @@ class _SupplementSection extends StatelessWidget {
     final requester = report.supplementRequester.trim();
     final requestedAt = report.supplementRequestedAt.trim();
     final completedAt = report.supplementCompletedAt.trim();
-    final request = report.supplementRequest.trim();
-    final opinion = report.supplementOpinion.trim();
+    final request = reportDisplayText(report.supplementRequest.trim());
+    final opinion = reportDisplayText(report.supplementOpinion.trim());
     final tone = StatusTone.of(
       serverSupplementColor,
       brightness: Theme.of(context).brightness,
@@ -2038,7 +2043,7 @@ class _SupplementMetaRow extends StatelessWidget {
               ),
             ),
             TextSpan(
-              text: value,
+              text: reportDisplayText(value),
               style: TextStyle(color: context.sr.textPrimary),
             ),
           ],

@@ -4,6 +4,7 @@ import '../widgets/local_paged_report_list.dart';
 import 'dart:async' show TimeoutException, Timer;
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_marker_cluster/flutter_map_marker_cluster.dart';
@@ -207,6 +208,8 @@ class _ReportMapScreenState extends State<ReportMapScreen>
   }
 
   Future<void> _loadMap({bool silent = false}) async {
+    _viewportTimer?.cancel();
+    _viewportTimer = null;
     final seq = ++_loadSeq;
     if (!silent) {
       setState(() {
@@ -438,9 +441,33 @@ class _ReportMapScreenState extends State<ReportMapScreen>
     try {
       final currentZoom = _mapController.camera.zoom;
       _mapController.move(location, math.max(currentZoom, 15));
+      // 현재 위치 이동은 사용자 제스처가 아니므로 명시적으로 새 영역을 읽는다.
+      _scheduleViewportLoad(_mapController.camera);
     } catch (_) {
       // MapController may not be attached yet during the first frame.
     }
+  }
+
+  void _scheduleViewportLoad(MapCamera camera) {
+    if (!mounted ||
+        camera.nonRotatedSize.width <= 0 ||
+        camera.nonRotatedSize.height <= 0) {
+      return;
+    }
+    final bounds = camera.visibleBounds;
+    final next = [bounds.south, bounds.west, bounds.north, bounds.east];
+    final previous = _viewport;
+    if (previous != null &&
+        camera.zoom == _viewportZoom &&
+        listEquals(previous, next)) {
+      return;
+    }
+    _viewport = next;
+    _viewportZoom = camera.zoom;
+    _viewportTimer?.cancel();
+    _viewportTimer = Timer(const Duration(milliseconds: 250), () {
+      if (mounted) _loadMap(silent: true);
+    });
   }
 
   List<String> get _availableYears {
@@ -1056,20 +1083,24 @@ class _ReportMapScreenState extends State<ReportMapScreen>
             ),
             mapController: _mapController,
             options: MapOptions(
+              onMapReady: () {
+                // 위치가 첫 집계 응답보다 먼저 도착하면 그때는 지도가 아직
+                // 붙지 않아 이동할 수 없다. 첫 렌더가 끝난 현재 영역을 읽는다.
+                if (_currentLocation != null) {
+                  _scheduleViewportLoad(_mapController.camera);
+                }
+              },
               onPositionChanged: (camera, hasGesture) {
-                if (!hasGesture) return;
-                final bounds = camera.visibleBounds;
-                _viewport = [
-                  bounds.south,
-                  bounds.west,
-                  bounds.north,
-                  bounds.east,
-                ];
-                _viewportZoom = camera.zoom;
-                _viewportTimer?.cancel();
-                _viewportTimer = Timer(const Duration(milliseconds: 250), () {
-                  if (mounted) _loadMap(silent: true);
-                });
+                if (hasGesture) _scheduleViewportLoad(camera);
+              },
+              onMapEvent: (event) {
+                // 크기 변경은 onPositionChanged를 거치지 않는다. 첫 레이아웃은
+                // 이미 전체 집계를 읽었으므로 제외하고, 회전/분할 화면만 다시 읽는다.
+                if (event is MapEventNonRotatedSizeChange &&
+                    event.oldCamera.nonRotatedSize.width > 0 &&
+                    event.oldCamera.nonRotatedSize.height > 0) {
+                  _scheduleViewportLoad(event.camera);
+                }
               },
               initialCenter: center,
               initialZoom: zoom,

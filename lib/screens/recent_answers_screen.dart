@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/report_display_text.dart';
 import 'package:provider/provider.dart';
 import '../models/report.dart';
 import '../models/app_mode.dart';
@@ -111,7 +112,7 @@ class _RecentCard extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      report.name,
+                      reportTitlePreview(report.name),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(

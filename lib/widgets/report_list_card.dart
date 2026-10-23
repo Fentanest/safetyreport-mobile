@@ -6,6 +6,7 @@ import '../services/fine_estimate.dart' as fine_estimate;
 import '../theme/sr_colors.dart';
 import '../utils/format.dart';
 import '../utils/current_day.dart';
+import '../utils/report_display_text.dart';
 import '../utils/report_duration.dart';
 import 'status_badge.dart';
 import '../theme/sr_tokens.dart';
@@ -110,7 +111,9 @@ class ReportListCard extends StatelessWidget {
       report,
       today: durationToday ?? (trackDay ? daySignal.value : null),
     );
-    final supplementRequester = report.supplementRequester.trim();
+    final supplementRequester = reportDisplayText(
+      report.supplementRequester.trim(),
+    );
     final supplementTone = StatusTone.of(
       serverSupplementColor,
       brightness: theme.brightness,
@@ -160,7 +163,7 @@ class ReportListCard extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            report.name,
+                            reportTitlePreview(report.name),
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
@@ -367,9 +370,9 @@ class _MetaRow extends StatelessWidget {
         ? Text.rich(
             TextSpan(
               children: [
-                TextSpan(text: text),
+                TextSpan(text: reportDisplayText(text)),
                 TextSpan(
-                  text: ' $secondaryText',
+                  text: ' ${reportDisplayText(secondaryText!)}',
                   style: const TextStyle(fontStyle: FontStyle.italic),
                 ),
               ],
@@ -378,7 +381,7 @@ class _MetaRow extends StatelessWidget {
             overflow: wrapText ? TextOverflow.visible : TextOverflow.ellipsis,
           )
         : Text(
-            text,
+            reportDisplayText(text),
             style: baseStyle,
             overflow: wrapText ? TextOverflow.visible : TextOverflow.ellipsis,
           );
@@ -392,7 +395,7 @@ class _MetaRow extends StatelessWidget {
     );
     if (!hasSecondary) return row;
     return Semantics(
-      label: semanticsLabel ?? '$text $secondaryText',
+      label: reportDisplayText(semanticsLabel ?? '$text $secondaryText'),
       excludeSemantics: true,
       child: row,
     );

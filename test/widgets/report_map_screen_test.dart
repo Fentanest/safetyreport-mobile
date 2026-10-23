@@ -188,6 +188,7 @@ class _Harness {
   final brightness = ValueNotifier<Brightness>(Brightness.light);
   int loads = 0;
   String lastPinBasis = 'coords';
+  List<double>? lastBounds;
 
   ThemeData _theme(Brightness value) {
     final theme = AppTheme.build(value);
@@ -256,6 +257,7 @@ class _Harness {
                   }) async {
                     loads++;
                     lastPinBasis = pinBasis;
+                    lastBounds = bounds;
                     if (fail) throw StateError('지도 조회 테스트 오류');
                     final payload = _payload(
                       pinBasis: serverKnowsPinBasis ? pinBasis : 'coords',
@@ -593,6 +595,7 @@ void main() {
       await h.settle(tester);
       expect(h.location.requests, 1);
       expect(h.location.positions, 1);
+      expect(h.lastBounds, isNotNull, reason: '현재 위치로 옮긴 뒤 새 영역의 핀을 읽는다');
     });
 
     testWidgets('영구 거부면 설정으로 가는 SnackBar 를 그대로 보인다', (tester) async {

@@ -472,7 +472,7 @@ CI `build-dev-apk.yml`(2026-09-27): `dev` push(문서만 바뀐 push 제외)·�
   `startWsService`(Flutter 호출)는 여전히 열린 캐시만 받는다.
 - 서비스가 멈춘 뒤 루프 스레드가 늦게 지속 알림을 다시 올려 서비스 없는 알림이 남던 경로를 막았다(`updateForegroundNotif` 가 `running` 확인, 종료·`onDestroy` 에서 알림 취소).
 - 남은 한계: 화면 없는 갱신이 실패하면(카카오 세션·네트워크·서버 5xx) 그동안은 연결하지 않는다. 실패 원인은 기기 로그로 확인해야 한다.
-  `ServerContract.wsEventsUrl` 은 baseUrl 의 하위 경로를 버린다(역방향 프록시 하위 경로를 쓰면 WS 만 404) — 계약 파일이라 이번에 바꾸지 않았다.
+  코드 대조 정정(2026-10-24): Dart·Kotlin의 WebSocket URL도 REST와 같은 baseUrl 하위 경로를 보존한다. 인코딩된 경로·IPv6·명시 포트와 기존 인증/프로토콜 쿼리를 유지한다.
 
 `MainActivity.startWsService`는 닫힌 캐시로 시작을 거부한다. Flutter는 캐시 저장 완료 뒤 서비스를 시작하며, 메인 화면 복귀 때 다시 검증하고
 Client 연결을 재개한다. 지속 알림 갱신은 `setOnlyAlertOnce(true)`로 반복 알림음을 막는다.

@@ -86,6 +86,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _autoExportExcel = true;
   bool _autoExportSheet = false;
   bool _filterLoading = false;
+  int _filterReadGeneration = 0;
 
   // 앱 버전
   String _appVersion = '';
@@ -160,10 +161,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadFilterSettings() async {
+    final generation = ++_filterReadGeneration;
     final p = context.read<ReportProvider>();
+    final sourceEpoch = p.accountConfigEpoch;
     // standalone 모드: SharedPreferences 기반 필터값 로드 (provider가 보유)
     if (p.appMode == AppMode.standalone) {
-      if (mounted) {
+      if (mounted &&
+          generation == _filterReadGeneration &&
+          sourceEpoch == p.accountConfigEpoch) {
         setState(() {
           _excludeWithdraw = p.excludeWithdraw;
           _useRepresentativeRecords = p.useRepresentativeRecords;
@@ -178,7 +183,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (api == null) return;
     try {
       final cfg = await api.getAppConfig();
-      if (mounted) {
+      if (mounted &&
+          generation == _filterReadGeneration &&
+          sourceEpoch == p.accountConfigEpoch) {
         setState(() {
           _excludeWithdraw = cfg['exclude_withdraw'] as bool? ?? true;
           _useRepresentativeRecords =
@@ -191,25 +198,71 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _toggleFilter(String key, bool value) async {
+    if (_filterLoading) return;
+    // 초기 조회의 늦은 응답이 방금 저장한 값을 되돌리지 않게 한다.
+    _filterReadGeneration++;
     setState(() => _filterLoading = true);
     final p = context.read<ReportProvider>();
-    if (p.appMode == AppMode.standalone) {
-      if (key == 'exclude_withdraw') {
-        await p.setStandaloneFilter(excludeWithdraw: value);
-      } else if (key == 'use_representative_records') {
-        await p.setStandaloneFilter(useRepresentativeRecords: value);
+    final mode = p.appMode;
+    final baseUrl = p.baseUrl;
+    final apiKey = p.apiKey;
+    final username = p.standaloneUsername;
+    final demo = p.isStandaloneDemo;
+    final sourceEpoch = p.accountConfigEpoch;
+    bool sameSource() =>
+        p.appMode == mode &&
+        p.baseUrl == baseUrl &&
+        p.apiKey == apiKey &&
+        p.standaloneUsername == username &&
+        p.isStandaloneDemo == demo &&
+        p.accountConfigEpoch == sourceEpoch;
+    try {
+      if (mode == AppMode.standalone) {
+        if (key == 'exclude_withdraw') {
+          await p.setStandaloneFilter(excludeWithdraw: value);
+        } else if (key == 'use_representative_records') {
+          await p.setStandaloneFilter(useRepresentativeRecords: value);
+        }
+      } else {
+        final api = _buildApi();
+        if (api == null) throw StateError('서버 연결 정보가 없습니다.');
+        await api.updateSettings({key: value});
       }
-      // auto_export_excel/auto_export_sheet 은 standalone 무관
-    } else {
-      final api = _buildApi();
-      if (api != null) {
-        try {
-          await api.updateSettings({key: value});
-          if (mounted) context.read<ReportProvider>().refreshAll();
-        } catch (_) {}
+      if (!mounted || !sameSource()) return;
+      setState(() => _setFilterValue(key, value));
+      if (mode == AppMode.server) {
+        unawaited(p.refreshAll());
       }
+    } catch (_) {
+      if (!mounted || !sameSource()) return;
+      if (mode == AppMode.standalone) {
+        // 저장 이후 목록 갱신이 실패한 경우에도 Provider의 확정값과 일치시킨다.
+        setState(() {
+          _excludeWithdraw = p.excludeWithdraw;
+          _useRepresentativeRecords = p.useRepresentativeRecords;
+        });
+      }
+      showSrSnack(
+        context,
+        '설정을 저장하지 못했습니다. 연결 상태를 확인하고 다시 시도해 주세요.',
+        kind: SrSnackKind.error,
+      );
+    } finally {
+      if (mounted) setState(() => _filterLoading = false);
     }
-    if (mounted) setState(() => _filterLoading = false);
+  }
+
+  void _setFilterValue(String key, bool value) {
+    switch (key) {
+      case 'exclude_withdraw':
+        _excludeWithdraw = value;
+      case 'use_representative_records':
+        _useRepresentativeRecords = value;
+      case 'auto_export_excel':
+        _autoExportExcel = value;
+      case 'auto_export_sheet':
+        _autoExportSheet = value;
+    }
   }
 
   Future<void> _checkWsStatus() async {
@@ -379,6 +432,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
       final provider = context.read<ReportProvider>();
       await provider.setConfig(result.normalizedUrl, key);
+      if (mounted) unawaited(_loadFilterSettings());
       // 설정 변경 후 모든 데이터 새로고침(서버 기능 목록 포함 — setConfig 가 이전 서버 것을 비웠다)
       unawaited(provider.refreshAll());
       if (mounted) {
@@ -803,9 +857,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           if (!mounted) return;
           showSrSnack(
             context,
-            kind == 'server'
-                ? '서버 DB 변환 복원이 완료되었습니다.'
-                : '모바일 백업 복원이 완료되었습니다.',
+            kind == 'server' ? '서버 DB 변환 복원이 완료되었습니다.' : '모바일 백업 복원이 완료되었습니다.',
             kind: SrSnackKind.success,
           );
         }
@@ -1505,9 +1557,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                       : Icons.visibility,
                                   size: 20,
                                 ),
-                                tooltip: _obscureKey
-                                    ? 'API 키 보기'
-                                    : 'API 키 숨기기',
+                                tooltip: _obscureKey ? 'API 키 보기' : 'API 키 숨기기',
                                 onPressed: () =>
                                     setState(() => _obscureKey = !_obscureKey),
                               ),
@@ -1857,7 +1907,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         onChanged: _filterLoading
                             ? null
                             : (v) {
-                                setState(() => _autoExportExcel = v);
                                 _toggleFilter('auto_export_excel', v);
                               },
                       ),
@@ -1875,7 +1924,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         onChanged: _filterLoading
                             ? null
                             : (v) {
-                                setState(() => _autoExportSheet = v);
                                 _toggleFilter('auto_export_sheet', v);
                               },
                       ),
@@ -2005,7 +2053,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       onChanged: _filterLoading
                           ? null
                           : (v) {
-                              setState(() => _excludeWithdraw = v);
                               _toggleFilter('exclude_withdraw', v);
                             },
                     ),
@@ -2023,7 +2070,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       onChanged: _filterLoading
                           ? null
                           : (v) {
-                              setState(() => _useRepresentativeRecords = v);
                               _toggleFilter('use_representative_records', v);
                             },
                     ),

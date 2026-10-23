@@ -33,17 +33,15 @@ object ServerContract {
     const val CRAWL_NOTIFICATION_PATH = "$API_PREFIX/crawl/notification"
     const val SERVER_VERSION_PATH = "$API_PREFIX/server/version"
 
-    fun normalizeBaseUrl(baseUrl: String): String = baseUrl.trimEnd('/')
+    fun normalizeBaseUrl(baseUrl: String): String = baseUrl.trim().trimEnd('/')
 
     fun wsEventsUrl(baseUrl: String, apiKey: String): String {
         val httpUri = Uri.parse(normalizeBaseUrl(baseUrl))
         val scheme = if (httpUri.scheme == "https") "wss" else "ws"
         return Uri.Builder()
             .scheme(scheme)
-            .encodedAuthority(
-                if (httpUri.port != -1) "${httpUri.host}:${httpUri.port}" else httpUri.host
-            )
-            .path(WS_EVENTS_PATH)
+            .encodedAuthority(httpUri.encodedAuthority?.substringAfterLast('@'))
+            .encodedPath((httpUri.encodedPath ?: "").trimEnd('/') + WS_EVENTS_PATH)
             .appendQueryParameter(WS_API_KEY_QUERY, apiKey)
             .appendQueryParameter("client_type", "mobile")
             .appendQueryParameter("client_version", productVersion)

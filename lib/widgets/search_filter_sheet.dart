@@ -260,7 +260,8 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
             ? _initialFilter.agencyKey
             : '',
         manager: _managerCtrl.text.trim(),
-        managerExact: _initialFilter.managerExact &&
+        managerExact:
+            _initialFilter.managerExact &&
             _managerCtrl.text.trim() == _initialFilter.manager.trim(),
         carNumber: _carCtrl.text.trim(),
         law: _selectedLaw,
@@ -492,7 +493,12 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
                 ],
 
                 const SizedBox(height: 8),
-                _input(_nameCtrl, '신고명', Icons.description_outlined),
+                _input(
+                  _nameCtrl,
+                  '신고명',
+                  Icons.description_outlined,
+                  preserveNewlines: true,
+                ),
                 const SizedBox(height: 8),
                 _singleSelectDropdown(
                   context: context,
@@ -508,9 +514,19 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
                 const SizedBox(height: 8),
                 _input(_locationCtrl, '위반장소', Icons.location_on_outlined),
                 const SizedBox(height: 8),
-                _input(_reportContentCtrl, '신고내용', Icons.article_outlined),
+                _input(
+                  _reportContentCtrl,
+                  '신고내용',
+                  Icons.article_outlined,
+                  preserveNewlines: true,
+                ),
                 const SizedBox(height: 8),
-                _input(_processContentCtrl, '처리내용', Icons.task_alt_outlined),
+                _input(
+                  _processContentCtrl,
+                  '처리내용',
+                  Icons.task_alt_outlined,
+                  preserveNewlines: true,
+                ),
                 const SizedBox(height: 8),
                 _input(
                   _supplementCountCtrl,
@@ -531,7 +547,12 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
                     },
                   ),
                   const SizedBox(height: 8),
-                  _input(_ratingCauseCtrl, '별점사유', Icons.comment_outlined),
+                  _input(
+                    _ratingCauseCtrl,
+                    '별점사유',
+                    Icons.comment_outlined,
+                    preserveNewlines: true,
+                  ),
                 ],
                 const SizedBox(height: 10),
                 Row(
@@ -711,10 +732,19 @@ class _SearchFilterSheetState extends State<SearchFilterSheet> {
     String label,
     IconData icon, {
     bool enabled = true,
+    bool preserveNewlines = false,
   }) {
     return TextField(
+      key: ValueKey('search-input-$label'),
       controller: ctrl,
       enabled: enabled,
+      // maxLines=1은 붙여넣은 LF까지 지운다. 실제 여러 줄 필드만 원문을
+      // 보존하고, 짧은 검색어의 검색 키/제출 동작은 그대로 유지한다.
+      minLines: 1,
+      maxLines: preserveNewlines ? 3 : 1,
+      keyboardType: preserveNewlines
+          ? TextInputType.multiline
+          : TextInputType.text,
       textInputAction: TextInputAction.search,
       onSubmitted: (_) => _apply(),
       decoration: InputDecoration(

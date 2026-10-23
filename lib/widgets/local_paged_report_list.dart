@@ -12,6 +12,7 @@ import '../services/client_report_scan.dart';
 import '../services/performance_trace.dart';
 import '../providers/report_provider.dart';
 import '../services/local_db_service.dart';
+import '../services/report_display_search.dart';
 import 'report_detail_sheet.dart';
 import 'report_list_card.dart';
 import 'selection_action_bar.dart';
@@ -268,6 +269,10 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
         generation != _generation ||
         epoch != p.datasetEpoch ||
         revision != p.dataRevision;
+    final displaySearch = ReportDisplaySearch(query.filter);
+    bool matches(Report report) =>
+        p.matchesFilter(report, filter: displaySearch.rawFilter) &&
+        displaySearch.matchesReport(report);
     try {
       final ReportPage result;
       if (p.appMode == AppMode.standalone) {
@@ -295,9 +300,7 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
               categories: query.category == 'all'
                   ? const ['traffic', 'parking', 'safety', 'living', 'other']
                   : [query.category],
-              matches: (r) =>
-                  p.matchesFilter(r, filter: query.filter) &&
-                  (query.predicate?.call(r) ?? true),
+              matches: (r) => matches(r) && (query.predicate?.call(r) ?? true),
               isCancelled: cancelled,
             ));
         if (cancelled()) {
@@ -317,6 +320,7 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
           isCancelled: cancelled,
         );
       } else if (query.predicate == null &&
+          !displaySearch.isActive &&
           query.scope.isEmpty &&
           query.metric == null &&
           query.answerYear == null &&
@@ -340,7 +344,7 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
               ? const ['traffic', 'parking', 'safety', 'living', 'other']
               : [query.category],
           matches: (r) =>
-              p.matchesFilter(r, filter: query.filter) &&
+              matches(r) &&
               (query.scope != 'rating' || RatingService.isListEligible(r)) &&
               (query.predicate?.call(r) ?? true),
           isCancelled: cancelled,

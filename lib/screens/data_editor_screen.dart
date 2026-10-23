@@ -14,6 +14,7 @@ import '../widgets/sr_app_bar_actions.dart';
 import '../widgets/status_badge.dart';
 import '../theme/sr_tokens.dart';
 import '../widgets/sr_snack_bar.dart';
+import '../utils/report_display_text.dart';
 
 /// 데이터 수정 탭의 상세 검색(신고내역과 같은 공용 조건). 신고관리 앱바의 검색/필터 아이콘이 부른다(SQ-U16).
 void openDataEditorFilterSheet(BuildContext context) {
@@ -180,7 +181,9 @@ class _EditableReportCard extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      report.name.isEmpty ? '(제목 없음)' : report.name,
+                      report.name.isEmpty
+                          ? '(제목 없음)'
+                          : reportTitlePreview(report.name),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -264,6 +267,50 @@ class _InfoPill extends StatelessWidget {
   }
 }
 
+/// 수정 시트의 실제 입력칸. 본문·첨부·법규는 화면뿐 아니라 키보드도 여러
+/// 줄 입력으로 설정해 완료 키가 줄바꿈을 대신하지 않게 한다.
+class ReportEditorTextField extends StatelessWidget {
+  final String field;
+  final TextEditingController controller;
+  final bool readOnly;
+  final InputDecoration decoration;
+
+  const ReportEditorTextField({
+    super.key,
+    required this.field,
+    required this.controller,
+    required this.decoration,
+    this.readOnly = false,
+  });
+
+  static const _multilineFields = <String>{
+    '신고내용',
+    '처리내용',
+    '첨부사진',
+    '첨부파일',
+    '위반법규',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final isMultiline = _multilineFields.contains(field);
+    return TextField(
+      key: ValueKey('editor-input-$field'),
+      controller: controller,
+      readOnly: readOnly,
+      minLines: isMultiline ? 3 : 1,
+      maxLines: isMultiline ? 5 : 1,
+      keyboardType: isMultiline
+          ? TextInputType.multiline
+          : field == '발생시각'
+          ? TextInputType.datetime
+          : TextInputType.text,
+      textInputAction: isMultiline ? TextInputAction.newline : null,
+      decoration: decoration,
+    );
+  }
+}
+
 class _EditableRecordSheet extends StatefulWidget {
   final Report report;
   final String category;
@@ -306,13 +353,6 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
   }
 
   static const _finishOptions = <String>['', 'Y', 'N'];
-  static const _multilineFields = <String>{
-    '신고내용',
-    '처리내용',
-    '첨부사진',
-    '첨부파일',
-    '위반법규',
-  };
   static const _dateFields = <String>{'답변일', '발생일자'};
 
   @override
@@ -464,18 +504,12 @@ class _EditableRecordSheetState extends State<_EditableRecordSheet> {
       return _buildDropdownField(field, controller, _finishOptions);
     }
 
-    final isMultiline = _multilineFields.contains(field);
     final isDate = _dateFields.contains(field);
-    final keyboardType = field == '발생시각'
-        ? TextInputType.datetime
-        : TextInputType.text;
 
-    return TextField(
+    return ReportEditorTextField(
+      field: field,
       controller: controller,
       readOnly: isDate,
-      minLines: isMultiline ? 3 : 1,
-      maxLines: isMultiline ? 5 : 1,
-      keyboardType: keyboardType,
       decoration: InputDecoration(
         label: _fieldLabel(field),
         helperText:

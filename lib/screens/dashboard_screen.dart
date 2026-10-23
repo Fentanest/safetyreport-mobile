@@ -1,6 +1,7 @@
 import '../services/performance_trace.dart';
 
 import 'package:flutter/material.dart';
+import '../utils/report_display_text.dart';
 import 'package:provider/provider.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../models/app_mode.dart';
@@ -955,7 +956,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildWatchRow(Report r) {
     final title = r.name.isNotEmpty
-        ? r.name
+        ? reportTitlePreview(r.name)
         : (r.reportNumber.isNotEmpty ? r.reportNumber : '제목 없음');
     final titleText = Text(
       title,
@@ -1100,7 +1101,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   children: [
                     Expanded(
                       child: Text(
-                        r.name,
+                        reportTitlePreview(r.name),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(

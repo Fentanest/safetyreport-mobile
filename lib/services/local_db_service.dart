@@ -4,6 +4,7 @@ import 'law_values.dart';
 import 'sqlite_connection.dart';
 import '../models/report_filter.dart';
 import 'report_query.dart';
+import 'report_display_search.dart';
 import 'report_filter_spec.dart';
 import 'performance_trace.dart';
 import 'app_prefs_keys.dart';
@@ -295,6 +296,7 @@ class LocalDbService {
       _missingLookupKey = null;
       _dupPlateLookupKey = null;
       _sortLookupKey = null;
+      _displaySearchLookupKey = null;
     } finally {
       _closeRequested = false;
     }
@@ -2482,16 +2484,29 @@ class LocalDbService {
         managerValues = distinct
             .map((r) => lawSqlRawValue(r['value']))
             .where(
-              (value) => ReportFilterSpec.matchesExactText(value, filter.manager),
+              (value) =>
+                  ReportFilterSpec.matchesExactText(value, filter.manager),
             )
             .toList();
       }
+      final displaySearch = ReportDisplaySearch(filter);
       final q = ReportQuery(
-        filter,
+        displaySearch.rawFilter,
         agencyExpression: agencyExpression,
         lawValues: lawValues,
         managerValues: managerValues,
       );
+      if (displaySearch.isActive) {
+        await _ensureDisplaySearchLookup(
+          connection,
+          d,
+          displaySearch,
+          isCancelled: isCancelled,
+        );
+        q.clauses.add(
+          'EXISTS (SELECT 1 FROM temp.sr_display_search_match m WHERE m.id=r.ID)',
+        );
+      }
       if (answerYear != null && answerYear != 'all') {
         q.clauses.add('r.답변일 LIKE ?');
         q.args.add('$answerYear%');
@@ -2608,7 +2623,12 @@ class LocalDbService {
         ),
         total: count.first['n'] as int,
       );
-    }, exclusive: false);
+    }, exclusive: false).catchError((Object error, StackTrace stack) {
+      // 뒤의 COUNT/정렬 조회가 실패해 TEMP 변경까지 rollback된 경우도
+      // 완료 표시를 버린다. 다음 요청은 부분/이전 ID 표를 재사용하지 않는다.
+      _displaySearchLookupKey = null;
+      Error.throwWithStackTrace(error, stack);
+    });
   });
 
   /// 목록 카드·선택 동작·별점 판정이 쓰는 열(SQ-P06). 긴 본문(신고내용·처리내용·보완 내용)과
@@ -2656,6 +2676,30 @@ class LocalDbService {
       .join(', ');
 
   static String? _sortLookupKey;
+
+  static (int, String, String)? _displaySearchLookupKey;
+  static Future<void> _ensureDisplaySearchLookup(
+    Database connection,
+    DatabaseExecutor d,
+    ReportDisplaySearch search, {
+    bool Function()? isCancelled,
+  }) async {
+    bool cancelled() => closeRequested || (isCancelled?.call() ?? false);
+    if (cancelled()) throw const QueryCancelled();
+    final key = (
+      identityHashCode(connection),
+      await _readRevision(d),
+      search.cacheKey,
+    );
+    if (_displaySearchLookupKey == key) return;
+    // 실패·취소로 트랜잭션이 rollback돼도 예전 ID 표를 새 질의의 결과로
+    // 재사용하지 않는다. 완료한 데이터 세대·질의에 대해서만 캐시를 게시한다.
+    _displaySearchLookupKey = null;
+    await rebuildDisplaySearchMatches(d, search, isCancelled: cancelled);
+    if (cancelled()) throw const QueryCancelled();
+    _displaySearchLookupKey = key;
+  }
+
   static Future<void> _ensureReportSortLookup(
     Database connection,
     DatabaseExecutor d,

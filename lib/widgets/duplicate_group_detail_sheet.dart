@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../utils/report_display_text.dart';
 import 'package:provider/provider.dart';
 import '../models/app_mode.dart';
 import '../providers/notification_history_provider.dart';
@@ -132,7 +133,7 @@ class _DuplicateGroupDetailSheetState
               Expanded(
                 child: Text(
                   representative?.report.name.isNotEmpty == true
-                      ? representative!.report.name
+                      ? reportDisplayText(representative!.report.name)
                       : '중복 신고 그룹',
                   style: const TextStyle(
                     fontSize: 17,
@@ -163,7 +164,11 @@ class _DuplicateGroupDetailSheetState
             _sectionTitle('대표 신고'),
             _detailRow(context, 'ID', representative.reportId),
             _detailRow(context, '신고번호', representative.report.reportNumber),
-            _detailRow(context, '신고명', representative.report.name),
+            _detailRow(
+              context,
+              '신고명',
+              reportDisplayText(representative.report.name),
+            ),
             _detailRow(context, '처리상태', representative.report.statusWithFine),
             _detailRow(context, '처리기관', representative.report.agency),
             const SizedBox(height: 10),
@@ -193,7 +198,7 @@ class _DuplicateGroupDetailSheetState
                 ),
                 title: Text(
                   member.report.name.isNotEmpty
-                      ? member.report.name
+                      ? reportTitlePreview(member.report.name)
                       : member.reportNumber,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,

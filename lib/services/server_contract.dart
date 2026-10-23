@@ -159,6 +159,7 @@ class ServerContract {
       scheme: scheme,
       host: uri.host,
       port: uri.hasPort ? uri.port : null,
+      pathSegments: uri.pathSegments,
     );
   }
 
@@ -166,8 +167,9 @@ class ServerContract {
       wsClientUri(baseUrl, apiKey, wsEventsPath);
 
   static Uri wsClientUri(String baseUrl, String apiKey, String path) {
-    return wsBaseUri(baseUrl).replace(
-      path: path,
+    final base = wsBaseUri(baseUrl);
+    return base.replace(
+      pathSegments: [...base.pathSegments, ...Uri.parse(path).pathSegments],
       queryParameters: {
         wsApiKeyQuery: apiKey,
         'client_type': 'mobile',

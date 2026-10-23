@@ -25,6 +25,7 @@ import '../services/maintenance_service.dart';
 import '../services/permission_service.dart';
 import '../services/rating_service.dart';
 import '../services/report_filter_spec.dart';
+import '../services/report_display_search.dart';
 import '../services/report_policy.dart';
 import '../services/background_login_check.dart';
 import '../services/review_prompt_service.dart';
@@ -122,6 +123,7 @@ class ReportProvider with ChangeNotifier {
 
   /// 서버가 법규 검색 v2(`law_search_v2`)를 알렸는가. null = 아직 모름.
   bool? _serverLawSearchSupported;
+
   /// 통계 기관 키·담당자 정확값 검색 지원. null = 아직 모름.
   bool? _serverIdentitySearchSupported;
 
@@ -745,8 +747,10 @@ class ReportProvider with ChangeNotifier {
   }
 
   List<Report> _applyFilter(List<Report> reports, {ReportFilter? filter}) {
-    final f = filter ?? _filter;
+    final displaySearch = ReportDisplaySearch(filter ?? _filter);
+    final f = displaySearch.rawFilter;
     return reports.where((r) {
+      if (!displaySearch.matchesReport(r)) return false;
       if (!_contains(r.name, f.name)) return false;
       if (!_contains(r.reportNumber, f.reportNumber)) return false;
       if (!_contains(r.id, f.id)) return false;
@@ -765,7 +769,9 @@ class ReportProvider with ChangeNotifier {
         return false;
       }
       if (f.managerExact) {
-        if (!ReportFilterSpec.matchesExactText(r.manager, f.manager)) return false;
+        if (!ReportFilterSpec.matchesExactText(r.manager, f.manager)) {
+          return false;
+        }
       } else if (!_contains(r.manager, f.manager)) {
         return false;
       }
@@ -917,23 +923,40 @@ class ReportProvider with ChangeNotifier {
     bool? excludeWithdraw,
     bool? useRepresentativeRecords,
   }) async {
-    if ((excludeWithdraw != null && excludeWithdraw != _excludeWithdraw) ||
-        (useRepresentativeRecords != null &&
-            useRepresentativeRecords != _useRepresentativeRecords)) {
-      _datasetEpoch++;
-      _resetDatasetView();
-    }
+    final sourceEpoch = accountConfigEpoch;
+    final sourceDatasetEpoch = _datasetEpoch;
     final prefs = await SharedPreferences.getInstance();
+    if (sourceEpoch != accountConfigEpoch ||
+        sourceDatasetEpoch != _datasetEpoch) {
+      return;
+    }
     if (excludeWithdraw != null) {
-      _excludeWithdraw = excludeWithdraw;
-      await prefs.setBool('standaloneExcludeWithdraw', excludeWithdraw);
+      if (!await prefs.setBool('standaloneExcludeWithdraw', excludeWithdraw)) {
+        throw StateError('취하 제외 설정을 저장하지 못했습니다.');
+      }
     }
     if (useRepresentativeRecords != null) {
-      _useRepresentativeRecords = useRepresentativeRecords;
-      await prefs.setBool(
+      if (!await prefs.setBool(
         'standaloneUseRepresentativeRecords',
         useRepresentativeRecords,
-      );
+      )) {
+        throw StateError('대표건 설정을 저장하지 못했습니다.');
+      }
+    }
+    if (sourceEpoch != accountConfigEpoch ||
+        sourceDatasetEpoch != _datasetEpoch) {
+      return;
+    }
+    final changed =
+        (excludeWithdraw != null && excludeWithdraw != _excludeWithdraw) ||
+        (useRepresentativeRecords != null &&
+            useRepresentativeRecords != _useRepresentativeRecords);
+    _excludeWithdraw = excludeWithdraw ?? _excludeWithdraw;
+    _useRepresentativeRecords =
+        useRepresentativeRecords ?? _useRepresentativeRecords;
+    if (changed) {
+      _datasetEpoch++;
+      _resetDatasetView();
     }
     notifyListeners();
     await refreshAll();
@@ -1228,7 +1251,9 @@ class ReportProvider with ChangeNotifier {
 
   Future<void> setConfig(String url, String key) async {
     SyncEngine.stop();
-    if (_appMode == AppMode.standalone) await StandaloneAuthService.clearToken();
+    if (_appMode == AppMode.standalone) {
+      await StandaloneAuthService.clearToken();
+    }
     DbOptimize.cancelScheduledRetry();
     StandaloneAuthService.invalidateOperations();
     await PermissionService.stopWsService();

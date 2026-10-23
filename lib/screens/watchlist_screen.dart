@@ -2,6 +2,7 @@ import '../models/app_mode.dart';
 import '../services/local_db_service.dart';
 import '../widgets/local_paged_report_list.dart';
 import 'package:flutter/material.dart';
+import '../utils/report_display_text.dart';
 import 'package:provider/provider.dart';
 import '../models/report.dart';
 import '../providers/report_provider.dart';
@@ -81,7 +82,7 @@ class _WatchlistPanelState extends State<WatchlistPanel> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('감시 목록에서 제거'),
-        content: Text('${r.name}\n\n감시 목록에서 제거하시겠습니까?'),
+        content: Text('${reportDisplayText(r.name)}\n\n감시 목록에서 제거하시겠습니까?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -283,7 +284,7 @@ class _WatchCard extends StatelessWidget {
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      report.name,
+                      reportTitlePreview(report.name),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(

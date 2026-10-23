@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../utils/report_display_text.dart';
 import 'package:provider/provider.dart';
 
 import '../models/app_mode.dart';
@@ -186,7 +187,9 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
                     Expanded(
                       child: Text(
                         group.representative?.report.name.isNotEmpty == true
-                            ? group.representative!.report.name
+                            ? reportDisplayText(
+                                group.representative!.report.name,
+                              )
                             : '중복 신고 그룹',
                         style: const TextStyle(
                           fontSize: 16,
@@ -290,7 +293,7 @@ class _DuplicateManagementPanelState extends State<DuplicateManagementPanel> {
                               children: [
                                 if (member.report.name.isNotEmpty)
                                   Text(
-                                    member.report.name,
+                                    reportTitlePreview(member.report.name),
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                   ),
@@ -617,7 +620,7 @@ class _DuplicateGroupCard extends StatelessWidget {
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         title: Text(
           rep?.report.name.isNotEmpty == true
-              ? rep!.report.name
+              ? reportTitlePreview(rep!.report.name)
               : (rep?.report.reportNumber ?? '중복 신고 그룹'),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,

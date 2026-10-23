@@ -144,7 +144,12 @@ class _MapFineRateLegendState extends State<MapFineRateLegend> {
                             ),
                           const SizedBox(width: 4),
                         ],
-                        Text(_expanded ? '마커 색 범례' : '과태료율', style: textStyle),
+                        Flexible(
+                          child: Text(
+                            _expanded ? '마커 색 범례' : '과태료율',
+                            style: textStyle,
+                          ),
+                        ),
                         Icon(
                           _expanded ? Icons.expand_less : Icons.expand_more,
                           size: 18,
@@ -204,7 +209,7 @@ class _LegendRow extends StatelessWidget {
         children: [
           _Swatch(color: color, size: 14),
           const SizedBox(width: 8),
-          Text(label, style: style),
+          Flexible(child: Text(label, style: style)),
         ],
       ),
     );

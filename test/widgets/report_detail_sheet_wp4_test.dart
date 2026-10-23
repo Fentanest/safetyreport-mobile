@@ -243,13 +243,15 @@ void main() {
     Future<void> loadVideo(WidgetTester tester) async {
       // 대기열 꼬리는 이 테스트의 (가짜 시간) 영역에서 새로 만든다.
       ReportDetailSheet.resetVideoLoadQueue();
+      // 영상 조작 검증은 첨부 만료 정책과 독립적이어야 한다.
+      final today = DateTime.now().toIso8601String().split('T').first;
       await _pumpSheet(
         tester,
         _report(
           attachedFiles: 'https://example.invalid/a.mp4',
           withLinks: false,
           fineInfo: '',
-        ),
+        ).copyWith(date: today, responseDate: today),
         height: 1600,
       );
       await tester.pump(const Duration(seconds: 1));

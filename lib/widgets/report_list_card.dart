@@ -5,6 +5,7 @@ import '../server_palette.dart';
 import '../services/fine_estimate.dart' as fine_estimate;
 import '../theme/sr_colors.dart';
 import '../utils/format.dart';
+import '../utils/current_day.dart';
 import '../utils/report_duration.dart';
 import 'status_badge.dart';
 import '../theme/sr_tokens.dart';
@@ -81,6 +82,10 @@ class ReportListCard extends StatelessWidget {
   @visibleForTesting
   final DateTime? durationToday;
 
+  /// 날짜 신호의 자정·복귀 갱신을 실제 시계 변경 없이 검증한다.
+  @visibleForTesting
+  final CurrentDay? currentDay;
+
   const ReportListCard({
     super.key,
     required this.report,
@@ -91,6 +96,7 @@ class ReportListCard extends StatelessWidget {
     required this.metaItems,
     this.headerSuffix,
     this.durationToday,
+    this.currentDay,
   });
 
   @override
@@ -98,7 +104,12 @@ class ReportListCard extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final sr = context.sr;
-    final durationLabel = reportDurationLabel(report, today: durationToday);
+    final trackDay = durationToday == null && canTrackReportElapsedDays(report);
+    final daySignal = currentDay ?? CurrentDay.shared;
+    final durationLabel = reportDurationLabel(
+      report,
+      today: durationToday ?? (trackDay ? daySignal.value : null),
+    );
     final supplementRequester = report.supplementRequester.trim();
     final supplementTone = StatusTone.of(
       serverSupplementColor,
@@ -163,27 +174,15 @@ class ReportListCard extends StatelessWidget {
                         const SizedBox(width: 8),
                         ConstrainedBox(
                           constraints: const BoxConstraints(maxWidth: 110),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              StatusBadge.status(report.status),
-                              if (durationLabel != null) ...[
-                                const SizedBox(height: 4),
-                                Text(
-                                  durationLabel,
-                                  textAlign: TextAlign.end,
-                                  semanticsLabel: durationLabel.startsWith('소요')
-                                      ? '답변 $durationLabel'
-                                      : '신고 후 $durationLabel',
-                                  style: TextStyle(
-                                    fontSize: SrFontSize.caption,
-                                    color: sr.textSecondary,
+                          child: trackDay
+                              ? ValueListenableBuilder<DateTime>(
+                                  valueListenable: daySignal,
+                                  builder: (context, today, _) => _buildStatus(
+                                    context,
+                                    reportDurationLabel(report, today: today),
                                   ),
-                                ),
-                              ],
-                            ],
-                          ),
+                                )
+                              : _buildStatus(context, durationLabel),
                         ),
                         if (headerSuffix != null) ...[
                           const SizedBox(width: 6),
@@ -261,6 +260,28 @@ class ReportListCard extends StatelessWidget {
       ),
     );
   }
+
+  Widget _buildStatus(BuildContext context, String? durationLabel) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.end,
+    children: [
+      StatusBadge.status(report.status),
+      if (durationLabel != null) ...[
+        const SizedBox(height: 4),
+        Text(
+          durationLabel,
+          textAlign: TextAlign.end,
+          semanticsLabel: durationLabel.startsWith('소요')
+              ? '답변 $durationLabel'
+              : '신고 후 $durationLabel',
+          style: TextStyle(
+            fontSize: SrFontSize.caption,
+            color: context.sr.textSecondary,
+          ),
+        ),
+      ],
+    ],
+  );
 }
 
 /// 메타 정보 열 + 차량번호 칩.

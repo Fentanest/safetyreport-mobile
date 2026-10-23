@@ -497,6 +497,7 @@ class _ReportMapScreenState extends State<ReportMapScreen>
                   return Scrollbar(
                     controller: _pageScrollController,
                     child: SingleChildScrollView(
+                      key: const ValueKey('report-map-page'),
                       controller: _pageScrollController,
                       child: Column(
                         children: [
@@ -1139,45 +1140,61 @@ class _ReportMapScreenState extends State<ReportMapScreen>
                 ),
             ],
           ),
-          // SQ-U24: 범례를 펼치거나 글꼴이 커져도 커뮤니티 버튼과 겹치지 않는다.
-          Positioned(
+          // 하단 컨트롤의 실제 높이를 먼저 확보한다. 짧은 화면에서 펼친
+          // 범례가 길어지면 상단 컨트롤 안에서 스크롤해 출처·위치 버튼을 가리지 않는다.
+          Positioned.fill(
             left: 8,
             right: 8,
             top: 8,
-            child: OverflowBar(
-              alignment: MainAxisAlignment.spaceBetween,
-              overflowAlignment: OverflowBarAlignment.end,
-              spacing: 8,
-              overflowSpacing: 8,
+            bottom: 8,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const MapFineRateLegend(),
-                MapCommunityMapButton(
-                  compact: compactCommunityButton,
-                  onPressed: _openCommunityMap,
+                Flexible(
+                  child: SingleChildScrollView(
+                    key: const ValueKey('map-overlay-controls'),
+                    primary: false,
+                    hitTestBehavior: HitTestBehavior.deferToChild,
+                    child: OverflowBar(
+                      alignment: MainAxisAlignment.spaceBetween,
+                      overflowAlignment: OverflowBarAlignment.end,
+                      spacing: 8,
+                      overflowSpacing: 8,
+                      children: [
+                        const MapFineRateLegend(),
+                        MapCommunityMapButton(
+                          compact: compactCommunityButton,
+                          onPressed: _openCommunityMap,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    // SQ-U10: OSM 타일 출처는 범례의 스크롤과 무관하게 보존한다.
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.bottomLeft,
+                        child: MapOsmAttribution(
+                          onTap: () => launchUrl(
+                            Uri.parse(_kOsmCopyrightUrl),
+                            mode: LaunchMode.externalApplication,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Padding(
+                      padding: const EdgeInsets.only(right: 4, bottom: 4),
+                      child: _buildCurrentLocationButton(),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ),
-          // SQ-U10: OSM 타일 사용 조건(ODbL·OSMF 타일 정책)인 출처 표기.
-          // 오른쪽 아래는 현재 위치 버튼 자리라 그만큼 비우고 왼쪽 아래에 둔다.
-          Positioned(
-            left: 8,
-            right: 64,
-            bottom: 8,
-            child: Align(
-              alignment: Alignment.bottomLeft,
-              child: MapOsmAttribution(
-                onTap: () => launchUrl(
-                  Uri.parse(_kOsmCopyrightUrl),
-                  mode: LaunchMode.externalApplication,
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            right: 12,
-            bottom: 12,
-            child: _buildCurrentLocationButton(),
           ),
         ],
       ),

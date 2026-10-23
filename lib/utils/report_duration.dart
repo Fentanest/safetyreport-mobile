@@ -18,6 +18,12 @@ DateTime? _parseCalendarDate(String value) {
   return date;
 }
 
+/// 유효한 신고일을 가진 처리중 건만 오늘 날짜 변화를 구독한다.
+/// 미래 날짜도 자정 이후 유효해질 수 있으므로 현재 기간의 부호로 거르지 않는다.
+bool canTrackReportElapsedDays(Report report) =>
+    ReportPolicy.isProcessing(report.status) &&
+    _parseCalendarDate(report.date) != null;
+
 /// 완료 건은 답변까지의 소요일, 처리중 건은 오늘까지의 경과일을 표시한다.
 /// 취하·이송·보완요청·미상 상태는 진행 여부를 추측하지 않는다.
 String? reportDurationLabel(Report report, {DateTime? today}) {

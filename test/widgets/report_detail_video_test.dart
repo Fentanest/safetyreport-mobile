@@ -62,11 +62,20 @@ void main() {
     tester.view.physicalSize = const Size(400, 900);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
+    // 고정된 신고일이 6개월 뒤 만료되어 영상 자체가 사라지지 않게 한다.
+    final today = DateTime.now().toIso8601String().split('T').first;
 
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.build(Brightness.light),
-        home: Scaffold(body: ReportDetailSheet(report: _reportWithVideos())),
+        home: Scaffold(
+          body: ReportDetailSheet(
+            report: _reportWithVideos().copyWith(
+              date: today,
+              responseDate: today,
+            ),
+          ),
+        ),
       ),
     );
     await tester.pumpAndSettle();

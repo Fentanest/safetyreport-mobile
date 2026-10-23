@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/models/report.dart';
+import 'package:safetyreport/utils/current_day.dart';
 import 'package:safetyreport/widgets/report_list_card.dart';
 import 'package:safetyreport/widgets/status_badge.dart';
 
@@ -12,6 +13,8 @@ Widget _card(
   bool selectionMode = false,
   bool selected = false,
   Widget? suffix,
+  CurrentDay? currentDay,
+  DateTime? durationToday,
 }) {
   return ReportListCard(
     report: r,
@@ -20,6 +23,8 @@ Widget _card(
     onTap: () {},
     onLongPress: () {},
     headerSuffix: suffix,
+    currentDay: currentDay,
+    durationToday: durationToday,
     metaItems: [
       ReportCardMetaItem(icon: Icons.calendar_today, text: '신고 ${r.date}'),
       ReportCardMetaItem(icon: Icons.place, text: r.location),
@@ -29,6 +34,132 @@ Widget _card(
 }
 
 void main() {
+  testWidgets('공유 날짜 신호로 자정에 경과일과 미래 날짜의 첫 표시를 갱신한다', (tester) async {
+    var now = DateTime(2026, 10, 23, 23, 59, 58);
+    final day = CurrentDay(now: () => now);
+    addTearDown(day.dispose);
+    await pumpThemed(
+      tester,
+      Column(
+        children: [
+          _card(
+            longFieldReport().copyWith(date: '2026-10-01'),
+            currentDay: day,
+          ),
+          _card(
+            longFieldReport().copyWith(date: '2026-10-24'),
+            currentDay: day,
+          ),
+        ],
+      ),
+      brightness: Brightness.light,
+    );
+    expect(find.text('경과 22일'), findsOneWidget);
+    expect(find.text('경과 0일'), findsNothing);
+    now = DateTime(2026, 10, 24);
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.text('경과 23일'), findsOneWidget);
+    expect(find.text('경과 0일'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('목록 재조회 없이 앱 복귀 때 경과일을 갱신한다', (tester) async {
+    var now = DateTime(2026, 10, 23, 23, 59);
+    final day = CurrentDay(now: () => now);
+    addTearDown(day.dispose);
+    await pumpThemed(
+      tester,
+      _card(longFieldReport().copyWith(date: '2026-10-01'), currentDay: day),
+      brightness: Brightness.dark,
+    );
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    now = DateTime(2026, 10, 26, 10);
+    await tester.pump(const Duration(days: 3));
+    expect(find.text('경과 22일'), findsOneWidget);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(find.text('경과 25일'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('완료·날짜 결측/오류·취하·고정 기준일 카드는 날짜 신호를 구독하지 않는다', (tester) async {
+    var clockReads = 0;
+    final day = CurrentDay(
+      now: () {
+        clockReads++;
+        return DateTime(2026, 10, 24);
+      },
+    );
+    addTearDown(day.dispose);
+    await pumpThemed(
+      tester,
+      Column(
+        children: [
+          _card(
+            longFieldReport(status: '수용').copyWith(responseDate: '2026-10-01'),
+            currentDay: day,
+          ),
+          _card(longFieldReport().copyWith(date: ''), currentDay: day),
+          _card(
+            longFieldReport().copyWith(date: '2026-02-30'),
+            currentDay: day,
+          ),
+          _card(longFieldReport(status: '취하'), currentDay: day),
+          _card(
+            longFieldReport().copyWith(date: '2026-10-01'),
+            currentDay: day,
+            durationToday: DateTime(2026, 10, 23),
+          ),
+        ],
+      ),
+      brightness: Brightness.light,
+    );
+    expect(find.text('경과 22일'), findsOneWidget);
+    await tester.pump(const Duration(days: 1));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(clockReads, 0);
+    expect(find.text('경과 22일'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('처리중 카드가 완료 상태로 바뀌면 날짜 구독을 해제한다', (tester) async {
+    var now = DateTime(2026, 10, 23, 23, 59);
+    var clockReads = 0;
+    final day = CurrentDay(
+      now: () {
+        clockReads++;
+        return now;
+      },
+    );
+    addTearDown(day.dispose);
+    final report = longFieldReport().copyWith(date: '2026-10-01');
+    await pumpThemed(
+      tester,
+      _card(report, currentDay: day),
+      brightness: Brightness.light,
+    );
+    expect(find.text('경과 22일'), findsOneWidget);
+    await pumpThemed(
+      tester,
+      _card(
+        report.copyWith(status: '수용', responseDate: '2026-10-16'),
+        currentDay: day,
+      ),
+      brightness: Brightness.light,
+    );
+    expect(find.text('소요 15일'), findsOneWidget);
+    final before = clockReads;
+    now = DateTime(2026, 10, 24);
+    await tester.pump(const Duration(minutes: 1));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(clockReads, before);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   for (final brightness in Brightness.values) {
     for (final scale in uiTextScales) {
       testWidgets('소요일은 상태 배지 아래에 보인다 (${brightness.name}, x$scale)', (

@@ -340,10 +340,12 @@ void main() {
 
               final page = tester
                   .state<ScrollableState>(
-                    find.descendant(
-                      of: find.byType(Scrollbar),
-                      matching: find.byType(Scrollable),
-                    ),
+                    find
+                        .descendant(
+                          of: find.byType(Scrollbar),
+                          matching: find.byType(Scrollable),
+                        )
+                        .first,
                   )
                   .position;
               await tester.drag(find.text('지도 필터'), const Offset(0, -200));
@@ -432,6 +434,110 @@ void main() {
       expect(mapRect.right, lessThanOrEqualTo(776));
       expect(mapRect.bottom, lessThanOrEqualTo(376));
       expect(mapRect.top, greaterThanOrEqualTo(56));
+    });
+
+    for (final size in [
+      const Size(320, 640),
+      const Size(640, 320),
+      const Size(800, 360),
+    ]) {
+      testWidgets('좁고 짧은 화면의 큰 범례는 하단 컨트롤을 가리지 않는다 $size', (tester) async {
+        final h = _Harness();
+        await h.pump(tester, size: size, textScale: 2, bottomInset: 48);
+        await tester.ensureVisible(find.byType(FlutterMap));
+        await h.settle(tester);
+        await tester.tap(find.text('과태료율'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+
+        final controls = find.byKey(const ValueKey('map-overlay-controls'));
+        final controlsRect = tester.getRect(controls);
+        expect(
+          controlsRect.bottom,
+          lessThan(tester.getRect(find.byType(MapOsmAttribution)).top),
+        );
+        expect(
+          controlsRect.bottom,
+          lessThan(tester.getRect(find.byTooltip('현재 위치')).top),
+        );
+        // 짧으면 범례 안에서 스크롤해 마지막 항목까지 읽을 수 있어야 한다.
+        await tester.ensureVisible(find.text('여러 지점 묶음'));
+        await h.settle(tester);
+        expect(find.text('여러 지점 묶음').hitTestable(), findsOneWidget);
+        await h.capture(tester, 'map-expanded-${size.width}-${size.height}');
+        await h.tapCurrentLocation(tester);
+        await h.settle(tester);
+        expect(find.text('위치 권한 안내'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    for (final expanded in [false, true]) {
+      testWidgets('지도 상단 컨트롤 사이의 빈 공간에서도 지도를 이동한다: $expanded', (tester) async {
+        final h = _Harness();
+        await h.pump(tester);
+        await tester.ensureVisible(find.byType(FlutterMap));
+        await h.settle(tester);
+        if (expanded) {
+          await tester.tap(find.text('과태료율'));
+          await h.settle(tester);
+        }
+        final legend = tester.getRect(find.byType(MapFineRateLegend));
+        final community = tester.getRect(find.byType(MapCommunityMapButton));
+        expect(legend.right, lessThan(community.left));
+        final controller = tester
+            .widget<FlutterMap>(find.byType(FlutterMap))
+            .mapController!;
+        final before = controller.camera.center;
+        await tester.dragFrom(
+          Offset((legend.right + community.left) / 2, legend.top + 20),
+          const Offset(0, -60),
+        );
+        await h.settle(tester);
+        expect(controller.camera.center, isNot(before));
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('두 손가락 확대는 화면을 스크롤하지 않는다', (tester) async {
+      final h = _Harness();
+      await h.pump(tester);
+      await tester.ensureVisible(find.byType(FlutterMap));
+      await h.settle(tester);
+      final controller = tester
+          .widget<FlutterMap>(find.byType(FlutterMap))
+          .mapController!;
+      final before = controller.camera.zoom;
+      final page = tester
+          .state<ScrollableState>(
+            find
+                .descendant(
+                  of: find.byKey(const ValueKey('report-map-page')),
+                  matching: find.byType(Scrollable),
+                )
+                .first,
+          )
+          .position;
+      final pageBefore = page.pixels;
+      final center = tester.getCenter(find.byType(FlutterMap));
+      final first = await tester.startGesture(
+        center + const Offset(-30, 0),
+        pointer: 1,
+      );
+      final second = await tester.startGesture(
+        center + const Offset(30, 0),
+        pointer: 2,
+      );
+      await tester.pump();
+      await first.moveBy(const Offset(-70, -30));
+      await second.moveBy(const Offset(70, 30));
+      await tester.pump();
+      await first.up();
+      await second.up();
+      await h.settle(tester);
+      expect(controller.camera.zoom, greaterThan(before));
+      expect(page.pixels, pageBefore);
+      expect(tester.takeException(), isNull);
     });
 
     for (final fail in [false, true]) {

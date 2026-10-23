@@ -139,7 +139,7 @@ Future<bool> runCommunityUploadTask(
     await ConsentCatchup(store).run(
       verify: () async =>
           await refreshGateHeadless(store, prefs: prefs) == HeadlessGate.ok,
-      manifest: () => CommunityWiring.refreshManifest(store),
+      manifest: () async => (await CommunityWiring.refreshManifest(store)).isOk,
       collectAll: () async {
         await StandaloneAuthService.reloadStatus();
         final ctx = await store.activeContext();

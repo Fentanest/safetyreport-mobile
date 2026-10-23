@@ -1,3 +1,8 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:safetyreport/services/standalone_auth_service.dart';
+import 'package:safetyreport/services/standalone_api_service.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -69,7 +74,38 @@ void main() {
         'standaloneTokenUsername': 'fixture',
         if (scenario != 'missing') 'standaloneToken': 'synthetic-expired-token',
       });
+      FlutterSecureStorage.setMockInitialValues({});
+      if (scenario != 'missing') {
+        await StandaloneAuthService.saveToken(
+          'synthetic-token',
+          username: 'fixture',
+          cookies: {'JSESSIONID': 'synthetic-session'},
+        );
+      }
+      StandaloneAuthService.passwordReaderOverride = () async =>
+          scenario == 'missing' ? null : 'synthetic-password';
+      StandaloneAuthService.loginOverride = (u, p) async {
+        await StandaloneAuthService.saveToken(
+          'renewed-token',
+          username: u,
+          cookies: {'JSESSIONID': 'renewed-session'},
+        );
+        return 'renewed-token';
+      };
       final requests = <Map<String, String>>[];
+      StandaloneApiService.httpClientFactoryForTest = () =>
+          MockClient((req) async {
+            requests.add({
+              'Authorization': req.headers['Authorization']!,
+              'Cookie': req.headers['Cookie']!,
+            });
+            expect(req.headers['Cookie'], contains('JSESSIONID='));
+            return http.Response.bytes(
+              scenario == 'expired' ? [] : _Response._png,
+              scenario == 'expired' ? 401 : 200,
+              headers: {'set-cookie': 'JSESSIONID=photo-rotated'},
+            );
+          });
       debugNetworkImageHttpClientProvider = () => _Client((headers) {
         requests.add(Map.of(headers));
         if (scenario == 'public') return headers.isEmpty ? 200 : 401;
@@ -81,6 +117,9 @@ void main() {
         return headers.isEmpty ? int.parse(scenario) : 200;
       });
       addTearDown(() {
+        StandaloneApiService.httpClientFactoryForTest = null;
+        StandaloneAuthService.loginOverride = null;
+        StandaloneAuthService.passwordReaderOverride = null;
         debugNetworkImageHttpClientProvider = null;
         PaintingBinding.instance.imageCache.clear();
         PaintingBinding.instance.imageCache.clearLiveImages();
@@ -109,11 +148,20 @@ void main() {
       expect(requests, isNotEmpty);
       expect(requests.first, isEmpty);
       final retries = ['401', '403', 'expired'].contains(scenario);
-      expect(requests.length, retries ? 2 : 1);
+      expect(
+        requests.length,
+        scenario == 'expired'
+            ? 3
+            : retries
+            ? 2
+            : 1,
+      );
       if (retries) {
         expect(
           requests.last['Authorization'],
-          'BEARER synthetic-expired-token',
+          scenario == 'expired'
+              ? 'BEARER renewed-token'
+              : 'BEARER synthetic-token',
         );
       }
       if (['expired', 'missing', 'foreign'].contains(scenario)) {

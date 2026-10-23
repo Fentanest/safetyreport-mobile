@@ -1,3 +1,5 @@
+import '../models/report_sort.dart';
+import '../services/report_sort_store.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -23,13 +25,16 @@ import '../utils/format.dart';
 /// 현재 페이지를 추가 필터링해 조건에 맞는 전체 건수를 알 수 없다는 뜻이다.
 typedef PagedReportTotal = ({int total, bool exact});
 
-/// Keeps at most three pages of Report objects, including a prefetched next page.
+/// Keeps at most three pages, including a prefetched next page. Duplicate pages
+/// contain whole vehicle groups (20 per page), so a large group is never split.
 /// An optional legacy predicate streams candidates; its label never claims that
 /// the current page is a whole-population total.
 class LocalPagedReportList extends StatefulWidget {
   final String category, scope;
   final String? missingAddress, metric, answerYear;
   final ReportFilter filter;
+  final ReportSort sort;
+  final bool groupPage;
   final bool Function(Report)? predicate;
   final Future<void> Function(Report)? onRemove;
   final Widget Function(BuildContext, Report)? itemBuilder;
@@ -44,6 +49,8 @@ class LocalPagedReportList extends StatefulWidget {
     this.answerYear,
     this.metric,
     this.filter = const ReportFilter(),
+    this.sort = ReportSort.defaults,
+    this.groupPage = false,
     this.predicate,
     this.onRemove,
     this.itemBuilder,
@@ -55,6 +62,19 @@ class LocalPagedReportList extends StatefulWidget {
 
 class _LocalPagedReportListState extends State<LocalPagedReportList> {
   int _page = 0, _total = 0, _seq = 0;
+  final _scrollController = ScrollController();
+  int get _pageSize => widget.groupPage ? 20 : 200;
+  ClientSortedReports? _clientSnapshot;
+  Future<ClientSortedReports>? _buildingSnapshot;
+  @override
+  void dispose() {
+    _generation++;
+    _scrollController.dispose();
+    final snapshot = _clientSnapshot;
+    if (snapshot != null) unawaited(snapshot.close());
+    super.dispose();
+  }
+
   String? _datasetSettings;
 
   /// 숨은 탭(TickerMode 꺼짐)에서 자료가 바뀌면 표시만 해 두고, 다시 보일 때 한 번 읽는다(SQ-P02).
@@ -69,11 +89,18 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
   bool _candidateCount = false;
   final _selected = <String>{};
   int _generation = 0;
-  // Per visible list: current/previous/next, at most 600 Report objects.
+  // Per visible list: current/previous/next. Normal pages hold at most 600 reports;
+  // duplicate pages retain complete groups.
   final _pages = <int, ReportPage>{};
   final _pending = <int, Future<ReportPage>>{};
 
-  void _invalidate() {
+  void _invalidate({bool preserveSnapshot = false}) {
+    if (!preserveSnapshot) {
+      final snapshot = _clientSnapshot;
+      _clientSnapshot = null;
+      if (snapshot != null) unawaited(snapshot.close());
+    }
+    _buildingSnapshot = null;
     _generation++;
     _pages.clear();
     _pending.clear();
@@ -136,14 +163,25 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
   @override
   void didUpdateWidget(LocalPagedReportList oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.filter != widget.filter ||
+    if (oldWidget.sort != widget.sort ||
+        oldWidget.groupPage != widget.groupPage ||
+        oldWidget.filter != widget.filter ||
         oldWidget.category != widget.category ||
         oldWidget.scope != widget.scope ||
         oldWidget.answerYear != widget.answerYear ||
         oldWidget.missingAddress != widget.missingAddress ||
         oldWidget.metric != widget.metric ||
         oldWidget.predicate != widget.predicate) {
-      _invalidate();
+      _invalidate(
+        preserveSnapshot:
+            oldWidget.filter == widget.filter &&
+            oldWidget.category == widget.category &&
+            oldWidget.scope == widget.scope &&
+            oldWidget.predicate == widget.predicate &&
+            oldWidget.metric == widget.metric &&
+            oldWidget.answerYear == widget.answerYear,
+      );
+      if (_scrollController.hasClients) _scrollController.jumpTo(0);
       _page = 0;
       _selected.clear();
       final visible = TickerMode.valuesOf(context).enabled;
@@ -188,7 +226,7 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
         _loading = false;
       });
       widget.onTotalChanged?.call((total: _total, exact: !_candidateCount));
-      if ((_page + 1) * 200 < _total) {
+      if ((_page + 1) * _pageSize < _total) {
         // A speculative failure must not hide the current page; navigation retries.
         unawaited(
           _readPage(_page + 1).then<void>((_) {}, onError: (Object _) {}),
@@ -235,6 +273,9 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
       if (p.appMode == AppMode.standalone) {
         result = await LocalDbService.getReportPage(
           compact: true,
+          sort: query.sort,
+          groupPage: query.groupPage,
+          pageSize: _pageSize,
           category: query.category,
           scope: query.scope,
           metric: query.metric,
@@ -246,6 +287,25 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
           excludeWithdraw: p.excludeWithdraw,
           useRepresentativeRecords: p.useRepresentativeRecords,
         );
+      } else if (query.sort != ReportSort.defaults) {
+        final snapshot =
+            _clientSnapshot ??
+            await (_buildingSnapshot ??= ClientSortedReports.build(
+              read: p.readServerPage,
+              categories: query.category == 'all'
+                  ? const ['traffic', 'parking', 'safety', 'living', 'other']
+                  : [query.category],
+              matches: (r) =>
+                  p.matchesFilter(r, filter: query.filter) &&
+                  (query.predicate?.call(r) ?? true),
+              isCancelled: cancelled,
+            ));
+        if (cancelled()) {
+          if (!identical(snapshot, _clientSnapshot)) await snapshot.close();
+          throw const QueryCancelled();
+        }
+        _clientSnapshot = snapshot;
+        result = await snapshot.page(query.sort, page);
       } else if (query.category != 'all' &&
           query.filter.isEmpty &&
           query.predicate == null &&
@@ -350,7 +410,7 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
             children: [
               Text(
                 !_candidateCount
-                    ? '전체 ${formatCount(_total)} · ${_page + 1} / ${((_total - 1) ~/ 200 + 1).clamp(1, 100000)} 페이지'
+                    ? '${widget.groupPage ? '전체 $_total개 차량 묶음' : '전체 ${formatCount(_total)}'} · ${_page + 1} / ${((_total - 1) ~/ _pageSize + 1).clamp(1, 100000)} 페이지'
                     : '전체 대상 ${formatCount(_total)} · ${_page + 1}페이지에서 조건에 맞는 ${formatCount(_reports.length)}',
               ),
               IconButton(
@@ -365,7 +425,7 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
               ),
               IconButton(
                 tooltip: '다음 페이지',
-                onPressed: _loading || (_page + 1) * 200 >= _total
+                onPressed: _loading || (_page + 1) * _pageSize >= _total
                     ? null
                     : () {
                         _page++;
@@ -390,6 +450,7 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
             child: !_loading && _reports.isEmpty
                 ? _buildEmptyOrError()
                 : ListView.builder(
+                    controller: _scrollController,
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: srPagePadding(context, const EdgeInsets.all(12)),
                     itemCount: _reports.isEmpty ? 1 : _reports.length,

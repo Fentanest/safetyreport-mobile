@@ -38,10 +38,13 @@ class Report {
   final String fineInfo;
   final String penaltyPoints;
   final String carNumber;
-  final String? ssnpcCd; // 분류용 원시 코드(SSNPC_CD, 정규화만 함 — 분류는 report_category 가 한다). 없으면 null
+  final String?
+  ssnpcCd; // 분류용 원시 코드(SSNPC_CD, 정규화만 함 — 분류는 report_category 가 한다). 없으면 null
   final String? ssnpcType; // 분류용 원시 소분류(SSNPC_TYPE, 두 자리). 없으면 null
-  final String entryValue; // 접수 메뉴-소분류 원문(fine_estimate 분류 보조, SSNPC 코드가 없을 때 fallback)
-  final String? photoFirstCapture; // 사진_첫촬영(fine_estimate 밤샘주차·2시간 가중 판정용). 없으면 null
+  final String
+  entryValue; // 접수 메뉴-소분류 원문(fine_estimate 분류 보조, SSNPC 코드가 없을 때 fallback)
+  final String?
+  photoFirstCapture; // 사진_첫촬영(fine_estimate 밤샘주차·2시간 가중 판정용). 없으면 null
   final String? photoLastCapture; // 사진_끝촬영
   final String law;
   final String location;
@@ -64,6 +67,7 @@ class Report {
   category; // 'traffic' | 'parking' | 'safety' | 'living' | 'other' | '' (서버 응답에서 카테고리를 모를 때 빈 값, 2026-10-11 5분류)
   final int? syncedAt; // 마지막 실제 반영 시각 (epoch millis)
   final int supplementCount; // 누적 보완요청 횟수 (없으면 0)
+  final bool supplementCountKnown;
   final bool supplementOpen; // 마지막 round 가 아직 미응답인지 (Y → true)
   final String supplementRequester; // 마지막 round 보완 요청자
   final String supplementRequestedAt; // 마지막 round 보완 요청 일시
@@ -117,6 +121,7 @@ class Report {
     this.category = '',
     this.syncedAt,
     this.supplementCount = 0,
+    this.supplementCountKnown = true,
     this.supplementOpen = false,
     this.supplementRequester = '',
     this.supplementRequestedAt = '',
@@ -167,6 +172,7 @@ class Report {
     String? category,
     int? syncedAt,
     int? supplementCount,
+    bool? supplementCountKnown,
     bool? supplementOpen,
     String? supplementRequester,
     String? supplementRequestedAt,
@@ -216,6 +222,9 @@ class Report {
       category: category ?? this.category,
       syncedAt: syncedAt ?? this.syncedAt,
       supplementCount: supplementCount ?? this.supplementCount,
+      supplementCountKnown:
+          supplementCountKnown ??
+          (supplementCount != null ? true : this.supplementCountKnown),
       supplementOpen: supplementOpen ?? this.supplementOpen,
       supplementRequester: supplementRequester ?? this.supplementRequester,
       supplementRequestedAt:
@@ -285,6 +294,7 @@ class Report {
       category: json['category']?.toString() ?? '',
       syncedAt: _toIntOrNull(json['synced_at']),
       supplementCount: _toIntOrNull(json['보완횟수']) ?? 0,
+      supplementCountKnown: _toIntOrNull(json['보완횟수']) != null,
       supplementOpen: (json['보완_미응답']?.toString() ?? 'N') == 'Y',
       supplementRequester: json['보완_요청자']?.toString() ?? '',
       supplementRequestedAt: json['보완_요청일시']?.toString() ?? '',

@@ -1,3 +1,4 @@
+import 'package:safetyreport/community/manifest_result.dart';
 // 2026-09-26 초기화 크롤링 릴리스: 처음 실행(빈 개인 DB)은 안내 없이 평소대로, 이전 버전 DB 를 비운 기존 사용자는 안내한다.
 // 서버 tests/test_community_rebuild.py FreshInstallAndLegacyResetTest 와 같은 규칙. 재시도 백업·일반 동기화 차단도 함께 본다.
 import 'dart:io';
@@ -65,7 +66,7 @@ void main() {
       sourceNamespace: () async => namespace,
       gateFresh: () async => true,
       engine: engine ?? _FakeEngine(),
-      manifestCheck: () async => true,
+      manifestCheck: () async => const ManifestResult(ManifestStatus.ok),
       backup: personalDbPath != null
           ? null
           : (_) async =>

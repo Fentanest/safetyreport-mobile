@@ -1,3 +1,5 @@
+import '../models/report_sort.dart';
+import 'report_sort_store.dart';
 import 'law_values.dart';
 import 'sqlite_connection.dart';
 import '../models/report_filter.dart';
@@ -292,6 +294,7 @@ class LocalDbService {
       _agencyLookupKey = null;
       _missingLookupKey = null;
       _dupPlateLookupKey = null;
+      _sortLookupKey = null;
     } finally {
       _closeRequested = false;
     }
@@ -2435,6 +2438,8 @@ class LocalDbService {
     bool Function()? isCancelled,
     bool excludeWithdraw = false,
     bool useRepresentativeRecords = false,
+    ReportSort sort = ReportSort.defaults,
+    bool groupPage = false,
     bool compact = false,
   }) => runBackgroundWork(() async {
     if (page < 0 || pageSize < 1 || pageSize > 200) {
@@ -2491,6 +2496,10 @@ class LocalDbService {
         q.clauses.add('r.답변일 LIKE ?');
         q.args.add('$answerYear%');
       }
+      if (sort != ReportSort.defaults &&
+          sort.field != ReportSortField.duplicateCount) {
+        await _ensureReportSortLookup(connection, d);
+      }
       if (scope == 'duplicates') {
         return _getDuplicatePage(
           connection,
@@ -2500,6 +2509,8 @@ class LocalDbService {
           excludeWithdraw,
           q,
           compact: compact,
+          sort: sort,
+          groupPage: groupPage,
         );
       }
       if (metric != null) {
@@ -2574,10 +2585,18 @@ class LocalDbService {
           q.args,
         ),
       );
+      final sortJoin = sort == ReportSort.defaults
+          ? ''
+          : 'LEFT JOIN temp.sr_report_sort sv ON sv.sort_id=r.ID';
+      final order = sort == ReportSort.defaults
+          ? (scope == 'recent'
+                ? 'CAST(synced_at AS INTEGER) DESC, 답변일 DESC, 신고번호 DESC, r.ID DESC'
+                : '신고번호 DESC, r.ID DESC')
+          : sort.orderBy('sv.${sort.field.column}');
       final rows = await PerformanceTrace.sql(
         'list.sql_page',
         () => d.rawQuery(
-          'SELECT ${compact ? _listCardSelect : 'r.*'} FROM $effectiveReportsView r WHERE ${q.where} ORDER BY ${scope == 'recent' ? 'CAST(synced_at AS INTEGER) DESC, 답변일 DESC, 신고번호 DESC, ID DESC' : '신고번호 DESC, ID DESC'} LIMIT ? OFFSET ?',
+          'SELECT ${compact ? _listCardSelect : 'r.*'} FROM $effectiveReportsView r $sortJoin WHERE ${q.where} ORDER BY $order LIMIT ? OFFSET ?',
           [...q.args, pageSize, page * pageSize],
         ),
       );
@@ -2635,6 +2654,34 @@ class LocalDbService {
   static final String _listCardSelect = listCardColumns
       .map((c) => 'r."$c"')
       .join(', ');
+
+  static String? _sortLookupKey;
+  static Future<void> _ensureReportSortLookup(
+    Database connection,
+    DatabaseExecutor d,
+  ) async {
+    final key = '${identityHashCode(connection)}:${await _readRevision(d)}';
+    if (_sortLookupKey == key) return;
+    await createReportSortTable(d, 'sr_report_sort', temporary: true);
+    await d.delete('sr_report_sort');
+    String? after;
+    while (true) {
+      final rows = await d.rawQuery(
+        'SELECT $_listCardSelect FROM $effectiveReportsView r '
+        '${after == null ? '' : 'WHERE r.ID>?'} ORDER BY r.ID LIMIT 1000',
+        [?after],
+      );
+      if (rows.isEmpty) break;
+      final batch = d.batch();
+      for (final row in rows) {
+        batch.insert('sr_report_sort', reportSortValues(row));
+      }
+      await batch.commit(noResult: true);
+      after = rows.last['ID'].toString();
+    }
+    await indexReportSortTable(d, 'sr_report_sort', temporary: true);
+    _sortLookupKey = key;
+  }
 
   static const _dupPlateLookupTable = 'sr_dup_plate_lookup';
 
@@ -2703,6 +2750,8 @@ class LocalDbService {
     int pageSize,
     bool excludeWithdraw,
     ReportQuery q, {
+    ReportSort sort = ReportSort.defaults,
+    bool groupPage = false,
     bool compact = false,
   }) async {
     final withdraw = excludeWithdraw
@@ -2711,6 +2760,46 @@ class LocalDbService {
     await _ensureDuplicatePlateLookup(connection, d, excludeWithdraw);
     final join =
         'JOIN temp.$_dupPlateLookupTable dv ON r.차량번호 = dv.$_colRawPlate';
+    if (groupPage) {
+      final sortJoin =
+          sort == ReportSort.defaults ||
+              sort.field == ReportSortField.duplicateCount
+          ? ''
+          : 'LEFT JOIN temp.sr_report_sort sv ON sv.sort_id=r.ID';
+      final value = sort.field == ReportSortField.duplicateCount
+          ? 'dv.total_count'
+          : sort == ReportSort.defaults
+          ? 'r.신고번호'
+          : 'sv.${sort.field.column}';
+      final cte =
+          'WITH eligible AS (SELECT r.ID,dv.plate_key,dv.max_report_no, '
+          'dv.total_count,dv.valid_count,$value AS row_value FROM $effectiveReportsView r '
+          '$join $sortJoin WHERE ${q.where} $withdraw), '
+          'groups AS (SELECT plate_key,MAX(max_report_no) AS default_no, '
+          '${sort.ascending ? 'MIN' : 'MAX'}(row_value) AS sort_value FROM eligible GROUP BY plate_key)';
+      final groupOrder = sort.orderBy(
+        'sort_value',
+        fallback: 'default_no DESC,plate_key ASC',
+      );
+      final count = await d.rawQuery(
+        '$cte SELECT COUNT(*) AS n FROM groups',
+        q.args,
+      );
+      final rows = await d.rawQuery(
+        '$cte, picked AS (SELECT * FROM groups ORDER BY $groupOrder LIMIT ? OFFSET ?) '
+        'SELECT ${compact ? _listCardSelect : 'r.*'},e.total_count,e.valid_count '
+        'FROM picked g JOIN eligible e ON e.plate_key=g.plate_key JOIN $effectiveReportsView r ON r.ID=e.ID '
+        'ORDER BY ${sort.orderBy('g.sort_value', fallback: 'g.default_no DESC,g.plate_key ASC')}, '
+        '${sort.orderBy('e.row_value')}',
+        [...q.args, pageSize, page * pageSize],
+      );
+      return (
+        reports: rows
+            .map((r) => _rowToReportWithCounts(r, detailLoaded: !compact))
+            .toList(),
+        total: count.single['n'] as int,
+      );
+    }
     final count = await d.rawQuery(
       'SELECT COUNT(*) AS n FROM $effectiveReportsView r $join WHERE ${q.where} $withdraw',
       q.args,
@@ -5879,6 +5968,7 @@ class LocalDbService {
       category: r['category'] as String? ?? '',
       syncedAt: _toEpochMillis(r['synced_at']),
       supplementCount: (r['보완횟수'] as num?)?.toInt() ?? 0,
+      supplementCountKnown: r['보완횟수'] != null,
       supplementOpen: (r['보완_미응답'] as String? ?? 'N') == 'Y',
       supplementRequester: r['보완_요청자'] as String? ?? '',
       supplementRequestedAt: r['보완_요청일시'] as String? ?? '',

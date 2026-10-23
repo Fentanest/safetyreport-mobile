@@ -117,6 +117,13 @@ Client 모드 서버 경로와 이벤트 문자열은 Flutter/Dart 와 Android/K
 
 **왜 `dart:io HttpClient` 인가**: `package:http` 의 정적 메서드는 매 호출마다 별도 클라이언트 → 쿠키 공유 안 됨. `login()`은 RSA 응답의 JSESSIONID를 읽어 토큰 요청에 직접 추가한다. 자동 쿠키 보관을 계약으로 가정하지 않는다. 네트워크 재시도마다 소유한 연결을 닫고, 인증 응답은 1MiB 이내에서 읽는다.
 
+### 코드 대조 정정 — 공식 로그인 세션 쿠키
+
+- `OfficialSession`은 토큰·JSESSIONID·선택 WMONID·발급 계정·만료 시각·로그아웃 세대를 하나의 보안 저장소 항목에 저장한다. RSA 응답 쿠키를 토큰 요청에 보내고 토큰 응답의 새 쿠키로 갱신한다. 새 저장 성공 뒤 구형 `standaloneToken`·만료·계정 설정값을 제거한다. 구형 토큰만으로는 API 요청을 보내지 않고 첫 인증 요청 전에 저장된 자격증명으로 재로그인한다.
+- `StandaloneApiService`의 인증 요청은 항상 토큰과 해당 세션의 Cookie를 함께 보낸다. 응답 Set-Cookie를 반영하되 현재 토큰·계정·세대·요청 쿠키가 일치할 때만 갱신한다. 사진은 공개 접근을 먼저 유지하고 인증을 요구할 때 이 공통 API 경로로 읽어 메모리 이미지로 표시한다. 만족도 조회·제출은 기존의 비인증 공개 API 계약을 유지한다.
+- API 401은 새 로그인 뒤 1회 재시도한다. 다시 401이면 `OfficialSessionRejectedException`(`official_session_rejected`)이며 만료/비밀번호 불일치로 단정하지 않는다. 진단은 상태·재시도 횟수·응답 형식만 기록하고 로그인 오류 본문·토큰·쿠키·비밀번호는 기록하지 않는다. 인증 요청은 자동 리다이렉트를 따르지 않는다.
+- 포그라운드·WorkManager·알림은 같은 보안 저장소를 읽는다. 앱 내 재로그인은 isolate별 single-flight이다. 설정은 읽을 때 reload하며 계정/세대를 검사한다. 로그아웃·Standalone→Client/데모 전환은 세션·비밀번호를 함께 삭제하고, 자동 로그인 저장 전에도 최신 모드·계정·세대를 확인한다. 로그인 뒤 모드 확정 전인 수동 설정 흐름은 유지한다.
+
 ### Demo 보기 (Play Console 검토에도 사용)
 
 - 첫 모드 선택 화면의 `Demo 보기`를 누르면 카카오·안전신문고 계정 없이 들어간다. 기존 `demo/demo` 로그인도 같은 경로를 유지한다.
@@ -150,8 +157,8 @@ Client 모드 서버 경로와 이벤트 문자열은 Flutter/Dart 와 Android/K
 
 | 항목 | 저장소 | 키 |
 |------|--------|-----|
-| access_token | SharedPreferences | `standaloneToken` |
-| 만료 시각 (ms) | SharedPreferences | `standaloneTokenExpiresAt` |
+| access_token·세션 쿠키·계정·만료·세대 | FlutterSecureStorage | `official_session_v1` JSON 한 항목 |
+| 로그아웃/모드 전환 세대 | SharedPreferences | `official_session_epoch` (비밀 아님) |
 | 비밀번호 | FlutterSecureStorage | `standalone_password` |
 | 아이디 | SharedPreferences | `standaloneUsername` |
 | 커뮤니티 계정 세션 (Supabase access/refresh token, 표시 이름) | FlutterSecureStorage | `community_session_v1` |
@@ -847,9 +854,11 @@ SharedPreferences의 disk commit 실패는 메모리 변경을 되돌리지 않�
 
 ### 코드 대조 정정 — Standalone 재시도와 준비 오류
 
-- `StandaloneRebuildRunner`는 `prerequisites_required/manifest_unavailable`에 1·2·5·10·30분 간격으로 최대 5회 자동 재시도한다. 공유 목록 확인의 예외·시간 초과도 같은 상태로 남긴다. 사용자 일시정지와 영구 누락 확인 대기는 자동 재개하지 않는다.
+- 공유 목록 요청은 `ManifestResult`로 원인을 반환한다. `busy_upload_lease`는 업로더의 잠금을 건드리지 않고 `waiting_retry`로 저장한 뒤 15초마다 재시도한다. 점검·429·5xx·네트워크 오류는 15·30·60·120·300초 뒤 다시 시도하고 이후 간격은 5분으로 유지한다. 횟수 소진으로 준비 필요에 고정하지 않는다. 기존 `manifest_unavailable` 작업도 일시적 실패로 읽어 다음 앱 실행에 같은 run으로 재개한다.
+- 로그인·동의·연결 조치가 필요한 오류와 무결성 실패는 `prerequisites_required`에 원인을 따로 저장하고 자동 재시도 타이머를 만들지 않는다. 화면의 다시 시도와 재개는 게이트 `refreshNow(silent: true)` → 공유 연결 등록·활성화 확인 → 목록 요청 → 기존 작업 재개 순서다. 사용자 일시정지와 영구 누락 확인 대기는 자동 재개하지 않는다.
+- HTTP 상태·구조화된 서버 코드·request_id는 `meta.rebuild_manifest:<run_id>`에 기록한다. 오류 본문·계정·연결 ID·인증 토큰은 기록하지 않는다. `server_completed`의 전체 페이지 세대·건수·중복·범위·잠금 검증은 그대로 유지하며 실패를 성공으로 처리하지 않는다. 기존 서비스 공통 `CloudAvailability` 쿨다운은 유지하므로 재시도 타이머가 깨더라도 HTTP 전송은 쿨다운이 끝난 뒤일 수 있다.
 - 작업 충돌은 `rebuild`·`personal_sync` lease 중 가장 늦은 실제 만료 시각에 5초를 더해 예약한다. 만료 정보가 없으면 60초 뒤 확인하며 최대 15회 재시도한다. 갱신된 잠금은 매번 다시 읽고, 잠금을 강제로 해제하지 않는다. 만료 조회 실패나 횟수 소진 시 예약을 끝내고 사용자 재시도를 안내한다.
-- 대시보드 카드·상세 화면에는 실제 타이머가 있을 때만 자동 재시도 대기를 표시한다. 수집 시작 전 실패도 재시도 예약 시각·횟수를 일반 알림으로 전한다. 예약 종료 시 중단 안내와 수동 재시도 경로를 남긴다.
+- 대시보드 카드·상세 화면에는 실제 타이머가 있을 때만 자동 재시도 대기를 표시한다. 수집 시작 전 실패도 재시도 예약 시각을 일반 알림으로 전한다(작업 잠금 대기는 횟수도 표시). 예약 종료 시 중단 안내와 수동 재시도 경로를 남긴다.
 - 예약과 횟수는 현재 앱 프로세스의 실행기에 속한다. 프로세스 종료 뒤에는 다음 앱 실행 때 저장된 작업으로 재개 여부를 다시 판정한다. 타이머를 프로세스 밖에서 실행하는 별도 서비스는 아니다. 수동 재시도는 횟수를 초기화하며, 계정·자료 범위 변경이나 객체 해제 뒤 도착한 이전 조회 응답은 새 예약을 만들지 않는다.
 - 초기 준비의 저장소 열기·범위 조회 오류는 필요 없음(`null`)과 구분한다. `StandaloneRebuildGate`가 오류 화면과 '다시 시도'를 유지하고 준비 전체를 재실행한다. 다른 계정의 DB는 기존 계정 복구 화면을 유지한다.
 - (2026-10-17 정정, 사용자 제보 — 판정 실패 화면에서 막혔고 캐시 삭제 뒤 정상) 판정 오류를 `classifyDbFailure`(`lib/services/db_failure.dart`)로 저장공간 부족(SQLITE_FULL·ENOSPC)·DB 잠금(SQLITE_BUSY/LOCKED)·그 밖으로 나눈다.

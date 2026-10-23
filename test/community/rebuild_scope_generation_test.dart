@@ -1,3 +1,4 @@
+import 'package:safetyreport/community/manifest_result.dart';
 // Astra 재검수2 #4 회귀 — 백그라운드 다시 불러오기 진행 중 표시 필터('취하 데이터 숨기기'·'중복 신고 대표건만
 // 반영')를 바꿔도 scopeGeneration(`main.dart` standaloneRebuild)·scope(standaloneRebuildScope) 가
 // 계정이 바뀐 것으로 오판해 중단하지 않아야 한다. 실제 계정·모드 교체(ReportProvider.accountConfigEpoch)는
@@ -73,7 +74,7 @@ void main() {
       engine: engine,
       backup: (_) async =>
           const RebuildBackupResult(ok: true, ref: 'b', check: 'ok'),
-      manifestCheck: () async => true,
+      manifestCheck: () async => const ManifestResult(ManifestStatus.ok),
     );
     addTearDown(rebuild.dispose);
     return rebuild;

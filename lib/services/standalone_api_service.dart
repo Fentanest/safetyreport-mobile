@@ -1,7 +1,8 @@
+import 'official_session.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show visibleForTesting, debugPrint;
 import 'package:http/http.dart' as http;
 import 'network_retry_config.dart';
 import 'sync_inventory.dart';
@@ -16,6 +17,11 @@ class StandaloneApiService {
   static Future<({Map<String, dynamic> result, Map<String, dynamic> envelope})>
   Function(String id)?
   detailForTest;
+
+  @visibleForTesting
+  static http.Client Function()? httpClientFactoryForTest;
+  static http.Client _client() =>
+      httpClientFactoryForTest?.call() ?? http.Client();
 
   static const _base = 'https://www.safetyreport.go.kr';
 
@@ -116,8 +122,16 @@ class StandaloneApiService {
     Map<String, String> headers,
     Duration timeout,
   ) async {
-    final client = http.Client();
+    final client = _client();
     try {
+      if (headers.containsKey('Authorization')) {
+        final request = http.Request('GET', uri)
+          ..followRedirects = false
+          ..headers.addAll(headers);
+        return await http.Response.fromStream(
+          await client.send(request).timeout(timeout),
+        ).timeout(timeout);
+      }
       return await client.get(uri, headers: headers).timeout(timeout);
     } finally {
       client.close();
@@ -159,7 +173,7 @@ class StandaloneApiService {
     required Map<String, String> body,
     String? referer,
   }) async {
-    final client = http.Client();
+    final client = _client();
     try {
       return await client
           .post(
@@ -179,62 +193,83 @@ class StandaloneApiService {
     }
   }
 
-  /// 유효한 토큰으로 헤더 구성. 만료 시 자동 재로그인.
-  static Future<Map<String, String>> _headers() async {
-    final token = await StandaloneAuthService.ensureValidToken();
-    return {
-      ..._commonHeaders,
-      'Authorization': 'BEARER $token',
-      'Content-Type': 'application/json',
-    };
+  static Map<String, String> _headers(OfficialSession session) => {
+    ..._commonHeaders,
+    'Authorization': 'BEARER ${session.token}',
+    'Cookie': session.cookieHeader,
+    'Content-Type': 'application/json',
+  };
+
+  static bool isOfficialUri(Uri uri) =>
+      uri.scheme == 'https' &&
+      (uri.host == 'safetyreport.go.kr' ||
+          uri.host.endsWith('.safetyreport.go.kr'));
+
+  /// 공개 사진이 인증을 요구할 때도 목록과 같은 세션 갱신·쿠키 규칙을 사용한다.
+  static Future<http.Response> fetchOfficialAttachment(Uri uri) async {
+    if (!isOfficialUri(uri)) throw ArgumentError('공식 사이트 주소가 아닙니다.');
+    return _getWithRetry(uri);
   }
 
   /// 네트워크 에러(connection reset, timeout 등) 시 1초 sleep 후 최대 3회 재시도.
   /// 401 시 자동 재로그인 후 1회 재시도.
   static Future<http.Response> _getWithRetry(Uri uri) async {
-    var headers = await _headers();
+    var session = await StandaloneAuthService.ensureValidSession();
+    var headers = _headers(session);
     http.Response? res;
-    Object? lastError;
 
     for (var attempt = 1; attempt <= mobileMaxRetryAttempts; attempt++) {
       try {
         res = await _ownedGet(uri, headers, const Duration(seconds: 20));
         break;
-      } on SocketException catch (e) {
+      } on SocketException catch (_) {
         // errno 104 (connection reset), 110 (timeout) 등 네트워크 일시 오류
-        lastError = e;
-      } on http.ClientException catch (e) {
-        lastError = e;
-      } on TimeoutException catch (e) {
-        lastError = e;
-      }
+      } on http.ClientException catch (_) {
+      } on TimeoutException catch (_) {}
       if (attempt < mobileMaxRetryAttempts) {
         await Future.delayed(const Duration(seconds: mobileRetryDelaySeconds));
       }
     }
 
     if (res == null) {
-      throw Exception('네트워크 오류 ($mobileMaxRetryAttempts회 재시도 실패): $lastError');
-    }
-
-    // 401이면 토큰 만료 — 자동 재로그인 후 1회 재시도.
-    // 재로그인이 안 되면 원인에 맞는 예외(재로그인 필요 / 일시 오류)를 던진다.
-    if (res.statusCode == 401) {
-      final newToken = StandaloneAuthService.tokenFromRelogin(
-        await StandaloneAuthService.relogin(),
+      throw const AuthTemporarilyUnavailableException(
+        '안전신문고에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.',
       );
-      {
-        headers = {
-          ..._commonHeaders,
-          'Authorization': 'BEARER $newToken',
-          'Content-Type': 'application/json',
-        };
-        res = await _ownedGet(uri, headers, const Duration(seconds: 20));
-      }
     }
 
+    await StandaloneAuthService.updateResponseCookies(
+      session,
+      res.headers['set-cookie'],
+    );
+    if (res.statusCode == 401) {
+      debugPrint(
+        '[official_api] status=401 retry=0 format=${_responseFormat(res)}',
+      );
+      session = await StandaloneAuthService.ensureValidSession(refresh: true);
+      headers = _headers(session);
+      try {
+        res = await _ownedGet(uri, headers, const Duration(seconds: 20));
+      } catch (_) {
+        debugPrint('[official_api] status=none retry=1 format=none');
+        throw const AuthTemporarilyUnavailableException(
+          '안전신문고에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+        );
+      }
+      await StandaloneAuthService.updateResponseCookies(
+        session,
+        res.headers['set-cookie'],
+      );
+      debugPrint(
+        '[official_api] status=${res.statusCode} retry=1 format=${_responseFormat(res)}'
+        '${res.statusCode == 401 ? ' code=official_session_rejected' : ''}',
+      );
+      if (res.statusCode == 401) throw const OfficialSessionRejectedException();
+    }
     return res;
   }
+
+  static String _responseFormat(http.Response res) =>
+      res.headers['content-type']?.contains('json') == true ? 'json' : 'other';
 
   /// 신고 목록 조회 (페이지 단위)
   /// [startRow] 1부터 시작, [endRow] 최대 200
@@ -263,9 +298,6 @@ class StandaloneApiService {
 
     final res = await _getWithRetry(uri);
 
-    if (res.statusCode == 401) {
-      throw const TokenExpiredException();
-    }
     if (res.statusCode != 200) {
       throw Exception('목록 조회 실패 (${res.statusCode})');
     }
@@ -283,9 +315,6 @@ class StandaloneApiService {
     final uri = Uri.parse('$_base/api/v1/portal/mypage/mysafereport/$cNo');
     final res = await _getWithRetry(uri);
 
-    if (res.statusCode == 401) {
-      throw const TokenExpiredException();
-    }
     if (res.statusCode != 200) {
       throw Exception('상세 조회 실패 ($cNo, ${res.statusCode})');
     }

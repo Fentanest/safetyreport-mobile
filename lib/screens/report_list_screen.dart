@@ -1,3 +1,6 @@
+import 'package:shared_preferences/shared_preferences.dart';
+import '../models/report_sort.dart';
+import '../widgets/report_sort_button.dart';
 import '../models/app_mode.dart';
 import '../widgets/local_paged_report_list.dart';
 import 'package:flutter/material.dart';
@@ -65,6 +68,43 @@ class _ReportListScreenState extends State<ReportListScreen>
   bool get _selectionMode => _selected.isNotEmpty;
   late TabController _tabController;
 
+  final _sorts = <String, ReportSort>{};
+  final _duplicateScroll = ScrollController();
+  Object? _duplicateCacheKey;
+  List<Report> _duplicateCache = [];
+  String _sortKey(ReportProvider p, int tab) =>
+      'report_sort:${p.appMode.name}:$tab';
+  ReportSort _sort(ReportProvider p, int tab) =>
+      _sorts[_sortKey(p, tab)] ?? ReportSort.defaults;
+  Future<void> _loadSorts() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      for (final mode in AppMode.values) {
+        for (var tab = 0; tab < 6; tab++) {
+          final key = 'report_sort:${mode.name}:$tab';
+          _sorts.putIfAbsent(
+            key,
+            () =>
+                ReportSort.restore(prefs.getString(key), duplicates: tab == 5),
+          );
+        }
+      }
+    });
+  }
+
+  Future<void> _changeSort(ReportSort sort) async {
+    final p = context.read<ReportProvider>();
+    final key = _sortKey(p, _tabController.index);
+    setState(() {
+      _sorts[key] = sort;
+      _selected.clear();
+    });
+    if (_duplicateScroll.hasClients) _duplicateScroll.jumpTo(0);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(key, sort.stored);
+  }
+
   /// 드릴다운의 현재 조건. 하단 탭(widget.filter == null)에서는 쓰지 않는다.
   ReportFilter? _localFilter;
 
@@ -84,6 +124,7 @@ class _ReportListScreenState extends State<ReportListScreen>
   void initState() {
     super.initState();
     _localFilter = widget.filter;
+    _loadSorts();
     _tabController = TabController(
       length: 6,
       vsync: this,
@@ -108,6 +149,7 @@ class _ReportListScreenState extends State<ReportListScreen>
   void dispose() {
     _tabController.removeListener(_handleTabChanged);
     _tabController.dispose();
+    _duplicateScroll.dispose();
     super.dispose();
   }
 
@@ -143,10 +185,29 @@ class _ReportListScreenState extends State<ReportListScreen>
   void _clearSelection() => setState(() => _selected.clear());
 
   /// Client 중복차량 탭이 보여 주는 목록(서버가 준 전체 목록을 그대로 그린다).
-  List<Report> _clientDuplicates(ReportProvider provider) =>
-      provider.appMode == AppMode.standalone
-      ? const <Report>[]
-      : provider.filteredDuplicateReports;
+  List<Report> _clientDuplicates(ReportProvider provider) {
+    if (provider.appMode == AppMode.standalone) return const [];
+    final filter = _effectiveFilter(provider);
+    final sort = _sort(provider, _duplicateTab);
+    final key = (
+      provider.duplicateReports,
+      provider.dataRevision,
+      filter,
+      sort,
+    );
+    if (_duplicateCacheKey != key) {
+      _duplicateCacheKey = key;
+      final reports = provider.filteredDuplicateReports
+          .where((r) => provider.matchesFilter(r, filter: filter))
+          .toList();
+      _duplicateCache = sortDuplicateReports(
+        reports,
+        sort,
+        allReports: provider.duplicateReports,
+      );
+    }
+    return _duplicateCache;
+  }
 
   bool _canSelectAllCurrentTab(ReportProvider provider) {
     if (_tabController.index != _duplicateTab) return false;
@@ -169,11 +230,12 @@ class _ReportListScreenState extends State<ReportListScreen>
     final tab = _tabController.index;
     if (tab == _duplicateTab && provider.appMode != AppMode.standalone) {
       // Client 중복차량 탭은 필터와 무관하게 서버의 중복 목록 전체를 보인다.
-      return formatCount(provider.filteredDuplicateReports.length);
+      return formatCount(_clientDuplicates(provider).length);
     }
     final total = _totals[tab];
     if (total == null || !total.exact) return null;
     final count = formatNumber(total.total);
+    if (tab == _duplicateTab) return '$count개 차량';
     return hasFilter ? '검색 $count건' : '$count건';
   }
 
@@ -332,6 +394,17 @@ class _ReportListScreenState extends State<ReportListScreen>
                   onRemove: _removeCondition,
                   onClear: _clearConditions,
                 ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: ReportSortButton(
+                      sort: _sort(provider, _tabController.index),
+                      duplicates: _tabController.index == _duplicateTab,
+                      onChanged: _changeSort,
+                    ),
+                  ),
+                ),
                 Expanded(
                   child: TabBarView(
                     controller: _tabController,
@@ -384,6 +457,7 @@ class _ReportListScreenState extends State<ReportListScreen>
     return LocalPagedReportList(
       key: ValueKey('page-$category'),
       category: category,
+      sort: _sort(provider, tab),
       filter: filter,
       onTotalChanged: (total) => _onTabTotal(tab, total),
     );
@@ -393,11 +467,13 @@ class _ReportListScreenState extends State<ReportListScreen>
     if (provider.appMode == AppMode.standalone) {
       return LocalPagedReportList(
         scope: 'duplicates',
+        sort: _sort(provider, _duplicateTab),
+        groupPage: true,
         filter: filter,
         onTotalChanged: (total) => _onTabTotal(_duplicateTab, total),
       );
     }
-    final reports = provider.filteredDuplicateReports;
+    final reports = _clientDuplicates(provider);
     if (provider.isLoading && reports.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -413,6 +489,7 @@ class _ReportListScreenState extends State<ReportListScreen>
     return RefreshIndicator(
       onRefresh: provider.fetchDuplicateReports,
       child: ListView.builder(
+        controller: _duplicateScroll,
         padding: EdgeInsets.fromLTRB(12, 10, 12, _selectionMode ? 100 : 20),
         itemCount: reports.length,
         itemBuilder: (context, index) => _buildDuplicateCard(reports[index]),

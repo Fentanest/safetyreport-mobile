@@ -1,3 +1,4 @@
+import 'package:safetyreport/community/manifest_result.dart';
 // Standalone 신고 내역 다시 불러오기 — 백그라운드 실행기(2026-10-11 사용자 결정).
 // 실제 상태기계(CommunityRebuild)·community.db 위에서 안내 확인 기록, 재시작 뒤 같은 run 이어서,
 // 동기화·DB 파일 작업 직렬화, 알림(진행·완료·누락·중단)을 확인한다. 수집 엔진·백업만 가짜다.
@@ -108,7 +109,7 @@ void main() {
       engine: engine,
       backup: (_) async =>
           const RebuildBackupResult(ok: true, ref: 'b', check: 'ok'),
-      manifestCheck: () async => true,
+      manifestCheck: () async => const ManifestResult(ManifestStatus.ok),
       pollInterval: const Duration(milliseconds: 50),
     );
     addTearDown(rebuild.dispose);
@@ -150,6 +151,27 @@ void main() {
       isFalse,
     );
   });
+
+  test(
+    'first launch resumes legacy manifest_unavailable without a new confirmation',
+    () async {
+      await interrupted(
+        state: RebuildStates.prerequisitesRequired,
+        error: 'manifest_unavailable',
+      );
+      final engine = _Engine();
+      final rebuild = make(engine);
+      await rebuild.refresh();
+      expect(await rebuild.guideAcknowledged(), isTrue);
+      final r = runner(_Sink())..adopt(rebuild);
+      expect(r.resumeIfDue(), isTrue);
+      while (rebuild.isExecuting) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(rebuild.job?['run_id'], 'old-run');
+      expect(rebuild.state, RebuildStates.completed);
+    },
+  );
 
   test('an existing job counts as an acknowledged guide', () async {
     await interrupted();

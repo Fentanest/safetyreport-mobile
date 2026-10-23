@@ -126,7 +126,7 @@ void main() {
 
     final ingest = CommunityIngestClient(supabaseUrl: api, publishableKey: key);
     // 새 연결: manifest 먼저(빈 dataset "0")
-    expect(await CommunityWiring.refreshManifest(store, client: ingest, token: () async => token), isTrue);
+    expect((await CommunityWiring.refreshManifest(store, client: ingest, token: () async => token)).isOk, isTrue);
     expect(await store.meta('manifest_scope'), '$datasetKey:${conn.writerEpoch}');
 
     final vectors = jsonDecode(File('contracts/community-ingest/vectors/observations.json').readAsStringSync()) as Map;
@@ -148,7 +148,7 @@ void main() {
     expect(sql("select left(source_report_key, 24) from private.community_ingest_events where source_report_id = '$reportId';"),
         sourceReportKeyPrefix(reportId), reason: '모바일 키 = 서버 계산 키 = PC 키');
 
-    expect(await CommunityWiring.refreshManifest(store, client: ingest, token: () async => token), isTrue);
+    expect((await CommunityWiring.refreshManifest(store, client: ingest, token: () async => token)).isOk, isTrue);
     final keys = await store.db.rawQuery('SELECT key_prefix FROM server_completed');
     expect([for (final r in keys) r['key_prefix']], [sourceReportKeyPrefix(reportId)]);
 

@@ -21,7 +21,7 @@ import 'status_badge.dart';
 import '../server_palette.dart';
 import '../screens/report_list_screen.dart';
 import '../services/review_prompt_service.dart';
-import '../services/standalone_auth_service.dart';
+import '../services/standalone_api_service.dart';
 import '../models/app_mode.dart';
 import '../screens/raw_detail_view_screen.dart';
 import '../services/client_media_access.dart';
@@ -1309,6 +1309,7 @@ class _RetryableImageState extends State<_RetryableImage> {
   Map<String, String>? _headers;
   bool _headersReady = false;
   bool _authRetried = false;
+  Uint8List? _officialBytes;
 
   @override
   void initState() {
@@ -1347,19 +1348,19 @@ class _RetryableImageState extends State<_RetryableImage> {
         !_authRetried) {
       _authRetried = true;
       setState(() => _retrying = true);
-      String? token;
       try {
-        token = await StandaloneAuthService.getStoredToken();
+        final response = await StandaloneApiService.fetchOfficialAttachment(Uri.parse(widget.url));
+        if (!mounted) return;
+        if (response.statusCode == 200) {
+          setState(() {
+            _officialBytes = response.bodyBytes;
+            _attempt++;
+            _retrying = false;
+          });
+          return;
+        }
       } catch (_) {}
       if (!mounted) return;
-      if (token != null && token.isNotEmpty) {
-        setState(() {
-          _headers = {'Authorization': 'BEARER $token'};
-          _attempt++;
-          _retrying = false;
-        });
-        return;
-      }
       _retrying = false;
     }
     if (error is NetworkImageLoadException &&
@@ -1405,6 +1406,7 @@ class _RetryableImageState extends State<_RetryableImage> {
       _failed = false;
       _retrying = false;
       _headersReady = false;
+      _officialBytes = null;
     });
     _prepareHeaders();
   }
@@ -1454,7 +1456,7 @@ class _RetryableImageState extends State<_RetryableImage> {
       borderRadius: BorderRadius.circular(SrRadius.md),
       child: Image(
         image: ResizeImage(
-          NetworkImage(widget.url, headers: _headers),
+          _officialBytes != null ? MemoryImage(_officialBytes!) : NetworkImage(widget.url, headers: _headers),
           width: decodeWidth,
           height: decodeMaxHeight,
           policy: ResizeImagePolicy.fit,

@@ -132,6 +132,12 @@ class _Card extends StatelessWidget {
           onPressed: () => _acceptGaps(context, p.failedPermanent),
           child: Text('누락 ${p.failedPermanent}건 확인하고 마무리'),
         )
+      else if (!p.done && rebuild.manifestFailure?.actionLabel != null)
+        FilledButton(
+          key: const Key('rebuildCardRecovery'),
+          onPressed: () => _openDetail(context),
+          child: Text(rebuild.manifestFailure!.actionLabel!),
+        )
       else if (!p.done)
         FilledButton.icon(
           key: const Key('rebuildCardResume'),

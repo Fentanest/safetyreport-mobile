@@ -1,3 +1,4 @@
+import 'manifest_result.dart';
 import 'dart:async';
 
 import 'gate/community_account_client.dart';
@@ -15,6 +16,13 @@ class CommunityUploadHooks {
   /// false 면 수집·초기화를 시작하지 않는다.
   /// T6 미병합 기본값: 연결이 없으므로 교체할 manifest 가 없어 `true`(게이트·연결 등록 흐름 차단 안 함).
   static Future<bool> Function()? refreshServerCompleted;
+
+  /// 다시 불러오기는 실패 원인을 잃지 않는다. bool 훅은 기존 동기화 호환용이다.
+  static Future<ManifestResult> Function()? refreshManifestResult;
+  static Future<ManifestResult> Function()? rebuildGateCheck;
+
+  static Future<ManifestResult> checkManifest() async =>
+      await refreshManifestResult?.call() ?? const ManifestResult(ManifestStatus.noContext);
 
   /// T6 `registerBackgroundJobs()` — 자정·주기 업로드 작업 등록.
   static Future<void> Function()? registerBackgroundJobs;

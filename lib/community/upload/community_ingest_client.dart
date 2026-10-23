@@ -1,3 +1,4 @@
+import '../manifest_result.dart';
 import '../cloud_availability.dart';
 // community-ingest REST 클라이언트.
 //
@@ -108,8 +109,8 @@ class CommunityIngestClient {
   }
 
   /// manifest 페이지 조회 — `POST {url}/functions/v1/community-ingest/manifest`
-  /// 본문 `{"protocol":1,"connection_id","after","limit"}`(account-api.md). 형식이 하나라도 틀리면 null.
-  Future<Map<String, Object?>?> fetchManifestPage(
+  /// 본문 `{"protocol":1,"connection_id","after","limit"}`(account-api.md). 전송 실패와 응답 무결성 실패를 구분한다.
+  Future<ManifestResult> fetchManifestPage(
     String accessToken,
     String connectionId, {
     String? after,
@@ -129,23 +130,61 @@ class CommunityIngestClient {
       final res = await _http
           .post(uri, headers: _headers(accessToken), body: body)
           .timeout(const Duration(seconds: 30));
-      if (res.statusCode == 503 && onMaintenance != null) {
-        // 서버 점검(업로드 일시 중지): 로컬 자료는 그대로 두고 중지 판정만 알린다.
-        try {
-          final body = jsonDecode(utf8.decode(res.bodyBytes));
-          final error = body is Map ? body['error'] : null;
-          if (error is Map && error['code'] == 'maintenance') {
-            await onMaintenance(error.cast<String, Object?>());
-          }
-        } catch (_) {}
+      Object? decoded;
+      try {
+        decoded = jsonDecode(utf8.decode(res.bodyBytes));
+      } catch (_) {
+        // 비 JSON 오류 응답도 HTTP 상태에 따라 재시도 여부를 판정한다.
       }
-      if (res.statusCode != 200) return null;
-      final decoded = jsonDecode(utf8.decode(res.bodyBytes));
-      if (decoded is! Map) return null;
+      final envelope = decoded is Map ? decoded : null;
+      final error = envelope?['error'];
+      final code = ManifestResult.diagnosticToken(
+        error is Map ? error['code'] : null,
+      );
+      final requestId = ManifestResult.diagnosticToken(
+        (error is Map ? error['request_id'] : null) ??
+            envelope?['request_id'] ??
+            res.headers['x-request-id'],
+      );
+      ManifestResult result(
+        ManifestStatus status, {
+        Map<String, Object?>? page,
+      }) => ManifestResult(
+        status,
+        httpStatus: res.statusCode,
+        serverCode: code,
+        requestId: requestId,
+        page: page,
+      );
+      if (res.statusCode != 200) {
+        if (res.statusCode == 503 && code == 'maintenance') {
+          if (onMaintenance != null && error is Map) {
+            try {
+              await onMaintenance(error.cast<String, Object?>());
+            } catch (_) {
+              // 로컬 점검 상태 저장 실패도 서버가 응답한 원인·진단값을 바꾸지 않는다.
+            }
+          }
+          return result(ManifestStatus.paused);
+        }
+        if (res.statusCode == 429) return result(ManifestStatus.rateLimited);
+        if (res.statusCode >= 500 || res.statusCode == 408) {
+          return result(ManifestStatus.serverError);
+        }
+        if (res.statusCode == 401 ||
+            res.statusCode == 403 ||
+            res.statusCode == 409) {
+          return result(ManifestResult.statusForCode(code));
+        }
+        return result(ManifestStatus.invalidResponse);
+      }
+      if (decoded is! Map) return result(ManifestStatus.invalidResponse);
       final page = Map<String, Object?>.from(decoded);
-      return validManifestPage(page) ? page : null;
+      return validManifestPage(page)
+          ? result(ManifestStatus.ok, page: page)
+          : result(ManifestStatus.invalidResponse);
     } catch (_) {
-      return null;
+      return const ManifestResult(ManifestStatus.network);
     }
   }
 }

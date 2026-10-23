@@ -1,3 +1,4 @@
+import 'package:safetyreport/community/manifest_result.dart';
 import 'widgets/client_notice_host.dart';
 import 'services/bundled_sqlite.dart';
 import 'services/cache_hygiene.dart';
@@ -970,7 +971,7 @@ CommunityRebuild standaloneRebuild(
   Future<bool> Function()? gateFresh,
   RebuildEngine? engine,
   Future<RebuildBackupResult> Function(String runId)? backup,
-  Future<bool> Function()? manifestCheck,
+  Future<ManifestResult> Function()? manifestCheck,
 }) => CommunityRebuild(
   store: store,
   localDatasetId: store.localDatasetId,

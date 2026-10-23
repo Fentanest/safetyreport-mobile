@@ -164,8 +164,8 @@ Dart CommunityAuthLinkChannel (main() 에서 등록) → "takePendingLink"(꺼�
 | `flutter.standaloneUsername` | String | Standalone ID |
 | `flutter.standalonePhoneNumber` | String | Standalone 휴대폰번호 (또는 demo) |
 | `flutter.standaloneDemoMode` | bool | Play review 데모 모드 여부 |
-| `flutter.standaloneToken` / `flutter.standaloneTokenExpiresAt` | String / int | OAuth 토큰 |
-| `flutter.standaloneTokenUsername` | String | 토큰을 받은 안전신문고 아이디. `standaloneUsername` 과 다르거나 없으면 토큰 무효(계정 변경 뒤 이전 계정 토큰 사용 방지). 백그라운드 재로그인은 저장 직전 디스크의 아이디를 다시 확인(2026-10-04 서버 기술일지 A2-01) |
+| `flutter.standaloneToken` / `flutter.standaloneTokenExpiresAt` | String / int | 구버전 키. 새 로그인 성공 뒤 제거하며 인증 요청에는 사용하지 않음 |
+| `flutter.standaloneTokenUsername` | String | 구버전 토큰 계정 키. 토큰·쿠키·계정·만료는 현재 FlutterSecureStorage의 `official_session_v1`에 함께 저장. 백그라운드도 같은 Dart 서비스를 사용 |
 | `flutter.inbox.queue.<ms>_<순번>` | String (신고번호 하나) | Standalone 감지 큐. Kotlin·Dart 모두 새 키에만 쓰고 `StandalonePendingQueueStore` 가 읽을 때 중복 제거, 처리한 값의 키만 지움 (G11-5) |
 | `flutter.standalone_pending_reports` | **String (CSV)** | (G11-5 이전 큐) 남은 값만 읽고 지움 (아래 함정 주의) |
 | `flutter.standalone_last_detected_at` | long | 디버그용 |
@@ -515,3 +515,7 @@ Dart가 빈 보안 저장소를 확인하고 v11 준비 표시를 저장한 뒤 
   커밋·태그·GitHub Release 를 전부 한다. 사람이 미리 `docs/releases/v<버전>.md` 를 직접 쓰거나 `VERSION` 을 손으로
   올릴 필요가 없다 — `unreleased.md` 만 사실대로 채워 두면 된다. alpha 를 몇 번 올렸든 노트가 `unreleased.md`
   한 파일에 모여 있으므로 릴리스 노트에서 빠지지 않는다.
+
+### 코드 대조 정정 — 공식 세션 저장
+
+공식 OAuth 토큰은 더 이상 위 구형 SharedPreferences 키에 새로 쓰지 않는다. `StandaloneAuthService`의 보안 세션 항목과 `official_session_epoch` 검사가 정본이며, Kotlin이 공식 토큰을 직접 읽는 경로는 없다. 인증 쿠키 수명·업데이트 이행은 [data-contracts.md](data-contracts.md)의 공식 로그인 세션 쿠키 절을 따른다.

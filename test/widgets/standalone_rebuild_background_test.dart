@@ -1,3 +1,4 @@
+import 'package:safetyreport/community/manifest_result.dart';
 // Standalone 새 버전 첫 실행: 안내 한 번 → '확인' → 바로 메인(다시 불러오기는 백그라운드, 2026-10-11 사용자 결정).
 // 이미 확인한 사용자는 안내 없이 메인으로 가고 같은 run 을 이어서 진행한다. 대시보드 진행 카드의 상태별 표시·버튼도 고정한다.
 // 위젯 테스트의 FakeAsync zone 에서는 ffi 질의를 하지 않으므로 메모리 상태기계를 주입한다(상태기계 자체는
@@ -322,7 +323,7 @@ void main() {
         });
 
     testWidgets(
-      'manifest backoff, exhaustion, notification and manual recovery',
+      'manifest backoff caps at five minutes without exhaustion; manual recovery',
       (tester) async {
         final rebuild = _MemRebuild(store)..busyOverride = false;
         final sink = _QuietSink();
@@ -358,17 +359,71 @@ void main() {
         }
         rebuild.finish(RebuildStates.prerequisitesRequired);
         await tester.pump();
-        expect(runner.retryStopped, isTrue);
-        expect(runner.nextRetryAt, isNull);
-        expect(find.text('자동 재시도 중단 — 확인 필요'), findsOneWidget);
-        await snapshot(tester, card, 'retry-stopped');
-        expect(sink.milestones.last, contains('자동 재시도를 중단'));
+        expect(runner.retryStopped, isFalse);
+        expect(
+          runner.nextRetryAt,
+          tester.binding.clock.now().add(const Duration(minutes: 5)),
+        );
         expect(runner.resumeIfDue(), isFalse);
-        await tester.pump(const Duration(hours: 1));
-        expect(rebuild.starts, hasLength(6));
+        await tester.pump(const Duration(minutes: 5));
+        expect(rebuild.starts, hasLength(7));
+        rebuild.finish(RebuildStates.waitingRetry);
+        await tester.pump();
         await tester.tap(find.byKey(const Key('rebuildCardResume')));
         await tester.pump();
-        expect(rebuild.starts, hasLength(7));
+        expect(rebuild.starts, hasLength(8));
+        rebuild.finish(RebuildStates.completed);
+        await tester.pump();
+        expect(runner.waitingToRetry, isFalse);
+      },
+    );
+
+    for (final status in ManifestStatus.values.where(
+      (s) => s != ManifestStatus.ok,
+    )) {
+      testWidgets('${status.code} schedules only temporary failures', (
+        tester,
+      ) async {
+        final rebuild = _MemRebuild(store);
+        final runner = newRunner()..adopt(rebuild);
+        runner.runInBackground();
+        final failure = ManifestResult(status);
+        rebuild.memError = failure.jobError;
+        rebuild.finish(
+          failure.retryable
+              ? RebuildStates.waitingRetry
+              : RebuildStates.prerequisitesRequired,
+        );
+        await tester.pump();
+        expect(runner.waitingToRetry, failure.retryable);
+        await tester.pump(const Duration(seconds: 15));
+        expect(rebuild.starts.length, failure.retryable ? 2 : 1);
+        if (failure.retryable) {
+          rebuild.memError = null;
+          rebuild.finish(RebuildStates.completed);
+          await tester.pump();
+          expect(runner.pending, isFalse);
+        }
+      });
+    }
+
+    testWidgets(
+      'upload contention keeps polling every fifteen seconds beyond five attempts',
+      (tester) async {
+        final rebuild = _MemRebuild(store);
+        final runner = newRunner()..adopt(rebuild);
+        runner.runInBackground();
+        for (var i = 0; i < 8; i++) {
+          rebuild.memError = 'manifest_busy_upload_lease';
+          rebuild.finish(RebuildStates.waitingRetry);
+          await tester.pump();
+          expect(runner.retryStopped, isFalse);
+          await tester.pump(const Duration(seconds: 14));
+          expect(rebuild.starts.length, i + 1);
+          await tester.pump(const Duration(seconds: 1));
+          expect(rebuild.starts.length, i + 2);
+        }
+        rebuild.memError = null;
         rebuild.finish(RebuildStates.completed);
         await tester.pump();
         expect(runner.waitingToRetry, isFalse);

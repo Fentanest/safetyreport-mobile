@@ -1,3 +1,4 @@
+import '../community/manifest_result.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -260,10 +261,9 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
           auth: _auth,
           gate: gate,
           accountClient: gate?.accountClient,
-          clientServer: (
-            baseUrl: widget.serverBaseUrl,
-            apiKey: widget.serverApiKey,
-          ),
+          clientServer: widget.isClient
+              ? (baseUrl: widget.serverBaseUrl, apiKey: widget.serverApiKey)
+              : null,
           onNext: () async {
             if (gate != null && !(await gate.requireFresh()).canEnter) return;
             if (loginContext.mounted) Navigator.of(loginContext).pop();
@@ -271,7 +271,33 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
         ),
       ),
     );
-    if (mounted) await _loadServer();
+    if (!mounted) return;
+    if (widget.isClient) {
+      await _loadServer();
+    } else {
+      await _retryLocal();
+    }
+  }
+
+  Future<void> _takeOverLocal() async {
+    final gate = context.read<CommunityGate?>();
+    if (gate != null && await gate.requestTakeover()) {
+      if (mounted) await _retryLocal();
+    } else if (mounted) {
+      setState(
+        () => _error = '이 기기로 업로드를 전환하지 못했습니다. 카카오 로그인과 공유 동의를 확인해 주세요.',
+      );
+    }
+  }
+
+  Future<void> _retryLocal() async {
+    final rebuild = widget.rebuild;
+    if (rebuild == null || rebuild.isExecuting) return;
+    if (_background) {
+      StandaloneRebuildRunner.instance.runInBackground(confirmedBy: 'resume');
+    } else {
+      await rebuild.start(confirmedBy: 'resume');
+    }
   }
 
   Future<void> _run(Future<void> Function() action) async {
@@ -463,7 +489,22 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
             onPressed: rebuild.stopping ? null : () => rebuild.requestPause(),
             child: Text(rebuild.stopping ? '중단 확인 중...' : '일시정지'),
           ),
-        if (!executing && !RebuildStates.terminalOk.contains(rebuild.state))
+        if (!executing && rebuild.manifestFailure?.actionLabel != null)
+          FilledButton(
+            key: const Key('rebuildRecoveryAction'),
+            onPressed: _busy ? null : () => _run(_openLogin),
+            child: Text(rebuild.manifestFailure!.actionLabel!),
+          ),
+        if (!executing &&
+            rebuild.manifestFailure?.action == RebuildRecoveryAction.connection)
+          OutlinedButton(
+            key: const Key('rebuildTakeover'),
+            onPressed: _busy ? null : () => _run(_takeOverLocal),
+            child: const Text('이 기기로 업로드 전환'),
+          ),
+        if (!executing &&
+            !RebuildStates.terminalOk.contains(rebuild.state) &&
+            rebuild.manifestFailure == null)
           FilledButton(
             onPressed: unavailable
                 ? null
@@ -491,10 +532,11 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
                       : _run(() => rebuild.acceptGaps()),
             child: Text('누락 $failed건을 확인하고 계속'),
           ),
-        TextButton(
-          onPressed: () => _run(() => rebuild.refresh()),
-          child: const Text('상태 다시 확인'),
-        ),
+        if (!RebuildStates.terminalOk.contains(rebuild.state))
+          TextButton(
+            onPressed: _busy || executing ? null : () => _run(_retryLocal),
+            child: const Text('다시 시도'),
+          ),
       ],
     );
   }
@@ -589,6 +631,7 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
   String _stateLabel(String state) => switch (state) {
     RebuildStates.required => '필요',
     RebuildStates.prerequisitesRequired => '준비 필요',
+    RebuildStates.waitingRetry => '자동 재시도 대기 중',
     RebuildStates.awaitingConfirmation => '확인 대기',
     RebuildStates.preparingBackup => '백업 준비',
     RebuildStates.running => '전체 신고 확인·상세 수집 중',

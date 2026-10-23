@@ -1228,6 +1228,7 @@ class ReportProvider with ChangeNotifier {
 
   Future<void> setConfig(String url, String key) async {
     SyncEngine.stop();
+    if (_appMode == AppMode.standalone) await StandaloneAuthService.clearToken();
     DbOptimize.cancelScheduledRetry();
     StandaloneAuthService.invalidateOperations();
     await PermissionService.stopWsService();
@@ -1305,6 +1306,9 @@ class ReportProvider with ChangeNotifier {
         releaseBinding: releaseOfficialAccount,
         confirmReset: confirmAccountReset,
       );
+      if (localReset) {
+        await StandaloneAuthService.clearOtherAccountSession(username);
+      }
       _preparedOfficialId = candidate;
       _accountRestartPending =
           _accountRestartPending ||

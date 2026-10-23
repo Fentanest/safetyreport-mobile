@@ -1,3 +1,4 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -12,6 +13,7 @@ void main() {
   late int loginCalls;
 
   setUp(() {
+    FlutterSecureStorage.setMockInitialValues({});
     StandaloneAuthService.invalidateOperations();
     loginCalls = 0;
     SharedPreferences.setMockInitialValues({
@@ -154,6 +156,7 @@ void main() {
       return 'new';
     };
 
+    await StandaloneAuthService.saveToken('cached', username: 'tester', cookies: {'JSESSIONID': 'fixture'});
     expect(await StandaloneAuthService.ensureValidToken(), 'cached');
     await StandaloneAuthService.refreshSessionIfNeeded();
     expect(loginCalls, 0);

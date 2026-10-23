@@ -1,3 +1,4 @@
+import 'manifest_result.dart';
 import 'consent_catchup.dart';
 import 'raw_backfill_runtime.dart';
 import 'soft_reset.dart';
@@ -74,8 +75,20 @@ class CommunityWiring {
         }
       }),
     );
-    CommunityUploadHooks.refreshServerCompleted = () => refreshManifest(store);
-    SyncEngine.ensureManifestFresh = () => refreshManifest(store);
+    CommunityUploadHooks.refreshManifestResult = () => refreshManifest(store);
+    CommunityUploadHooks.rebuildGateCheck = () async {
+      final state = await communityGate.refreshNow(silent: true);
+      return state.canEnter
+          ? const ManifestResult(ManifestStatus.ok)
+          : ManifestResult(
+              ManifestResult.statusForCode(state.state),
+              serverCode: state.state,
+            );
+    };
+    CommunityUploadHooks.refreshServerCompleted = () async =>
+        (await refreshManifest(store)).isOk;
+    SyncEngine.ensureManifestFresh = () async =>
+        (await refreshManifest(store)).isOk;
     // Standalone writer(데모 제외)로 게이트를 통과했을 때만 불린다(ReportProvider.onGatePassed).
     CommunityUploadHooks.registerBackgroundJobs = () async {
       MaintenanceService.resumeForAccount();
@@ -131,7 +144,7 @@ class CommunityWiring {
       );
       await ConsentCatchup(store).run(
         verify: () async => (await communityGate.requireFresh()).canEnter,
-        manifest: () => refreshManifest(store),
+        manifest: () async => (await refreshManifest(store)).isOk,
         collectAll: () async {
           final ctx = await store.activeContext();
           if (ctx == null) return false;
@@ -174,8 +187,8 @@ class CommunityWiring {
   }
 
   /// manifest 전 페이지 → server_completed 교체. 받는 동안 upload lease 를 잡아 자기 업로드로 세대가 바뀌지 않게 한다.
-  /// context·토큰·lease 가 없거나 형식이 틀리면 false(수집·초기화 시작 금지).
-  static Future<bool> refreshManifest(
+  /// 원인을 보존한다. 잠금을 기다리며 다른 작업을 막지 않고 실행기가 재시도한다.
+  static Future<ManifestResult> refreshManifest(
     CommunityStore store, {
     CommunityIngestClient? client,
     Future<String?> Function()? token,
@@ -185,13 +198,17 @@ class CommunityWiring {
     final connectionId = ctx?['connection_id'] as String?;
     final epoch = int.tryParse('${ctx?['writer_epoch']}');
     if (datasetKey == null || connectionId == null || epoch == null) {
-      return false;
+      return const ManifestResult(ManifestStatus.noContext);
     }
     // 업로드 일시 중지(서버 점검) 중에는 manifest 도 요청하지 않는다(서버가 503 으로 끝낸다).
-    if (await UploadPause.isPaused(store)) return false;
+    if (await UploadPause.isPaused(store)) {
+      return const ManifestResult(ManifestStatus.paused);
+    }
     final access =
         await (token ?? CommunityAuthService.instance.getAccessToken)();
-    if (access == null || access.isEmpty) return false;
+    if (access == null || access.isEmpty) {
+      return const ManifestResult(ManifestStatus.noToken);
+    }
     final config = CommunityAuthConfig.fromEnvironment;
     final c =
         client ??
@@ -206,10 +223,11 @@ class CommunityWiring {
       const Duration(minutes: 5),
     )) {
       if (client == null) c.close();
-      return false;
+      return const ManifestResult(ManifestStatus.busyUploadLease);
     }
+    var last = const ManifestResult(ManifestStatus.invalidResponse);
     try {
-      return await completed.refreshServerCompleted(
+      final ok = await completed.refreshServerCompleted(
         datasetKey: datasetKey,
         writerEpoch: epoch,
         store: store,
@@ -227,6 +245,7 @@ class CommunityWiring {
                 'contributor_fingerprint',
                 'consent_grant_id',
               ].every((k) => current.first[k] == ctx![k])) {
+            last = last.withStatus(ManifestStatus.noContext);
             return false;
           }
           final lease = await tx.query(
@@ -234,27 +253,41 @@ class CommunityWiring {
             where: 'name=? AND owner=? AND until>?',
             whereArgs: ['upload', owner, isoUtc(DateTime.now())],
           );
-          return lease.length == 1;
+          if (lease.length != 1) {
+            last = last.withStatus(ManifestStatus.busyUploadLease);
+            return false;
+          }
+          return true;
         },
         fetchPage: (after, limit) async {
           if (!await store.renewLease(
-                'upload',
-                owner,
-                const Duration(minutes: 5),
-              ) ||
-              !await _sameContext(store, ctx!)) {
+            'upload',
+            owner,
+            const Duration(minutes: 5),
+          )) {
+            last = last.withStatus(ManifestStatus.busyUploadLease);
             return null;
           }
-          final page = await c.fetchManifestPage(
+          if (!await _sameContext(store, ctx!)) {
+            last = last.withStatus(ManifestStatus.noContext);
+            return null;
+          }
+          last = await c.fetchManifestPage(
             access,
             connectionId,
             after: after,
             limit: limit,
-            onMaintenance: (error) => UploadPause.applyMaintenance(store, error),
+            onMaintenance: (error) =>
+                UploadPause.applyMaintenance(store, error),
           );
-          return page == null ? null : completed.ManifestPage.fromJson(page);
+          return last.isOk ? completed.ManifestPage.fromJson(last.page!) : null;
         },
       );
+      return ok
+          ? last
+          : last.isOk
+          ? last.withStatus(ManifestStatus.invalidResponse)
+          : last;
     } finally {
       if (client == null) c.close();
       await store.releaseLease('upload', owner);

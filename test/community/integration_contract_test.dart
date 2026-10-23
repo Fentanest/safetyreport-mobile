@@ -188,7 +188,7 @@ void main() {
           }),
         );
         final ok = await client.fetchManifestPage('tok', 'conn-1', limit: 9000);
-        expect(ok, isNotNull);
+        expect(ok.isOk, isTrue);
         expect(method, 'POST');
         expect(sent, {
           'protocol': 1,
@@ -219,8 +219,8 @@ void main() {
         ]) {
           reply = broken;
           expect(
-            await client.fetchManifestPage('tok', 'conn-1'),
-            isNull,
+            (await client.fetchManifestPage('tok', 'conn-1')).isOk,
+            isFalse,
             reason: '$broken',
           );
         }

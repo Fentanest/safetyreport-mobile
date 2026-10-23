@@ -1,3 +1,6 @@
+import 'package:provider/provider.dart';
+import 'package:safetyreport/community/gate/community_gate.dart';
+import 'package:safetyreport/community/manifest_result.dart';
 // 초기화 화면 — 안내 문구·확인·진행·완료.
 //
 // 상태기계 자체는 test/community/rebuild_state_test.dart(일반 테스트)에서 검증한다.
@@ -34,6 +37,7 @@ class _MemoryRebuild extends CommunityRebuild {
 
   String _state = RebuildStates.required;
   int starts = 0;
+  ManifestResult? failure;
 
   @override
   String get state => _state;
@@ -41,6 +45,7 @@ class _MemoryRebuild extends CommunityRebuild {
   @override
   Map<String, Object?>? get job => {
     'state': _state,
+    'last_error': failure?.jobError,
     'backup_ref': 'backups/pre-rebuild-run.db',
     'counts_json': '{"fetched":3,"failed_permanent":0,"orphan_preserved":1}',
   };
@@ -200,6 +205,16 @@ class _RecoveryServerClient extends CommunityServerRebuildClient {
 class _RecoveryAuth extends StubAuthService {
   @override
   Future<void> load() async {}
+}
+
+class _TakeoverGate extends CommunityGate {
+  _TakeoverGate() : super(auth: _RecoveryAuth(), appMode: () => 'standalone');
+  int takeovers = 0;
+  @override
+  Future<bool> requestTakeover() async {
+    takeovers++;
+    return true;
+  }
 }
 
 class _ProgressRebuild extends _MemoryRebuild {
@@ -365,6 +380,95 @@ void main() {
     CommunityRebuildGuard.active = false;
     await CommunityStore.closeForTest(dbPath);
     await tmp.delete(recursive: true);
+  });
+
+  for (final status in [
+    ManifestStatus.noContext,
+    ManifestStatus.noToken,
+    ManifestStatus.auth,
+    ManifestStatus.consentRequired,
+    ManifestStatus.writerRequired,
+  ]) {
+    testWidgets(
+      '${status.code} gives an actionable button and resumes after return',
+      (tester) async {
+        final rebuild = _MemoryRebuild(store)
+          .._state = RebuildStates.prerequisitesRequired
+          ..failure = ManifestResult(status);
+        addTearDown(rebuild.dispose);
+        final auth = _RecoveryAuth();
+        await tester.pumpWidget(
+          MaterialApp(
+            home: CommunityRebuildScreen(rebuild: rebuild, auth: auth),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text(rebuild.failure!.message), findsOneWidget);
+        final action = find.byKey(const Key('rebuildRecoveryAction'));
+        expect(find.text(rebuild.failure!.actionLabel!), findsOneWidget);
+        await tester.ensureVisible(action);
+        await tester.tap(action);
+        await tester.pumpAndSettle();
+        final onboarding = tester.widget<CommunityOnboardingScreen>(
+          find.byType(CommunityOnboardingScreen),
+        );
+        expect(
+          onboarding.clientServer,
+          isNull,
+          reason: 'Standalone recovery must not enter Client flow',
+        );
+        Navigator.of(
+          tester.element(find.byType(CommunityOnboardingScreen)),
+        ).pop();
+        await tester.pumpAndSettle();
+        expect(rebuild.starts, 1);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      },
+    );
+  }
+
+  testWidgets('upload transfer button claims this device before resuming', (
+    tester,
+  ) async {
+    final rebuild = _MemoryRebuild(store)
+      ..failure = const ManifestResult(ManifestStatus.noContext)
+      .._state = RebuildStates.prerequisitesRequired;
+    final gate = _TakeoverGate();
+    addTearDown(rebuild.dispose);
+    addTearDown(gate.dispose);
+    await tester.pumpWidget(
+      ChangeNotifierProvider<CommunityGate>.value(
+        value: gate,
+        child: MaterialApp(home: CommunityRebuildScreen(rebuild: rebuild)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final action = find.byKey(const Key('rebuildTakeover'));
+    await tester.ensureVisible(action);
+    await tester.tap(action);
+    await tester.pumpAndSettle();
+    expect(gate.takeovers, 1);
+    expect(rebuild.starts, 1);
+  });
+
+  testWidgets('retry starts recovery instead of only reading the local job', (
+    tester,
+  ) async {
+    final rebuild = _MemoryRebuild(store)
+      ..failure = const ManifestResult(ManifestStatus.busyUploadLease)
+      .._state = RebuildStates.waitingRetry;
+    addTearDown(rebuild.dispose);
+    await tester.pumpWidget(
+      MaterialApp(home: CommunityRebuildScreen(rebuild: rebuild)),
+    );
+    await tester.pumpAndSettle();
+    final retry = find.text('다시 시도');
+    await tester.ensureVisible(retry);
+    await tester.tap(retry);
+    await tester.pumpAndSettle();
+    expect(rebuild.starts, 1);
+    expect(find.text('상태 다시 확인'), findsNothing);
   });
 
   testWidgets(

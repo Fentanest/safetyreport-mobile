@@ -1,3 +1,4 @@
+import 'official_session.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -38,6 +39,14 @@ class LoginRejectedException implements Exception {
   const LoginRejectedException(this.message);
   @override
   String toString() => message;
+}
+
+/// 새 로그인으로도 공식 API가 인증을 거절했다. 비밀번호 오류로 단정하지 않는다.
+class OfficialSessionRejectedException
+    extends AuthTemporarilyUnavailableException {
+  const OfficialSessionRejectedException()
+    : super('안전신문고가 로그인을 받아 주지 않습니다. 잠시 뒤 다시 시도해 주세요.');
+  String get code => 'official_session_rejected';
 }
 
 enum ReloginOutcome { success, noCredentials, rejected, transient }
@@ -81,6 +90,13 @@ class StandaloneAuthService {
     aOptions: AndroidOptions(resetOnError: false),
   );
   static Timer? _keepAliveTimer;
+  static const sessionStorageKey = 'official_session_v1';
+  static const _sessionEpochKey = 'official_session_epoch';
+  @visibleForTesting
+  static HttpClient Function()? httpClientFactoryForTest;
+  static HttpClient _newClient() =>
+      (httpClientFactoryForTest?.call() ?? HttpClient())
+        ..connectionTimeout = const Duration(seconds: 15);
 
   // 서버가 Referer·X-Requested-With·User-Agent 없으면 연결을 차단함 (errno 104)
   static const _commonHeaders = {
@@ -121,7 +137,9 @@ class StandaloneAuthService {
 
   static void _checkGeneration(int? generation) {
     if (generation != null && generation != _credentialGeneration) {
-      throw const AuthTemporarilyUnavailableException('로그인 문맥이 변경되었습니다.');
+      throw const AuthTemporarilyUnavailableException(
+        '로그인 설정이 변경되었습니다. 다시 확인해 주세요.',
+      );
     }
   }
 
@@ -149,7 +167,10 @@ class StandaloneAuthService {
       }
     }
 
-    var client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
+    final sessionPrefs = await SharedPreferences.getInstance();
+    await sessionPrefs.reload();
+    final sessionEpoch = sessionPrefs.getString(_sessionEpochKey) ?? '';
+    var client = _newClient();
     _activeClients.add(client);
 
     try {
@@ -167,6 +188,7 @@ class StandaloneAuthService {
           final req = await client.getUrl(
             Uri.parse('$_base/api/v1/common/rsa/getPublicKey'),
           );
+          req.followRedirects = false;
           _commonHeaders.forEach((k, v) => req.headers.set(k, v));
           keyRes = await req.close().timeout(const Duration(seconds: 15));
           keyBody = await _boundedAuthBody(
@@ -177,12 +199,11 @@ class StandaloneAuthService {
           checkCurrent();
           client.close(force: true);
           _activeClients.remove(client);
-          client = HttpClient()
-            ..connectionTimeout = const Duration(seconds: 15);
+          client = _newClient();
           _activeClients.add(client);
           if (attempt == mobileMaxRetryAttempts) {
             throw AuthTemporarilyUnavailableException(
-              '안전신문고에 연결하지 못했습니다. 네트워크를 확인하고 잠시 후 다시 시도해 주세요. ($e)',
+              '안전신문고에 연결하지 못했습니다. 네트워크를 확인하고 잠시 후 다시 시도해 주세요.',
             );
           }
           await Future.delayed(Duration(seconds: attempt));
@@ -199,13 +220,7 @@ class StandaloneAuthService {
 
       // JSESSIONID 쿠키 추출 — 서버가 RSA 키를 세션에 바인딩하므로 토큰 요청에 필수
       // dart:io HttpClient의 자동 쿠키 관리가 Flutter Android에서 불안정하므로 수동 처리
-      String? jsessionId;
-      for (final cookie in keyRes.cookies) {
-        if (cookie.name == 'JSESSIONID') {
-          jsessionId = cookie.value;
-          break;
-        }
-      }
+      var cookies = OfficialSession.mergeCookies({}, keyRes.cookies);
 
       // 점검 중에는 JSON 대신 HTML 안내 페이지가 200 으로 올 수 있다.
       final String modulusHex;
@@ -237,7 +252,6 @@ class StandaloneAuthService {
 
       late HttpClientResponse tokenRes;
       late String tokenBody;
-      Object? tokenLastError;
       var tokenSuccess = false;
       for (var attempt = 1; attempt <= mobileMaxRetryAttempts; attempt++) {
         checkCurrent();
@@ -250,14 +264,15 @@ class StandaloneAuthService {
           final tokenReq = await client.postUrl(
             Uri.parse('$_base/oauth/token'),
           );
+          tokenReq.followRedirects = false;
           _commonHeaders.forEach((k, v) => tokenReq.headers.set(k, v));
           tokenReq.headers.contentType = ContentType(
             'application',
             'x-www-form-urlencoded',
             charset: 'utf-8',
           );
-          if (jsessionId != null) {
-            tokenReq.cookies.add(Cookie('JSESSIONID', jsessionId));
+          for (final entry in cookies.entries) {
+            tokenReq.cookies.add(Cookie(entry.key, entry.value));
           }
           tokenReq.headers.contentLength = bodyBytes.length;
           tokenReq.write(body);
@@ -273,12 +288,10 @@ class StandaloneAuthService {
           checkCurrent();
           client.close(force: true);
           _activeClients.remove(client);
-          client = HttpClient()
-            ..connectionTimeout = const Duration(seconds: 15);
+          client = _newClient();
           _activeClients.add(client);
           // errno 104 (connection reset), 110 (timeout) 등 일시 오류는 조용히 재시도.
           // 4xx/5xx 응답은 close() 가 throw 하지 않으므로 위 분기에서 처리됨.
-          tokenLastError = e;
           if (attempt < mobileMaxRetryAttempts) {
             await Future.delayed(Duration(seconds: attempt));
           }
@@ -288,10 +301,11 @@ class StandaloneAuthService {
       }
       if (!tokenSuccess) {
         throw AuthTemporarilyUnavailableException(
-          '안전신문고 로그인 요청이 네트워크 오류로 실패했습니다($mobileMaxRetryAttempts회 재시도). 잠시 후 다시 시도해 주세요. ($tokenLastError)',
+          '안전신문고 로그인 요청이 네트워크 오류로 실패했습니다. 잠시 후 다시 시도해 주세요.',
         );
       }
 
+      cookies = OfficialSession.mergeCookies(cookies, tokenRes.cookies);
       if (tokenRes.statusCode == 401 || tokenRes.statusCode == 400) {
         // 서버가 반환하는 에러 메시지가 있으면 포함
         String detail = '아이디 또는 비밀번호가 올바르지 않습니다.';
@@ -303,10 +317,10 @@ class StandaloneAuthService {
         // RSA 복호화 실패는 세션(JSESSIONID) 문제라 비밀번호 탓이 아니다 — 다시 시도하면 된다.
         if (detail.contains('RSA')) {
           throw AuthTemporarilyUnavailableException(
-            '안전신문고 로그인 세션 오류($detail). 잠시 후 다시 시도해 주세요.',
+            '안전신문고 로그인을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.',
           );
         }
-        throw LoginRejectedException(detail);
+        throw const LoginRejectedException('아이디 또는 비밀번호를 확인해 주세요.');
       }
       if (tokenRes.statusCode != 200) {
         throw AuthTemporarilyUnavailableException(
@@ -330,6 +344,12 @@ class StandaloneAuthService {
         );
       }
 
+      if (cookies['JSESSIONID']?.isNotEmpty != true) {
+        throw const AuthTemporarilyUnavailableException(
+          '안전신문고 로그인을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+        );
+      }
+
       // 토큰 만료 시간 계산 (서버 응답 expires_in, 기본 3599초)
       final expiresIn = (tokenData['expires_in'] as num?)?.toInt() ?? 3599;
       final expiresAt = DateTime.now()
@@ -346,6 +366,8 @@ class StandaloneAuthService {
         // 자동 재로그인(백그라운드 isolate 포함)은 저장 직전에도 설정 아이디가 그대로일 때만 저장한다.
         // 사용자가 직접 로그인하는 경우(saveCredentials)는 아이디 저장이 뒤따른다.
         requireCurrentUsername: !saveCredentials,
+        cookies: cookies,
+        expectedEpoch: sessionEpoch,
       );
       checkCurrent();
 
@@ -364,6 +386,14 @@ class StandaloneAuthService {
       }
 
       return token;
+    } on LoginRejectedException {
+      rethrow;
+    } on AuthTemporarilyUnavailableException {
+      rethrow;
+    } catch (_) {
+      throw const AuthTemporarilyUnavailableException(
+        '안전신문고 로그인을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+      );
     } finally {
       _activeClients.remove(client);
       client.close(force: true);
@@ -392,39 +422,114 @@ class StandaloneAuthService {
     int? generation,
     String? username,
     bool requireCurrentUsername = false,
+    Map<String, String> cookies = const {},
+    String? expectedEpoch,
   }) => _writeCredentials(() async {
     _checkGeneration(generation);
     final prefs = await SharedPreferences.getInstance();
-    if (requireCurrentUsername) {
-      await prefs.reload();
-      if (username == null ||
-          prefs.getString(AppPrefsKeys.standaloneUsername) != username) {
-        throw const AuthTemporarilyUnavailableException('로그인 문맥이 변경되었습니다.');
-      }
+    await prefs.reload();
+    if (requireCurrentUsername &&
+        (prefs.getString(AppPrefsKeys.appMode) == 'server' ||
+            prefs.getBool(AppPrefsKeys.standaloneDemoMode) == true)) {
+      throw const AuthTemporarilyUnavailableException(
+        '로그인 설정이 변경되었습니다. 다시 확인해 주세요.',
+      );
+    }
+    final epoch = prefs.getString(_sessionEpochKey) ?? '';
+    if ((expectedEpoch != null && epoch != expectedEpoch) ||
+        (requireCurrentUsername &&
+            (username == null ||
+                prefs.getString(AppPrefsKeys.standaloneUsername) !=
+                    username))) {
+      throw const AuthTemporarilyUnavailableException(
+        '로그인 설정이 변경되었습니다. 다시 확인해 주세요.',
+      );
     }
     _checkGeneration(generation);
-    if (username != null &&
-        !await prefs.setString(_tokenUsernameKey, username)) {
-      throw StateError('토큰 계정 저장 실패');
-    }
-    if (!await prefs.setString(_tokenKey, token)) throw StateError('토큰 저장 실패');
-    if (expiresAt != null && !await prefs.setInt(_expiresAtKey, expiresAt)) {
-      throw StateError('토큰 만료 시간 저장 실패');
-    }
+    final session = OfficialSession(
+      token: token,
+      username:
+          username ?? prefs.getString(AppPrefsKeys.standaloneUsername) ?? '',
+      epoch: epoch,
+      expiresAt: expiresAt,
+      cookies: cookies,
+    );
+    await _secureStorage.write(key: sessionStorageKey, value: session.encode());
+    // 구버전의 평문 토큰은 새 세션 저장 성공 뒤에 제거한다.
+    await prefs.remove(_tokenKey);
+    await prefs.remove(_tokenUsernameKey);
+    await prefs.remove(_expiresAtKey);
     _checkGeneration(generation);
   });
 
-  /// 저장된 토큰. 지금 설정한 아이디로 받은 토큰이 아니면 null(이전 계정 토큰을 쓰지 않는다, 기술일지 A2-01).
-  static Future<String?> getStoredToken() async {
+  static Future<OfficialSession?> storedSession() async {
     final prefs = await SharedPreferences.getInstance();
-    if (!_tokenOwnedByCurrentUser(prefs)) return null;
-    return prefs.getString(_tokenKey);
+    await prefs.reload();
+    if (prefs.getString(AppPrefsKeys.appMode) == 'server' ||
+        prefs.getBool(AppPrefsKeys.standaloneDemoMode) == true) {
+      return null;
+    }
+    final session = OfficialSession.decode(
+      await _secureStorage.read(key: sessionStorageKey),
+    );
+    if (session == null ||
+        session.username.isEmpty ||
+        session.username != prefs.getString(AppPrefsKeys.standaloneUsername) ||
+        session.epoch != (prefs.getString(_sessionEpochKey) ?? '')) {
+      return null;
+    }
+    return session;
   }
 
-  static bool _tokenOwnedByCurrentUser(SharedPreferences prefs) {
-    final owner = prefs.getString(_tokenUsernameKey);
-    final username = prefs.getString(AppPrefsKeys.standaloneUsername) ?? '';
-    return owner != null && owner.isNotEmpty && owner == username;
+  static Future<String?> getStoredToken() async =>
+      (await storedSession())?.token;
+
+  /// 응답을 받은 요청과 아직 같은 세션일 때만 쿠키 갱신을 반영한다.
+  static Future<void> updateResponseCookies(
+    OfficialSession sent,
+    String? setCookie,
+  ) async {
+    if (setCookie == null) return;
+    await _writeCredentials(() async {
+      final current = await storedSession();
+      if (current == null ||
+          current.token != sent.token ||
+          current.epoch != sent.epoch ||
+          current.cookieHeader != sent.cookieHeader) {
+        return;
+      }
+      final cookies = OfficialSession.mergeCookies(
+        current.cookies,
+        OfficialSession.parseSetCookie(setCookie),
+      );
+      await _secureStorage.write(
+        key: sessionStorageKey,
+        value: OfficialSession(
+          token: current.token,
+          username: current.username,
+          epoch: current.epoch,
+          expiresAt: current.expiresAt,
+          cookies: cookies,
+        ).encode(),
+      );
+    });
+  }
+
+  static Future<OfficialSession> ensureValidSession({
+    bool refresh = false,
+  }) async {
+    if (refresh) {
+      tokenFromRelogin(await relogin());
+    } else {
+      await ensureValidToken();
+    }
+    final session = await storedSession();
+    if (session == null || !session.ready) {
+      throw const AuthTemporarilyUnavailableException(
+        '안전신문고 로그인을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+      );
+    }
+    return session;
   }
 
   static Future<String> getPhoneNumber() async {
@@ -434,32 +539,37 @@ class StandaloneAuthService {
 
   /// 토큰이 유효한지(존재하고, 만료되지 않았는지) 확인
   static Future<bool> isTokenValid() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString(_tokenKey);
-    if (token == null || token.isEmpty) return false;
-    // 받은 아이디가 기록되지 않았거나(이 기능 전의 토큰) 지금 아이디와 다르면 무효 — 한 번 다시 로그인한다.
-    if (!_tokenOwnedByCurrentUser(prefs)) return false;
-
-    final expiresAt = prefs.getInt(_expiresAtKey);
-    if (expiresAt == null) return true; // 만료 정보 없으면 일단 유효하다고 판단
-
-    // 만료 5분 전부터 무효로 판단 (여유 마진)
-    final now = DateTime.now().millisecondsSinceEpoch;
-    return now < (expiresAt - 5 * 60 * 1000);
+    final session = await storedSession();
+    if (session == null || !session.ready) return false;
+    return session.expiresAt == null ||
+        DateTime.now().millisecondsSinceEpoch <
+            session.expiresAt! - 5 * 60 * 1000;
   }
 
-  /// 토큰 만료까지 남은 시간 (초). 만료됐으면 음수.
   static Future<int> tokenRemainingSeconds() async {
-    final prefs = await SharedPreferences.getInstance();
-    final expiresAt = prefs.getInt(_expiresAtKey);
-    if (expiresAt == null) return -1;
-    return ((expiresAt - DateTime.now().millisecondsSinceEpoch) / 1000).round();
+    final expiresAt = (await storedSession())?.expiresAt;
+    return expiresAt == null
+        ? -1
+        : ((expiresAt - DateTime.now().millisecondsSinceEpoch) / 1000).round();
+  }
+
+  /// 계정 전환 전에 새 계정으로 이미 로그인한 경우 그 세션은 보존한다.
+  static Future<void> clearOtherAccountSession(String username) async {
+    final session = OfficialSession.decode(
+      await _secureStorage.read(key: sessionStorageKey),
+    );
+    if (session?.username != username) await clearToken();
   }
 
   static Future<void> clearToken() async {
     invalidateOperations();
     await _writeCredentials(() async {
       final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _sessionEpochKey,
+        '${DateTime.now().microsecondsSinceEpoch}:${Random.secure().nextInt(1 << 32)}',
+      );
+      await _secureStorage.delete(key: sessionStorageKey);
       await prefs.remove(_tokenKey);
       await prefs.remove(_expiresAtKey);
       await prefs.remove(_tokenUsernameKey);
@@ -523,6 +633,14 @@ class StandaloneAuthService {
   static Future<ReloginResult> _reloginOnce() async {
     final generation = _credentialGeneration;
     final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    if (prefs.getString(AppPrefsKeys.appMode) == 'server' ||
+        prefs.getBool(AppPrefsKeys.standaloneDemoMode) == true) {
+      return const ReloginResult(
+        ReloginOutcome.transient,
+        message: '로그인 설정이 변경되었습니다. 다시 확인해 주세요.',
+      );
+    }
     final username = prefs.getString(AppPrefsKeys.standaloneUsername) ?? '';
     String? password;
     try {
@@ -547,7 +665,7 @@ class StandaloneAuthService {
         prefs.getString(AppPrefsKeys.standaloneUsername) != username) {
       return const ReloginResult(
         ReloginOutcome.transient,
-        message: '로그인 문맥이 변경되었습니다.',
+        message: '로그인 설정이 변경되었습니다. 다시 확인해 주세요.',
       );
     }
     try {
@@ -555,7 +673,7 @@ class StandaloneAuthService {
     } on AuthTemporarilyUnavailableException {
       return const ReloginResult(
         ReloginOutcome.transient,
-        message: '로그인 문맥이 변경되었습니다.',
+        message: '로그인 설정이 변경되었습니다. 다시 확인해 주세요.',
       );
     }
     return result;
@@ -573,11 +691,11 @@ class StandaloneAuthService {
             await (loginOverride?.call(username, password) ??
                 login(username, password, saveCredentials: false));
         return ReloginResult(ReloginOutcome.success, token: token);
-      } on LoginRejectedException catch (e) {
+      } on LoginRejectedException {
         return ReloginResult(
           ReloginOutcome.rejected,
           message:
-              '안전신문고가 로그인을 거부했습니다: ${e.message} 비밀번호를 바꾸셨다면 설정 > 재로그인에서 다시 로그인해 주세요.',
+              '안전신문고가 로그인을 거부했습니다. 아이디와 비밀번호를 확인하고 설정 > 재로그인에서 다시 로그인해 주세요.',
         );
       } catch (e) {
         lastError = e;
@@ -588,7 +706,7 @@ class StandaloneAuthService {
       ReloginOutcome.transient,
       message: lastError is AuthTemporarilyUnavailableException
           ? lastError.message
-          : '안전신문고 로그인 중 오류가 났습니다. 잠시 후 다시 시도해 주세요. ($lastError)',
+          : '안전신문고 로그인 중 오류가 났습니다. 잠시 후 다시 시도해 주세요.',
     );
   }
 

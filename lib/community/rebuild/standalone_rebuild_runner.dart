@@ -1,3 +1,4 @@
+import '../manifest_result.dart';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -96,6 +97,7 @@ class RebuildProgress {
       RebuildStates.paused => '중단됨 — 이어서 진행할 수 있습니다',
       RebuildStates.failed => '실패 — 다시 시도할 수 있습니다',
       RebuildStates.prerequisitesRequired => '준비 필요 — 연결을 확인한 뒤 이어서 진행해 주세요',
+      RebuildStates.waitingRetry => '자동 재시도 대기 중',
       _ => '시작 대기',
     };
   }
@@ -159,11 +161,11 @@ class StandaloneRebuildRunner extends ChangeNotifier {
   final DateTime Function() _now;
 
   static const prerequisiteRetryDelays = [
-    Duration(minutes: 1),
+    Duration(seconds: 15),
+    Duration(seconds: 30),
+    Duration(seconds: 60),
     Duration(minutes: 2),
     Duration(minutes: 5),
-    Duration(minutes: 10),
-    Duration(minutes: 30),
   ];
   static const leaseExpiryMargin = Duration(seconds: 5);
 
@@ -367,9 +369,7 @@ class StandaloneRebuildRunner extends ChangeNotifier {
 
   Future<void> _scheduleRetry(CommunityRebuild r, int version) async {
     if (_pauseRequested || !shouldAutoResume(r)) return;
-    final manifestUnavailable =
-        r.state == RebuildStates.prerequisitesRequired &&
-        r.job?['last_error'] == 'manifest_unavailable';
+    final manifestUnavailable = r.waitingForManifest;
     if (!r.waitingForWorker && !manifestUnavailable) return;
     Duration delay;
     int attempt;
@@ -396,11 +396,13 @@ class StandaloneRebuildRunner extends ChangeNotifier {
       attempt = ++_workerRetries;
       limit = maxWorkerRetries;
     } else {
-      if (_prerequisiteRetries >= prerequisiteRetryDelays.length) {
-        _stopRetry();
-        return;
-      }
-      delay = prerequisiteRetryDelays[_prerequisiteRetries++];
+      delay = r.manifestFailure?.status == ManifestStatus.busyUploadLease
+          ? prerequisiteRetryDelays.first
+          : prerequisiteRetryDelays[_prerequisiteRetries.clamp(
+              0,
+              prerequisiteRetryDelays.length - 1,
+            )];
+      _prerequisiteRetries++;
       attempt = _prerequisiteRetries;
       limit = prerequisiteRetryDelays.length;
     }
@@ -413,7 +415,7 @@ class StandaloneRebuildRunner extends ChangeNotifier {
         '${at.second.toString().padLeft(2, '0')}';
     _retryNotice =
         '${r.waitingForWorker ? '이전 작업이 끝나기를 기다리고 있습니다.' : '공유 목록을 확인하지 못했습니다.'} '
-        '$time에 자동으로 다시 시도합니다 ($attempt/$limit회).';
+        '$time에 자동으로 다시 시도합니다${r.waitingForWorker ? ' ($attempt/$limit회)' : ''}.';
     _retryTimer = Timer(delay, () {
       if (!_isCurrent(r, version)) return;
       _cancelRetry();

@@ -1,3 +1,4 @@
+import '../manifest_result.dart';
 import '../../services/sqlite_connection.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -22,6 +23,7 @@ const String communityRebuildRequiredVersion = 'source-rebuild-2026-10-11.1';
 abstract class RebuildStates {
   static const required = 'required';
   static const prerequisitesRequired = 'prerequisites_required';
+  static const waitingRetry = 'waiting_retry';
   static const awaitingConfirmation = 'awaiting_confirmation';
   static const preparingBackup = 'preparing_backup';
   static const running = 'running';
@@ -162,7 +164,8 @@ class CommunityRebuild extends ChangeNotifier {
     required Future<bool> Function() gateFresh,
     RebuildEngine engine = const RebuildEngine(),
     Future<RebuildBackupResult> Function(String runId)? backup,
-    Future<bool> Function()? manifestCheck,
+    Future<ManifestResult> Function()? manifestCheck,
+    Future<ManifestResult> Function()? gateCheck,
     Future<String> Function()? personalDbPath,
     Future<PersonalDbFacts> Function()? personalDbFacts,
     int Function()? scopeGeneration,
@@ -178,8 +181,8 @@ class CommunityRebuild extends ChangeNotifier {
        _gateFresh = gateFresh,
        _engine = engine,
        _backupOverride = backup,
-       _manifestCheck =
-           manifestCheck ?? CommunityUploadHooks.refreshServerCompletedNow,
+       _manifestCheck = manifestCheck ?? CommunityUploadHooks.checkManifest,
+       _gateCheck = gateCheck,
        _personalDbPath = personalDbPath;
 
   final Duration stallTimeout;
@@ -191,7 +194,8 @@ class CommunityRebuild extends ChangeNotifier {
   final Future<bool> Function() _gateFresh;
   final RebuildEngine _engine;
   final Future<RebuildBackupResult> Function(String runId)? _backupOverride;
-  final Future<bool> Function() _manifestCheck;
+  final Future<ManifestResult> Function() _manifestCheck;
+  final Future<ManifestResult> Function()? _gateCheck;
   final Future<String> Function()? _personalDbPath;
   final Future<PersonalDbFacts> Function()? _personalDbFacts;
 
@@ -257,9 +261,14 @@ class CommunityRebuild extends ChangeNotifier {
       state == RebuildStates.validating ||
       state == RebuildStates.committing;
 
+  ManifestResult? get manifestFailure =>
+      ManifestResult.fromJobError(job?['last_error']);
+  bool get waitingForManifest => manifestFailure?.retryable == true;
+
   String? _notice;
   String? get notice =>
       _notice ??
+      manifestFailure?.message ??
       switch (_job?['last_error']) {
         null => null,
         'interrupted' => '이전 초기화가 중단되었습니다. 저장된 자료부터 이어서 진행할 수 있습니다.',
@@ -267,7 +276,6 @@ class CommunityRebuild extends ChangeNotifier {
         'progress_timeout' => '일정 시간 진행이 없어 중단했습니다. 연결 상태를 확인한 뒤 이어서 진행해 주세요.',
         'gate_required' ||
         'gate_not_fresh' => '계정 또는 공유 연결을 확인하지 못했습니다. 연결 복구 후 이어서 진행해 주세요.',
-        'manifest_unavailable' => '중앙 공유 목록을 확인하지 못했습니다. 연결 복구 후 다시 시도해 주세요.',
         'rebuild_lease_lost' => '작업 소유권을 확인하지 못해 중단했습니다. 상태를 다시 확인해 주세요.',
         'backup_missing_or_invalid' =>
           '최초 백업을 확인하지 못해 중단했습니다. 기존 백업과 수집 자료는 유지됩니다.',
@@ -585,11 +593,24 @@ class CommunityRebuild extends ChangeNotifier {
           await load();
           if (RebuildStates.terminalOk.contains(state)) return true;
           await SyncOperationAdmission.checkOwnership();
-          if (!await _gateFresh().timeout(const Duration(seconds: 45))) {
-            await _ensureRow(
-              state: RebuildStates.prerequisitesRequired,
-              error: 'gate_required',
-            );
+          ManifestResult gateResult;
+          try {
+            final checkGate =
+                _gateCheck ?? CommunityUploadHooks.rebuildGateCheck;
+            gateResult =
+                await (checkGate != null
+                        ? checkGate()
+                        : _gateFresh().then(
+                            (ok) => ManifestResult(
+                              ok ? ManifestStatus.ok : ManifestStatus.auth,
+                            ),
+                          ))
+                    .timeout(const Duration(seconds: 45));
+          } catch (_) {
+            gateResult = const ManifestResult(ManifestStatus.network);
+          }
+          if (!gateResult.isOk) {
+            await _saveManifestFailure(gateResult);
             return false;
           }
           await SyncOperationAdmission.checkOwnership();
@@ -611,20 +632,17 @@ class CommunityRebuild extends ChangeNotifier {
             if (validateOnly) {
               await _finishCollected(await _storedOutcome());
             } else {
-              bool manifestReady;
+              ManifestResult manifestResult;
               try {
-                manifestReady = await _manifestCheck().timeout(
+                manifestResult = await _manifestCheck().timeout(
                   const Duration(minutes: 2),
                 );
               } catch (_) {
-                manifestReady = false;
+                manifestResult = const ManifestResult(ManifestStatus.network);
               }
               await SyncOperationAdmission.checkOwnership();
-              if (!manifestReady) {
-                await _ensureRow(
-                  state: RebuildStates.prerequisitesRequired,
-                  error: 'manifest_unavailable',
-                );
+              if (!manifestResult.isOk) {
+                await _saveManifestFailure(manifestResult);
                 return false;
               }
               await SyncOperationAdmission.checkOwnership();
@@ -688,6 +706,19 @@ class CommunityRebuild extends ChangeNotifier {
       }
       notifyListeners();
     }
+  }
+
+  Future<void> _saveManifestFailure(ManifestResult result) async {
+    await _ensureRow(
+      state: result.retryable
+          ? RebuildStates.waitingRetry
+          : RebuildStates.prerequisitesRequired,
+      error: result.jobError,
+    );
+    await _store.setMeta(
+      'rebuild_manifest:${_job!['run_id']}',
+      jsonEncode(result.diagnostics),
+    );
   }
 
   /// Do not publish paused until the old future drains. Late responses cannot

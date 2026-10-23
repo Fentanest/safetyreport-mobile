@@ -1,3 +1,4 @@
+import 'package:safetyreport/community/manifest_result.dart';
 // 초기화 상태기계 — 가짜 엔진·백업 주입 (G01·G02·G05·G06·G07·G12·G16 해당 부분).
 import 'dart:io';
 import 'dart:async';
@@ -129,7 +130,8 @@ void main() {
     _FakeEngine? engine,
     Future<RebuildBackupResult> Function(String runId)? backup,
     Future<bool> Function()? gateFresh,
-    Future<bool> Function()? manifestCheck,
+    Future<ManifestResult> Function()? manifestCheck,
+    Future<ManifestResult> Function()? gateCheck,
     String namespace = 'ns-1',
     Stopwatch? progressClock,
     Duration stallTimeout = const Duration(minutes: 5),
@@ -145,12 +147,14 @@ void main() {
       localDatasetId: store.localDatasetId,
       sourceNamespace: () async => namespace,
       gateFresh: gateFresh ?? () async => true,
+      gateCheck: gateCheck,
       engine: engine,
       backup:
           backup ??
           (_) async =>
               const RebuildBackupResult(ok: true, ref: 'b', check: 'ok'),
-      manifestCheck: manifestCheck ?? () async => true,
+      manifestCheck:
+          manifestCheck ?? () async => const ManifestResult(ManifestStatus.ok),
     );
     addTearDown(rebuild.dispose);
     return rebuild;
@@ -458,7 +462,7 @@ void main() {
       gateFresh: () async => false,
       manifestCheck: () async {
         manifestCalls++;
-        return true;
+        return const ManifestResult(ManifestStatus.ok);
       },
     );
     expect(await rebuild.start(confirmedBy: 'user'), isFalse);
@@ -471,10 +475,14 @@ void main() {
     final engine = _FakeEngine();
     final rebuild = makeRebuild(
       engine: engine,
-      manifestCheck: () async => false,
+      manifestCheck: () async =>
+          const ManifestResult(ManifestStatus.invalidResponse),
     );
     expect(await rebuild.start(confirmedBy: 'user'), isFalse);
-    expect((rebuild.job?['last_error'] as String?), 'manifest_unavailable');
+    expect(
+      (rebuild.job?['last_error'] as String?),
+      'manifest_invalid_response',
+    );
     expect(engine.runs, isEmpty);
   });
 
@@ -485,12 +493,12 @@ void main() {
       engine: engine,
       manifestCheck: () async {
         if (!available) throw TimeoutException('manifest');
-        return true;
+        return const ManifestResult(ManifestStatus.ok);
       },
     );
     expect(await rebuild.start(confirmedBy: 'user'), isFalse);
-    expect(rebuild.state, RebuildStates.prerequisitesRequired);
-    expect(rebuild.job?['last_error'], 'manifest_unavailable');
+    expect(rebuild.state, RebuildStates.waitingRetry);
+    expect(rebuild.job?['last_error'], 'manifest_network');
     expect(engine.runs, isEmpty);
     final runId = rebuild.job?['run_id'];
     available = true;
@@ -498,6 +506,82 @@ void main() {
     expect(rebuild.job?['run_id'], runId);
     expect(engine.runs, hasLength(1));
   });
+
+  for (final status in ManifestStatus.values.where(
+    (s) => s != ManifestStatus.ok,
+  )) {
+    test(
+      'manifest ${status.code}: durable reason, no premature collection, same-run recovery',
+      () async {
+        final engine = _FakeEngine();
+        var available = false;
+        final rebuild = makeRebuild(
+          engine: engine,
+          manifestCheck: () async => available
+              ? const ManifestResult(ManifestStatus.ok)
+              : ManifestResult(
+                  status,
+                  httpStatus: 403,
+                  serverCode: 'synthetic_code',
+                  requestId: 'request-252',
+                ),
+        );
+        expect(await rebuild.start(confirmedBy: 'user'), isFalse);
+        final failure = ManifestResult(status);
+        expect(
+          rebuild.state,
+          failure.retryable
+              ? RebuildStates.waitingRetry
+              : RebuildStates.prerequisitesRequired,
+        );
+        expect(rebuild.job?['last_error'], failure.jobError);
+        expect(rebuild.manifestFailure?.action, failure.action);
+        expect(rebuild.notice, failure.message);
+        expect(engine.runs, isEmpty);
+        final runId = rebuild.job!['run_id'];
+        final diagnostic = await store.meta('rebuild_manifest:$runId');
+        expect(diagnostic, contains('request-252'));
+        expect(diagnostic, contains('synthetic_code'));
+        await rebuild.load();
+        expect(rebuild.manifestFailure?.status, status);
+        available = true;
+        expect(await rebuild.start(confirmedBy: 'resume'), isTrue);
+        expect(rebuild.job!['run_id'], runId);
+        expect(engine.runs, [runId]);
+      },
+    );
+  }
+
+  test(
+    'recovery forces gate check before manifest, and repeats it for the same job',
+    () async {
+      final calls = <String>[];
+      var consent = false;
+      final rebuild = makeRebuild(
+        gateCheck: () async {
+          calls.add('force_gate_and_connection');
+          return ManifestResult(
+            consent ? ManifestStatus.ok : ManifestStatus.consentRequired,
+          );
+        },
+        manifestCheck: () async {
+          calls.add('manifest');
+          return const ManifestResult(ManifestStatus.ok);
+        },
+      );
+      expect(await rebuild.start(confirmedBy: 'user'), isFalse);
+      final runId = rebuild.job!['run_id'];
+      expect(calls, ['force_gate_and_connection']);
+      consent = true;
+      expect(await rebuild.start(confirmedBy: 'resume'), isTrue);
+      expect(calls, [
+        'force_gate_and_connection',
+        'force_gate_and_connection',
+        'manifest',
+      ]);
+      expect(rebuild.job!['run_id'], runId);
+    },
+  );
 
   test('G06: backup failure leaves failed with no changes', () async {
     final engine = _FakeEngine();
@@ -600,7 +684,7 @@ void main() {
         engine: engine,
         backup: (_) async =>
             const RebuildBackupResult(ok: true, ref: 'b', check: 'ok'),
-        manifestCheck: () async => true,
+        manifestCheck: () async => const ManifestResult(ManifestStatus.ok),
       );
       addTearDown(rebuild.dispose);
       expect(await rebuild.start(confirmedBy: 'user'), isFalse);

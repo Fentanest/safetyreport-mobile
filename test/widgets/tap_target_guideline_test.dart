@@ -52,6 +52,7 @@ const _perm = MethodChannel('com.fentanest.mysafetyreport/permissions');
 
 void main() {
   setUp(() {
+    SharedPreferences.setMockInitialValues({});
     PackageInfo.setMockInitialValues(
       appName: 'safetyreport',
       packageName: 'x',

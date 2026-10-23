@@ -1,3 +1,4 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:safetyreport/services/app_prefs_keys.dart';
 import 'package:safetyreport/services/background_login_check.dart';
@@ -18,6 +19,7 @@ void main() {
   }
 
   setUp(() async {
+    FlutterSecureStorage.setMockInitialValues({});
     loginCalls = 0;
     await setPrefs({});
     StandaloneAuthService.passwordReaderOverride = () async => 'pw';
@@ -45,7 +47,7 @@ void main() {
 
     expect(await BackgroundLoginCheck.run(now: t0), isTrue);
     expect(await alert(), startsWith('${t0.millisecondsSinceEpoch}|'));
-    expect(await alert(), contains('비밀번호 불일치'));
+    expect(await alert(), contains('아이디와 비밀번호'));
 
     expect(
       await BackgroundLoginCheck.run(now: t0.add(const Duration(hours: 24))),
@@ -91,6 +93,7 @@ void main() {
           .add(const Duration(minutes: 30))
           .millisecondsSinceEpoch,
     });
+    await StandaloneAuthService.saveToken('t', username: 'tester', cookies: {'JSESSIONID': 'fixture'});
     expect(await BackgroundLoginCheck.run(), isFalse);
 
     expect(loginCalls, 0);

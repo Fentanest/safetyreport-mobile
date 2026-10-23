@@ -1,3 +1,4 @@
+import 'package:shared_preferences/shared_preferences.dart';
 // Client mode: "PC 서버 연결 대기" is shown where the user sees it (main navigation banner),
 // never as a lock.
 import 'package:flutter/material.dart';
@@ -10,7 +11,10 @@ import 'package:safetyreport/widgets/cloud_delay_banner.dart';
 import '../community/fake_account.dart';
 
 void main() {
-  setUp(setUpSecureStorage);
+  setUp(() {
+    setUpSecureStorage();
+    SharedPreferences.setMockInitialValues({});
+  });
 
   CommunityGate makeGate(Future<CommunityGateLinkResult> Function() serverGate) {
     final auth = StubAuthService()..setPhase(CommunityAccountPhase.connected);

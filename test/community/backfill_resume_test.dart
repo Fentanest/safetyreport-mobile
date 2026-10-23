@@ -13,6 +13,8 @@ import 'package:safetyreport/community/community_store.dart';
 import 'package:safetyreport/community/raw_backfill.dart';
 import 'package:safetyreport/community/raw_backfill_runtime.dart';
 import 'package:safetyreport/community/raw_backfill_unstick.dart';
+import 'package:safetyreport/services/standalone_auth_service.dart'
+    show OfficialNetworkException;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -69,6 +71,8 @@ void main() {
       (Exception('상세 조회 실패 (R1, 500)'), 'transient', 'server_5xx'),
       (Exception('목록 조회 실패 (429)'), 'transient', 'rate_limited'),
       (Exception('네트워크 오류 (3회 재시도 실패): x'), 'transient', 'network'),
+      // 2.5.2: 상세 API 의 재시도 소진은 문구가 아니라 타입으로 온다.
+      (const OfficialNetworkException(), 'transient', 'network'),
       (BackfillTransient('no_result'), 'transient', 'no_result'),
       (BackfillPaused('sync_busy'), 'transient', 'sync_busy'),
       (

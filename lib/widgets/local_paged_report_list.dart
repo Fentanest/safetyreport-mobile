@@ -414,7 +414,7 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
             children: [
               Text(
                 !_candidateCount
-                    ? '${widget.groupPage ? '전체 $_total개 차량 묶음' : '전체 ${formatCount(_total)}'} · ${_page + 1} / ${((_total - 1) ~/ _pageSize + 1).clamp(1, 100000)} 페이지'
+                    ? '${widget.groupPage ? '전체 ${formatNumber(_total)}개 차량' : '전체 ${formatCount(_total)}'} · ${_page + 1} / ${((_total - 1) ~/ _pageSize + 1).clamp(1, 100000)} 페이지'
                     : '전체 대상 ${formatCount(_total)} · ${_page + 1}페이지에서 조건에 맞는 ${formatCount(_reports.length)}',
               ),
               IconButton(
@@ -500,13 +500,13 @@ class _LocalPagedReportListState extends State<LocalPagedReportList> {
                             text: r.date.isNotEmpty ? '신고: ${r.date}' : '',
                             wrapText: true,
                           ),
-                          ReportCardMetaItem(
-                            icon: Icons.event_available,
-                            text: r.responseDate.isNotEmpty
-                                ? '답변: ${r.responseDate}'
-                                : '',
-                            wrapText: true,
-                          ),
+                          // 답변 전에는 빈 아이콘 줄을 두지 않는다.
+                          if (r.responseDate.isNotEmpty)
+                            ReportCardMetaItem(
+                              icon: Icons.event_available,
+                              text: '답변: ${r.responseDate}',
+                              wrapText: true,
+                            ),
                           ReportCardMetaItem(
                             icon: Icons.business,
                             text: r.agency,

@@ -82,7 +82,7 @@ class ManifestResult {
     ManifestStatus.serverError ||
     ManifestStatus.network => '공유 서버에 연결하지 못했습니다. 잠시 후 자동으로 다시 시도합니다.',
     ManifestStatus.invalidResponse =>
-      '공유 목록을 안전하게 확인하지 못했습니다. 기존 자료는 유지됩니다. 잠시 후 다시 시도해 주세요.',
+      '공유 서버에서 받은 목록이 올바르지 않아 반영하지 않았습니다. 기존 자료는 그대로입니다. 잠시 후 다시 시도해 주세요.',
   };
 
   /// 서버의 구조화된 코드와 요청 ID만 제한된 문자·길이로 보존한다.

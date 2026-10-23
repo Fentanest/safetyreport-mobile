@@ -231,11 +231,7 @@ class StandaloneApiService {
       }
     }
 
-    if (res == null) {
-      throw const AuthTemporarilyUnavailableException(
-        '안전신문고에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.',
-      );
-    }
+    if (res == null) throw const OfficialNetworkException();
 
     await StandaloneAuthService.updateResponseCookies(
       session,
@@ -251,9 +247,7 @@ class StandaloneApiService {
         res = await _ownedGet(uri, headers, const Duration(seconds: 20));
       } catch (_) {
         debugPrint('[official_api] status=none retry=1 format=none');
-        throw const AuthTemporarilyUnavailableException(
-          '안전신문고에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.',
-        );
+        throw const OfficialNetworkException();
       }
       await StandaloneAuthService.updateResponseCookies(
         session,

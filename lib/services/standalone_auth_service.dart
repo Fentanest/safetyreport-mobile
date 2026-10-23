@@ -45,8 +45,14 @@ class LoginRejectedException implements Exception {
 class OfficialSessionRejectedException
     extends AuthTemporarilyUnavailableException {
   const OfficialSessionRejectedException()
-    : super('안전신문고가 로그인을 받아 주지 않습니다. 잠시 뒤 다시 시도해 주세요.');
+    : super('안전신문고에 다시 로그인했지만 접속이 거부되었습니다. 잠시 후 다시 시도해 주세요.');
   String get code => 'official_session_rejected';
+}
+
+/// 공식 API 요청이 네트워크 재시도를 모두 실패했다. 1회 전송은 이 타입으로 일시 오류(network)를 판정한다.
+class OfficialNetworkException extends AuthTemporarilyUnavailableException {
+  const OfficialNetworkException()
+    : super('안전신문고에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.');
 }
 
 enum ReloginOutcome { success, noCredentials, rejected, transient }
@@ -138,7 +144,7 @@ class StandaloneAuthService {
   static void _checkGeneration(int? generation) {
     if (generation != null && generation != _credentialGeneration) {
       throw const AuthTemporarilyUnavailableException(
-        '로그인 설정이 변경되었습니다. 다시 확인해 주세요.',
+        '로그인하는 사이에 계정이나 모드가 바뀌어 멈췄습니다. 다시 시도해 주세요.',
       );
     }
   }
@@ -162,7 +168,7 @@ class StandaloneAuthService {
     void checkCurrent() {
       if (generation != _credentialGeneration) {
         throw const AuthTemporarilyUnavailableException(
-          '로그인 설정이 변경되었습니다. 다시 확인해 주세요.',
+          '로그인하는 사이에 계정이나 모드가 바뀌어 멈췄습니다. 다시 시도해 주세요.',
         );
       }
     }
@@ -320,7 +326,8 @@ class StandaloneAuthService {
             '안전신문고 로그인을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.',
           );
         }
-        throw const LoginRejectedException('아이디 또는 비밀번호를 확인해 주세요.');
+        // 계정 잠김 등 공식 사이트가 준 안내문을 그대로 보인다(비밀값이 아니다).
+        throw LoginRejectedException(detail);
       }
       if (tokenRes.statusCode != 200) {
         throw AuthTemporarilyUnavailableException(
@@ -432,7 +439,7 @@ class StandaloneAuthService {
         (prefs.getString(AppPrefsKeys.appMode) == 'server' ||
             prefs.getBool(AppPrefsKeys.standaloneDemoMode) == true)) {
       throw const AuthTemporarilyUnavailableException(
-        '로그인 설정이 변경되었습니다. 다시 확인해 주세요.',
+        '로그인하는 사이에 계정이나 모드가 바뀌어 멈췄습니다. 다시 시도해 주세요.',
       );
     }
     final epoch = prefs.getString(_sessionEpochKey) ?? '';
@@ -442,7 +449,7 @@ class StandaloneAuthService {
                 prefs.getString(AppPrefsKeys.standaloneUsername) !=
                     username))) {
       throw const AuthTemporarilyUnavailableException(
-        '로그인 설정이 변경되었습니다. 다시 확인해 주세요.',
+        '로그인하는 사이에 계정이나 모드가 바뀌어 멈췄습니다. 다시 시도해 주세요.',
       );
     }
     _checkGeneration(generation);
@@ -638,7 +645,7 @@ class StandaloneAuthService {
         prefs.getBool(AppPrefsKeys.standaloneDemoMode) == true) {
       return const ReloginResult(
         ReloginOutcome.transient,
-        message: '로그인 설정이 변경되었습니다. 다시 확인해 주세요.',
+        message: '로그인하는 사이에 계정이나 모드가 바뀌어 멈췄습니다. 다시 시도해 주세요.',
       );
     }
     final username = prefs.getString(AppPrefsKeys.standaloneUsername) ?? '';
@@ -665,7 +672,7 @@ class StandaloneAuthService {
         prefs.getString(AppPrefsKeys.standaloneUsername) != username) {
       return const ReloginResult(
         ReloginOutcome.transient,
-        message: '로그인 설정이 변경되었습니다. 다시 확인해 주세요.',
+        message: '로그인하는 사이에 계정이나 모드가 바뀌어 멈췄습니다. 다시 시도해 주세요.',
       );
     }
     try {
@@ -673,7 +680,7 @@ class StandaloneAuthService {
     } on AuthTemporarilyUnavailableException {
       return const ReloginResult(
         ReloginOutcome.transient,
-        message: '로그인 설정이 변경되었습니다. 다시 확인해 주세요.',
+        message: '로그인하는 사이에 계정이나 모드가 바뀌어 멈췄습니다. 다시 시도해 주세요.',
       );
     }
     return result;
@@ -691,11 +698,11 @@ class StandaloneAuthService {
             await (loginOverride?.call(username, password) ??
                 login(username, password, saveCredentials: false));
         return ReloginResult(ReloginOutcome.success, token: token);
-      } on LoginRejectedException {
+      } on LoginRejectedException catch (e) {
         return ReloginResult(
           ReloginOutcome.rejected,
           message:
-              '안전신문고가 로그인을 거부했습니다. 아이디와 비밀번호를 확인하고 설정 > 재로그인에서 다시 로그인해 주세요.',
+              '안전신문고가 로그인을 거부했습니다: ${e.message} 아이디와 비밀번호를 확인하고 설정 > 재로그인에서 다시 로그인해 주세요.',
         );
       } catch (e) {
         lastError = e;

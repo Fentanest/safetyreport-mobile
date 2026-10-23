@@ -532,11 +532,19 @@ class _CommunityRebuildScreenState extends State<CommunityRebuildScreen>
                       : _run(() => rebuild.acceptGaps()),
             child: Text('누락 $failed건을 확인하고 계속'),
           ),
+        // 공유 목록 실패일 때만 실제 재시도로 잇는다. 그 밖에는 시작 확인을 건너뛰지 않게 상태만 다시 읽는다.
         if (!RebuildStates.terminalOk.contains(rebuild.state))
-          TextButton(
-            onPressed: _busy || executing ? null : () => _run(_retryLocal),
-            child: const Text('다시 시도'),
-          ),
+          rebuild.manifestFailure != null
+              ? TextButton(
+                  onPressed: _busy || executing
+                      ? null
+                      : () => _run(_retryLocal),
+                  child: const Text('다시 시도'),
+                )
+              : TextButton(
+                  onPressed: () => _run(() => rebuild.refresh()),
+                  child: const Text('상태 다시 확인'),
+                ),
       ],
     );
   }

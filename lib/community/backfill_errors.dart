@@ -10,6 +10,8 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:sqflite/sqflite.dart' show DatabaseException;
 
+import '../services/standalone_auth_service.dart' show OfficialNetworkException;
+
 import 'raw_backfill.dart' show BackfillPaused;
 
 /// 1회 전송 안에서 "일시적"으로 확정한 사유를 싣는 예외(예: 상세 응답에 `result` 가 없음 → `no_result`).
@@ -34,6 +36,8 @@ String? transientBackfillReason(Object error) {
     return error.reason;
   }
   if (error is TimeoutException) return 'timeout';
+  // 상세 API 의 네트워크 재시도 소진(2.5.2부터 문구 대신 타입으로 온다).
+  if (error is OfficialNetworkException) return 'network';
   if (error is SocketException ||
       error is HandshakeException ||
       error is TlsException ||

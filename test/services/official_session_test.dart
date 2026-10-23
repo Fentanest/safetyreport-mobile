@@ -393,4 +393,34 @@ void main() {
       expect(cookies, {'JSESSIONID': 'one', 'WMONID': 'two'});
     },
   );
+
+  test('login rejection keeps the official site notice (e.g. locked account)', () async {
+    StandaloneAuthService.httpClientFactoryForTest = () => _Client((req) {
+      if (req.uri.path.endsWith('getPublicKey')) {
+        return _Response(
+          200,
+          jsonEncode({
+            'RSAModulus': List.filled(128, 'c7').join(),
+            'RSAExponent': '10001',
+          }),
+          [Cookie('JSESSIONID', 'rsa-secret')],
+        );
+      }
+      return _Response(
+        400,
+        jsonEncode({'error_description': '비밀번호 5회 오류로 계정이 잠겼습니다.'}),
+        const [],
+      );
+    });
+    await expectLater(
+      StandaloneAuthService.login('tester', 'password-secret'),
+      throwsA(
+        isA<LoginRejectedException>().having(
+          (e) => e.message,
+          'message',
+          '비밀번호 5회 오류로 계정이 잠겼습니다.',
+        ),
+      ),
+    );
+  });
 }

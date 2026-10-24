@@ -386,6 +386,13 @@ Client 모드 URI/헤더는 실제 코드에서 `lib/services/server_contract.da
 - `GET https://www.safetyreport.go.kr/api/v1/common/rsa/getPublicKey` — RSA 공개키
 - `POST https://www.safetyreport.go.kr/oauth/token` — OAuth2 토큰 발급
 - `GET /api/v1/portal/mypage/mysafereport?startRowNum=&endRowNum=...` — 신고 목록
+  - **2026-10-24 공식 사이트 제한**(실측, 응답 `400 {"error":"request_limited","reason":…}`): 조회 기간 최대 1년
+    (`C_FRM_DATE`~`C_TO_DATE` 365일 초과 → `list_date_range_too_large`), 한 번에 최대 50건(`list_page_size_too_large`).
+    `fetchReportList`·`fetchTotalCount`는 2014년~올해를 달력 연도 구간(최신 연도 먼저)으로 나누고 50건씩 받아, 예전 한 번 조회와 같은
+    '전체 목록의 행 번호' 모양으로 이어 붙인다. 구간 건수는 `fetchTotalCount` 때 새로 읽고, 받는 사이 건수가 바뀌면 바뀐 `totalCnt`를 돌려
+    `ListInventory` 검증이 실패로 잡는다. 실측(PC 계정 3,162건): 연도 구간 합 = 전체, 누락·중복 0, 각 행이 구간 안, 최신순.
+  - 신고번호 `SPP-YYMM-…`의 YY = 신고일 연도(3,162건 전부). 큐의 신고가 DB에 없으면 그 연도(12월·1월 번호는 이웃 연도 포함) 목록만 받는
+    연도 한정 증분(`SyncEngine.start(listYears:)`)을 한다. 연도를 모르는 번호는 전체. 연도 한정 증분은 마지막 동기화 시각을 남기지 않는다.
 - `GET /api/v1/portal/mypage/mysafereport/{C_NO}` — 신고 상세
 
 타임아웃: 20초 / 시도, 최대 3회 재시도. 401 → 자동 재로그인 후 1회 재시도.

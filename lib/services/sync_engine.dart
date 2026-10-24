@@ -249,12 +249,15 @@ class SyncEngine {
       '신고 내역 다시 불러오기(1회)가 끝나지 않아 일반 동기화를 시작하지 않았습니다. '
       '대시보드의 다시 불러오기 카드에서 진행 상황을 확인해 주세요.';
 
+  /// [listYears] 를 주면 그 연도 목록만 받아 증분한다(큐의 신고가 DB 에 없을 때). 목록 전체를 본 것이 아니므로
+  /// 마지막 동기화 시각은 남기지 않는다. 증분은 목록에 없는 기존 신고를 지우지 않으므로 다른 연도 신고는 그대로다.
   static Future<SyncRunResult> start({
     bool fullSync = false,
     bool preserveDataset = false,
     String? catchupKey,
     bool backgroundWorker = false,
     String? rebuildRunId,
+    Set<int>? listYears,
   }) async {
     // DB 최적화가 실제로 신고를 처리하는 동안만 수동 동기화를 하나로 합쳐 영속한다(명세 7-3).
     // 쉬는 동안(login_required·outage·partial·대기)에는 바로 실행한다.
@@ -286,6 +289,7 @@ class SyncEngine {
           catchupKey: catchupKey,
           backgroundWorker: backgroundWorker,
           rebuildRunId: rebuildRunId,
+          listYears: fullSync || rebuildRunId != null ? null : listYears,
         ),
         const SyncRunResult(
           done: 0,
@@ -353,6 +357,7 @@ class SyncEngine {
     String? catchupKey,
     bool backgroundWorker = false,
     String? rebuildRunId,
+    Set<int>? listYears,
   }) async {
     if (localAccessAllowed != null && !await localAccessAllowed!()) {
       return const SyncRunResult(
@@ -445,6 +450,7 @@ class SyncEngine {
           catchupKey: catchupKey,
           backgroundWorker: backgroundWorker,
           rebuildRunId: rebuildRunId,
+          listYears: listYears,
         ),
       );
     } catch (e) {
@@ -471,6 +477,7 @@ class SyncEngine {
     String? catchupKey,
     bool backgroundWorker = false,
     String? rebuildRunId,
+    Set<int>? listYears,
   }) async {
     if (_stopping) {
       return const SyncRunResult(
@@ -487,10 +494,13 @@ class SyncEngine {
     _log('동기화 시작...');
 
     // 전체 건수 파악
-    _log('신고 건수 확인 중...');
+    final yearLabel = listYears == null
+        ? ''
+        : ' (${(listYears.toList()..sort()).join('·')}년)';
+    _log('신고 건수 확인 중...$yearLabel');
     int totalCount;
     try {
-      totalCount = await StandaloneApiService.fetchTotalCount();
+      totalCount = await StandaloneApiService.fetchTotalCount(years: listYears);
     } on TokenExpiredException {
       rethrow; // 메시지가 그대로 사용자에게 가야 한다(재로그인 안내)
     } on AuthTemporarilyUnavailableException {
@@ -552,13 +562,13 @@ class SyncEngine {
         _log('로컬 공유 사본을 새로 시작합니다. 이전 전송 기록과 서버에 공유한 자료는 유지합니다.');
       }
 
-      _log('신고 내역이 없습니다.');
+      _log('신고 내역이 없습니다.$yearLabel');
       if (isRebuild) {
         // 정상 인증의 빈 목록(총 0건)도 목록 탐색 완료 → completed (rebuild.md). 예전엔 여기서 돌아가 list_complete 가
         // 안 적혀 0건 계정이 초기화를 끝낼 수 없었다. PC start.py 와 같은 규칙.
         await markRebuildListComplete(community.store!, rebuildRunId);
       }
-      await _saveSyncTime();
+      if (listYears == null) await _saveSyncTime();
       await finishCollectionUpload(isRebuild: isRebuild);
       _emit(SyncEvent(type: SyncEventType.done, total: 0));
       return SyncRunResult(
@@ -596,6 +606,7 @@ class SyncEngine {
           final data = await StandaloneApiService.fetchReportList(
             startRow: start,
             endRow: end,
+            years: listYears,
           );
           await SyncOperationAdmission.checkOwnership();
           final list = inventory.addPage(data, start, end);
@@ -871,6 +882,8 @@ class SyncEngine {
       // 목록 페이지가 하나라도 실패하면 마지막 동기화 시각을 성공으로 남기지 않는다(M-20).
       if (_stopping) {
         _log('[주의] 중지됨 — 마지막 동기화 시각을 갱신하지 않음');
+      } else if (listYears != null) {
+        // 연도 한정 확인 — 다른 연도는 보지 않았으므로 마지막 동기화 시각으로 남기지 않는다.
       } else if (listPageErrors == 0 && inventory.listComplete && errors == 0) {
         await _saveSyncTime();
       } else {

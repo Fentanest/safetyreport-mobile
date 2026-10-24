@@ -169,14 +169,23 @@ void main() {
         expect(req.headers['Authorization'], 'BEARER token-secret-1');
         expect(req.headers['Cookie'], contains('JSESSIONID=session-secret-1'));
         expect(req.headers['Cookie'], contains('WMONID=monitor-secret'));
-        return http.Response('{"result":{},"totalCnt":0}', 200);
+        // 목록은 연도 구간마다 건수를 묻는다(공식 사이트 1년 제한) — 모든 구간 요청에 같은 쿠키를 보낸다.
+        return http.Response(
+          req.url.queryParameters.containsKey('startRowNum')
+              ? '{"result":[],"totalCnt":0}'
+              : '{"result":{}}',
+          200,
+        );
       });
       await StandaloneApiService.fetchReportList();
       await StandaloneApiService.fetchReportDetail('synthetic');
       await StandaloneApiService.fetchOfficialAttachment(
         Uri.parse('https://www.safetyreport.go.kr/fileDown/synthetic'),
       );
-      expect(calls, 3);
+      expect(
+        calls,
+        StandaloneApiService.listWindows(DateTime.now()).length + 2,
+      );
     },
   );
 
@@ -243,10 +252,10 @@ void main() {
             );
           });
       if (success) {
-        await StandaloneApiService.fetchReportList();
+        await StandaloneApiService.fetchReportDetail('synthetic');
       } else {
         await expectLater(
-          StandaloneApiService.fetchReportList(),
+          StandaloneApiService.fetchReportDetail('synthetic'),
           throwsA(
             isA<OfficialSessionRejectedException>()
                 .having((e) => e.code, 'code', 'official_session_rejected')
@@ -280,7 +289,7 @@ void main() {
             calls == 1 ? 401 : 200,
           );
         });
-    await StandaloneApiService.fetchReportList();
+    await StandaloneApiService.fetchReportDetail('synthetic');
     expect(logins, 2);
     expect(calls, 2);
   });
@@ -298,7 +307,7 @@ void main() {
             );
           });
       await expectLater(
-        StandaloneApiService.fetchReportList(),
+        StandaloneApiService.fetchReportDetail('synthetic'),
         throwsA(
           isA<AuthTemporarilyUnavailableException>().having(
             (e) => e.message,

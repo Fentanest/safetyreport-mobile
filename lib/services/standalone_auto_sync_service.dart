@@ -137,6 +137,8 @@ class StandaloneAutoSyncService {
     bool didAnyWork = false;
     bool completedAll = false;
     bool didIncremental = false;
+    // 이번 drain 에서 이미 목록을 받은 연도 묶음(연도를 모르는 번호는 전체 목록 = null). 같은 묶음은 한 번만 받는다.
+    final checkedYears = <String>{};
     bool fgsAcquired = false;
     bool preflightDone = false;
     try {
@@ -186,14 +188,26 @@ class StandaloneAutoSyncService {
           break;
         }
 
-        if (result == _FetchResult.notInDb && !didIncremental) {
-          // DB 미발견 + 이번 drain 에서 증분 sync 아직 안 함 → 1회 fallback
+        // DB 미발견 → 그 신고번호의 접수 연도 목록만 받아 증분한다(연도 묶음마다 이번 drain 에서 1회).
+        // 번호 형식이 아니라 연도를 모르면 전체 목록으로 1회.
+        final years = StandaloneApiService.reportNumberYears(spp);
+        final yearsKey = years == null
+            ? 'all'
+            : (years.toList()..sort()).join(',');
+        if (result == _FetchResult.notInDb &&
+            !checkedYears.contains('all') &&
+            checkedYears.add(yearsKey)) {
           didIncremental = true;
-          SyncEngine.emitLog('증분 sync 1회 fallback 시작');
+          SyncEngine.emitLog(
+            years == null
+                ? '증분 sync 1회 fallback 시작'
+                : '증분 sync fallback 시작 (${yearsKey.replaceAll(',', '·')}년 목록)',
+          );
           try {
             final sync = await SyncEngine.start(
               fullSync: false,
               backgroundWorker: backgroundWorker,
+              listYears: years,
             );
             if (sync.failed ||
                 sync.busy ||

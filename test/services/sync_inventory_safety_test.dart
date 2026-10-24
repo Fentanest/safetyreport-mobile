@@ -104,6 +104,44 @@ void main() {
     },
   );
 
+  for (final (number, years) in [
+    ('SPP-2406-0000007', {2024}),
+    ('2401-0000007', {2024, 2023}),
+    ('SPP-2512-0000007', {2025, 2026}),
+    ('SPP-partial', null),
+  ]) {
+    test(
+      'report missing from DB reads only its year list ($number) and keeps last sync',
+      () async {
+        await StandalonePendingQueueStore.append([number]);
+        StandaloneApiService.lastListYears = {-1};
+        var listCalls = 0;
+        StandaloneApiService.listForTest = (_, _) async {
+          listCalls++;
+          return {'totalCnt': 0, 'result': []};
+        };
+        await StandaloneAutoSyncService.drainIfPending(
+          backgroundWorker: true,
+          validateScope: () async {},
+        );
+        expect(listCalls, greaterThan(0));
+        expect(StandaloneApiService.lastListYears, years);
+        // 연도 한정 확인은 전체 동기화가 아니므로 마지막 동기화 시각을 남기지 않는다.
+        expect(
+          await LocalDbService.getMeta('last_sync'),
+          years == null ? isNotNull : isNull,
+        );
+        // 그 연도 목록에도 없으면 큐를 유지한다.
+        expect(
+          StandalonePendingQueueStore.read(
+            await SharedPreferences.getInstance(),
+          ),
+          [number],
+        );
+      },
+    );
+  }
+
   test(
     'headless drain stops before fetch when its account scope changes',
     () async {

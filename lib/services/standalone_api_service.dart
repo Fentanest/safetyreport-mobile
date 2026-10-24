@@ -2,6 +2,7 @@ import 'official_session.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show visibleForTesting, debugPrint;
 import 'package:http/http.dart' as http;
 import 'network_retry_config.dart';
@@ -13,6 +14,10 @@ import 'standalone_auth_service.dart';
 class StandaloneApiService {
   @visibleForTesting
   static Future<Map<String, dynamic>> Function(int start, int end)? listForTest;
+
+  /// 마지막 목록 요청의 연도 범위(null = 전체). 연도 한정 동기화 시험이 본다.
+  @visibleForTesting
+  static Set<int>? lastListYears;
   @visibleForTesting
   static Future<({Map<String, dynamic> result, Map<String, dynamic> envelope})>
   Function(String id)?
@@ -265,38 +270,134 @@ class StandaloneApiService {
   static String _responseFormat(http.Response res) =>
       res.headers['content-type']?.contains('json') == true ? 'json' : 'other';
 
-  /// 신고 목록 조회 (페이지 단위)
-  /// [startRow] 1부터 시작, [endRow] 최대 200
-  static Future<Map<String, dynamic>> fetchReportList({
-    int startRow = 1,
-    int endRow = 200,
-  }) async {
-    final injected = listForTest;
-    if (injected != null) return injected(startRow, endRow);
-    final today = DateTime.now();
-    final todayStr =
-        '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+  /// 공식 목록 API 제한(2026-10-24 실측, 응답 `request_limited`): 조회 기간은 최대 1년
+  /// (`list_date_range_too_large`), 한 번에 최대 50건(`list_page_size_too_large`).
+  static const officialListPageLimit = 50;
+  static const _listStartYear = 2014;
 
+  /// 2014-01-01 ~ [today] 를 달력 연도 구간으로 나눈다(최신 연도 먼저 — 사이트의 최신순과 같은 이어 붙임 순서).
+  /// 각 구간은 1년(365일)을 넘지 않는다. [years] 를 주면 그 연도 구간만 남긴다.
+  @visibleForTesting
+  static List<({String from, String to})> listWindows(
+    DateTime today, {
+    Set<int>? years,
+  }) {
+    String d(DateTime t) =>
+        '${t.year}-${t.month.toString().padLeft(2, '0')}-${t.day.toString().padLeft(2, '0')}';
+    return [
+      for (var y = today.year; y >= _listStartYear; y--)
+        if (years == null || years.contains(y))
+          (from: '$y-01-01', to: y == today.year ? d(today) : '$y-12-31'),
+    ];
+  }
+
+  /// 신고번호(`SPP-YYMM-…`, 접두어 없이도)의 접수 연도. 번호의 YY 는 신고일 연도와 같다(2026-10-24 실측 3,162건 전부).
+  /// 12월·1월 번호는 연말·연초 경계를 대비해 이웃 연도도 넣는다. 형식이 아니면 null — 호출자는 전체 목록을 받는다.
+  static Set<int>? reportNumberYears(String reportNumber) {
+    final m = RegExp(
+      r'^(?:SPP-)?(\d{2})(\d{2})-\d+$',
+    ).firstMatch(reportNumber.trim().toUpperCase());
+    if (m == null) return null;
+    final year = 2000 + int.parse(m.group(1)!);
+    final month = int.parse(m.group(2)!);
+    if (month < 1 || month > 12) return null;
+    return {year, if (month == 12) year + 1, if (month == 1) year - 1};
+  }
+
+  /// 구간별 전체 건수. [fetchTotalCount] 가 새로 채우고, 이어지는 페이지 조회가 행 번호를 구간에 나눌 때 쓴다.
+  static ({String key, List<int> totals})? _windowTotals;
+
+  static Future<Map<String, dynamic>> _fetchWindowPage(
+    ({String from, String to}) window,
+    int startRow,
+    int endRow,
+  ) async {
     final uri = Uri.parse('$_base/api/v1/portal/mypage/mysafereport').replace(
       queryParameters: {
         'startRowNum': '$startRow',
         'endRowNum': '$endRow',
-        'C_FRM_DATE': '2014-01-01',
-        'C_TO_DATE': todayStr,
+        'C_FRM_DATE': window.from,
+        'C_TO_DATE': window.to,
         'state': '',
         'seachType': 'tit',
         'C_RELATION2': '1',
         'searchKeyWord': '',
       },
     );
-
     final res = await _getWithRetry(uri);
-
     if (res.statusCode != 200) {
-      throw Exception('목록 조회 실패 (${res.statusCode})');
+      String? reason;
+      try {
+        final body = jsonDecode(res.body);
+        final code = body is Map ? (body['reason'] ?? body['error']) : null;
+        // 진단용 코드만 남긴다(응답 본문은 싣지 않는다).
+        if (code is String &&
+            RegExp(r'^[A-Za-z0-9_.:-]{1,64}$').hasMatch(code)) {
+          reason = code;
+        }
+      } catch (_) {}
+      throw Exception(
+        '목록 조회 실패 (${res.statusCode})${reason == null ? '' : ' $reason'}',
+      );
     }
-
     return jsonDecode(res.body) as Map<String, dynamic>;
+  }
+
+  static Future<List<int>> _refreshWindowTotals(
+    List<({String from, String to})> windows,
+    String key,
+  ) async {
+    _windowTotals = null;
+    final totals = <int>[];
+    for (final window in windows) {
+      totals.add(ListInventory.readTotal(await _fetchWindowPage(window, 1, 1)));
+    }
+    _windowTotals = (key: key, totals: totals);
+    return totals;
+  }
+
+  /// 신고 목록 조회 (전체 목록의 행 번호 기준, 페이지 단위)
+  /// [startRow] 1부터 시작, [endRow] 최대 200. 공식 사이트 제한 때문에 안에서 연도 구간·50건 단위로 나눠 받아
+  /// 예전 한 번 조회와 같은 모양(`result` 최신순, `totalCnt` 전체 건수)으로 이어 붙인다.
+  static Future<Map<String, dynamic>> fetchReportList({
+    int startRow = 1,
+    int endRow = 200,
+    Set<int>? years,
+  }) async {
+    lastListYears = years;
+    final injected = listForTest;
+    if (injected != null) return injected(startRow, endRow);
+    final windows = listWindows(DateTime.now(), years: years);
+    final key = windows.map((w) => '${w.from}~${w.to}').join(',');
+    final cached = _windowTotals;
+    final totals = List<int>.of(
+      cached != null && cached.key == key
+          ? cached.totals
+          : await _refreshWindowTotals(windows, key),
+    );
+    final rows = <dynamic>[];
+    var offset = 0;
+    for (var i = 0; i < windows.length; i++) {
+      final from = math.max(startRow, offset + 1);
+      final to = math.min(endRow, offset + totals[i]);
+      for (var a = from; a <= to; a += officialListPageLimit) {
+        final b = math.min(a + officialListPageLimit - 1, to);
+        final data = await _fetchWindowPage(windows[i], a - offset, b - offset);
+        final fresh = ListInventory.readTotal(data);
+        if (fresh != totals[i]) {
+          // 받는 사이 그 연도의 건수가 바뀌었다. 바뀐 전체 건수를 돌려줘 호출부의 목록 검증이 다시 받게 한다.
+          _windowTotals = null;
+          totals[i] = fresh;
+          return {
+            'result': rows,
+            'totalCnt': totals.fold<int>(0, (sum, n) => sum + n),
+          };
+        }
+        rows.addAll(data['result'] as List);
+      }
+      offset += totals[i];
+    }
+    return {'result': rows, 'totalCnt': offset};
   }
 
   /// 신고 상세 조회. 상세 원본(envelope 전체)도 함께 돌려준다(2026-10-17 명세 1-3).
@@ -321,9 +422,18 @@ class StandaloneApiService {
   }
 
   /// 전체 신고 건수 확인 (totalCnt 필드)
-  static Future<int> fetchTotalCount() async {
-    final data = await fetchReportList(startRow: 1, endRow: 1);
-    return ListInventory.readTotal(data);
+  /// [years] 를 주면 그 연도 구간만 센다(DB 에 없는 신고를 찾는 연도 한정 동기화).
+  static Future<int> fetchTotalCount({Set<int>? years}) async {
+    lastListYears = years;
+    if (listForTest != null) {
+      return ListInventory.readTotal(await listForTest!(1, 1));
+    }
+    final windows = listWindows(DateTime.now(), years: years);
+    final totals = await _refreshWindowTotals(
+      windows,
+      windows.map((w) => '${w.from}~${w.to}').join(','),
+    );
+    return totals.fold<int>(0, (sum, n) => sum + n);
   }
 
   /// 만족도조사 점수+사유 조회 (인증 불필요 — 신고번호 + 휴대폰번호로 확인).

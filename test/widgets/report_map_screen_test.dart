@@ -413,6 +413,47 @@ void main() {
       }
     }
 
+    for (final inset in [48.0, 24.0]) {
+      testWidgets('세로 화면 소프트키(${inset.toInt()}dp)가 지도·하단 버튼을 가리지 않는다', (
+        tester,
+      ) async {
+        const size = Size(412, 915);
+        final h = _Harness();
+        await h.pump(tester, size: size, bottomInset: inset);
+        expect(tester.takeException(), isNull);
+        final limit = size.height - inset;
+        final scrollable = find
+            .descendant(
+              of: find.byType(Scrollbar),
+              matching: find.byType(Scrollable),
+            )
+            .first;
+        // 화면 스크롤 영역이 소프트키 위에서 끝난다 — 그 아래로는 아무것도 그리지 않는다.
+        expect(tester.getRect(scrollable).bottom, lessThanOrEqualTo(limit));
+        await h.capture(tester, 'softkey-${inset.toInt()}-top');
+        // 지도 하단의 현재 위치 버튼·출처 표시를 보이게 스크롤하면 소프트키 위에 온다.
+        for (final finder in [
+          find.byTooltip('현재 위치'),
+          find.byType(MapOsmAttribution),
+        ]) {
+          await tester.ensureVisible(finder);
+          await h.settle(tester);
+          expect(
+            tester.getRect(finder).bottom,
+            lessThanOrEqualTo(limit),
+            reason: '$finder 가 소프트키 영역에 걸친다',
+          );
+          expect(finder.hitTestable(), findsOneWidget);
+        }
+        await h.capture(tester, 'softkey-${inset.toInt()}-map-bottom');
+        final page = tester.state<ScrollableState>(scrollable).position;
+        page.jumpTo(page.maxScrollExtent);
+        await h.settle(tester);
+        expect(tester.takeException(), isNull);
+        await h.capture(tester, 'softkey-${inset.toInt()}-page-bottom');
+      });
+    }
+
     testWidgets('가로 회전·제스처 내비게이션에서도 지도와 하단 버튼에 접근한다', (tester) async {
       final h = _Harness();
       await h.pump(tester, bottomInset: 24);

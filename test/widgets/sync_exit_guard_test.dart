@@ -16,13 +16,18 @@ void main() {
     expect(SyncEngine.runningListenable.value, isFalse);
   });
 
-  testWidgets('동기화 중 뒤로 가기를 여러 번 눌러도 실행 화면이 닫히지 않는다', (tester) async {
+  testWidgets('동기화 중에도 위에 쌓인 실행 화면은 뒤로 가기로 닫혀 상위 화면에 돌아간다', (
+    tester,
+  ) async {
     final running = ValueNotifier(true);
     final navigator = GlobalKey<NavigatorState>();
     await tester.pumpWidget(
       MaterialApp(
         navigatorKey: navigator,
-        home: const Scaffold(body: Text('대시보드')),
+        home: SyncExitGuard(
+          running: running,
+          child: const Scaffold(body: Text('대시보드')),
+        ),
       ),
     );
     navigator.currentState!.push(
@@ -36,16 +41,15 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.binding.handlePopRoute();
-    await tester.binding.handlePopRoute();
-    await tester.pump();
-    expect(find.text('동기화 화면'), findsOneWidget);
-
-    running.value = false;
-    await tester.pump();
-    await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
     expect(find.text('동기화 화면'), findsNothing);
     expect(find.text('대시보드'), findsOneWidget);
+
+    // 첫 화면에서는 동기화 중 뒤로 가기가 앱을 닫지 않고 안내만 한다.
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    expect(find.text('대시보드'), findsOneWidget);
+    expect(find.textContaining('동기화 중에는 앱을 종료할 수 없습니다'), findsOneWidget);
     running.dispose();
   });
 }

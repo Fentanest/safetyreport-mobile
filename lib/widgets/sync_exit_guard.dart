@@ -4,8 +4,9 @@ import 'package:flutter/material.dart';
 import '../services/sync_engine.dart';
 import 'sr_snack_bar.dart';
 
-/// 동기화 중 Android 뒤로 가기가 실행 화면이나 앱 루트를 닫지 못하게 한다.
-/// 중지는 동기화 화면의 중지 버튼으로 요청한다.
+/// 동기화 중 Android 뒤로 가기가 앱을 닫지 못하게 한다(앱의 첫 화면에서만 막는다).
+/// 위에 쌓인 동기화/크롤링 화면은 진행 중에도 뒤로 가기로 상위 화면에 돌아갈 수 있다 — 동기화 엔진·서버 크롤링은
+/// 화면과 따로 계속 돈다(2026-10-24 사용자 지시). 중지는 동기화 화면의 중지 버튼으로 요청한다.
 ///
 /// 메인 하단 탭 화면은 [allowPop]·[onBackBlocked] 로 "비0 탭 → 대시보드"(SQ-U05)를 같은 PopScope 에서 처리한다.
 /// 한 콜백에서 순서대로 판단하므로 탭 이동 뒤에 동기화 안내가 잘못 뜨지 않는다.
@@ -32,7 +33,9 @@ class SyncExitGuard extends StatelessWidget {
     valueListenable: running ?? SyncEngine.runningListenable,
     child: child,
     builder: (context, isRunning, child) => PopScope(
-      canPop: allowPop && !isRunning,
+      canPop:
+          allowPop &&
+          (!isRunning || !(ModalRoute.of(context)?.isFirst ?? true)),
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
         if (onBackBlocked?.call() == true) return;

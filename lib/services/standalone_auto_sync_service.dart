@@ -68,6 +68,7 @@ class StandaloneAutoSyncService {
     bool backgroundWorker = false,
     Future<void> Function()? validateScope,
   }) async {
+    SyncEngine.wireOfficialApiHooks();
     // DB 최적화가 실제로 신고를 처리하는 동안만 알림 동기화를 뒤로 미루고 표시만 영속한다(명세 7-3).
     // 쉬는 동안(login_required·outage·partial·대기)에는 바로 실행한다.
     // 별도 엔진(알림 백그라운드)에서는 메모리 상태가 보이지 않으므로 영속 표시도 본다(명세 7-4).

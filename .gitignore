@@ -67,3 +67,6 @@ docs/images/readme/raw/
 # Local self-hosted Supabase access for operator/agent tools (may contain secrets).
 /.env.supabase.local
 /.env.supabase.local.example
+
+# 로컬 테스트용 로그인 정보(ID·PW·PN) — 커밋 금지
+.env

@@ -49,6 +49,12 @@ class OfficialSessionRejectedException
   String get code => 'official_session_rejected';
 }
 
+/// 안전신문고가 요청 속도 제한(429 `request_limited`)으로 기다린 뒤에도 계속 거절한다. 몇 분 뒤 다시 시도하면 된다.
+class OfficialRateLimitedException extends AuthTemporarilyUnavailableException {
+  const OfficialRateLimitedException()
+    : super('안전신문고가 요청이 많다며 잠시 막았습니다. 몇 분 뒤 다시 시도해 주세요.');
+}
+
 /// 공식 API 요청이 네트워크 재시도를 모두 실패했다. 1회 전송은 이 타입으로 일시 오류(network)를 판정한다.
 class OfficialNetworkException extends AuthTemporarilyUnavailableException {
   const OfficialNetworkException()

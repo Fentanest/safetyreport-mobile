@@ -10,7 +10,8 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:sqflite/sqflite.dart' show DatabaseException;
 
-import '../services/standalone_auth_service.dart' show OfficialNetworkException;
+import '../services/standalone_auth_service.dart'
+    show OfficialNetworkException, OfficialRateLimitedException;
 
 import 'raw_backfill.dart' show BackfillPaused;
 
@@ -38,6 +39,8 @@ String? transientBackfillReason(Object error) {
   if (error is TimeoutException) return 'timeout';
   // 상세 API 의 네트워크 재시도 소진(2.5.2부터 문구 대신 타입으로 온다).
   if (error is OfficialNetworkException) return 'network';
+  // 공식 사이트 요청 속도 제한(429)을 기다려도 풀리지 않았다 — 신고 탓이 아니다.
+  if (error is OfficialRateLimitedException) return 'rate_limited';
   if (error is SocketException ||
       error is HandshakeException ||
       error is TlsException ||

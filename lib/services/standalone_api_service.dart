@@ -218,14 +218,134 @@ class StandaloneApiService {
 
   /// 네트워크 에러(connection reset, timeout 등) 시 1초 sleep 후 최대 3회 재시도.
   /// 401 시 자동 재로그인 후 1회 재시도.
+  // ── 공식 사이트 요청 속도(2026-10-24 실측) ──
+  // 상세를 간격 없이 보내면 약 19건, 1초 간격 27건, 3초 간격 60건(186초) 뒤 429 `detail_rate_limited`(Retry-After 없음).
+  // 막히면 60초 쉬어도 그대로, 120초 뒤 다시 받는다. 한 번에 약 40건 + 10초에 1건꼴로 차는 한도로 보인다.
+  // 정확한 값에 기대지 않고 간격을 자동 조절한다: 429 면 두 배(최대 15초), 20건 연속 성공마다 15%씩 줄인다(최소 기본값).
+
+  /// 인증 요청 사이 최소 간격(기본값). 모든 공식 API 인증 요청(목록·상세·사진)이 이 관문을 지난다.
+  @visibleForTesting
+  static Duration officialRequestInterval = const Duration(seconds: 3);
+  static const _maxRequestInterval = Duration(seconds: 15);
+
+  /// 429 를 받은 같은 요청을 다시 보내기 전 기다리는 시간(초). 다 쓰면 [OfficialRateLimitedException].
+  /// 실측상 60초로는 풀리지 않아 2분부터 기다린다(짧게 다시 두드리면 한도만 더 쓴다).
+  @visibleForTesting
+  static List<int> rateLimitWaitSeconds = const [120, 180, 300];
+
+  /// 기다리는 동안 true 면 바로 그만둔다(동기화 중지·백그라운드 마감).
+  static bool Function()? abortWait;
+
+  /// 429 로 기다릴 때 사용자에게 보일 한 줄(동기화 로그).
+  static void Function(String message)? rateLimitNotice;
+
+  @visibleForTesting
+  static Future<void> Function(Duration)? sleepForTest;
+
+  static DateTime _nextRequestAt = DateTime.fromMillisecondsSinceEpoch(0);
+  static Duration? _interval;
+  static int _okStreak = 0;
+
+  static Duration get currentRequestInterval =>
+      _interval ?? officialRequestInterval;
+
+  @visibleForTesting
+  static void resetPacingForTest() {
+    _nextRequestAt = DateTime.fromMillisecondsSinceEpoch(0);
+    _interval = null;
+    _okStreak = 0;
+  }
+
+  static Future<void> _sleep(Duration d, {bool abortable = false}) async {
+    if (abortable && (abortWait?.call() ?? false)) {
+      throw const OfficialRateLimitedException();
+    }
+    if (sleepForTest != null) return sleepForTest!(d);
+    final until = DateTime.now().add(d);
+    while (true) {
+      final left = until.difference(DateTime.now());
+      if (left <= Duration.zero) return;
+      if (abortable && (abortWait?.call() ?? false)) {
+        throw const OfficialRateLimitedException();
+      }
+      await Future<void>.delayed(
+        left < const Duration(seconds: 1) ? left : const Duration(seconds: 1),
+      );
+    }
+  }
+
+  /// 다음 요청 자리를 먼저 잡고 기다린다 — 동시에 불려도 간격이 겹치지 않는다.
+  static Future<void> _pace() async {
+    final now = DateTime.now();
+    final at = _nextRequestAt.isAfter(now) ? _nextRequestAt : now;
+    _nextRequestAt = at.add(currentRequestInterval);
+    if (at.isAfter(now)) await _sleep(at.difference(now));
+  }
+
+  static void _noteSuccess() {
+    final interval = currentRequestInterval;
+    if (interval <= officialRequestInterval) return;
+    if (++_okStreak >= 20) {
+      _okStreak = 0;
+      final next = interval * 0.85;
+      _interval = next < officialRequestInterval ? null : next;
+    }
+  }
+
+  static void _noteLimited() {
+    _okStreak = 0;
+    final next = currentRequestInterval * 2;
+    _interval = next > _maxRequestInterval ? _maxRequestInterval : next;
+  }
+
+  static String? _limitReason(http.Response res) {
+    try {
+      final body = jsonDecode(res.body);
+      final code = body is Map ? (body['reason'] ?? body['error']) : null;
+      return code is String && RegExp(r'^[A-Za-z0-9_.:-]{1,64}$').hasMatch(code)
+          ? code
+          : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<http.Response> _pacedGet(
+    Uri uri,
+    Map<String, String> headers,
+  ) async {
+    await _pace();
+    return _ownedGet(uri, headers, const Duration(seconds: 20));
+  }
+
   static Future<http.Response> _getWithRetry(Uri uri) async {
+    var res = await _getOnce(uri);
+    // 429: 같은 요청을 늘려 가며 기다렸다 다시 보낸다. 다음 신고로 넘어가며 계속 두드리지 않는다.
+    for (final seconds in rateLimitWaitSeconds) {
+      if (res.statusCode != 429) break;
+      _noteLimited();
+      debugPrint(
+        '[official_api] status=429 reason=${_limitReason(res) ?? 'none'} wait=${seconds}s',
+      );
+      rateLimitNotice?.call(
+        '안전신문고가 요청이 많다며 잠시 막았습니다. $seconds초 기다린 뒤 이어서 받습니다.',
+      );
+      await _sleep(Duration(seconds: seconds), abortable: true);
+      res = await _getOnce(uri);
+    }
+    if (res.statusCode == 429) throw const OfficialRateLimitedException();
+    if (res.statusCode == 200) _noteSuccess();
+    return res;
+  }
+
+  static Future<http.Response> _getOnce(Uri uri) async {
     var session = await StandaloneAuthService.ensureValidSession();
     var headers = _headers(session);
     http.Response? res;
 
     for (var attempt = 1; attempt <= mobileMaxRetryAttempts; attempt++) {
       try {
-        res = await _ownedGet(uri, headers, const Duration(seconds: 20));
+        res = await _pacedGet(uri, headers);
         break;
       } on SocketException catch (_) {
         // errno 104 (connection reset), 110 (timeout) 등 네트워크 일시 오류
@@ -249,7 +369,7 @@ class StandaloneApiService {
       session = await StandaloneAuthService.ensureValidSession(refresh: true);
       headers = _headers(session);
       try {
-        res = await _ownedGet(uri, headers, const Duration(seconds: 20));
+        res = await _pacedGet(uri, headers);
       } catch (_) {
         debugPrint('[official_api] status=none retry=1 format=none');
         throw const OfficialNetworkException();

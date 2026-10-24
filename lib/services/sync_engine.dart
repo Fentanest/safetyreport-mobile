@@ -223,6 +223,16 @@ class SyncEngine {
   /// CrawlScreen 이 SyncEngine.events 를 구독하므로 동일 채널로 표시됨.
   static void emitLog(String msg) => _log(msg);
 
+  static DateTime? _workerDeadline;
+
+  /// 공식 사이트 429 기다림을 동기화 중지·로그에 잇는다(목록·상세·큐 처리 공통).
+  static void wireOfficialApiHooks() {
+    StandaloneApiService.abortWait = () =>
+        _stopping ||
+        (_workerDeadline != null && DateTime.now().isAfter(_workerDeadline!));
+    StandaloneApiService.rateLimitNotice = _log;
+  }
+
   /// 외부에서 sync 종료 신호 emit. CrawlScreen 이 받으면 _setRunning(false) 실행.
   /// drainIfPending 처럼 SyncEngine.start() 를 직접 호출하지 않는 흐름에서 사용.
   static void emitDone(String msg) {
@@ -466,6 +476,7 @@ class SyncEngine {
       );
     } finally {
       _running = false;
+      _workerDeadline = null;
       _refreshRunningNotifier();
       if (!backgroundWorker) await releaseFgs();
     }
@@ -490,7 +501,10 @@ class SyncEngine {
     final workerDeadline = backgroundWorker
         ? DateTime.now().add(const Duration(minutes: 5))
         : null;
+    // 429 기다림도 백그라운드 마감(WorkManager 시간 한도)을 넘기지 않는다.
+    _workerDeadline = workerDeadline;
     await LocalDbService.requireAccountChangeComplete();
+    wireOfficialApiHooks();
     _log('동기화 시작...');
 
     // 전체 건수 파악
@@ -726,6 +740,9 @@ class SyncEngine {
       }
       final todoCount = await stage.todoCount;
       _log('상세 조회 대상: $todoCount건');
+      if (todoCount > 30) {
+        _log('안전신문고 요청 제한 때문에 상세는 천천히 받습니다. 중간에 멈춰도 다음 동기화에서 이어서 받습니다.');
+      }
 
       int done = 0;
       int errors = 0;
@@ -838,8 +855,7 @@ class SyncEngine {
             }
           }
 
-          // API 과부하 방지: 100ms 딜레이
-          await Future.delayed(const Duration(milliseconds: 100));
+          // 요청 간격은 StandaloneApiService 의 공식 요청 관문이 지킨다(429 실측 기반 자동 조절).
         }
         if (_stopping) break;
       }

@@ -14,7 +14,7 @@ import 'package:safetyreport/community/raw_backfill.dart';
 import 'package:safetyreport/community/raw_backfill_runtime.dart';
 import 'package:safetyreport/community/raw_backfill_unstick.dart';
 import 'package:safetyreport/services/standalone_auth_service.dart'
-    show OfficialNetworkException;
+    show OfficialNetworkException, OfficialRateLimitedException;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -73,6 +73,7 @@ void main() {
       (Exception('네트워크 오류 (3회 재시도 실패): x'), 'transient', 'network'),
       // 2.5.2: 상세 API 의 재시도 소진은 문구가 아니라 타입으로 온다.
       (const OfficialNetworkException(), 'transient', 'network'),
+      (const OfficialRateLimitedException(), 'transient', 'rate_limited'),
       (BackfillTransient('no_result'), 'transient', 'no_result'),
       (BackfillPaused('sync_busy'), 'transient', 'sync_busy'),
       (

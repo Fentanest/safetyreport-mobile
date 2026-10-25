@@ -1,0 +1,86 @@
+name: 버그 제보
+description: 앱이 이상하게 움직이거나 오류가 날 때 알려 주세요
+title: "[버그] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **이 게시판은 누구나 볼 수 있습니다.** 안전신문고 아이디·비밀번호, 카카오 계정, 차량번호, 신고번호, 주소, 서버 주소·API 키는 적지 마세요.
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 휴대폰 종류
+      options:
+        - Android
+        - iOS
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: OS 버전
+      description: "Android: 설정 > 휴대전화 정보 > 소프트웨어 정보 / iOS: 설정 > 일반 > 정보"
+      placeholder: "예: Android 14"
+    validations:
+      required: true
+
+  - type: input
+    id: device-model
+    attributes:
+      label: 기기 모델명
+      description: "설정 > 휴대전화 정보에 나오는 이름이나 모델 번호"
+      placeholder: "예: 갤럭시 S23 (SM-S911N)"
+    validations:
+      required: true
+
+  - type: input
+    id: app-version
+    attributes:
+      label: 앱 버전
+      description: "앱 설정 > 앱 정보 > 앱 버전"
+      placeholder: "예: 2.5.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: 사용 중인 모드
+      options:
+        - Standalone 모드
+        - Client 모드
+        - 데모
+        - 잘 모르겠음
+    validations:
+      required: false
+
+  - type: textarea
+    id: symptom
+    attributes:
+      label: 증상
+      description: 무엇을 하다가 어떤 일이 생겼는지 적어 주세요. 화면에 나온 오류 문구가 있으면 그대로 옮겨 주세요.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 다시 생기게 하는 순서
+      description: 아는 만큼만 적어 주세요.
+      placeholder: |
+        1.
+        2.
+        3.
+    validations:
+      required: false
+
+  - type: textarea
+    id: attachments
+    attributes:
+      label: 화면 캡처·녹화
+      description: 이 칸에 사진이나 영상을 끌어다 놓으면 올라갑니다. 올리기 전에 차량번호·이름·주소가 보이는 부분은 가려 주세요.
+    validations:
+      required: false

@@ -1,0 +1,7 @@
+# 빈 이슈는 당분간 열어 둔다: 2.5.0 이하 앱의 '버그 제보' 버튼이 양식 없이 제목·본문을 채운 빈 이슈를 연다.
+# 새 앱(양식 링크 사용)이 충분히 퍼지면 false 로 바꾼다.
+blank_issues_enabled: true
+contact_links:
+  - name: 사용 안내 (PC·Android)
+    url: https://hb.worklazy.net/mysafetyreport-pc-android-guide/
+    about: 설치와 기본 사용법은 여기서 먼저 확인해 주세요.

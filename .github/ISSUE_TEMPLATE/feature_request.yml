@@ -1,0 +1,31 @@
+name: 기능 제안
+description: 있었으면 하는 기능을 알려 주세요
+title: "[기능 제안] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **이 게시판은 누구나 볼 수 있습니다.** 개인정보는 적지 마세요.
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: 어떤 기능이 있으면 좋을까요?
+    validations:
+      required: true
+
+  - type: textarea
+    id: situation
+    attributes:
+      label: 어떤 상황에서 쓰고 싶나요?
+    validations:
+      required: false
+
+  - type: input
+    id: app-version
+    attributes:
+      label: 앱 버전
+      placeholder: "예: 2.5.0"
+    validations:
+      required: false

@@ -1,0 +1,16 @@
+name: 문의
+description: 앱 사용법, 커뮤니티 신고 지도, 카카오 계정 연결, 신고 내용 공유에 대해 묻습니다
+title: "[문의] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **이 게시판은 누구나 볼 수 있습니다.** 카카오 계정, 차량번호, 신고번호, 주소 같은 개인정보는 적지 마세요.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: 문의 내용
+    validations:
+      required: true

@@ -1,0 +1,21 @@
+name: 계정 및 서버에 보낸 자료 삭제 요청
+description: 카카오로 연결한 커뮤니티 계정과 서버에 보낸 내 자료를 지워 달라고 요청합니다
+title: "[계정 삭제 요청]"
+labels: ["deletion-request", "account-deletion"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **이 게시판은 누구나 볼 수 있습니다.** 카카오 계정(이메일·닉네임), 차량번호, 안전신문고 신고번호, 주소 같은 개인정보는 적지 마세요.
+
+        삭제를 원한다는 것만 남겨 주시면 운영자가 본인 확인 방법을 댓글로 안내합니다. 확인이 끝나면 30일 이내에 삭제하고 완료를 알립니다. 이메일로 요청하셔도 됩니다: https://safeauth.worklazy.net/delete-account.html
+
+        삭제 대상, 남는 기록과 보관 기간은 위 안내 페이지와 개인정보처리방침에 있습니다. 휴대폰 안의 자료는 이 요청으로 지워지지 않으며 앱 삭제나 '데이터 초기화'로 직접 지울 수 있습니다.
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 요청
+      options:
+        - label: 계정과 서버에 보낸 자료 전체 삭제를 원합니다.
+          required: true

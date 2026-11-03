@@ -13,7 +13,9 @@ body:
     id: inquiry-id
     attributes:
       label: 문의 ID
-      description: 앱의 업로드 보류 화면에서 문의 ID를 복사해 주세요.
+      description: |
+        앱의 문의 버튼으로 열면 자동으로 채워집니다. 내용을 확인하고 제출하세요.
+        비어 있으면 앱의 업로드 보류 화면에서 문의 ID를 복사해 붙여넣어 주세요.
       placeholder: OB1-...
     validations:
       required: true
@@ -21,17 +23,20 @@ body:
     id: app-version
     attributes:
       label: 앱 버전
+      description: 앱의 문의 버튼으로 열면 자동으로 채워집니다.
       placeholder: 앱 정보에 표시된 버전
     validations:
       required: false
   - type: textarea
     id: masked-summary
     attributes:
-      label: 마스킹 요약 첨부 (선택)
+      label: 마스킹 요약 (선택)
       description: |
-        앱에서 만든 ownership-support 파일을 미리보기로 확인한 뒤
-        이 칸에 직접 첨부해 주세요. 첨부하지 않아도 문의할 수 있습니다.
+        앱의 문의 버튼으로 열면 자동으로 채워집니다. 내용을 확인하고 제출하세요
+        (직접 수정하지 마세요). 자동 입력이 안 됐을 때만 앱에서 공유한 파일을
+        첨부해 주세요. 비어 있어도 문의할 수 있습니다.
         원본 DB·사진·신고 상세 화면·로그는 첨부하지 마세요.
+      render: json
     validations:
       required: false
   - type: checkboxes

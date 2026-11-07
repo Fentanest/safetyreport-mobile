@@ -2,6 +2,6 @@
 # 새 앱(양식 링크 사용)이 충분히 퍼지면 false 로 바꾼다.
 blank_issues_enabled: true
 contact_links:
-  - name: 사용 안내 (PC·Android)
+  - name: 사용 안내
     url: https://hb.worklazy.net/mysafetyreport-pc-android-guide/
     about: 설치와 기본 사용법은 여기서 먼저 확인해 주세요.

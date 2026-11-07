@@ -45,18 +45,6 @@ body:
     validations:
       required: true
 
-  - type: dropdown
-    id: mode
-    attributes:
-      label: 사용 중인 모드
-      options:
-        - Standalone 모드
-        - Client 모드
-        - 데모
-        - 잘 모르겠음
-    validations:
-      required: false
-
   - type: textarea
     id: symptom
     attributes:
